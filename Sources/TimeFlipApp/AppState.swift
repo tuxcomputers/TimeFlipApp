@@ -1,0 +1,347 @@
+import Combine
+import SwiftUI
+
+@MainActor
+final class AppState: ObservableObject {
+    private let preferencesStore: PreferencesStore
+    private let googleClientSecretStore: GoogleClientSecretStore
+    private var preferencesCancellables: Set<AnyCancellable> = []
+    private var isApplyingPreferences = false
+    private var hasLoadedClientSecret = false
+
+    @Published var currentFacetID: UInt8
+    @Published var isPaused: Bool
+    @Published var batteryLevel: UInt8?
+    @Published var systemState: TimeFlipSystemState?
+    @Published var lastEventDescription: String?
+    @Published var lastEventDate: Date?
+    @Published var isPaired: Bool
+    @Published var pairedDeviceName: String
+    @Published var facetMappings: [FacetMapping]
+    @Published var googleCalendarID: String?
+    @Published var googleCalendarName: String?
+    @Published var googleSheetURL: String
+    @Published var googleClientID: String
+    @Published var googleClientSecret: String
+    @Published var devicePassword: String
+    @Published var pairedDeviceUUID: String?
+    @Published var pairingStatus: PairingStatus
+    @Published var wantsPairing: Bool
+    @Published var autoPauseMinutes: UInt16?
+    @Published var deviceInfo: TimeFlipDeviceInfo?
+    @Published var ledBrightnessPercent: UInt8
+    @Published var blinkIntervalSeconds: UInt8
+    @Published var doubleTapParameters: DoubleTapParameters?
+    @Published var dailyFacetDurations: [UInt8: TimeInterval]
+    @Published var dailyWindowStart: Date
+    var onPairingChange: ((Bool) -> Void)?
+    var onPairingRequest: (() -> Void)?
+    var onCurrentFacetMappingChange: (() -> Void)?
+    var onAutoPauseChange: ((UInt16) -> Void)?
+    var onLEDBrightnessChange: ((UInt8) -> Void)?
+    var onBlinkIntervalChange: ((UInt8) -> Void)?
+    var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
+    var onDoubleTapParametersRequest: (() async -> DoubleTapParameters?)?
+
+    init(
+        preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
+        googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore()
+    ) {
+        self.preferencesStore = preferencesStore
+        self.googleClientSecretStore = googleClientSecretStore
+        currentFacetID = TimeFlipConstants.minFacetID
+        isPaused = false
+        batteryLevel = nil
+        systemState = nil
+        lastEventDescription = nil
+        lastEventDate = nil
+        isPaired = false
+        pairedDeviceName = "Not paired"
+        facetMappings = ActivityLibrary.defaultMappings()
+        googleCalendarID = nil
+        googleCalendarName = nil
+        googleSheetURL = ""
+        googleClientID = ""
+        googleClientSecret = ""
+        devicePassword = TimeFlipConstants.defaultPassword
+        pairedDeviceUUID = nil
+        pairingStatus = .notPaired
+        wantsPairing = false
+        autoPauseMinutes = nil
+        deviceInfo = nil
+        ledBrightnessPercent = 50
+        blinkIntervalSeconds = 5
+        doubleTapParameters = nil
+        dailyFacetDurations = [:]
+        dailyWindowStart = Date()
+
+        applyPreferences()
+        loadClientSecretOnce()
+        observePreferences()
+    }
+
+    func loadClientSecretOnce() {
+        guard !hasLoadedClientSecret else { return }
+        hasLoadedClientSecret = true
+
+        // Temporarily set isApplyingPreferences to prevent the observer from saving
+        let wasApplying = isApplyingPreferences
+        isApplyingPreferences = true
+        googleClientSecret = (try? googleClientSecretStore.loadSecret()) ?? ""
+        isApplyingPreferences = wasApplying
+    }
+
+    func update(from event: TimeFlipEvent) {
+        lastEventDate = Date()
+        lastEventDescription = event.description
+
+        switch event {
+        case .facetChanged, .doubleTap:
+            // Live events only trigger history fetch; state comes from history
+            break
+        case .autoPauseMinutes(let minutes):
+            autoPauseMinutes = clampAutoPause(minutes)
+        case .batteryLevel(let level):
+            batteryLevel = level
+        case .systemState(let state):
+            systemState = state
+        case .deviceInfo(let info):
+            deviceInfo = info
+        case .eventLog:
+            break
+        }
+    }
+
+    func activity(for facetID: UInt8) -> Activity? {
+        guard let mapping = facetMappings.first(where: { $0.facetID == facetID }) else {
+            return nil
+        }
+        let iconName = ActivityLibrary.sanitizeIconName(mapping.iconName)
+        let name = ActivityLibrary.sanitizeActivityName(mapping.displayName)
+        let resolvedIcon = iconName.isEmpty ? nil : iconName
+        return Activity(name: name, iconName: resolvedIcon, limitMinutes: mapping.limitMinutes)
+    }
+
+    func mappingIndex(for facetID: UInt8) -> Int? {
+        facetMappings.firstIndex { $0.facetID == facetID }
+    }
+
+    func updateMapping(_ mapping: FacetMapping) {
+        guard let index = mappingIndex(for: mapping.facetID) else { return }
+        var updated = facetMappings
+        updated[index] = mapping
+        facetMappings = updated
+        if mapping.facetID == currentFacetID {
+            onCurrentFacetMappingChange?()
+        }
+    }
+
+    func requestPairing() {
+        wantsPairing = true
+        pairingStatus = .pairing
+        onPairingRequest?()
+    }
+
+    func forgetDevice() {
+        wantsPairing = false
+        isPaired = false
+        pairedDeviceName = "Not paired"
+        pairedDeviceUUID = nil
+        pairingStatus = .notPaired
+        currentFacetID = TimeFlipConstants.unassignedFacetID
+        isPaused = true
+        batteryLevel = nil
+        systemState = nil
+        lastEventDescription = nil
+        lastEventDate = nil
+        deviceInfo = nil
+        autoPauseMinutes = nil
+        onPairingChange?(false)
+    }
+
+    private func applyPreferences() {
+        guard let payload = preferencesStore.load() else { return }
+        isApplyingPreferences = true
+        let mappings = payload.facetMappings.map { record in
+            FacetMapping(
+                facetID: record.facetID,
+                name: ActivityLibrary.sanitizeActivityName(record.name),
+                iconName: ActivityLibrary.sanitizeIconName(record.iconName),
+                color: record.color.color,
+                limitMinutes: clampLimit(record.limitMinutes ?? 0)
+            )
+        }
+        if !mappings.isEmpty {
+            facetMappings = mappings.sorted { $0.facetID < $1.facetID }
+        }
+        googleCalendarID = payload.googleCalendarID
+        googleCalendarName = payload.googleCalendarName
+        googleSheetURL = payload.googleSheetURL ?? ""
+        googleClientID = payload.googleClientID ?? ""
+        wantsPairing = payload.wantsPairing ?? payload.isPaired
+        isPaired = false
+        pairingStatus = wantsPairing ? .pairing : .notPaired
+        pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
+        pairedDeviceUUID = payload.pairedDeviceUUID
+        devicePassword = payload.devicePassword ?? devicePassword
+        if let storedBrightness = payload.ledBrightnessPercent {
+            ledBrightnessPercent = max(1, min(100, storedBrightness))
+        }
+        if let storedAutoPause = payload.autoPauseMinutes {
+            autoPauseMinutes = clampAutoPause(storedAutoPause)
+        }
+        if let storedBlink = payload.blinkIntervalSeconds {
+            blinkIntervalSeconds = clampBlinkInterval(storedBlink)
+        }
+        if let storedDoubleTap = payload.doubleTapParameters {
+            doubleTapParameters = storedDoubleTap
+        }
+        isApplyingPreferences = false
+    }
+
+    func setDailyWindowStart(_ date: Date) {
+        dailyWindowStart = date
+    }
+
+    func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {
+        dailyFacetDurations = totals
+    }
+
+    func incrementDailyTotal(facetID: UInt8, by delta: TimeInterval) {
+        guard delta > 0 else { return }
+        dailyFacetDurations[facetID, default: 0] += delta
+    }
+
+    func resetDailyTotals() {
+        dailyFacetDurations = [:]
+    }
+
+    private func observePreferences() {
+        // Coalesce all preference changes into a single debounced sink
+        // to avoid cascading persistence calls and reduce disk I/O
+        Publishers.MergeMany([
+            $facetMappings.map { _ in () }.eraseToAnyPublisher(),
+            $googleCalendarID.map { _ in () }.eraseToAnyPublisher(),
+            $googleCalendarName.map { _ in () }.eraseToAnyPublisher(),
+            $googleSheetURL.map { _ in () }.eraseToAnyPublisher(),
+            $googleClientID.map { _ in () }.eraseToAnyPublisher(),
+            $devicePassword.map { _ in () }.eraseToAnyPublisher(),
+            $isPaired.map { _ in () }.eraseToAnyPublisher(),
+            $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
+            $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
+            $ledBrightnessPercent.map { _ in () }.eraseToAnyPublisher(),
+            $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $blinkIntervalSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $doubleTapParameters.map { _ in () }.eraseToAnyPublisher()
+        ])
+        .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
+        .sink { [weak self] in
+            self?.persistPreferences()
+        }
+        .store(in: &preferencesCancellables)
+
+        // Google client secret has its own persistence mechanism
+        $googleClientSecret
+            .sink { [weak self] secret in
+                guard let self else { return }
+                self.persistGoogleClientSecret(secret)
+            }
+            .store(in: &preferencesCancellables)
+    }
+
+    private func persistPreferences() {
+        guard !isApplyingPreferences else {
+            return
+        }
+        let records = facetMappings.map { mapping -> FacetMappingRecord in
+            let sanitizedName = ActivityLibrary.sanitizeActivityName(mapping.name)
+            let sanitizedIcon = ActivityLibrary.sanitizeIconName(mapping.iconName)
+            let sanitized = FacetMapping(
+                facetID: mapping.facetID,
+                name: sanitizedName,
+                iconName: sanitizedIcon,
+                color: mapping.color,
+                limitMinutes: clampLimit(mapping.limitMinutes)
+            )
+            return FacetMappingRecord(mapping: sanitized)
+        }
+        let payload = PreferencesPayload(
+            facetMappings: records,
+            googleCalendarID: googleCalendarID,
+            googleCalendarName: googleCalendarName,
+            googleSheetURL: sanitizedSheetURL(),
+            googleClientID: sanitizedClientID(),
+            isPaired: wantsPairing,
+            wantsPairing: wantsPairing,
+            pairedDeviceName: pairedDeviceName,
+            pairedDeviceUUID: pairedDeviceUUID,
+            devicePassword: devicePassword,
+            ledBrightnessPercent: ledBrightnessPercent,
+            autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
+            blinkIntervalSeconds: clampBlinkInterval(blinkIntervalSeconds),
+            doubleTapParameters: doubleTapParameters
+        )
+        preferencesStore.save(payload)
+    }
+
+    private func sanitizedSheetURL() -> String? {
+        let trimmed = googleSheetURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func sanitizedClientID() -> String? {
+        let trimmed = googleClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func persistGoogleClientSecret(_ secret: String) {
+        guard !isApplyingPreferences else { return }
+        let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try googleClientSecretStore.saveSecret(trimmed.isEmpty ? nil : trimmed)
+        } catch {
+            // Ignore persistence errors; UI will surface during auth if needed.
+        }
+    }
+
+    func limitMinutes(for facetID: UInt8) -> Int {
+        mappingIndex(for: facetID).map { clampLimit(facetMappings[$0].limitMinutes) } ?? 0
+    }
+
+    private func clampLimit(_ value: Int) -> Int {
+        return max(0, min(480, value))
+    }
+
+    private func clampAutoPause(_ value: UInt16) -> UInt16 {
+        // UI clamps to 0–240 minutes; keep the same guardrails at persistence.
+        return UInt16(max(0, min(240, Int(value))))
+    }
+
+    private func clampBlinkInterval(_ value: UInt8) -> UInt8 {
+        return UInt8(max(5, min(60, Int(value))))
+    }
+
+    func confirmPaired(name: String, uuid: String?) {
+        isPaired = true
+        wantsPairing = true
+        pairingStatus = .paired
+        pairedDeviceName = name
+        pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
+        onPairingChange?(true)
+        persistPreferences()
+    }
+
+    func pairingFailed(message: String?) {
+        isPaired = false
+        pairingStatus = .failed(message)
+        onPairingChange?(false)
+        persistPreferences()
+    }
+}
+
+enum PairingStatus: Equatable {
+    case notPaired
+    case pairing
+    case paired
+    case failed(String?)
+}

@@ -1,0 +1,102 @@
+swiftlint_version: 0.62.1
+
+included:
+  - Sources/TimeFlipApp
+  - Tests/TimeFlipAppTests
+
+excluded:
+  - .build
+  - .swiftpm
+  - docs
+  - refapp
+  - reflib
+  - scripts
+  - Sources/TimeFlipApp/Resources
+  # Device drivers are large by necessity; leave them outside lint scope.
+  - Sources/TimeFlipApp/MockTimeFlipDevice.swift
+  - Sources/TimeFlipApp/TimeFlipBLEDevice.swift
+
+cache_path: .swiftlint.cache
+
+opt_in_rules:
+  - array_init
+  - attributes
+  - closure_body_length
+  - closure_end_indentation
+  - closure_spacing
+  - collection_alignment
+  - contains_over_first_not_nil
+  - discouraged_optional_boolean
+  - discouraged_optional_collection
+  - empty_count
+  - empty_string
+  - enum_case_associated_values_count
+  - expiring_todo
+  - fatal_error_message
+  - force_unwrapping
+  - function_default_parameter_at_end
+  - identical_operands
+  - indentation_width
+  - let_var_whitespace
+  - literal_expression_end_indentation
+  - lower_acl_than_parent
+  - multiline_arguments
+  - multiline_parameters
+  - no_extension_access_modifier
+  - number_separator
+  - prefer_zero_over_explicit_init
+  - redundant_nil_coalescing
+  - redundant_type_annotation
+  - sorted_imports
+  - switch_case_on_newline
+  - toggle_bool
+  - trailing_closure
+  - unneeded_parentheses_in_closure_argument
+
+analyzer_rules:
+  - unused_import
+  - unused_declaration
+
+line_length:
+  warning: 120
+  error: 160
+  ignores_comments: true
+  ignores_interpolated_strings: true
+  ignores_urls: true
+
+indentation_width:
+  indentation_width: 4
+  include_comments: false
+  include_multiline_strings: false
+
+file_length:
+  warning: 600
+  error: 800
+
+type_body_length:
+  warning: 500
+  error: 600
+
+function_body_length:
+  warning: 80
+  error: 120
+
+closure_body_length:
+  warning: 40
+  error: 60
+
+cyclomatic_complexity:
+  warning: 12
+  error: 18
+
+identifier_name:
+  min_length: 3
+  max_length: 40
+  allowed_symbols: ["_"]
+  excluded: [id, x, y, z, ok, up, db, url, ev, m, hw, fw]
+  validates_start_with_lowercase: true
+
+type_name:
+  max_length: 60
+
+reporter: "xcode"

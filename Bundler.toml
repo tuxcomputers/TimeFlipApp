@@ -1,0 +1,15 @@
+format_version = 2
+
+[apps.TimeFlip]
+identifier = 'dev.evernoob.timeflip'
+product = 'TimeFlipApp'
+version = '1.0'
+icon = 'Sources/TimeFlipApp/Resources/AppIcon.icns'
+
+[apps.TimeFlip.plist]
+LSUIElement = 1
+NSBluetoothAlwaysUsageDescription = "TimeFlip needs Bluetooth to pair with your TimeFlip puck and record flips for activity tracking."
+
+[[apps.TimeFlip.plist.CFBundleURLTypes]]
+CFBundleURLName = 'dev.evernoob.timeflip'
+CFBundleURLSchemes = [ 'dev.evernoob.timeflip' ]

@@ -1,0 +1,7 @@
+/.direnv/
+/.build/
+/.swiftpm/
+/.swiftlint.cache/
+/.cache/
+/.envrc
+.DS_Store

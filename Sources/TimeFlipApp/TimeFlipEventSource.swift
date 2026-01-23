@@ -1,0 +1,67 @@
+import Foundation
+
+@MainActor
+protocol TimeFlipEventSource: AnyObject {
+    var events: AsyncStream<TimeFlipEvent> { get }
+
+    func start()
+    func stop()
+}
+
+@MainActor
+protocol TimeFlipDevice: TimeFlipEventSource {
+    func snapshot() -> TimeFlipDeviceSnapshot
+    func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry]
+}
+
+/// Session-layer operations that mirror the real device's connection/login/notify flow.
+@MainActor
+protocol TimeFlipSessionManaging: TimeFlipDevice {
+    /// Connect to the device transport (BLE in production, no-op for mock).
+    func connect() async -> Bool
+    /// Disconnect from the device transport.
+    func disconnect() async
+    /// Send the password to the device. Returns false if authentication fails.
+    func login(password: String) async -> Bool
+    /// Subscribe to notification characteristics (facet/event/history) on the device.
+    func enableNotifications() async
+    /// Host-driven initialization: synchronize time and emit status so the app can seed state.
+    func initializeSession(hostTime: Date, desiredAutoPauseMinutes: UInt16) async
+    /// Update the LED color for a facet (command 0x11). No-op if unsupported.
+    func setFacetColor(facetID: UInt8, components: ColorComponents) async
+    /// Configure auto-pause duration (command 0x05). 0 disables auto-pause.
+    func setAutoPause(minutes: UInt16) async
+    /// Refresh Device Information service fields (manufacturer/model/firmware/hardware/system ID).
+    func refreshDeviceInfo() async
+    // swiftlint:disable identifier_name
+    /// Toggle pause mode on the device (cmd 0x06); parameter name mirrors device payload.
+    func setPause(_ on: Bool) async
+    // swiftlint:enable identifier_name
+    /// Tune LED brightness 1–100 %.
+    func setLEDBrightness(percent: UInt8) async
+    /// Tune LED blink interval 5–60 seconds (cmd 0x0A).
+    func setBlinkInterval(seconds: UInt8) async
+    /// Set accelerometer double-tap parameters (cmd 0x16).
+    func setDoubleTapParameters(_ params: DoubleTapParameters) async
+    /// Read accelerometer double-tap parameters (cmd 0x17).
+    func readDoubleTapParameters() async -> DoubleTapParameters?
+}
+
+@MainActor
+protocol TimeFlipMockControlling: AnyObject {
+    var isPaired: Bool { get }
+    var lastEventNumber: UInt32? { get }
+
+    func pair()
+    func forget()
+    func flip(to facetID: UInt8)
+    func doubleTap(targetFacetID: UInt8?)
+    func setPaused(_ paused: Bool)
+    func setLocked(_ locked: Bool)
+    func setAutoPause(minutes: UInt16)
+    func setBatteryLevel(_ level: UInt8)
+    func setSystemState(_ state: TimeFlipSystemState)
+    func setDeviceTime(_ date: Date)
+    func appendEventLog(_ message: String)
+    func snapshot() -> TimeFlipDeviceSnapshot
+}
