@@ -268,25 +268,6 @@ Logbook Database (SQLite)
 5. Integrations read from logbook using cursor-based sync
 6. Each integration maintains its own sync cursor
 
-## Development
-
-### Project Structure
-
-```
-Sources/TimeFlipApp/          # Application source code
-  ├── ApplicationDelegate.swift
-  ├── MenuBarController.swift
-  ├── TimeFlipBLEDevice.swift
-  ├── GoogleAuth*.swift        # OAuth and API clients
-  └── ...
-Tests/TimeFlipAppTests/       # Unit tests
-docs/                          # Hardware protocol documentation
-Bundler.toml                   # Swift Bundler configuration
-Package.swift                  # Swift Package Manager manifest
-AGENTS.md                      # Development guidelines
-timeflip.md                    # Device architecture notes
-```
-
 ### Building and Testing
 
 ```bash
@@ -314,27 +295,17 @@ swiftlint --fix
 - Small, testable functions with dependency injection
 - Avoid over-engineering - keep solutions simple and focused
 
-### Testing
-
-- Add unit tests for state transitions, BLE parsing, and sync flows
-- Use faked transports for deterministic tests
-- Name test files `*Tests.swift` and test cases `test_*`
-- Target high coverage for time tracking core logic
-
 ### Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Follow the coding style in `AGENTS.md`
-4. Add tests for new functionality
-5. Commit your changes using [Conventional Commits](https://www.conventionalcommits.org/)
+3. Commit your changes using [Conventional Commits](https://www.conventionalcommits.org/)
    - `feat: add calendar event deduplication`
    - `fix: handle device disconnect gracefully`
    - `docs: update Google OAuth setup instructions`
-6. Push to your branch
-7. Open a Pull Request with:
+4. Push to your branch
+5. Open a Pull Request with:
    - Purpose and motivation
-   - Testing performed
    - Screenshots for UI changes
    - Documentation updates
 
@@ -342,8 +313,6 @@ swiftlint --fix
 
 - Never commit Google credentials, API tokens, or device passwords
 - Credentials are stored in macOS Keychain
-- Load secrets from environment variables during development
-- Scrub logs before committing
 
 ## Troubleshooting
 
@@ -363,8 +332,8 @@ swiftlint --fix
 
 ### Events Not Syncing to Google
 
-- Verify you're authenticated (green checkmark in preferences)
-- Check that Calendar ID and Sheet URL are configured
+- Verify you're authenticated
+- Check that Calendar Name and Sheet URL are configured
 - Ensure the sheet is accessible to your Google account
 - Check Console.app logs for error messages (filter by "timeflip")
 
@@ -389,7 +358,8 @@ to use their icon assets, or replace them with your own icons.
 - Special thanks to [TimeFlip](https://timeflip.io/) for the hardware device and for graciously 
   permitting the use of their icon set in this application
 - [AppAuth-iOS](https://github.com/openid/AppAuth-iOS) for OAuth implementation
-- 
+- [Timeflippers](https://github.com/bzobl/timeflippers) for the Rust TimeFlip client which 
+  I've been looking a lot at to get the idea of what the hell is going on in a familiar language
 - Built with Swift and macOS native frameworks
 
 ## Support
