@@ -68,8 +68,8 @@ final class MenuBarController: NSObject {
         appState.isPaused = isPaused
         self.isPaused = isPaused
         if isPaused {
-            // When paused, avoid adding device-reported elapsed (includes pause span).
-            currentSegmentElapsed = 0
+            // When paused, keep the accumulated time but stop the live timer.
+            currentSegmentElapsed = elapsedSeconds
             activityStartDate = nil
         } else {
             currentSegmentElapsed = elapsedSeconds
@@ -253,6 +253,8 @@ final class MenuBarController: NSObject {
 
     private func currentDuration() -> TimeInterval {
         let base = appState.dailyFacetDurations[appState.currentFacetID] ?? 0
+        // Paused time doesn't count toward active duration
+        guard !isPaused else { return base }
         let windowStart = appState.dailyWindowStart
         let live = clampedCurrentSegmentElapsed(windowStart: windowStart)
         return base + max(0, live)

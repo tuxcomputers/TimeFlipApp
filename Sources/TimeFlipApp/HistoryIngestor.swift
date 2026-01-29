@@ -60,7 +60,6 @@ final class HistoryIngestor {
             }
             return
         }
-        onLatestEntry?(latestEntry)
 
         // Deliver all but the last entry to the logbook; keep the last entry for live menu/state updates.
         let deliverableEntries = Array(rawEntries.dropLast())
@@ -83,6 +82,9 @@ final class HistoryIngestor {
                 onNewEvents?()
             }
         }
+
+        // Update UI with latest entry AFTER accumulating deliverable entries
+        onLatestEntry?(latestEntry)
 
         isFetching = false
         if pending {
@@ -108,9 +110,12 @@ final class HistoryIngestor {
                 activityName: activity.name
             )
             dataStore.append(record)
-            let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, facetID: entry.facetID)
-            if added > 0 {
-                appState.incrementDailyTotal(facetID: entry.facetID, by: added)
+            // Only accumulate time for active (non-paused) segments
+            if !entry.isPaused {
+                let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, facetID: entry.facetID)
+                if added > 0 {
+                    appState.incrementDailyTotal(facetID: entry.facetID, by: added)
+                }
             }
             logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) facet=\(entry.facetID, privacy: .public)")
         }
