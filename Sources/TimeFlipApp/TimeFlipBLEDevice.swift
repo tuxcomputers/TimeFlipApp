@@ -454,33 +454,20 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 throw DeviceError.readFailed(TimeFlipUUIDs.commandResult)
             }
             logger.debug("Command result cmd=0x\(String(format: "%02X", cmd), privacy: .public) resp=\(response.hexString(), privacy: .public)")
-            if response.count == 2, response[0] == cmd {
-                let status = response[1]
+            // Index via first/last so Data slices (nonzero startIndex) are handled correctly.
+            if response.count == 2, response.first == cmd {
+                let status = response.last ?? 0
                 if status != 0x02 {
                     throw DeviceError.commandError(cmd: cmd, code: status)
                 }
             } else if response.count == 1 {
-                let status = response[0]
+                let status = response.first ?? 0
                 if status != 0x02 {
                     throw DeviceError.commandError(cmd: cmd, code: status)
                 }
             }
             return response
         }
-    }
-
-    /// Request a single history element with 0x01 and a cursor of 0xFFFFFFFF to obtain the last event number.
-    private func fetchLastHistoryEventNumber() async throws -> UInt32? {
-        var command = Data(repeating: 0, count: 5)
-        command[0] = 0x01
-        command.replaceSubrange(1..<5, with: withUnsafeBytes(of: UInt32.max.bigEndian, Array.init))
-        let frame = try await historyGate.withLock { () async throws -> Data? in
-            try await write(command, to: TimeFlipUUIDs.history, type: .withResponse)
-            return try await read(TimeFlipUUIDs.history)
-        }
-        guard let frame, frame.count >= 4 else { return nil }
-        let evNum = frame.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        return evNum == 0 ? nil : evNum
     }
 
     private func streamHistory(startingFrom startEvent: UInt32) async -> [TimeFlipHistoryEntry] {

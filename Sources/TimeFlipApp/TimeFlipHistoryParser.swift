@@ -3,27 +3,29 @@ import Foundation
 enum TimeFlipHistoryParser {
     static func parse(_ data: Data) -> TimeFlipHistoryEntry? {
         guard data.count >= 17 else { return nil }
+        // Copy to a zero-based array so `data` slices (nonzero startIndex) parse correctly.
+        let bytes = [UInt8](data)
 
-        let eventNumber = UInt32(bigEndianBytes: Array(data[0..<4]))
+        let eventNumber = UInt32(bigEndianBytes: Array(bytes[0..<4]))
         // Treat zero eventNumber frames as sentinel-like; ignore and let caller decide.
         if eventNumber == 0 { return nil }
-        let rawSide = data[4]
+        let rawSide = bytes[4]
         if rawSide == 66 { return nil } // accelerometer error sentinel from spec
 
         let isPauseEvent = rawSide >= 128
         let facetID = isPauseEvent ? rawSide &- 128 : rawSide
         guard TimeFlipConstants.isValidFacetID(facetID) else { return nil }
 
-        let timestamp = UInt64(bigEndianBytes: Array(data[5..<13]))
+        let timestamp = UInt64(bigEndianBytes: Array(bytes[5..<13]))
         // Vendor doc (2020) used 5-byte LE; newer firmware uses 4-byte BE at bytes 13-16.
-        let durationBytes = Array(data[13..<min(data.count, 17)])
+        let durationBytes = Array(bytes[13..<min(bytes.count, 17)])
         let durationSeconds = UInt64.durationTolerant(durationBytes)
 
         let startedAt = Date(timeIntervalSince1970: TimeInterval(timestamp))
         let duration = TimeInterval(durationSeconds)
 
         return TimeFlipHistoryEntry(
-            eventNumber: eventNumber == 0 ? nil : eventNumber,
+            eventNumber: eventNumber,
             facetID: facetID,
             startedAt: startedAt,
             duration: duration,

@@ -70,7 +70,9 @@ final class UserDefaultsPreferencesStore: PreferencesStore {
 
 extension ColorComponents {
     init(color: Color) {
-        let nsColor = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.gray
+        // Encode in sRGB to match `color` below; mixing color spaces drifts the
+        // stored components a little on every save/load round trip.
+        let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? NSColor.gray
         self.red = Double(nsColor.redComponent)
         self.green = Double(nsColor.greenComponent)
         self.blue = Double(nsColor.blueComponent)

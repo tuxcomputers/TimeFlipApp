@@ -10,13 +10,4 @@ struct DoubleTapParameters: Codable, Equatable, Sendable {
         // Conservative baseline values; real devices should be read via cmd 0x17.
         DoubleTapParameters(clickThreshold: 20, limit: 10, latency: 20, window: 40)
     }
-
-    func clamped() -> DoubleTapParameters {
-        DoubleTapParameters(
-            clickThreshold: clickThreshold,
-            limit: limit,
-            latency: latency,
-            window: window
-        )
-    }
 }

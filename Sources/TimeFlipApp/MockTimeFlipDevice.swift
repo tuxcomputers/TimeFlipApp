@@ -67,9 +67,19 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     private var devicePassword: String = TimeFlipConstants.defaultPassword
     private var facetColors: [UInt8: ColorComponents] = [:]
     private var deviceName: String = "TimeFlip"
+    // Real firmware uses a monotonic counter; timestamp-derived numbers collide
+    // when two sessions start within the same second.
+    private var nextEventNumber: UInt32 = 0
     // Exposed for tests to seed realistic history entries.
     func seedHistory(_ entries: [TimeFlipHistoryEntry]) {
         history = entries
+        let maxSeeded = entries.compactMap { $0.eventNumber }.max() ?? 0
+        nextEventNumber = max(nextEventNumber, maxSeeded + 1)
+    }
+
+    private func allocateEventNumber() -> UInt32 {
+        defer { nextEventNumber += 1 }
+        return nextEventNumber
     }
 
     // Convenience for tests to query the last event number, mirrors device request for 0xFF FF FF FF.
@@ -119,9 +129,11 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         let sample1Start = historyEnd.addingTimeInterval(-Constants.historySample1OffsetMinutes * TimeConstants.secondsPerMinute)
         let sample2Start = historyEnd.addingTimeInterval(-Constants.historySample2OffsetMinutes * TimeConstants.secondsPerMinute)
 
+        // Seed the counter with realistic device-like magnitudes.
+        nextEventNumber = UInt32(now.timeIntervalSince1970)
         history.append(
             TimeFlipHistoryEntry(
-                eventNumber: UInt32(sample1Start.timeIntervalSince1970),
+                eventNumber: allocateEventNumber(),
                 facetID: Constants.historySample1FacetID,
                 startedAt: sample1Start,
                 duration: Constants.historySample1DurationMinutes * TimeConstants.secondsPerMinute,
@@ -130,7 +142,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         )
         history.append(
             TimeFlipHistoryEntry(
-                eventNumber: UInt32(sample2Start.timeIntervalSince1970),
+                eventNumber: allocateEventNumber(),
                 facetID: Constants.historySample2FacetID,
                 startedAt: sample2Start,
                 duration: Constants.historySample2DurationMinutes * TimeConstants.secondsPerMinute,
@@ -527,7 +539,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         let duration = max(0, date.timeIntervalSince(activeSession.start))
         history.append(
             TimeFlipHistoryEntry(
-                eventNumber: UInt32(activeSession.start.timeIntervalSince1970),
+                eventNumber: allocateEventNumber(),
                 facetID: activeSession.facetID,
                 startedAt: activeSession.start,
                 duration: duration,
