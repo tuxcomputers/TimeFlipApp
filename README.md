@@ -22,7 +22,7 @@ mine when reading vibecoded Go or Rust repos. You have been warned.
 
 Menu bar item preview:
 
-![Menu bar timer](menu-item.png)
+![Menu bar timer](screenshot/menu-item.png)
 
 ### Not supported
 
@@ -48,22 +48,19 @@ The project includes configuration for [swift-bundler](https://github.com/stacko
 # Install Mint package manager (if not already installed)
 brew install mint
 
-# Install swift-bundler
-mint install stackotter/swift-bundler@main
-
 # Clone the repository
 git clone https://github.com/growler/TimeFlipApp.git
 cd TimeFlipApp 
 
-# Build the application bundle
-swift bundler bundle --product TimeFlipApp
+# Build the application bundle (runs swift-bundler via mint, no PATH changes needed)
+mint run stackotter/swift-bundler@main bundle TimeFlip
 
-# The app will be created at .build/bundler/outputs/TimeFlip.app
+# The app will be created at .build/bundler/apps/TimeFlip/TimeFlip.app
 # Open the app
-open .build/bundler/outputs/TimeFlip.app
+open .build/bundler/apps/TimeFlip/TimeFlip.app
 
 # or run using bundler
-swift bundler run
+mint run stackotter/swift-bundler@main run TimeFlip
 ```
 
 You can then drag `TimeFlip.app` to your Applications folder for easy access.
@@ -105,28 +102,30 @@ OAuth credentials.
 
 ### Step 3: Configure OAuth Consent Screen
 
-1. Go to "APIs & Services" > "OAuth consent screen"
-2. Select "External" as the user type (unless you have a Google Workspace account)
-3. Click "Create"
-4. Fill in the required information:
+Google's console now organizes this under "Google Auth Platform" as separate tabs (in the left sidebar)
+instead of a single wizard. Configure them in this order:
+
+1. Go to "APIs & Services" > "OAuth consent screen" (this lands you on the "Google Auth Platform" page)
+2. On first visit, click "Get Started" and select "External" as the user type (unless you have a
+   Google Workspace account), then fill in:
    - **App name**: TimeFlip macOS
    - **User support email**: Your email address
-   - **Developer contact information**: Your email address
-5. Click "Save and Continue"
-6. On the "Scopes" page, click "Add or Remove Scopes"
-7. Add the following scopes:
-   - `https://www.googleapis.com/auth/calendar.events`
-   - `https://www.googleapis.com/auth/calendar.readonly`
-   - `https://www.googleapis.com/auth/spreadsheets`
-8. Click "Update" and then "Save and Continue"
-9. On the "Test users" page, click "Add Users"
-10. **Important**: Add your email address as a test user
-11. Click "Save and Continue"
+3. Go to the **"Branding"** tab and confirm the app name/support email/developer contact info are set
+4. Go to the **"Audience"** tab:
+   - Confirm "External" is selected
+   - Under "Test users", click "Add Users" and **add your own email address**
+5. Go to the **"Data access"** tab:
+   - Click "Add or remove scopes"
+   - Add the following scopes:
+     - `https://www.googleapis.com/auth/calendar.events`
+     - `https://www.googleapis.com/auth/calendar.readonly`
+     - `https://www.googleapis.com/auth/spreadsheets`
+   - Click "Update" and then "Save"
 
 ### Step 4: Create OAuth Credentials
 
-1. Go to "APIs & Services" > "Credentials"
-2. Click "Create Credentials" > "OAuth client ID"
+1. Go to the **"Clients"** tab (still under "Google Auth Platform")
+2. Click "Create OAuth client"
 3. Select "Desktop app" as the application type
 4. Enter a name (e.g., "TimeFlip Desktop Client")
 5. Click "Create"
@@ -148,7 +147,7 @@ OAuth credentials.
 10. The browser will show "Authorization complete" and you can close the window
 11. Return to the TimeFlip app - you should now see "Authenticated"
 
-![Preferences - Reports](preferences-report.png)
+![Preferences - Reports](screenshot/preferences-report.png)
 
 ### Step 6: Configure Calendar and Sheet
 
@@ -175,7 +174,7 @@ The app will now automatically sync your time tracking data to Google Calendar a
 6. Wait for the connection to establish
 7. Once connected, the menu bar will show the current activity
 
-![Preferences - Device](preferences-device.png)
+![Preferences - Device](screenshot/preferences-device.png)
 
 ### Configuring Activities
 
@@ -187,7 +186,7 @@ The app will now automatically sync your time tracking data to Google Calendar a
    - **Time Limit**: Optional daily limit (turns the menu bar item red when exceeded, to make 
      you aware if you've been slacking off enough for today)
 
-![Preferences - Facets](preferences-facets.png)
+![Preferences - Facets](screenshot/preferences-facets.png)
 
 ### Device Settings
 
