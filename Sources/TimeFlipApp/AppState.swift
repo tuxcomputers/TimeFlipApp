@@ -34,6 +34,8 @@ final class AppState: ObservableObject {
     @Published var doubleTapParameters: DoubleTapParameters?
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
+    @Published var discoveredDevices: [DiscoveredBLEDevice] = []
+    @Published var isScanningForDevices: Bool = false
     var onPairingChange: ((Bool) -> Void)?
     var onPairingRequest: (() -> Void)?
     var onCurrentFacetMappingChange: (() -> Void)?
@@ -42,6 +44,8 @@ final class AppState: ObservableObject {
     var onBlinkIntervalChange: ((UInt8) -> Void)?
     var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
     var onDoubleTapParametersRequest: (() async -> DoubleTapParameters?)?
+    var onStartDeviceScan: ((Bool) -> Void)?
+    var onStopDeviceScan: (() -> Void)?
 
     init(
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
@@ -140,6 +144,26 @@ final class AppState: ObservableObject {
         wantsPairing = true
         pairingStatus = .pairing
         onPairingRequest?()
+    }
+
+    func startDeviceScan(filterToTimeFlip: Bool) {
+        discoveredDevices = []
+        isScanningForDevices = true
+        onStartDeviceScan?(filterToTimeFlip)
+    }
+
+    func stopDeviceScan() {
+        isScanningForDevices = false
+        onStopDeviceScan?()
+    }
+
+    func deviceScanStopped() {
+        isScanningForDevices = false
+    }
+
+    func addDiscoveredDevice(_ device: DiscoveredBLEDevice) {
+        guard !discoveredDevices.contains(where: { $0.id == device.id }) else { return }
+        discoveredDevices.append(device)
     }
 
     func forgetDevice() {

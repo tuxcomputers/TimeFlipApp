@@ -17,7 +17,8 @@ enum TimeFlipHistoryParser {
         guard TimeFlipConstants.isValidFacetID(facetID) else { return nil }
 
         let timestamp = UInt64(bigEndianBytes: Array(bytes[5..<13]))
-        // Vendor doc (2020) used 5-byte LE; newer firmware uses 4-byte BE at bytes 13-16.
+        // Vendor doc v4.3 specifies a 4-byte duration field at bytes 13-16; endianness
+        // is inconsistent across firmware, so durationTolerant tries multiple interpretations.
         let durationBytes = Array(bytes[13..<min(bytes.count, 17)])
         let durationSeconds = UInt64.durationTolerant(durationBytes)
 
@@ -61,7 +62,9 @@ extension UInt64 {
         self = value
     }
 
-    /// Decode vendor 5-byte little-endian durations but tolerate firmware that encodes as big-endian in first 4 bytes.
+    /// Decode the vendor doc's 4-byte duration field, tolerating firmware that encodes it as
+    /// little-endian instead of the documented big-endian (caller currently only supplies 4 bytes,
+    /// so the 5-byte candidates below are inert unless a caller ever passes a longer slice).
     static func durationTolerant(_ bytes: [UInt8]) -> UInt64 {
         // Prefer 4-byte big-endian at bytes 13-16 (observed on firmware shipping 2026-01).
         let big4 = UInt64(bigEndianBytes: Array(bytes.prefix(4)))

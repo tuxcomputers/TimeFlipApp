@@ -68,9 +68,9 @@ Frame layout (spec v4.3 and observed firmware):
 - Bytes 0–3: event ID (u32 big-endian). `0xFF..FF` asks for last.
 - Byte 4: facet; `>127` means pause event for `(value−128)`; `66` signals accelerometer error; 0 is invalid.
 - Bytes 5–12: flip timestamp, seconds since epoch, big-endian u64.
-- Bytes 13–17: duration seconds, 5-byte little-endian (Swift keeps 5 bytes; some firmware only populates four).
-- Remaining bytes (18–19) may hold previous-event pointer per doc; Swift ignores.
-- Sentinel: all-zero payload (Swift checks first 17 zeros; spec shows 20 zeros).
+- Bytes 13–16: duration seconds, 4 bytes per vendor doc v4.3 (`docs/TimeFlip2 BLE Protocol v4.3.md`); Swift reads exactly these 4 bytes.
+- Remaining bytes (17–19) hold the previous-event pointer per doc on sequential (`0x02`) reads; Swift ignores.
+- Sentinel: Swift checks that the first 17 bytes are all zero, matching the vendor doc's sequential (`0x02`) end-of-stream frame (17 zero bytes + trailing 3-byte previous-event pointer). The doc's single-event (`0x01`) read has a different, fully-zero 20-byte sentinel, but `fetchHistory` only ever issues `0x02`, so it's the 17-byte form that applies here.
 
 Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at 2048 frames, and stops on sentinel or parse failure. Parsed into `TimeFlipHistoryEntry {eventNumber?, facetID, startedAt, duration, isPaused}`.
 

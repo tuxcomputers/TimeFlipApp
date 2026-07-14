@@ -102,6 +102,46 @@ struct TimeFlipSettingsView: View {
             }
             Text("Put the TimeFlip into pairing mode and tap Pair.")
                 .foregroundStyle(.secondary)
+            Divider()
+            HStack {
+                Button("Scan for TimeFlip") {
+                    appState.startDeviceScan(filterToTimeFlip: true)
+                }
+                .disabled(appState.isScanningForDevices)
+                Button("Scan for All Devices") {
+                    appState.startDeviceScan(filterToTimeFlip: false)
+                }
+                .disabled(appState.isScanningForDevices)
+                if appState.isScanningForDevices {
+                    Button("Stop Scan") {
+                        appState.stopDeviceScan()
+                    }
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            if !appState.discoveredDevices.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(appState.discoveredDevices) { device in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(device.name)
+                            Text(device.id.uuidString)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                            if device.advertisedServiceUUIDs.isEmpty {
+                                Text("No advertised service UUIDs")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            } else {
+                                Text("Services: \(device.advertisedServiceUUIDs.joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 

@@ -92,6 +92,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onPairingRequest = { [weak self] in
             self?.startDeviceEvents()
         }
+        if let bleDevice = device as? TimeFlipBLEDevice {
+            bleDevice.onDeviceDiscovered = { [weak appState] discovered in
+                appState?.addDiscoveredDevice(discovered)
+            }
+            bleDevice.onDiscoveryScanStopped = { [weak appState] in
+                appState?.deviceScanStopped()
+            }
+        }
+        appState.onStartDeviceScan = { [weak self] filterToTimeFlip in
+            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return }
+            Task { await bleDevice.startDiscoveryScan(filterToTimeFlip: filterToTimeFlip) }
+        }
+        appState.onStopDeviceScan = { [weak self] in
+            (self?.device as? TimeFlipBLEDevice)?.stopDiscoveryScan()
+        }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }

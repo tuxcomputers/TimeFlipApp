@@ -58,7 +58,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private var isLoggedIn = false
     // When true we accept peripherals that advertise the TimeFlip service or name.
     private var allowBroadDiscovery = false
+    // When true, discovered peripherals are only reported via onDeviceDiscovered, never connected to.
+    private var isDiscoveryScanning = false
+    private var discoveryFilterToTimeFlip = true
+    private let discoveryScanTimeoutSeconds: UInt64 = 30
     var onDisconnect: (() -> Void)?
+    var onDeviceDiscovered: ((DiscoveredBLEDevice) -> Void)?
+    var onDiscoveryScanStopped: (() -> Void)?
     private var snapshotState = TimeFlipDeviceSnapshot(
         facetID: TimeFlipConstants.unassignedFacetID,
         isPaused: true,
@@ -121,6 +127,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     func stop() {
         logger.notice("TimeFlipBLEDevice stopping; tearing down stream and connection")
+        stopDiscoveryScan()
         if let peripheral = peripheral as? CBPeripheral {
             central.cancelPeripheralConnection(peripheral)
         }
@@ -135,9 +142,41 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         logger.notice("TimeFlipBLEDevice stopped")
     }
 
+    /// Scan for TimeFlip-like peripherals and report them via onDeviceDiscovered without connecting.
+    func startDiscoveryScan(filterToTimeFlip: Bool) async {
+        do {
+            try await waitForBluetoothPower()
+        } catch {
+            logger.error("startDiscoveryScan: Bluetooth unavailable")
+            return
+        }
+        guard !isDiscoveryScanning else { return }
+        isDiscoveryScanning = true
+        discoveryFilterToTimeFlip = filterToTimeFlip
+        logger.notice("Starting discovery-only scan (filterToTimeFlip=\(filterToTimeFlip, privacy: .public))")
+        central.scanForPeripherals(
+            withServices: nil,
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        )
+        let timeoutNanoseconds = discoveryScanTimeoutSeconds * TimeConstants.nanosecondsPerSecond
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            self?.stopDiscoveryScan()
+        }
+    }
+
+    func stopDiscoveryScan() {
+        guard isDiscoveryScanning else { return }
+        isDiscoveryScanning = false
+        central.stopScan()
+        logger.notice("Stopped discovery-only scan")
+        onDiscoveryScanStopped?()
+    }
+
     func connect() async -> Bool {
         do {
             logger.notice("connect() begin")
+            stopDiscoveryScan()
             try await waitForBluetoothPower()
             try await scanAndConnect()
             try await discoverServicesAndCharacteristics()
@@ -317,6 +356,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     private func scanAndConnect() async throws {
+        // Broad scan first: real hardware doesn't reliably advertise the TimeFlip service UUID
+        // (confirmed via the diagnostic scan), so the OS-level service-filtered scan below would
+        // just time out first. Broad scan matches on name-or-service, which actually works.
         do {
             try await performScan(filtered: false)
         } catch DeviceError.discoveryTimeout {
@@ -849,21 +891,42 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
     ) {
         _ = RSSI
         logger.notice("Discovered peripheral \(peripheral.identifier.uuidString, privacy: .public) name=\(peripheral.name ?? "nil", privacy: .public) adv=\(advertisementData)")
-        if allowBroadDiscovery {
-            let loweredName = (peripheral.name ?? "").lowercased()
-            let nameMatches = loweredName.contains("timeflip")
 
-            let advertisedServices = (
-                advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-            ) + (
-                advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? []
-            ) + (
-                advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? []
+        let advertisedServices = (
+            advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        ) + (
+            advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? []
+        ) + (
+            advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? []
+        )
+        let serviceMatches = advertisedServices.contains(TimeFlipUUIDs.service)
+
+        if isDiscoveryScanning {
+            if discoveryFilterToTimeFlip {
+                // The service UUID isn't reliably present in this device's advertisement packet,
+                // so fall back to matching on the (now-confirmed-reliable) advertised name too.
+                let nameMatches = (peripheral.name ?? "").lowercased().contains("timeflip")
+                guard serviceMatches || nameMatches else {
+                    logger.debug("Discovery scan: skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
+                    return
+                }
+            }
+            onDeviceDiscovered?(
+                DiscoveredBLEDevice(
+                    id: peripheral.identifier,
+                    name: peripheral.name ?? "Unknown Device",
+                    advertisedServiceUUIDs: advertisedServices.map(\.uuidString)
+                )
             )
-            let serviceMatches = advertisedServices.contains(TimeFlipUUIDs.service)
+            return
+        }
 
-            guard nameMatches || serviceMatches else {
-                logger.debug("Skipping peripheral \(loweredName, privacy: .public) (no name/service match)")
+        if allowBroadDiscovery {
+            // Service UUID isn't reliably advertised by real hardware (confirmed via the
+            // diagnostic scan), so also accept a name match to actually find the device.
+            let nameMatches = (peripheral.name ?? "").lowercased().contains("timeflip")
+            guard serviceMatches || nameMatches else {
+                logger.debug("Skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
                 return
             }
         }
