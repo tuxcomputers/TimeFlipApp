@@ -18,7 +18,6 @@ final class MenuBarController: NSObject {
     private let settingsWindowController: SettingsWindowController
     private let onPauseToggle: ((Bool) -> Void)?
     private var statusItem: NSStatusItem?
-    private var menu = NSMenu()
     private var cancellables: Set<AnyCancellable> = []
 
     private var currentActivity: Activity?
@@ -47,19 +46,6 @@ final class MenuBarController: NSObject {
         super.init()
     }
 
-    /// Seed the timer UI from a persisted session snapshot so it resumes on launch.
-    func seedTimer(facetID: UInt8, isPaused: Bool, startDate: Date?, accumulatedDuration: TimeInterval) {
-        guard let activity = appState.activity(for: facetID) else { return }
-        logger.debug("seed_timer facet=\(facetID, privacy: .public) paused=\(isPaused) start=\(startDate?.timeIntervalSince1970 ?? -1) accum=\(accumulatedDuration)")
-        currentActivity = activity
-        self.isPaused = isPaused
-        activityStartDate = startDate
-        self.currentSegmentElapsed = accumulatedDuration
-        appState.currentFacetID = facetID
-        appState.isPaused = isPaused
-        updateStatusView(force: true)
-    }
-
     /// Drive the timer from device-reported elapsed seconds (cmd 0x14).
     func applyElapsed(facetID: UInt8, elapsedSeconds: TimeInterval, isPaused: Bool) {
         guard let activity = appState.activity(for: facetID) else { return }
@@ -68,7 +54,8 @@ final class MenuBarController: NSObject {
         appState.isPaused = isPaused
         self.isPaused = isPaused
         if isPaused {
-            // When paused, keep the accumulated time but stop the live timer.
+            // While paused the device reports the pause segment's span; nothing reads
+            // currentSegmentElapsed in this state (currentDuration() returns base only).
             currentSegmentElapsed = elapsedSeconds
             activityStartDate = nil
         } else {
@@ -165,7 +152,6 @@ final class MenuBarController: NSObject {
         quitItem.target = self
         newMenu.addItem(quitItem)
 
-        menu = newMenu
         statusItem?.menu = newMenu
         updateStatusView()
     }
@@ -260,25 +246,12 @@ final class MenuBarController: NSObject {
         return base + max(0, live)
     }
 
-    private func segmentElapsedNow() -> TimeInterval {
-        if let start = activityStartDate {
-            return max(0, Date().timeIntervalSince(start))
-        }
-        return currentSegmentElapsed
-    }
-
     /// Elapsed seconds for the in-flight segment, clipped to today's window start.
+    /// Only called while running (currentDuration() returns early when paused).
     private func clampedCurrentSegmentElapsed(windowStart: Date, now: Date = Date()) -> TimeInterval {
-        // If we have a concrete start date (running), use it.
-        if let start = activityStartDate {
-            let clampedStart = max(start, windowStart)
-            return max(0, now.timeIntervalSince(clampedStart))
-        }
-        // Paused: infer start from reported elapsed.
-        guard currentSegmentElapsed > 0 else { return 0 }
-        let inferredStart = now.addingTimeInterval(-currentSegmentElapsed)
-        let clampedStart = max(inferredStart, windowStart)
-        return min(currentSegmentElapsed, max(0, now.timeIntervalSince(clampedStart)))
+        guard let start = activityStartDate else { return 0 }
+        let clampedStart = max(start, windowStart)
+        return max(0, now.timeIntervalSince(clampedStart))
     }
 
     private func loadIcon(named name: String, pointSize: CGFloat? = nil) -> NSImage? {

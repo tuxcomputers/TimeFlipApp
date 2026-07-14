@@ -95,32 +95,30 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
+        // The settings view updates appState before invoking these callbacks,
+        // so the handlers only forward the new value to the device.
         appState.onAutoPauseChange = { [weak self] minutes in
             guard let self else { return }
             Task { @MainActor in
                 await self.device?.setAutoPause(minutes: minutes)
-                self.appState.autoPauseMinutes = minutes
             }
         }
         appState.onLEDBrightnessChange = { [weak self] percent in
             guard let self else { return }
             Task { @MainActor in
                 await self.device?.setLEDBrightness(percent: percent)
-                self.appState.ledBrightnessPercent = percent
             }
         }
         appState.onBlinkIntervalChange = { [weak self] seconds in
             guard let self else { return }
             Task { @MainActor in
                 await self.device?.setBlinkInterval(seconds: seconds)
-                self.appState.blinkIntervalSeconds = seconds
             }
         }
         appState.onDoubleTapParametersChange = { [weak self] params in
             guard let self else { return }
             Task { @MainActor in
                 await self.device?.setDoubleTapParameters(params)
-                self.appState.doubleTapParameters = params
             }
         }
         appState.onDoubleTapParametersRequest = { [weak self] in

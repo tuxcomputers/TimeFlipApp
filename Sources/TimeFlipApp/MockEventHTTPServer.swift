@@ -83,6 +83,9 @@ final class MockEventHTTPServer: @unchecked Sendable {
 
     private func handle(_ connection: NWConnection) {
         connection.start(queue: queue)
+        // Single receive of at most receiveMaximumLength bytes: a request split
+        // across TCP segments (or larger than the cap) misparses to 400.
+        // Fine for the curl-driven mock this serves.
         connection.receive(
             minimumIncompleteLength: Constants.receiveMinimumLength,
             maximumLength: Constants.receiveMaximumLength
@@ -386,7 +389,8 @@ final class MockEventHTTPServer: @unchecked Sendable {
             "GET /battery?level=\(Constants.helpBatteryExample)",
             "GET /system?status=0x0000&hardware=0x0000",
             "GET /time?epoch=\(Int(Constants.helpEpochExample))",
-            "GET /event-log?message=hello"
+            "GET /event-log?message=hello",
+            "GET /history/last"
         ].joined(separator: "\n")
     }
 }

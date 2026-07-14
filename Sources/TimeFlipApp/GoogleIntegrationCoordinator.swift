@@ -16,7 +16,6 @@ final class GoogleIntegrationCoordinator {
     private let preferencesProvider: () -> IntegrationPreferences
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "google-integration")
     private var sheetTitleCache: [SheetCacheKey: String] = [:]
-    private var queuePumpTask: Task<Void, Never>?
     private let integrationEnabled: Bool
     private var isProcessing = false
     private let maxBatch = 200
@@ -53,14 +52,7 @@ final class GoogleIntegrationCoordinator {
         return try await calendarClient.listCalendars(accessToken: accessToken)
     }
 
-    // Legacy API (host-timestamp path); retained for compatibility during transition.
-    func record(_ record: ActivityRecord, delivery: DeliveryMode = .deliverNow) {
-        _ = record
-        _ = delivery
-        logger.warning("record() called in event-number mode; ignoring legacy enqueue")
-    }
-
-    func flushPendingSessions(limit _: Int = 20) {
+    func flushPendingSessions() {
         guard integrationEnabled else {
             logger.info("flushPendingSessions skipped: integrations disabled")
             return
@@ -320,10 +312,6 @@ private enum IntegrationTargetDescriptor {
         }
     }
 
-    var isCalendar: Bool {
-        if case .calendar = self { return true }
-        return false
-    }
 }
 
 private struct SheetCacheKey: Hashable {
@@ -334,11 +322,6 @@ private struct SheetCacheKey: Hashable {
 enum GoogleIntegrationCoordinatorError: Error {
     case missingAuthManager
     case disabled
-}
-
-enum DeliveryMode {
-    case deliverNow
-    case enqueueOnly
 }
 
 struct IntegrationPreferences {

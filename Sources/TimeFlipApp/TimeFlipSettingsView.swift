@@ -68,12 +68,15 @@ struct TimeFlipSettingsView: View {
             LabeledContent("LED Brightness") {
                 brightnessControls
             }
+            .disabled(!appState.isPaired)
             LabeledContent("LED Blink Interval") {
                 blinkIntervalControls
             }
+            .disabled(!appState.isPaired)
             LabeledContent("Auto-pause (0 disable, max 240m)") {
                 autoPauseControls
             }
+            .disabled(!appState.isPaired)
         }
     }
 
@@ -384,12 +387,5 @@ struct TimeFlipSettingsView: View {
             return "\(formatted) (\(detail))"
         }
         return formatted
-    }
-
-    private var autoPauseDisplay: String {
-        if let minutes = appState.autoPauseMinutes {
-            return "\(minutes) min"
-        }
-        return "Unknown"
     }
 }
