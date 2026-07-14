@@ -32,7 +32,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let rootView = SettingsRootView(
             appState: appState,
             authManager: authManager,
-            integrationCoordinator: integrationCoordinator
+            integrationCoordinator: integrationCoordinator,
+            onClose: { [weak window] in
+                window?.close()
+            }
         ) { [weak self] height in
             self?.updateMinimumContentHeight(height)
         }
@@ -46,8 +49,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
     }
 
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {

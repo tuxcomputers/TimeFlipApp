@@ -7,46 +7,60 @@ struct SettingsRootView: View {
     let integrationCoordinator: GoogleIntegrationCoordinator
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
+    let onClose: () -> Void
 
     init(
         appState: AppState,
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
+        onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
         self.appState = appState
         self.authManager = authManager
         self.integrationCoordinator = integrationCoordinator
+        self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            TimeFlipSettingsView(appState: appState)
-                .tabItem {
-                    Text("TimeFlip")
+        VStack(spacing: 0) {
+            TabView(selection: $selectedTab) {
+                TimeFlipSettingsView(appState: appState)
+                    .tabItem {
+                        Text("TimeFlip")
+                    }
+                    .tag(SettingsTab.timeflip)
+                PaneSetupView(appState: appState)
+                    .tabItem {
+                        Text("Facets")
+                    }
+                    .tag(SettingsTab.facets)
+                ReportSettingsView(
+                    appState: appState,
+                    authManager: authManager,
+                    integrationCoordinator: integrationCoordinator
+                )
+                    .tabItem {
+                        Text("Report")
+                    }
+                    .tag(SettingsTab.report)
+            }
+            .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
+                guard height > 0 else { return }
+                onMinimumContentHeightChange(height)
+            }
+            HStack {
+                Spacer()
+                Button("Close") {
+                    onClose()
                 }
-                .tag(SettingsTab.timeflip)
-            PaneSetupView(appState: appState)
-                .tabItem {
-                    Text("Facets")
-                }
-                .tag(SettingsTab.facets)
-            ReportSettingsView(
-                appState: appState,
-                authManager: authManager,
-                integrationCoordinator: integrationCoordinator
-            )
-                .tabItem {
-                    Text("Report")
-                }
-                .tag(SettingsTab.report)
+                .keyboardShortcut(.cancelAction)
+                .padding([.horizontal, .bottom], SettingsLayoutConstants.Pane.sectionSpacing)
+                .padding(.top, SettingsLayoutConstants.Pane.sectionSpacing / 2)
+            }
         }
         .frame(minWidth: SettingsLayoutConstants.minimumWindowWidth)
-        .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
-            guard height > 0 else { return }
-            onMinimumContentHeightChange(height)
-        }
     }
 }
 
