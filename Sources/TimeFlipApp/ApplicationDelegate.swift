@@ -89,9 +89,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.stopDeviceEvents()
             }
         }
-        appState.onPairingRequest = { [weak self] in
-            self?.startDeviceEvents()
-        }
         if let bleDevice = device as? TimeFlipBLEDevice {
             bleDevice.onDeviceDiscovered = { [weak appState] discovered in
                 appState?.addDiscoveredDevice(discovered)
@@ -106,6 +103,29 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onStopDeviceScan = { [weak self] in
             (self?.device as? TimeFlipBLEDevice)?.stopDiscoveryScan()
+        }
+        appState.onDeviceSelectedForPairing = { [weak self] id in
+            guard let self, let bleDevice = self.device as? TimeFlipBLEDevice else { return }
+            Task { @MainActor in
+                self.appState.pairingStatus = .pairing
+                self.appState.wantsPairing = true
+                let outcome = await bleDevice.connectToDiscoveredDevice(id: id)
+                switch outcome {
+                case .connected:
+                    self.startDeviceEvents(skipConnect: true)
+                case .notTimeFlip:
+                    self.appState.markDeviceInvalid(id)
+                    self.appState.pairingStatus = .notPaired
+                    self.appState.wantsPairing = false
+                case .failed:
+                    self.appState.pairingFailed(message: "Connect failed")
+                case .cancelled:
+                    break // state already reset by AppState.cancelPairingAttempt()
+                }
+            }
+        }
+        appState.onCancelPairingAttempt = { [weak self] in
+            (self?.device as? TimeFlipBLEDevice)?.cancelConnectionAttempt()
         }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
@@ -178,7 +198,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         logger.notice("Received URL callback, but Google auth uses loopback redirect.")
     }
 
-    private func startDeviceEvents() {
+    private func startDeviceEvents(skipConnect: Bool = false) {
         guard let device, eventTask == nil else { return }
         historyIngestor = HistoryIngestor(
             device: device,
@@ -202,18 +222,24 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         eventTask = Task { [weak self] in
             guard let self else { return }
             defer { self.eventTask = nil }
-            let connected = await device.connect()
-            guard connected else {
-                logger.error("TimeFlip connect failed; aborting startup")
-                await MainActor.run {
-                    self.appState.pairingFailed(message: "Connect failed")
+            if !skipConnect {
+                let connected = await device.connect()
+                guard connected else {
+                    logger.error("TimeFlip connect failed; aborting startup")
+                    await MainActor.run {
+                        self.appState.pairingFailed(message: "Connect failed")
+                    }
+                    return
                 }
-                return
             }
             guard await device.login(password: appState.devicePassword) else {
                 logger.error("TimeFlip login failed; events not started")
-                await MainActor.run {
-                    self.appState.pairingFailed(message: "Login failed")
+                await device.disconnect()
+                let wasCancelled = (device as? TimeFlipBLEDevice)?.wasCancelled ?? false
+                if !wasCancelled {
+                    await MainActor.run {
+                        self.appState.pairingFailed(message: "Wrong PIN")
+                    }
                 }
                 return
             }

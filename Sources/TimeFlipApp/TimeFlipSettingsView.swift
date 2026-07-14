@@ -17,6 +17,7 @@ struct TimeFlipSettingsView: View {
     @State private var lastAppliedBlinkInterval: UInt8 = 5
     @State private var isAdvancedExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
+    @State private var scanAllDevices: Bool = false
 
     var body: some View {
         Form {
@@ -90,55 +91,60 @@ struct TimeFlipSettingsView: View {
                     }
             }
             HStack {
-                Button("Pair / Connect") {
-                    appState.requestPairing()
-                }
-                .disabled(appState.pairingStatus == .pairing || appState.isPaired)
-
                 Button("Forget Device") {
                     appState.forgetDevice()
                 }
                 .disabled(appState.pairingStatus == .pairing)
             }
-            Text("Put the TimeFlip into pairing mode and tap Pair.")
-                .foregroundStyle(.secondary)
             Divider()
             HStack {
-                Button("Scan for TimeFlip") {
-                    appState.startDeviceScan(filterToTimeFlip: true)
-                }
-                .disabled(appState.isScanningForDevices)
-                Button("Scan for All Devices") {
-                    appState.startDeviceScan(filterToTimeFlip: false)
-                }
-                .disabled(appState.isScanningForDevices)
-                if appState.isScanningForDevices {
-                    Button("Stop Scan") {
+                Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
+                    if appState.isScanningForDevices {
                         appState.stopDeviceScan()
+                    } else {
+                        appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
                     }
+                }
+                Toggle("All Devices", isOn: $scanAllDevices)
+                    .toggleStyle(.checkbox)
+                    .disabled(appState.isScanningForDevices)
+                if appState.isScanningForDevices {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
             if !appState.discoveredDevices.isEmpty {
+                Text("Click a device below to pair with it.")
+                    .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(appState.discoveredDevices) { device in
-                        VStack(alignment: .leading, spacing: 0) {
+                        let isInvalid = appState.invalidDeviceIDs.contains(device.id)
+                        let statusMessage = appState.deviceStatusMessages[device.id]
+                        HStack(spacing: 6) {
                             Text(device.name)
-                            Text(device.id.uuidString)
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                            if device.advertisedServiceUUIDs.isEmpty {
-                                Text("No advertised service UUIDs")
+                                .strikethrough(isInvalid)
+                                .foregroundStyle(isInvalid ? .secondary : .primary)
+                            if let statusMessage {
+                                if statusMessage.hasPrefix("Connecting…") {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(statusMessage)
+                                    .foregroundStyle(.secondary)
                                     .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            } else {
-                                Text("Services: \(device.advertisedServiceUUIDs.joined(separator: ", "))")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
                             }
                         }
-                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard !isInvalid else { return }
+                            let wasThisDevicePending = appState.pairingStatus == .pairing
+                                && appState.pendingPairingDeviceID == device.id
+                            if appState.pairingStatus == .pairing {
+                                appState.cancelPairingAttempt()
+                            }
+                            guard !wasThisDevicePending else { return }
+                            appState.selectDiscoveredDevice(device)
+                        }
                     }
                 }
             }
@@ -410,6 +416,9 @@ struct TimeFlipSettingsView: View {
         case .notPaired:
             return "Not paired"
         case .pairing:
+            if let name = appState.pendingPairingDeviceName {
+                return "Trying to pair with \(name)....."
+            }
             return "Pairing..."
         case .paired:
             return "Connected"

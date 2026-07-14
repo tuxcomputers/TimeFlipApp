@@ -123,7 +123,7 @@ These structures mirror the BLE payloads and are shared by the real and mock imp
 
 ## 9. Known divergences / firmware quirks
 
-- Password success code is ambiguously documented; real devices often return `0x02` for OK while the spec says `0x01`. Swift accepts both.
+- Password success code is inverted from the vendor doc on real hardware: the spec says `0x01`=correct/`0x02`=wrong, but observed devices return `0x01` for a *wrong* password and `0x02` for the *correct* one. Swift now only accepts `0x02` (confirmed via logging both cases against real hardware); previously accepting both codes masked wrong-password attempts as successful logins, which then hung deep in the initialization pipeline instead of failing fast.
 - Color command uses 16-bit per channel in practice; the spec examples sometimes imply 8-bit but accept wider values.
 - Duration in history frames is five-byte little-endian per spec; some firmware seems to emit only four meaningful bytes. Be tolerant when parsing.
 - Command 0x14 response endianness varies; choose the smallest non-zero elapsed value (Swift logic).

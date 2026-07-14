@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let window: NSWindow
+    private let appState: AppState
     private var minimumContentHeight: CGFloat
     private let minimumContentWidth: CGFloat = SettingsLayoutConstants.minimumWindowWidth
 
@@ -23,6 +24,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             facetCount: appState.facetMappings.count
         )
         self.window = window
+        self.appState = appState
         self.minimumContentHeight = fallbackHeight
         super.init()
 
@@ -56,6 +58,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        appState.clearDiscoveredDevicesOnClose()
     }
 
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {

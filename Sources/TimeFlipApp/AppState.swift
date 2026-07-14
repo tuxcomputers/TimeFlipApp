@@ -36,8 +36,13 @@ final class AppState: ObservableObject {
     @Published var dailyWindowStart: Date
     @Published var discoveredDevices: [DiscoveredBLEDevice] = []
     @Published var isScanningForDevices: Bool = false
+    @Published var invalidDeviceIDs: Set<UUID> = []
+    @Published var deviceStatusMessages: [UUID: String] = [:]
+    @Published var pendingPairingDeviceName: String?
+    @Published var pendingPairingDeviceID: UUID?
     var onPairingChange: ((Bool) -> Void)?
-    var onPairingRequest: (() -> Void)?
+    var onDeviceSelectedForPairing: ((UUID) -> Void)?
+    var onCancelPairingAttempt: (() -> Void)?
     var onCurrentFacetMappingChange: (() -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
@@ -140,14 +145,14 @@ final class AppState: ObservableObject {
         }
     }
 
-    func requestPairing() {
-        wantsPairing = true
-        pairingStatus = .pairing
-        onPairingRequest?()
-    }
-
     func startDeviceScan(filterToTimeFlip: Bool) {
+        // invalidDeviceIDs is intentionally NOT reset here: it's a running memory of
+        // confirmed-not-TimeFlip devices, so they stay struck-through/unclickable on rescans.
+        // Transient per-device messages (connecting/wrong PIN/etc.) don't survive a fresh scan.
         discoveredDevices = []
+        for id in deviceStatusMessages.keys where !invalidDeviceIDs.contains(id) {
+            deviceStatusMessages[id] = nil
+        }
         isScanningForDevices = true
         onStartDeviceScan?(filterToTimeFlip)
     }
@@ -159,6 +164,40 @@ final class AppState: ObservableObject {
 
     func deviceScanStopped() {
         isScanningForDevices = false
+    }
+
+    func clearDiscoveredDevicesOnClose() {
+        if isScanningForDevices {
+            stopDeviceScan()
+        }
+        discoveredDevices = []
+    }
+
+    func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {
+        pendingPairingDeviceID = device.id
+        pendingPairingDeviceName = device.name
+        deviceStatusMessages[device.id] = "Connecting… (click to cancel)"
+        onDeviceSelectedForPairing?(device.id)
+    }
+
+    func cancelPairingAttempt() {
+        onCancelPairingAttempt?()
+        if let id = pendingPairingDeviceID {
+            deviceStatusMessages[id] = nil
+        }
+        pendingPairingDeviceID = nil
+        pendingPairingDeviceName = nil
+        pairingStatus = .notPaired
+        wantsPairing = false
+    }
+
+    func markDeviceInvalid(_ id: UUID) {
+        invalidDeviceIDs.insert(id)
+        deviceStatusMessages[id] = "Not a TimeFlip"
+        if pendingPairingDeviceID == id {
+            pendingPairingDeviceID = nil
+            pendingPairingDeviceName = nil
+        }
     }
 
     func addDiscoveredDevice(_ device: DiscoveredBLEDevice) {
@@ -351,6 +390,11 @@ final class AppState: ObservableObject {
         pairingStatus = .paired
         pairedDeviceName = name
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
+        if let id = pendingPairingDeviceID {
+            deviceStatusMessages[id] = nil
+            pendingPairingDeviceID = nil
+            pendingPairingDeviceName = nil
+        }
         onPairingChange?(true)
         persistPreferences()
     }
@@ -358,6 +402,11 @@ final class AppState: ObservableObject {
     func pairingFailed(message: String?) {
         isPaired = false
         pairingStatus = .failed(message)
+        if let id = pendingPairingDeviceID {
+            deviceStatusMessages[id] = message ?? "Failed"
+            pendingPairingDeviceID = nil
+            pendingPairingDeviceName = nil
+        }
         onPairingChange?(false)
         persistPreferences()
     }
