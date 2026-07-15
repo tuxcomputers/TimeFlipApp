@@ -89,4 +89,4 @@ to use their icon assets, or replace them with your own icons.
 
 For bugs and feature requests, please [open an issue](https://github.com/tuxcomputers/TimeFlipApp/issues).
 
-For device-related questions, visit [TimeFlip Support](https://timeflip.io/support).
+For device-related questions, contact [TimeFlip Support](mailto:support@timeflip.io).
