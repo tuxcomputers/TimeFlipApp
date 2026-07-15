@@ -43,6 +43,7 @@ final class AppState: ObservableObject {
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
+    var onResetDevicePasswordRequest: (() async -> Void)?
     var onCurrentFacetMappingChange: (() -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
@@ -205,6 +206,11 @@ final class AppState: ObservableObject {
         discoveredDevices.append(device)
     }
 
+    func resetAndForgetDevice() async {
+        await onResetDevicePasswordRequest?()
+        forgetDevice()
+    }
+
     func forgetDevice() {
         wantsPairing = false
         isPaired = false
@@ -219,6 +225,7 @@ final class AppState: ObservableObject {
         lastEventDate = nil
         deviceInfo = nil
         autoPauseMinutes = nil
+        devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }
 

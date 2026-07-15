@@ -127,6 +127,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onCancelPairingAttempt = { [weak self] in
             (self?.device as? TimeFlipBLEDevice)?.cancelConnectionAttempt()
         }
+        appState.onResetDevicePasswordRequest = { [weak self] in
+            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return }
+            await bleDevice.resetDevicePasswordToDefault()
+            try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+        }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
@@ -242,6 +247,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
                 return
+            }
+            if let bleDevice = device as? TimeFlipBLEDevice, let rotatedPassword = await bleDevice.rotateDevicePassword() {
+                await MainActor.run {
+                    self.appState.devicePassword = rotatedPassword
+                }
+                do {
+                    try TimeFlipDevicePasswordStore.shared.savePassword(rotatedPassword)
+                } catch {
+                    logger.error("Failed to save rotated device password to Keychain: \(error.localizedDescription, privacy: .public)")
+                }
             }
             await device.enableNotifications()
             let desiredAutoPause = appState.autoPauseMinutes ?? 0

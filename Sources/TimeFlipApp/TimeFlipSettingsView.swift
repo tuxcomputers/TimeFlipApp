@@ -74,20 +74,6 @@ struct TimeFlipSettingsView: View {
 
     private var pairingSection: some View {
         Section("TimeFlip") {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Password (6 digits)", text: $appState.devicePassword)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: appState.devicePassword) { _, newValue in
-                        appState.devicePassword = String(newValue.prefix(6))
-                    }
-            }
-            HStack {
-                Button("Forget Device") {
-                    appState.forgetDevice()
-                }
-                .disabled(appState.pairingStatus == .pairing)
-            }
-            Divider()
             HStack {
                 Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
                     if appState.isScanningForDevices {
@@ -103,6 +89,11 @@ struct TimeFlipSettingsView: View {
                     ProgressView()
                         .controlSize(.small)
                 }
+                Spacer()
+                Button("Forget Device") {
+                    Task { await appState.resetAndForgetDevice() }
+                }
+                .disabled(appState.pairingStatus == .pairing)
             }
             if !appState.discoveredDevices.isEmpty {
                 Text("Click a device below to pair with it.")

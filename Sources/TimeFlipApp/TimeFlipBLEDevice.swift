@@ -392,6 +392,43 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
+    /// Emulates the official app's apparent behavior of setting a private device password on
+    /// connect (command 0x30), so a stranger with the default PIN can't pair with this device.
+    /// The generated password is also printed so it's recoverable from the terminal if something
+    /// goes wrong with saving/using it.
+    func rotateDevicePassword() async -> String? {
+        guard isLoggedIn else { return nil }
+        let generatedRandomPassword = String(format: "%06d", Int.random(in: 0...999_999))
+        print("[TimeFlip] Generated random device password: \(generatedRandomPassword)")
+        let passwordToSet = generatedRandomPassword
+        let payload = Data([0x30]) + Data(passwordToSet.utf8)
+        do {
+            _ = try await performCommand(payload)
+            logger.notice("Device password rotated")
+            print("[TimeFlip] Device password set to: \(passwordToSet)")
+            return passwordToSet
+        } catch {
+            logger.error("Failed to rotate device password: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to set new device password: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Sets the device password back to the factory default before "Forget Device" clears our
+    /// own pairing state, so the device isn't left behind on a private password nobody has.
+    func resetDevicePasswordToDefault() async {
+        guard isLoggedIn else { return }
+        let payload = Data([0x30]) + Data(TimeFlipConstants.defaultPassword.utf8)
+        do {
+            _ = try await performCommand(payload)
+            logger.notice("Device password reset to default")
+            print("[TimeFlip] Device password reset to default: \(TimeFlipConstants.defaultPassword)")
+        } catch {
+            logger.error("Failed to reset device password to default: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to reset device password to default: \(error.localizedDescription)")
+        }
+    }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         snapshotState
     }
