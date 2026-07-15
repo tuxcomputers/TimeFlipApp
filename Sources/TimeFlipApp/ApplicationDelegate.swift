@@ -204,6 +204,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
         seedDailyTotals()
         scheduleDayReset()
+        integrationCoordinator.startPeriodicRetryTimer()
         menuBarController.start()
         if appState.isPaired {
             startDeviceEvents()
@@ -340,8 +341,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
             guard let self else { return }
-            if self.appState.isPaired {
+            // Retry on wantsPairing too: a drop between connect() and the first facet event
+            // happens before isPaired is ever set, so gating on isPaired alone would leave the
+            // UI stuck on "Connecting…" forever with no retry and no failure surfaced.
+            if self.appState.isPaired || self.appState.wantsPairing {
                 self.startDeviceEvents()
+            } else {
+                self.appState.pairingFailed(message: "Disconnected before pairing completed")
             }
         }
     }

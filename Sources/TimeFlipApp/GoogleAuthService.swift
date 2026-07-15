@@ -42,7 +42,8 @@ final class GoogleAuthService {
             let session = OIDAuthState.authState(
                 byPresenting: request,
                 externalUserAgent: externalUserAgent
-            ) { [stateStore, logger] authState, error in
+            ) { [weak self, stateStore, logger] authState, error in
+                self?.cancelCurrentFlow()
                 if let authState {
                     do {
                         try stateStore.saveState(authState)

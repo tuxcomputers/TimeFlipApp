@@ -32,6 +32,10 @@ protocol IntegrationEventCursorStore {
     func saveEventCursor(target: IntegrationTarget, identifier: String, lastSentEventID: Int64)
     func recordEventFailure(target: IntegrationTarget, identifier: String, error: String)
     func loadEventCursorStatus(target: IntegrationTarget, identifier: String) -> IntegrationEventCursorStatus?
+    /// True if some other identifier already has a cursor for this target — i.e. integrations
+    /// were previously delivering to a different calendar/sheet, and this one is a switch rather
+    /// than the very first setup (which should still see the existing backlog).
+    func hasCursor(target: IntegrationTarget, excludingIdentifier identifier: String) -> Bool
 }
 
 // SQLite-backed application data (cursor + integration queue).
@@ -224,6 +228,22 @@ final class AppDataStore: IntegrationEventCursorStore {
         return record
     }
 
+    /// The highest logbook rowid currently stored, or nil if the logbook is empty.
+    func maxLogbookRowID() -> Int64? {
+        guard let db else { return nil }
+        var result: Int64?
+        queue.sync {
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, "SELECT MAX(rowid) FROM logbook;", -1, &stmt, nil) == SQLITE_OK {
+                if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+                    result = sqlite3_column_int64(stmt, 0)
+                }
+            }
+            sqlite3_finalize(stmt)
+        }
+        return result
+    }
+
     func purgeEvents(throughLogbookID logbookID: Int64) {
         guard let db else { return }
         let sql = "DELETE FROM logbook WHERE rowid <= ?;"
@@ -260,6 +280,26 @@ final class AppDataStore: IntegrationEventCursorStore {
             sqlite3_finalize(stmt)
         }
         return result
+    }
+
+    func hasCursor(target: IntegrationTarget, excludingIdentifier identifier: String) -> Bool {
+        guard let db else { return false }
+        let sql = """
+        SELECT 1 FROM integration_event_cursors
+        WHERE target = ? AND identifier != ?
+        LIMIT 1;
+        """
+        var found = false
+        queue.sync {
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_text(stmt, 1, target.rawValue, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, identifier, -1, SQLITE_TRANSIENT)
+                found = sqlite3_step(stmt) == SQLITE_ROW
+            }
+            sqlite3_finalize(stmt)
+        }
+        return found
     }
 
     func saveEventCursor(target: IntegrationTarget, identifier: String, lastSentEventID: Int64) {
@@ -378,20 +418,20 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     private func createTablesIfNeeded() {
         guard let db else { return }
-        if schemaMigrationNeeded(db: db) {
-            logger.notice("Dropping incompatible app data schema; rebuilding")
-            let dropSQL = """
-            DROP TABLE IF EXISTS integration_queue;
-            DROP TABLE IF EXISTS sessions_queue;
-            DROP TABLE IF EXISTS integration_cursors;
-            DROP TABLE IF EXISTS history_cursor;
-            DROP TABLE IF EXISTS session_state;
-            DROP TABLE IF EXISTS logbook;
-            DROP TABLE IF EXISTS local_sink;
-            DROP TABLE IF EXISTS integration_event_cursors;
-            """
-            sqlite3_exec(db, dropSQL, nil, nil, nil)
-        }
+        // Drop long-obsolete tables from earlier prototypes; these never held data anyone still
+        // needs and aren't part of the current schema at all.
+        let dropObsoleteSQL = """
+        DROP TABLE IF EXISTS integration_queue;
+        DROP TABLE IF EXISTS sessions_queue;
+        DROP TABLE IF EXISTS integration_cursors;
+        DROP TABLE IF EXISTS history_cursor;
+        DROP TABLE IF EXISTS session_state;
+        DROP TABLE IF EXISTS local_sink;
+        """
+        sqlite3_exec(db, dropObsoleteSQL, nil, nil, nil)
+
+        migrateLogbookTableIfNeeded(db: db)
+
         let logbookSQL = """
         CREATE TABLE IF NOT EXISTS logbook (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -421,6 +461,88 @@ final class AppDataStore: IntegrationEventCursorStore {
         sqlite3_exec(db, eventCursorSQL, nil, nil, nil)
     }
 
+    /// Brings an existing `logbook` table up to the current shape without discarding rows.
+    /// Only a schema shape genuinely incompatible with a safe copy (an unexpected column set)
+    /// falls back to rebuilding that one table from scratch — never the whole database, and
+    /// never the integration cursors, which is what silently caused already-delivered events to
+    /// re-deliver after any unrelated schema bump.
+    private func migrateLogbookTableIfNeeded(db: OpaquePointer) {
+        let expectedColumns = [
+            "id", "event_number", "facet_id", "started_at_s", "duration_s", "is_paused", "activity_name", "created_at"
+        ]
+        guard tableExists(db: db, name: "logbook") else { return }
+        let currentColumns = columns(of: "logbook", db: db)
+        let alreadyUnique = tableSQL(db: db, name: "logbook")?.contains("UNIQUE(event_number)") ?? false
+        if currentColumns == expectedColumns, alreadyUnique {
+            return
+        }
+        guard currentColumns == expectedColumns else {
+            logger.error("logbook schema unexpectedly incompatible (columns=\(currentColumns, privacy: .public)); rebuilding that table only")
+            sqlite3_exec(db, "DROP TABLE logbook;", nil, nil, nil)
+            return
+        }
+
+        logger.notice("Migrating logbook to add UNIQUE(event_number), preserving existing rows")
+        sqlite3_exec(db, """
+        CREATE TABLE logbook_migrated (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_number INTEGER,
+            facet_id INTEGER NOT NULL,
+            started_at_s REAL NOT NULL,
+            duration_s REAL NOT NULL,
+            is_paused INTEGER NOT NULL,
+            activity_name TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            UNIQUE(event_number)
+        );
+        """, nil, nil, nil)
+        // OR IGNORE + newest-first order keeps the most recent row per event_number, matching
+        // the dedup semantics `append`'s INSERT OR REPLACE already relies on going forward.
+        sqlite3_exec(db, """
+        INSERT OR IGNORE INTO logbook_migrated
+        SELECT id, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
+        FROM logbook ORDER BY id DESC;
+        """, nil, nil, nil)
+        sqlite3_exec(db, "DROP TABLE logbook;", nil, nil, nil)
+        sqlite3_exec(db, "ALTER TABLE logbook_migrated RENAME TO logbook;", nil, nil, nil)
+    }
+
+    private func tableExists(db: OpaquePointer, name: String) -> Bool {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;", -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    private func tableSQL(db: OpaquePointer, name: String) -> String? {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE type='table' AND name=?;", -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(stmt) == SQLITE_ROW, let sql = sqlite3_column_text(stmt, 0) else { return nil }
+        return String(cString: sql)
+    }
+
+    private func columns(of table: String, db: OpaquePointer) -> [String] {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK else {
+            return []
+        }
+        var cols: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqlite3_column_text(stmt, 1) {
+                cols.append(String(cString: name))
+            }
+        }
+        return cols
+    }
+
     static func defaultDatabaseURL() -> URL {
         let fileManager = FileManager.default
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -441,34 +563,5 @@ final class AppDataStore: IntegrationEventCursorStore {
         return base.appendingPathComponent("appdata.sqlite")
     }
 
-    private func schemaMigrationNeeded(db: OpaquePointer) -> Bool {
-        let expectedLogbook = [
-            "id", "event_number", "facet_id", "started_at_s", "duration_s", "is_paused", "activity_name", "created_at"
-        ]
-        let expectedEventCursors = [
-            "target", "identifier", "last_sent_ev", "attempts", "last_error", "last_success_ev", "updated_at"
-        ]
-
-        func columns(of table: String) -> [String] {
-            var stmt: OpaquePointer?
-            defer { sqlite3_finalize(stmt) }
-            guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK else {
-                return []
-            }
-            var cols: [String] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let name = sqlite3_column_text(stmt, 1) {
-                    cols.append(String(cString: name))
-                }
-            }
-            return cols
-        }
-
-        let logbookCols = columns(of: "logbook")
-        if logbookCols != expectedLogbook { return true }
-        let cursorCols = columns(of: "integration_event_cursors")
-        if cursorCols != expectedEventCursors { return true }
-        return false
-    }
 
 }

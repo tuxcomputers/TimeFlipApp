@@ -89,8 +89,8 @@ final class MenuBarController: NSObject {
         )
         syncActivityFromState(resetDuration: false)
         appState.$facetMappings
-            .sink { [weak self] _ in
-                self?.syncActivityFromState()
+            .sink { [weak self] mappings in
+                self?.syncActivityFromState(facetMappingsOverride: mappings)
             }
             .store(in: &cancellables)
         appState.$isPaired
@@ -104,13 +104,13 @@ final class MenuBarController: NSObject {
             }
             .store(in: &cancellables)
         appState.$dailyFacetDurations
-            .sink { [weak self] _ in
-                self?.updateStatusView()
+            .sink { [weak self] durations in
+                self?.updateStatusView(dailyFacetDurationsOverride: durations)
             }
             .store(in: &cancellables)
         appState.$dailyWindowStart
-            .sink { [weak self] _ in
-                self?.updateStatusView(force: true)
+            .sink { [weak self] windowStart in
+                self?.updateStatusView(force: true, dailyWindowStartOverride: windowStart)
             }
             .store(in: &cancellables)
         rebuildMenu()
@@ -126,6 +126,9 @@ final class MenuBarController: NSObject {
 
     private func rebuildMenu() {
         let newMenu = NSMenu()
+        // NSMenu auto-enables items with a target/action by default, which would silently
+        // override pauseItem.isEnabled below — opt out so the Pause item actually disables.
+        newMenu.autoenablesItems = false
         let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
 
         let settingsItem = NSMenuItem(
@@ -160,7 +163,11 @@ final class MenuBarController: NSObject {
         updateStatusView()
     }
 
-    private func updateStatusView(force: Bool = false) {
+    private func updateStatusView(
+        force: Bool = false,
+        dailyFacetDurationsOverride: [UInt8: TimeInterval]? = nil,
+        dailyWindowStartOverride: Date? = nil
+    ) {
         if pairingStatusSnapshot == .pairing {
             applyConnectingStatus()
             return
@@ -171,10 +178,16 @@ final class MenuBarController: NSObject {
         }
         guard let button = statusItem?.button else { return }
         let activityLabel = currentActivity?.name ?? "Idle"
-        let duration = formattedDuration()
+        let duration = formattedDuration(
+            dailyFacetDurationsOverride: dailyFacetDurationsOverride,
+            dailyWindowStartOverride: dailyWindowStartOverride
+        )
         let iconName = currentActivity?.iconName
         let limitMinutes = appState.limitMinutes(for: appState.currentFacetID)
-        let overLimit = limitMinutes > 0 && currentDuration() >= Double(limitMinutes) * 60
+        let overLimit = limitMinutes > 0 && currentDuration(
+            dailyFacetDurationsOverride: dailyFacetDurationsOverride,
+            dailyWindowStartOverride: dailyWindowStartOverride
+        ) >= Double(limitMinutes) * 60
         let snapshot = StatusSnapshot(
             activityLabel: activityLabel,
             duration: duration,
@@ -234,18 +247,28 @@ final class MenuBarController: NSObject {
         lastSnapshot = nil
     }
 
-    private func formattedDuration() -> String {
-        let totalSeconds = Int(currentDuration())
+    private func formattedDuration(
+        dailyFacetDurationsOverride: [UInt8: TimeInterval]? = nil,
+        dailyWindowStartOverride: Date? = nil
+    ) -> String {
+        let totalSeconds = Int(currentDuration(
+            dailyFacetDurationsOverride: dailyFacetDurationsOverride,
+            dailyWindowStartOverride: dailyWindowStartOverride
+        ))
         let hours = totalSeconds / Int(TimeConstants.secondsPerHour)
         let minutes = (totalSeconds % Int(TimeConstants.secondsPerHour)) / Int(TimeConstants.secondsPerMinute)
         return String(format: "%02d:%02d", hours, minutes)
     }
 
-    private func currentDuration() -> TimeInterval {
-        let base = appState.dailyFacetDurations[appState.currentFacetID] ?? 0
+    private func currentDuration(
+        dailyFacetDurationsOverride: [UInt8: TimeInterval]? = nil,
+        dailyWindowStartOverride: Date? = nil
+    ) -> TimeInterval {
+        let durations = dailyFacetDurationsOverride ?? appState.dailyFacetDurations
+        let base = durations[appState.currentFacetID] ?? 0
         // Paused time doesn't count toward active duration
         guard !isPaused else { return base }
-        let windowStart = appState.dailyWindowStart
+        let windowStart = dailyWindowStartOverride ?? appState.dailyWindowStart
         let live = clampedCurrentSegmentElapsed(windowStart: windowStart)
         return base + max(0, live)
     }
@@ -386,10 +409,15 @@ final class MenuBarController: NSObject {
         syncActivityFromState(force: true)
     }
 
-    private func syncActivityFromState(resetDuration: Bool = false, force: Bool = false) {
+    private func syncActivityFromState(
+        resetDuration: Bool = false,
+        force: Bool = false,
+        facetMappingsOverride: [FacetMapping]? = nil
+    ) {
         let facetID = appState.currentFacetID
         guard TimeFlipConstants.isValidFacetID(facetID) else { return }
-        guard let activity = appState.activity(for: facetID) else { return }
+        let mappings = facetMappingsOverride ?? appState.facetMappings
+        guard let activity = AppState.activity(for: facetID, in: mappings) else { return }
         if !force, currentActivity == activity, !resetDuration {
             return
         }

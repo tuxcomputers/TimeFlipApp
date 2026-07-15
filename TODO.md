@@ -10,20 +10,20 @@
 - [x] 5. Fix stale `eventTask` defer clobbering a newer task (identity check + `Task.isCancelled` after awaits)
 
 ### Medium priority
-- [ ] 6. Throw immediately in `waitForBluetoothPower` when Bluetooth is already off/unauthorized
-- [ ] 7. Retry (or fail pairing) when the device disconnects before the first facet event — UI currently stuck on "Connecting…"
-- [ ] 8. Cancel scan/discovery timeout tasks when their continuation resumes (they can kill a later attempt)
-- [ ] 9. Re-run Google flush when a trigger arrives mid-flush; add a periodic retry timer for backoff recovery
-- [ ] 10. Keep one long-lived `GoogleAuthService`/`OIDAuthState` instead of unarchiving per token request
-- [ ] 11. Detect 401/`invalid_grant` and flip `isAuthenticated` so revoked access surfaces in the UI
-- [ ] 12. Seed the delivery cursor for a new calendar ID / sheet URL at current max rowid (avoid re-delivering the whole logbook)
-- [ ] 13. Use the emitted payload (not the property) in the `$facetMappings` / `$dailyFacetDurations` / `$dailyWindowStart` sinks
-- [ ] 14. Set `autoenablesItems = false` (or implement `validateMenuItem`) so the Pause menu item disables when unpaired
-- [ ] 15. Debounce the client-secret Keychain write; consider dropping the mandatory client secret (PKCE desktop flow doesn't need one)
-- [ ] 16. Log preferences decode failures and don't overwrite the stored blob with defaults on a failed load
-- [ ] 17. Revisit destructive schema "migration" (drops all tables, including integration cursors, on any column mismatch)
-- [ ] 18. Inject in-memory preferences/Keychain stubs in tests; replace the 300 ms sleep in `GoogleIntegrationCoordinatorTests` with an awaitable flush
-- [ ] 19. Mock HTTP server: bind loopback-only via `requiredLocalEndpoint`; fix `handlers` retain cycle; replace semaphore hops with async/await
+- [x] 6. Throw immediately in `waitForBluetoothPower` when Bluetooth is already off/unauthorized
+- [x] 7. Retry (or fail pairing) when the device disconnects before the first facet event — UI currently stuck on "Connecting…"
+- [x] 8. Cancel scan/discovery timeout tasks when their continuation resumes (they can kill a later attempt)
+- [x] 9. Re-run Google flush when a trigger arrives mid-flush; add a periodic retry timer for backoff recovery
+- [x] 10. Keep one long-lived `GoogleAuthService`/`OIDAuthState` instead of unarchiving per token request
+- [x] 11. Detect 401/`invalid_grant` and flip `isAuthenticated` so revoked access surfaces in the UI
+- [x] 12. Seed the delivery cursor for a new calendar ID / sheet URL at current max rowid (avoid re-delivering the whole logbook)
+- [x] 13. Use the emitted payload (not the property) in the `$facetMappings` / `$dailyFacetDurations` / `$dailyWindowStart` sinks
+- [x] 14. Set `autoenablesItems = false` (or implement `validateMenuItem`) so the Pause menu item disables when unpaired
+- [x] 15. Debounce the client-secret Keychain write; consider dropping the mandatory client secret (PKCE desktop flow doesn't need one)
+- [x] 16. Log preferences decode failures and don't overwrite the stored blob with defaults on a failed load
+- [x] 17. Revisit destructive schema "migration" (drops all tables, including integration cursors, on any column mismatch)
+- [x] 18. Inject in-memory preferences/Keychain stubs in tests; replace the 300 ms sleep in `GoogleIntegrationCoordinatorTests` with an awaitable flush
+- [x] 19. Mock HTTP server: bind loopback-only via `requiredLocalEndpoint`; fix `handlers` retain cycle; replace semaphore hops with async/await
 
 ### Cleanup / quick wins
 - [x] 20. Delete `BLEManager.swift` + `BLEManagerTests.swift` (unused; real logic is in `TimeFlipBLEDevice`)

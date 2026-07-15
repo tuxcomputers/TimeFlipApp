@@ -5,9 +5,14 @@ enum TimeFlipDevicePasswordStoreError: Error {
     case keychain(OSStatus)
 }
 
+protocol TimeFlipDevicePasswordStoring {
+    func loadPassword() throws -> String?
+    func savePassword(_ password: String?) throws
+}
+
 /// Keychain-backed storage for the TimeFlip device password, kept separate from the plaintext
 /// preferences file so the rotated password isn't stored in the clear.
-final class TimeFlipDevicePasswordStore: @unchecked Sendable {
+final class TimeFlipDevicePasswordStore: TimeFlipDevicePasswordStoring, @unchecked Sendable {
     static let shared = TimeFlipDevicePasswordStore()
 
     private let service: String

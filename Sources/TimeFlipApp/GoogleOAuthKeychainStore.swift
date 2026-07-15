@@ -1,5 +1,6 @@
 import AppAuth
 import Foundation
+import OSLog
 import Security
 
 private struct GoogleOAuthKeychainPayload: Codable {
@@ -15,6 +16,7 @@ final class GoogleOAuthKeychainStore: @unchecked Sendable {
     private let lock = NSLock()
     private var hasLoaded = false
     private var cachedPayload: GoogleOAuthKeychainPayload?
+    private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "google-oauth-keychain")
 
     init(
         service: String = "\(AppIdentifiers.subsystem).google.oauth",
@@ -44,7 +46,10 @@ final class GoogleOAuthKeychainStore: @unchecked Sendable {
         do {
             return try NSKeyedUnarchiver.unarchivedObject(ofClass: OIDAuthState.self, from: data)
         } catch {
-            try? clearAuthState()
+            // Don't clearAuthState() here: that would permanently wipe the stored auth on what
+            // could be a transient/one-off unarchiving failure, forcing a full reauthorization.
+            // Leave the stored bytes alone and just report nil for this read.
+            logger.error("Failed to unarchive stored Google auth state: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -155,8 +160,12 @@ final class GoogleOAuthKeychainStore: @unchecked Sendable {
     }
 
     private func decodePayload(_ data: Data) -> GoogleOAuthKeychainPayload? {
-        let decoder = PropertyListDecoder()
-        return try? decoder.decode(GoogleOAuthKeychainPayload.self, from: data)
+        do {
+            return try PropertyListDecoder().decode(GoogleOAuthKeychainPayload.self, from: data)
+        } catch {
+            logger.error("Failed to decode stored Google OAuth Keychain payload: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     // No legacy migration needed yet; keep the store minimal.
