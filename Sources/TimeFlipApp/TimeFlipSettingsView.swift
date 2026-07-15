@@ -57,23 +57,16 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Status") {
                 Text(statusText)
             }
-            LabeledContent("LED Brightness") {
-                brightnessControls
-            }
-            .disabled(!appState.isPaired)
-            LabeledContent("LED Blink Interval") {
-                blinkIntervalControls
-            }
-            .disabled(!appState.isPaired)
-            LabeledContent("Auto-pause (0 disable, max 240m)") {
-                autoPauseControls
-            }
-            .disabled(!appState.isPaired)
         }
     }
 
     private var pairingSection: some View {
         Section("TimeFlip") {
+            TextField("Password (6 digits)", text: $appState.devicePassword)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: appState.devicePassword) { _, newValue in
+                    appState.devicePassword = String(newValue.prefix(6))
+                }
             HStack {
                 Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
                     if appState.isScanningForDevices {
@@ -228,6 +221,19 @@ struct TimeFlipSettingsView: View {
                     LabeledContent("Last event") {
                         Text(lastEventText)
                     }
+                    Divider()
+                    LabeledContent("LED Brightness") {
+                        brightnessControls
+                    }
+                    .disabled(!appState.isPaired)
+                    LabeledContent("LED Blink Interval") {
+                        blinkIntervalControls
+                    }
+                    .disabled(!appState.isPaired)
+                    LabeledContent("Auto-pause (0 disable, max 240m)") {
+                        autoPauseControls
+                    }
+                    .disabled(!appState.isPaired)
                     Divider()
                     Text("Double-tap sensitivity (accelerometer registers)")
                         .foregroundStyle(.secondary)

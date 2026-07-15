@@ -128,9 +128,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             (self?.device as? TimeFlipBLEDevice)?.cancelConnectionAttempt()
         }
         appState.onResetDevicePasswordRequest = { [weak self] in
-            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return }
-            await bleDevice.resetDevicePasswordToDefault()
-            try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
+            let confirmed = await bleDevice.resetDevicePasswordToDefault()
+            if confirmed {
+                try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+            }
+            return confirmed
         }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
@@ -248,7 +251,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
                 return
             }
-            if let bleDevice = device as? TimeFlipBLEDevice, let rotatedPassword = await bleDevice.rotateDevicePassword() {
+            // Only rotate the password during the pairing flow itself (skipConnect is only ever
+            // true there) — routine reconnects afterward must keep reusing that same password.
+            if skipConnect, let bleDevice = device as? TimeFlipBLEDevice,
+               let rotatedPassword = await bleDevice.rotateDevicePassword() {
                 await MainActor.run {
                     self.appState.devicePassword = rotatedPassword
                 }

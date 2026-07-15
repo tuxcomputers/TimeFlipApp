@@ -396,37 +396,67 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// connect (command 0x30), so a stranger with the default PIN can't pair with this device.
     /// The generated password is also printed so it's recoverable from the terminal if something
     /// goes wrong with saving/using it.
+    ///
+    /// The new password is only returned (and therefore only saved by the caller) once the
+    /// device has actually confirmed it via a real re-login attempt — the set-password command's
+    /// own ack isn't treated as sufficient proof the device will honor it on the next connect.
     func rotateDevicePassword() async -> String? {
         guard isLoggedIn else { return nil }
         let generatedRandomPassword = String(format: "%06d", Int.random(in: 0...999_999))
         print("[TimeFlip] Generated random device password: \(generatedRandomPassword)")
-        let passwordToSet = generatedRandomPassword
-        let payload = Data([0x30]) + Data(passwordToSet.utf8)
+        let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
         do {
             _ = try await performCommand(payload)
-            logger.notice("Device password rotated")
-            print("[TimeFlip] Device password set to: \(passwordToSet)")
-            return passwordToSet
         } catch {
-            logger.error("Failed to rotate device password: \(error.localizedDescription, privacy: .public)")
+            logger.error("Set-password command failed: \(error.localizedDescription, privacy: .public)")
             print("[TimeFlip] Failed to set new device password: \(error.localizedDescription)")
             return nil
         }
+        do {
+            guard try await attemptLogin(with: generatedRandomPassword) else {
+                logger.error("Device rejected re-login with new password; not saving")
+                print("[TimeFlip] Device did NOT confirm new password \(generatedRandomPassword) — not saving")
+                return nil
+            }
+        } catch {
+            logger.error("Failed to confirm new device password: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to confirm new device password: \(error.localizedDescription)")
+            return nil
+        }
+        logger.notice("Device password rotated and confirmed")
+        print("[TimeFlip] Device password confirmed set to: \(generatedRandomPassword)")
+        return generatedRandomPassword
     }
 
     /// Sets the device password back to the factory default before "Forget Device" clears our
     /// own pairing state, so the device isn't left behind on a private password nobody has.
-    func resetDevicePasswordToDefault() async {
-        guard isLoggedIn else { return }
+    /// Returns true only once the reset is confirmed via a real re-login with the default
+    /// password — the caller should not clear its stored password unless this returns true.
+    @discardableResult
+    func resetDevicePasswordToDefault() async -> Bool {
+        guard isLoggedIn else { return false }
         let payload = Data([0x30]) + Data(TimeFlipConstants.defaultPassword.utf8)
         do {
             _ = try await performCommand(payload)
-            logger.notice("Device password reset to default")
-            print("[TimeFlip] Device password reset to default: \(TimeFlipConstants.defaultPassword)")
         } catch {
             logger.error("Failed to reset device password to default: \(error.localizedDescription, privacy: .public)")
             print("[TimeFlip] Failed to reset device password to default: \(error.localizedDescription)")
+            return false
         }
+        do {
+            guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
+                logger.error("Device rejected re-login with default password; reset not confirmed")
+                print("[TimeFlip] Device did NOT confirm default password reset — not clearing stored password")
+                return false
+            }
+        } catch {
+            logger.error("Failed to confirm default password reset: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to confirm default password reset: \(error.localizedDescription)")
+            return false
+        }
+        logger.notice("Device password reset to default and confirmed")
+        print("[TimeFlip] Device password confirmed reset to default: \(TimeFlipConstants.defaultPassword)")
+        return true
     }
 
     func snapshot() -> TimeFlipDeviceSnapshot {

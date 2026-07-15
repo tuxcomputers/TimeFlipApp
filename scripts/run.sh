@@ -3,5 +3,4 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-mint run stackotter/swift-bundler@main bundle TimeFlip
 mint run stackotter/swift-bundler@main run TimeFlip

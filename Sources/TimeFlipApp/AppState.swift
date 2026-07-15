@@ -44,7 +44,7 @@ final class AppState: ObservableObject {
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
-    var onResetDevicePasswordRequest: (() async -> Void)?
+    var onResetDevicePasswordRequest: (() async -> Bool)?
     var onCurrentFacetMappingChange: (() -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
@@ -218,7 +218,11 @@ final class AppState: ObservableObject {
     }
 
     func resetAndForgetDevice() async {
-        await onResetDevicePasswordRequest?()
+        let confirmed = await onResetDevicePasswordRequest?() ?? true
+        guard confirmed else {
+            pairingStatus = .failed("Could not confirm password reset — device left paired")
+            return
+        }
         forgetDevice()
     }
 
@@ -426,6 +430,7 @@ final class AppState: ObservableObject {
             pendingPairingDeviceID = nil
             pendingPairingDeviceName = nil
         }
+        discoveredDevices = []
         onPairingChange?(true)
         persistPreferences()
     }
