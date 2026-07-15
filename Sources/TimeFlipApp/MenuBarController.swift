@@ -18,6 +18,7 @@ final class MenuBarController: NSObject {
     private let settingsWindowController: SettingsWindowController
     private let onPauseToggle: ((Bool) -> Void)?
     private var statusItem: NSStatusItem?
+    private var statusMenu: NSMenu?
     private var cancellables: Set<AnyCancellable> = []
 
     private var currentActivity: Activity?
@@ -75,6 +76,9 @@ final class MenuBarController: NSObject {
             button.imageScaling = .scaleProportionallyDown
             button.isBordered = false
             button.cell?.truncatesLastVisibleLine = true
+            button.target = self
+            button.action = #selector(handleStatusItemClick(_:))
+            button.sendAction(on: [.leftMouseUp])
         }
 
         NotificationCenter.default.addObserver(
@@ -152,7 +156,7 @@ final class MenuBarController: NSObject {
         quitItem.target = self
         newMenu.addItem(quitItem)
 
-        statusItem?.menu = newMenu
+        statusMenu = newMenu
         updateStatusView()
     }
 
@@ -292,6 +296,33 @@ final class MenuBarController: NSObject {
     private func togglePause() {
         guard appState.isPaired else { return }
         onPauseToggle?(!isPaused)
+    }
+
+    /// Splits the status item into two click zones: the left side (icon + activity name) opens
+    /// the dropdown menu as before; the right side (duration/indicator) toggles pause/resume
+    /// directly without opening anything.
+    @objc
+    private func handleStatusItemClick(_ sender: Any?) {
+        guard let button = statusItem?.button else { return }
+        guard let event = NSApp.currentEvent else {
+            showMenu()
+            return
+        }
+        let location = button.convert(event.locationInWindow, from: nil)
+        if location.x > button.bounds.width / 2 {
+            togglePause()
+        } else {
+            showMenu()
+        }
+    }
+
+    private func showMenu() {
+        guard let button = statusItem?.button, let menu = statusMenu else { return }
+        statusItem?.menu = menu
+        button.performClick(nil)
+        // Detach immediately after so the next click goes back through our own handler
+        // instead of AppKit's automatic (whole-button) menu presentation.
+        statusItem?.menu = nil
     }
 
     @objc
