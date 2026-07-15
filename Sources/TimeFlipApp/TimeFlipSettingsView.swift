@@ -62,11 +62,6 @@ struct TimeFlipSettingsView: View {
 
     private var pairingSection: some View {
         Section("TimeFlip") {
-            TextField("Password (6 digits)", text: $appState.devicePassword)
-                .textFieldStyle(.roundedBorder)
-                .onChange(of: appState.devicePassword) { _, newValue in
-                    appState.devicePassword = String(newValue.prefix(6))
-                }
             HStack {
                 if appState.isPaired {
                     Button("Forget Device") {
