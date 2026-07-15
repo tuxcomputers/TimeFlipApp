@@ -5,6 +5,7 @@ import SwiftUI
 final class AppState: ObservableObject {
     private let preferencesStore: PreferencesStore
     private let googleClientSecretStore: GoogleClientSecretStore
+    private let devicePasswordStore: TimeFlipDevicePasswordStore
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -55,10 +56,12 @@ final class AppState: ObservableObject {
 
     init(
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
-        googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore()
+        googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
+        devicePasswordStore: TimeFlipDevicePasswordStore = .shared
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
+        self.devicePasswordStore = devicePasswordStore
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         batteryLevel = nil
@@ -87,7 +90,15 @@ final class AppState: ObservableObject {
 
         applyPreferences()
         loadClientSecretOnce()
+        loadDevicePassword()
         observePreferences()
+    }
+
+    private func loadDevicePassword() {
+        let wasApplying = isApplyingPreferences
+        isApplyingPreferences = true
+        devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
+        isApplyingPreferences = wasApplying
     }
 
     func loadClientSecretOnce() {
@@ -253,7 +264,6 @@ final class AppState: ObservableObject {
         pairingStatus = wantsPairing ? .pairing : .notPaired
         pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
         pairedDeviceUUID = payload.pairedDeviceUUID
-        devicePassword = payload.devicePassword ?? devicePassword
         if let storedBrightness = payload.ledBrightnessPercent {
             ledBrightnessPercent = max(1, min(100, storedBrightness))
         }
@@ -295,7 +305,6 @@ final class AppState: ObservableObject {
             $googleCalendarName.map { _ in () }.eraseToAnyPublisher(),
             $googleSheetURL.map { _ in () }.eraseToAnyPublisher(),
             $googleClientID.map { _ in () }.eraseToAnyPublisher(),
-            $devicePassword.map { _ in () }.eraseToAnyPublisher(),
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
@@ -315,6 +324,14 @@ final class AppState: ObservableObject {
             .sink { [weak self] secret in
                 guard let self else { return }
                 self.persistGoogleClientSecret(secret)
+            }
+            .store(in: &preferencesCancellables)
+
+        // Device password is Keychain-backed, not part of the plaintext preferences blob
+        $devicePassword
+            .sink { [weak self] password in
+                guard let self, !self.isApplyingPreferences else { return }
+                self.persistDevicePassword(password)
             }
             .store(in: &preferencesCancellables)
     }
@@ -345,7 +362,6 @@ final class AppState: ObservableObject {
             wantsPairing: wantsPairing,
             pairedDeviceName: pairedDeviceName,
             pairedDeviceUUID: pairedDeviceUUID,
-            devicePassword: devicePassword,
             ledBrightnessPercent: ledBrightnessPercent,
             autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
             blinkIntervalSeconds: clampBlinkInterval(blinkIntervalSeconds),
@@ -371,6 +387,14 @@ final class AppState: ObservableObject {
             try googleClientSecretStore.saveSecret(trimmed.isEmpty ? nil : trimmed)
         } catch {
             // Ignore persistence errors; UI will surface during auth if needed.
+        }
+    }
+
+    private func persistDevicePassword(_ password: String) {
+        do {
+            try devicePasswordStore.savePassword(password)
+        } catch {
+            // Ignore persistence errors; the in-memory value still drives the current session.
         }
     }
 
