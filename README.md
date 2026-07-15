@@ -3,12 +3,6 @@
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device with seamless 
 Google Calendar and Google Sheets integration.
 
-Disclaimer: despite 25+ years of being a software engineer and architect, and 15+ years of being a macOS user,
-I never had the pleasure of developing anything for macOS. This project was totally vibecoded -- mostly
-with OpenAI Codex, with a bit of polishing by Anthropic Claude. Which means: if you are an experienced
-macOS/Swift developer, you may bleed your eyes out while reading this code, just as I sometimes bleed out
-mine when reading vibecoded Go or Rust repos. You have been warned.
-
 ## Features
 
 - **Menu Bar Timer**: Real-time activity tracking with icon, elapsed time, and pause/play indicators
@@ -176,16 +170,26 @@ The app will now automatically sync your time tracking data to Google Calendar a
    action resets it back to default.
 3. Open the TimeFlip app preferences
 4. Go to the "Device" tab
-5. Enter your device password (default is `000000`)
-6. Click **"Scan for Devices"** (check **"All Devices"** if you don't see your TimeFlip show up
-   under the default TimeFlip-only filter)
-7. Once your device appears in the results list below, click it to attempt pairing
-   - The app connects and verifies it's actually a TimeFlip before proceeding; a device that
-     fails this check is struck through and can't be clicked again
+5. Click **"Scan for Devices"** (this button only appears while no device is paired; check
+   **"All Devices"** if you don't see your TimeFlip show up under the default TimeFlip-only filter)
+6. Once your device appears in the results list below, click it to attempt pairing
+   - The app always tries the factory default password (`000000`) first automatically — there's
+     no password field to fill in
+   - It connects and verifies it's actually a TimeFlip before proceeding — this check runs in
+     full isolation, so if you happen to click a device that turns out not to be a TimeFlip,
+     nothing about an already-paired device is touched. A device that fails this check is struck
+     through and stays that way (even across rescans) so it can't be clicked again
    - While connecting, the row shows a "Connecting… (click to cancel)" status — click it again
-     to abort and disconnect
-   - If pairing fails (e.g. wrong password), the row shows why (e.g. "Wrong PIN")
-8. Once connected, the menu bar will show the current activity
+     (or click a different device) to abort and disconnect
+   - If pairing fails because the device is on a non-default password (e.g. previously set by
+     the official app, or by this app during an earlier pairing), the row shows "Wrong PIN" — see
+     Troubleshooting below for how to recover
+7. Once connected, the menu bar will show the current activity, and the scan controls are
+   replaced by a single **"Forget Device"** button
+
+**Forget Device** resets the device's password back to `000000` before unpairing (confirmed via
+a real login attempt on the device — the app's own stored password isn't cleared unless that
+reset is actually confirmed), so the device isn't left behind on a password nobody knows.
 
 ![Preferences - Device](screenshot/preferences-device.png)
 
@@ -203,7 +207,8 @@ The app will now automatically sync your time tracking data to Google Calendar a
 
 ### Device Settings
 
-Configure your TimeFlip device behavior:
+Battery level, system status, last event, and these device behavior settings live inside the
+collapsed **"Advanced"** disclosure at the bottom of the Device tab:
 - **Auto-Pause**: Automatically pause after X minutes of inactivity
 - **LED Brightness**: Adjust LED intensity (1-100%)
 - **Blink Interval**: How often the LED blinks (5-60 seconds)
@@ -283,9 +288,11 @@ Logbook Database (SQLite)
 ### Building and Testing
 
 ```bash
-# Build app bundle (recommended for testing full app behavior)
-swift bundler bundle --product TimeFlipApp
-open .build/bundler/outputs/TimeFlip.app
+# Build and run the app bundle (recommended for testing full app behavior)
+mint run stackotter/swift-bundler@main run TimeFlip
+
+# The app bundle is left at .build/bundler/apps/TimeFlip/TimeFlip.app
+open .build/bundler/apps/TimeFlip/TimeFlip.app
 
 # Or build in debug mode directly
 swift build
@@ -331,9 +338,23 @@ swiftlint --fix
 ### Device Won't Connect
 
 - Ensure Bluetooth is enabled
-- Check that the device password is correct (default: `000000`)
+- If the device doesn't show up in the scan results, try checking **"All Devices"** — the
+  TimeFlip-only filter matches on advertised name/service, which isn't always reliable
+- If your device is already connected to the official TimeFlip phone app, disconnect it there
+  first (Settings > three dots > "Disconnect TimeFlip") — just turning off the phone's Bluetooth
+  isn't enough, since the official app appears to set a private password on connect
+- A device shown with strikethrough text failed the TimeFlip verification check and can't be
+  clicked again this session — that's expected for genuinely different Bluetooth devices, not a
+  bug
+- If pairing fails with "Wrong PIN," the device isn't on the default `000000` password (likely
+  because the official phone app, or a previous pairing from this app, set a custom one). There's
+  no manual password field — recover via either the official app's "Disconnect TimeFlip" (if the
+  device is still bound to a phone account) or a hard reset (remove and reinsert the coin-cell
+  battery), both of which restore the factory default password
 - Try resetting the device by removing and reinserting the battery
 - Check Bluetooth permissions in System Preferences > Privacy & Security
+- Check the terminal you launched the app from — connection attempts, timeouts, and the device's
+  raw password-check responses are printed there for diagnostics
 
 ### Google OAuth Fails
 
