@@ -28,7 +28,7 @@ struct SettingsRootView: View {
             TabView(selection: $selectedTab) {
                 TimeFlipSettingsView(appState: appState)
                     .tabItem {
-                        Text("TimeFlip")
+                        Text("Device")
                     }
                     .tag(SettingsTab.timeflip)
                 PaneSetupView(appState: appState)
