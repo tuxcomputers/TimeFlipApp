@@ -1,9 +1,14 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 protocol PreferencesStore {
     func load() -> PreferencesPayload?
     func save(_ payload: PreferencesPayload)
+    /// True if a preferences blob is present, regardless of whether `load()` could decode it —
+    /// lets callers tell "nothing stored yet" (fine to persist defaults) apart from "stored data
+    /// existed but failed to decode" (should not be silently clobbered with defaults).
+    func hasStoredPayload() -> Bool
 }
 
 struct PreferencesPayload: Codable {
@@ -42,6 +47,7 @@ struct ColorComponents: Codable, Equatable {
 final class UserDefaultsPreferencesStore: PreferencesStore {
     private let defaults: UserDefaults
     private let key = "timeflip.preferences"
+    private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "preferences-store")
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -55,6 +61,10 @@ final class UserDefaultsPreferencesStore: PreferencesStore {
         return nil
     }
 
+    func hasStoredPayload() -> Bool {
+        defaults.data(forKey: key) != nil
+    }
+
     func save(_ payload: PreferencesPayload) {
         guard let data = try? JSONEncoder().encode(payload) else {
             return
@@ -63,7 +73,12 @@ final class UserDefaultsPreferencesStore: PreferencesStore {
     }
 
     private func decode(_ data: Data) -> PreferencesPayload? {
-        try? JSONDecoder().decode(PreferencesPayload.self, from: data)
+        do {
+            return try JSONDecoder().decode(PreferencesPayload.self, from: data)
+        } catch {
+            logger.error("Failed to decode stored preferences: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 }
 

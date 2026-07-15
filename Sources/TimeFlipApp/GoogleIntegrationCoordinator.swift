@@ -18,6 +18,10 @@ final class GoogleIntegrationCoordinator {
     private var sheetTitleCache: [SheetCacheKey: String] = [:]
     private let integrationEnabled: Bool
     private var isProcessing = false
+    // Set when a trigger arrives while processPending is already running, so that run picks up
+    // the new work in another pass instead of the trigger being silently dropped.
+    private var needsRerun = false
+    private var periodicRetryTask: Task<Void, Never>?
     private let maxBatch = 200
 
     var isEnabled: Bool { integrationEnabled }
@@ -62,6 +66,35 @@ final class GoogleIntegrationCoordinator {
         }
     }
 
+    /// Awaitable variant of `flushPendingSessions()` for callers (namely tests) that need
+    /// delivery to have actually finished before proceeding, instead of guessing at a sleep.
+    func flushPendingSessionsAndWait() async {
+        guard integrationEnabled else {
+            logger.info("flushPendingSessions skipped: integrations disabled")
+            return
+        }
+        await processPending()
+    }
+
+    /// Periodically re-triggers delivery so a target that's backing off after a failure (or a
+    /// trigger that arrived with nothing else to wake `processPending`) eventually retries
+    /// without needing a new device event.
+    func startPeriodicRetryTimer(interval: TimeInterval = 60) {
+        guard integrationEnabled, periodicRetryTask == nil else { return }
+        periodicRetryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                self.flushPendingSessions()
+            }
+        }
+    }
+
+    func stopPeriodicRetryTimer() {
+        periodicRetryTask?.cancel()
+        periodicRetryTask = nil
+    }
+
     private func writeCalendarEvent(accessToken: String, calendarId: String, record: ActivityRecord) async throws {
         let event = GoogleCalendarEvent(
             summary: record.activityName,
@@ -76,7 +109,7 @@ final class GoogleIntegrationCoordinator {
     private func appendSheetRow(accessToken: String, sheetURL: String, record: ActivityRecord) async throws {
         guard let destination = GoogleSheetDestination.parse(from: sheetURL) else {
             logger.error("Invalid Google Sheet URL: \(sheetURL, privacy: .public)")
-            return
+            throw GoogleIntegrationCoordinatorError.invalidSheetURL
         }
 
         let range = try await resolveSheetRange(accessToken: accessToken, destination: destination)
@@ -98,7 +131,7 @@ final class GoogleIntegrationCoordinator {
     ) async throws -> String {
         let cacheKey = SheetCacheKey(spreadsheetId: destination.spreadsheetId, sheetGid: destination.sheetGid)
         if let cached = sheetTitleCache[cacheKey] {
-            return "\(cached)!A:C"
+            return Self.quotedSheetRange(title: cached)
         }
 
         let sheets = try await sheetsClient.fetchSheets(
@@ -114,10 +147,16 @@ final class GoogleIntegrationCoordinator {
 
         if let resolvedTitle {
             sheetTitleCache[cacheKey] = resolvedTitle
-            return "\(resolvedTitle)!A:C"
+            return Self.quotedSheetRange(title: resolvedTitle)
         }
 
         return "A:C"
+    }
+
+    /// A1 notation requires sheet names to be single-quoted (with embedded quotes doubled) —
+    /// otherwise a title containing a space or special character produces an invalid range.
+    private static func quotedSheetRange(title: String) -> String {
+        "'\(title.replacingOccurrences(of: "'", with: "''"))'!A:C"
     }
 
     // MARK: - Session helpers
@@ -142,29 +181,48 @@ final class GoogleIntegrationCoordinator {
             return
         }
         guard !isProcessing else {
-            logger.debug("process_pending skipped: already in-flight")
+            logger.debug("process_pending deferred: already in-flight, will rerun")
+            needsRerun = true
             return
         }
         isProcessing = true
         defer { isProcessing = false }
-        let preferences = preferencesProvider()
-        let targets = buildTargets(preferences: preferences)
-        let targetList = targets.map { $0.asTarget.rawValue }.joined(separator: ",")
-        logger.debug("process_pending targets=\(targetList, privacy: .public)")
-        guard !targets.isEmpty else {
-            logger.warning("processPending skipped: no calendar/sheets configured")
-            return
-        }
-        for target in targets {
-            guard shouldAttempt(target: target) else { continue }
-            await deliverPendingSessions(to: target)
-        }
+        // Loop instead of a single pass: a trigger arriving mid-run sets needsRerun so its
+        // events get delivered in another pass here, rather than being silently dropped.
+        repeat {
+            needsRerun = false
+            let preferences = preferencesProvider()
+            let targets = buildTargets(preferences: preferences)
+            let targetList = targets.map { $0.asTarget.rawValue }.joined(separator: ",")
+            logger.debug("process_pending targets=\(targetList, privacy: .public)")
+            guard !targets.isEmpty else {
+                logger.warning("processPending skipped: no calendar/sheets configured")
+                break
+            }
+            for target in targets {
+                guard shouldAttempt(target: target) else { continue }
+                await deliverPendingSessions(to: target)
+            }
+        } while needsRerun
     }
 
     private func deliverPendingSessions(to target: IntegrationTargetDescriptor) async {
         guard integrationEnabled else { return }
         guard let identifier = target.identifier else { return }
         var cursor = cursorStore.loadEventCursor(target: target.asTarget, identifier: identifier)
+        if cursor == nil, cursorStore.hasCursor(target: target.asTarget, excludingIdentifier: identifier),
+           let maxRowID = dataStore.maxLogbookRowID() {
+            // A cursor already exists under a *different* identifier for this target type, so
+            // this is a switch (e.g. pointed at a different calendar), not the first-ever setup.
+            // Seed at the current tip instead of delivering the entire historical logbook to the
+            // newly chosen target — first-time setup with no prior cursor at all still sees the
+            // existing backlog, which is what users expect when they first turn integration on.
+            cursorStore.saveEventCursor(target: target.asTarget, identifier: identifier, lastSentEventID: maxRowID)
+            cursor = maxRowID
+            logger.notice(
+                "deliver_pending seeded_cursor target=\(target.asTarget.rawValue, privacy: .public) identifier=\(identifier, privacy: .public) rowid=\(maxRowID, privacy: .public)"
+            )
+        }
 
         do {
             let accessToken = try await tokenProvider()
@@ -196,6 +254,7 @@ final class GoogleIntegrationCoordinator {
                         logger.error(
                             "delivery_failed target=\(target.asTarget.rawValue, privacy: .public) rowid=\(event.id ?? -1, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
                         )
+                        markUnauthenticatedIfNeeded(error)
                         return
                     }
                 }
@@ -213,7 +272,22 @@ final class GoogleIntegrationCoordinator {
             logger.error(
                 "token_failed target=\(target.asTarget.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
             )
+            markUnauthenticatedIfNeeded(error)
         }
+    }
+
+    /// Google revoking access shows up as a 401/invalid_grant from the API, or as an
+    /// invalid_grant failure surfaced while refreshing the token itself — either way, the UI
+    /// should stop showing "connected" instead of quietly failing every delivery under backoff.
+    private func markUnauthenticatedIfNeeded(_ error: Error) {
+        let isRevoked: Bool
+        if case GoogleAPIError.unauthorized = error {
+            isRevoked = true
+        } else {
+            isRevoked = error.localizedDescription.contains("invalid_grant")
+        }
+        guard isRevoked else { return }
+        authManager?.markUnauthenticated(reason: error.localizedDescription)
     }
 
     private func deliver(
@@ -322,6 +396,7 @@ private struct SheetCacheKey: Hashable {
 enum GoogleIntegrationCoordinatorError: Error {
     case missingAuthManager
     case disabled
+    case invalidSheetURL
 }
 
 struct IntegrationPreferences {

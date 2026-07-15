@@ -76,7 +76,11 @@ final class HistoryIngestorTests: XCTestCase {
         ]
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
-        let appState = AppState()
+        let appState = AppState(
+            preferencesStore: InMemoryPreferencesStore(),
+            googleClientSecretStore: InMemoryGoogleClientSecretStore(),
+            devicePasswordStore: InMemoryDevicePasswordStore()
+        )
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
@@ -111,7 +115,11 @@ final class HistoryIngestorTests: XCTestCase {
         ]
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
-        let appState = AppState()
+        let appState = AppState(
+            preferencesStore: InMemoryPreferencesStore(),
+            googleClientSecretStore: InMemoryGoogleClientSecretStore(),
+            devicePasswordStore: InMemoryDevicePasswordStore()
+        )
 
         // Seed cursor to 5 so only event 6 should be processed.
         dataStore.saveEventCursor(target: .local, identifier: "device-history", lastSentEventID: 5)
@@ -138,7 +146,11 @@ final class HistoryIngestorTests: XCTestCase {
         ]
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
-        let appState = AppState()
+        let appState = AppState(
+            preferencesStore: InMemoryPreferencesStore(),
+            googleClientSecretStore: InMemoryGoogleClientSecretStore(),
+            devicePasswordStore: InMemoryDevicePasswordStore()
+        )
         var latest: TimeFlipHistoryEntry?
 
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)

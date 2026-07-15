@@ -89,6 +89,10 @@ private struct CalendarEventTime: Encodable {
 enum GoogleAPIError: Error, LocalizedError {
     case invalidResponse
     case httpStatus(code: Int, message: String?)
+    // Access is revoked/expired — a 401, or a 400 body naming invalid_grant (Google's error
+    // shape for revoked refresh tokens). Distinct from other httpStatus failures so callers can
+    // flip the auth UI to "needs reauthorization" instead of retrying under normal backoff.
+    case unauthorized(message: String?)
 
     static func validate(response: URLResponse, data: Data) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -96,6 +100,9 @@ enum GoogleAPIError: Error, LocalizedError {
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8)
+            if httpResponse.statusCode == 401 || (message?.contains("invalid_grant") ?? false) {
+                throw GoogleAPIError.unauthorized(message: message)
+            }
             throw GoogleAPIError.httpStatus(code: httpResponse.statusCode, message: message)
         }
     }
@@ -109,6 +116,8 @@ enum GoogleAPIError: Error, LocalizedError {
                 return "Google API error (\(code)): \(message)"
             }
             return "Google API error (\(code))."
+        case .unauthorized:
+            return "Google access was revoked or expired. Please reconnect in Settings."
         }
     }
 }

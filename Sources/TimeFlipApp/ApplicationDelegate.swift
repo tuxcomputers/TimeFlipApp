@@ -60,6 +60,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let enableMockEvents = false
     private lazy var device: TimeFlipSessionManaging? = enableMockEvents ? MockTimeFlipDevice() : TimeFlipBLEDevice()
     private var eventTask: Task<Void, Never>?
+    // Bumped every time startDeviceEvents spawns a new eventTask, so a stale task's completion
+    // handler can tell it's no longer the current one and avoid nil-ing out its replacement.
+    private var eventTaskGeneration = 0
     private var mockHTTPServer: MockEventHTTPServer?
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "lifecycle")
     private var cancellables: Set<AnyCancellable> = []
@@ -201,6 +204,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
         seedDailyTotals()
         scheduleDayReset()
+        integrationCoordinator.startPeriodicRetryTimer()
         menuBarController.start()
         if appState.isPaired {
             startDeviceEvents()
@@ -243,9 +247,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self?.handleDeviceDisconnect()
             }
         }
+        eventTaskGeneration += 1
+        let generation = eventTaskGeneration
         eventTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.eventTask = nil }
+            defer {
+                if self.eventTaskGeneration == generation {
+                    self.eventTask = nil
+                }
+            }
             if !skipConnect {
                 let connected = await device.connect()
                 guard connected else {
@@ -256,6 +266,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
             }
+            guard !Task.isCancelled else { return }
             guard await device.login(password: appState.devicePassword) else {
                 logger.error("TimeFlip login failed; events not started")
                 await device.disconnect()
@@ -267,6 +278,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
                 return
             }
+            guard !Task.isCancelled else { return }
             // Only rotate the password during the pairing flow itself (skipConnect is only ever
             // true there) — routine reconnects afterward must keep reusing that same password.
             if skipConnect, let bleDevice = device as? TimeFlipBLEDevice,
@@ -280,6 +292,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     logger.error("Failed to save rotated device password to Keychain: \(error.localizedDescription, privacy: .public)")
                 }
             }
+            guard !Task.isCancelled else { return }
             await device.enableNotifications()
             let desiredAutoPause = appState.autoPauseMinutes ?? 0
             await device.initializeSession(hostTime: Date(), desiredAutoPauseMinutes: desiredAutoPause)
@@ -288,9 +301,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             if let params = appState.doubleTapParameters {
                 await device.setDoubleTapParameters(params)
             }
+            guard !Task.isCancelled else { return }
             logger.notice("Backfill starting")
             awaitingInitialStatus = true
             await self.historyIngestor?.refreshHistory(trigger: "startup")
+            guard !Task.isCancelled else { return }
             for await event in device.events {
                 self.handleDeviceEvent(event)
             }
@@ -326,8 +341,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
             guard let self else { return }
-            if self.appState.isPaired {
+            // Retry on wantsPairing too: a drop between connect() and the first facet event
+            // happens before isPaired is ever set, so gating on isPaired alone would leave the
+            // UI stuck on "Connecting…" forever with no retry and no failure surfaced.
+            if self.appState.isPaired || self.appState.wantsPairing {
                 self.startDeviceEvents()
+            } else {
+                self.appState.pairingFailed(message: "Disconnected before pairing completed")
             }
         }
     }

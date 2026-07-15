@@ -84,6 +84,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private let central: CentralManaging
     private var peripheral: PeripheralManaging?
     private var continuations = Continuations()
+    // Timeout watchdogs for the continuations above, keyed so a stale watchdog from an earlier
+    // attempt (e.g. "connection", "write:<uuid>") can be cancelled the moment its continuation
+    // resumes instead of lingering to potentially fail a later attempt reusing the same slot.
+    private var timeoutTasks: [String: Task<Void, Never>] = [:]
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
     private var activeProbe: ProbeSession?
     private var stream: AsyncStream<TimeFlipEvent>?
@@ -100,7 +104,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // The single timeout used for every BLE communication with the device (scanning, connecting,
     // service/characteristic discovery, notifications, writes, reads). On timeout, whatever step
     // was in flight is aborted and the peripheral is force-disconnected — see handleTimeout(_:).
-    private let deviceOperationTimeoutSeconds: UInt64 = 30
+    private let deviceOperationTimeoutSeconds: UInt64
     // Peripherals seen during a discovery scan, keyed by identifier, so a user-selected entry
     // can be connected to directly rather than re-scanning and grabbing the first match.
     private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
@@ -139,13 +143,31 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     init(
         central: CentralManaging? = nil,
-        logger: Logger = Logger(subsystem: AppIdentifiers.subsystem, category: "ble-device")
+        logger: Logger = Logger(subsystem: AppIdentifiers.subsystem, category: "ble-device"),
+        deviceOperationTimeoutSeconds: UInt64 = 30
     ) {
         self.central = central ?? CBCentralManager()
         self.logger = logger
+        self.deviceOperationTimeoutSeconds = deviceOperationTimeoutSeconds
         super.init()
         self.central.delegate = self
     }
+
+    #if DEBUG
+    /// Test-only: establishes a connected session directly, bypassing the real discovery flow
+    /// (which needs concrete `CBPeripheral`/`CBService` instances that only CoreBluetooth itself
+    /// can construct). Lets tests reach "connected with known characteristics" so they can start
+    /// a command and then exercise disconnect-cleanup or timeout behavior against it.
+    func test_configureConnectedState(
+        peripheral: PeripheralManaging,
+        characteristics: [CBUUID: CBCharacteristic],
+        isLoggedIn: Bool = true
+    ) {
+        self.peripheral = peripheral
+        self.characteristics = characteristics
+        self.isLoggedIn = isLoggedIn
+    }
+    #endif
 
     // MARK: TimeFlipSessionManaging
 
@@ -172,10 +194,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             central.cancelPeripheralConnection(peripheral)
         }
         central.stopScan()
-        if let connection = continuations.connection {
-            connection.resume(throwing: DeviceError.connectionFailed)
-            continuations.connection = nil
-        }
+        failAllPendingContinuations(with: DeviceError.connectionFailed)
+        historyStreamContinuation?.finish()
+        historyStreamContinuation = nil
+        isLoggedIn = false
+        characteristics.removeAll()
         continuation?.finish()
         continuation = nil
         stream = nil
@@ -480,6 +503,35 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             continuation.resume(throwing: error)
         }
         continuations.reads.removeAll()
+        cancelAllTimeouts()
+    }
+
+    /// Schedules a timeout watchdog under `key`, cancelling any previous watchdog registered
+    /// under the same key first. `action` only runs if the watchdog isn't cancelled first.
+    /// Not `private` so TimeFlipBLEDeviceTests can exercise the keyed-cancellation guarantee
+    /// directly (the scan-timeout race this fixes has no reproduction path that doesn't need a
+    /// real CBPeripheral, which can't be constructed outside CoreBluetooth).
+    func scheduleTimeout(_ key: String, action: @escaping (TimeFlipBLEDevice) -> Void) {
+        timeoutTasks[key]?.cancel()
+        let timeoutSeconds = deviceOperationTimeoutSeconds
+        timeoutTasks[key] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutSeconds * TimeConstants.nanosecondsPerSecond)
+            guard !Task.isCancelled, let self else { return }
+            self.timeoutTasks[key] = nil
+            action(self)
+        }
+    }
+
+    func cancelTimeout(_ key: String) {
+        timeoutTasks[key]?.cancel()
+        timeoutTasks[key] = nil
+    }
+
+    private func cancelAllTimeouts() {
+        for task in timeoutTasks.values {
+            task.cancel()
+        }
+        timeoutTasks.removeAll()
     }
 
     func disconnect() async {
@@ -706,7 +758,18 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // MARK: - Private helpers
 
     private func waitForBluetoothPower() async throws {
-        if central.state == .poweredOn { return }
+        switch central.state {
+        case .poweredOn:
+            return
+        case .poweredOff, .unauthorized, .unsupported:
+            // Terminal states: no future centralManagerDidUpdateState will rescue us, so
+            // waiting on a continuation here would hang forever.
+            throw DeviceError.bluetoothUnavailable
+        case .unknown, .resetting:
+            break
+        @unknown default:
+            break
+        }
         logger.debug("Waiting for Bluetooth power-on")
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             continuations.poweredOn = continuation
@@ -745,15 +808,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                     options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
                 )
             }
-            Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                if self.continuations.connection != nil {
+            scheduleTimeout("connection") { device in
+                if device.continuations.connection != nil {
                     // Nothing is connected yet at this point, so there's no peripheral to
                     // disconnect from — just stop the scan itself.
-                    self.central.stopScan()
-                    self.continuations.connection?.resume(throwing: DeviceError.discoveryTimeout)
-                    self.continuations.connection = nil
+                    device.central.stopScan()
+                    device.continuations.connection?.resume(throwing: DeviceError.discoveryTimeout)
+                    device.continuations.connection = nil
                 }
             }
         }
@@ -770,11 +831,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 TimeFlipUUIDs.batteryService,
                 TimeFlipUUIDs.deviceInfoService
             ])
-            Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                if self.continuations.services != nil {
-                    self.handleTimeout("Service discovery")
+            scheduleTimeout("services") { device in
+                if device.continuations.services != nil {
+                    device.handleTimeout("Service discovery")
                 }
             }
         }
@@ -803,11 +862,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             } else {
                 continuation.resume(throwing: DeviceError.serviceDiscoveryFailed)
             }
-            Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                if self.continuations.characteristics != nil {
-                    self.handleTimeout("Characteristic discovery")
+            scheduleTimeout("characteristics") { device in
+                if device.continuations.characteristics != nil {
+                    device.handleTimeout("Characteristic discovery")
                 }
             }
         }
@@ -831,11 +888,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
             continuations.writes[uuid] = continuation
             peripheral?.writeValue(data, for: characteristic, type: type)
-            Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                if self.continuations.writes[uuid] != nil {
-                    self.handleTimeout("Write to \(uuid.uuidString)")
+            scheduleTimeout("write:\(uuid.uuidString)") { device in
+                if device.continuations.writes[uuid] != nil {
+                    device.handleTimeout("Write to \(uuid.uuidString)")
                 }
             }
         }
@@ -852,11 +907,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
             continuations.reads[uuid] = continuation
             peripheral?.readValue(for: characteristic)
-            Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                if self.continuations.reads[uuid] != nil {
-                    self.handleTimeout("Read from \(uuid.uuidString)")
+            scheduleTimeout("read:\(uuid.uuidString)") { device in
+                if device.continuations.reads[uuid] != nil {
+                    device.handleTimeout("Read from \(uuid.uuidString)")
                 }
             }
         }
@@ -982,11 +1035,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 continuations.notification[uuid] = continuation
                 peripheral?.setNotifyValue(enabled, for: characteristic)
-                Task { [weak self] in
-                    guard let self else { return }
-                    try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                    if self.continuations.notification[uuid] != nil {
-                        self.handleTimeout("Set notify (\(enabled ? "on" : "off")) for \(uuid.uuidString)")
+                scheduleTimeout("notify:\(uuid.uuidString)") { device in
+                    if device.continuations.notification[uuid] != nil {
+                        device.handleTimeout("Set notify (\(enabled ? "on" : "off")) for \(uuid.uuidString)")
                     }
                 }
             }
@@ -1348,6 +1399,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             return
         }
         logger.notice("Connected to TimeFlip \(peripheral.identifier.uuidString, privacy: .public)")
+        cancelTimeout("connection")
         continuations.connection?.resume(returning: ())
         continuations.connection = nil
     }
@@ -1364,6 +1416,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             return
         }
         logger.error("Failed to connect: \(error?.localizedDescription ?? "unknown", privacy: .public)")
+        cancelTimeout("connection")
         continuations.connection?.resume(throwing: DeviceError.connectionFailed)
         continuations.connection = nil
     }
@@ -1379,9 +1432,22 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             probe.connection = nil
             return
         }
+        handleMainDisconnect(error: error)
+    }
+
+    /// The actual disconnect-cleanup logic for the active (non-probe) session, split out from
+    /// the delegate callback above so it can be exercised directly in tests — CoreBluetooth's
+    /// `CBPeripheral` has no accessible initializer outside the framework's own factories, so
+    /// this method deliberately doesn't need one: it tears down state unconditionally regardless
+    /// of which peripheral disconnected.
+    func handleMainDisconnect(error: Error?) {
         logger.warning("Disconnected from TimeFlip: \(error?.localizedDescription ?? "none", privacy: .public)")
-        continuations.connection?.resume(throwing: DeviceError.connectionFailed)
-        continuations.connection = nil
+        failAllPendingContinuations(with: error ?? DeviceError.connectionFailed)
+        historyStreamContinuation?.finish()
+        historyStreamContinuation = nil
+        isLoggedIn = false
+        characteristics.removeAll()
+        self.peripheral = nil
         onDisconnect?()
     }
 }
@@ -1401,6 +1467,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
             probe.services = nil
             return
         }
+        cancelTimeout("services")
         if let error {
             logger.error("Service discovery failed: \(error.localizedDescription, privacy: .public)")
             continuations.services?.resume(throwing: DeviceError.serviceDiscoveryFailed)
@@ -1443,9 +1510,11 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         let haveAll = requiredCharacteristicUUIDs.allSatisfy { characteristics[$0] != nil }
         if let error {
             logger.error("Characteristic discovery failed: \(error.localizedDescription, privacy: .public)")
+            cancelTimeout("characteristics")
             continuations.characteristics?.resume(throwing: DeviceError.serviceDiscoveryFailed)
             continuations.characteristics = nil
         } else if haveAll {
+            cancelTimeout("characteristics")
             continuations.characteristics?.resume(returning: ())
             continuations.characteristics = nil
         }
@@ -1470,6 +1539,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         let valueHex = characteristic.value?.hexString() ?? "nil"
         logger.debug("didUpdateValue uuid=\(uuid.uuidString, privacy: .public) value=\(valueHex, privacy: .public) err=\(String(describing: error))")
         if let continuation = continuations.reads.removeValue(forKey: uuid) {
+            cancelTimeout("read:\(uuid.uuidString)")
             if error != nil {
                 continuation.resume(throwing: DeviceError.readFailed(uuid))
             } else {
@@ -1529,6 +1599,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         }
         logger.debug("didWriteValue uuid=\(uuid.uuidString, privacy: .public) err=\(String(describing: error))")
         if let continuation = continuations.writes.removeValue(forKey: uuid) {
+            cancelTimeout("write:\(uuid.uuidString)")
             if let error {
                 logger.error("Write failed \(uuid.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continuation.resume(throwing: DeviceError.writeFailed(uuid))
@@ -1546,6 +1617,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         let uuid = characteristic.uuid
         logger.debug("didUpdateNotificationState uuid=\(uuid.uuidString, privacy: .public) notifying=\(characteristic.isNotifying) err=\(String(describing: error))")
         if let continuation = continuations.notification.removeValue(forKey: uuid) {
+            cancelTimeout("notify:\(uuid.uuidString)")
             if error != nil {
                 continuation.resume(throwing: DeviceError.writeFailed(uuid))
             } else {

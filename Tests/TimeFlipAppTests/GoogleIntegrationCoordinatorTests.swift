@@ -63,8 +63,7 @@ final class GoogleIntegrationCoordinatorTests: XCTestCase {
         ]
         events.forEach { store.append($0) }
 
-        coordinator.flushPendingSessions()
-        try await Task.sleep(nanoseconds: 300_000_000) // let deliveries complete
+        await coordinator.flushPendingSessionsAndWait()
 
         XCTAssertEqual(
             calendar.insertedEvents.map(\.summary),

@@ -10,6 +10,11 @@ final class GoogleAuthManager: ObservableObject {
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "google-auth")
     private let stateStore: GoogleAuthStateStore
     private let configurationProvider: () throws -> GoogleAuthConfiguration
+    // Kept alive across calls (instead of unarchived per request) so AppAuth's own refresh
+    // coalescing and its stateChangeDelegate observer actually do something. Only rebuilt when
+    // the resolved configuration (e.g. client ID/secret edited in Settings) actually changes.
+    private var cachedService: GoogleAuthService?
+    private var cachedConfiguration: GoogleAuthConfiguration?
 
     init(
         stateStore: GoogleAuthStateStore = KeychainAuthStateStore(),
@@ -69,12 +74,27 @@ final class GoogleAuthManager: ObservableObject {
         return try await service.freshAccessToken()
     }
 
+    /// Called when a Google API call reports revoked/expired access (401 or invalid_grant) so
+    /// the UI stops showing "connected" while every delivery silently fails under backoff.
+    func markUnauthenticated(reason: String) {
+        guard isAuthenticated else { return }
+        isAuthenticated = false
+        errorMessage = reason
+        logger.error("Google access marked unauthenticated: \(reason, privacy: .public)")
+    }
+
     private func makeAuthService() throws -> GoogleAuthService {
         let configuration = try configurationProvider()
-        return GoogleAuthService(
+        if let cachedService, cachedConfiguration == configuration {
+            return cachedService
+        }
+        let service = GoogleAuthService(
             configuration: configuration,
             stateStore: stateStore,
             logger: logger
         )
+        cachedService = service
+        cachedConfiguration = configuration
+        return service
     }
 }

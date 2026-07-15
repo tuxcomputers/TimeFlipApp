@@ -8,7 +8,6 @@ final class MockEventHTTPServer: @unchecked Sendable {
         static let receiveMinimumLength: Int = 1
         static let receiveMaximumLength: Int = 2_048
         static let requestLineMinimumParts: Int = 2
-        static let snapshotTimeout: TimeInterval = 1
         static let loopbackIPv4 = Data([127, 0, 0, 1])
         static let loopbackIPv6 = Data(repeating: 0, count: 15) + Data([1])
         static let helpFacetExample: UInt8 = 3
@@ -22,26 +21,6 @@ final class MockEventHTTPServer: @unchecked Sendable {
     private let logger: Logger
     private let queue = DispatchQueue(label: "com.timeflip.mock-http")
     private var listener: NWListener?
-
-    private typealias EndpointHandler = ([String: String]) -> Response
-
-    private lazy var handlers: [String: EndpointHandler] = {
-        [
-            "/": { _ in .ok(self.helpText) },
-            "/help": { _ in .ok(self.helpText) },
-            "/status": { _ in self.handleStatus() },
-            "/flip": { self.handleFlip(params: $0) },
-            "/double-tap": { self.handleDoubleTap(params: $0) },
-            "/pause": { self.handlePause(params: $0) },
-            "/lock": { self.handleLock(params: $0) },
-            "/auto-pause": { self.handleAutoPause(params: $0) },
-            "/battery": { self.handleBattery(params: $0) },
-            "/system": { self.handleSystem(params: $0) },
-            "/time": { self.handleTime(params: $0) },
-            "/event-log": { self.handleEventLog(params: $0) },
-            "/history/last": { _ in self.handleLastHistory() }
-        ]
-    }()
 
     init(
         controller: TimeFlipMockControlling,
@@ -60,7 +39,12 @@ final class MockEventHTTPServer: @unchecked Sendable {
     func start() {
         guard listener == nil else { return }
         do {
-            let listener = try NWListener(using: .tcp, on: port)
+            let parameters = NWParameters.tcp
+            // Belt-and-suspenders alongside the application-layer loopback check in route(_:):
+            // this restricts the actual socket bind to loopback, so nothing external can even
+            // open a connection in the first place.
+            parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: port)
+            let listener = try NWListener(using: parameters, on: port)
             listener.newConnectionHandler = { [weak self] connection in
                 self?.handle(connection)
             }
@@ -91,17 +75,19 @@ final class MockEventHTTPServer: @unchecked Sendable {
             maximumLength: Constants.receiveMaximumLength
         ) { [weak self] data, _, _, _ in
             guard let self else { return }
-            let response: Response
-            if let data, let request = String(data: data, encoding: .utf8) {
-                response = self.route(request: request, connection: connection)
-            } else {
-                response = .badRequest("invalid request encoding")
+            Task {
+                let response: Response
+                if let data, let request = String(data: data, encoding: .utf8) {
+                    response = await self.route(request: request, connection: connection)
+                } else {
+                    response = .badRequest("invalid request encoding")
+                }
+                self.send(response: response, on: connection)
             }
-            self.send(response: response, on: connection)
         }
     }
 
-    private func route(request: String, connection: NWConnection) -> Response {
+    private func route(request: String, connection: NWConnection) async -> Response {
         guard connectionIsLoopback(connection) else {
             return .forbidden("loopback only")
         }
@@ -120,11 +106,38 @@ final class MockEventHTTPServer: @unchecked Sendable {
 
         let (path, query) = splitTarget(target)
         let params = parseQuery(query)
+        return await dispatch(path: path, params: params)
+    }
 
-        guard let handler = handlers[path] else {
+    private func dispatch(path: String, params: [String: String]) async -> Response {
+        switch path {
+        case "/", "/help":
+            return .ok(helpText)
+        case "/status":
+            return await handleStatus()
+        case "/flip":
+            return handleFlip(params: params)
+        case "/double-tap":
+            return handleDoubleTap(params: params)
+        case "/pause":
+            return handlePause(params: params)
+        case "/lock":
+            return handleLock(params: params)
+        case "/auto-pause":
+            return handleAutoPause(params: params)
+        case "/battery":
+            return handleBattery(params: params)
+        case "/system":
+            return handleSystem(params: params)
+        case "/time":
+            return handleTime(params: params)
+        case "/event-log":
+            return handleEventLog(params: params)
+        case "/history/last":
+            return await handleLastHistory()
+        default:
             return .notFound("unknown path")
         }
-        return handler(params)
     }
 
     private func send(response: Response, on connection: NWConnection) {
@@ -204,39 +217,17 @@ final class MockEventHTTPServer: @unchecked Sendable {
         }
     }
 
-    private func snapshotSync() -> TimeFlipDeviceSnapshot? {
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = MutableBox<TimeFlipDeviceSnapshot?>(nil)
-        Task { @MainActor in
-            box.value = controller.snapshot()
-            semaphore.signal()
-        }
-        _ = semaphore.wait(timeout: .now() + Constants.snapshotTimeout)
-        return box.value
+    private func snapshotAsync() async -> TimeFlipDeviceSnapshot {
+        await MainActor.run { controller.snapshot() }
     }
 
-    private func lastEventNumberSync() -> UInt32? {
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = MutableBox<UInt32?>(nil)
-        Task { @MainActor in
-            box.value = controller.lastEventNumber
-            semaphore.signal()
-        }
-        _ = semaphore.wait(timeout: .now() + Constants.snapshotTimeout)
-        return box.value
+    private func lastEventNumberAsync() async -> UInt32? {
+        await MainActor.run { controller.lastEventNumber }
     }
 
     private func parseHex(_ value: String) -> UInt64? {
         let trimmed = value.lowercased().hasPrefix("0x") ? String(value.dropFirst(2)) : value
         return UInt64(trimmed, radix: 16)
-    }
-
-    private final class MutableBox<T>: @unchecked Sendable {
-        var value: T
-
-        init(_ value: T) {
-            self.value = value
-        }
     }
 
     // swiftlint:disable:next discouraged_optional_boolean
@@ -273,11 +264,8 @@ final class MockEventHTTPServer: @unchecked Sendable {
         "\(TimeFlipConstants.minBatteryLevel)-\(TimeFlipConstants.maxBatteryLevel)"
     }
 
-    private func handleStatus() -> Response {
-        guard let value = snapshotSync() else {
-            return .badRequest("status unavailable")
-        }
-        return .ok(value.jsonString())
+    private func handleStatus() async -> Response {
+        .ok(await snapshotAsync().jsonString())
     }
 
     private func handleFlip(params: [String: String]) -> Response {
@@ -355,8 +343,8 @@ final class MockEventHTTPServer: @unchecked Sendable {
         return .ok("event_log message=\(message)")
     }
 
-    private func handleLastHistory() -> Response {
-        guard let last = lastEventNumberSync() else {
+    private func handleLastHistory() async -> Response {
+        guard let last = await lastEventNumberAsync() else {
             return .ok("last_event_number=none")
         }
         return .ok("last_event_number=\(last)")

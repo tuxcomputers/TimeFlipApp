@@ -1,14 +1,20 @@
 import Combine
+import OSLog
 import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
     private let preferencesStore: PreferencesStore
     private let googleClientSecretStore: GoogleClientSecretStore
-    private let devicePasswordStore: TimeFlipDevicePasswordStore
+    private let devicePasswordStore: TimeFlipDevicePasswordStoring
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
+    // Set when a stored preferences blob existed but failed to decode, so the very next
+    // debounced persist (which would otherwise fire from incidental startup state changes,
+    // before the user has made any real edit) doesn't silently clobber it with defaults.
+    private var suppressNextPersist = false
+    private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "app-state")
 
     @Published var currentFacetID: UInt8
     @Published var isPaused: Bool
@@ -57,7 +63,7 @@ final class AppState: ObservableObject {
     init(
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
-        devicePasswordStore: TimeFlipDevicePasswordStore = .shared
+        devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
@@ -134,7 +140,14 @@ final class AppState: ObservableObject {
     }
 
     func activity(for facetID: UInt8) -> Activity? {
-        guard let mapping = facetMappings.first(where: { $0.facetID == facetID }) else {
+        Self.activity(for: facetID, in: facetMappings)
+    }
+
+    /// Free-function form so callers holding a freshly emitted `$facetMappings` payload (e.g. a
+    /// Combine sink) can resolve against it directly instead of the property, which under
+    /// `@Published`'s willSet-based emission hasn't been updated yet at emission time.
+    static func activity(for facetID: UInt8, in mappings: [FacetMapping]) -> Activity? {
+        guard let mapping = mappings.first(where: { $0.facetID == facetID }) else {
             return nil
         }
         let iconName = ActivityLibrary.sanitizeIconName(mapping.iconName)
@@ -245,7 +258,13 @@ final class AppState: ObservableObject {
     }
 
     private func applyPreferences() {
-        guard let payload = preferencesStore.load() else { return }
+        guard let payload = preferencesStore.load() else {
+            if preferencesStore.hasStoredPayload() {
+                logger.error("Stored preferences failed to decode; keeping in-memory defaults for this session without overwriting the stored blob")
+                suppressNextPersist = true
+            }
+            return
+        }
         isApplyingPreferences = true
         let mappings = payload.facetMappings.map { record in
             FacetMapping(
@@ -323,8 +342,11 @@ final class AppState: ObservableObject {
         }
         .store(in: &preferencesCancellables)
 
-        // Google client secret has its own persistence mechanism
+        // Google client secret has its own persistence mechanism, but still needs debouncing
+        // like the general preferences pipeline above — otherwise every keystroke while editing
+        // it in Settings triggers its own Keychain write.
         $googleClientSecret
+            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
             .sink { [weak self] secret in
                 guard let self else { return }
                 self.persistGoogleClientSecret(secret)
@@ -342,6 +364,11 @@ final class AppState: ObservableObject {
 
     private func persistPreferences() {
         guard !isApplyingPreferences else {
+            return
+        }
+        if suppressNextPersist {
+            suppressNextPersist = false
+            logger.warning("Skipped one persist after a failed preferences decode to avoid clobbering the stored blob")
             return
         }
         let records = facetMappings.map { mapping -> FacetMappingRecord in
