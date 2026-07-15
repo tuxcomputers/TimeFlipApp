@@ -35,7 +35,7 @@
 - [x] 26. Split `SettingsViews.swift` (exceeds SwiftLint file-length limit) — extract `ReportSettingsView` first
 - [x] 27. Encode and decode facet colors in the same color space (currently `.deviceRGB` → `.sRGB` drift)
 - [x] 28. Index history parser reads relative to `data.startIndex` (breaks on `Data` slices)
-- [ ] 29. Add `TimeFlipBLEDevice` tests via the `CentralManaging`/`PeripheralManaging` seams (disconnect-during-command, scan-timeout race) — *mock fixes done (monotonic event numbers, receive-limit comment, help text); the fake-peripheral tests are deferred until items 1 and 8 are fixed, since they exercise those exact bugs and would hang/fail today*
+- [x] 29. Add `TimeFlipBLEDevice` tests via the `CentralManaging`/`PeripheralManaging` seams (disconnect-during-command, scan-timeout race) — *`CBPeripheral`/`CBCharacteristic` have no accessible initializer outside CoreBluetooth, so the CBCentralManagerDelegate/CBPeripheralDelegate callbacks can't be driven with a fake peripheral directly. Extracted peripheral-agnostic internal seams instead (`handleMainDisconnect(error:)`, non-private `scheduleTimeout`/`cancelTimeout`, a `#if DEBUG` `test_configureConnectedState` injector, and an injectable `deviceOperationTimeoutSeconds`) and added `TimeFlipBLEDeviceTests.swift` covering both scenarios against those seams.*
 
 ---
 

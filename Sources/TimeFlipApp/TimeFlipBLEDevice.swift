@@ -104,7 +104,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // The single timeout used for every BLE communication with the device (scanning, connecting,
     // service/characteristic discovery, notifications, writes, reads). On timeout, whatever step
     // was in flight is aborted and the peripheral is force-disconnected — see handleTimeout(_:).
-    private let deviceOperationTimeoutSeconds: UInt64 = 30
+    private let deviceOperationTimeoutSeconds: UInt64
     // Peripherals seen during a discovery scan, keyed by identifier, so a user-selected entry
     // can be connected to directly rather than re-scanning and grabbing the first match.
     private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
@@ -143,13 +143,31 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     init(
         central: CentralManaging? = nil,
-        logger: Logger = Logger(subsystem: AppIdentifiers.subsystem, category: "ble-device")
+        logger: Logger = Logger(subsystem: AppIdentifiers.subsystem, category: "ble-device"),
+        deviceOperationTimeoutSeconds: UInt64 = 30
     ) {
         self.central = central ?? CBCentralManager()
         self.logger = logger
+        self.deviceOperationTimeoutSeconds = deviceOperationTimeoutSeconds
         super.init()
         self.central.delegate = self
     }
+
+    #if DEBUG
+    /// Test-only: establishes a connected session directly, bypassing the real discovery flow
+    /// (which needs concrete `CBPeripheral`/`CBService` instances that only CoreBluetooth itself
+    /// can construct). Lets tests reach "connected with known characteristics" so they can start
+    /// a command and then exercise disconnect-cleanup or timeout behavior against it.
+    func test_configureConnectedState(
+        peripheral: PeripheralManaging,
+        characteristics: [CBUUID: CBCharacteristic],
+        isLoggedIn: Bool = true
+    ) {
+        self.peripheral = peripheral
+        self.characteristics = characteristics
+        self.isLoggedIn = isLoggedIn
+    }
+    #endif
 
     // MARK: TimeFlipSessionManaging
 
@@ -490,7 +508,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     /// Schedules a timeout watchdog under `key`, cancelling any previous watchdog registered
     /// under the same key first. `action` only runs if the watchdog isn't cancelled first.
-    private func scheduleTimeout(_ key: String, action: @escaping (TimeFlipBLEDevice) -> Void) {
+    /// Not `private` so TimeFlipBLEDeviceTests can exercise the keyed-cancellation guarantee
+    /// directly (the scan-timeout race this fixes has no reproduction path that doesn't need a
+    /// real CBPeripheral, which can't be constructed outside CoreBluetooth).
+    func scheduleTimeout(_ key: String, action: @escaping (TimeFlipBLEDevice) -> Void) {
         timeoutTasks[key]?.cancel()
         let timeoutSeconds = deviceOperationTimeoutSeconds
         timeoutTasks[key] = Task { [weak self] in
@@ -501,7 +522,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
-    private func cancelTimeout(_ key: String) {
+    func cancelTimeout(_ key: String) {
         timeoutTasks[key]?.cancel()
         timeoutTasks[key] = nil
     }
@@ -1411,8 +1432,17 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             probe.connection = nil
             return
         }
+        handleMainDisconnect(error: error)
+    }
+
+    /// The actual disconnect-cleanup logic for the active (non-probe) session, split out from
+    /// the delegate callback above so it can be exercised directly in tests — CoreBluetooth's
+    /// `CBPeripheral` has no accessible initializer outside the framework's own factories, so
+    /// this method deliberately doesn't need one: it tears down state unconditionally regardless
+    /// of which peripheral disconnected.
+    func handleMainDisconnect(error: Error?) {
         logger.warning("Disconnected from TimeFlip: \(error?.localizedDescription ?? "none", privacy: .public)")
-        failAllPendingContinuations(with: DeviceError.connectionFailed)
+        failAllPendingContinuations(with: error ?? DeviceError.connectionFailed)
         historyStreamContinuation?.finish()
         historyStreamContinuation = nil
         isLoggedIn = false
