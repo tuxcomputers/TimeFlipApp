@@ -72,12 +72,13 @@ final class HistoryIngestor {
                 return ev > lastQueuedEventNumber
             }
             if !newEntries.isEmpty {
-                await writeToLogbook(newEntries)
-                if let maxEv = newEntries.compactMap(\.eventNumber).max() {
+                if let maxEv = await writeToLogbook(newEntries) {
                     lastQueuedEventNumber = max(lastQueuedEventNumber ?? 0, maxEv)
                     lastCommittedEventNumber = max(lastCommittedEventNumber ?? 0, maxEv)
                     persistDeviceCursor()
                     logger.notice("history_ingest logbook advanced_event_to=\(maxEv, privacy: .public)")
+                } else {
+                    logger.error("history_ingest no entries committed this batch; cursor unchanged")
                 }
                 onNewEvents?()
             }
@@ -95,7 +96,12 @@ final class HistoryIngestor {
         }
     }
 
-    private func writeToLogbook(_ entries: [TimeFlipHistoryEntry]) async {
+    /// Writes entries to the logbook in order, stopping at the first write failure so the
+    /// device cursor (advanced by the caller based on the returned value) never skips past an
+    /// uncommitted event — the failed event is retried on the next fetch instead of being lost.
+    @discardableResult
+    private func writeToLogbook(_ entries: [TimeFlipHistoryEntry]) async -> UInt32? {
+        var maxCommitted: UInt32?
         for entry in entries {
             guard let eventNumber = entry.eventNumber else { continue }
             let activity = appState.activity(for: entry.facetID)
@@ -109,7 +115,10 @@ final class HistoryIngestor {
                 isPaused: entry.isPaused,
                 activityName: activity.name
             )
-            dataStore.append(record)
+            guard dataStore.append(record) else {
+                logger.error("logbook_commit_failed ev=\(eventNumber, privacy: .public); halting batch")
+                break
+            }
             // Only accumulate time for active (non-paused) segments
             if !entry.isPaused {
                 let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, facetID: entry.facetID)
@@ -117,8 +126,10 @@ final class HistoryIngestor {
                     appState.incrementDailyTotal(facetID: entry.facetID, by: added)
                 }
             }
+            maxCommitted = eventNumber
             logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) facet=\(entry.facetID, privacy: .public)")
         }
+        return maxCommitted
     }
 
     private func persistLogbookCursor() {

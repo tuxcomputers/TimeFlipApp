@@ -53,6 +53,7 @@ final class DailyFacetTotals {
         totals = [:]
         let records = dataStore.loadEvents(overlappingSince: windowStart)
         for record in records {
+            guard !record.isPaused else { continue }
             accumulate(start: record.startedAt, duration: record.duration, facetID: record.facetID, now: now)
         }
     }

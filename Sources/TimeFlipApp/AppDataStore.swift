@@ -65,28 +65,38 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Logbook (event-number keyed)
 
-    func append(_ event: DeviceEventRecord) {
-        guard let db else { return }
+    @discardableResult
+    func append(_ event: DeviceEventRecord) -> Bool {
+        guard let db else { return false }
         let sql = """
         INSERT OR REPLACE INTO logbook (
             event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%s','now')));
         """
+        var success = false
         queue.sync {
             var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int64(stmt, 1, sqlite3_int64(event.eventNumber))
-                sqlite3_bind_int(stmt, 2, Int32(event.facetID))
-                sqlite3_bind_double(stmt, 3, event.startedAt.timeIntervalSince1970)
-                sqlite3_bind_double(stmt, 4, event.duration)
-                sqlite3_bind_int(stmt, 5, event.isPaused ? 1 : 0)
-                sqlite3_bind_text(stmt, 6, event.activityName, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_double(stmt, 7, Date().timeIntervalSince1970)
-                _ = sqlite3_step(stmt)
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("logbook_append prepare failed ev=\(event.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, sqlite3_int64(event.eventNumber))
+            sqlite3_bind_int(stmt, 2, Int32(event.facetID))
+            sqlite3_bind_double(stmt, 3, event.startedAt.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 4, event.duration)
+            sqlite3_bind_int(stmt, 5, event.isPaused ? 1 : 0)
+            sqlite3_bind_text(stmt, 6, event.activityName, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_double(stmt, 7, Date().timeIntervalSince1970)
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                success = true
                 logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) facet=\(event.facetID, privacy: .public) dur=\(event.duration, privacy: .public)")
+            } else {
+                logger.error("logbook_append failed ev=\(event.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }
+        return success
     }
 
     func loadEvents(after logbookID: Int64?, limit: Int) -> [DeviceEventRecord] {
@@ -391,7 +401,8 @@ final class AppDataStore: IntegrationEventCursorStore {
             duration_s REAL NOT NULL,
             is_paused INTEGER NOT NULL,
             activity_name TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            UNIQUE(event_number)
         );
         """
         let eventCursorSQL = """

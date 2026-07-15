@@ -3,11 +3,11 @@
 ## Checklist
 
 ### High priority
-- [ ] 1. Clean up all pending BLE continuations and device state on disconnect (prevents permanent command-pipeline hang)
-- [ ] 2. Skip `isPaused` records in `seedFromLogbook` (pause bug still present in restart/day-reset path)
-- [ ] 3. Surface SQLite write failures from `AppDataStore.append` and only advance the device cursor on committed rows; add `UNIQUE(event_number)` to `logbook`
-- [ ] 4. Make `appendSheetRow` throw on invalid sheet URL (instead of silently advancing the cursor); quote sheet tab titles in A1 ranges
-- [ ] 5. Fix stale `eventTask` defer clobbering a newer task (identity check + `Task.isCancelled` after awaits)
+- [x] 1. Clean up all pending BLE continuations and device state on disconnect (prevents permanent command-pipeline hang)
+- [x] 2. Skip `isPaused` records in `seedFromLogbook` (pause bug still present in restart/day-reset path)
+- [x] 3. Surface SQLite write failures from `AppDataStore.append` and only advance the device cursor on committed rows; add `UNIQUE(event_number)` to `logbook`
+- [x] 4. Make `appendSheetRow` throw on invalid sheet URL (instead of silently advancing the cursor); quote sheet tab titles in A1 ranges
+- [x] 5. Fix stale `eventTask` defer clobbering a newer task (identity check + `Task.isCancelled` after awaits)
 
 ### Medium priority
 - [ ] 6. Throw immediately in `waitForBluetoothPower` when Bluetooth is already off/unauthorized

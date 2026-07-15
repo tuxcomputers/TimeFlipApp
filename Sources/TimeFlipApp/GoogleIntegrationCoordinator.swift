@@ -76,7 +76,7 @@ final class GoogleIntegrationCoordinator {
     private func appendSheetRow(accessToken: String, sheetURL: String, record: ActivityRecord) async throws {
         guard let destination = GoogleSheetDestination.parse(from: sheetURL) else {
             logger.error("Invalid Google Sheet URL: \(sheetURL, privacy: .public)")
-            return
+            throw GoogleIntegrationCoordinatorError.invalidSheetURL
         }
 
         let range = try await resolveSheetRange(accessToken: accessToken, destination: destination)
@@ -98,7 +98,7 @@ final class GoogleIntegrationCoordinator {
     ) async throws -> String {
         let cacheKey = SheetCacheKey(spreadsheetId: destination.spreadsheetId, sheetGid: destination.sheetGid)
         if let cached = sheetTitleCache[cacheKey] {
-            return "\(cached)!A:C"
+            return Self.quotedSheetRange(title: cached)
         }
 
         let sheets = try await sheetsClient.fetchSheets(
@@ -114,10 +114,16 @@ final class GoogleIntegrationCoordinator {
 
         if let resolvedTitle {
             sheetTitleCache[cacheKey] = resolvedTitle
-            return "\(resolvedTitle)!A:C"
+            return Self.quotedSheetRange(title: resolvedTitle)
         }
 
         return "A:C"
+    }
+
+    /// A1 notation requires sheet names to be single-quoted (with embedded quotes doubled) —
+    /// otherwise a title containing a space or special character produces an invalid range.
+    private static func quotedSheetRange(title: String) -> String {
+        "'\(title.replacingOccurrences(of: "'", with: "''"))'!A:C"
     }
 
     // MARK: - Session helpers
@@ -322,6 +328,7 @@ private struct SheetCacheKey: Hashable {
 enum GoogleIntegrationCoordinatorError: Error {
     case missingAuthManager
     case disabled
+    case invalidSheetURL
 }
 
 struct IntegrationPreferences {

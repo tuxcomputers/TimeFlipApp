@@ -172,10 +172,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             central.cancelPeripheralConnection(peripheral)
         }
         central.stopScan()
-        if let connection = continuations.connection {
-            connection.resume(throwing: DeviceError.connectionFailed)
-            continuations.connection = nil
-        }
+        failAllPendingContinuations(with: DeviceError.connectionFailed)
+        historyStreamContinuation?.finish()
+        historyStreamContinuation = nil
+        isLoggedIn = false
+        characteristics.removeAll()
         continuation?.finish()
         continuation = nil
         stream = nil
@@ -1380,8 +1381,12 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             return
         }
         logger.warning("Disconnected from TimeFlip: \(error?.localizedDescription ?? "none", privacy: .public)")
-        continuations.connection?.resume(throwing: DeviceError.connectionFailed)
-        continuations.connection = nil
+        failAllPendingContinuations(with: DeviceError.connectionFailed)
+        historyStreamContinuation?.finish()
+        historyStreamContinuation = nil
+        isLoggedIn = false
+        characteristics.removeAll()
+        self.peripheral = nil
         onDisconnect?()
     }
 }
