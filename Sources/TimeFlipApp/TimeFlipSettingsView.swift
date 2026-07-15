@@ -68,27 +68,29 @@ struct TimeFlipSettingsView: View {
                     appState.devicePassword = String(newValue.prefix(6))
                 }
             HStack {
-                Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
+                if appState.isPaired {
+                    Button("Forget Device") {
+                        Task { await appState.resetAndForgetDevice() }
+                    }
+                    .disabled(appState.pairingStatus == .pairing)
+                } else {
+                    Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
+                        if appState.isScanningForDevices {
+                            appState.stopDeviceScan()
+                        } else {
+                            appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
+                        }
+                    }
+                    Toggle("All Devices", isOn: $scanAllDevices)
+                        .toggleStyle(.checkbox)
+                        .disabled(appState.isScanningForDevices)
                     if appState.isScanningForDevices {
-                        appState.stopDeviceScan()
-                    } else {
-                        appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
+                        ProgressView()
+                            .controlSize(.small)
                     }
                 }
-                Toggle("All Devices", isOn: $scanAllDevices)
-                    .toggleStyle(.checkbox)
-                    .disabled(appState.isScanningForDevices)
-                if appState.isScanningForDevices {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Spacer()
-                Button("Forget Device") {
-                    Task { await appState.resetAndForgetDevice() }
-                }
-                .disabled(appState.pairingStatus == .pairing)
             }
-            if !appState.discoveredDevices.isEmpty {
+            if !appState.isPaired, !appState.discoveredDevices.isEmpty {
                 Text("Click a device below to pair with it.")
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 4) {

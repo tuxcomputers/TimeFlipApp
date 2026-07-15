@@ -109,13 +109,29 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 self.appState.pairingStatus = .pairing
                 self.appState.wantsPairing = true
-                let outcome = await bleDevice.connectToDiscoveredDevice(id: id)
+                // A newly selected device is almost always still on the factory default —
+                // reusing whatever password a previous (different) device rotated to would
+                // just be wrong here. Try the default first; fall back to the password field
+                // (e.g. a known custom PIN typed in for recovery) only if that's rejected.
+                var attemptedPassword = TimeFlipConstants.defaultPassword
+                var outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: attemptedPassword)
+                if outcome == .wrongPassword, self.appState.devicePassword != TimeFlipConstants.defaultPassword {
+                    attemptedPassword = self.appState.devicePassword
+                    outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: attemptedPassword)
+                }
                 switch outcome {
                 case .connected:
+                    // The probe already confirmed this exact password works — make sure the
+                    // follow-up login() call in startDeviceEvents uses the same one, not
+                    // whatever was left over from a previous device.
+                    self.appState.devicePassword = attemptedPassword
                     self.startDeviceEvents(skipConnect: true)
                 case .notTimeFlip:
                     self.appState.markDeviceInvalid(id)
                     self.appState.pairingStatus = .notPaired
+                    self.appState.wantsPairing = false
+                case .wrongPassword:
+                    self.appState.pairingFailed(message: "Wrong PIN")
                     self.appState.wantsPairing = false
                 case .failed:
                     self.appState.pairingFailed(message: "Connect failed")
