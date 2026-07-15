@@ -17,6 +17,7 @@ struct TimeFlipSettingsView: View {
     @State private var lastAppliedBlinkInterval: UInt8 = 5
     @State private var isAdvancedExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
+    @State private var scanAllDevices: Bool = false
 
     var body: some View {
         Form {
@@ -56,52 +57,69 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Status") {
                 Text(statusText)
             }
-            LabeledContent("Battery") {
-                Text(batteryText)
-            }
-            LabeledContent("System") {
-                Text(systemText)
-            }
-            LabeledContent("Last event") {
-                Text(lastEventText)
-            }
-            LabeledContent("LED Brightness") {
-                brightnessControls
-            }
-            .disabled(!appState.isPaired)
-            LabeledContent("LED Blink Interval") {
-                blinkIntervalControls
-            }
-            .disabled(!appState.isPaired)
-            LabeledContent("Auto-pause (0 disable, max 240m)") {
-                autoPauseControls
-            }
-            .disabled(!appState.isPaired)
         }
     }
 
     private var pairingSection: some View {
         Section("TimeFlip") {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Password (6 digits)", text: $appState.devicePassword)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: appState.devicePassword) { _, newValue in
-                        appState.devicePassword = String(newValue.prefix(6))
-                    }
-            }
             HStack {
-                Button("Pair / Connect") {
-                    appState.requestPairing()
+                if appState.isPaired {
+                    Button("Forget Device") {
+                        Task { await appState.resetAndForgetDevice() }
+                    }
+                    .disabled(appState.pairingStatus == .pairing)
+                } else {
+                    Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
+                        if appState.isScanningForDevices {
+                            appState.stopDeviceScan()
+                        } else {
+                            appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
+                        }
+                    }
+                    Toggle("All Devices", isOn: $scanAllDevices)
+                        .toggleStyle(.checkbox)
+                        .disabled(appState.isScanningForDevices)
+                    if appState.isScanningForDevices {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
-                .disabled(appState.pairingStatus == .pairing || appState.isPaired)
-
-                Button("Forget Device") {
-                    appState.forgetDevice()
-                }
-                .disabled(appState.pairingStatus == .pairing)
             }
-            Text("Put the TimeFlip into pairing mode and tap Pair.")
-                .foregroundStyle(.secondary)
+            if !appState.isPaired, !appState.discoveredDevices.isEmpty {
+                Text("Click a device below to pair with it.")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(appState.discoveredDevices) { device in
+                        let isInvalid = appState.invalidDeviceIDs.contains(device.id)
+                        let statusMessage = appState.deviceStatusMessages[device.id]
+                        HStack(spacing: 6) {
+                            Text(device.name)
+                                .strikethrough(isInvalid)
+                                .foregroundStyle(isInvalid ? .secondary : .primary)
+                            if let statusMessage {
+                                if statusMessage.hasPrefix("Connecting…") {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(statusMessage)
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard !isInvalid else { return }
+                            let wasThisDevicePending = appState.pairingStatus == .pairing
+                                && appState.pendingPairingDeviceID == device.id
+                            if appState.pairingStatus == .pairing {
+                                appState.cancelPairingAttempt()
+                            }
+                            guard !wasThisDevicePending else { return }
+                            appState.selectDiscoveredDevice(device)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -191,6 +209,29 @@ struct TimeFlipSettingsView: View {
         Section("Advanced") {
             DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Battery") {
+                        Text(batteryText)
+                    }
+                    LabeledContent("System") {
+                        Text(systemText)
+                    }
+                    LabeledContent("Last event") {
+                        Text(lastEventText)
+                    }
+                    Divider()
+                    LabeledContent("LED Brightness") {
+                        brightnessControls
+                    }
+                    .disabled(!appState.isPaired)
+                    LabeledContent("LED Blink Interval") {
+                        blinkIntervalControls
+                    }
+                    .disabled(!appState.isPaired)
+                    LabeledContent("Auto-pause (0 disable, max 240m)") {
+                        autoPauseControls
+                    }
+                    .disabled(!appState.isPaired)
+                    Divider()
                     Text("Double-tap sensitivity (accelerometer registers)")
                         .foregroundStyle(.secondary)
                     doubleTapControls
@@ -370,6 +411,9 @@ struct TimeFlipSettingsView: View {
         case .notPaired:
             return "Not paired"
         case .pairing:
+            if let name = appState.pendingPairingDeviceName {
+                return "Trying to pair with \(name)....."
+            }
             return "Pairing..."
         case .paired:
             return "Connected"

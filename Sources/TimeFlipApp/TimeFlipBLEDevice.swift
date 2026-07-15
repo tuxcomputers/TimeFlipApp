@@ -2,6 +2,14 @@
 import Foundation
 import OSLog
 
+enum DeviceConnectOutcome: Sendable, Equatable {
+    case connected
+    case notTimeFlip
+    case wrongPassword
+    case failed
+    case cancelled
+}
+
 @MainActor
 final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private enum DeviceError: Error, CustomStringConvertible {
@@ -14,6 +22,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         case writeFailed(CBUUID)
         case loginFailed
         case commandError(cmd: UInt8, code: UInt8)
+        case cancelled
+        case timedOut
 
         var description: String {
             switch self {
@@ -35,6 +45,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 return "Password rejected by device"
             case .commandError(let cmd, let code):
                 return String(format: "Command 0x%02X failed with code 0x%02X", cmd, code)
+            case .cancelled:
+                return "Connection attempt cancelled"
+            case .timedOut:
+                return "Device did not respond in time"
             }
         }
     }
@@ -49,16 +63,50 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         var writes: [CBUUID: CheckedContinuation<Void, Error>] = [:]
     }
 
+    /// Fully isolated state for a candidate connection under test. None of this touches the
+    /// active session's `peripheral`/`characteristics`/`continuations` — that stays untouched
+    /// and fully functional until the probe proves the candidate connects, is a real TimeFlip,
+    /// and accepts the given password. Only then does connectToDiscoveredDevice commit it.
+    private final class ProbeSession {
+        let peripheral: CBPeripheral
+        var connection: CheckedContinuation<Void, Error>?
+        var services: CheckedContinuation<Void, Error>?
+        var characteristicsContinuation: CheckedContinuation<Void, Error>?
+        var writes: [CBUUID: CheckedContinuation<Void, Error>] = [:]
+        var reads: [CBUUID: CheckedContinuation<Data, Error>] = [:]
+        var characteristics: [CBUUID: CBCharacteristic] = [:]
+
+        init(peripheral: CBPeripheral) {
+            self.peripheral = peripheral
+        }
+    }
+
     private let central: CentralManaging
     private var peripheral: PeripheralManaging?
     private var continuations = Continuations()
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
+    private var activeProbe: ProbeSession?
     private var stream: AsyncStream<TimeFlipEvent>?
     private var continuation: AsyncStream<TimeFlipEvent>.Continuation?
     private var isLoggedIn = false
+    // Set by cancelConnectionAttempt() so a login failure downstream of a cancelled
+    // connect can be told apart from a genuine wrong-PIN rejection.
+    private(set) var wasCancelled = false
     // When true we accept peripherals that advertise the TimeFlip service or name.
     private var allowBroadDiscovery = false
+    // When true, discovered peripherals are only reported via onDeviceDiscovered, never connected to.
+    private var isDiscoveryScanning = false
+    private var discoveryFilterToTimeFlip = true
+    // The single timeout used for every BLE communication with the device (scanning, connecting,
+    // service/characteristic discovery, notifications, writes, reads). On timeout, whatever step
+    // was in flight is aborted and the peripheral is force-disconnected — see handleTimeout(_:).
+    private let deviceOperationTimeoutSeconds: UInt64 = 30
+    // Peripherals seen during a discovery scan, keyed by identifier, so a user-selected entry
+    // can be connected to directly rather than re-scanning and grabbing the first match.
+    private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
     var onDisconnect: (() -> Void)?
+    var onDeviceDiscovered: ((DiscoveredBLEDevice) -> Void)?
+    var onDiscoveryScanStopped: (() -> Void)?
     private var snapshotState = TimeFlipDeviceSnapshot(
         facetID: TimeFlipConstants.unassignedFacetID,
         isPaused: true,
@@ -77,8 +125,6 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private let historyGate = AsyncGate()
 
     private let logger: Logger
-    private let discoveryTimeoutSeconds: UInt64 = 12
-    private let fallbackTimeoutSeconds: UInt64 = 12
     private let requiredCharacteristicUUIDs: Set<CBUUID> = [
         TimeFlipUUIDs.eventsData,
         TimeFlipUUIDs.facets,
@@ -121,6 +167,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     func stop() {
         logger.notice("TimeFlipBLEDevice stopping; tearing down stream and connection")
+        stopDiscoveryScan()
         if let peripheral = peripheral as? CBPeripheral {
             central.cancelPeripheralConnection(peripheral)
         }
@@ -135,9 +182,42 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         logger.notice("TimeFlipBLEDevice stopped")
     }
 
+    /// Scan for TimeFlip-like peripherals and report them via onDeviceDiscovered without connecting.
+    func startDiscoveryScan(filterToTimeFlip: Bool) async {
+        do {
+            try await waitForBluetoothPower()
+        } catch {
+            logger.error("startDiscoveryScan: Bluetooth unavailable")
+            return
+        }
+        guard !isDiscoveryScanning else { return }
+        isDiscoveryScanning = true
+        discoveryFilterToTimeFlip = filterToTimeFlip
+        discoveredPeripherals.removeAll()
+        logger.notice("Starting discovery-only scan (filterToTimeFlip=\(filterToTimeFlip, privacy: .public))")
+        central.scanForPeripherals(
+            withServices: nil,
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        )
+        let timeoutNanoseconds = deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            self?.stopDiscoveryScan()
+        }
+    }
+
+    func stopDiscoveryScan() {
+        guard isDiscoveryScanning else { return }
+        isDiscoveryScanning = false
+        central.stopScan()
+        logger.notice("Stopped discovery-only scan")
+        onDiscoveryScanStopped?()
+    }
+
     func connect() async -> Bool {
         do {
             logger.notice("connect() begin")
+            stopDiscoveryScan()
             try await waitForBluetoothPower()
             try await scanAndConnect()
             try await discoverServicesAndCharacteristics()
@@ -147,6 +227,259 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             logger.error("BLE connect failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
+    }
+
+    /// Connect to a peripheral the user picked from a discovery scan result, verifying it's
+    /// actually a TimeFlip and that it accepts the given password — entirely via an isolated
+    /// probe — before touching the active session at all. If anything about the candidate fails
+    /// (wrong device, wrong password, timeout), the currently connected device (if any) is left
+    /// completely untouched and still fully functional.
+    func connectToDiscoveredDevice(id: UUID, password: String) async -> DeviceConnectOutcome {
+        stopDiscoveryScan()
+        wasCancelled = false
+        guard let target = discoveredPeripherals[id] else {
+            logger.error("connectToDiscoveredDevice: unknown peripheral id")
+            return .failed
+        }
+
+        let probe = ProbeSession(peripheral: target)
+        activeProbe = probe
+        defer {
+            if activeProbe === probe {
+                activeProbe = nil
+            }
+        }
+
+        do {
+            try await waitForBluetoothPower()
+            target.delegate = self
+            try await probeConnect(probe)
+
+            do {
+                try await probeDiscoverTimeFlipCharacteristics(probe)
+            } catch {
+                central.cancelPeripheralConnection(target)
+                if case DeviceError.cancelled = error {
+                    return .cancelled
+                }
+                return .notTimeFlip
+            }
+
+            let loggedIn: Bool
+            do {
+                loggedIn = try await probeAttemptLogin(password: password, probe: probe)
+            } catch {
+                central.cancelPeripheralConnection(target)
+                if case DeviceError.cancelled = error {
+                    return .cancelled
+                }
+                return .failed
+            }
+            guard loggedIn else {
+                central.cancelPeripheralConnection(target)
+                return .wrongPassword
+            }
+
+            // Everything checks out — only now do we touch the active session, replacing
+            // whatever was there before (if anything).
+            if let oldPeripheral = self.peripheral as? CBPeripheral, oldPeripheral !== target {
+                central.cancelPeripheralConnection(oldPeripheral)
+            }
+            self.peripheral = target
+            self.characteristics = probe.characteristics
+            self.isLoggedIn = true
+            activeProbe = nil
+
+            do {
+                try await discoverServicesAndCharacteristics()
+            } catch {
+                if case DeviceError.cancelled = error {
+                    return .cancelled
+                }
+                return .failed
+            }
+            logger.notice("connectToDiscoveredDevice: connected, verified TimeFlip, and login confirmed")
+            return .connected
+        } catch {
+            central.cancelPeripheralConnection(target)
+            if case DeviceError.cancelled = error {
+                return .cancelled
+            }
+            logger.error("connectToDiscoveredDevice failed: \(error.localizedDescription, privacy: .public)")
+            return .failed
+        }
+    }
+
+    /// Cancel an in-progress connectToDiscoveredDevice attempt (user clicked the same or a
+    /// different device mid-connect). If a probe is in flight, only it is torn down — the
+    /// active session (if any) is never touched. Falls back to cancelling the active session's
+    /// own connect attempt only when there's no probe (e.g. the very first pairing attempt).
+    func cancelConnectionAttempt() {
+        logger.notice("Cancelling in-progress connection attempt")
+        wasCancelled = true
+        if let probe = activeProbe {
+            central.cancelPeripheralConnection(probe.peripheral)
+            probe.connection?.resume(throwing: DeviceError.cancelled)
+            probe.connection = nil
+            probe.services?.resume(throwing: DeviceError.cancelled)
+            probe.services = nil
+            probe.characteristicsContinuation?.resume(throwing: DeviceError.cancelled)
+            probe.characteristicsContinuation = nil
+            for (_, continuation) in probe.writes {
+                continuation.resume(throwing: DeviceError.cancelled)
+            }
+            probe.writes.removeAll()
+            for (_, continuation) in probe.reads {
+                continuation.resume(throwing: DeviceError.cancelled)
+            }
+            probe.reads.removeAll()
+            activeProbe = nil
+            return
+        }
+        if let cbPeripheral = peripheral as? CBPeripheral {
+            central.cancelPeripheralConnection(cbPeripheral)
+        }
+        failAllPendingContinuations(with: DeviceError.cancelled)
+    }
+
+    private func probeConnect(_ probe: ProbeSession) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            probe.connection = continuation
+            central.connect(probe.peripheral, options: nil)
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if probe.connection != nil {
+                    self.logger.error("Probe connect timed out")
+                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe connect")
+                    self.central.cancelPeripheralConnection(probe.peripheral)
+                    probe.connection?.resume(throwing: DeviceError.connectionFailed)
+                    probe.connection = nil
+                }
+            }
+        }
+    }
+
+    private func probeDiscoverTimeFlipCharacteristics(_ probe: ProbeSession) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            probe.services = continuation
+            probe.peripheral.discoverServices([TimeFlipUUIDs.service])
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if probe.services != nil {
+                    self.logger.error("Probe service discovery timed out")
+                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe service discovery")
+                    probe.services?.resume(throwing: DeviceError.serviceDiscoveryFailed)
+                    probe.services = nil
+                }
+            }
+        }
+        guard let service = probe.peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.service }) else {
+            throw DeviceError.serviceDiscoveryFailed
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            probe.characteristicsContinuation = continuation
+            probe.peripheral.discoverCharacteristics([TimeFlipUUIDs.password, TimeFlipUUIDs.commandResult], for: service)
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if probe.characteristicsContinuation != nil {
+                    self.logger.error("Probe characteristic discovery timed out")
+                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe characteristic discovery")
+                    probe.characteristicsContinuation?.resume(throwing: DeviceError.serviceDiscoveryFailed)
+                    probe.characteristicsContinuation = nil
+                }
+            }
+        }
+        guard probe.characteristics[TimeFlipUUIDs.password] != nil,
+              probe.characteristics[TimeFlipUUIDs.commandResult] != nil else {
+            throw DeviceError.serviceDiscoveryFailed
+        }
+    }
+
+    private func probeWrite(_ data: Data, to uuid: CBUUID, probe: ProbeSession) async throws {
+        guard let characteristic = probe.characteristics[uuid] else {
+            throw DeviceError.missingCharacteristic(uuid)
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            probe.writes[uuid] = continuation
+            probe.peripheral.writeValue(data, for: characteristic, type: .withResponse)
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if probe.writes[uuid] != nil {
+                    self.logger.error("Probe write timed out for \(uuid.uuidString, privacy: .public)")
+                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe write to \(uuid.uuidString)")
+                    probe.writes[uuid]?.resume(throwing: DeviceError.writeFailed(uuid))
+                    probe.writes[uuid] = nil
+                }
+            }
+        }
+    }
+
+    private func probeRead(_ uuid: CBUUID, probe: ProbeSession) async throws -> Data? {
+        guard let characteristic = probe.characteristics[uuid] else {
+            throw DeviceError.missingCharacteristic(uuid)
+        }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            probe.reads[uuid] = continuation
+            probe.peripheral.readValue(for: characteristic)
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if probe.reads[uuid] != nil {
+                    self.logger.error("Probe read timed out for \(uuid.uuidString, privacy: .public)")
+                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe read from \(uuid.uuidString)")
+                    probe.reads[uuid]?.resume(throwing: DeviceError.readFailed(uuid))
+                    probe.reads[uuid] = nil
+                }
+            }
+        }
+    }
+
+    private func probeAttemptLogin(password: String, probe: ProbeSession) async throws -> Bool {
+        let passwordData = Data(password.utf8)
+        try await probeWrite(passwordData, to: TimeFlipUUIDs.password, probe: probe)
+        guard let response = try await probeRead(TimeFlipUUIDs.commandResult, probe: probe) else {
+            return false
+        }
+        let code = response.first ?? 0
+        return code == 0x02
+    }
+
+    /// Called whenever any single BLE communication (connect, service/characteristic discovery,
+    /// notification, write, read, history stream) doesn't get a response within
+    /// deviceOperationTimeoutSeconds. Unconditionally disconnects and fails whatever else is
+    /// still pending — a timeout on any one step means we stop everything, no exceptions.
+    private func handleTimeout(_ operation: String) {
+        logger.error("\(operation, privacy: .public) timed out after \(self.deviceOperationTimeoutSeconds, privacy: .public)s; disconnecting")
+        print("[TimeFlip] TIMEOUT after \(deviceOperationTimeoutSeconds)s while: \(operation) — disconnecting")
+        if let cbPeripheral = peripheral as? CBPeripheral {
+            central.cancelPeripheralConnection(cbPeripheral)
+        }
+        failAllPendingContinuations(with: DeviceError.timedOut)
+    }
+
+    private func failAllPendingContinuations(with error: Error) {
+        continuations.connection?.resume(throwing: error)
+        continuations.connection = nil
+        continuations.services?.resume(throwing: error)
+        continuations.services = nil
+        continuations.characteristics?.resume(throwing: error)
+        continuations.characteristics = nil
+        for (_, continuation) in continuations.notification {
+            continuation.resume(throwing: error)
+        }
+        continuations.notification.removeAll()
+        for (_, continuation) in continuations.writes {
+            continuation.resume(throwing: error)
+        }
+        continuations.writes.removeAll()
+        for (_, continuation) in continuations.reads {
+            continuation.resume(throwing: error)
+        }
+        continuations.reads.removeAll()
     }
 
     func disconnect() async {
@@ -159,14 +492,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             return false
         }
         do {
-            if try await attemptLogin(with: password) {
-                return true
-            }
-            // Fallback: retry with factory default if user-supplied failed
-            if password != TimeFlipConstants.defaultPassword {
-                logger.notice("Retrying login with factory default password")
-                return try await attemptLogin(with: TimeFlipConstants.defaultPassword)
-            }
+            return try await attemptLogin(with: password)
         } catch {
             logger.error("Login failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -176,19 +502,26 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func attemptLogin(with password: String) async throws -> Bool {
         let passwordData = Data(password.utf8)
         logger.debug("Writing password to device (pwd=\(password, privacy: .private))")
+        print("[TimeFlip] Writing password to device: \(passwordData.hexString())")
         try await write(passwordData, to: TimeFlipUUIDs.password, type: .withResponse)
+        print("[TimeFlip] Password write acknowledged; reading commandResult…")
         guard let response = try await read(TimeFlipUUIDs.commandResult) else {
             logger.error("TimeFlip login had no commandResult response")
+            print("[TimeFlip] Login: no commandResult response (nil)")
             return false
         }
+        print("[TimeFlip] Login commandResult raw bytes: \(response.hexString())")
         let code = response.first ?? 0
-        // Vendor docs conflict: some firmware returns 0x01 or 0x02 for success.
-        if code == 0x01 || code == 0x02 {
+        // Vendor doc v4.3 states 0x01=correct/0x02=wrong, but real hardware observed here does
+        // the opposite (confirmed via logging: wrong password -> 0x01, correct -> 0x02).
+        if code == 0x02 {
             isLoggedIn = true
             logger.notice("TimeFlip login accepted (code=\(code))")
+            print(String(format: "[TimeFlip] Login accepted, code=0x%02X", code))
             return true
         } else {
             logger.error("TimeFlip login rejected code=\(code)")
+            print(String(format: "[TimeFlip] Login rejected, code=0x%02X", code))
             return false
         }
     }
@@ -239,6 +572,73 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         } catch {
             logger.error("Failed to set color facet=\(facetID, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Emulates the official app's apparent behavior of setting a private device password on
+    /// connect (command 0x30), so a stranger with the default PIN can't pair with this device.
+    /// The generated password is also printed so it's recoverable from the terminal if something
+    /// goes wrong with saving/using it.
+    ///
+    /// The new password is only returned (and therefore only saved by the caller) once the
+    /// device has actually confirmed it via a real re-login attempt — the set-password command's
+    /// own ack isn't treated as sufficient proof the device will honor it on the next connect.
+    func rotateDevicePassword() async -> String? {
+        guard isLoggedIn else { return nil }
+        let generatedRandomPassword = String(format: "%06d", Int.random(in: 0...999_999))
+        print("[TimeFlip] Generated random device password: \(generatedRandomPassword)")
+        let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
+        do {
+            _ = try await performCommand(payload)
+        } catch {
+            logger.error("Set-password command failed: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to set new device password: \(error.localizedDescription)")
+            return nil
+        }
+        do {
+            guard try await attemptLogin(with: generatedRandomPassword) else {
+                logger.error("Device rejected re-login with new password; not saving")
+                print("[TimeFlip] Device did NOT confirm new password \(generatedRandomPassword) — not saving")
+                return nil
+            }
+        } catch {
+            logger.error("Failed to confirm new device password: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to confirm new device password: \(error.localizedDescription)")
+            return nil
+        }
+        logger.notice("Device password rotated and confirmed")
+        print("[TimeFlip] Device password confirmed set to: \(generatedRandomPassword)")
+        return generatedRandomPassword
+    }
+
+    /// Sets the device password back to the factory default before "Forget Device" clears our
+    /// own pairing state, so the device isn't left behind on a private password nobody has.
+    /// Returns true only once the reset is confirmed via a real re-login with the default
+    /// password — the caller should not clear its stored password unless this returns true.
+    @discardableResult
+    func resetDevicePasswordToDefault() async -> Bool {
+        guard isLoggedIn else { return false }
+        let payload = Data([0x30]) + Data(TimeFlipConstants.defaultPassword.utf8)
+        do {
+            _ = try await performCommand(payload)
+        } catch {
+            logger.error("Failed to reset device password to default: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to reset device password to default: \(error.localizedDescription)")
+            return false
+        }
+        do {
+            guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
+                logger.error("Device rejected re-login with default password; reset not confirmed")
+                print("[TimeFlip] Device did NOT confirm default password reset — not clearing stored password")
+                return false
+            }
+        } catch {
+            logger.error("Failed to confirm default password reset: \(error.localizedDescription, privacy: .public)")
+            print("[TimeFlip] Failed to confirm default password reset: \(error.localizedDescription)")
+            return false
+        }
+        logger.notice("Device password reset to default and confirmed")
+        print("[TimeFlip] Device password confirmed reset to default: \(TimeFlipConstants.defaultPassword)")
+        return true
     }
 
     func snapshot() -> TimeFlipDeviceSnapshot {
@@ -317,6 +717,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     private func scanAndConnect() async throws {
+        // Broad scan first: real hardware doesn't reliably advertise the TimeFlip service UUID
+        // (confirmed via the diagnostic scan), so the OS-level service-filtered scan below would
+        // just time out first. Broad scan matches on name-or-service, which actually works.
         do {
             try await performScan(filtered: false)
         } catch DeviceError.discoveryTimeout {
@@ -344,9 +747,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
             Task { [weak self] in
                 guard let self else { return }
-                let delaySeconds = filtered ? discoveryTimeoutSeconds : fallbackTimeoutSeconds
-                try? await Task.sleep(nanoseconds: delaySeconds * TimeConstants.nanosecondsPerSecond)
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
                 if self.continuations.connection != nil {
+                    // Nothing is connected yet at this point, so there's no peripheral to
+                    // disconnect from — just stop the scan itself.
                     self.central.stopScan()
                     self.continuations.connection?.resume(throwing: DeviceError.discoveryTimeout)
                     self.continuations.connection = nil
@@ -366,6 +770,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 TimeFlipUUIDs.batteryService,
                 TimeFlipUUIDs.deviceInfoService
             ])
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if self.continuations.services != nil {
+                    self.handleTimeout("Service discovery")
+                }
+            }
         }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -394,11 +805,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
             Task { [weak self] in
                 guard let self else { return }
-                try? await Task.sleep(nanoseconds: fallbackTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-                if let pending = self.continuations.characteristics {
-                    logger.error("Characteristic discovery timed out; failing connect")
-                    pending.resume(throwing: DeviceError.serviceDiscoveryFailed)
-                    self.continuations.characteristics = nil
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if self.continuations.characteristics != nil {
+                    self.handleTimeout("Characteristic discovery")
                 }
             }
         }
@@ -422,6 +831,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
             continuations.writes[uuid] = continuation
             peripheral?.writeValue(data, for: characteristic, type: type)
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if self.continuations.writes[uuid] != nil {
+                    self.handleTimeout("Write to \(uuid.uuidString)")
+                }
+            }
         }
     }
 
@@ -436,6 +852,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
             continuations.reads[uuid] = continuation
             peripheral?.readValue(for: characteristic)
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                if self.continuations.reads[uuid] != nil {
+                    self.handleTimeout("Read from \(uuid.uuidString)")
+                }
+            }
         }
     }
 
@@ -498,7 +921,25 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             return []
         }
 
+        // Idle timeout, not a total-duration cap: a long stream that's actively receiving frames
+        // never trips this: each frame received pushes the deadline back. Only silence for the
+        // full timeout window (device stopped responding entirely) triggers it.
+        var idleWatchdog: Task<Void, Never>?
+        func resetIdleWatchdog() {
+            idleWatchdog?.cancel()
+            idleWatchdog = Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                guard !Task.isCancelled else { return }
+                self.historyStreamContinuation?.finish()
+                self.handleTimeout("History stream (no frame received)")
+            }
+        }
+        resetIdleWatchdog()
+        defer { idleWatchdog?.cancel() }
+
         for await frame in stream {
+            resetIdleWatchdog()
             // Treat any frame with eventNumber==0 as sentinel.
             if frame.count >= 4 {
                 let evNum = frame.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
@@ -530,6 +971,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             }
         }
 
+        idleWatchdog?.cancel()
         await withNotification(TimeFlipUUIDs.history, enabled: false)
         return entries
     }
@@ -540,6 +982,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 continuations.notification[uuid] = continuation
                 peripheral?.setNotifyValue(enabled, for: characteristic)
+                Task { [weak self] in
+                    guard let self else { return }
+                    try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+                    if self.continuations.notification[uuid] != nil {
+                        self.handleTimeout("Set notify (\(enabled ? "on" : "off")) for \(uuid.uuidString)")
+                    }
+                }
             }
             logger.debug("Notify \(enabled ? "ON" : "OFF") for \(uuid.uuidString, privacy: .public)")
         } catch {
@@ -849,21 +1298,39 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
     ) {
         _ = RSSI
         logger.notice("Discovered peripheral \(peripheral.identifier.uuidString, privacy: .public) name=\(peripheral.name ?? "nil", privacy: .public) adv=\(advertisementData)")
-        if allowBroadDiscovery {
-            let loweredName = (peripheral.name ?? "").lowercased()
-            let nameMatches = loweredName.contains("timeflip")
 
-            let advertisedServices = (
-                advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-            ) + (
-                advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? []
-            ) + (
-                advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? []
+        let advertisedServices = (
+            advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        ) + (
+            advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? []
+        ) + (
+            advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? []
+        )
+        let serviceMatches = advertisedServices.contains(TimeFlipUUIDs.service)
+
+        if isDiscoveryScanning {
+            if discoveryFilterToTimeFlip {
+                // The service UUID isn't reliably present in this device's advertisement packet,
+                // so fall back to matching on the (now-confirmed-reliable) advertised name too.
+                let nameMatches = (peripheral.name ?? "").lowercased().contains("timeflip")
+                guard serviceMatches || nameMatches else {
+                    logger.debug("Discovery scan: skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
+                    return
+                }
+            }
+            discoveredPeripherals[peripheral.identifier] = peripheral
+            onDeviceDiscovered?(
+                DiscoveredBLEDevice(id: peripheral.identifier, name: peripheral.name ?? "Unknown Device")
             )
-            let serviceMatches = advertisedServices.contains(TimeFlipUUIDs.service)
+            return
+        }
 
-            guard nameMatches || serviceMatches else {
-                logger.debug("Skipping peripheral \(loweredName, privacy: .public) (no name/service match)")
+        if allowBroadDiscovery {
+            // Service UUID isn't reliably advertised by real hardware (confirmed via the
+            // diagnostic scan), so also accept a name match to actually find the device.
+            let nameMatches = (peripheral.name ?? "").lowercased().contains("timeflip")
+            guard serviceMatches || nameMatches else {
+                logger.debug("Skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
                 return
             }
         }
@@ -874,6 +1341,12 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            logger.notice("Probe connected to \(peripheral.identifier.uuidString, privacy: .public)")
+            probe.connection?.resume(returning: ())
+            probe.connection = nil
+            return
+        }
         logger.notice("Connected to TimeFlip \(peripheral.identifier.uuidString, privacy: .public)")
         continuations.connection?.resume(returning: ())
         continuations.connection = nil
@@ -884,6 +1357,12 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            logger.error("Probe failed to connect: \(error?.localizedDescription ?? "unknown", privacy: .public)")
+            probe.connection?.resume(throwing: DeviceError.connectionFailed)
+            probe.connection = nil
+            return
+        }
         logger.error("Failed to connect: \(error?.localizedDescription ?? "unknown", privacy: .public)")
         continuations.connection?.resume(throwing: DeviceError.connectionFailed)
         continuations.connection = nil
@@ -894,6 +1373,12 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
         didDisconnectPeripheral peripheral: CBPeripheral,
         error: Error?
     ) {
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            logger.notice("Probe peripheral disconnected: \(error?.localizedDescription ?? "none", privacy: .public)")
+            probe.connection?.resume(throwing: DeviceError.connectionFailed)
+            probe.connection = nil
+            return
+        }
         logger.warning("Disconnected from TimeFlip: \(error?.localizedDescription ?? "none", privacy: .public)")
         continuations.connection?.resume(throwing: DeviceError.connectionFailed)
         continuations.connection = nil
@@ -906,6 +1391,16 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
 @MainActor
 extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            if let error {
+                logger.error("Probe service discovery failed: \(error.localizedDescription, privacy: .public)")
+                probe.services?.resume(throwing: DeviceError.serviceDiscoveryFailed)
+            } else {
+                probe.services?.resume(returning: ())
+            }
+            probe.services = nil
+            return
+        }
         if let error {
             logger.error("Service discovery failed: \(error.localizedDescription, privacy: .public)")
             continuations.services?.resume(throwing: DeviceError.serviceDiscoveryFailed)
@@ -921,6 +1416,23 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         didDiscoverCharacteristicsFor service: CBService,
         error: Error?
     ) {
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            if let chars = service.characteristics {
+                for characteristic in chars {
+                    probe.characteristics[characteristic.uuid] = characteristic
+                }
+            }
+            if let error {
+                logger.error("Probe characteristic discovery failed: \(error.localizedDescription, privacy: .public)")
+                probe.characteristicsContinuation?.resume(throwing: DeviceError.serviceDiscoveryFailed)
+                probe.characteristicsContinuation = nil
+            } else if probe.characteristics[TimeFlipUUIDs.password] != nil,
+                      probe.characteristics[TimeFlipUUIDs.commandResult] != nil {
+                probe.characteristicsContinuation?.resume(returning: ())
+                probe.characteristicsContinuation = nil
+            }
+            return
+        }
         if let chars = service.characteristics {
             for characteristic in chars {
                 characteristics[characteristic.uuid] = characteristic
@@ -945,6 +1457,16 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         error: Error?
     ) {
         let uuid = characteristic.uuid
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            if let continuation = probe.reads.removeValue(forKey: uuid) {
+                if error != nil {
+                    continuation.resume(throwing: DeviceError.readFailed(uuid))
+                } else {
+                    continuation.resume(returning: characteristic.value ?? Data())
+                }
+            }
+            return
+        }
         let valueHex = characteristic.value?.hexString() ?? "nil"
         logger.debug("didUpdateValue uuid=\(uuid.uuidString, privacy: .public) value=\(valueHex, privacy: .public) err=\(String(describing: error))")
         if let continuation = continuations.reads.removeValue(forKey: uuid) {
@@ -995,6 +1517,16 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         error: Error?
     ) {
         let uuid = characteristic.uuid
+        if let probe = activeProbe, peripheral === probe.peripheral {
+            if let continuation = probe.writes.removeValue(forKey: uuid) {
+                if error != nil {
+                    continuation.resume(throwing: DeviceError.writeFailed(uuid))
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+            return
+        }
         logger.debug("didWriteValue uuid=\(uuid.uuidString, privacy: .public) err=\(String(describing: error))")
         if let continuation = continuations.writes.removeValue(forKey: uuid) {
             if let error {

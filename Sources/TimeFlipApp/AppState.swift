@@ -5,6 +5,7 @@ import SwiftUI
 final class AppState: ObservableObject {
     private let preferencesStore: PreferencesStore
     private let googleClientSecretStore: GoogleClientSecretStore
+    private let devicePasswordStore: TimeFlipDevicePasswordStore
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -34,21 +35,33 @@ final class AppState: ObservableObject {
     @Published var doubleTapParameters: DoubleTapParameters?
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
+    @Published var discoveredDevices: [DiscoveredBLEDevice] = []
+    @Published var isScanningForDevices: Bool = false
+    @Published var invalidDeviceIDs: Set<UUID> = []
+    @Published var deviceStatusMessages: [UUID: String] = [:]
+    @Published var pendingPairingDeviceName: String?
+    @Published var pendingPairingDeviceID: UUID?
     var onPairingChange: ((Bool) -> Void)?
-    var onPairingRequest: (() -> Void)?
+    var onDeviceSelectedForPairing: ((UUID) -> Void)?
+    var onCancelPairingAttempt: (() -> Void)?
+    var onResetDevicePasswordRequest: (() async -> Bool)?
     var onCurrentFacetMappingChange: (() -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
     var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
     var onDoubleTapParametersRequest: (() async -> DoubleTapParameters?)?
+    var onStartDeviceScan: ((Bool) -> Void)?
+    var onStopDeviceScan: (() -> Void)?
 
     init(
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
-        googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore()
+        googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
+        devicePasswordStore: TimeFlipDevicePasswordStore = .shared
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
+        self.devicePasswordStore = devicePasswordStore
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         batteryLevel = nil
@@ -77,7 +90,15 @@ final class AppState: ObservableObject {
 
         applyPreferences()
         loadClientSecretOnce()
+        loadDevicePassword()
         observePreferences()
+    }
+
+    private func loadDevicePassword() {
+        let wasApplying = isApplyingPreferences
+        isApplyingPreferences = true
+        devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
+        isApplyingPreferences = wasApplying
     }
 
     func loadClientSecretOnce() {
@@ -136,10 +157,73 @@ final class AppState: ObservableObject {
         }
     }
 
-    func requestPairing() {
-        wantsPairing = true
-        pairingStatus = .pairing
-        onPairingRequest?()
+    func startDeviceScan(filterToTimeFlip: Bool) {
+        // invalidDeviceIDs is intentionally NOT reset here: it's a running memory of
+        // confirmed-not-TimeFlip devices, so they stay struck-through/unclickable on rescans.
+        // Transient per-device messages (connecting/wrong PIN/etc.) don't survive a fresh scan.
+        discoveredDevices = []
+        for id in deviceStatusMessages.keys where !invalidDeviceIDs.contains(id) {
+            deviceStatusMessages[id] = nil
+        }
+        isScanningForDevices = true
+        onStartDeviceScan?(filterToTimeFlip)
+    }
+
+    func stopDeviceScan() {
+        isScanningForDevices = false
+        onStopDeviceScan?()
+    }
+
+    func deviceScanStopped() {
+        isScanningForDevices = false
+    }
+
+    func clearDiscoveredDevicesOnClose() {
+        if isScanningForDevices {
+            stopDeviceScan()
+        }
+        discoveredDevices = []
+    }
+
+    func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {
+        pendingPairingDeviceID = device.id
+        pendingPairingDeviceName = device.name
+        deviceStatusMessages[device.id] = "Connecting… (click to cancel)"
+        onDeviceSelectedForPairing?(device.id)
+    }
+
+    func cancelPairingAttempt() {
+        onCancelPairingAttempt?()
+        if let id = pendingPairingDeviceID {
+            deviceStatusMessages[id] = nil
+        }
+        pendingPairingDeviceID = nil
+        pendingPairingDeviceName = nil
+        pairingStatus = .notPaired
+        wantsPairing = false
+    }
+
+    func markDeviceInvalid(_ id: UUID) {
+        invalidDeviceIDs.insert(id)
+        deviceStatusMessages[id] = "Not a TimeFlip"
+        if pendingPairingDeviceID == id {
+            pendingPairingDeviceID = nil
+            pendingPairingDeviceName = nil
+        }
+    }
+
+    func addDiscoveredDevice(_ device: DiscoveredBLEDevice) {
+        guard !discoveredDevices.contains(where: { $0.id == device.id }) else { return }
+        discoveredDevices.append(device)
+    }
+
+    func resetAndForgetDevice() async {
+        let confirmed = await onResetDevicePasswordRequest?() ?? true
+        guard confirmed else {
+            pairingStatus = .failed("Could not confirm password reset — device left paired")
+            return
+        }
+        forgetDevice()
     }
 
     func forgetDevice() {
@@ -156,6 +240,7 @@ final class AppState: ObservableObject {
         lastEventDate = nil
         deviceInfo = nil
         autoPauseMinutes = nil
+        devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }
 
@@ -183,7 +268,6 @@ final class AppState: ObservableObject {
         pairingStatus = wantsPairing ? .pairing : .notPaired
         pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
         pairedDeviceUUID = payload.pairedDeviceUUID
-        devicePassword = payload.devicePassword ?? devicePassword
         if let storedBrightness = payload.ledBrightnessPercent {
             ledBrightnessPercent = max(1, min(100, storedBrightness))
         }
@@ -225,7 +309,6 @@ final class AppState: ObservableObject {
             $googleCalendarName.map { _ in () }.eraseToAnyPublisher(),
             $googleSheetURL.map { _ in () }.eraseToAnyPublisher(),
             $googleClientID.map { _ in () }.eraseToAnyPublisher(),
-            $devicePassword.map { _ in () }.eraseToAnyPublisher(),
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
@@ -245,6 +328,14 @@ final class AppState: ObservableObject {
             .sink { [weak self] secret in
                 guard let self else { return }
                 self.persistGoogleClientSecret(secret)
+            }
+            .store(in: &preferencesCancellables)
+
+        // Device password is Keychain-backed, not part of the plaintext preferences blob
+        $devicePassword
+            .sink { [weak self] password in
+                guard let self, !self.isApplyingPreferences else { return }
+                self.persistDevicePassword(password)
             }
             .store(in: &preferencesCancellables)
     }
@@ -275,7 +366,6 @@ final class AppState: ObservableObject {
             wantsPairing: wantsPairing,
             pairedDeviceName: pairedDeviceName,
             pairedDeviceUUID: pairedDeviceUUID,
-            devicePassword: devicePassword,
             ledBrightnessPercent: ledBrightnessPercent,
             autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
             blinkIntervalSeconds: clampBlinkInterval(blinkIntervalSeconds),
@@ -304,6 +394,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func persistDevicePassword(_ password: String) {
+        do {
+            try devicePasswordStore.savePassword(password)
+        } catch {
+            // Ignore persistence errors; the in-memory value still drives the current session.
+        }
+    }
+
     func limitMinutes(for facetID: UInt8) -> Int {
         mappingIndex(for: facetID).map { clampLimit(facetMappings[$0].limitMinutes) } ?? 0
     }
@@ -327,6 +425,12 @@ final class AppState: ObservableObject {
         pairingStatus = .paired
         pairedDeviceName = name
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
+        if let id = pendingPairingDeviceID {
+            deviceStatusMessages[id] = nil
+            pendingPairingDeviceID = nil
+            pendingPairingDeviceName = nil
+        }
+        discoveredDevices = []
         onPairingChange?(true)
         persistPreferences()
     }
@@ -334,6 +438,11 @@ final class AppState: ObservableObject {
     func pairingFailed(message: String?) {
         isPaired = false
         pairingStatus = .failed(message)
+        if let id = pendingPairingDeviceID {
+            deviceStatusMessages[id] = message ?? "Failed"
+            pendingPairingDeviceID = nil
+            pendingPairingDeviceName = nil
+        }
         onPairingChange?(false)
         persistPreferences()
     }

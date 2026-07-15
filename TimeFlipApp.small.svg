@@ -7,8 +7,8 @@
    height="520"
    viewBox="0 0 520.00001 520"
    version="1.1"
-   sodipodi:docname="dodecahedron(1).svg"
-   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   sodipodi:docname="TimeFlipApp.small.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -37,7 +37,7 @@
   </defs>
   <sodipodi:namedview
      id="namedview22"
-     pagecolor="#ffffff"
+     pagecolor="#000000"
      bordercolor="#000000"
      borderopacity="0.25"
      inkscape:showpageshadow="2"
@@ -45,13 +45,13 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="1.2222222"
-     inkscape:cx="255.27273"
+     inkscape:cx="254.86364"
      inkscape:cy="256.5"
-     inkscape:window-width="1720"
-     inkscape:window-height="1382"
-     inkscape:window-x="2337"
+     inkscape:window-width="3008"
+     inkscape:window-height="1576"
+     inkscape:window-x="0"
      inkscape:window-y="30"
-     inkscape:window-maximized="0"
+     inkscape:window-maximized="1"
      inkscape:current-layer="scene" />
   <style
      id="style1">
@@ -60,6 +60,12 @@
           .vertex{fill:#b45309;stroke:none}
           .bg{fill:transparent}
         </style>
+  <circle
+     style="fill:#ffffff;stroke-width:23.9291;stroke-dasharray:143.289, 143.289"
+     id="path1"
+     cx="260"
+     cy="260"
+     r="250" />
   <g
      id="g22"
      transform="translate(-104.00423,-103.7646)" />
@@ -264,9 +270,11 @@
        style="fill:none;stroke:#e83a44;stroke-width:16;stroke-dasharray:96, 64;stroke-dashoffset:83.2;stroke-opacity:1"
        d="M 434.7767,81.458699 C 480.0178,126.69981 508,189.19981 508,258.2354 c 0,69.03559 -27.9822,131.53559 -73.2233,176.7767"
        id="path23" />
-    <path
-       style="fill:none;stroke:#e83a44;stroke-width:16;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker-end:url(#ConcaveTriangle)"
-       d="M 434.7767,435.0121 C 389.53559,480.2532 327.03559,508.2354 258,508.2354 119.92881,508.2354 8,396.30659 8,258.2354 8,120.16421 119.92881,8.2353992 258,8.2353992 c 69.03559,0 131.53559,27.9821998 176.7767,73.2232998"
-       id="path22" />
   </g>
+  <path
+     style="fill:none;stroke:#e83a44;stroke-width:16;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker-end:url(#ConcaveTriangle)"
+     d="M 434.7767,435.0121 C 389.53559,480.2532 327.03559,508.2354 258,508.2354 119.92881,508.2354 8,396.30659 8,258.2354 8,120.16421 119.92881,8.2353992 258,8.2353992 c 69.03559,0 131.53559,18.9821998 176.7767,73.2232998"
+     id="path22"
+     transform="translate(2.5644458,1.8823001)"
+     sodipodi:nodetypes="csssc" />
 </svg>
