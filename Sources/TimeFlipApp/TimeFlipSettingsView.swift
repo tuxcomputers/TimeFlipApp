@@ -57,15 +57,6 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Status") {
                 Text(statusText)
             }
-            LabeledContent("Battery") {
-                Text(batteryText)
-            }
-            LabeledContent("System") {
-                Text(systemText)
-            }
-            LabeledContent("Last event") {
-                Text(lastEventText)
-            }
             LabeledContent("LED Brightness") {
                 brightnessControls
             }
@@ -237,6 +228,16 @@ struct TimeFlipSettingsView: View {
         Section("Advanced") {
             DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Battery") {
+                        Text(batteryText)
+                    }
+                    LabeledContent("System") {
+                        Text(systemText)
+                    }
+                    LabeledContent("Last event") {
+                        Text(lastEventText)
+                    }
+                    Divider()
                     Text("Double-tap sensitivity (accelerometer registers)")
                         .foregroundStyle(.secondary)
                     doubleTapControls

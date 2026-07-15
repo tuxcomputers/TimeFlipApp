@@ -167,12 +167,25 @@ The app will now automatically sync your time tracking data to Google Calendar a
 ### Pairing Your Device
 
 1. Ensure your TimeFlip2 device is powered on and within Bluetooth range
-2. Open the TimeFlip app preferences
-3. Go to the "Device" tab
-4. Enter your device password (default is `000000`)
-5. Click "Pair Device"
-6. Wait for the connection to establish
-7. Once connected, the menu bar will show the current activity
+2. **If your device is already connected to the official TimeFlip app, you must explicitly
+   disconnect it there first** — in the official app: go to **Settings**, tap the **three dots**,
+   then **"Disconnect TimeFlip"**. Turning off Bluetooth on your phone is **not** enough: the
+   official app appears to set a private, account-specific device password when it connects, so
+   even after the Bluetooth radio link drops, the device is left on a password other than the
+   default `000000` and this app won't be able to log in. Only the explicit "Disconnect TimeFlip"
+   action resets it back to default.
+3. Open the TimeFlip app preferences
+4. Go to the "Device" tab
+5. Enter your device password (default is `000000`)
+6. Click **"Scan for Devices"** (check **"All Devices"** if you don't see your TimeFlip show up
+   under the default TimeFlip-only filter)
+7. Once your device appears in the results list below, click it to attempt pairing
+   - The app connects and verifies it's actually a TimeFlip before proceeding; a device that
+     fails this check is struck through and can't be clicked again
+   - While connecting, the row shows a "Connecting… (click to cancel)" status — click it again
+     to abort and disconnect
+   - If pairing fails (e.g. wrong password), the row shows why (e.g. "Wrong PIN")
+8. Once connected, the menu bar will show the current activity
 
 ![Preferences - Device](screenshot/preferences-device.png)
 
