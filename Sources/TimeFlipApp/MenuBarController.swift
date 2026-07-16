@@ -321,13 +321,16 @@ final class MenuBarController: NSObject {
         onPauseToggle?(!isPaused)
     }
 
-    /// Splits the status item into two click zones: the left side (icon + activity name) opens
-    /// the dropdown menu as before; the right side (duration/indicator) toggles pause/resume
-    /// directly without opening anything.
+    /// Splits the status item into two click zones, but only once the device is actually
+    /// paired: the left side (icon + activity name) opens the dropdown menu as before; the right
+    /// side (duration/indicator) toggles pause/resume directly without opening anything. If the
+    /// device has never connected (or can't connect), there's no pause/resume state to toggle, so
+    /// any click just pops the menu.
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        guard let event = NSApp.currentEvent else {
+        let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
+        guard isPaired, let event = NSApp.currentEvent else {
             showMenu()
             return
         }
