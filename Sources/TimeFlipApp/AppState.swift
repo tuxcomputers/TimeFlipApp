@@ -7,6 +7,7 @@ final class AppState: ObservableObject {
     private let preferencesStore: PreferencesStore
     private let googleClientSecretStore: GoogleClientSecretStore
     private let devicePasswordStore: TimeFlipDevicePasswordStoring
+    private let developerConfigStore: DeveloperConfigStoring // Developer mode; see DeveloperConfigStore.swift
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -41,6 +42,9 @@ final class AppState: ObservableObject {
     @Published var doubleTapParameters: DoubleTapParameters?
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
+    // Developer mode: true once config.json has been found and read (see the "Developer mode"
+    // section below and DeveloperConfigStore.swift). Remove together with that section.
+    @Published private(set) var isDeveloperConfigLoaded: Bool = false
     @Published var discoveredDevices: [DiscoveredBLEDevice] = []
     @Published var isScanningForDevices: Bool = false
     @Published var invalidDeviceIDs: Set<UUID> = []
@@ -63,11 +67,13 @@ final class AppState: ObservableObject {
     init(
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
-        devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared
+        devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared,
+        developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
         self.devicePasswordStore = devicePasswordStore
+        self.developerConfigStore = developerConfigStore
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         batteryLevel = nil
@@ -97,7 +103,35 @@ final class AppState: ObservableObject {
         applyPreferences()
         loadClientSecretOnce()
         loadDevicePassword()
+        if DeveloperMode.isEnabled { applyDeveloperConfig() }
         observePreferences()
+    }
+
+    // MARK: - Developer mode
+    // To remove developer mode: delete this section, the `isDeveloperConfigLoaded` property,
+    // the `developerConfigStore` property/init param, and every other `DeveloperMode.isEnabled`
+    // call site below (in persistGoogleClientSecret, persistDevicePassword, persistPreferences).
+
+    private var isDeveloperConfigActive: Bool {
+        DeveloperMode.isEnabled && isDeveloperConfigLoaded
+    }
+
+    private func applyDeveloperConfig() {
+        guard let config = developerConfigStore.load() else { return }
+        isDeveloperConfigLoaded = true
+        googleClientID = config.googleClientID ?? googleClientID
+        googleClientSecret = config.googleClientSecret ?? googleClientSecret
+        devicePassword = config.devicePassword ?? devicePassword
+    }
+
+    private func persistDeveloperConfig() {
+        developerConfigStore.save(
+            DeveloperConfigPayload(
+                googleClientID: sanitizedClientID(),
+                googleClientSecret: googleClientSecret.isEmpty ? nil : googleClientSecret,
+                devicePassword: devicePassword
+            )
+        )
     }
 
     private func loadDevicePassword() {
@@ -399,6 +433,9 @@ final class AppState: ObservableObject {
             doubleTapParameters: doubleTapParameters
         )
         preferencesStore.save(payload)
+        if isDeveloperConfigActive {
+            persistDeveloperConfig()
+        }
     }
 
     private func sanitizedSheetURL() -> String? {
@@ -413,6 +450,10 @@ final class AppState: ObservableObject {
 
     private func persistGoogleClientSecret(_ secret: String) {
         guard !isApplyingPreferences else { return }
+        if isDeveloperConfigActive {
+            persistDeveloperConfig()
+            return
+        }
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             try googleClientSecretStore.saveSecret(trimmed.isEmpty ? nil : trimmed)
@@ -422,6 +463,10 @@ final class AppState: ObservableObject {
     }
 
     private func persistDevicePassword(_ password: String) {
+        if isDeveloperConfigActive {
+            persistDeveloperConfig()
+            return
+        }
         do {
             try devicePasswordStore.savePassword(password)
         } catch {
