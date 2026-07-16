@@ -35,6 +35,18 @@ enum SettingsLayoutConstants {
         static let iconPointSize: CGFloat = 24
     }
 
+    enum ColorPicker {
+        static let swatchButtonSize: CGFloat = 20
+        static let swatchStrokeWidth: CGFloat = 1
+        static let swatchStrokeOpacity: CGFloat = 0.2
+        static let rowSwatchSize: CGFloat = 14
+        static let rowSwatchCornerRadius: CGFloat = 3
+        static let rowSpacing: CGFloat = 8
+        static let rowVerticalPadding: CGFloat = 4
+        static let rowHorizontalPadding: CGFloat = 8
+        static let listPadding: CGFloat = 6
+    }
+
     enum FacetList {
         static let rowSpacing: CGFloat = 12
         static let iconSize: CGFloat = 20
