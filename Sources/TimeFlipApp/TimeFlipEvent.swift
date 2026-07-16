@@ -145,6 +145,37 @@ extension TimeFlipSystemState.HardwareStatus {
     }
 }
 
+extension TimeFlipEvent {
+    /// The `event_type` name and decoded payload to record in `device_notifications` for this
+    /// event, or `nil` for events that don't belong there. `facetChanged` is the live "Facets"
+    /// characteristic value, not the history-stream-derived `facet_flip` event_type (which
+    /// belongs in `device_events` instead) — see docs/database-design.md and
+    /// docs/operation-spec.md for the full classification.
+    var deviceNotification: (eventType: String, payload: String?)? {
+        switch self {
+        case .facetChanged:
+            return nil
+        case .doubleTap(let payload):
+            return ("double_tap", "facet=\(payload.facetID) pauseOn=\(payload.pauseOn)")
+        case .autoPauseMinutes(let minutes):
+            return ("auto_pause_minutes", "\(minutes)")
+        case .batteryLevel(let level):
+            return ("battery_level", "\(level)")
+        case .systemState(let state):
+            return ("system_state", "status=\(state.syncStatus) hardware=\(state.hardwareStatus)")
+        case .deviceInfo(let info):
+            let manufacturer = info.manufacturer ?? "nil"
+            let model = info.modelNumber ?? "nil"
+            let hardware = info.hardwareRevision ?? "nil"
+            let firmware = info.firmwareRevision ?? "nil"
+            let systemID = info.systemID ?? "nil"
+            return ("device_info", "manufacturer=\(manufacturer) model=\(model) hardware=\(hardware) firmware=\(firmware) systemID=\(systemID)")
+        case .eventLog(let message):
+            return ("event_log", message)
+        }
+    }
+}
+
 extension TimeFlipEvent: CustomStringConvertible {
     var description: String {
         switch self {

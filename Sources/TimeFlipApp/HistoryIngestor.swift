@@ -17,6 +17,7 @@ final class HistoryIngestor {
     private var isFetching = false
     private var pending = false
     private let debounceInterval: UInt64 = 250_000_000 // 250ms
+    private var periodicFetchTimer: Timer?
 
     private let deviceCursorIdentifier = "device-history"
 
@@ -34,6 +35,34 @@ final class HistoryIngestor {
         self.dailyTotals = dailyTotals
         self.onNewEvents = onNewEvents
         self.onLatestEntry = onLatestEntry
+    }
+
+    @MainActor
+    deinit {
+        periodicFetchTimer?.invalidate()
+    }
+
+    /// Starts a repeating timer (interval from the `fetch_history_interval_seconds` setting) that
+    /// re-fetches device history so any entries the device hasn't pushed a live notification for
+    /// yet still get picked up, on top of the fetches already triggered by live facet/pause
+    /// events. Safe to call again (e.g. if the setting changes) -- replaces any existing timer.
+    func startPeriodicFetchTimer() {
+        periodicFetchTimer?.invalidate()
+        let interval = dataStore.loadFetchHistoryIntervalSeconds()
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshHistory(trigger: "periodic")
+            }
+        }
+        timer.tolerance = interval * 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        periodicFetchTimer = timer
+        logger.notice("periodic_fetch_timer_started interval_s=\(interval, privacy: .public)")
+    }
+
+    func stopPeriodicFetchTimer() {
+        periodicFetchTimer?.invalidate()
+        periodicFetchTimer = nil
     }
 
     func refreshHistory(trigger: String) async {
@@ -62,6 +91,12 @@ final class HistoryIngestor {
         }
 
         // Deliver all but the last entry to the logbook; keep the last entry for live menu/state updates.
+        // Must run BEFORE the live-entry recordDeviceEvent call below: AppDataStore.recordDeviceEvent
+        // tracks the highest event_number it's seen so it can pick UPDATE vs INSERT without an
+        // ON CONFLICT round-trip, so device_events rows have to be written in ascending
+        // event_number order. Recording the live (highest) entry first would make every one of
+        // these lower-numbered entries look "already superseded", taking the UPDATE branch against
+        // a row that was never inserted -- a silent no-op that drops the entire backfill batch.
         let deliverableEntries = Array(rawEntries.dropLast())
         if deliverableEntries.isEmpty {
             logger.debug("history_ingest no deliverable entries (live entry withheld for UI)")
@@ -82,6 +117,19 @@ final class HistoryIngestor {
                 }
                 onNewEvents?()
             }
+        }
+
+        // The device always reports its still-open, in-progress segment as the last frame (see
+        // docs/timeflip.md §5); record it as not-yet-finalised so device_events reflects the live
+        // segment, growing in duration on each refresh until a later event closes it out.
+        if let latestEventNumber = latestEntry.eventNumber {
+            dataStore.recordDeviceEvent(
+                eventNumber: latestEventNumber,
+                deviceFace: latestEntry.facetID,
+                startedAt: latestEntry.startedAt,
+                durationSeconds: latestEntry.duration,
+                isPaused: latestEntry.isPaused
+            )
         }
 
         // Update UI with latest entry AFTER accumulating deliverable entries
@@ -119,6 +167,16 @@ final class HistoryIngestor {
                 logger.error("logbook_commit_failed ev=\(eventNumber, privacy: .public); halting batch")
                 break
             }
+            // Only reached for entries the device has moved past (a later event closed them out),
+            // so this is always the finalising write for this event_number -- see the live-entry
+            // recording above for the in-progress segment.
+            dataStore.recordDeviceEvent(
+                eventNumber: eventNumber,
+                deviceFace: entry.facetID,
+                startedAt: entry.startedAt,
+                durationSeconds: entry.duration,
+                isPaused: entry.isPaused
+            )
             // Only accumulate time for active (non-paused) segments
             if !entry.isPaused {
                 let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, facetID: entry.facetID)
