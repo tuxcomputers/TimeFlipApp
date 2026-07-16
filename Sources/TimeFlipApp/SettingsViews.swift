@@ -151,8 +151,7 @@ private struct TopFacetEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
-                ColorPicker("", selection: $mapping.color, supportsOpacity: false)
-                    .labelsHidden()
+                FacetColorPicker(selection: $mapping.color)
             }
 
             HStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
@@ -294,6 +293,74 @@ private struct IconGridCell: View {
         isSelected
             ? SettingsLayoutConstants.IconGrid.selectionStrokeWidth
             : SettingsLayoutConstants.IconGrid.unselectedStrokeWidth
+    }
+}
+
+/// Custom color picker restricted to `ActivityLibrary.colorOptions` — the system-color palette
+/// shown in the design's swatch list — instead of AppKit's full color wheel/sliders.
+private struct FacetColorPicker: View {
+    @Binding var selection: Color
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Circle()
+                .fill(selection)
+                .overlay(
+                    Circle().stroke(
+                        Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity),
+                        lineWidth: SettingsLayoutConstants.ColorPicker.swatchStrokeWidth
+                    )
+                )
+                .frame(
+                    width: SettingsLayoutConstants.ColorPicker.swatchButtonSize,
+                    height: SettingsLayoutConstants.ColorPicker.swatchButtonSize
+                )
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented) {
+            ColorOptionList(selection: $selection) {
+                isPresented = false
+            }
+        }
+    }
+}
+
+private struct ColorOptionList: View {
+    @Binding var selection: Color
+    let onSelect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(ActivityLibrary.colorOptions) { option in
+                Button {
+                    selection = option.color
+                    onSelect()
+                } label: {
+                    HStack(spacing: SettingsLayoutConstants.ColorPicker.rowSpacing) {
+                        RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                            .fill(option.color)
+                            .frame(
+                                width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
+                                height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
+                            )
+                        Text(option.name)
+                        Spacer()
+                        if selection == option.color {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, SettingsLayoutConstants.ColorPicker.rowVerticalPadding)
+                    .padding(.horizontal, SettingsLayoutConstants.ColorPicker.rowHorizontalPadding)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(SettingsLayoutConstants.ColorPicker.listPadding)
     }
 }
 
