@@ -8,10 +8,26 @@ CREATE TABLE IF NOT EXISTS face (
 );
 
 INSERT INTO face (face_id, category_id)
-SELECT src.face_id, (SELECT category_id FROM category WHERE category_name = 'Unassigned')
-FROM (
-    SELECT 1 AS face_id UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
-    UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8
-    UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12
-) AS src
-WHERE NOT EXISTS (SELECT 1 FROM face WHERE face.face_id = src.face_id);
+SELECT 1, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 1);
+INSERT INTO face (face_id, category_id)
+SELECT 2, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 2);
+INSERT INTO face (face_id, category_id)
+SELECT 3, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 3);
+INSERT INTO face (face_id, category_id)
+SELECT 4, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 4);
+INSERT INTO face (face_id, category_id)
+SELECT 5, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 5);
+INSERT INTO face (face_id, category_id)
+SELECT 6, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 6);
+INSERT INTO face (face_id, category_id)
+SELECT 7, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 7);
+INSERT INTO face (face_id, category_id)
+SELECT 8, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 8);
+INSERT INTO face (face_id, category_id)
+SELECT 9, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 9);
+INSERT INTO face (face_id, category_id)
+SELECT 10, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 10);
+INSERT INTO face (face_id, category_id)
+SELECT 11, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 11);
+INSERT INTO face (face_id, category_id)
+SELECT 12, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 12);

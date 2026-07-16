@@ -20,3 +20,13 @@
   (e.g. `started_at` / `started_at_timezone`).
 - Store local time as ISO 8601 text without a UTC offset/`Z` suffix (e.g.
   `2026-07-16T09:30:00`) — the offset lives in the timezone column, not the timestamp itself.
+
+## Seed inserts
+
+- Every seed `INSERT` must be idempotent via the guarded pattern in `005_category.sql`:
+  `INSERT INTO <table> (<columns>) SELECT <values> WHERE NOT EXISTS (SELECT 1 FROM <table> WHERE
+  <uniqueness condition>);` — never `INSERT ... VALUES (...) ON CONFLICT DO NOTHING`.
+- Each seed row is its own separate guarded `INSERT` statement (see `001_event_type.sql`,
+  `003_icon.sql`, `004_colour.sql`, `009_setting.sql`) — do not combine multiple rows into one
+  statement with `UNION ALL`. This keeps each row's existence check self-contained, so a DDL file
+  that adds a new seed row to an otherwise-already-seeded table still inserts just the new row.

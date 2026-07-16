@@ -59,6 +59,7 @@ facet or paused/resumed, marking the end of the previous segment.
 | `started_at_timezone` | TEXT  | IANA timezone identifier (e.g. `America/New_York`) `started_at` was recorded in.            |
 | `duration_seconds`  | REAL    | How long the segment lasted, in seconds.                                    |
 | `is_paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
+| `finalised`         | INTEGER | `1` once the segment is closed out, `0` while it's still the device's in-progress interval. |
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
 Constraints:
@@ -68,7 +69,17 @@ Constraints:
 - `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
 - `is_paused` is constrained to `0`/`1` (SQLite has no native boolean type).
+- `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `processed` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
+
+`finalised` vs. `processed`: the device's history stream always reports its still-open,
+in-progress segment as the last frame in every dump (see `docs/timeflip.md` §5). That frame is
+inserted with `finalised = 0` and its row is updated in place (matched by `event_number`,
+`ON CONFLICT ... DO UPDATE`) as the duration keeps growing on each refresh, until a subsequent
+flip/pause closes it out and a later write sets `finalised = 1`. `processed` is a separate,
+independent flag — it tracks whether a (finalised) segment has been turned into a `time_entry`
+yet, and is only ever meaningful once `finalised = 1`; the `finalised` update path never touches
+it, so an already-`processed` row can't be silently un-flagged by the live segment's growth.
 
 ### `icon` (`database/003_icon.sql`)
 
@@ -183,7 +194,7 @@ column per setting.
 |-------------------------|---------|---------------------------------------------------|
 | `setting_id`            | INTEGER | Row identifier, primary key, autoincrementing.     |
 | `setting_name`          | TEXT    | The setting's name, e.g. `led_settings`.           |
-| `setting_value`         | TEXT    | The setting's value, stored as text regardless of its logical type. |
+| `setting_value`         | TEXT    | The setting's value, always a JSON object (even single-value settings) so reading this table never needs to branch on which row it is. |
 | `setting_description`   | TEXT    | Human-readable explanation of what this setting controls. |
 
 Constraints:
@@ -191,10 +202,10 @@ Constraints:
 - `setting_value` is `NOT NULL`.
 
 Seeded rows:
-- `double_tap_enabled` = `1` — whether double-tap gesture detection is enabled; if disabled,
-  double-tap notifications from the device are ignored.
-- `double_tap_settings` = `{"clickThreshold":20,"limit":10,"latency":20,"window":40}` — double-tap
-  detection parameters, seeded from `DoubleTapParameters.default` in
+- `double_tap_settings` = `{"enabled":true,"clickThreshold":20,"limit":10,"latency":20,"window":40}`
+  — `enabled` controls whether double-tap gesture detection is on; if `false`, double-tap
+  notifications from the device are ignored. `clickThreshold`/`limit`/`latency`/`window` are the
+  accelerometer parameters, seeded from `DoubleTapParameters.default` in
   `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift`.
 - `led_settings` = `{"brightness":50,"blink_interval":5,"blink_length":0,"blink_speed":0}` — a
   single record for all LED settings:
@@ -219,9 +230,31 @@ Seeded rows:
     | `50%` | Ramps up over 2.5s, then immediately starts fading for the remaining 2.5s (no hold). |
     | `80%` | Ramps up over 4s, then fades off over the remaining 1s (no hold). |
     | `100%` | Ramps up over the full 5s, then turns off instantly. |
-- `blip_time` = `5` (seconds) — while picking up and turning the device to find the desired face,
-  it can briefly pass over other faces, creating unwanted `device_events` segments for them. Any
-  segment shorter than `blip_time` is merged into the *following* segment rather than becoming
-  its own `time_entry` — see [Operation Spec § applying `blip_time`](operation-spec.md).
-- `real_length_time` — seeded with a placeholder value of `0` (since `setting_value` is
-  `NOT NULL`); meaning/real default pending confirmation from the device owner.
+- `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired
+  face, it can briefly pass over other faces, creating unwanted `device_events` segments for
+  them. Any segment shorter than `seconds` is merged into the *following* segment rather than
+  becoming its own `time_entry` — see [Operation Spec § applying `blip_time`](operation-spec.md).
+- `firmware_check` = `{"last_alert":"<today>","interval_months":2}` — a single record for the
+  firmware-update reminder:
+  - `last_alert` is a local date (`YYYY-MM-DD`, no companion timezone column since only
+    calendar-date granularity matters here), seeded to the date this row was first inserted
+    (`date('now', 'localtime')`, string-concatenated into the JSON literal at seed time, same
+    style as the rest of this file's hand-written JSON — `ON CONFLICT DO NOTHING` means it's
+    never reseeded on later launches).
+  - `interval_months` (seeded to `2`) is how many calendar months after `last_alert` before the
+    user is prompted again to connect the device to the official TimeFlip app and check for a
+    firmware update — there's no documented way this app can check the firmware version itself
+    (see `docs/timeflip.md`).
+  - The next-due date is `last_alert + interval_months` (calendar months, not a fixed day count).
+    The Settings button that dismisses the alert resets `last_alert` to the current date
+    regardless of whether the user actually performed the check, pushing the next alert out by
+    `interval_months` either way.
+- `pause_on_lock` = `{"enabled":true}` — when `enabled`, pausing via the app (command `0x06`)
+  also engages device lock mode (command `0x04`) so the device can't be flipped to a new facet
+  while paused. Does not apply when pause is triggered by a double-tap on the device itself —
+  that pause is left unlocked.
+- `fetch_history_interval_seconds` = `{"seconds":10}` — how often `HistoryIngestor` sends a
+  history fetch request (command `0x02`) on a repeating timer, independent of the fetches already
+  triggered by live facet/pause events, so any entries the device hasn't pushed a live
+  notification for yet still get picked up. Stored in seconds; a future Settings UI will expose
+  this in minutes and convert before saving here.

@@ -8,10 +8,28 @@ CREATE TABLE IF NOT EXISTS setting (
     setting_description TEXT
 );
 
-INSERT INTO setting (setting_name, setting_value, setting_description) VALUES
-    ('double_tap_enabled', '1', 'Whether double-tap gesture detection is enabled; if disabled, double-tap notifications from the device are ignored.'),
-    ('double_tap_settings', '{"clickThreshold":20,"limit":10,"latency":20,"window":40}', 'Double-tap detection parameters, seeded from DoubleTapParameters.default in Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift.'),
-    ('led_settings', '{"brightness":50,"blink_interval":15,"blink_length":5,"blink_speed":0}', 'LED settings: brightness (%) and blink_interval (seconds, gap from the end of one blink to the start of the next) seeded from AppState''s ledBrightnessPercent/blinkIntervalSeconds defaults. blink_length (seconds, start-of-blink to end-of-blink) and blink_speed (0-100%, how much of blink_length is spent ramping up to full brightness before fading) have no code equivalent yet, so 0 is a placeholder -- see docs/database-design.md for the full ramp/hold/fade behavior blink_speed controls.'),
-    ('blip_time', '5', 'Seconds. While picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_events segment shorter than blip_time is merged into the following segment instead of becoming its own time_entry.'),
-    ('real_length_time', '0', NULL)
-ON CONFLICT (setting_name) DO NOTHING;
+-- Every setting_value is a JSON object, even single-value settings, so reading this table never
+-- needs to branch on which row it is -- callers always decode setting_value as JSON.
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":20,"limit":10,"latency":20,"window":40}', 'Double-tap detection settings. enabled controls whether double-tap gesture detection is on; if false, double-tap notifications from the device are ignored. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'double_tap_settings');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'led_settings', '{"brightness":50,"blink_interval":15,"blink_length":5,"blink_speed":0}', 'LED settings: brightness (%) and blink_interval (seconds, gap from the end of one blink to the start of the next) seeded from AppState''s ledBrightnessPercent/blinkIntervalSeconds defaults. blink_length (seconds, start-of-blink to end-of-blink) and blink_speed (0-100%, how much of blink_length is spent ramping up to full brightness before fading) have no code equivalent yet, so 0 is a placeholder -- see docs/database-design.md for the full ramp/hold/fade behavior blink_speed controls.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'led_settings');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'blip_time', '{"seconds":5}', 'seconds: while picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_events segment shorter than this is merged into the following segment instead of becoming its own time_entry.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'blip_time');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'firmware_check', '{"last_alert":"' || date('now', 'localtime') || '","interval_months":2}', 'last_alert (local date, YYYY-MM-DD) is when the firmware-update alert was last shown/acknowledged, seeded to the date this row was first inserted. interval_months is how many calendar months after last_alert before the user is prompted again to connect the device to the official TimeFlip app and check for a firmware update -- there is no documented way for this app to check the firmware version itself, see docs/timeflip.md. The Settings button that dismisses the alert resets last_alert to today regardless of whether the user actually checked, pushing the next alert out by interval_months either way.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'firmware_check');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'pause_on_lock', '{"enabled":true}', 'enabled: when true, pausing via the app (command 0x06) also engages device lock mode (command 0x04) so the device cannot be flipped to a new facet while paused. Does not apply when pause is triggered by a double-tap on the device itself -- that pause is left unlocked.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'pause_on_lock');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'fetch_history_interval_seconds', '{"seconds":10}', 'seconds: how often the app sends a history fetch request (command 0x02) to the device to pick up any entries not yet seen, in addition to the fetches already triggered by live facet/pause events. Stored in seconds; a future Settings UI will expose this in minutes and convert it before saving here.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'fetch_history_interval_seconds');
