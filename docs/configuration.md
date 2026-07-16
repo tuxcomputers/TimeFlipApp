@@ -71,7 +71,7 @@ instead of a single wizard. Configure them in this order:
 10. The browser will show "Authorization complete" and you can close the window
 11. Return to the TimeFlip app - you should now see "Authenticated"
 
-![Preferences - Reports](../screenshot/preferences-report.png)
+![Preferences - Reports](../image/preferences-report.png)
 
 ### Step 6: Configure Calendar and Sheet
 
@@ -121,7 +121,7 @@ The app will now automatically sync your time tracking data to Google Calendar a
 a real login attempt on the device — the app's own stored password isn't cleared unless that
 reset is actually confirmed), so the device isn't left behind on a password nobody knows.
 
-![Preferences - Device](../screenshot/preferences-device.png)
+![Preferences - Device](../image/preferences-device.png)
 
 ### Configuring Activities
 
@@ -133,7 +133,7 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
    - **Time Limit**: Optional daily limit (turns the menu bar item red when exceeded, to make 
      you aware if you've been slacking off enough for today)
 
-![Preferences - Facets](../screenshot/preferences-facets.png)
+![Preferences - Facets](../image/preferences-facets.png)
 
 ### Device Settings
 

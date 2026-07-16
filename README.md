@@ -16,7 +16,7 @@ Google Calendar and Google Sheets integration.
 
 Menu bar item preview:
 
-![Menu bar timer](screenshot/menu-item.png)
+![Menu bar timer](image/menu-item.png)
 
 ### Not supported
 
