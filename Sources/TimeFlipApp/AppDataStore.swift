@@ -446,12 +446,17 @@ final class AppDataStore: IntegrationEventCursorStore {
         }
     }
 
-    /// Swift Bundler flattens this target's SwiftPM resources into the packaged app's
-    /// `Contents/Resources` (see `ActivityIconLoader.resolveURL`) — check `Bundle.main` first to
-    /// match that layout, and fall back to `Bundle.module` for `swift run`/`swift test`.
+    /// Both SwiftPM's own resource bundling and Swift Bundler's packaging flatten the `Database`
+    /// resource directory's *contents* into the bundle root alongside every other resource (see
+    /// `ActivityIconLoader.resolveURL`) — there's never an actual `Database` subdirectory to look
+    /// up by name, in the packaged app or under `swift run`/`swift test`. Probe for a real DDL
+    /// file by name (its containing directory is the resource root) rather than testing
+    /// `resourceURL` for nil — `Bundle.main` always has *some* resource directory (e.g. the test
+    /// host's), so a nil check alone wouldn't fall through to `Bundle.module` when it's wrong one.
     private static func resolveDatabaseDirectory() -> URL? {
-        Bundle.main.url(forResource: "Database", withExtension: nil)
-            ?? Bundle.module.url(forResource: "Database", withExtension: nil)
+        (Bundle.main.url(forResource: "001_event_type", withExtension: "sql")
+            ?? Bundle.module.url(forResource: "001_event_type", withExtension: "sql"))?
+            .deletingLastPathComponent()
     }
 
     static func defaultDatabaseURL() -> URL {
