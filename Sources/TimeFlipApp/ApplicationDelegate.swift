@@ -8,6 +8,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let dataStore = AppDataStore()
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(
+        stateStore: (DeveloperMode.isEnabled && appState.isDeveloperConfigLoaded)
+            ? DeveloperModeGoogleAuthStateStore()
+            : KeychainAuthStateStore(),
         configurationProvider: { [weak appState] in
             guard let appState else {
                 throw GoogleAuthError.missingClientID
@@ -149,7 +152,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onResetDevicePasswordRequest = { [weak self] in
             guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
             let confirmed = await bleDevice.resetDevicePasswordToDefault()
-            if confirmed {
+            if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false) {
                 try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
             }
             return confirmed
@@ -286,10 +289,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.appState.devicePassword = rotatedPassword
                 }
-                do {
-                    try TimeFlipDevicePasswordStore.shared.savePassword(rotatedPassword)
-                } catch {
-                    logger.error("Failed to save rotated device password to Keychain: \(error.localizedDescription, privacy: .public)")
+                if !self.appState.isDeveloperConfigLoaded {
+                    do {
+                        try TimeFlipDevicePasswordStore.shared.savePassword(rotatedPassword)
+                    } catch {
+                        logger.error("Failed to save rotated device password to Keychain: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             }
             guard !Task.isCancelled else { return }

@@ -101,9 +101,9 @@ final class AppState: ObservableObject {
         dailyWindowStart = Date()
 
         applyPreferences()
+        if DeveloperMode.isEnabled { applyDeveloperConfig() }
         loadClientSecretOnce()
         loadDevicePassword()
-        if DeveloperMode.isEnabled { applyDeveloperConfig() }
         observePreferences()
     }
 
@@ -135,6 +135,7 @@ final class AppState: ObservableObject {
     }
 
     private func loadDevicePassword() {
+        guard !isDeveloperConfigActive else { return }
         let wasApplying = isApplyingPreferences
         isApplyingPreferences = true
         devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
@@ -142,7 +143,7 @@ final class AppState: ObservableObject {
     }
 
     func loadClientSecretOnce() {
-        guard !hasLoadedClientSecret else { return }
+        guard !hasLoadedClientSecret, !isDeveloperConfigActive else { return }
         hasLoadedClientSecret = true
 
         // Temporarily set isApplyingPreferences to prevent the observer from saving

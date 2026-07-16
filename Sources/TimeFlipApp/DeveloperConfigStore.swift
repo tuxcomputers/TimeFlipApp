@@ -1,3 +1,4 @@
+import AppAuth
 import Foundation
 import OSLog
 
@@ -63,9 +64,31 @@ final class DeveloperConfigStore: DeveloperConfigStoring, @unchecked Sendable {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(payload)
-            try data.write(to: fileURL, options: .atomic)
+            // Deliberately not `.atomic`: an atomic write replaces whatever sits at `fileURL` via
+            // rename, which severs a symlink *or* a hard link (e.g. one pointing at a repo
+            // checkout for development) and leaves an unlinked plain file in its place. Writing
+            // in place instead opens the existing path and overwrites its bytes directly, which
+            // follows symlinks and preserves hard links.
+            try data.write(to: fileURL)
         } catch {
             logger.error("Failed to write config.json: \(error.localizedDescription, privacy: .public)")
         }
+    }
+}
+
+/// Session-only stand-in for `KeychainAuthStateStore` while developer mode is active — OAuth
+/// tokens aren't part of config.json, so this just keeps them in memory instead of ever touching
+/// the Keychain (re-authenticating each launch is expected in developer mode).
+final class DeveloperModeGoogleAuthStateStore: GoogleAuthStateStore, @unchecked Sendable {
+    private var state: OIDAuthState?
+
+    func loadState() throws -> OIDAuthState? { state }
+
+    func saveState(_ state: OIDAuthState) throws {
+        self.state = state
+    }
+
+    func clearState() throws {
+        state = nil
     }
 }
