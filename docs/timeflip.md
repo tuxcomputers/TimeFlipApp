@@ -50,6 +50,27 @@ Opcode summary (from vendor spec and observed firmware):
 
 Swift driver currently issues: 0x05, 0x06, 0x08, 0x10, 0x11, 0x14. Remaining opcodes are understood but not yet exercised.
 
+### Confirming a command actually took effect
+
+The write-ack described above (`[cmd, 0x02]`) only confirms the device *accepted* the command —
+it says nothing about the resulting state, and the protocol never pushes an unsolicited
+notification when state changes from a command. Whether/how to confirm the actual state depends
+on which command was sent — there's no single mechanism that covers all of them:
+
+- **Commands with a dedicated state read-back**: 0x10 (status → lock/pause/auto-pause), 0x14
+  (read task parameters), 0x17 (read double-tap registers), 0x07 (read device time). After
+  writing the corresponding set command, issue the matching read and compare against what was
+  requested before treating the change as applied — e.g. after `0x04 0x01` (lock on), send `0x10`
+  and check the returned lock byte.
+- **Commands with no read-back defined at all**: 0x09 (LED brightness), 0x0A (blink interval),
+  0x11 (facet color). The vendor spec defines no command that reads these back — the write-ack
+  is genuinely the only confirmation available for these three.
+- **Commands where a read is impossible by nature**: 0x30 (set password) can't be read back over
+  BLE for obvious reasons. Confirmation has to be functional instead — attempt a real login with
+  the new password and only treat the rotation as successful if that login succeeds. This is
+  already how `rotateDevicePassword`/`resetDevicePasswordToDefault` work, and is the model for any
+  other command that turns out to need functional (rather than read-back) confirmation.
+
 ## 4. Event and notification semantics
 
 - **Facet (`...52`)**: 1 B facet ID 1–12. `0` indicates undefined or rejected password. App updates active facet and seeds snapshots from this value.

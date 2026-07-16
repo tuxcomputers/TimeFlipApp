@@ -29,6 +29,9 @@ Menu bar item preview:
 - **[Configuration](docs/configuration.md)** — Google account setup, pairing your TimeFlip device,
   configuring activities, everyday usage, and troubleshooting
 - **[Contributing](CONTRIBUTING.md)** — code style, security guidelines, and how to submit a PR
+- **[Workflow](docs/workflow.md)** — how the device owner organizes activities and faces
+- **[Operation Spec](docs/operation-spec.md)** — how a device event becomes a calendar entry
+- **[Database Design](docs/database-design.md)** — the local SQLite schema
 
 ## Architecture
 

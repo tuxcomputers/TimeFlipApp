@@ -374,7 +374,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
                 if probe.connection != nil {
                     self.logger.error("Probe connect timed out")
-                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe connect")
+                    if DeveloperMode.isEnabled {
+                        print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe connect")
+                    }
                     self.central.cancelPeripheralConnection(probe.peripheral)
                     probe.connection?.resume(throwing: DeviceError.connectionFailed)
                     probe.connection = nil
@@ -392,7 +394,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
                 if probe.services != nil {
                     self.logger.error("Probe service discovery timed out")
-                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe service discovery")
+                    if DeveloperMode.isEnabled {
+                        print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe service discovery")
+                    }
                     probe.services?.resume(throwing: DeviceError.serviceDiscoveryFailed)
                     probe.services = nil
                 }
@@ -409,7 +413,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
                 if probe.characteristicsContinuation != nil {
                     self.logger.error("Probe characteristic discovery timed out")
-                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe characteristic discovery")
+                    if DeveloperMode.isEnabled {
+                        print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe characteristic discovery")
+                    }
                     probe.characteristicsContinuation?.resume(throwing: DeviceError.serviceDiscoveryFailed)
                     probe.characteristicsContinuation = nil
                 }
@@ -433,7 +439,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
                 if probe.writes[uuid] != nil {
                     self.logger.error("Probe write timed out for \(uuid.uuidString, privacy: .public)")
-                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe write to \(uuid.uuidString)")
+                    if DeveloperMode.isEnabled {
+                        print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe write to \(uuid.uuidString)")
+                    }
                     probe.writes[uuid]?.resume(throwing: DeviceError.writeFailed(uuid))
                     probe.writes[uuid] = nil
                 }
@@ -453,7 +461,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
                 if probe.reads[uuid] != nil {
                     self.logger.error("Probe read timed out for \(uuid.uuidString, privacy: .public)")
-                    print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe read from \(uuid.uuidString)")
+                    if DeveloperMode.isEnabled {
+                        print("[TimeFlip] TIMEOUT after \(self.deviceOperationTimeoutSeconds)s while: Probe read from \(uuid.uuidString)")
+                    }
                     probe.reads[uuid]?.resume(throwing: DeviceError.readFailed(uuid))
                     probe.reads[uuid] = nil
                 }
@@ -477,7 +487,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// still pending — a timeout on any one step means we stop everything, no exceptions.
     private func handleTimeout(_ operation: String) {
         logger.error("\(operation, privacy: .public) timed out after \(self.deviceOperationTimeoutSeconds, privacy: .public)s; disconnecting")
-        print("[TimeFlip] TIMEOUT after \(deviceOperationTimeoutSeconds)s while: \(operation) — disconnecting")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] TIMEOUT after \(deviceOperationTimeoutSeconds)s while: \(operation) — disconnecting")
+        }
         if let cbPeripheral = peripheral as? CBPeripheral {
             central.cancelPeripheralConnection(cbPeripheral)
         }
@@ -554,26 +566,38 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func attemptLogin(with password: String) async throws -> Bool {
         let passwordData = Data(password.utf8)
         logger.debug("Writing password to device (pwd=\(password, privacy: .private))")
-        print("[TimeFlip] Writing password to device: \(passwordData.hexString())")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] Writing password to device: \(passwordData.hexString())")
+        }
         try await write(passwordData, to: TimeFlipUUIDs.password, type: .withResponse)
-        print("[TimeFlip] Password write acknowledged; reading commandResult…")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] Password write acknowledged; reading commandResult…")
+        }
         guard let response = try await read(TimeFlipUUIDs.commandResult) else {
             logger.error("TimeFlip login had no commandResult response")
-            print("[TimeFlip] Login: no commandResult response (nil)")
+            if DeveloperMode.isEnabled {
+                print("[TimeFlip] Login: no commandResult response (nil)")
+            }
             return false
         }
-        print("[TimeFlip] Login commandResult raw bytes: \(response.hexString())")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] Login commandResult raw bytes: \(response.hexString())")
+        }
         let code = response.first ?? 0
         // Vendor doc v4.3 states 0x01=correct/0x02=wrong, but real hardware observed here does
         // the opposite (confirmed via logging: wrong password -> 0x01, correct -> 0x02).
         if code == 0x02 {
             isLoggedIn = true
             logger.notice("TimeFlip login accepted (code=\(code))")
-            print(String(format: "[TimeFlip] Login accepted, code=0x%02X", code))
+            if DeveloperMode.isEnabled {
+                print(String(format: "[TimeFlip] Login accepted, code=0x%02X", code))
+            }
             return true
         } else {
             logger.error("TimeFlip login rejected code=\(code)")
-            print(String(format: "[TimeFlip] Login rejected, code=0x%02X", code))
+            if DeveloperMode.isEnabled {
+                print(String(format: "[TimeFlip] Login rejected, code=0x%02X", code))
+            }
             return false
         }
     }
@@ -637,28 +661,38 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     func rotateDevicePassword() async -> String? {
         guard isLoggedIn else { return nil }
         let generatedRandomPassword = String(format: "%06d", Int.random(in: 0...999_999))
-        print("[TimeFlip] Generated random device password: \(generatedRandomPassword)")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] Generated random device password: \(generatedRandomPassword)")
+        }
         let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
         do {
             _ = try await performCommand(payload)
         } catch {
             logger.error("Set-password command failed: \(error.localizedDescription, privacy: .public)")
-            print("[TimeFlip] Failed to set new device password: \(error.localizedDescription)")
+            if DeveloperMode.isEnabled {
+                print("[TimeFlip] Failed to set new device password: \(error.localizedDescription)")
+            }
             return nil
         }
         do {
             guard try await attemptLogin(with: generatedRandomPassword) else {
                 logger.error("Device rejected re-login with new password; not saving")
-                print("[TimeFlip] Device did NOT confirm new password \(generatedRandomPassword) — not saving")
+                if DeveloperMode.isEnabled {
+                    print("[TimeFlip] Device did NOT confirm new password \(generatedRandomPassword) — not saving")
+                }
                 return nil
             }
         } catch {
             logger.error("Failed to confirm new device password: \(error.localizedDescription, privacy: .public)")
-            print("[TimeFlip] Failed to confirm new device password: \(error.localizedDescription)")
+            if DeveloperMode.isEnabled {
+                print("[TimeFlip] Failed to confirm new device password: \(error.localizedDescription)")
+            }
             return nil
         }
         logger.notice("Device password rotated and confirmed")
-        print("[TimeFlip] Device password confirmed set to: \(generatedRandomPassword)")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] Device password confirmed set to: \(generatedRandomPassword)")
+        }
         return generatedRandomPassword
     }
 
@@ -674,22 +708,30 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             _ = try await performCommand(payload)
         } catch {
             logger.error("Failed to reset device password to default: \(error.localizedDescription, privacy: .public)")
-            print("[TimeFlip] Failed to reset device password to default: \(error.localizedDescription)")
+            if DeveloperMode.isEnabled {
+                print("[TimeFlip] Failed to reset device password to default: \(error.localizedDescription)")
+            }
             return false
         }
         do {
             guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
                 logger.error("Device rejected re-login with default password; reset not confirmed")
-                print("[TimeFlip] Device did NOT confirm default password reset — not clearing stored password")
+                if DeveloperMode.isEnabled {
+                    print("[TimeFlip] Device did NOT confirm default password reset — not clearing stored password")
+                }
                 return false
             }
         } catch {
             logger.error("Failed to confirm default password reset: \(error.localizedDescription, privacy: .public)")
-            print("[TimeFlip] Failed to confirm default password reset: \(error.localizedDescription)")
+            if DeveloperMode.isEnabled {
+                print("[TimeFlip] Failed to confirm default password reset: \(error.localizedDescription)")
+            }
             return false
         }
         logger.notice("Device password reset to default and confirmed")
-        print("[TimeFlip] Device password confirmed reset to default: \(TimeFlipConstants.defaultPassword)")
+        if DeveloperMode.isEnabled {
+            print("[TimeFlip] Device password confirmed reset to default: \(TimeFlipConstants.defaultPassword)")
+        }
         return true
     }
 

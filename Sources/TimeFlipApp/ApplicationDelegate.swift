@@ -72,6 +72,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var lastSentFacetColors: [UInt8: ColorComponents] = [:]
     private var facetColorInitialized = false
     private var awaitingInitialStatus = false
+    // Guards handleDeviceEvent against acting on live BLE notifications until the initial history
+    // backfill (recordDeviceEvent's ascending-order requirement -- see HistoryIngestor.refreshHistory)
+    // has finished, so a live notification can't race a fresh device_events table.
+    private var isHistoryBackfillComplete = false
     private var historyIngestor: HistoryIngestor?
     private let useHistoryPipeline = true
     private var dayResetTimer: Timer?
@@ -245,6 +249,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.applyActiveInterval(from: entry)
             }
         )
+        historyIngestor?.startPeriodicFetchTimer()
         if let bleDevice = device as? TimeFlipBLEDevice {
             bleDevice.onDisconnect = { [weak self] in
                 self?.handleDeviceDisconnect()
@@ -309,7 +314,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             logger.notice("Backfill starting")
             awaitingInitialStatus = true
+            isHistoryBackfillComplete = false
             await self.historyIngestor?.refreshHistory(trigger: "startup")
+            isHistoryBackfillComplete = true
+            logger.notice("Backfill finished; resuming normal event processing")
             guard !Task.isCancelled else { return }
             for await event in device.events {
                 self.handleDeviceEvent(event)
@@ -331,6 +339,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         eventTask?.cancel()
         eventTask = nil
+        historyIngestor?.stopPeriodicFetchTimer()
         mockHTTPServer?.stop()
         mockHTTPServer = nil
         logger.notice("Device event stream stopped")
@@ -341,6 +350,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         lastSentFacetColors.removeAll()
         facetColorInitialized = false
         awaitingInitialStatus = false
+        isHistoryBackfillComplete = false
         stopDeviceEvents()
         // Small delay to avoid tight retry loops.
         Task { [weak self] in
@@ -372,7 +382,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleDeviceEvent(_ event: TimeFlipEvent) {
+        guard isHistoryBackfillComplete else {
+            logger.debug("device_event ignored (history backfill not complete yet): \(event.description, privacy: .public)")
+            return
+        }
         logger.info("TimeFlip event: \(event.description, privacy: .public)")
+        if let notification = event.deviceNotification {
+            dataStore.recordDeviceNotification(eventType: notification.eventType, payload: notification.payload)
+        }
         appState.update(from: event)
         if awaitingInitialStatus, case .facetChanged = event {
             awaitingInitialStatus = false

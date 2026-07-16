@@ -209,6 +209,9 @@ final class MenuBarController: NSObject {
         if button.image !== icon {
             button.image = icon
         }
+        if button.toolTip != nil {
+            button.toolTip = nil
+        }
         if lastRenderedTitle != titleKey {
             button.attributedTitle = makeStatusTitle(
                 activityLabel: activityLabel,
@@ -218,8 +221,6 @@ final class MenuBarController: NSObject {
             )
             lastRenderedTitle = titleKey
         }
-        let statusLabel = isPaused ? "Paused" : "Running"
-        button.toolTip = "TimeFlip mock: \(activityLabel) \(duration) (\(statusLabel))"
         lastSnapshot = snapshot
     }
 

@@ -47,6 +47,15 @@ final class AppDataStore: IntegrationEventCursorStore {
     private let queue = DispatchQueue(label: "com.timeflip.appdatastore")
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "app-data-store")
 
+    // The highest device_events.event_number seen so far, loaded once at startup with a single
+    // MAX() query and kept up to date in memory from then on. recordDeviceEvent uses it to choose
+    // UPDATE vs INSERT itself instead of relying on ON CONFLICT DO UPDATE -- that path still
+    // consumes an AUTOINCREMENT id on every update, leaving permanent gaps in device_events_id.
+    // -1 means "no rows yet" (MAX(event_number) is NULL on an empty table) -- every real
+    // event_number (0...UInt32.max) compares greater than -1, so the empty-table case always
+    // takes the insert path without needing Optional handling at every comparison site.
+    private var maxKnownEventNumber: Int64 = -1
+
     init(databaseURL: URL? = nil) {
         let url = databaseURL ?? AppDataStore.defaultDatabaseURL()
         self.dbURL = url
@@ -60,7 +69,28 @@ final class AppDataStore: IntegrationEventCursorStore {
             return
         }
         db = handle
-        createTablesIfNeeded()
+        runDatabaseDDL()
+        loadMaxKnownEventNumber()
+    }
+
+    /// Seeds `maxKnownEventNumber` from whatever `device_events` rows already exist on disk, so
+    /// the update-vs-insert and finalised logic in `recordDeviceEvent` is correct across app
+    /// restarts, not just within this process's lifetime. Leaves it at -1 (see property comment)
+    /// when the table is empty and `MAX(event_number)` comes back NULL.
+    private func loadMaxKnownEventNumber() {
+        guard let db else { return }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT MAX(event_number) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("loadMaxKnownEventNumber prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            sqlite3_finalize(stmt)
+            return
+        }
+        if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+            maxKnownEventNumber = sqlite3_column_int64(stmt, 0)
+        } else {
+            maxKnownEventNumber = -1
+        }
+        sqlite3_finalize(stmt)
     }
 
     deinit {
@@ -97,6 +127,241 @@ final class AppDataStore: IntegrationEventCursorStore {
                 logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) facet=\(event.facetID, privacy: .public) dur=\(event.duration, privacy: .public)")
             } else {
                 logger.error("logbook_append failed ev=\(event.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+        return success
+    }
+
+    // MARK: - Device events (new schema; timing segments -- facet flips and pauses)
+
+    /// Records a `device_events` row for a timing segment from the device's history stream.
+    /// `event_number` is `UNIQUE`; re-ingesting a frame already seen (e.g. after a reconnect, or
+    /// the device's still-open last frame growing in duration -- see docs/operation-spec.md §2)
+    /// updates that same row in place instead of duplicating it. Update-vs-insert is decided by
+    /// comparing against `maxKnownEventNumber` (an in-memory scalar loaded once at startup via
+    /// `SELECT MAX(event_number)`) rather than via `ON CONFLICT DO UPDATE`, because that path
+    /// still burns an AUTOINCREMENT id on every update and leaves permanent gaps in
+    /// `device_events_id`.
+    ///
+    /// - `eventNumber > maxKnownEventNumber` (a new high-water mark): any previously-open row is
+    ///   closed out (`finalised` set to 1 wherever it isn't already), the new row is inserted with
+    ///   `finalised = 0` (it's now the in-progress segment -- always the last frame in a history
+    ///   dump, per docs/timeflip.md §5), and `maxKnownEventNumber` advances to `eventNumber`.
+    /// - `eventNumber == maxKnownEventNumber`: this is that same in-progress segment growing in
+    ///   duration; updated in place with `finalised = 0`.
+    /// - `eventNumber < maxKnownEventNumber`: a later event already superseded this one, so it's
+    ///   updated in place with `finalised = 1`.
+    ///
+    /// `processed` is a separate flag (time_entry creation) and is never touched here.
+    @discardableResult
+    func recordDeviceEvent(
+        eventNumber: UInt32,
+        deviceFace: UInt8,
+        startedAt: Date,
+        durationSeconds: TimeInterval,
+        isPaused: Bool
+    ) -> Bool {
+        guard let db else { return false }
+        let eventType = isPaused ? "pause" : "facet_flip"
+        var success = false
+        queue.sync {
+            let eventNumberValue = Int64(eventNumber)
+            let isNewMax = eventNumberValue > maxKnownEventNumber
+
+            if isNewMax {
+                if sqlite3_exec(db, "UPDATE device_events SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
+                    logger.error("device_events close-out failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                }
+
+                let sql = """
+                INSERT INTO device_events (
+                    event_number, event_type_id, device_face, started_at, started_at_timezone, duration_seconds, is_paused, finalised
+                ) VALUES (
+                    ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, 0
+                );
+                """
+                var stmt: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                    logger.error("device_events insert prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    sqlite3_finalize(stmt)
+                    return
+                }
+                sqlite3_bind_int64(stmt, 1, sqlite3_int64(eventNumber))
+                sqlite3_bind_text(stmt, 2, eventType, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int(stmt, 3, Int32(deviceFace))
+                sqlite3_bind_text(stmt, 4, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 5, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_double(stmt, 6, durationSeconds)
+                sqlite3_bind_int(stmt, 7, isPaused ? 1 : 0)
+                if sqlite3_step(stmt) == SQLITE_DONE {
+                    success = true
+                    maxKnownEventNumber = eventNumberValue
+                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=false inserted=true")
+                } else {
+                    logger.error("device_events insert failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                }
+                sqlite3_finalize(stmt)
+            } else {
+                let finalised = eventNumberValue == maxKnownEventNumber ? false : true
+                let sql = """
+                UPDATE device_events SET
+                    event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
+                    device_face = ?,
+                    started_at = ?,
+                    started_at_timezone = ?,
+                    duration_seconds = ?,
+                    is_paused = ?,
+                    finalised = ?
+                WHERE event_number = ?;
+                """
+                var stmt: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                    logger.error("device_events update prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    sqlite3_finalize(stmt)
+                    return
+                }
+                sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int(stmt, 2, Int32(deviceFace))
+                sqlite3_bind_text(stmt, 3, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 4, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_double(stmt, 5, durationSeconds)
+                sqlite3_bind_int(stmt, 6, isPaused ? 1 : 0)
+                sqlite3_bind_int(stmt, 7, finalised ? 1 : 0)
+                sqlite3_bind_int64(stmt, 8, sqlite3_int64(eventNumber))
+                if sqlite3_step(stmt) == SQLITE_DONE {
+                    success = true
+                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(finalised, privacy: .public) inserted=false")
+                } else {
+                    logger.error("device_events update failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                }
+                sqlite3_finalize(stmt)
+            }
+
+            if DeveloperMode.isEnabled {
+                verifyMaxKnownEventNumberConsistency()
+            }
+        }
+        return success
+    }
+
+    /// Development-only consistency check: re-derives `MAX(event_number)` directly from the
+    /// database and compares it against the in-memory `maxKnownEventNumber` this class has been
+    /// incrementally maintaining. A mismatch means that tracking has drifted from the DB -- e.g. a
+    /// row was written outside `recordDeviceEvent`, or a write silently failed -- and needs
+    /// investigating, so it's printed loudly rather than tucked away in the OS log.
+    private func verifyMaxKnownEventNumberConsistency() {
+        guard let db else { return }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT MAX(event_number) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("verifyMaxKnownEventNumberConsistency prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            sqlite3_finalize(stmt)
+            return
+        }
+        var dbMax: Int64 = -1
+        if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+            dbMax = sqlite3_column_int64(stmt, 0)
+        }
+        sqlite3_finalize(stmt)
+
+        if dbMax == maxKnownEventNumber {
+            print("[dev-check] device_events max_event_number OK: in_memory=\(maxKnownEventNumber) db=\(dbMax)")
+        } else {
+            print("""
+            ############################################################
+            # MISMATCH: device_events max(event_number) drifted from the in-memory tracker!
+            # in-memory maxKnownEventNumber = \(maxKnownEventNumber)
+            # SELECT MAX(event_number) FROM device_events = \(dbMax)
+            ############################################################
+            """)
+            logger.fault("device_events max_event_number MISMATCH in_memory=\(self.maxKnownEventNumber, privacy: .public) db=\(dbMax, privacy: .public)")
+        }
+    }
+
+    // MARK: - Settings (generic key/value JSON store)
+
+    /// Reads and JSON-decodes a `setting` row's value, or `nil` if the row is missing or its
+    /// value isn't a JSON object -- every `setting_value` is a JSON object by convention, see
+    /// `database/009_setting.sql`.
+    private func loadSettingJSON(name: String) -> [String: Any]? {
+        guard let db else { return nil }
+        var result: [String: Any]?
+        let sql = "SELECT setting_value FROM setting WHERE setting_name = ?;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("setting lookup prepare failed name=\(name, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0) {
+                let json = String(cString: text)
+                if let data = json.data(using: .utf8),
+                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    result = object
+                } else {
+                    logger.error("setting name=\(name, privacy: .public) value is not a JSON object: \(json, privacy: .public)")
+                }
+            }
+            sqlite3_finalize(stmt)
+        }
+        return result
+    }
+
+    /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the
+    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/009_setting.sql`).
+    /// Falls back to the seeded default if the row is missing or malformed.
+    func loadFetchHistoryIntervalSeconds() -> TimeInterval {
+        guard let seconds = loadSettingJSON(name: "fetch_history_interval_seconds")?["seconds"] as? Int else {
+            return 10
+        }
+        return TimeInterval(seconds)
+    }
+
+    // MARK: - Device notifications (point-in-time, non-timing device events)
+
+    /// Local-time-without-offset formatter matching the `<name>`/`<name>_timezone` column
+    /// convention in `database/CLAUDE.md` (e.g. `2026-07-16T09:30:00`).
+    private static let localTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        formatter.timeZone = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    /// Records a point-in-time device notification (double tap, battery level, system state,
+    /// device info, event log — see `TimeFlipEvent.deviceNotification`) so what the device sends
+    /// and how often can be inspected later in `device_notifications`.
+    @discardableResult
+    func recordDeviceNotification(eventType: String, payload: String?, occurredAt: Date = Date()) -> Bool {
+        guard let db else { return false }
+        let sql = """
+        INSERT INTO device_notifications (event_type_id, occurred_at, occurred_at_timezone, payload)
+        VALUES ((SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?);
+        """
+        var success = false
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("device_notifications prepare failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, AppDataStore.localTimeFormatter.string(from: occurredAt), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            if let payload {
+                sqlite3_bind_text(stmt, 4, payload, -1, SQLITE_TRANSIENT)
+            } else {
+                sqlite3_bind_null(stmt, 4)
+            }
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                success = true
+                logger.debug("device_notifications event_type=\(eventType, privacy: .public) payload=\(payload ?? "nil", privacy: .public)")
+            } else {
+                logger.error("device_notifications insert failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }
@@ -416,131 +681,47 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Helpers
 
-    private func createTablesIfNeeded() {
+    /// Runs every `.sql` file bundled under the `Database` resource directory, in filename order
+    /// (hence the numeric prefixes on each file, e.g. `001_device_events.sql`). Adding, removing,
+    /// or editing a `.sql` file in `database/` at the repo root is all that's needed to change the
+    /// schema — this method never needs to change.
+    private func runDatabaseDDL() {
         guard let db else { return }
-        // Drop long-obsolete tables from earlier prototypes; these never held data anyone still
-        // needs and aren't part of the current schema at all.
-        let dropObsoleteSQL = """
-        DROP TABLE IF EXISTS integration_queue;
-        DROP TABLE IF EXISTS sessions_queue;
-        DROP TABLE IF EXISTS integration_cursors;
-        DROP TABLE IF EXISTS history_cursor;
-        DROP TABLE IF EXISTS session_state;
-        DROP TABLE IF EXISTS local_sink;
-        """
-        sqlite3_exec(db, dropObsoleteSQL, nil, nil, nil)
-
-        migrateLogbookTableIfNeeded(db: db)
-
-        let logbookSQL = """
-        CREATE TABLE IF NOT EXISTS logbook (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_number INTEGER,
-            facet_id INTEGER NOT NULL,
-            started_at_s REAL NOT NULL,
-            duration_s REAL NOT NULL,
-            is_paused INTEGER NOT NULL,
-            activity_name TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            UNIQUE(event_number)
-        );
-        """
-        let eventCursorSQL = """
-        CREATE TABLE IF NOT EXISTS integration_event_cursors (
-            target TEXT NOT NULL,
-            identifier TEXT NOT NULL,
-            last_sent_ev INTEGER,
-            attempts INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT,
-            last_success_ev INTEGER,
-            updated_at REAL,
-            PRIMARY KEY (target, identifier)
-        );
-        """
-        sqlite3_exec(db, logbookSQL, nil, nil, nil)
-        sqlite3_exec(db, eventCursorSQL, nil, nil, nil)
-    }
-
-    /// Brings an existing `logbook` table up to the current shape without discarding rows.
-    /// Only a schema shape genuinely incompatible with a safe copy (an unexpected column set)
-    /// falls back to rebuilding that one table from scratch — never the whole database, and
-    /// never the integration cursors, which is what silently caused already-delivered events to
-    /// re-deliver after any unrelated schema bump.
-    private func migrateLogbookTableIfNeeded(db: OpaquePointer) {
-        let expectedColumns = [
-            "id", "event_number", "facet_id", "started_at_s", "duration_s", "is_paused", "activity_name", "created_at"
-        ]
-        guard tableExists(db: db, name: "logbook") else { return }
-        let currentColumns = columns(of: "logbook", db: db)
-        let alreadyUnique = tableSQL(db: db, name: "logbook")?.contains("UNIQUE(event_number)") ?? false
-        if currentColumns == expectedColumns, alreadyUnique {
+        guard let directory = AppDataStore.resolveDatabaseDirectory() else {
+            logger.error("Could not locate bundled Database DDL directory")
             return
         }
-        guard currentColumns == expectedColumns else {
-            logger.error("logbook schema unexpectedly incompatible (columns=\(currentColumns, privacy: .public)); rebuilding that table only")
-            sqlite3_exec(db, "DROP TABLE logbook;", nil, nil, nil)
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "sql" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        } catch {
+            logger.error("Could not list Database DDL directory: \(error.localizedDescription, privacy: .public)")
             return
         }
-
-        logger.notice("Migrating logbook to add UNIQUE(event_number), preserving existing rows")
-        sqlite3_exec(db, """
-        CREATE TABLE logbook_migrated (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_number INTEGER,
-            facet_id INTEGER NOT NULL,
-            started_at_s REAL NOT NULL,
-            duration_s REAL NOT NULL,
-            is_paused INTEGER NOT NULL,
-            activity_name TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            UNIQUE(event_number)
-        );
-        """, nil, nil, nil)
-        // OR IGNORE + newest-first order keeps the most recent row per event_number, matching
-        // the dedup semantics `append`'s INSERT OR REPLACE already relies on going forward.
-        sqlite3_exec(db, """
-        INSERT OR IGNORE INTO logbook_migrated
-        SELECT id, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
-        FROM logbook ORDER BY id DESC;
-        """, nil, nil, nil)
-        sqlite3_exec(db, "DROP TABLE logbook;", nil, nil, nil)
-        sqlite3_exec(db, "ALTER TABLE logbook_migrated RENAME TO logbook;", nil, nil, nil)
-    }
-
-    private func tableExists(db: OpaquePointer, name: String) -> Bool {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;", -1, &stmt, nil) == SQLITE_OK else {
-            return false
-        }
-        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
-        return sqlite3_step(stmt) == SQLITE_ROW
-    }
-
-    private func tableSQL(db: OpaquePointer, name: String) -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE type='table' AND name=?;", -1, &stmt, nil) == SQLITE_OK else {
-            return nil
-        }
-        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW, let sql = sqlite3_column_text(stmt, 0) else { return nil }
-        return String(cString: sql)
-    }
-
-    private func columns(of table: String, db: OpaquePointer) -> [String] {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK else {
-            return []
-        }
-        var cols: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let name = sqlite3_column_text(stmt, 1) {
-                cols.append(String(cString: name))
+        for file in files {
+            guard let sql = try? String(contentsOf: file, encoding: .utf8) else {
+                logger.error("Could not read DDL file \(file.lastPathComponent, privacy: .public)")
+                continue
+            }
+            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                logger.error("DDL file \(file.lastPathComponent, privacy: .public) failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
         }
-        return cols
+    }
+
+    /// Both SwiftPM's own resource bundling and Swift Bundler's packaging flatten the `Database`
+    /// resource directory's *contents* into the bundle root alongside every other resource (see
+    /// `ActivityIconLoader.resolveURL`) — there's never an actual `Database` subdirectory to look
+    /// up by name, in the packaged app or under `swift run`/`swift test`. Probe for a real DDL
+    /// file by name (its containing directory is the resource root) rather than testing
+    /// `resourceURL` for nil — `Bundle.main` always has *some* resource directory (e.g. the test
+    /// host's), so a nil check alone wouldn't fall through to `Bundle.module` when it's wrong one.
+    private static func resolveDatabaseDirectory() -> URL? {
+        (Bundle.main.url(forResource: "001_event_type", withExtension: "sql")
+            ?? Bundle.module.url(forResource: "001_event_type", withExtension: "sql"))?
+            .deletingLastPathComponent()
     }
 
     static func defaultDatabaseURL() -> URL {
