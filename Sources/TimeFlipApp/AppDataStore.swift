@@ -60,7 +60,7 @@ final class AppDataStore: IntegrationEventCursorStore {
             return
         }
         db = handle
-        createTablesIfNeeded()
+        runDatabaseDDL()
     }
 
     deinit {
@@ -416,131 +416,42 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Helpers
 
-    private func createTablesIfNeeded() {
+    /// Runs every `.sql` file bundled under the `Database` resource directory, in filename order
+    /// (hence the numeric prefixes on each file, e.g. `001_device_events.sql`). Adding, removing,
+    /// or editing a `.sql` file in `database/` at the repo root is all that's needed to change the
+    /// schema — this method never needs to change.
+    private func runDatabaseDDL() {
         guard let db else { return }
-        // Drop long-obsolete tables from earlier prototypes; these never held data anyone still
-        // needs and aren't part of the current schema at all.
-        let dropObsoleteSQL = """
-        DROP TABLE IF EXISTS integration_queue;
-        DROP TABLE IF EXISTS sessions_queue;
-        DROP TABLE IF EXISTS integration_cursors;
-        DROP TABLE IF EXISTS history_cursor;
-        DROP TABLE IF EXISTS session_state;
-        DROP TABLE IF EXISTS local_sink;
-        """
-        sqlite3_exec(db, dropObsoleteSQL, nil, nil, nil)
-
-        migrateLogbookTableIfNeeded(db: db)
-
-        let logbookSQL = """
-        CREATE TABLE IF NOT EXISTS logbook (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_number INTEGER,
-            facet_id INTEGER NOT NULL,
-            started_at_s REAL NOT NULL,
-            duration_s REAL NOT NULL,
-            is_paused INTEGER NOT NULL,
-            activity_name TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            UNIQUE(event_number)
-        );
-        """
-        let eventCursorSQL = """
-        CREATE TABLE IF NOT EXISTS integration_event_cursors (
-            target TEXT NOT NULL,
-            identifier TEXT NOT NULL,
-            last_sent_ev INTEGER,
-            attempts INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT,
-            last_success_ev INTEGER,
-            updated_at REAL,
-            PRIMARY KEY (target, identifier)
-        );
-        """
-        sqlite3_exec(db, logbookSQL, nil, nil, nil)
-        sqlite3_exec(db, eventCursorSQL, nil, nil, nil)
-    }
-
-    /// Brings an existing `logbook` table up to the current shape without discarding rows.
-    /// Only a schema shape genuinely incompatible with a safe copy (an unexpected column set)
-    /// falls back to rebuilding that one table from scratch — never the whole database, and
-    /// never the integration cursors, which is what silently caused already-delivered events to
-    /// re-deliver after any unrelated schema bump.
-    private func migrateLogbookTableIfNeeded(db: OpaquePointer) {
-        let expectedColumns = [
-            "id", "event_number", "facet_id", "started_at_s", "duration_s", "is_paused", "activity_name", "created_at"
-        ]
-        guard tableExists(db: db, name: "logbook") else { return }
-        let currentColumns = columns(of: "logbook", db: db)
-        let alreadyUnique = tableSQL(db: db, name: "logbook")?.contains("UNIQUE(event_number)") ?? false
-        if currentColumns == expectedColumns, alreadyUnique {
+        guard let directory = AppDataStore.resolveDatabaseDirectory() else {
+            logger.error("Could not locate bundled Database DDL directory")
             return
         }
-        guard currentColumns == expectedColumns else {
-            logger.error("logbook schema unexpectedly incompatible (columns=\(currentColumns, privacy: .public)); rebuilding that table only")
-            sqlite3_exec(db, "DROP TABLE logbook;", nil, nil, nil)
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "sql" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        } catch {
+            logger.error("Could not list Database DDL directory: \(error.localizedDescription, privacy: .public)")
             return
         }
-
-        logger.notice("Migrating logbook to add UNIQUE(event_number), preserving existing rows")
-        sqlite3_exec(db, """
-        CREATE TABLE logbook_migrated (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_number INTEGER,
-            facet_id INTEGER NOT NULL,
-            started_at_s REAL NOT NULL,
-            duration_s REAL NOT NULL,
-            is_paused INTEGER NOT NULL,
-            activity_name TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            UNIQUE(event_number)
-        );
-        """, nil, nil, nil)
-        // OR IGNORE + newest-first order keeps the most recent row per event_number, matching
-        // the dedup semantics `append`'s INSERT OR REPLACE already relies on going forward.
-        sqlite3_exec(db, """
-        INSERT OR IGNORE INTO logbook_migrated
-        SELECT id, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
-        FROM logbook ORDER BY id DESC;
-        """, nil, nil, nil)
-        sqlite3_exec(db, "DROP TABLE logbook;", nil, nil, nil)
-        sqlite3_exec(db, "ALTER TABLE logbook_migrated RENAME TO logbook;", nil, nil, nil)
-    }
-
-    private func tableExists(db: OpaquePointer, name: String) -> Bool {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;", -1, &stmt, nil) == SQLITE_OK else {
-            return false
-        }
-        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
-        return sqlite3_step(stmt) == SQLITE_ROW
-    }
-
-    private func tableSQL(db: OpaquePointer, name: String) -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE type='table' AND name=?;", -1, &stmt, nil) == SQLITE_OK else {
-            return nil
-        }
-        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW, let sql = sqlite3_column_text(stmt, 0) else { return nil }
-        return String(cString: sql)
-    }
-
-    private func columns(of table: String, db: OpaquePointer) -> [String] {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK else {
-            return []
-        }
-        var cols: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let name = sqlite3_column_text(stmt, 1) {
-                cols.append(String(cString: name))
+        for file in files {
+            guard let sql = try? String(contentsOf: file, encoding: .utf8) else {
+                logger.error("Could not read DDL file \(file.lastPathComponent, privacy: .public)")
+                continue
+            }
+            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                logger.error("DDL file \(file.lastPathComponent, privacy: .public) failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
         }
-        return cols
+    }
+
+    /// Swift Bundler flattens this target's SwiftPM resources into the packaged app's
+    /// `Contents/Resources` (see `ActivityIconLoader.resolveURL`) — check `Bundle.main` first to
+    /// match that layout, and fall back to `Bundle.module` for `swift run`/`swift test`.
+    private static func resolveDatabaseDirectory() -> URL? {
+        Bundle.main.url(forResource: "Database", withExtension: nil)
+            ?? Bundle.module.url(forResource: "Database", withExtension: nil)
     }
 
     static func defaultDatabaseURL() -> URL {
