@@ -166,7 +166,7 @@ be changed by editing the `setting` table directly in the local SQLite database 
 ### Manual Pause/Resume
 
 - Click the left side of the menu bar item (icon + activity name) to open the dropdown menu, then
-  select "Pause"/"Resume" — or use the keyboard shortcut `⌘P`
+  select "Pause"/"Resume"
 - Once paired, a single click on the **right side** of the item (the duration/indicator) toggles
   pause/resume directly, without opening the menu
 - None of this works while the device is locked (see Locking the Device below) — locking disables
@@ -183,8 +183,8 @@ be changed by editing the `setting` table directly in the local SQLite database 
 - While locked, a red lock icon appears next to the pause/play indicator in the menu bar, so you
   can still tell at a glance whether the device is timing or paused underneath the lock
 - Unlocking just removes the lock icon — it doesn't change the pause/running state either way
-- While locked, pause/resume is disabled everywhere — the single-click toggle, the menu item, and
-  its `⌘P` shortcut all do nothing. Double-clicking to unlock is the only action that works
+- While locked, pause/resume is disabled everywhere — the single-click toggle and the menu item
+  both do nothing. Double-clicking to unlock is the only action that works
 
 ### Status Indicators
 

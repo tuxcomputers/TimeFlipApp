@@ -174,7 +174,7 @@ final class MenuBarController: NSObject {
         let settingsItem = NSMenuItem(
             title: "Preferences...",
             action: #selector(openPreferences),
-            keyEquivalent: ","
+            keyEquivalent: ""
         )
         settingsItem.target = self
         newMenu.addItem(settingsItem)
@@ -185,18 +185,18 @@ final class MenuBarController: NSObject {
         let pauseItem = NSMenuItem(
             title: pauseTitle,
             action: #selector(togglePause),
-            keyEquivalent: "p"
+            keyEquivalent: ""
         )
         pauseItem.target = self
         // While locked, the only valid action is double-clicking the status item to unlock —
-        // pause/resume must not be reachable via the menu or its ⌘P shortcut either.
+        // pause/resume must not be reachable via the menu either.
         pauseItem.isEnabled = isPaired && !isLocked
         newMenu.addItem(pauseItem)
 
         let quitItem = NSMenuItem(
             title: "Quit",
             action: #selector(quitApp),
-            keyEquivalent: "q"
+            keyEquivalent: ""
         )
         quitItem.target = self
         newMenu.addItem(quitItem)
@@ -426,7 +426,7 @@ final class MenuBarController: NSObject {
     @objc
     private func togglePause() {
         // While locked, the only valid action is double-clicking to unlock — pause/resume must
-        // not be reachable from the menu, its ⌘P shortcut, or a single click on the status item.
+        // not be reachable from the menu or a single click on the status item.
         guard appState.isPaired, !appState.isLocked else { return }
         onPauseToggle?(!isPaused)
     }
