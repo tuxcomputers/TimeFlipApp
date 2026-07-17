@@ -51,50 +51,64 @@ facet or paused/resumed, marking the end of the previous segment.
 
 | Column             | Type    | Description                                                                 |
 |---------------------|---------|-------------------------------------------------------------------------------|
-| `device_events_id`  | INTEGER | Row identifier, primary key, autoincrementing.                              |
-| `event_number`      | INTEGER | The device's own sequence number for this event. Unique — used as the lookup key to update a frame already seen (e.g. re-ingesting the still-open last frame as its duration grows), not for ordering — see below. |
+| `device_events_id`  | INTEGER | Row identifier, primary key, autoincrementing (`PK_device_events`).          |
+| `event_number`      | INTEGER | The device's own sequence number for this event. Part of the composite matching key with `start_epoch` — see below — but not unique on its own, and not used for ordering. |
 | `event_type_id`     | INTEGER | References `event_type.event_type_id` — always `facet_flip` or `pause` for rows in this table. |
 | `device_face`       | INTEGER | Decoded facet number, `1`-`12`. Decoded from the device's raw facet byte, not stored as hex. |
 | `start_time`        | TEXT    | When the segment started, as a local-time ISO 8601 timestamp with no UTC offset (e.g. `2026-07-16T09:30:00`). Decoded from the device's raw timestamp encoding. Display only — see `start_epoch` for ordering/comparisons. |
 | `start_time_timezone` | TEXT  | IANA timezone identifier (e.g. `America/New_York`) `start_time` was recorded in.            |
-| `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering/insert-vs-update and the `finalised` flag (see below). Indexed. |
+| `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering and the `finalised` flag; also half of the composite matching key (see below). Indexed. |
 | `duration_seconds`  | REAL    | How long the segment lasted, in seconds.                                    |
 | `is_paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
 | `finalised`         | INTEGER | `1` once the segment is closed out, `0` while it's still the device's in-progress interval. |
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
 Constraints:
-- `event_number` is `UNIQUE` so re-ingesting an event already seen (e.g. after a reconnect) updates
-  that same row instead of creating a duplicate.
+- `(event_number, start_epoch)` has a composite `UNIQUE` index (`UN1_device_events`) — see below
+  for why it's the pair, not `event_number` alone, that's unique.
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
 - `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
 - `is_paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `processed` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
-- `start_epoch` has a non-unique index (`idx_device_events_start_epoch`) since it's the column
-  ordering/insert-vs-update decisions are made against.
+- `start_epoch` also has its own non-unique index (`IN1_device_events`) for ordering queries that
+  don't also filter on `event_number`.
 
-Why `start_epoch`, not `event_number`, drives ordering: `event_number` is a counter maintained on
-the device itself. If the device resets (e.g. a battery pull) it can start counting again from a
-low number while this table already holds higher `event_number` values from before the reset —
-comparing `event_number` magnitudes directly would then treat a brand-new event as *older* than
-history it's actually superseding, and could even collide with an old row's `event_number` and
-silently overwrite it via the `UPDATE ... WHERE event_number = ?` path. `start_epoch` is derived
-from the device's own timestamp and doesn't reset, so `AppDataStore.recordDeviceEvent` compares
-that instead. (A genuine `event_number` collision after a device reset would now fail loudly as a
-`UNIQUE` constraint violation on `INSERT` instead of silently corrupting the old row — safer, but
-not itself a full fix for the underlying collision; `event_number` is still the per-row lookup
-key within one continuous device session.)
+Why matching and ordering are both keyed off `start_epoch`, and neither trusts `event_number`
+alone:
+- **Ordering** ("is this new segment newer than anything recorded so far?") compares `start_epoch`
+  against `maxKnownStartEpoch`, an in-memory high-water mark. `event_number` is a counter
+  maintained on the device itself — a device-side reset (a battery pull, or a reset from the
+  official app; confirmed happening in practice: a real device's `event_number` sequence jumped
+  from `139` straight back to `1` after an official-app reset) can make it restart from a low
+  number while this table already holds higher `event_number` values from before the reset.
+  Comparing `event_number` magnitudes directly would treat that brand-new event as *older* than
+  history it's actually superseding. `start_epoch` is derived from the device's own timestamp and
+  doesn't reset, so it's safe to compare directly.
+- **Matching** ("have I already recorded this exact segment?", used to decide update-in-place vs.
+  insert) uses the composite `(event_number, start_epoch)` pair, not `event_number` alone: after a
+  reset, `event_number` gets reused for a completely different real-world segment, so a bare
+  `UNIQUE` on `event_number` would either block that new segment from ever being inserted, or (if
+  matched on `event_number` alone in the `UPDATE`) silently overwrite the unrelated old row.
+  `start_epoch` alone isn't unique enough to use by itself either — the device only reports
+  whole-second timestamps (`docs/TimeFlip2 BLE Protocol v4.3.md`'s `0x07`/`0x08` commands and the
+  history frame's flip-timestamp field are both "number of seconds", no finer resolution), so two
+  genuinely different segments (e.g. a quick flip across a facet while searching for the right
+  one — see the `blip_time` setting) can legitimately share the same `start_epoch` second. The
+  combination of both is what's actually unique: the only way two different real segments collide
+  on `(event_number, start_epoch)` is an exact coincidence of a device reset landing the reused
+  `event_number` in the very same wall-clock second as the old segment it collides with —
+  vanishingly unlikely in practice.
 
 `finalised` vs. `processed`: the device's history stream always reports its still-open,
 in-progress segment as the last frame in every dump (see `docs/timeflip.md` §5). That frame is
-inserted with `finalised = 0` and its row is updated in place (matched by `event_number`) as the
-duration keeps growing on each refresh, until a subsequent flip/pause closes it out and a later
-write sets `finalised = 1`. `processed` is a separate, independent flag — it tracks whether a
-(finalised) segment has been turned into a `time_entry` yet, and is only ever meaningful once
-`finalised = 1`; the `finalised` update path never touches it, so an already-`processed` row can't
-be silently un-flagged by the live segment's growth.
+inserted with `finalised = 0` and its row is updated in place (matched by
+`(event_number, start_epoch)`) as the duration keeps growing on each refresh, until a subsequent
+flip/pause closes it out and a later write sets `finalised = 1`. `processed` is a separate,
+independent flag — it tracks whether a (finalised) segment has been turned into a `time_entry`
+yet, and is only ever meaningful once `finalised = 1`; the `finalised` update path never touches
+it, so an already-`processed` row can't be silently un-flagged by the live segment's growth.
 
 ### `icon` (`database/003_icon.sql`)
 
@@ -200,7 +214,7 @@ have a duration or a facet; each row is a single moment with a decoded value.
 
 Constraints:
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
-- `start_epoch` has a non-unique index (`idx_device_notifications_start_epoch`).
+- `start_epoch` has a non-unique index (`IN1_device_notifications`).
 
 ### `setting` (`database/009_setting.sql`)
 

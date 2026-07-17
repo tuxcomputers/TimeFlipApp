@@ -139,28 +139,70 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Device events (new schema; timing segments -- facet flips and pauses)
 
+    /// Looks up an existing `device_events` row by the exact `(event_number, start_epoch)` pair --
+    /// the composite key `recordDeviceEvent` uses to recognize "I've already recorded this exact
+    /// segment" (see that function's doc comment for why neither column alone is safe to use).
+    /// Returns the row's `device_events_id`, or `nil` if no row matches both columns.
+    private func selectDeviceEventsRowID(eventNumber: UInt32, startEpoch: Int64) -> Int64? {
+        guard let db else { return nil }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT device_events_id FROM device_events WHERE event_number = ? AND start_epoch = ?;",
+            -1, &stmt, nil
+        ) == SQLITE_OK else {
+            logger.error("device_events rowid lookup prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, sqlite3_int64(eventNumber))
+        sqlite3_bind_int64(stmt, 2, startEpoch)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return sqlite3_column_int64(stmt, 0)
+    }
+
     /// Records a `device_events` row for a timing segment from the device's history stream.
-    /// `event_number` is `UNIQUE` and remains the row's lookup key for update-in-place
-    /// re-ingestion of a frame already seen (e.g. after a reconnect, or the device's still-open
-    /// last frame growing in duration -- see docs/operation-spec.md §2). Update-vs-insert is
-    /// decided by comparing `start_epoch` (derived from `startedAt`) against `maxKnownStartEpoch`
-    /// (an in-memory scalar loaded once at startup via `SELECT MAX(start_epoch)`) rather than by
-    /// comparing `event_number` magnitudes -- `event_number` is a counter maintained on the device
-    /// itself, and a device-side reset can make it restart from a low number while this table
-    /// already holds higher event_number values from before the reset, which would make a
-    /// genuinely new event look older than history it's actually superseding. `start_epoch` is
-    /// derived from the device's own timestamp and doesn't reset, so it's safe to compare
-    /// directly. This is also not done via `ON CONFLICT DO UPDATE`, because that path still burns
-    /// an AUTOINCREMENT id on every update and leaves permanent gaps in `device_events_id`.
+    /// Matching -- "have I already recorded this exact segment?" -- is done on the composite
+    /// `(event_number, start_epoch)` pair (via `selectDeviceEventsRowID`), not on either column
+    /// alone:
+    /// - `event_number` alone isn't safe: it's a counter maintained on the device itself, and a
+    ///   device-side reset (e.g. a battery pull, or a reset from the official app) can make it
+    ///   restart from a low number that an old row already used for a completely different,
+    ///   long-past segment. Matching on `event_number` alone would then either silently overwrite
+    ///   that unrelated old row, or (with `event_number` as a lone `UNIQUE` column) block the
+    ///   new, legitimate segment from being inserted at all.
+    /// - `start_epoch` alone isn't safe either: the device only reports whole-second timestamps
+    ///   (`docs/TimeFlip2 BLE Protocol v4.3.md`'s 0x07/0x08 and the flip-timestamp field are both
+    ///   "number of seconds", no finer resolution), so two genuinely different segments -- e.g. a
+    ///   quick flip across a facet while searching for the right one, see the `blip_time` setting
+    ///   -- can legitimately share the same `start_epoch` second.
+    /// The combination of both is what's actually unique: the only way two different real segments
+    /// collide on `(event_number, start_epoch)` is an exact coincidence of both a device reset AND
+    /// the reused event_number landing in the same wall-clock second as the old segment it
+    /// collides with -- vanishingly unlikely in practice. `UN1_device_events` enforces this as a
+    /// composite unique index (not a lone `UNIQUE` on `event_number`), so a genuinely new segment
+    /// can always be inserted even when its `event_number` has been reused after a reset.
     ///
-    /// - `startEpoch > maxKnownStartEpoch` (a new high-water mark): any previously-open row is
-    ///   closed out (`finalised` set to 1 wherever it isn't already), the new row is inserted with
-    ///   `finalised = 0` (it's now the in-progress segment -- always the last frame in a history
-    ///   dump, per docs/timeflip.md §5), and `maxKnownStartEpoch` advances to `startEpoch`.
-    /// - `startEpoch == maxKnownStartEpoch`: this is that same in-progress segment growing in
-    ///   duration; updated in place with `finalised = 0`.
-    /// - `startEpoch < maxKnownStartEpoch`: a later event already superseded this one, so it's
-    ///   updated in place with `finalised = 1`.
+    /// Ordering ("is this new segment newer than anything recorded so far?") is a separate
+    /// question from matching, and is still decided purely by comparing `start_epoch` against
+    /// `maxKnownStartEpoch` (an in-memory scalar loaded once at startup via
+    /// `SELECT MAX(start_epoch)`) -- never `event_number`, for the same device-reset reason above.
+    /// This is also not done via `ON CONFLICT DO UPDATE`, because that path still burns an
+    /// AUTOINCREMENT id on every update and leaves permanent gaps in `device_events_id`.
+    ///
+    /// - A row already exists for `(event_number, start_epoch)`: this is a re-ingestion of a
+    ///   segment already recorded -- either the still-open live frame growing in duration, or an
+    ///   already-closed frame being resent. Updated in place; `finalised` is `0` only if
+    ///   `start_epoch == maxKnownStartEpoch` (it's still the newest thing on record), else `1`.
+    /// - No existing row, and `start_epoch > maxKnownStartEpoch` (a new high-water mark): any
+    ///   previously-open row is closed out (`finalised` set to `1` wherever it isn't already), and
+    ///   the new row is inserted with `finalised = 0` (it's now the in-progress segment -- always
+    ///   the last frame in a history dump, per `docs/timeflip.md` §5). `maxKnownStartEpoch`
+    ///   advances to `startEpoch`.
+    /// - No existing row, but `start_epoch <= maxKnownStartEpoch`: a segment never seen before,
+    ///   arriving out of chronological order (unusual, but not fatal) -- inserted already
+    ///   `finalised = 1`, since it can't be the current live segment.
     ///
     /// `processed` is a separate flag (time_entry creation) and is never touched here.
     @discardableResult
@@ -176,18 +218,54 @@ final class AppDataStore: IntegrationEventCursorStore {
         var success = false
         queue.sync {
             let startEpoch = Int64(startedAt.timeIntervalSince1970)
-            let isNewMax = startEpoch > maxKnownStartEpoch
 
-            if isNewMax {
-                if sqlite3_exec(db, "UPDATE device_events SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
-                    logger.error("device_events close-out failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            if let existingRowID = selectDeviceEventsRowID(eventNumber: eventNumber, startEpoch: startEpoch) {
+                let finalised = startEpoch == maxKnownStartEpoch ? false : true
+                let sql = """
+                UPDATE device_events SET
+                    event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
+                    device_face = ?,
+                    start_time = ?,
+                    start_time_timezone = ?,
+                    duration_seconds = ?,
+                    is_paused = ?,
+                    finalised = ?
+                WHERE device_events_id = ?;
+                """
+                var stmt: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                    logger.error("device_events update prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    sqlite3_finalize(stmt)
+                    return
+                }
+                sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int(stmt, 2, Int32(deviceFace))
+                sqlite3_bind_text(stmt, 3, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 4, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_double(stmt, 5, durationSeconds)
+                sqlite3_bind_int(stmt, 6, isPaused ? 1 : 0)
+                sqlite3_bind_int(stmt, 7, finalised ? 1 : 0)
+                sqlite3_bind_int64(stmt, 8, existingRowID)
+                if sqlite3_step(stmt) == SQLITE_DONE {
+                    success = true
+                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(finalised, privacy: .public) inserted=false")
+                } else {
+                    logger.error("device_events update failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                }
+                sqlite3_finalize(stmt)
+            } else {
+                let isNewMax = startEpoch > maxKnownStartEpoch
+                if isNewMax {
+                    if sqlite3_exec(db, "UPDATE device_events SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
+                        logger.error("device_events close-out failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    }
                 }
 
                 let sql = """
                 INSERT INTO device_events (
                     event_number, event_type_id, device_face, start_time, start_time_timezone, start_epoch, duration_seconds, is_paused, finalised
                 ) VALUES (
-                    ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, 0
+                    ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, ?
                 );
                 """
                 var stmt: OpaquePointer?
@@ -204,52 +282,16 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_bind_int64(stmt, 6, startEpoch)
                 sqlite3_bind_double(stmt, 7, durationSeconds)
                 sqlite3_bind_int(stmt, 8, isPaused ? 1 : 0)
+                sqlite3_bind_int(stmt, 9, isNewMax ? 0 : 1)
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     success = true
-                    maxKnownStartEpoch = startEpoch
-                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=false inserted=true")
+                    if isNewMax { maxKnownStartEpoch = startEpoch }
+                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(!isNewMax, privacy: .public) inserted=true")
                 } else {
                     logger.error("device_events insert failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                 }
                 sqlite3_finalize(stmt)
-            } else {
-                let finalised = startEpoch == maxKnownStartEpoch ? false : true
-                let sql = """
-                UPDATE device_events SET
-                    event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
-                    device_face = ?,
-                    start_time = ?,
-                    start_time_timezone = ?,
-                    start_epoch = ?,
-                    duration_seconds = ?,
-                    is_paused = ?,
-                    finalised = ?
-                WHERE event_number = ?;
-                """
-                var stmt: OpaquePointer?
-                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                    logger.error("device_events update prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-                    sqlite3_finalize(stmt)
-                    return
-                }
-                sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_int(stmt, 2, Int32(deviceFace))
-                sqlite3_bind_text(stmt, 3, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 4, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_int64(stmt, 5, startEpoch)
-                sqlite3_bind_double(stmt, 6, durationSeconds)
-                sqlite3_bind_int(stmt, 7, isPaused ? 1 : 0)
-                sqlite3_bind_int(stmt, 8, finalised ? 1 : 0)
-                sqlite3_bind_int64(stmt, 9, sqlite3_int64(eventNumber))
-                if sqlite3_step(stmt) == SQLITE_DONE {
-                    success = true
-                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(finalised, privacy: .public) inserted=false")
-                } else {
-                    logger.error("device_events update failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-                }
-                sqlite3_finalize(stmt)
             }
-
         }
         return success
     }
