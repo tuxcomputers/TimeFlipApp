@@ -12,5 +12,5 @@ CREATE TABLE IF NOT EXISTS integration_event_cursors (
     last_error TEXT,
     last_success_ev INTEGER,
     updated_at REAL,
-    PRIMARY KEY (target, identifier)
+    CONSTRAINT PK_integration_event_cursors PRIMARY KEY (target, identifier)
 );

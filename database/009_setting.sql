@@ -2,11 +2,13 @@
 -- Generic key/value store for device/app settings. One row per setting.
 
 CREATE TABLE IF NOT EXISTS setting (
-    setting_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    setting_name TEXT NOT NULL UNIQUE,
+    setting_id INTEGER CONSTRAINT PK_setting PRIMARY KEY AUTOINCREMENT,
+    setting_name TEXT NOT NULL,
     setting_value TEXT NOT NULL,
     setting_description TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_setting ON setting(setting_name);
 
 -- Every setting_value is a JSON object, even single-value settings, so reading this table never
 -- needs to branch on which row it is -- callers always decode setting_value as JSON.

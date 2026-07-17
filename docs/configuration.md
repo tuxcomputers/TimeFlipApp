@@ -202,9 +202,11 @@ state, since it's the most urgent signal. Once disconnected, both fields go flat
 no reliable battery/limit reading to show until the connection is back.
 
 If the connection drops (e.g. the laptop goes to sleep or the device goes out of range), the app
-retries automatically with increasing backoff, and also retries immediately when the Mac wakes
-from sleep — you shouldn't need to manually reconnect. See Troubleshooting below if it doesn't
-recover.
+retries automatically with increasing backoff, and also retries when the Mac wakes from sleep —
+you shouldn't need to manually reconnect. On wake, the text turns yellow immediately, then after a
+fixed 2-second pause the app attempts the reconnect (a deliberate delay so it's visibly obvious the
+retry actually ran, rather than happening so fast it's indistinguishable from the device having
+already been in range). See Troubleshooting below if it doesn't recover.
 
 ### Viewing Statistics
 

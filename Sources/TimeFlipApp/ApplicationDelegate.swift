@@ -97,6 +97,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // Read before anything else runs, so every debug print for the rest of this launch
         // respects the setting from the moment the app starts.
         DeveloperMode.isDebugSettingEnabled = dataStore.loadDebugEnabled()
+        // Persist every debug message into debug_log too (see AppDataStore.recordDebugLog), so a
+        // failed test run can be analyzed from the database afterward instead of relying on a
+        // terminal transcript that was never captured.
+        DeveloperMode.logSink = { [dataStore] tag, message in
+            dataStore.recordDebugLog(tag: tag.rawValue, message: message)
+        }
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
@@ -269,6 +275,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self.stopDeviceEvents()
             self.reconnectAttempt = 0
             self.appState.pairingStatus = .reconnecting
+            // Deliberate pause between showing the yellow "reconnecting" text and actually
+            // attempting the connection. Without it, a fast reconnect makes it impossible to tell
+            // whether this wake-triggered retry path ran at all versus the device just already
+            // being in range by coincidence.
+            DeveloperMode.debugPrint(.timeFlip, "System wake: reconnecting status shown, waiting 2s before connect attempt")
+            try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
+            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            DeveloperMode.debugPrint(.timeFlip, "System wake: 2s delay elapsed, attempting reconnect now")
             self.startDeviceEvents()
         }
     }

@@ -47,14 +47,18 @@ final class AppDataStore: IntegrationEventCursorStore {
     private let queue = DispatchQueue(label: "com.timeflip.appdatastore")
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "app-data-store")
 
-    // The highest device_events.event_number seen so far, loaded once at startup with a single
+    // The highest device_events.start_epoch seen so far, loaded once at startup with a single
     // MAX() query and kept up to date in memory from then on. recordDeviceEvent uses it to choose
     // UPDATE vs INSERT itself instead of relying on ON CONFLICT DO UPDATE -- that path still
     // consumes an AUTOINCREMENT id on every update, leaving permanent gaps in device_events_id.
-    // -1 means "no rows yet" (MAX(event_number) is NULL on an empty table) -- every real
-    // event_number (0...UInt32.max) compares greater than -1, so the empty-table case always
+    // start_epoch (not event_number) is the ordering source of truth: event_number is a counter
+    // maintained on the device itself, and a device-side reset can make it restart from a low
+    // number while this table already holds higher event_number values from before the reset --
+    // comparing event_number magnitudes would then treat a brand new event as older than history
+    // it's actually superseding. -1 means "no rows yet" (MAX(start_epoch) is NULL on an empty
+    // table) -- every real epoch value compares greater than -1, so the empty-table case always
     // takes the insert path without needing Optional handling at every comparison site.
-    private var maxKnownEventNumber: Int64 = -1
+    private var maxKnownStartEpoch: Int64 = -1
 
     init(databaseURL: URL? = nil) {
         let url = databaseURL ?? AppDataStore.defaultDatabaseURL()
@@ -70,25 +74,25 @@ final class AppDataStore: IntegrationEventCursorStore {
         }
         db = handle
         runDatabaseDDL()
-        loadMaxKnownEventNumber()
+        loadMaxKnownStartEpoch()
     }
 
-    /// Seeds `maxKnownEventNumber` from whatever `device_events` rows already exist on disk, so
+    /// Seeds `maxKnownStartEpoch` from whatever `device_events` rows already exist on disk, so
     /// the update-vs-insert and finalised logic in `recordDeviceEvent` is correct across app
     /// restarts, not just within this process's lifetime. Leaves it at -1 (see property comment)
-    /// when the table is empty and `MAX(event_number)` comes back NULL.
-    private func loadMaxKnownEventNumber() {
+    /// when the table is empty and `MAX(start_epoch)` comes back NULL.
+    private func loadMaxKnownStartEpoch() {
         guard let db else { return }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT MAX(event_number) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
-            logger.error("loadMaxKnownEventNumber prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("loadMaxKnownStartEpoch prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return
         }
         if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
-            maxKnownEventNumber = sqlite3_column_int64(stmt, 0)
+            maxKnownStartEpoch = sqlite3_column_int64(stmt, 0)
         } else {
-            maxKnownEventNumber = -1
+            maxKnownStartEpoch = -1
         }
         sqlite3_finalize(stmt)
     }
@@ -136,21 +140,26 @@ final class AppDataStore: IntegrationEventCursorStore {
     // MARK: - Device events (new schema; timing segments -- facet flips and pauses)
 
     /// Records a `device_events` row for a timing segment from the device's history stream.
-    /// `event_number` is `UNIQUE`; re-ingesting a frame already seen (e.g. after a reconnect, or
-    /// the device's still-open last frame growing in duration -- see docs/operation-spec.md §2)
-    /// updates that same row in place instead of duplicating it. Update-vs-insert is decided by
-    /// comparing against `maxKnownEventNumber` (an in-memory scalar loaded once at startup via
-    /// `SELECT MAX(event_number)`) rather than via `ON CONFLICT DO UPDATE`, because that path
-    /// still burns an AUTOINCREMENT id on every update and leaves permanent gaps in
-    /// `device_events_id`.
+    /// `event_number` is `UNIQUE` and remains the row's lookup key for update-in-place
+    /// re-ingestion of a frame already seen (e.g. after a reconnect, or the device's still-open
+    /// last frame growing in duration -- see docs/operation-spec.md §2). Update-vs-insert is
+    /// decided by comparing `start_epoch` (derived from `startedAt`) against `maxKnownStartEpoch`
+    /// (an in-memory scalar loaded once at startup via `SELECT MAX(start_epoch)`) rather than by
+    /// comparing `event_number` magnitudes -- `event_number` is a counter maintained on the device
+    /// itself, and a device-side reset can make it restart from a low number while this table
+    /// already holds higher event_number values from before the reset, which would make a
+    /// genuinely new event look older than history it's actually superseding. `start_epoch` is
+    /// derived from the device's own timestamp and doesn't reset, so it's safe to compare
+    /// directly. This is also not done via `ON CONFLICT DO UPDATE`, because that path still burns
+    /// an AUTOINCREMENT id on every update and leaves permanent gaps in `device_events_id`.
     ///
-    /// - `eventNumber > maxKnownEventNumber` (a new high-water mark): any previously-open row is
+    /// - `startEpoch > maxKnownStartEpoch` (a new high-water mark): any previously-open row is
     ///   closed out (`finalised` set to 1 wherever it isn't already), the new row is inserted with
     ///   `finalised = 0` (it's now the in-progress segment -- always the last frame in a history
-    ///   dump, per docs/timeflip.md §5), and `maxKnownEventNumber` advances to `eventNumber`.
-    /// - `eventNumber == maxKnownEventNumber`: this is that same in-progress segment growing in
+    ///   dump, per docs/timeflip.md §5), and `maxKnownStartEpoch` advances to `startEpoch`.
+    /// - `startEpoch == maxKnownStartEpoch`: this is that same in-progress segment growing in
     ///   duration; updated in place with `finalised = 0`.
-    /// - `eventNumber < maxKnownEventNumber`: a later event already superseded this one, so it's
+    /// - `startEpoch < maxKnownStartEpoch`: a later event already superseded this one, so it's
     ///   updated in place with `finalised = 1`.
     ///
     /// `processed` is a separate flag (time_entry creation) and is never touched here.
@@ -166,8 +175,8 @@ final class AppDataStore: IntegrationEventCursorStore {
         let eventType = isPaused ? "pause" : "facet_flip"
         var success = false
         queue.sync {
-            let eventNumberValue = Int64(eventNumber)
-            let isNewMax = eventNumberValue > maxKnownEventNumber
+            let startEpoch = Int64(startedAt.timeIntervalSince1970)
+            let isNewMax = startEpoch > maxKnownStartEpoch
 
             if isNewMax {
                 if sqlite3_exec(db, "UPDATE device_events SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
@@ -176,9 +185,9 @@ final class AppDataStore: IntegrationEventCursorStore {
 
                 let sql = """
                 INSERT INTO device_events (
-                    event_number, event_type_id, device_face, started_at, started_at_timezone, duration_seconds, is_paused, finalised
+                    event_number, event_type_id, device_face, start_time, start_time_timezone, start_epoch, duration_seconds, is_paused, finalised
                 ) VALUES (
-                    ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, 0
+                    ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, 0
                 );
                 """
                 var stmt: OpaquePointer?
@@ -192,24 +201,26 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_bind_int(stmt, 3, Int32(deviceFace))
                 sqlite3_bind_text(stmt, 4, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
                 sqlite3_bind_text(stmt, 5, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_double(stmt, 6, durationSeconds)
-                sqlite3_bind_int(stmt, 7, isPaused ? 1 : 0)
+                sqlite3_bind_int64(stmt, 6, startEpoch)
+                sqlite3_bind_double(stmt, 7, durationSeconds)
+                sqlite3_bind_int(stmt, 8, isPaused ? 1 : 0)
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     success = true
-                    maxKnownEventNumber = eventNumberValue
+                    maxKnownStartEpoch = startEpoch
                     logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=false inserted=true")
                 } else {
                     logger.error("device_events insert failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                 }
                 sqlite3_finalize(stmt)
             } else {
-                let finalised = eventNumberValue == maxKnownEventNumber ? false : true
+                let finalised = startEpoch == maxKnownStartEpoch ? false : true
                 let sql = """
                 UPDATE device_events SET
                     event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
                     device_face = ?,
-                    started_at = ?,
-                    started_at_timezone = ?,
+                    start_time = ?,
+                    start_time_timezone = ?,
+                    start_epoch = ?,
                     duration_seconds = ?,
                     is_paused = ?,
                     finalised = ?
@@ -225,10 +236,11 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_bind_int(stmt, 2, Int32(deviceFace))
                 sqlite3_bind_text(stmt, 3, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
                 sqlite3_bind_text(stmt, 4, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_double(stmt, 5, durationSeconds)
-                sqlite3_bind_int(stmt, 6, isPaused ? 1 : 0)
-                sqlite3_bind_int(stmt, 7, finalised ? 1 : 0)
-                sqlite3_bind_int64(stmt, 8, sqlite3_int64(eventNumber))
+                sqlite3_bind_int64(stmt, 5, startEpoch)
+                sqlite3_bind_double(stmt, 6, durationSeconds)
+                sqlite3_bind_int(stmt, 7, isPaused ? 1 : 0)
+                sqlite3_bind_int(stmt, 8, finalised ? 1 : 0)
+                sqlite3_bind_int64(stmt, 9, sqlite3_int64(eventNumber))
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     success = true
                     logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(finalised, privacy: .public) inserted=false")
@@ -242,8 +254,8 @@ final class AppDataStore: IntegrationEventCursorStore {
         return success
     }
 
-    /// Development-only consistency check: re-derives `MAX(event_number)` directly from the
-    /// database and compares it against the in-memory `maxKnownEventNumber` this class has been
+    /// Development-only consistency check: re-derives `MAX(start_epoch)` directly from the
+    /// database and compares it against the in-memory `maxKnownStartEpoch` this class has been
     /// incrementally maintaining. A mismatch means that tracking has drifted from the DB -- e.g. a
     /// row was written outside `recordDeviceEvent`, or a write silently failed -- and needs
     /// investigating, so it's printed loudly rather than tucked away in the OS log.
@@ -252,12 +264,12 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// history refresh), not after every individual call -- history processing can call
     /// `recordDeviceEvent` many times per batch, and re-deriving MAX() from the DB that often is
     /// both wasteful and noisy.
-    func verifyMaxKnownEventNumberConsistency() {
+    func verifyMaxKnownStartEpochConsistency() {
         guard DeveloperMode.isEnabled else { return }
         guard let db else { return }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT MAX(event_number) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
-            logger.error("verifyMaxKnownEventNumberConsistency prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("verifyMaxKnownStartEpochConsistency prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return
         }
@@ -267,17 +279,17 @@ final class AppDataStore: IntegrationEventCursorStore {
         }
         sqlite3_finalize(stmt)
 
-        if dbMax == maxKnownEventNumber {
-            DeveloperMode.debugPrint(.devCheck, "device_events max_event_number OK: in_memory=\(maxKnownEventNumber) db=\(dbMax)")
+        if dbMax == maxKnownStartEpoch {
+            DeveloperMode.debugPrint(.devCheck, "device_events max_start_epoch OK: in_memory=\(maxKnownStartEpoch) db=\(dbMax)")
         } else {
             DeveloperMode.debugPrint(.devCheck, """
             ############################################################
-            MISMATCH: device_events max(event_number) drifted from the in-memory tracker!
-            in-memory maxKnownEventNumber = \(maxKnownEventNumber)
-            SELECT MAX(event_number) FROM device_events = \(dbMax)
+            MISMATCH: device_events max(start_epoch) drifted from the in-memory tracker!
+            in-memory maxKnownStartEpoch = \(maxKnownStartEpoch)
+            SELECT MAX(start_epoch) FROM device_events = \(dbMax)
             ############################################################
             """)
-            logger.fault("device_events max_event_number MISMATCH in_memory=\(self.maxKnownEventNumber, privacy: .public) db=\(dbMax, privacy: .public)")
+            logger.fault("device_events max_start_epoch MISMATCH in_memory=\(self.maxKnownStartEpoch, privacy: .public) db=\(dbMax, privacy: .public)")
         }
     }
 
@@ -384,8 +396,8 @@ final class AppDataStore: IntegrationEventCursorStore {
     func recordDeviceNotification(eventType: String, payload: String?, occurredAt: Date = Date()) -> Bool {
         guard let db else { return false }
         let sql = """
-        INSERT INTO device_notifications (event_type_id, occurred_at, occurred_at_timezone, payload)
-        VALUES ((SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?);
+        INSERT INTO device_notifications (event_type_id, start_time, start_time_timezone, start_epoch, payload)
+        VALUES ((SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?);
         """
         var success = false
         queue.sync {
@@ -398,16 +410,49 @@ final class AppDataStore: IntegrationEventCursorStore {
             sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 2, AppDataStore.localTimeFormatter.string(from: occurredAt), -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 3, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 4, Int64(occurredAt.timeIntervalSince1970))
             if let payload {
-                sqlite3_bind_text(stmt, 4, payload, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 5, payload, -1, SQLITE_TRANSIENT)
             } else {
-                sqlite3_bind_null(stmt, 4)
+                sqlite3_bind_null(stmt, 5)
             }
             if sqlite3_step(stmt) == SQLITE_DONE {
                 success = true
                 logger.debug("device_notifications event_type=\(eventType, privacy: .public) payload=\(payload ?? "nil", privacy: .public)")
             } else {
                 logger.error("device_notifications insert failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+        return success
+    }
+
+    /// Records one `DeveloperMode.debugPrint` message into `debug_log`, alongside printing it to
+    /// the terminal, so a test session can be reconstructed from the database afterward -- see
+    /// `DeveloperMode.logSink`, wired up once in `ApplicationDelegate.applicationDidFinishLaunching`.
+    @discardableResult
+    func recordDebugLog(tag: String, message: String, loggedAt: Date = Date()) -> Bool {
+        guard let db else { return false }
+        let sql = """
+        INSERT INTO debug_log (logged_at, logged_at_timezone, tag, message)
+        VALUES (?, ?, ?, ?);
+        """
+        var success = false
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("debug_log prepare failed tag=\(tag, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, AppDataStore.localTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, tag, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 4, message, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                success = true
+            } else {
+                logger.error("debug_log insert failed tag=\(tag, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }

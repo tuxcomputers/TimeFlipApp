@@ -22,6 +22,13 @@ enum DeveloperMode {
     /// real hazard here, and `debugPrint` is called from several non-MainActor contexts.
     nonisolated(unsafe) static var isDebugSettingEnabled = true
 
+    /// Set once at startup (see `ApplicationDelegate.applicationDidFinishLaunching`) to
+    /// `AppDataStore.recordDebugLog(tag:message:)`, so every debug message is also persisted to
+    /// the `debug_log` table for later analysis, alongside printing it to the terminal. `nil`
+    /// until wired up, so any call before that point just prints as before. `nonisolated(unsafe)`
+    /// for the same reason as `isDebugSettingEnabled` above.
+    nonisolated(unsafe) static var logSink: ((DebugTag, String) -> Void)?
+
     /// Identifies the subsystem/action a dev-only debug print originates from. `bracketed`
     /// right-pads the tag's name to the width of the longest case below, so every dev-check
     /// console line lines up (e.g. `[TimeFlip ]` / `[dev-check]`) regardless of call order. Adding
@@ -54,7 +61,9 @@ enum DeveloperMode {
     /// interpolation is skipped entirely when developer mode is off.
     static func debugPrint(_ tag: DebugTag, _ message: @autoclosure () -> String) {
         guard isEnabled, isDebugSettingEnabled else { return }
-        print("\(debugTimeFormatter.string(from: Date())) \(tag.bracketed) \(message())")
+        let text = message()
+        print("\(debugTimeFormatter.string(from: Date())) \(tag.bracketed) \(text)")
+        logSink?(tag, text)
     }
 }
 

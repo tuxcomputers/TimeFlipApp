@@ -2,9 +2,11 @@
 -- Reference table of the different event types the TimeFlip device can trigger.
 
 CREATE TABLE IF NOT EXISTS event_type (
-  event_type_id INTEGER PRIMARY KEY
-  , event_name  TEXT NOT NULL UNIQUE
+  event_type_id INTEGER CONSTRAINT PK_event_type PRIMARY KEY
+  , event_name  TEXT NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_event_type ON event_type(event_name);
 
 -- IDs are grouped by which table the event lands in (see docs/operation-spec.md §1) -- keep new
 -- event types appended within the matching group below rather than interleaved.

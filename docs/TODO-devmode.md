@@ -17,7 +17,10 @@ anything — removing one doesn't require removing the other.
    toggle rather than deleting it outright. Make an explicit call on this before touching it.
    Printing is now also gated on the `debug` setting's `enabled` field (loaded once at launch
    into `DeveloperMode.isDebugSettingEnabled`), so a user can turn terminal logging off/on
-   themselves by editing that DB row directly, without a rebuild.
+   themselves by editing that DB row directly, without a rebuild. Every message is now *also*
+   persisted into the `debug_log` table (`database/010_debug_log.sql`) under the same gate, so a
+   failed test session can be queried from the database afterward instead of needing a captured
+   terminal transcript.
 3. **Planned: debug log-to-file for end users** (§3 below) — a separate, user-facing feature
    that reuses the same debug messages but ALSO writes them to a file, so a non-technical user
    can enable it and send the file back for support. Not implemented yet; only the DB setting
@@ -65,12 +68,14 @@ drift as the code changes — treat them as a starting point, not gospel.
 ## 2. Debug console logging (`DeveloperMode.isEnabled` / `debugPrint`)
 
 - **`Sources/TimeFlipApp/DeveloperConfigStore.swift`**: `isEnabled` flag, `isDebugSettingEnabled`
-  var, `DebugTag` enum, `debugTimeFormatter`, `debugPrint(_:_:)` itself
+  var, `logSink` closure var, `DebugTag` enum, `debugTimeFormatter`, `debugPrint(_:_:)` itself
 - **`Sources/TimeFlipApp/AppDataStore.swift`**: `loadDebugEnabled()` (reads the `debug` setting's
-  `enabled` field)
+  `enabled` field) and `recordDebugLog(tag:message:)` (writes to `debug_log`)
 - **`Sources/TimeFlipApp/ApplicationDelegate.swift`**: the
-  `DeveloperMode.isDebugSettingEnabled = dataStore.loadDebugEnabled()` assignment at the top of
-  `applicationDidFinishLaunching`
+  `DeveloperMode.isDebugSettingEnabled = dataStore.loadDebugEnabled()` assignment and the
+  `DeveloperMode.logSink = { ... }` wiring, both at the top of `applicationDidFinishLaunching`
+- **`database/010_debug_log.sql`**: the `debug_log` table itself — if debug logging is removed
+  entirely, drop this table/migration file too, not just the Swift call sites
 - **`CLAUDE.md`** (root): the entire "Debug print messages" convention section — describes this
   exact mechanism and would need to be removed or rewritten
 - Every call site (all gated through `debugPrint`, so removal is mechanical once the decision is
@@ -98,23 +103,27 @@ site was missed with `grep -rn "DeveloperMode" Sources/`.
 
 ## 3. Planned: debug log-to-file for end users
 
-**Status: not implemented.** The `debug` setting's `enabled` field already gates terminal output
-(§2 above) — that part is real. Its `to_file` field is seeded but does nothing yet; everything
-below is the intended design for whoever builds the file-writing side, not current behavior.
+**Status: not implemented.** The `debug` setting's `enabled` field already gates two real
+destinations today — terminal output (§2 above) and the `debug_log` table (§2 above, added in
+`database/010_debug_log.sql`) — so a failed test session can already be analyzed by querying the
+database directly, without a terminal transcript. Its `to_file` field is seeded but does nothing
+yet; everything below is the intended design for whoever builds the file-writing side, not
+current behavior.
 
-**Motivation:** once this app is in the hands of less technical users, the terminal-only
-`DeveloperMode.debugPrint` output (§2 above) isn't reachable — they don't run the app from a
-terminal. The plan is to let a user flip a setting on, reproduce the issue, and send back a plain
-log file instead.
+**Motivation:** the database route (§2) works well when someone with DB access (e.g. a developer)
+can query the user's `appdata.sqlite` afterward. `to_file` is for the case where that's not
+practical — a non-technical user who needs to send something back rather than have their database
+queried directly.
 
-**How it relates to existing terminal logging:** the two destinations are independent and can
-both be active at once — they're not a replacement for each other:
-- `debug.enabled` → gates console/terminal output, as implemented today
-  (`DeveloperMode.isDebugSettingEnabled`, alongside the `DeveloperMode.isEnabled` compile flag).
+**How it relates to existing logging:** all three destinations are independent and can be active
+at once — none of them replace another:
+- `debug.enabled` → gates console/terminal output *and* the `debug_log` table, as implemented
+  today (`DeveloperMode.isDebugSettingEnabled` + `DeveloperMode.logSink`, alongside the
+  `DeveloperMode.isEnabled` compile flag).
 - `debug.to_file` (planned) → the same debug messages additionally written to a file. When
-  implemented, this most likely means `DeveloperMode.debugPrint` grows a second output path
+  implemented, this most likely means `DeveloperMode.debugPrint` grows a third output path
   (file) gated on `to_file` specifically, so a user can have file logging on independent of
-  whatever `enabled`/terminal output is doing.
+  whatever `enabled`/terminal/`debug_log` output is doing.
 
 **The `debug` setting** (`{"enabled": true, "to_file": false, "directory": "~/Documents/TimeFlip"}`):
 - `enabled` — **implemented**: gates terminal debug printing (§2 above).

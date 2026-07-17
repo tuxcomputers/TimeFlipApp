@@ -2,9 +2,11 @@
 -- Reference table of the colours available to assign to a category.
 
 CREATE TABLE IF NOT EXISTS colour (
-    colour_id INTEGER PRIMARY KEY,
-    colour_name TEXT NOT NULL UNIQUE
+    colour_id INTEGER CONSTRAINT PK_colour PRIMARY KEY,
+    colour_name TEXT NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_colour ON colour(colour_name);
 
 INSERT INTO colour (colour_id, colour_name)
 SELECT 0, 'blank' WHERE NOT EXISTS (SELECT 1 FROM colour WHERE colour_id = 0);
