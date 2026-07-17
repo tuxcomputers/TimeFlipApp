@@ -3,7 +3,7 @@
 -- assigned to it.
 
 CREATE TABLE IF NOT EXISTS category (
-    category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER CONSTRAINT PK_category PRIMARY KEY AUTOINCREMENT,
     category_name TEXT NOT NULL,
     icon_id INTEGER NOT NULL DEFAULT 0 REFERENCES icon(icon_id),
     colour_id INTEGER NOT NULL DEFAULT 0 REFERENCES colour(colour_id)

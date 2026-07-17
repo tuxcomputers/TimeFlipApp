@@ -11,12 +11,23 @@ final class MenuBarController: NSObject {
         static let minIndicatorAttachmentSize: CGFloat = 14
         static let indicatorScale: CGFloat = 1.6
         static let minIndicatorSymbolSize: CGFloat = 10
+        // Fast enough to actually grab attention, per the low-battery warning's purpose.
+        static let lowBatteryBlinkInterval: TimeInterval = 0.5
+        // Hysteresis margin above lowBatteryThresholdPercent before the low-battery state clears
+        // (Schmitt trigger, same idea as a map only zooming back in once well clear of the
+        // zoom-out line) -- without this, a reading that wobbles right around the threshold would
+        // flip the blink on/off on every read instead of latching until it's actually recovered.
+        static let lowBatteryRecoveryMarginPercent = 5
     }
 
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "menu-bar")
     private let appState: AppState
     private let settingsWindowController: SettingsWindowController
     private let onPauseToggle: ((Bool) -> Void)?
+    private let onLockRequest: (() -> Void)?
+    private let displaySecondsEnabled: Bool
+    private let lowBatteryThresholdPercent: Int
+    private var pendingSingleClickWorkItem: DispatchWorkItem?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
     private var cancellables: Set<AnyCancellable> = []
@@ -26,6 +37,9 @@ final class MenuBarController: NSObject {
     private var activityStartDate: Date?
     private var currentSegmentElapsed: TimeInterval = 0
     private var refreshTimer: Timer?
+    private var lowBatteryBlinkTimer: Timer?
+    private var lowBatteryBlinkPhaseOn = false
+    private var isLowBatteryLatched = false
     private var lastSnapshot: StatusSnapshot?
     private var cachedIcon: NSImage?
     private var cachedIconName: String?
@@ -37,11 +51,17 @@ final class MenuBarController: NSObject {
     init(
         appState: AppState,
         settingsWindowController: SettingsWindowController,
-        onPauseToggle: ((Bool) -> Void)? = nil
+        onPauseToggle: ((Bool) -> Void)? = nil,
+        onLockRequest: (() -> Void)? = nil,
+        displaySecondsEnabled: Bool = true,
+        lowBatteryThresholdPercent: Int = 5
     ) {
         self.appState = appState
         self.settingsWindowController = settingsWindowController
         self.onPauseToggle = onPauseToggle
+        self.onLockRequest = onLockRequest
+        self.displaySecondsEnabled = displaySecondsEnabled
+        self.lowBatteryThresholdPercent = lowBatteryThresholdPercent
         self.isPairedSnapshot = appState.isPaired
         self.pairingStatusSnapshot = appState.pairingStatus
         super.init()
@@ -113,6 +133,24 @@ final class MenuBarController: NSObject {
                 self?.updateStatusView(force: true, dailyWindowStartOverride: windowStart)
             }
             .store(in: &cancellables)
+        appState.$batteryLevel
+            .sink { [weak self] level in
+                guard let self else { return }
+                let isLow = self.updatedLowBatteryLatch(currentLevel: level)
+                DeveloperMode.debugPrint(
+                    .battery,
+                    "level=\(level.map(String.init) ?? "nil") threshold=\(self.lowBatteryThresholdPercent) recoveryAt=\(self.lowBatteryThresholdPercent + Constants.lowBatteryRecoveryMarginPercent) isLowBattery=\(isLow)"
+                )
+                self.updateStatusView(force: true)
+            }
+            .store(in: &cancellables)
+        appState.$isLocked
+            .sink { [weak self] _ in
+                // Rebuilds the menu (not just the status view) so the Pause/Resume item's
+                // enabled state stays in sync with the lock — see rebuildMenu().
+                self?.rebuildMenu()
+            }
+            .store(in: &cancellables)
         rebuildMenu()
         startRefreshTimer()
 
@@ -122,6 +160,7 @@ final class MenuBarController: NSObject {
     deinit {
         NotificationCenter.default.removeObserver(self)
         refreshTimer?.invalidate()
+        lowBatteryBlinkTimer?.invalidate()
     }
 
     private func rebuildMenu() {
@@ -130,6 +169,7 @@ final class MenuBarController: NSObject {
         // override pauseItem.isEnabled below — opt out so the Pause item actually disables.
         newMenu.autoenablesItems = false
         let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
+        let isLocked = appState.isLocked
 
         let settingsItem = NSMenuItem(
             title: "Preferences...",
@@ -148,7 +188,9 @@ final class MenuBarController: NSObject {
             keyEquivalent: "p"
         )
         pauseItem.target = self
-        pauseItem.isEnabled = isPaired
+        // While locked, the only valid action is double-clicking the status item to unlock —
+        // pause/resume must not be reachable via the menu or its ⌘P shortcut either.
+        pauseItem.isEnabled = isPaired && !isLocked
         newMenu.addItem(pauseItem)
 
         let quitItem = NSMenuItem(
@@ -188,12 +230,24 @@ final class MenuBarController: NSObject {
             dailyFacetDurationsOverride: dailyFacetDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         ) >= Double(limitMinutes) * 60
+        let isConnected = isPairedSnapshot && pairingStatusSnapshot == .paired
+        let isLowBattery = updatedLowBatteryLatch(currentLevel: appState.batteryLevel)
+        // Must run before the early-return below so the blink timer starts/stops as soon as the
+        // low-battery state changes, even on a call that isn't itself forced. Gated on isConnected
+        // too -- disconnected always renders flat yellow (see makeStatusTitle), so there's nothing
+        // for the blink to animate while the connection is down.
+        updateLowBatteryBlinkTimer(isLowBattery: isLowBattery && isConnected)
+
+        let isLocked = appState.isLocked
         let snapshot = StatusSnapshot(
             activityLabel: activityLabel,
             duration: duration,
             isPaused: isPaused,
             iconName: iconName,
-            overLimit: overLimit
+            overLimit: overLimit,
+            isConnected: isConnected,
+            isLowBattery: isLowBattery,
+            isLocked: isLocked
         )
 
         if !force, snapshot == lastSnapshot {
@@ -204,24 +258,72 @@ final class MenuBarController: NSObject {
 
         let iconSize = statusBarIconSize()
         let icon = resolvedIcon(named: iconName, pointSize: iconSize)
-        let titleKey = "\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)"
+        let titleKey = "\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
         button.imagePosition = .imageLeft
         if button.image !== icon {
             button.image = icon
         }
-        if button.toolTip != nil {
-            button.toolTip = nil
+        let tooltip = pairingStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
+        if button.toolTip != tooltip {
+            button.toolTip = tooltip
         }
         if lastRenderedTitle != titleKey {
             button.attributedTitle = makeStatusTitle(
                 activityLabel: activityLabel,
                 duration: duration,
                 isPaused: isPaused,
-                overLimit: overLimit
+                overLimit: overLimit,
+                isConnected: isConnected,
+                isLowBattery: isLowBattery,
+                blinkPhaseOn: lowBatteryBlinkPhaseOn,
+                isLocked: isLocked
             )
             lastRenderedTitle = titleKey
         }
         lastSnapshot = snapshot
+    }
+
+    /// Starts/stops the fast (0.5s) blink timer that alternates the category text between red and
+    /// white while the battery is at or below `lowBatteryThresholdPercent` — deliberately faster
+    /// than `refreshTimer`'s duration tick so it actually draws the eye. Idempotent: safe to call
+    /// on every `updateStatusView` regardless of whether the low-battery state actually changed.
+    private func updateLowBatteryBlinkTimer(isLowBattery: Bool) {
+        guard isLowBattery else {
+            lowBatteryBlinkTimer?.invalidate()
+            lowBatteryBlinkTimer = nil
+            lowBatteryBlinkPhaseOn = false
+            return
+        }
+        guard lowBatteryBlinkTimer == nil else { return }
+        let timer = Timer(timeInterval: Constants.lowBatteryBlinkInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.lowBatteryBlinkPhaseOn.toggle()
+                self.updateStatusView(force: true)
+            }
+        }
+        timer.tolerance = 0
+        RunLoop.main.add(timer, forMode: .common)
+        lowBatteryBlinkTimer = timer
+    }
+
+    /// Hysteresis (Schmitt trigger) around `lowBatteryThresholdPercent`: latches into the
+    /// low-battery state once the reading drops to/below the threshold, and only clears it once
+    /// the reading climbs back above `threshold + lowBatteryRecoveryMarginPercent`. Without this, a
+    /// reading that wobbles right around the threshold (real battery percentages are noisy) would
+    /// flip the blink on and off on every single read instead of staying latched until the battery
+    /// has genuinely recovered.
+    private func updatedLowBatteryLatch(currentLevel: UInt8?) -> Bool {
+        guard let currentLevel else { return isLowBatteryLatched }
+        if isLowBatteryLatched {
+            let recoveryLevel = lowBatteryThresholdPercent + Constants.lowBatteryRecoveryMarginPercent
+            if currentLevel > recoveryLevel {
+                isLowBatteryLatched = false
+            }
+        } else if currentLevel <= lowBatteryThresholdPercent {
+            isLowBatteryLatched = true
+        }
+        return isLowBatteryLatched
     }
 
     private func applyUnpairedStatus() {
@@ -258,7 +360,12 @@ final class MenuBarController: NSObject {
         ))
         let hours = totalSeconds / Int(TimeConstants.secondsPerHour)
         let minutes = (totalSeconds % Int(TimeConstants.secondsPerHour)) / Int(TimeConstants.secondsPerMinute)
-        return String(format: "%02d:%02d", hours, minutes)
+        // Hours are unpadded below 10 (e.g. "1:23") but keep two digits once double-digit (e.g. "12:23").
+        if displaySecondsEnabled {
+            let seconds = totalSeconds % Int(TimeConstants.secondsPerMinute)
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", hours, minutes)
     }
 
     private func currentDuration(
@@ -318,15 +425,19 @@ final class MenuBarController: NSObject {
 
     @objc
     private func togglePause() {
-        guard appState.isPaired else { return }
+        // While locked, the only valid action is double-clicking to unlock — pause/resume must
+        // not be reachable from the menu, its ⌘P shortcut, or a single click on the status item.
+        guard appState.isPaired, !appState.isLocked else { return }
         onPauseToggle?(!isPaused)
     }
 
     /// Splits the status item into two click zones, but only once the device is actually
     /// paired: the left side (icon + activity name) opens the dropdown menu as before; the right
-    /// side (duration/indicator) toggles pause/resume directly without opening anything. If the
-    /// device has never connected (or can't connect), there's no pause/resume state to toggle, so
-    /// any click just pops the menu.
+    /// side (duration/indicator) toggles pause/resume on a single click, or requests a device lock
+    /// on a double-click, without opening anything. If the device has never connected (or can't
+    /// connect), there's no pause/resume state to toggle, so any click just pops the menu. While
+    /// locked, the single-click pause/resume toggle is a no-op (see togglePause) — the double-click
+    /// unlock action is the only thing that does anything.
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
@@ -336,11 +447,25 @@ final class MenuBarController: NSObject {
             return
         }
         let location = button.convert(event.locationInWindow, from: nil)
-        if location.x > button.bounds.width / 2 {
-            togglePause()
-        } else {
+        guard location.x > button.bounds.width / 2 else {
             showMenu()
+            return
         }
+        if event.clickCount >= 2 {
+            // Upgrade to the double-click (lock) action instead of also firing the single-click
+            // pause toggle that was scheduled below on the first click of this pair.
+            pendingSingleClickWorkItem?.cancel()
+            pendingSingleClickWorkItem = nil
+            onLockRequest?()
+            return
+        }
+        // Single click: delay by the system's double-click interval so a fast second click can
+        // still cancel this and upgrade to the lock action above, instead of doing both.
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.togglePause()
+        }
+        pendingSingleClickWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
     }
 
     private func showMenu() {
@@ -377,15 +502,16 @@ final class MenuBarController: NSObject {
         }
 
         let now = Date()
-        let secondsToNextMinute = TimeConstants.secondsPerMinute
-            - now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: TimeConstants.secondsPerMinute)
-        let timer = Timer(timeInterval: TimeConstants.secondsPerMinute, repeats: true) { [weak self] _ in
+        let tickInterval = displaySecondsEnabled ? 1.0 : TimeConstants.secondsPerMinute
+        let secondsToNextTick = tickInterval
+            - now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: tickInterval)
+        let timer = Timer(timeInterval: tickInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateStatusView()
             }
         }
-        timer.fireDate = now.addingTimeInterval(secondsToNextMinute)
-        timer.tolerance = TimeConstants.defaultTimerTolerance
+        timer.fireDate = now.addingTimeInterval(secondsToNextTick)
+        timer.tolerance = displaySecondsEnabled ? 0 : TimeConstants.defaultTimerTolerance
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
@@ -461,6 +587,14 @@ final class MenuBarController: NSObject {
             applyConnectingStatus()
         case .paired:
             handlePairingChange(true)
+        case .reconnecting:
+            // Transient disconnect on an already-paired device: leave currentActivity,
+            // activityStartDate, and the refresh timer untouched so the last known activity/icon
+            // stays on screen and keeps ticking through the outage — do NOT treat this like
+            // handlePairingChange(false). Rebuild just to disable the Pause item (isPaired below
+            // requires pairingStatusSnapshot == .paired) and refresh the tooltip.
+            rebuildMenu()
+            updateStatusView(force: true)
         case .notPaired, .failed:
             handlePairingChange(false)
         }
@@ -470,26 +604,52 @@ final class MenuBarController: NSObject {
         activityLabel: String,
         duration: String,
         isPaused: Bool,
-        overLimit: Bool
+        overLimit: Bool,
+        isConnected: Bool,
+        isLowBattery: Bool,
+        blinkPhaseOn: Bool,
+        isLocked: Bool
     ) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        let baseColor = overLimit ? NSColor.systemRed : NSColor.labelColor
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: baseColor
-        ]
-        let text = NSMutableAttributedString(string: "\(activityLabel) ", attributes: attributes)
+        // Disconnected means the app has no live read on the device any more, so both fields show
+        // a flat "unknown" yellow -- not a stale over-limit/low-battery color left over from
+        // before the drop, and not blinking (there's nothing to draw attention to that we can
+        // still confirm). Only once actually connected do over-limit/low-battery apply, and low
+        // battery always wins there regardless of paused/recording/locked/any combination.
+        let steadyColor: NSColor
+        let categoryColor: NSColor
+        if !isConnected {
+            steadyColor = .systemYellow
+            categoryColor = .systemYellow
+        } else {
+            steadyColor = overLimit ? .systemRed : .systemGreen
+            categoryColor = isLowBattery ? (blinkPhaseOn ? .systemRed : .white) : steadyColor
+        }
+        let categoryAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: categoryColor]
+        let steadyAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: steadyColor]
+        let text = NSMutableAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes)
 
         let indicatorSize = max(Constants.minIndicatorAttachmentSize, font.capHeight * Constants.indicatorScale)
+
+        // Lock badge sits to the left of the pause/play indicator, not in place of it, so whether
+        // the device is still timing or paused stays visible even while locked.
+        if isLocked, let lockIndicator = lockIndicatorImage(pointSize: indicatorSize) {
+            let attachment = NSTextAttachment()
+            attachment.image = lockIndicator
+            attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
+            text.append(NSAttributedString(attachment: attachment))
+            text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
+        }
+
         if let indicator = statusIndicatorImage(isPaused: isPaused, pointSize: indicatorSize, overLimit: overLimit) {
             let attachment = NSTextAttachment()
             attachment.image = indicator
             attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
             text.append(NSAttributedString(attachment: attachment))
-            text.append(NSAttributedString(string: " ", attributes: attributes))
+            text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
         }
 
-        text.append(NSAttributedString(string: duration, attributes: attributes))
+        text.append(NSAttributedString(string: duration, attributes: steadyAttributes))
         return text
     }
 
@@ -512,6 +672,20 @@ final class MenuBarController: NSObject {
         return image
     }
 
+    /// The red lock badge shown to the left of the pause/play indicator while the device is locked.
+    private func lockIndicatorImage(pointSize: CGFloat) -> NSImage? {
+        let size = max(Constants.minIndicatorSymbolSize, pointSize)
+        let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .bold)
+            .applying(.init(paletteColors: [.systemRed]))
+        guard let image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Locked")?
+            .withSymbolConfiguration(configuration) else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: size, height: size)
+        return image
+    }
+
 }
 
 private struct StatusSnapshot: Equatable {
@@ -520,4 +694,7 @@ private struct StatusSnapshot: Equatable {
     let isPaused: Bool
     let iconName: String?
     let overLimit: Bool
+    let isConnected: Bool
+    let isLowBattery: Bool
+    let isLocked: Bool
 }

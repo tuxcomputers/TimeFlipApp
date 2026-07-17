@@ -52,34 +52,49 @@ facet or paused/resumed, marking the end of the previous segment.
 | Column             | Type    | Description                                                                 |
 |---------------------|---------|-------------------------------------------------------------------------------|
 | `device_events_id`  | INTEGER | Row identifier, primary key, autoincrementing.                              |
-| `event_number`      | INTEGER | The device's own sequence number for this event. Unique — used to detect duplicate/replayed events from the device's history buffer. |
+| `event_number`      | INTEGER | The device's own sequence number for this event. Unique — used as the lookup key to update a frame already seen (e.g. re-ingesting the still-open last frame as its duration grows), not for ordering — see below. |
 | `event_type_id`     | INTEGER | References `event_type.event_type_id` — always `facet_flip` or `pause` for rows in this table. |
 | `device_face`       | INTEGER | Decoded facet number, `1`-`12`. Decoded from the device's raw facet byte, not stored as hex. |
-| `started_at`        | TEXT    | When the segment started, as a local-time ISO 8601 timestamp with no UTC offset (e.g. `2026-07-16T09:30:00`). Decoded from the device's raw timestamp encoding. |
-| `started_at_timezone` | TEXT  | IANA timezone identifier (e.g. `America/New_York`) `started_at` was recorded in.            |
+| `start_time`        | TEXT    | When the segment started, as a local-time ISO 8601 timestamp with no UTC offset (e.g. `2026-07-16T09:30:00`). Decoded from the device's raw timestamp encoding. Display only — see `start_epoch` for ordering/comparisons. |
+| `start_time_timezone` | TEXT  | IANA timezone identifier (e.g. `America/New_York`) `start_time` was recorded in.            |
+| `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering/insert-vs-update and the `finalised` flag (see below). Indexed. |
 | `duration_seconds`  | REAL    | How long the segment lasted, in seconds.                                    |
 | `is_paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
 | `finalised`         | INTEGER | `1` once the segment is closed out, `0` while it's still the device's in-progress interval. |
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
 Constraints:
-- `event_number` is `UNIQUE` so re-ingesting an event already seen (e.g. after a reconnect) is a
-  no-op rather than a duplicate row.
+- `event_number` is `UNIQUE` so re-ingesting an event already seen (e.g. after a reconnect) updates
+  that same row instead of creating a duplicate.
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
 - `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
 - `is_paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `processed` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
+- `start_epoch` has a non-unique index (`idx_device_events_start_epoch`) since it's the column
+  ordering/insert-vs-update decisions are made against.
+
+Why `start_epoch`, not `event_number`, drives ordering: `event_number` is a counter maintained on
+the device itself. If the device resets (e.g. a battery pull) it can start counting again from a
+low number while this table already holds higher `event_number` values from before the reset —
+comparing `event_number` magnitudes directly would then treat a brand-new event as *older* than
+history it's actually superseding, and could even collide with an old row's `event_number` and
+silently overwrite it via the `UPDATE ... WHERE event_number = ?` path. `start_epoch` is derived
+from the device's own timestamp and doesn't reset, so `AppDataStore.recordDeviceEvent` compares
+that instead. (A genuine `event_number` collision after a device reset would now fail loudly as a
+`UNIQUE` constraint violation on `INSERT` instead of silently corrupting the old row — safer, but
+not itself a full fix for the underlying collision; `event_number` is still the per-row lookup
+key within one continuous device session.)
 
 `finalised` vs. `processed`: the device's history stream always reports its still-open,
 in-progress segment as the last frame in every dump (see `docs/timeflip.md` §5). That frame is
-inserted with `finalised = 0` and its row is updated in place (matched by `event_number`,
-`ON CONFLICT ... DO UPDATE`) as the duration keeps growing on each refresh, until a subsequent
-flip/pause closes it out and a later write sets `finalised = 1`. `processed` is a separate,
-independent flag — it tracks whether a (finalised) segment has been turned into a `time_entry`
-yet, and is only ever meaningful once `finalised = 1`; the `finalised` update path never touches
-it, so an already-`processed` row can't be silently un-flagged by the live segment's growth.
+inserted with `finalised = 0` and its row is updated in place (matched by `event_number`) as the
+duration keeps growing on each refresh, until a subsequent flip/pause closes it out and a later
+write sets `finalised = 1`. `processed` is a separate, independent flag — it tracks whether a
+(finalised) segment has been turned into a `time_entry` yet, and is only ever meaningful once
+`finalised = 1`; the `finalised` update path never touches it, so an already-`processed` row can't
+be silently un-flagged by the live segment's growth.
 
 ### `icon` (`database/003_icon.sql`)
 
@@ -178,12 +193,14 @@ have a duration or a facet; each row is a single moment with a decoded value.
 |--------------------------|---------|------------------------------------------------------------------------------|
 | `device_notifications_id`| INTEGER | Row identifier, primary key, autoincrementing.                              |
 | `event_type_id`          | INTEGER | References `event_type.event_type_id` — which kind of notification this is. |
-| `occurred_at`            | TEXT    | When the notification was received, as a local-time ISO 8601 timestamp with no UTC offset. |
-| `occurred_at_timezone`   | TEXT    | IANA timezone identifier `occurred_at` was recorded in.                     |
+| `start_time`             | TEXT    | When the notification was received, as a local-time ISO 8601 timestamp with no UTC offset. Named to match `device_events` rather than e.g. `occurred_at`, so both device tables can be queried/ordered the same way. |
+| `start_time_timezone`    | TEXT    | IANA timezone identifier `start_time` was recorded in.                      |
+| `start_epoch`            | INTEGER | The same moment as `start_time`, as Unix epoch seconds. Indexed.            |
 | `payload`                | TEXT    | The decoded value this event type carries (e.g. a battery percentage, a system state name), not the device's raw encoding. |
 
 Constraints:
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
+- `start_epoch` has a non-unique index (`idx_device_notifications_start_epoch`).
 
 ### `setting` (`database/009_setting.sql`)
 
@@ -258,3 +275,47 @@ Seeded rows:
   triggered by live facet/pause events, so any entries the device hasn't pushed a live
   notification for yet still get picked up. Stored in seconds; a future Settings UI will expose
   this in minutes and convert before saving here.
+- `display_seconds` = `{"enabled":true}` — when `enabled`, the menu bar duration display includes
+  a seconds component (`H:MM:SS`) and refreshes every second; when disabled, it shows `H:MM` and
+  refreshes every minute. Hours are unpadded below 10 (`1:23:45`) and two digits from 10 up
+  (`12:23:45`).
+- `low_battery_level` = `{"percent":5}` — the battery percentage (from the Battery Level
+  characteristic `0x2A19`) at or below which the menu bar activity text starts blinking red/white
+  (`MenuBarController`'s `updatedLowBatteryLatch`). To avoid flickering the warning on and off when
+  a reading wobbles right around this value, it only clears again once the battery climbs 5
+  percentage points above the threshold (a fixed hysteresis margin, not stored in this setting) —
+  see `docs/configuration.md`'s Status Indicators section for the user-facing behavior.
+- `debug` = `{"enabled":true,"to_file":false,"directory":"~/Documents/TimeFlip"}`:
+  - `enabled` — gates every `DeveloperMode.debugPrint` call: when `true` (and the compile-time
+    `DeveloperMode.isEnabled` flag is also on), each message prints to the terminal *and* is
+    recorded into `debug_log` below, so a test session can be analyzed from the database
+    afterward. Lets a user turn this off (or back on) directly in the DB without a rebuild.
+  - `to_file` — **not yet implemented**, a placeholder for a planned support feature: let a
+    non-technical user enable debug logging to a file (instead of needing to run the app from a
+    terminal, or query the database directly) and send that file back when a bug can't be
+    reproduced otherwise. Defaults to `false` since the file-writing side isn't built yet.
+  - `directory` — where that log file will be written once `to_file` is implemented; unused
+    until then.
+  - See `docs/TODO-devmode.md` for the full design of the `to_file` half (log filename format,
+    restart-required behavior).
+
+### `debug_log` (`database/010_debug_log.sql`)
+
+Every `DeveloperMode.debugPrint` message, recorded here whenever the `debug` setting's `enabled`
+field is `true` (see above), in addition to being printed to the terminal — lets a failed test
+session be reconstructed from the database afterward rather than depending on a terminal
+transcript that was never captured.
+
+| Column                | Type    | Description                                                        |
+|------------------------|---------|--------------------------------------------------------------------|
+| `debug_log_id`         | INTEGER | Row identifier, primary key, autoincrementing.                     |
+| `logged_at`            | TEXT    | When the message was printed, as a local-time ISO 8601 timestamp with no UTC offset. |
+| `logged_at_timezone`   | TEXT    | IANA timezone identifier `logged_at` was recorded in.               |
+| `tag`                  | TEXT    | The `DeveloperMode.DebugTag` raw value (e.g. `TimeFlip`, `history`) identifying which subsystem logged this message — matches the bracketed tag in the terminal output. |
+| `message`              | TEXT    | The debug message text, exactly as printed (without the timestamp/tag prefix, which are separate columns here). |
+
+Constraints:
+- `logged_at`, `logged_at_timezone`, `tag`, `message` are all `NOT NULL`.
+
+No retention/cleanup is implemented yet — this table grows for as long as `debug.enabled` stays
+`true`.

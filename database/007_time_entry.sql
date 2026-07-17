@@ -2,7 +2,7 @@
 -- A single tracked time span, linked to the category it was logged against.
 
 CREATE TABLE IF NOT EXISTS time_entry (
-    time_entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time_entry_id INTEGER CONSTRAINT PK_time_entry PRIMARY KEY AUTOINCREMENT,
     category_id INTEGER NOT NULL REFERENCES category(category_id),
     device_events_id INTEGER NOT NULL REFERENCES device_events(device_events_id),
     started_at TEXT NOT NULL,

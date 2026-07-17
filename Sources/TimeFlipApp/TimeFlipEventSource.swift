@@ -36,7 +36,13 @@ protocol TimeFlipSessionManaging: TimeFlipDevice {
     // swiftlint:disable identifier_name
     /// Toggle pause mode on the device (cmd 0x06); parameter name mirrors device payload.
     func setPause(_ on: Bool) async
+    /// Toggle lock mode on the device (cmd 0x04); parameter name mirrors device payload.
+    func setLock(_ on: Bool) async
     // swiftlint:enable identifier_name
+    /// Reads the device's current lock state fresh (status command 0x10) and returns it. Used
+    /// right before a lock/unlock toggle so the decision is based on the device's actual state,
+    /// not a possibly-stale cached value.
+    func refreshLockState() async -> Bool
     /// Tune LED brightness 1–100 %.
     func setLEDBrightness(percent: UInt8) async
     /// Tune LED blink interval 5–60 seconds (cmd 0x0A).

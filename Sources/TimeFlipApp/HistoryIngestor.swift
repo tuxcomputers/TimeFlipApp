@@ -76,6 +76,7 @@ final class HistoryIngestor {
 
         let startCursor = nextStartCursor()
         logger.debug("history_ingest trigger=\(trigger, privacy: .public) start_cursor=\(startCursor ?? 0)")
+        DeveloperMode.debugPrint(.history, "history fetch triggered: trigger=\(trigger) start_cursor=\(startCursor ?? 0)")
         let rawEntries = await device.fetchHistory(startingFrom: startCursor)
             .filter { $0.eventNumber != nil }
             .sorted { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
@@ -92,11 +93,12 @@ final class HistoryIngestor {
 
         // Deliver all but the last entry to the logbook; keep the last entry for live menu/state updates.
         // Must run BEFORE the live-entry recordDeviceEvent call below: AppDataStore.recordDeviceEvent
-        // tracks the highest event_number it's seen so it can pick UPDATE vs INSERT without an
+        // tracks the highest start_epoch it's seen so it can pick UPDATE vs INSERT without an
         // ON CONFLICT round-trip, so device_events rows have to be written in ascending
-        // event_number order. Recording the live (highest) entry first would make every one of
-        // these lower-numbered entries look "already superseded", taking the UPDATE branch against
-        // a row that was never inserted -- a silent no-op that drops the entire backfill batch.
+        // start_epoch (i.e. chronological) order. Recording the live (latest) entry first would
+        // make every one of these earlier entries look "already superseded", taking the UPDATE
+        // branch against a row that was never inserted -- a silent no-op that drops the entire
+        // backfill batch.
         let deliverableEntries = Array(rawEntries.dropLast())
         if deliverableEntries.isEmpty {
             logger.debug("history_ingest no deliverable entries (live entry withheld for UI)")
@@ -134,6 +136,10 @@ final class HistoryIngestor {
 
         // Update UI with latest entry AFTER accumulating deliverable entries
         onLatestEntry?(latestEntry)
+
+        // Once per batch (not once per recordDeviceEvent call above) so a backlog of history
+        // doesn't spam the console with one line per record.
+        dataStore.verifyMaxKnownStartEpochConsistency()
 
         isFetching = false
         if pending {

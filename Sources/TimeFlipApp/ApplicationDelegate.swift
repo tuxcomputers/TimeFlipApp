@@ -50,16 +50,25 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(
         appState: appState,
-        settingsWindowController: settingsWindowController
-    ) { [weak self] pause in
-        guard let self else { return }
-        Task { @MainActor in
-            await self.device?.setPause(pause)
-            // Device doesn't send notification after setPause command,
-            // so explicitly fetch history to confirm state change
-            await self.historyIngestor?.refreshHistory(trigger: "manual_pause")
-        }
-    }
+        settingsWindowController: settingsWindowController,
+        onPauseToggle: { [weak self] pause in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.device?.setPause(pause)
+                // Device doesn't send notification after setPause command,
+                // so explicitly fetch history to confirm state change
+                await self.historyIngestor?.refreshHistory(trigger: "manual_pause")
+            }
+        },
+        onLockRequest: { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.handleLockRequest()
+            }
+        },
+        displaySecondsEnabled: dataStore.loadDisplaySecondsEnabled(),
+        lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent()
+    )
     private let enableMockEvents = false
     private lazy var device: TimeFlipSessionManaging? = enableMockEvents ? MockTimeFlipDevice() : TimeFlipBLEDevice()
     private var eventTask: Task<Void, Never>?
@@ -79,9 +88,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var historyIngestor: HistoryIngestor?
     private let useHistoryPipeline = true
     private var dayResetTimer: Timer?
+    // Backoff counter for reconnect attempts after losing connection to an already-paired
+    // device; reset to 0 as soon as a reconnect succeeds. Capped in scheduleReconnect().
+    private var reconnectAttempt = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
+        // Read before anything else runs, so every debug print for the rest of this launch
+        // respects the setting from the moment the app starts.
+        DeveloperMode.isDebugSettingEnabled = dataStore.loadDebugEnabled()
+        // Persist every debug message into debug_log too (see AppDataStore.recordDebugLog), so a
+        // failed test run can be analyzed from the database afterward instead of relying on a
+        // terminal transcript that was never captured.
+        DeveloperMode.logSink = { [dataStore] tag, message in
+            dataStore.recordDebugLog(tag: tag.rawValue, message: message)
+        }
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
@@ -218,13 +239,52 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         } else if appState.wantsPairing {
             startDeviceEvents()
         }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleSystemWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
         logger.info("Application did finish launching")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         _ = notification
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         stopDeviceEvents()
         logger.info("Application will terminate")
+    }
+
+    /// The BLE stack (any in-flight scan/connect, its 30s-per-phase watchdogs) can be left in an
+    /// unknown state after the Mac has been asleep — CoreBluetooth on macOS is known to sometimes
+    /// stop actually delivering scan results after a long suspend even though nothing has
+    /// technically errored, silently wedging the existing backoff retry loop rather than making it
+    /// visibly fail. Rather than trust that loop to recover on its own, force a clean teardown and
+    /// restart the moment the system wakes, so the reconnect attempt lands as soon as possible
+    /// (the user is presumably right next to the device again) instead of waiting on whatever
+    /// backoff delay happened to be queued before the Mac went to sleep.
+    @objc
+    private func handleSystemWake() {
+        Task { @MainActor in
+            guard self.appState.pairingStatus != .paired else {
+                self.logger.notice("System woke from sleep; device already connected")
+                return
+            }
+            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            self.logger.notice("System woke from sleep; forcing a fresh device reconnect attempt")
+            self.stopDeviceEvents()
+            self.reconnectAttempt = 0
+            self.appState.pairingStatus = .reconnecting
+            // Deliberate pause between showing the yellow "reconnecting" text and actually
+            // attempting the connection. Without it, a fast reconnect makes it impossible to tell
+            // whether this wake-triggered retry path ran at all versus the device just already
+            // being in range by coincidence.
+            DeveloperMode.debugPrint(.timeFlip, "System wake: reconnecting status shown, waiting 2s before connect attempt")
+            try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
+            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            DeveloperMode.debugPrint(.timeFlip, "System wake: 2s delay elapsed, attempting reconnect now")
+            self.startDeviceEvents()
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -267,9 +327,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             if !skipConnect {
                 let connected = await device.connect()
                 guard connected else {
-                    logger.error("TimeFlip connect failed; aborting startup")
+                    logger.error("TimeFlip connect failed; will retry")
                     await MainActor.run {
-                        self.appState.pairingFailed(message: "Connect failed")
+                        self.handleReconnectFailure(message: "Connect failed")
                     }
                     return
                 }
@@ -287,6 +347,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             guard !Task.isCancelled else { return }
+            await MainActor.run {
+                // Login confirms the device is reachable and authenticated again — clear the
+                // "reconnecting" state right away; the history backfill below will correct the
+                // displayed facet/duration/pause state to whatever the device actually reports.
+                if self.appState.pairingStatus == .reconnecting {
+                    self.appState.pairingStatus = .paired
+                }
+                self.reconnectAttempt = 0
+            }
             // Only rotate the password during the pairing flow itself (skipConnect is only ever
             // true there) — routine reconnects afterward must keep reusing that same password.
             if skipConnect, let bleDevice = device as? TimeFlipBLEDevice,
@@ -352,18 +421,38 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         awaitingInitialStatus = false
         isHistoryBackfillComplete = false
         stopDeviceEvents()
-        // Small delay to avoid tight retry loops.
+        handleReconnectFailure(message: "Disconnected before pairing completed")
+    }
+
+    /// Called whenever a connection to an already-paired device is lost or a reconnect attempt
+    /// fails outright. This is almost always a transient BLE issue (out of range, laptop asleep)
+    /// rather than a deliberate unpair, so — unlike a genuine pairing failure — it must not wipe
+    /// `isPaired`/the on-screen activity. Instead it keeps retrying indefinitely with backoff
+    /// while marking the state `.reconnecting`, which MenuBarController renders by leaving the
+    /// last known icon/activity/timer on screen. History resync after a successful reconnect
+    /// corrects anything that drifted while offline.
+    private func handleReconnectFailure(message: String) {
+        // Retry on wantsPairing too: a drop between connect() and the first facet event happens
+        // before isPaired is ever set, so gating on isPaired alone would leave the UI stuck with
+        // no retry and no failure surfaced.
+        guard appState.isPaired || appState.wantsPairing else {
+            appState.pairingFailed(message: message)
+            return
+        }
+        appState.pairingStatus = .reconnecting
+        scheduleReconnect()
+    }
+
+    /// Retries startDeviceEvents() with capped exponential backoff (2s, 4s, ... up to 30s) for as
+    /// long as the device is still considered paired, instead of giving up after one attempt.
+    private func scheduleReconnect() {
+        let delaySeconds = min(2 * (reconnectAttempt + 1), 30)
+        reconnectAttempt += 1
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds) * TimeConstants.nanosecondsPerSecond)
             guard let self else { return }
-            // Retry on wantsPairing too: a drop between connect() and the first facet event
-            // happens before isPaired is ever set, so gating on isPaired alone would leave the
-            // UI stuck on "Connecting…" forever with no retry and no failure surfaced.
-            if self.appState.isPaired || self.appState.wantsPairing {
-                self.startDeviceEvents()
-            } else {
-                self.appState.pairingFailed(message: "Disconnected before pairing completed")
-            }
+            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            self.startDeviceEvents()
         }
     }
 
@@ -423,6 +512,29 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         logger.debug("live_event \(event.description, privacy: .public)")
+    }
+
+    /// Triggered by a double-click on the right-hand side of the status item. If `pause_on_lock`
+    /// is enabled and the device isn't already paused, pause it first so the device can't keep
+    /// running while locked; otherwise (setting disabled, or already paused) just send the lock.
+    private func handleLockRequest() async {
+        guard let device else { return }
+        // Read the device's actual current lock state fresh rather than trusting the cached
+        // appState.isLocked -- then flip it. A second double-click is meant to unlock.
+        let currentlyLocked = await device.refreshLockState()
+        let shouldLock = !currentlyLocked
+        // Reflect the intended state in the menu bar icon right away, rather than waiting for the
+        // optional pause + history refresh + lock command + verification below to all finish --
+        // that chain is a handful of BLE round trips and can take a few seconds. The lockChanged
+        // event from setLock()'s own verification step corrects this afterward if the device
+        // didn't actually confirm the change.
+        appState.isLocked = shouldLock
+        DeveloperMode.debugPrint(.timeFlip, "Lock icon updated optimistically to \(shouldLock ? "ON" : "OFF"), pending device verification")
+        if shouldLock, dataStore.loadPauseOnLockEnabled(), !appState.isPaused {
+            await device.setPause(true)
+            await historyIngestor?.refreshHistory(trigger: "manual_pause")
+        }
+        await device.setLock(shouldLock)
     }
 
     private func applyActiveInterval(from entry: TimeFlipHistoryEntry) {

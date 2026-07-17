@@ -417,6 +417,8 @@ struct TimeFlipSettingsView: View {
             return "Pairing..."
         case .paired:
             return "Connected"
+        case .reconnecting:
+            return "Reconnecting..."
         case .failed(let message):
             return "Failed" + (message.map { ": \($0)" } ?? "")
         }

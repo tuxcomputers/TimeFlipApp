@@ -20,6 +20,30 @@
   (e.g. `started_at` / `started_at_timezone`).
 - Store local time as ISO 8601 text without a UTC offset/`Z` suffix (e.g.
   `2026-07-16T09:30:00`) — the offset lives in the timezone column, not the timestamp itself.
+- If a table needs to *order by* or *compare* a date/time column (not just display it), also add
+  an indexed `<name>_epoch` INTEGER column (Unix epoch seconds, same moment as `<name>`) and
+  compare/sort on that instead of the text column or any device-supplied sequence number. A
+  device-side counter (e.g. an event number) can reset independently of wall-clock time, so it
+  isn't safe to use for ordering — see `device_events`/`device_notifications` (`start_time` /
+  `start_time_timezone` / `start_epoch`) for the pattern.
+
+## Naming: primary keys, indexes, and unique constraints
+
+- Primary key: `PK_<tablename>` (e.g. `CONSTRAINT PK_device_events PRIMARY KEY AUTOINCREMENT`).
+  This is part of the column/table definition inside `CREATE TABLE` — SQLite requires
+  `PRIMARY KEY AUTOINCREMENT` to be declared on the column itself for rowid-aliasing to work, so
+  it can't be split into a separate statement the way indexes and unique constraints are below.
+- Non-unique index: `IN<n>_<tablename>` (e.g. `IN1_device_events`), as a separate `CREATE INDEX`
+  statement after the `CREATE TABLE`.
+- Unique constraint: `UN<n>_<tablename>` (e.g. `UN1_setting`), as a separate
+  `CREATE UNIQUE INDEX` statement after the `CREATE TABLE` — not an inline `UNIQUE` column
+  constraint. SQLite has no `ALTER TABLE ADD CONSTRAINT`, so a named unique index is the
+  idiomatic equivalent.
+- `<n>` starts at `1` for each table and increases per additional index/unique constraint on that
+  same table (e.g. a table's second index is `IN2_<tablename>`, regardless of how many unique
+  constraints it also has — the two sequences are independent).
+- Always add `IF NOT EXISTS` to these `CREATE INDEX`/`CREATE UNIQUE INDEX` statements, matching
+  every other DDL statement in this folder.
 
 ## Seed inserts
 

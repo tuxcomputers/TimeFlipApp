@@ -3,7 +3,7 @@
 -- to it.
 
 CREATE TABLE IF NOT EXISTS face (
-    face_id INTEGER PRIMARY KEY,
+    face_id INTEGER CONSTRAINT PK_face PRIMARY KEY,
     category_id INTEGER NOT NULL REFERENCES category(category_id)
 );
 

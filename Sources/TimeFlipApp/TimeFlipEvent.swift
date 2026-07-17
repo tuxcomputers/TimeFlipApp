@@ -13,6 +13,8 @@ enum TimeFlipEvent: Equatable, Sendable {
     case batteryLevel(UInt8)
     /// "System state is calibration characteristics."
     case systemState(TimeFlipSystemState)
+    /// Lock mode (command 0x04), reported from status read (command 0x10).
+    case lockChanged(Bool)
     /// Device information read from the Device Information service (0x180A).
     case deviceInfo(TimeFlipDeviceInfo)
     /// "Notifications about events in TimeFlip, saved to events log. Sent in ASCI text format."
@@ -172,6 +174,10 @@ extension TimeFlipEvent {
             return ("device_info", "manufacturer=\(manufacturer) model=\(model) hardware=\(hardware) firmware=\(firmware) systemID=\(systemID)")
         case .eventLog(let message):
             return ("event_log", message)
+        case .lockChanged:
+            // Live session/UI state only (drives the double-click lock toggle) -- not a loggable
+            // point-in-time notification, and there's no seeded event_type row for it.
+            return nil
         }
     }
 }
@@ -197,6 +203,8 @@ extension TimeFlipEvent: CustomStringConvertible {
             return "deviceInfo(manu=\(m), model=\(model), hw=\(hw), fw=\(fw))"
         case .eventLog(let message):
             return "eventLog(\(message))"
+        case .lockChanged(let locked):
+            return "lockChanged(\(locked))"
         }
     }
 }

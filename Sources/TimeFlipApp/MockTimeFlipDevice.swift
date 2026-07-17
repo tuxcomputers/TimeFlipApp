@@ -364,6 +364,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     func setLocked(_ locked: Bool) {
         state = stateWithUpdatedDeviceTime(isLocked: locked)
         appendEventLog("lock=\(locked)")
+        emit(.lockChanged(locked))
     }
 
     func setAutoPause(minutes: UInt16) {
@@ -376,6 +377,14 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
     func setPause(_ on: Bool) async {
         setPaused(on, emitDoubleTap: false, facetIDOverride: state.facetID, reason: "pause_cmd")
+    }
+
+    func setLock(_ on: Bool) async {
+        setLocked(on)
+    }
+
+    func refreshLockState() async -> Bool {
+        state.isLocked
     }
 
     func setLEDBrightness(percent: UInt8) async {
