@@ -248,6 +248,29 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         logger.info("Application did finish launching")
     }
 
+    /// If `pause_on_lock` is enabled, pause and lock the device before actually quitting -- same
+    /// rationale as pausing via the app engaging lock mode (see `pause_on_lock`'s seed
+    /// description): the device shouldn't keep running/trackable once nothing's left controlling
+    /// it. If the setting is disabled (or there's no paired device to command), quit immediately
+    /// with no device interaction. Delays termination (`.terminateLater`) rather than blocking
+    /// this call, since `setPause`/`setLock` are async BLE round trips.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let device, appState.isPaired, dataStore.loadPauseOnLockEnabled() else {
+            DeveloperMode.debugPrint(.timeFlip, "Quit requested; pause_on_lock disabled or no paired device, exiting immediately")
+            return .terminateNow
+        }
+        DeveloperMode.debugPrint(.timeFlip, "Quit requested; pause_on_lock enabled, pausing and locking device before exit")
+        Task { @MainActor in
+            if !appState.isPaused {
+                await device.setPause(true)
+            }
+            await device.setLock(true)
+            DeveloperMode.debugPrint(.timeFlip, "Pause+lock on quit complete, terminating now")
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         _ = notification
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -588,7 +611,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // App Menu
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit TimeFlip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        // No keyEquivalent: this app-menu Quit only becomes reachable while Preferences is open
+        // (see SettingsWindowController's .regular/.accessory activation-policy toggle), and a
+        // stray ⌘Q there has quit the app unexpectedly -- no keyboard shortcuts anywhere for this
+        // app, matching the status-item dropdown menu.
+        appMenu.addItem(withTitle: "Quit TimeFlip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 

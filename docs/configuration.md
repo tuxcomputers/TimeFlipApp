@@ -147,7 +147,10 @@ collapsed **"Advanced"** disclosure at the bottom of the Device tab:
 The following settings affect device behavior but don't have Preferences UI yet — they can only
 be changed by editing the `setting` table directly in the local SQLite database (see
 [Database Design](database-design.md)):
-- **Pause on Lock** (`pause_on_lock`, default on): whether locking the device also pauses it
+- **Pause on Lock** (`pause_on_lock`, default on): whether locking the device also pauses it. Also
+  applies when quitting the app — if enabled, the app pauses and locks the device before exiting,
+  so it isn't left running/trackable with nothing controlling
+  it; if disabled, quitting doesn't touch the device at all
 - **Low Battery Threshold** (`low_battery_level`, default 5%): the battery percentage at/below
   which the menu bar activity text starts blinking red/white (see Status Indicators above). Once
   triggered, it only clears again after the battery climbs 5 points above the threshold, so a
@@ -174,9 +177,9 @@ be changed by editing the `setting` table directly in the local SQLite database 
 
 ### Locking the Device
 
-- **Double-click the right side** of the menu bar item to lock the device — this reads the
-  device's actual current lock state first, then flips it, so it works as a true toggle (lock,
-  then double-click again to unlock)
+- **Double-click the right side** of the menu bar item, or select **Lock/Unlock** from the
+  dropdown menu — both read the device's actual current lock state first, then flip it, so either
+  one works as a true toggle
 - If **Pause on Lock** is enabled (see Device Settings below) and the device isn't already paused,
   locking pauses it first — this happens regardless of what the device was doing beforehand
   (running or already paused)

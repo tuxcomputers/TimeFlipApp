@@ -193,6 +193,15 @@ final class MenuBarController: NSObject {
         pauseItem.isEnabled = isPaired && !isLocked
         newMenu.addItem(pauseItem)
 
+        let lockItem = NSMenuItem(
+            title: isLocked ? "Unlock" : "Lock",
+            action: #selector(toggleLock),
+            keyEquivalent: ""
+        )
+        lockItem.target = self
+        lockItem.isEnabled = isPaired
+        newMenu.addItem(lockItem)
+
         let quitItem = NSMenuItem(
             title: "Quit",
             action: #selector(quitApp),
@@ -429,6 +438,15 @@ final class MenuBarController: NSObject {
         // not be reachable from the menu or a single click on the status item.
         guard appState.isPaired, !appState.isLocked else { return }
         onPauseToggle?(!isPaused)
+    }
+
+    @objc
+    private func toggleLock() {
+        // Same read-then-flip request as the double-click gesture — see handleLockRequest() in
+        // ApplicationDelegate, which reads the device's actual current lock state before deciding
+        // whether to lock or unlock.
+        guard appState.isPaired else { return }
+        onLockRequest?()
     }
 
     /// Splits the status item into two click zones, but only once the device is actually
