@@ -5,13 +5,23 @@
 --
 -- Ordering ("is this event newer than what we've already recorded?") and the finalised flag are
 -- driven by start_epoch, not event_number. event_number is a counter maintained on the device
--- itself, and a device-side reset (e.g. a battery pull) can make it start counting again from a
--- low number while this table already holds higher event_number values from before the reset --
--- comparing event_number magnitudes directly would then treat a brand new event as older than
--- history it's actually superseding. start_epoch (Unix epoch seconds, derived from the device's
--- own timestamp) doesn't reset, so it's used for that comparison instead; event_number remains
--- the row's UNIQUE lookup key for update-in-place re-ingestion within one continuous device
--- session.
+-- itself, and a device-side reset (e.g. a battery pull, or a reset from the official app) can
+-- make it start counting again from a low number while this table already holds higher
+-- event_number values from before the reset -- comparing event_number magnitudes directly would
+-- then treat a brand new event as older than history it's actually superseding. start_epoch
+-- (Unix epoch seconds, derived from the device's own timestamp) doesn't reset, so it's used for
+-- that comparison instead.
+--
+-- Matching a row already seen ("have I recorded this exact segment before?") uses the composite
+-- (event_number, start_epoch) pair, not event_number alone: after a reset, event_number can be
+-- reused for a completely different segment, so a bare UNIQUE(event_number) would either block
+-- that new segment from being inserted, or (if matched on event_number alone) silently overwrite
+-- the unrelated old row. start_epoch alone isn't unique either -- the device only reports
+-- whole-second timestamps (see docs/TimeFlip2 BLE Protocol v4.3.md's 0x07/0x08 and the flip
+-- timestamp field), so two genuinely different segments (e.g. a quick flip across a facet while
+-- searching for the right one) can share the same start_epoch second. The combination of both is
+-- what's actually unique in practice -- see AppDataStore.recordDeviceEvent for the full matching
+-- logic.
 
 CREATE TABLE IF NOT EXISTS device_events (
   device_events_id      INTEGER CONSTRAINT PK_device_events PRIMARY KEY AUTOINCREMENT
@@ -27,5 +37,5 @@ CREATE TABLE IF NOT EXISTS device_events (
   , processed           INTEGER NOT NULL DEFAULT 0 CHECK (processed IN (0,1))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS UN1_device_events ON device_events(event_number);
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_device_events ON device_events(event_number, start_epoch);
 CREATE INDEX IF NOT EXISTS IN1_device_events ON device_events(start_epoch);
