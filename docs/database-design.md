@@ -258,3 +258,20 @@ Seeded rows:
   triggered by live facet/pause events, so any entries the device hasn't pushed a live
   notification for yet still get picked up. Stored in seconds; a future Settings UI will expose
   this in minutes and convert before saving here.
+- `display_seconds` = `{"enabled":true}` — when `enabled`, the menu bar duration display includes
+  a seconds component (`H:MM:SS`) and refreshes every second; when disabled, it shows `H:MM` and
+  refreshes every minute. Hours are unpadded below 10 (`1:23:45`) and two digits from 10 up
+  (`12:23:45`).
+- `low_battery_level` = `{"percent":5}` — the battery percentage (from the Battery Level
+  characteristic `0x2A19`) at or below which the menu bar activity text starts blinking red/white
+  (`MenuBarController`'s `updatedLowBatteryLatch`). To avoid flickering the warning on and off when
+  a reading wobbles right around this value, it only clears again once the battery climbs 5
+  percentage points above the threshold (a fixed hysteresis margin, not stored in this setting) —
+  see `docs/configuration.md`'s Status Indicators section for the user-facing behavior.
+- `debug` = `{"enabled":true,"to_file":false,"directory":"~/Documents/TimeFlip"}` — **not yet
+  implemented**, this is a placeholder seed for a planned support feature: let a non-technical
+  user enable debug logging to a file (instead of needing to run the app from a terminal) and
+  send that file back when a bug can't be reproduced otherwise. `to_file` defaults to `false`
+  since the file-writing side isn't built yet. See `docs/TODO-devmode.md` for the full design
+  (log filename format, how this relates to the existing terminal-only `DeveloperMode` logging,
+  and restart-required behavior).

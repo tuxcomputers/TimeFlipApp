@@ -76,6 +76,7 @@ final class HistoryIngestor {
 
         let startCursor = nextStartCursor()
         logger.debug("history_ingest trigger=\(trigger, privacy: .public) start_cursor=\(startCursor ?? 0)")
+        DeveloperMode.debugPrint(.history, "history fetch triggered: trigger=\(trigger) start_cursor=\(startCursor ?? 0)")
         let rawEntries = await device.fetchHistory(startingFrom: startCursor)
             .filter { $0.eventNumber != nil }
             .sorted { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
@@ -134,6 +135,10 @@ final class HistoryIngestor {
 
         // Update UI with latest entry AFTER accumulating deliverable entries
         onLatestEntry?(latestEntry)
+
+        // Once per batch (not once per recordDeviceEvent call above) so a backlog of history
+        // doesn't spam the console with one line per record.
+        dataStore.verifyMaxKnownEventNumberConsistency()
 
         isFetching = false
         if pending {

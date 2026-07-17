@@ -19,6 +19,7 @@ final class AppState: ObservableObject {
 
     @Published var currentFacetID: UInt8
     @Published var isPaused: Bool
+    @Published var isLocked: Bool
     @Published var batteryLevel: UInt8?
     @Published var systemState: TimeFlipSystemState?
     @Published var lastEventDescription: String?
@@ -76,6 +77,7 @@ final class AppState: ObservableObject {
         self.developerConfigStore = developerConfigStore
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
+        isLocked = false
         batteryLevel = nil
         systemState = nil
         lastEventDescription = nil
@@ -171,6 +173,8 @@ final class AppState: ObservableObject {
             deviceInfo = info
         case .eventLog:
             break
+        case .lockChanged(let locked):
+            isLocked = locked
         }
     }
 
@@ -282,6 +286,7 @@ final class AppState: ObservableObject {
         pairingStatus = .notPaired
         currentFacetID = TimeFlipConstants.unassignedFacetID
         isPaused = true
+        isLocked = false
         batteryLevel = nil
         systemState = nil
         lastEventDescription = nil
@@ -525,5 +530,9 @@ enum PairingStatus: Equatable {
     case notPaired
     case pairing
     case paired
+    /// Connection to an already-paired device was lost (BLE range, sleep, etc.) and an automatic
+    /// reconnect is in progress. Distinct from `.failed`/`.notPaired` so the menu bar keeps
+    /// showing the last known activity/icon instead of tearing down to an unpaired look.
+    case reconnecting
     case failed(String?)
 }

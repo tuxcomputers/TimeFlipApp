@@ -155,16 +155,16 @@ private struct TopFacetEditor: View {
             }
 
             HStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                Text("Limit:")
+                Text("Daily Limit:")
                 Stepper(
                     value: $mapping.limitMinutes,
                     in: 0...480,
                     step: 5
                 ) {
-                    Text(mapping.limitMinutes == 0 ? "No limit" : "\(mapping.limitMinutes) min")
+                    Text(mapping.limitMinutes == 0 ? "No limit" : "\(mapping.limitMinutes) min/day")
                         .frame(minWidth: 80, alignment: .leading)
                 }
-                .help("0 = no limit; max 480 minutes; steps of 5 minutes.")
+                .help("0 = no limit; resets daily at 3am; max 480 minutes; steps of 5 minutes.")
             }
 
             IconGridPicker(selection: iconBinding, tint: mapping.color)
@@ -402,7 +402,7 @@ private struct FacetMappingRow: View {
             Spacer()
 
             if mapping.limitMinutes > 0 {
-                Text("\(mapping.limitMinutes) min")
+                Text("\(mapping.limitMinutes) min/day")
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 70, alignment: .trailing)
             }

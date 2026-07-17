@@ -10,6 +10,52 @@ import OSLog
 /// `DeveloperMode.isEnabled` call site (and the `isDeveloperConfigLoaded` flag) from AppState.swift.
 enum DeveloperMode {
     static let isEnabled = true
+
+    /// Whether debug messages are actually emitted right now -- true only when `isEnabled` (the
+    /// compile-time dev flag above) is also on. Set once at startup from the `debug` setting's
+    /// `enabled` field (see `AppDataStore.loadDebugEnabled()`), so a user can turn terminal
+    /// debug logging off (or back on) themselves by editing that DB setting directly, without a
+    /// rebuild. Defaults to `true` (matching the seeded default) until that startup assignment
+    /// runs. Like other DB-only settings, changing it takes effect on the next app launch.
+    /// `nonisolated(unsafe)`: written once at launch before any concurrent debug-print call site
+    /// could plausibly run, then only ever read afterward -- a torn read of a `Bool` isn't a
+    /// real hazard here, and `debugPrint` is called from several non-MainActor contexts.
+    nonisolated(unsafe) static var isDebugSettingEnabled = true
+
+    /// Identifies the subsystem/action a dev-only debug print originates from. `bracketed`
+    /// right-pads the tag's name to the width of the longest case below, so every dev-check
+    /// console line lines up (e.g. `[TimeFlip ]` / `[dev-check]`) regardless of call order. Adding
+    /// a new case automatically re-measures `width` and re-pads every existing tag to match — no
+    /// hand-adjustment of other tags is needed when a new one is a different length.
+    enum DebugTag: String, CaseIterable {
+        case timeFlip = "TimeFlip"
+        case devCheck = "dev-check"
+        case history = "history"
+        case battery = "battery"
+
+        private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
+
+        fileprivate var bracketed: String {
+            "[\(rawValue.padding(toLength: Self.width, withPad: " ", startingAt: 0))]"
+        }
+    }
+
+    private static let debugTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        formatter.timeZone = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    /// Prints a dev-only console message prefixed with a zero-padded 24-hour local timestamp and
+    /// `tag`'s padded, bracketed name, gated on `isEnabled` — e.g.
+    /// `13:25:38 [TimeFlip ] Login accepted, code=0x02`. `message` is an autoclosure so string
+    /// interpolation is skipped entirely when developer mode is off.
+    static func debugPrint(_ tag: DebugTag, _ message: @autoclosure () -> String) {
+        guard isEnabled, isDebugSettingEnabled else { return }
+        print("\(debugTimeFormatter.string(from: Date())) \(tag.bracketed) \(message())")
+    }
 }
 
 struct DeveloperConfigPayload: Codable {

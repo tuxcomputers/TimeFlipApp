@@ -6,10 +6,14 @@ Google Calendar and Google Sheets integration.
 ## Features
 
 - **Menu Bar Timer**: Real-time activity tracking with icon, elapsed time, and pause/play indicators
-- **BLE Device Integration**: Direct connection to TimeFlip2 via Bluetooth Low Energy
+- **BLE Device Integration**: Direct connection to TimeFlip2 via Bluetooth Low Energy, with automatic
+  reconnection (including on system wake from sleep) if the connection drops
+- **Status Indicators**: Menu bar text color shows connection state (green/yellow) and a blinking
+  low-battery warning at a glance
+- **Device Lock Control**: Double-click to lock/unlock the device directly from the menu bar
 - **Google Calendar Sync**: Automatically creates calendar events for completed time tracking sessions
 - **Google Sheets Export**: Appends activity logs to a designated Google Sheet workbook
-- **Activity Management**: Configure custom activities with icons, colors, and time limits
+- **Activity Management**: Configure custom activities with icons, colors, and daily time limits
 - **Auto-Pause Support**: Automatic pause after configurable idle time
 - **Daily Statistics**: Track daily time spent per activity
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
@@ -32,6 +36,8 @@ Menu bar item preview:
 - **[Workflow](docs/workflow.md)** — how the device owner organizes activities and faces
 - **[Operation Spec](docs/operation-spec.md)** — how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** — the local SQLite schema
+- **[Developer Mode Removal TODO](docs/TODO-devmode.md)** — everything to remove/decide on before
+  shipping without dev-only config/logging
 
 ## Architecture
 

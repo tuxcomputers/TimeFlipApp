@@ -130,8 +130,8 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
    - **Activity Name**: Custom label for the activity
    - **Icon**: Native TimeFlip icon (matching the stickers included with your device)
    - **Color**: RGB LED color shown on the device
-   - **Time Limit**: Optional daily limit (turns the menu bar item red when exceeded, to make 
-     you aware if you've been slacking off enough for today)
+   - **Daily Limit**: Optional daily time limit in minutes (turns the menu bar text red once
+     reached, resetting at 3am each day — see Status Indicators below)
 
 ![Preferences - Facets](../image/preferences-facets.png)
 
@@ -144,6 +144,16 @@ collapsed **"Advanced"** disclosure at the bottom of the Device tab:
 - **Blink Interval**: How often the LED blinks (5-60 seconds)
 - **Double-Tap Sensitivity**: Configure tap detection parameters
 
+The following settings affect device behavior but don't have Preferences UI yet — they can only
+be changed by editing the `setting` table directly in the local SQLite database (see
+[Database Design](database-design.md)):
+- **Pause on Lock** (`pause_on_lock`, default on): whether locking the device also pauses it
+- **Low Battery Threshold** (`low_battery_level`, default 5%): the battery percentage at/below
+  which the menu bar activity text starts blinking red/white (see Status Indicators above). Once
+  triggered, it only clears again after the battery climbs 5 points above the threshold, so a
+  reading wobbling right around the threshold doesn't flicker the warning on and off. Takes effect
+  on the next app launch after being changed.
+
 ## Usage
 
 ### Basic Time Tracking
@@ -155,15 +165,52 @@ collapsed **"Advanced"** disclosure at the bottom of the Device tab:
 
 ### Manual Pause/Resume
 
-- Click the menu bar icon and select "Pause" to pause tracking
-- Select "Resume" to continue tracking
-- Or use the keyboard shortcut: `⌘P`
+- Click the left side of the menu bar item (icon + activity name) to open the dropdown menu, then
+  select "Pause"/"Resume" — or use the keyboard shortcut `⌘P`
+- Once paired, a single click on the **right side** of the item (the duration/indicator) toggles
+  pause/resume directly, without opening the menu
+- None of this works while the device is locked (see Locking the Device below) — locking disables
+  pause/resume everywhere until you unlock it again
+
+### Locking the Device
+
+- **Double-click the right side** of the menu bar item to lock the device — this reads the
+  device's actual current lock state first, then flips it, so it works as a true toggle (lock,
+  then double-click again to unlock)
+- If **Pause on Lock** is enabled (see Device Settings below) and the device isn't already paused,
+  locking pauses it first — this happens regardless of what the device was doing beforehand
+  (running or already paused)
+- While locked, a red lock icon appears next to the pause/play indicator in the menu bar, so you
+  can still tell at a glance whether the device is timing or paused underneath the lock
+- Unlocking just removes the lock icon — it doesn't change the pause/running state either way
+- While locked, pause/resume is disabled everywhere — the single-click toggle, the menu item, and
+  its `⌘P` shortcut all do nothing. Double-clicking to unlock is the only action that works
+
+### Status Indicators
+
+The activity name and duration text in the menu bar change color to reflect device state:
+
+| Color | Meaning |
+|---|---|
+| Green | Connected, tracking normally |
+| Yellow | Disconnected — the app is retrying the connection automatically and keeps showing the last known activity/duration until it reconnects |
+| Red | The current activity has hit its daily time limit (see Configuring Activities above) |
+| Blinking red/white (activity name only) | Battery is at or below the low-battery threshold — see Device Settings below |
+
+Low battery always takes priority over the other colors and blinks regardless of pause/lock/limit
+state, since it's the most urgent signal. Once disconnected, both fields go flat yellow — there's
+no reliable battery/limit reading to show until the connection is back.
+
+If the connection drops (e.g. the laptop goes to sleep or the device goes out of range), the app
+retries automatically with increasing backoff, and also retries immediately when the Mac wakes
+from sleep — you shouldn't need to manually reconnect. See Troubleshooting below if it doesn't
+recover.
 
 ### Viewing Statistics
 
 - The app tracks daily totals for each activity
 - View current day statistics in the preferences window
-- Daily windows reset at midnight
+- Daily windows reset at 3am, not midnight
 
 ### Mock Mode for Testing
 
@@ -220,6 +267,9 @@ The app includes a mock device that simulates TimeFlip behavior and accepts comm
 
 ### Menu Bar Not Updating
 
+- If the text has turned yellow, the app has detected a dropped connection and is retrying
+  automatically — this is expected (e.g. right after the laptop wakes from sleep, or the device
+  briefly goes out of range) and should clear on its own within a few reconnect attempts
 - Check that the device is connected (preferences should show "Paired")
 - Try manually pausing and resuming
 - Restart the application

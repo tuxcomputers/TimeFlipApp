@@ -238,9 +238,6 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_finalize(stmt)
             }
 
-            if DeveloperMode.isEnabled {
-                verifyMaxKnownEventNumberConsistency()
-            }
         }
         return success
     }
@@ -250,7 +247,13 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// incrementally maintaining. A mismatch means that tracking has drifted from the DB -- e.g. a
     /// row was written outside `recordDeviceEvent`, or a write silently failed -- and needs
     /// investigating, so it's printed loudly rather than tucked away in the OS log.
-    private func verifyMaxKnownEventNumberConsistency() {
+    ///
+    /// Callers should invoke this once after a batch of `recordDeviceEvent` calls (e.g. once per
+    /// history refresh), not after every individual call -- history processing can call
+    /// `recordDeviceEvent` many times per batch, and re-deriving MAX() from the DB that often is
+    /// both wasteful and noisy.
+    func verifyMaxKnownEventNumberConsistency() {
+        guard DeveloperMode.isEnabled else { return }
         guard let db else { return }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT MAX(event_number) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
@@ -265,13 +268,13 @@ final class AppDataStore: IntegrationEventCursorStore {
         sqlite3_finalize(stmt)
 
         if dbMax == maxKnownEventNumber {
-            print("[dev-check] device_events max_event_number OK: in_memory=\(maxKnownEventNumber) db=\(dbMax)")
+            DeveloperMode.debugPrint(.devCheck, "device_events max_event_number OK: in_memory=\(maxKnownEventNumber) db=\(dbMax)")
         } else {
-            print("""
+            DeveloperMode.debugPrint(.devCheck, """
             ############################################################
-            # MISMATCH: device_events max(event_number) drifted from the in-memory tracker!
-            # in-memory maxKnownEventNumber = \(maxKnownEventNumber)
-            # SELECT MAX(event_number) FROM device_events = \(dbMax)
+            MISMATCH: device_events max(event_number) drifted from the in-memory tracker!
+            in-memory maxKnownEventNumber = \(maxKnownEventNumber)
+            SELECT MAX(event_number) FROM device_events = \(dbMax)
             ############################################################
             """)
             logger.fault("device_events max_event_number MISMATCH in_memory=\(self.maxKnownEventNumber, privacy: .public) db=\(dbMax, privacy: .public)")
@@ -319,6 +322,48 @@ final class AppDataStore: IntegrationEventCursorStore {
         return TimeInterval(seconds)
     }
 
+    /// Whether locking the device via the app should also pause it first if it isn't already
+    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/009_setting.sql`).
+    /// Falls back to the seeded default if the row is missing or malformed.
+    func loadPauseOnLockEnabled() -> Bool {
+        guard let enabled = loadSettingJSON(name: "pause_on_lock")?["enabled"] as? Bool else {
+            return true
+        }
+        return enabled
+    }
+
+    /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
+    /// seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default if the
+    /// row is missing or malformed.
+    func loadDisplaySecondsEnabled() -> Bool {
+        guard let enabled = loadSettingJSON(name: "display_seconds")?["enabled"] as? Bool else {
+            return true
+        }
+        return enabled
+    }
+
+    /// Battery percentage at or below which the device is considered low on battery (the
+    /// `low_battery_level` setting, seeded to `5`; see `database/009_setting.sql`). Falls back to
+    /// the seeded default if the row is missing or malformed.
+    func loadLowBatteryLevelPercent() -> Int {
+        guard let percent = loadSettingJSON(name: "low_battery_level")?["percent"] as? Int else {
+            return 5
+        }
+        return percent
+    }
+
+    /// Whether dev-only debug messages (`DeveloperMode.debugPrint`) are actually emitted to the
+    /// terminal (the `debug` setting's `enabled` field, seeded to `true`; see
+    /// `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// malformed. Lets a user turn terminal logging off (or back on) by editing this setting
+    /// directly, without needing a rebuild -- see docs/TODO-devmode.md.
+    func loadDebugEnabled() -> Bool {
+        guard let enabled = loadSettingJSON(name: "debug")?["enabled"] as? Bool else {
+            return true
+        }
+        return enabled
+    }
+
     // MARK: - Device notifications (point-in-time, non-timing device events)
 
     /// Local-time-without-offset formatter matching the `<name>`/`<name>_timezone` column
@@ -330,6 +375,7 @@ final class AppDataStore: IntegrationEventCursorStore {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter
     }()
+
 
     /// Records a point-in-time device notification (double tap, battery level, system state,
     /// device info, event log — see `TimeFlipEvent.deviceNotification`) so what the device sends

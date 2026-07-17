@@ -38,6 +38,8 @@ final class FakeDevice: TimeFlipSessionManaging {
     func refreshDeviceInfo() async {}
     func readElapsedSeconds(facetID: UInt8) async -> TimeInterval? { nil }
     func setPause(_ paused: Bool) async {}
+    func setLock(_ locked: Bool) async {}
+    func refreshLockState() async -> Bool { snapshotValue.isLocked }
     func snapshot() -> TimeFlipDeviceSnapshot { snapshotValue }
 
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry] {

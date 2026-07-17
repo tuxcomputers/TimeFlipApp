@@ -6,3 +6,22 @@
   over `docs/timeflip.md` (a developer-written summary of this codebase's BLE driver) whenever
   the two disagree.
 - If the official spec doesn't cover something, fall back to `docs/timeflip.md`.
+
+## Debug print messages
+
+- All dev-only `print(...)` console messages (gated on `DeveloperMode.isEnabled`) must lead with
+  a zero-padded 24-hour local time, followed by the `[Tag]` naming the action/source, e.g.:
+  ```
+  13:25:38 [TimeFlip ] Login accepted, code=0x02
+  13:25:39 [dev-check] device_events max_event_number OK: in_memory=112 db=112
+  ```
+- Use `DeveloperMode.debugPrint(_ tag: DebugTag, _:)` (in `DeveloperConfigStore.swift`) rather than
+  a bare `print(...)` call — it prepends the timestamp and gates on `isEnabled` itself, so call
+  sites don't need their own `if DeveloperMode.isEnabled { ... }` wrapper.
+- The tag names all pad to the same bracket width (right-padded with spaces) so console lines stay
+  aligned, per the example above. This is enforced by `DeveloperMode.DebugTag`: its cases hold the
+  tag names, and `width` is derived from the longest case's name, so adding a case automatically
+  re-pads every tag — **when a new debug message is requested, add its tag as a new `DebugTag`
+  case instead of inlining a `[Tag]` string in the message**, and double check the console output
+  afterwards to confirm every tag still lines up (a new case that's longer than all existing ones
+  widens every other tag's padding too).

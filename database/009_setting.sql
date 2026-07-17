@@ -33,3 +33,15 @@ WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'pause_on_lock');
 INSERT INTO setting (setting_name, setting_value, setting_description)
 SELECT 'fetch_history_interval_seconds', '{"seconds":10}', 'seconds: how often the app sends a history fetch request (command 0x02) to the device to pick up any entries not yet seen, in addition to the fetches already triggered by live facet/pause events. Stored in seconds; a future Settings UI will expose this in minutes and convert it before saving here.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'fetch_history_interval_seconds');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'display_seconds', '{"enabled":true}', 'enabled: when true, the menu bar duration display includes a seconds component (H:MM:SS) and refreshes every second; when false, it shows H:MM and refreshes every minute.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'display_seconds');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'low_battery_level', '{"percent":5}', 'percent: battery_level (0-100, from the Battery Level characteristic 0x2A19) at or below which the device is considered low on battery and the app should warn the user. No such warning is implemented yet -- this is just the threshold setting.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'low_battery_level');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'debug', '{"enabled":true,"to_file":false,"directory":"~/Documents/TimeFlip"}', 'NOT YET IMPLEMENTED -- placeholder for a planned feature, see docs/TODO-devmode.md. Intent: enabled controls whether the same messages DeveloperMode.debugPrint sends to the terminal (when DeveloperMode.isEnabled is true, for local development) are gathered at all for this user-facing setting; to_file controls whether those messages are ALSO written to a log file, so a non-technical end user can turn this on and send the file back for support without running the app from a terminal -- defaulted to false since the file-writing side of this is not built yet. directory is the folder the log file is written to; a future Preferences UI will let the user override this via a folder-selection dialog. The log filename format and per-launch behavior are intentionally not stored here -- see docs/TODO-devmode.md.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'debug');
