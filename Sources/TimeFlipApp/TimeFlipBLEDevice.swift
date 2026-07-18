@@ -755,6 +755,20 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
+    func readLastEvent() async -> TimeFlipHistoryEntry? {
+        guard isLoggedIn else {
+            logger.error("readLastEvent skipped: not logged in")
+            return nil
+        }
+        guard characteristics[TimeFlipUUIDs.history] != nil else {
+            logger.error("readLastEvent skipped: history characteristic missing")
+            return nil
+        }
+        return await historyGate.withLock {
+            await readLastEventLocked()
+        }
+    }
+
     // MARK: - Private helpers
 
     private func waitForBluetoothPower() async throws {
@@ -1027,6 +1041,51 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         idleWatchdog?.cancel()
         await withNotification(TimeFlipUUIDs.history, enabled: false)
         return entries
+    }
+
+    /// Per the vendor spec, requesting event 0xFFFFFFFF via command 0x01 substitutes the real
+    /// last event's complete "History block" frame (same layout a single-event read would
+    /// return -- event number, facet, start time, duration), rather than the multi-frame stream
+    /// 0x02 produces -- so this only ever waits for one frame instead of looping until a sentinel.
+    private func readLastEventLocked() async -> TimeFlipHistoryEntry? {
+        let stream = AsyncStream<Data> { continuation in
+            historyStreamContinuation = continuation
+        }
+        defer {
+            historyStreamContinuation?.finish()
+            historyStreamContinuation = nil
+        }
+
+        do {
+            await withNotification(TimeFlipUUIDs.history, enabled: true)
+            var command = Data(repeating: 0, count: 5)
+            command[0] = 0x01
+            command.replaceSubrange(1..<5, with: [0xFF, 0xFF, 0xFF, 0xFF])
+            logger.debug("History last-event request")
+            try await write(command, to: TimeFlipUUIDs.history, type: .withResponse)
+        } catch {
+            logger.error("readLastEvent write failed: \(error.localizedDescription, privacy: .public)")
+            await withNotification(TimeFlipUUIDs.history, enabled: false)
+            return nil
+        }
+
+        let watchdog = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+            guard !Task.isCancelled else { return }
+            self.historyStreamContinuation?.finish()
+            self.logger.error("readLastEvent timed out waiting for response")
+        }
+        defer { watchdog.cancel() }
+
+        var result: TimeFlipHistoryEntry?
+        for await frame in stream {
+            result = TimeFlipHistoryParser.parse(frame)
+            break
+        }
+
+        await withNotification(TimeFlipUUIDs.history, enabled: false)
+        return result
     }
 
     private func withNotification(_ uuid: CBUUID, enabled: Bool) async {
