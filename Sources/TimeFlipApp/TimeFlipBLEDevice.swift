@@ -631,13 +631,19 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// The generated password is also printed so it's recoverable from the terminal if something
     /// goes wrong with saving/using it.
     ///
+    /// In dev builds this always rotates to the same fixed `123456` instead of a random password
+    /// -- otherwise every pairing would leave the device on an unpredictable PIN, defeating the
+    /// point of dev mode's fixed-PIN convenience (see AppState.init).
+    ///
     /// The new password is only returned (and therefore only saved by the caller) once the
     /// device has actually confirmed it via a real re-login attempt — the set-password command's
     /// own ack isn't treated as sufficient proof the device will honor it on the next connect.
     func rotateDevicePassword() async -> String? {
         guard isLoggedIn else { return nil }
-        let generatedRandomPassword = String(format: "%06d", Int.random(in: 0...999_999))
-        DeveloperMode.debugPrint(.timeFlip, "Generated random device password: \(generatedRandomPassword)")
+        let generatedRandomPassword = DeveloperMode.isEnabled
+            ? "123456"
+            : String(format: "%06d", Int.random(in: 0...999_999))
+        DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(generatedRandomPassword)")
         let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
         do {
             _ = try await performCommand(payload)
