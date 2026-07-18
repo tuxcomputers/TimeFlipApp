@@ -22,7 +22,6 @@ struct PreferencesPayload: Codable {
     var wantsPairing: Bool?
     var pairedDeviceName: String?
     var pairedDeviceUUID: String?
-    var autoPauseMinutes: UInt16?
 }
 
 struct FacetMappingRecord: Codable {

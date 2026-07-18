@@ -25,7 +25,7 @@ SELECT 'led_settings', '{"brightness":50,"blink_interval":15}', 'LED settings: b
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'led_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the device pauses itself if the facet hasn''t changed (device cmd 0x05; 0 disables, matching the vendor protocol''s own disabled-by-default behavior). The timer resets every time the facet changes. Seeded from AppState''s autoPauseMinutes default (nil, treated as 0/disabled).'
+SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the device pauses itself if the facet hasn''t changed (device cmd 0x05; 0 disables, matching the vendor protocol''s own disabled-by-default behavior; the device itself only supports whole-minute granularity, so this can''t be made finer). The timer resets every time the facet changes.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'auto_pause_minutes');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

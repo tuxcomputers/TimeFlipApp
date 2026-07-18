@@ -6,6 +6,7 @@ import OSLog
 final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let dataStore = AppDataStore()
     private lazy var appState = AppState(
+        autoPauseMinutes: dataStore.loadAutoPauseMinutes(),
         ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
         blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
@@ -203,6 +204,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // so the handlers only forward the new value to the device.
         appState.onAutoPauseChange = { [weak self] minutes in
             guard let self else { return }
+            self.dataStore.saveAutoPauseMinutes(minutes)
             Task { @MainActor in
                 await self.device?.setAutoPause(minutes: minutes)
             }
@@ -413,7 +415,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
             guard !Task.isCancelled else { return }
             await device.enableNotifications()
-            let desiredAutoPause = appState.autoPauseMinutes ?? 0
+            let desiredAutoPause = appState.autoPauseMinutes
             await device.initializeSession(hostTime: Date(), desiredAutoPauseMinutes: desiredAutoPause)
             // LED brightness/blink have no device read-back (vendor spec defines none for 0x09/
             // 0x0A -- see docs/timeflip.md), so unlike auto-pause and double-tap below, these two

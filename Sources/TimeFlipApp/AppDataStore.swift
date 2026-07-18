@@ -464,6 +464,22 @@ final class AppDataStore: IntegrationEventCursorStore {
         saveSettingJSON(name: "led_settings", merging: ["blink_interval": Int(seconds)])
     }
 
+    /// Auto-pause delay in minutes (the `auto_pause_minutes` setting's `minutes` field, seeded to
+    /// `0`; see `database/009_setting.sql`) -- the device itself only supports whole-minute
+    /// granularity for this (device cmd 0x05), so there's no finer unit to store. Falls back to
+    /// the seeded default if the row is missing or malformed.
+    func loadAutoPauseMinutes() -> UInt16 {
+        guard let minutes = loadSettingJSON(name: "auto_pause_minutes")?["minutes"] as? Int else {
+            return 0
+        }
+        return UInt16(max(0, min(240, minutes)))
+    }
+
+    /// Persists a new auto-pause delay, in minutes, to the `auto_pause_minutes` row.
+    func saveAutoPauseMinutes(_ minutes: UInt16) {
+        saveSettingJSON(name: "auto_pause_minutes", merging: ["minutes": Int(minutes)])
+    }
+
     /// Double-tap accelerometer register values (the `double_tap_settings` setting's
     /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/009_setting.sql`). Falls
     /// back to `DoubleTapParameters.default` -- itself, and per-field, if the row or an individual

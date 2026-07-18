@@ -133,13 +133,12 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
 The Device tab is organized into a few sections:
 - **Info**: name, connection status, and battery level, plus a collapsed **"More"** disclosure
   with manufacturer/model/hardware/firmware details
-- **Settings**: two collapsed disclosures --
+- **Settings**: **Auto-Pause** (automatically pause after X minutes of inactivity), plus two
+  collapsed disclosures --
   - **LED**: brightness (1-100%) and blink interval (how often it blinks, 5-60 seconds)
   - **Double tap**: tap detection sensitivity -- see below
 - **TimeFlip**: pairing controls, plus **Forget Device** and **Reset Device** (a full factory
   reset, behind a confirmation dialog since it erases everything on the device)
-- **Advanced**: system status, last event, and **Auto-Pause** (automatically pause after X
-  minutes of inactivity)
 
 #### Double-Tap Sensitivity
 

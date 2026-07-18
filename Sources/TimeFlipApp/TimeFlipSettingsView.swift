@@ -1,13 +1,6 @@
 import SwiftUI
 
 struct TimeFlipSettingsView: View {
-    private static let eventFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
     @ObservedObject var appState: AppState
     @State private var autoPauseValue: Int = 0
     @State private var lastAppliedAutoPause: UInt16 = 0
@@ -24,14 +17,12 @@ struct TimeFlipSettingsView: View {
             deviceSection
             settingsSection
             pairingSection
-            advancedSection
         }
         .formStyle(.grouped)
         .onAppear(perform: syncViewState)
         .onChange(of: appState.autoPauseMinutes) { _, newValue in
-            let minutes = newValue ?? 0
-            autoPauseValue = Int(minutes)
-            lastAppliedAutoPause = minutes
+            autoPauseValue = Int(newValue)
+            lastAppliedAutoPause = newValue
         }
         .onChange(of: appState.ledBrightnessPercent) { _, newValue in
             let clamped = max(1, min(100, Int(newValue)))
@@ -94,6 +85,10 @@ struct TimeFlipSettingsView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
+            LabeledContent("Auto-pause (0 disable, max 240m)") {
+                autoPauseControls
+            }
+            .disabled(!appState.isPaired)
             DisclosureGroup(isExpanded: $appState.isLEDExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Brightness") {
@@ -303,34 +298,6 @@ struct TimeFlipSettingsView: View {
         }
     }
 
-    private var advancedSection: some View {
-        Section("Advanced") {
-            DisclosureGroup(isExpanded: $appState.isAdvancedExpanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("System") {
-                        Text(systemText)
-                    }
-                    LabeledContent("Last event") {
-                        Text(lastEventText)
-                    }
-                    Divider()
-                    LabeledContent("Auto-pause (0 disable, max 240m)") {
-                        autoPauseControls
-                    }
-                    .disabled(!appState.isPaired)
-                }
-                .padding(.vertical, 4)
-            } label: {
-                Button {
-                    appState.isAdvancedExpanded.toggle()
-                } label: {
-                    Text("Advanced")
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
     private var doubleTapControls: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
@@ -407,7 +374,7 @@ struct TimeFlipSettingsView: View {
     // MARK: - Helpers
 
     private func syncViewState() {
-        let minutes = appState.autoPauseMinutes ?? 0
+        let minutes = appState.autoPauseMinutes
         autoPauseValue = Int(minutes)
         lastAppliedAutoPause = minutes
         let brightness = appState.ledBrightnessPercent
@@ -494,16 +461,6 @@ struct TimeFlipSettingsView: View {
         return appState.lowBatteryBlinkPhaseOn ? .red : .primary
     }
 
-    private var systemText: String {
-        if let state = appState.systemState {
-            let sync = state.syncStatus.description
-            let hardware = state.hardwareStatus.description
-            let raw = String(format: "0x%04X/0x%04X", state.rawStatus, state.rawHardware)
-            return "Sync: \(sync), HW: \(hardware) (\(raw))"
-        }
-        return "Unknown (no system report yet)"
-    }
-
     private var manufacturerText: String {
         appState.deviceInfo?.manufacturer ?? "Unknown"
     }
@@ -538,14 +495,4 @@ struct TimeFlipSettingsView: View {
         }
     }
 
-    private var lastEventText: String {
-        guard let date = appState.lastEventDate else {
-            return "No events yet"
-        }
-        let formatted = Self.eventFormatter.string(from: date)
-        if let detail = appState.lastEventDescription {
-            return "\(formatted) (\(detail))"
-        }
-        return formatted
-    }
 }
