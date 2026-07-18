@@ -4,8 +4,11 @@ import OSLog
 
 @MainActor
 final class ApplicationDelegate: NSObject, NSApplicationDelegate {
-    private let appState = AppState()
     private let dataStore = AppDataStore()
+    private lazy var appState = AppState(
+        ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
+        blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds()
+    )
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(
         stateStore: (DeveloperMode.isEnabled && appState.isDeveloperConfigLoaded)
@@ -204,12 +207,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onLEDBrightnessChange = { [weak self] percent in
             guard let self else { return }
+            self.dataStore.saveLEDBrightnessPercent(percent)
             Task { @MainActor in
                 await self.device?.setLEDBrightness(percent: percent)
             }
         }
         appState.onBlinkIntervalChange = { [weak self] seconds in
             guard let self else { return }
+            self.dataStore.saveLEDBlinkIntervalSeconds(seconds)
             Task { @MainActor in
                 await self.device?.setBlinkInterval(seconds: seconds)
             }

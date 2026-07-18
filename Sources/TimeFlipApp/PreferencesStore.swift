@@ -22,9 +22,7 @@ struct PreferencesPayload: Codable {
     var wantsPairing: Bool?
     var pairedDeviceName: String?
     var pairedDeviceUUID: String?
-    var ledBrightnessPercent: UInt8?
     var autoPauseMinutes: UInt16?
-    var blinkIntervalSeconds: UInt8?
     var doubleTapParameters: DoubleTapParameters?
     var isDoubleTapEnabled: Bool?
 }

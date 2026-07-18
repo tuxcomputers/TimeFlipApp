@@ -73,7 +73,9 @@ final class AppState: ObservableObject {
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
         devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared,
-        developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared
+        developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared,
+        ledBrightnessPercent: UInt8,
+        blinkIntervalSeconds: UInt8
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
@@ -103,8 +105,8 @@ final class AppState: ObservableObject {
         wantsPairing = false
         autoPauseMinutes = nil
         deviceInfo = nil
-        ledBrightnessPercent = 50
-        blinkIntervalSeconds = 5
+        self.ledBrightnessPercent = ledBrightnessPercent
+        self.blinkIntervalSeconds = blinkIntervalSeconds
         doubleTapParameters = nil
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
@@ -351,14 +353,8 @@ final class AppState: ObservableObject {
         pairingStatus = wantsPairing ? .pairing : .notPaired
         pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
         pairedDeviceUUID = payload.pairedDeviceUUID
-        if let storedBrightness = payload.ledBrightnessPercent {
-            ledBrightnessPercent = max(1, min(100, storedBrightness))
-        }
         if let storedAutoPause = payload.autoPauseMinutes {
             autoPauseMinutes = clampAutoPause(storedAutoPause)
-        }
-        if let storedBlink = payload.blinkIntervalSeconds {
-            blinkIntervalSeconds = clampBlinkInterval(storedBlink)
         }
         if let storedDoubleTap = payload.doubleTapParameters {
             doubleTapParameters = storedDoubleTap
@@ -397,9 +393,7 @@ final class AppState: ObservableObject {
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
-            $ledBrightnessPercent.map { _ in () }.eraseToAnyPublisher(),
             $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher(),
-            $blinkIntervalSeconds.map { _ in () }.eraseToAnyPublisher(),
             $doubleTapParameters.map { _ in () }.eraseToAnyPublisher(),
             $isDoubleTapEnabled.map { _ in () }.eraseToAnyPublisher()
         ])
@@ -459,9 +453,7 @@ final class AppState: ObservableObject {
             wantsPairing: wantsPairing,
             pairedDeviceName: pairedDeviceName,
             pairedDeviceUUID: pairedDeviceUUID,
-            ledBrightnessPercent: ledBrightnessPercent,
             autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
-            blinkIntervalSeconds: clampBlinkInterval(blinkIntervalSeconds),
             doubleTapParameters: doubleTapParameters,
             isDoubleTapEnabled: isDoubleTapEnabled
         )
@@ -525,9 +517,6 @@ final class AppState: ObservableObject {
         return UInt16(max(0, min(240, Int(value))))
     }
 
-    private func clampBlinkInterval(_ value: UInt8) -> UInt8 {
-        return UInt8(max(5, min(60, Int(value))))
-    }
 
     func confirmPaired(name: String, uuid: String?) {
         isPaired = true
