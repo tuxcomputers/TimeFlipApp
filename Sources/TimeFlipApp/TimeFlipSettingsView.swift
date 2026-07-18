@@ -16,8 +16,10 @@ struct TimeFlipSettingsView: View {
     @State private var blinkIntervalValue: Int = 5
     @State private var lastAppliedBlinkInterval: UInt8 = 5
     @State private var isAdvancedExpanded: Bool = false
+    @State private var isMoreExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
+    @State private var showingFactoryResetConfirmation: Bool = false
 
     var body: some View {
         Form {
@@ -50,12 +52,42 @@ struct TimeFlipSettingsView: View {
     // MARK: - Sections
 
     private var deviceSection: some View {
-        Section("Device") {
+        Section("Info") {
             LabeledContent("Name") {
                 Text(appState.pairedDeviceName)
             }
-            LabeledContent("Status") {
+            LabeledContent("Connection") {
                 Text(statusText)
+            }
+            LabeledContent("Battery") {
+                Text(batteryText)
+            }
+            DisclosureGroup(isExpanded: $isMoreExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Manufacturer") {
+                        Text(manufacturerText)
+                    }
+                    LabeledContent("Model") {
+                        Text(modelText)
+                    }
+                    LabeledContent("Hardware") {
+                        Text(hardwareText)
+                    }
+                    LabeledContent("Firmware") {
+                        Text(firmwareText)
+                    }
+                    LabeledContent("System ID") {
+                        Text(systemIDText)
+                    }
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Button {
+                    isMoreExpanded.toggle()
+                } label: {
+                    Text("More")
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -68,6 +100,27 @@ struct TimeFlipSettingsView: View {
                         Task { await appState.resetAndForgetDevice() }
                     }
                     .disabled(appState.pairingStatus == .pairing)
+
+                    Button("Reset Device") {
+                        showingFactoryResetConfirmation = true
+                    }
+                    .disabled(appState.pairingStatus == .pairing)
+                    .confirmationDialog(
+                        "Reset this TimeFlip to factory settings?",
+                        isPresented: $showingFactoryResetConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Reset Device", role: .destructive) {
+                            Task { await appState.factoryResetAndForgetDevice() }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("""
+                        This erases everything stored on the device -- facet colors, task \
+                        settings, name, and password -- back to factory defaults. This cannot be \
+                        undone.
+                        """)
+                    }
                 } else {
                     Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
                         if appState.isScanningForDevices {
@@ -209,9 +262,6 @@ struct TimeFlipSettingsView: View {
         Section("Advanced") {
             DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("Battery") {
-                        Text(batteryText)
-                    }
                     LabeledContent("System") {
                         Text(systemText)
                     }
@@ -395,13 +445,6 @@ struct TimeFlipSettingsView: View {
     }
 
     private var systemText: String {
-        if let info = appState.deviceInfo {
-            let manufacturer = info.manufacturer ?? "Unknown manufacturer"
-            let model = info.modelNumber ?? "Unknown model"
-            let firmware = info.firmwareRevision ?? "FW n/a"
-            let hardware = info.hardwareRevision ?? "HW n/a"
-            return "\(manufacturer) \(model) • FW \(firmware) • HW \(hardware)"
-        }
         if let state = appState.systemState {
             let sync = state.syncStatus.description
             let hardware = state.hardwareStatus.description
@@ -409,6 +452,26 @@ struct TimeFlipSettingsView: View {
             return "Sync: \(sync), HW: \(hardware) (\(raw))"
         }
         return "Unknown (no system report yet)"
+    }
+
+    private var manufacturerText: String {
+        appState.deviceInfo?.manufacturer ?? "Unknown"
+    }
+
+    private var modelText: String {
+        appState.deviceInfo?.modelNumber ?? "Unknown"
+    }
+
+    private var hardwareText: String {
+        appState.deviceInfo?.hardwareRevision ?? "Unknown"
+    }
+
+    private var firmwareText: String {
+        appState.deviceInfo?.firmwareRevision ?? "Unknown"
+    }
+
+    private var systemIDText: String {
+        appState.deviceInfo?.systemID ?? "Unknown"
     }
 
     private var statusText: String {

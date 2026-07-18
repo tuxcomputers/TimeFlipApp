@@ -183,6 +183,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
             return confirmed
         }
+        appState.onFactoryResetRequest = { [weak self] in
+            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
+            let confirmed = await bleDevice.factoryReset()
+            if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false) {
+                try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+            }
+            return confirmed
+        }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }

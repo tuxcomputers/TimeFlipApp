@@ -55,6 +55,7 @@ final class AppState: ObservableObject {
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
     var onResetDevicePasswordRequest: (() async -> Bool)?
+    var onFactoryResetRequest: (() async -> Bool)?
     var onCurrentFacetMappingChange: (() -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
@@ -88,7 +89,11 @@ final class AppState: ObservableObject {
         googleCalendarName = nil
         googleClientID = ""
         googleClientSecret = ""
-        devicePassword = TimeFlipConstants.defaultPassword
+        // Developer Mode's config.json is meant to supply this (see applyDeveloperConfig below),
+        // but the symlink some dev setups point it at (a repo-tracked file) keeps getting lost --
+        // rather than chase that, dev builds just start on a fixed, easy-to-type password instead
+        // of the real factory default, independent of whether config.json actually loads.
+        devicePassword = DeveloperMode.isEnabled ? "123456" : TimeFlipConstants.defaultPassword
         pairedDeviceUUID = nil
         pairingStatus = .notPaired
         wantsPairing = false
@@ -135,7 +140,11 @@ final class AppState: ObservableObject {
     }
 
     private func loadDevicePassword() {
-        guard !isDeveloperConfigActive else { return }
+        // Guard on DeveloperMode.isEnabled itself, not isDeveloperConfigActive (which also
+        // requires config.json to have actually loaded) -- otherwise a dev build whose config.json
+        // symlink is broken falls through to Keychain here and clobbers the "123456" default set
+        // in init above.
+        guard !DeveloperMode.isEnabled else { return }
         let wasApplying = isApplyingPreferences
         isApplyingPreferences = true
         devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
@@ -271,6 +280,20 @@ final class AppState: ObservableObject {
         let confirmed = await onResetDevicePasswordRequest?() ?? true
         guard confirmed else {
             pairingStatus = .failed("Could not confirm password reset — device left paired")
+            return
+        }
+        forgetDevice()
+    }
+
+    /// Full factory reset (erases facet colors, task parameters, name, password -- everything --
+    /// back to defaults), confirmed via a real re-login with the factory default password, then
+    /// forgets the device -- mirrors `resetAndForgetDevice()`'s "only forget once confirmed" shape,
+    /// but for a full reset rather than just the password. The caller (the Settings UI) is
+    /// responsible for confirming with the user before calling this -- it proceeds immediately.
+    func factoryResetAndForgetDevice() async {
+        let confirmed = await onFactoryResetRequest?() ?? true
+        guard confirmed else {
+            pairingStatus = .failed("Could not confirm device reset — device left paired")
             return
         }
         forgetDevice()
