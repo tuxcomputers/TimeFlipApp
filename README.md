@@ -3,6 +3,15 @@
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device with seamless 
 Google Calendar and Google Sheets integration.
 
+## Provenance
+
+This is AI-generated code all the way down, and it's worth being honest about that. The original
+author, [growler](https://github.com/growler), vibecoded the base project — including the core
+Bluetooth Low Energy layer that talks to the TimeFlip2 — mostly with OpenAI Codex. They've said
+themselves they'd never written for macOS before. Everything I've built on top of that fork is the
+same story. I don't know Swift either, and the actual code was written by Claude Sonnet 5 via the
+VS Code plugin. The design decisions are mine (Harry Phillips), for better or worse.
+
 ## Features
 
 - **Menu Bar Timer**: Real-time activity tracking with icon, elapsed time, and pause/play indicators
