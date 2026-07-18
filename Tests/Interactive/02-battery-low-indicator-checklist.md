@@ -79,3 +79,55 @@ that one already restored the threshold to a value (5%) far enough below the liv
 - [x] **(Claude)** Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`. (Confirmed: `level=27 threshold=5 recoveryAt=10 isLowBattery=false`.)
 - [x] **(You)** Confirm the activity name is no longer flashing.
+
+## Preferences menu item and Device tab flash on low battery
+
+Covers three additions on top of the menu bar blink above, all driven by the same blink
+timer/phase (`MenuBarController.updatePreferencesMenuItemAppearance`,
+`AppState.pendingSettingsTab`, and the Device tab's Battery line color via
+`AppState.isLowBattery`/`lowBatteryBlinkPhaseOn`), so all three should visibly flash in lockstep
+with the menu bar text and with each other:
+- The "Preferences..." dropdown menu item flashes red/white.
+- Opening Preferences while low-battery is flashing jumps straight to the Device tab, regardless
+  of whichever tab was last selected.
+- The Battery line on the Device tab flashes red/default.
+
+- [x] **(Claude)** Query `db_type` to confirm which database is active (see "Switching to the test
+      database" in this directory's README). (Confirmed: `{"type":"test"}`.)
+- [x] **(Claude)** Query the current threshold and the live battery level (same queries as the
+      first section above) and note them as the original values to restore later. (Original
+      threshold: 5%. Live level: 20%.)
+- [x] **(You)** Quit the app.
+- [x] **(Claude)** Update the threshold to at/above the live level noted above, so the fresh
+      connection registers as low immediately. (Set to 25%.)
+- [x] **(You)** Start the app and confirm it reconnects to the device.
+- [x] **(Claude)** Query `debug_log` and confirm a `battery` row logged after the restart shows
+      `isLowBattery=true`. (Confirmed: `level=20 threshold=25 recoveryAt=30 isLowBattery=true`.)
+
+## Action needed
+1. Click the menu bar item to open the dropdown menu (don't click Preferences yet).
+2. Watch the "Preferences..." item for a few seconds.
+
+- [x] **(You)** Confirm the "Preferences..." menu item is flashing red/white in sync with the menu
+      bar's activity-name blink (both change color at the same moment).
+- [x] **(You)** Click "Preferences...".
+- [x] **(You)** Confirm the Settings window opens with the **Device** tab selected, regardless of
+      whichever tab was open the last time you used Preferences.
+- [x] **(You)** Confirm the "Battery" line on the Device tab is flashing red/default in sync with
+      the menu bar blink.
+### Bugs found and fixed
+2026-07-18 - Only the battery percentage value was flashing, not the "Battery" label itself; fixed
+by applying the same flash color to both.
+- [x] **(You)** Switch to a different tab (e.g. Facets), close Preferences, then reopen it via the
+      menu bar item while still low on battery.
+- [x] **(You)** Confirm it jumped back to the Device tab again, not the Facets tab you left it on.
+- [x] **(You)** Quit the app.
+- [x] **(Claude)** Restore the threshold to its original value (from the second step above).
+      (Restored to 5%.)
+- [x] **(You)** Start the app and confirm it reconnects to the device.
+- [x] **(Claude)** Query `debug_log` and confirm a `battery` row logged after the restart shows
+      `isLowBattery=false`. (Confirmed: `level=20 threshold=5 recoveryAt=10 isLowBattery=false`.)
+- [x] **(You)** Confirm the "Preferences..." menu item is no longer flashing (plain title/color).
+- [x] **(You)** Open Preferences and confirm the Battery line is no longer flashing, and that
+      opening it no longer force-selects the Device tab -- whatever tab you had open previously
+      stays selected.

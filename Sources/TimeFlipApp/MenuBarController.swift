@@ -40,6 +40,7 @@ final class MenuBarController: NSObject {
     private var lowBatteryBlinkTimer: Timer?
     private var lowBatteryBlinkPhaseOn = false
     private var isLowBatteryLatched = false
+    private var preferencesMenuItem: NSMenuItem?
     private var lastSnapshot: StatusSnapshot?
     private var cachedIcon: NSImage?
     private var cachedIconName: String?
@@ -178,6 +179,7 @@ final class MenuBarController: NSObject {
         )
         settingsItem.target = self
         newMenu.addItem(settingsItem)
+        preferencesMenuItem = settingsItem
 
         newMenu.addItem(.separator())
 
@@ -211,6 +213,7 @@ final class MenuBarController: NSObject {
         newMenu.addItem(quitItem)
 
         statusMenu = newMenu
+        updatePreferencesMenuItemAppearance()
         updateStatusView()
     }
 
@@ -301,19 +304,41 @@ final class MenuBarController: NSObject {
             lowBatteryBlinkTimer?.invalidate()
             lowBatteryBlinkTimer = nil
             lowBatteryBlinkPhaseOn = false
+            appState.setLowBatteryBlinkState(isLowBattery: false, blinkPhaseOn: false)
+            updatePreferencesMenuItemAppearance()
             return
         }
         guard lowBatteryBlinkTimer == nil else { return }
+        appState.setLowBatteryBlinkState(isLowBattery: true, blinkPhaseOn: lowBatteryBlinkPhaseOn)
+        updatePreferencesMenuItemAppearance()
         let timer = Timer(timeInterval: Constants.lowBatteryBlinkInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.lowBatteryBlinkPhaseOn.toggle()
+                self.appState.setLowBatteryBlinkState(isLowBattery: true, blinkPhaseOn: self.lowBatteryBlinkPhaseOn)
+                self.updatePreferencesMenuItemAppearance()
                 self.updateStatusView(force: true)
             }
         }
         timer.tolerance = 0
         RunLoop.main.add(timer, forMode: .common)
         lowBatteryBlinkTimer = timer
+    }
+
+    /// Alternates the "Preferences..." menu item between its plain title and a red variant in
+    /// sync with the same blink timer that flashes the status bar text and the Settings window's
+    /// Battery line, so the low-battery warning is visible before the dropdown is even opened.
+    private func updatePreferencesMenuItemAppearance() {
+        guard let item = preferencesMenuItem else { return }
+        guard lowBatteryBlinkTimer != nil else {
+            item.attributedTitle = nil
+            return
+        }
+        let color: NSColor = lowBatteryBlinkPhaseOn ? .systemRed : .labelColor
+        item.attributedTitle = NSAttributedString(
+            string: "Preferences...",
+            attributes: [.foregroundColor: color, .font: NSFont.menuFont(ofSize: 0)]
+        )
     }
 
     /// Hysteresis (Schmitt trigger) around `lowBatteryThresholdPercent`: latches into the
@@ -497,6 +522,11 @@ final class MenuBarController: NSObject {
 
     @objc
     private func openPreferences() {
+        // While the low-battery warning is flashing, jump straight to the Device tab (where the
+        // battery line lives) instead of leaving whatever tab was last selected.
+        if lowBatteryBlinkTimer != nil {
+            appState.pendingSettingsTab = .timeflip
+        }
         settingsWindowController.show()
     }
 

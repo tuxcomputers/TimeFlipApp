@@ -64,6 +64,16 @@ final class AppState: ObservableObject {
     @Published var isLEDExpanded: Bool = false
     @Published var isDoubleTapExpanded: Bool = false
     @Published var isAdvancedExpanded: Bool = false
+    // Mirrors MenuBarController's low-battery blink state so the Settings window's Battery line
+    // (a different view hierarchy from the status bar) can flash in sync with it and with the
+    // "Preferences..." menu item -- MenuBarController owns the actual timer/latch and pushes
+    // updates here via setLowBatteryBlinkState(). Deliberately not persisted.
+    @Published private(set) var isLowBattery: Bool = false
+    @Published private(set) var lowBatteryBlinkPhaseOn: Bool = false
+    // Set by MenuBarController.openPreferences() when Preferences is opened while low-battery is
+    // flashing, so the window jumps straight to the Device tab (where the battery line lives)
+    // instead of leaving whatever tab was last selected. SettingsRootView consumes and clears it.
+    @Published var pendingSettingsTab: SettingsTab?
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
@@ -273,6 +283,14 @@ final class AppState: ObservableObject {
         isLEDExpanded = false
         isDoubleTapExpanded = false
         isAdvancedExpanded = false
+    }
+
+    /// Called by MenuBarController every time its low-battery blink state changes (starts, stops,
+    /// or toggles phase) so the Settings window's Battery line and the "Preferences..." menu item
+    /// can mirror it.
+    func setLowBatteryBlinkState(isLowBattery: Bool, blinkPhaseOn: Bool) {
+        self.isLowBattery = isLowBattery
+        self.lowBatteryBlinkPhaseOn = blinkPhaseOn
     }
 
     func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {

@@ -58,8 +58,12 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Connection") {
                 Text(statusText)
             }
-            LabeledContent("Battery") {
+            LabeledContent {
                 Text(batteryText)
+                    .foregroundStyle(batteryTextColor)
+            } label: {
+                Text("Battery")
+                    .foregroundStyle(batteryTextColor)
             }
             DisclosureGroup(isExpanded: $appState.isMoreExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -480,6 +484,14 @@ struct TimeFlipSettingsView: View {
             return "Unknown"
         }
         return "\(level)%"
+    }
+
+    /// Flashes red/default in sync with the menu bar's low-battery blink (mirrored via
+    /// AppState.isLowBattery/lowBatteryBlinkPhaseOn) so a first-time low-battery warning is
+    /// obvious here too, not just as an easy-to-miss color change in the menu bar text.
+    private var batteryTextColor: Color {
+        guard appState.isLowBattery else { return .primary }
+        return appState.lowBatteryBlinkPhaseOn ? .red : .primary
     }
 
     private var systemText: String {
