@@ -8,6 +8,12 @@ event never arrives (window closed while the mouse button was still down), which
 keep the repeat loop -- and its device/DB writes -- running in the background. Requires Developer
 Mode enabled and a paired, connected device (the field is disabled while unpaired).
 
+**Automated coverage:** the full tick sequence and slower-past-the-second-boundary timing are
+unit-tested in `Tests/TimeFlipAppTests/AutoPauseStepperTests.swift`, the `auto_pause_minutes` DB
+round-trip in `SettingsPersistenceTests.swift`, and the Scenario C hold-cancel-on-window-close in
+`AppStateDeviceTabTests.swift`. The steps below remain for what those can't reach: the real
+press-and-hold mouse gesture driving the arrows and the on-screen value.
+
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup

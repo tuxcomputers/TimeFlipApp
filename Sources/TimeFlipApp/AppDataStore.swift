@@ -394,7 +394,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Which physical database file this is -- `"production"` or `"test"` (the `db_type` setting;
     /// see `database/009_setting.sql`). Set once when a database file is first created and never
-    /// changed afterward; see `Tests/Interactive/README.md` for the test-database-switching
+    /// changed afterward; see `Tests/Bench/README.md` for the test-database-switching
     /// workflow this backs. Falls back to `"production"` if the row is missing or malformed.
     func loadDbType() -> String {
         loadSettingJSON(name: "db_type")?["type"] as? String ?? "production"
@@ -1013,7 +1013,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// Makes sure `appdata.sqlite` is a symlink to `production.sqlite`, not a plain file, so
     /// `scripts/use-test-database.sh`/`scripts/use-production-database.sh` can repoint it at
     /// `test.sqlite` for a testing session without touching real data (see
-    /// `Tests/Interactive/README.md`). A no-op if it's already a symlink, whatever it currently
+    /// `Tests/Bench/README.md`). A no-op if it's already a symlink, whatever it currently
     /// points at -- this only ever runs the one-time migration for a plain file (an install from
     /// before this symlink scheme existed, or a fresh install with no database yet). Also ensures
     /// `test.sqlite` exists and is already seeded with `db_type: "test"`, every time this runs --

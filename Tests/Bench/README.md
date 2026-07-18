@@ -1,4 +1,4 @@
-# Interactive Test Checklists
+# Bench Test Checklists
 
 `swift test` can't exercise everything: real BLE hardware, app restarts, sleep/wake cycles, and
 timing-dependent behavior need a human and a physical TimeFlip device in the loop. This directory
@@ -84,7 +84,7 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
 
 ### Switching to the test database before testing
 
-Interactive testing runs against `~/Library/Application Support/TimeFlip/appdata.sqlite`, but that
+Bench testing runs against `~/Library/Application Support/TimeFlip/appdata.sqlite`, but that
 path is a symlink, not a real file (see `AppDataStore.ensureDatabaseSymlink`, only active under
 Developer Mode) -- it points at one of two real database files living alongside it:
 `production.sqlite` (the user's real, permanent data) and `test.sqlite` (created on demand,
@@ -138,7 +138,7 @@ session:
 1. At the very start of the session, ask the user to expand the Advanced section (click the
    "Advanced" label or its arrow) in Settings, then click "Sync from device" under Double-tap
    sensitivity and report the four current values. Record them in
-   `Tests/Interactive/device_register_snapshot.json` -- gitignored, not committed, since it only
+   `Tests/Bench/device_register_snapshot.json` -- gitignored, not committed, since it only
    reflects tests currently/previously in progress on this machine -- under a timestamp-keyed
    `double_tap_params_as_at` object, same shape as the old settings snapshot used to be:
    ```json
@@ -265,5 +265,5 @@ run.
 
 `scripts/check_interactive_checklists.sh` (wired into `.github/workflows/tests.yml`) fails the
 build if any `<feature>-checklist.md` file under this directory has an unchecked (`- [ ]`) item.
-This means: if a PR adds or touches an interactive checklist, it must be fully ticked and committed
+This means: if a PR adds or touches a bench checklist, it must be fully ticked and committed
 before the PR can merge -- the checklist itself is the evidence that the manual steps were done.

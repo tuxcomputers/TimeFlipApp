@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Fails if any Tests/Interactive/*-checklist.md file has an unchecked (- [ ]) item. See
-# Tests/Interactive/README.md for the checklist convention this enforces.
+# Fails if any Tests/Bench/*-checklist.md file has an unchecked (- [ ]) item. See
+# Tests/Bench/README.md for the checklist convention this enforces.
 set -euo pipefail
 
 shopt -s nullglob
-files=(Tests/Interactive/*-checklist.md)
+files=(Tests/Bench/*-checklist.md)
 
 if [ ${#files[@]} -eq 0 ]; then
   echo "No interactive test checklists found; skipping."

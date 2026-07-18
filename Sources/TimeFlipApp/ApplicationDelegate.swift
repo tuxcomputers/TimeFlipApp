@@ -108,7 +108,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         // Surfaced so an interactive testing session can confirm from debug_log alone (no need to
         // separately inspect the appdata.sqlite symlink target) which physical database this
-        // launch actually opened -- see Tests/Interactive/README.md's database-switching workflow.
+        // launch actually opened -- see Tests/Bench/README.md's database-switching workflow.
         DeveloperMode.debugPrint(.dbType, "Database type: \(dataStore.loadDbType())")
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()

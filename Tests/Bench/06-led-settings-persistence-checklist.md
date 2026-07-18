@@ -5,6 +5,12 @@ Covers LED brightness/blink interval moving from UserDefaults to being DB-backed
 restart by round-tripping through the DB, not just in-memory state. Requires Developer Mode
 enabled and a paired, connected device (the controls are disabled while unpaired).
 
+**Automated coverage:** the brightness/blink-interval DB round-trip across a restart -- including
+that saving one field leaves the other intact -- is unit-tested in
+`Tests/TimeFlipAppTests/SettingsPersistenceTests.swift` (a second `AppDataStore` on the same file
+stands in for the restart). The steps below remain for what that can't reach: the slider/field UI
+writing the value and the startup sync re-applying it to a real device.
+
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup

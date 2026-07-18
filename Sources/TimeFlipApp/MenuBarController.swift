@@ -348,15 +348,12 @@ final class MenuBarController: NSObject {
     /// flip the blink on and off on every single read instead of staying latched until the battery
     /// has genuinely recovered.
     private func updatedLowBatteryLatch(currentLevel: UInt8?) -> Bool {
-        guard let currentLevel else { return isLowBatteryLatched }
-        if isLowBatteryLatched {
-            let recoveryLevel = lowBatteryThresholdPercent + Constants.lowBatteryRecoveryMarginPercent
-            if currentLevel > recoveryLevel {
-                isLowBatteryLatched = false
-            }
-        } else if currentLevel <= lowBatteryThresholdPercent {
-            isLowBatteryLatched = true
-        }
+        isLowBatteryLatched = LowBatteryLatch.updated(
+            latched: isLowBatteryLatched,
+            currentLevel: currentLevel,
+            threshold: lowBatteryThresholdPercent,
+            recoveryMargin: Constants.lowBatteryRecoveryMarginPercent
+        )
         return isLowBatteryLatched
     }
 
@@ -659,20 +656,16 @@ final class MenuBarController: NSObject {
         isLocked: Bool
     ) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        // Disconnected means the app has no live read on the device any more, so both fields show
-        // a flat "unknown" yellow -- not a stale over-limit/low-battery color left over from
-        // before the drop, and not blinking (there's nothing to draw attention to that we can
-        // still confirm). Only once actually connected do over-limit/low-battery apply, and low
-        // battery always wins there regardless of paused/recording/locked/any combination.
-        let steadyColor: NSColor
-        let categoryColor: NSColor
-        if !isConnected {
-            steadyColor = .systemYellow
-            categoryColor = .systemYellow
-        } else {
-            steadyColor = overLimit ? .systemRed : .systemGreen
-            categoryColor = isLowBattery ? (blinkPhaseOn ? .systemRed : .white) : steadyColor
-        }
+        let style = MenuBarStatusStyle.make(
+            isConnected: isConnected,
+            isPaused: isPaused,
+            overLimit: overLimit,
+            isLowBattery: isLowBattery,
+            blinkPhaseOn: blinkPhaseOn,
+            isLocked: isLocked
+        )
+        let steadyColor = style.steadyColor
+        let categoryColor = style.categoryColor
         let categoryAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: categoryColor]
         let steadyAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: steadyColor]
         let text = NSMutableAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes)
@@ -681,7 +674,7 @@ final class MenuBarController: NSObject {
 
         // Lock badge sits to the left of the pause/play indicator, not in place of it, so whether
         // the device is still timing or paused stays visible even while locked.
-        if isLocked, let lockIndicator = lockIndicatorImage(pointSize: indicatorSize) {
+        if style.showsLockBadge, let lockIndicator = lockIndicatorImage(pointSize: indicatorSize) {
             let attachment = NSTextAttachment()
             attachment.image = lockIndicator
             attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
@@ -689,7 +682,7 @@ final class MenuBarController: NSObject {
             text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
         }
 
-        if let indicator = statusIndicatorImage(isPaused: isPaused, pointSize: indicatorSize, overLimit: overLimit) {
+        if let indicator = statusIndicatorImage(isPaused: style.showsPauseIcon, pointSize: indicatorSize, overLimit: style.indicatorOverLimit) {
             let attachment = NSTextAttachment()
             attachment.image = indicator
             attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)

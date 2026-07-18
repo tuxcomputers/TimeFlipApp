@@ -6,6 +6,12 @@ Settings UI survives an app restart by round-tripping through the DB, not just i
 Requires Developer Mode enabled and a paired, connected device (the control is disabled while
 unpaired).
 
+**Automated coverage:** the `enabled` flag's DB round-trip across a restart -- including that
+toggling it leaves the accelerometer params intact -- is unit-tested in
+`Tests/TimeFlipAppTests/SettingsPersistenceTests.swift` (a second `AppDataStore` on the same file
+stands in for the restart). The steps below remain for what that can't reach: the checkbox UI
+writing the flag and the real device honoring it.
+
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup

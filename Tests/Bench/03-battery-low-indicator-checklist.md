@@ -4,13 +4,20 @@ Covers the low-battery blink (`MenuBarController.updateLowBatteryBlinkTimer`/
 `updatedLowBatteryLatch`): the activity name blinks red/white once battery drops to or below
 `low_battery_level`, and only clears once it climbs `lowBatteryRecoveryMarginPercent` (5 points)
 above that threshold. Requires Developer Mode enabled, the `debug` setting's `enabled` field
-`true` (so `.battery`-tagged debug prints land in `debug_log` -- see `Tests/Interactive/README.md`),
+`true` (so `.battery`-tagged debug prints land in `debug_log` -- see `Tests/Bench/README.md`),
 and a paired, connected device.
 
 Battery level itself isn't persisted anywhere else in the DB (it's a live BLE reading) -- only the
 threshold is a DB setting, which is what lets this test trigger the blink on demand instead of
 waiting for the real battery to drain or charge. The threshold is only read once at launch, so it
 must be changed while the app is down, not while it's running.
+
+**Automated coverage:** the hysteresis/recovery-margin latch is unit-tested in
+`Tests/TimeFlipAppTests/LowBatteryLatchTests.swift`, the red/white blink color selection in
+`MenuBarStatusStyleTests.swift`, and the Settings-window blink mirror + forced-Device-tab hint in
+`AppStateDeviceTabTests.swift`. The steps below remain for what those can't reach: a real battery
+reading crossing the threshold, the live blink *timer*, and the actual menu-item/Device-tab flash
+rendering.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
