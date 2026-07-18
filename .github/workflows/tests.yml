@@ -6,7 +6,15 @@ on:
   pull_request:
 
 jobs:
-  test:
+  # For a pull_request event, actions/checkout's default ref (github.ref) resolves to
+  # refs/pull/<PR>/merge -- a GitHub-generated commit that merges the PR branch into its base
+  # branch. Testing that (rather than the PR branch's raw tip) catches breakage that only shows
+  # up once this branch is combined with whatever's landed on the base branch since it was cut,
+  # not just breakage in the branch considered alone. For a push to main directly, there's no
+  # merge to preview -- github.ref is just main's own tip, so this job is the only one that runs
+  # (see test-branch-as-is's `if` below) and behaves exactly as before this file changed.
+  test-merge-result:
+    name: Test (after merge into base branch)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
@@ -23,3 +31,53 @@ jobs:
 
       - name: Verify interactive test checklists are complete
         run: ./scripts/check_interactive_checklists.sh
+
+  # Only meaningful for pull_request: checks out the PR branch's actual tip commit (not the merge
+  # preview above), so a PR that only passes once merged with newer base-branch changes -- but
+  # would fail standalone -- still gets caught, rather than only ever being tested combined with
+  # that state.
+  test-branch-as-is:
+    name: Test (branch as-is, unmerged)
+    if: github.event_name == 'pull_request'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      - name: Verify interactive test checklists are complete
+        run: ./scripts/check_interactive_checklists.sh
+
+  # The one job branch protection should require by name. Individual test jobs above can be
+  # renamed, added, or removed freely without ever touching the branch protection setting again --
+  # only this job's name has to stay stable. `if: always()` makes sure it still runs (and can
+  # report failure) even when a job it depends on fails, instead of being skipped itself.
+  all-tests-pass:
+    name: All tests pass
+    runs-on: ubuntu-latest
+    needs: [test-merge-result, test-branch-as-is]
+    if: always()
+    steps:
+      - name: Check required jobs succeeded
+        run: |
+          if [[ "${{ needs.test-merge-result.result }}" != "success" ]]; then
+            echo "test-merge-result: ${{ needs.test-merge-result.result }}"
+            exit 1
+          fi
+          # test-branch-as-is is PR-only (see its `if` above) -- "skipped" is expected on a
+          # push-to-main event, not a failure.
+          if [[ "${{ needs.test-branch-as-is.result }}" != "success" && "${{ needs.test-branch-as-is.result }}" != "skipped" ]]; then
+            echo "test-branch-as-is: ${{ needs.test-branch-as-is.result }}"
+            exit 1
+          fi
+          echo "All required jobs passed."
