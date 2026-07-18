@@ -130,12 +130,46 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
 
 ### Device Settings
 
-Battery level, system status, last event, and these device behavior settings live inside the
-collapsed **"Advanced"** disclosure at the bottom of the Device tab:
-- **Auto-Pause**: Automatically pause after X minutes of inactivity
-- **LED Brightness**: Adjust LED intensity (1-100%)
-- **Blink Interval**: How often the LED blinks (5-60 seconds)
-- **Double-Tap Sensitivity**: Configure tap detection parameters
+The Device tab is organized into a few sections:
+- **Info**: name, connection status, and battery level, plus a collapsed **"More"** disclosure
+  with manufacturer/model/hardware/firmware details
+- **Settings**: two collapsed disclosures --
+  - **LED**: brightness (1-100%) and blink interval (how often it blinks, 5-60 seconds)
+  - **Double tap**: tap detection sensitivity -- see below
+- **TimeFlip**: pairing controls, plus **Forget Device** and **Reset Device** (a full factory
+  reset, behind a confirmation dialog since it erases everything on the device)
+- **Advanced**: system status, last event, and **Auto-Pause** (automatically pause after X
+  minutes of inactivity)
+
+#### Double-Tap Sensitivity
+
+The device recognizes a double-tap in two stages: a quick knock (checked against **Threshold**
+and **Limit**), then a second one arriving within a timing window (**Latency** then **Window**).
+The **Disable** checkbox turns double-tap detection off on the device without losing your saved
+values here -- switch it back on and your settings are re-applied exactly as they were.
+
+- **Threshold** -- how hard a tap must be.
+  - Desk is wobbly and the device pauses on its own from bumps? Raise this so it takes a proper
+    whack to register.
+  - Need a hammer just to get it to notice a tap? Lower this so it's more sensitive.
+- **Limit** -- how long a tap can last and still count as a tap, not a slow push.
+  - Picking up or resting the device is accidentally counting as a tap? Lower this so only a
+    sharp, quick knock registers.
+  - Genuine taps getting missed? Raise this to allow a slightly longer knock through.
+- **Latency** -- how long it deliberately ignores everything right after the first tap, before it
+  starts listening for the second.
+  - One single hard tap sometimes counts as a double-tap on its own (its own vibration tricking
+    it)? Raise this so it waits longer before listening again.
+  - Tapping twice quickly only registers as one tap? Lower this so it starts listening for the
+    second tap sooner.
+- **Window** -- once listening, how long the second tap has to arrive.
+  - You tap slowly and the second knock keeps arriving too late to count? Raise this to give
+    yourself more time between taps.
+  - A second, unrelated bump long after the first is being counted as a double-tap? Lower this so
+    the second tap has to land quickly.
+
+All four are raw accelerometer register values (0-255), not a real-world unit like seconds --
+there's no documented conversion, so treat them as a relative scale and adjust by feel.
 
 The following settings affect device behavior but don't have Preferences UI yet — they can only
 be changed by editing the `setting` table directly in the local SQLite database (see

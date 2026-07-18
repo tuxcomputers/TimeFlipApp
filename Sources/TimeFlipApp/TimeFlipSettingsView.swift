@@ -345,6 +345,7 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.clickThreshold = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Limit")
@@ -354,6 +355,7 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.limit = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Latency")
@@ -363,6 +365,7 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.latency = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
             }
             GridRow {
                 Text("Window")
@@ -372,8 +375,17 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.window = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func doubleTapFieldCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize()
     }
 
     private func numericField(
