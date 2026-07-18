@@ -29,7 +29,6 @@ final class AppState: ObservableObject {
     @Published var facetMappings: [FacetMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
-    @Published var googleSheetURL: String
     @Published var googleClientID: String
     @Published var googleClientSecret: String
     @Published var devicePassword: String
@@ -40,7 +39,12 @@ final class AppState: ObservableObject {
     @Published var deviceInfo: TimeFlipDeviceInfo?
     @Published var ledBrightnessPercent: UInt8
     @Published var blinkIntervalSeconds: UInt8
-    @Published var doubleTapParameters: DoubleTapParameters?
+    @Published var doubleTapParameters: DoubleTapParameters
+    // Whether double-tap-to-pause is enabled. Disabling it is a UI-level trick: the device has
+    // no real on/off for this, so we keep the user's real settings here and, whenever disabled,
+    // send them to the device with `window` forced to 0 (which makes the accelerometer's
+    // double-tap gesture unrecognizable) instead of the real value. See effectiveDoubleTapParameters.
+    @Published var isDoubleTapEnabled: Bool
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
@@ -56,12 +60,17 @@ final class AppState: ObservableObject {
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
     var onResetDevicePasswordRequest: (() async -> Bool)?
+    var onFactoryResetRequest: (() async -> Bool)?
     var onCurrentFacetMappingChange: (() -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
     var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
-    var onDoubleTapParametersRequest: (() async -> DoubleTapParameters?)?
+    // Fired with the real (never window-zeroed) parameters/enabled flag whenever either changes
+    // from the UI, so a listener can persist them -- separate from onDoubleTapParametersChange,
+    // which instead receives whatever should actually be sent to the device (see
+    // effectiveDoubleTapParameters).
+    var onDoubleTapSettingsPersist: ((DoubleTapParameters, Bool) -> Void)?
     var onStartDeviceScan: ((Bool) -> Void)?
     var onStopDeviceScan: (() -> Void)?
 
@@ -69,7 +78,11 @@ final class AppState: ObservableObject {
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
         devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared,
-        developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared
+        developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared,
+        ledBrightnessPercent: UInt8,
+        blinkIntervalSeconds: UInt8,
+        doubleTapParameters: DoubleTapParameters,
+        isDoubleTapEnabled: Bool
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
@@ -87,18 +100,22 @@ final class AppState: ObservableObject {
         facetMappings = ActivityLibrary.defaultMappings()
         googleCalendarID = nil
         googleCalendarName = nil
-        googleSheetURL = ""
         googleClientID = ""
         googleClientSecret = ""
-        devicePassword = TimeFlipConstants.defaultPassword
+        // Developer Mode's config.json is meant to supply this (see applyDeveloperConfig below),
+        // but the symlink some dev setups point it at (a repo-tracked file) keeps getting lost --
+        // rather than chase that, dev builds just start on a fixed, easy-to-type password instead
+        // of the real factory default, independent of whether config.json actually loads.
+        devicePassword = DeveloperMode.isEnabled ? "123456" : TimeFlipConstants.defaultPassword
         pairedDeviceUUID = nil
         pairingStatus = .notPaired
         wantsPairing = false
         autoPauseMinutes = nil
         deviceInfo = nil
-        ledBrightnessPercent = 50
-        blinkIntervalSeconds = 5
-        doubleTapParameters = nil
+        self.ledBrightnessPercent = ledBrightnessPercent
+        self.blinkIntervalSeconds = blinkIntervalSeconds
+        self.doubleTapParameters = doubleTapParameters
+        self.isDoubleTapEnabled = isDoubleTapEnabled
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
 
@@ -137,7 +154,11 @@ final class AppState: ObservableObject {
     }
 
     private func loadDevicePassword() {
-        guard !isDeveloperConfigActive else { return }
+        // Guard on DeveloperMode.isEnabled itself, not isDeveloperConfigActive (which also
+        // requires config.json to have actually loaded) -- otherwise a dev build whose config.json
+        // symlink is broken falls through to Keychain here and clobbers the "123456" default set
+        // in init above.
+        guard !DeveloperMode.isEnabled else { return }
         let wasApplying = isApplyingPreferences
         isApplyingPreferences = true
         devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
@@ -278,6 +299,20 @@ final class AppState: ObservableObject {
         forgetDevice()
     }
 
+    /// Full factory reset (erases facet colors, task parameters, name, password -- everything --
+    /// back to defaults), confirmed via a real re-login with the factory default password, then
+    /// forgets the device -- mirrors `resetAndForgetDevice()`'s "only forget once confirmed" shape,
+    /// but for a full reset rather than just the password. The caller (the Settings UI) is
+    /// responsible for confirming with the user before calling this -- it proceeds immediately.
+    func factoryResetAndForgetDevice() async {
+        let confirmed = await onFactoryResetRequest?() ?? true
+        guard confirmed else {
+            pairingStatus = .failed("Could not confirm device reset — device left paired")
+            return
+        }
+        forgetDevice()
+    }
+
     func forgetDevice() {
         wantsPairing = false
         isPaired = false
@@ -320,24 +355,14 @@ final class AppState: ObservableObject {
         }
         googleCalendarID = payload.googleCalendarID
         googleCalendarName = payload.googleCalendarName
-        googleSheetURL = payload.googleSheetURL ?? ""
         googleClientID = payload.googleClientID ?? ""
         wantsPairing = payload.wantsPairing ?? payload.isPaired
         isPaired = false
         pairingStatus = wantsPairing ? .pairing : .notPaired
         pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
         pairedDeviceUUID = payload.pairedDeviceUUID
-        if let storedBrightness = payload.ledBrightnessPercent {
-            ledBrightnessPercent = max(1, min(100, storedBrightness))
-        }
         if let storedAutoPause = payload.autoPauseMinutes {
             autoPauseMinutes = clampAutoPause(storedAutoPause)
-        }
-        if let storedBlink = payload.blinkIntervalSeconds {
-            blinkIntervalSeconds = clampBlinkInterval(storedBlink)
-        }
-        if let storedDoubleTap = payload.doubleTapParameters {
-            doubleTapParameters = storedDoubleTap
         }
         isApplyingPreferences = false
     }
@@ -366,15 +391,11 @@ final class AppState: ObservableObject {
             $facetMappings.map { _ in () }.eraseToAnyPublisher(),
             $googleCalendarID.map { _ in () }.eraseToAnyPublisher(),
             $googleCalendarName.map { _ in () }.eraseToAnyPublisher(),
-            $googleSheetURL.map { _ in () }.eraseToAnyPublisher(),
             $googleClientID.map { _ in () }.eraseToAnyPublisher(),
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
-            $ledBrightnessPercent.map { _ in () }.eraseToAnyPublisher(),
-            $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher(),
-            $blinkIntervalSeconds.map { _ in () }.eraseToAnyPublisher(),
-            $doubleTapParameters.map { _ in () }.eraseToAnyPublisher()
+            $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher()
         ])
         .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -427,26 +448,17 @@ final class AppState: ObservableObject {
             facetMappings: records,
             googleCalendarID: googleCalendarID,
             googleCalendarName: googleCalendarName,
-            googleSheetURL: sanitizedSheetURL(),
             googleClientID: sanitizedClientID(),
             isPaired: wantsPairing,
             wantsPairing: wantsPairing,
             pairedDeviceName: pairedDeviceName,
             pairedDeviceUUID: pairedDeviceUUID,
-            ledBrightnessPercent: ledBrightnessPercent,
-            autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
-            blinkIntervalSeconds: clampBlinkInterval(blinkIntervalSeconds),
-            doubleTapParameters: doubleTapParameters
+            autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) }
         )
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
             persistDeveloperConfig()
         }
-    }
-
-    private func sanitizedSheetURL() -> String? {
-        let trimmed = googleSheetURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func sanitizedClientID() -> String? {
@@ -480,6 +492,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// What should actually be sent to the device: the real parameters when double-tap is
+    /// enabled, or the same parameters with `window` forced to 0 when disabled.
+    var effectiveDoubleTapParameters: DoubleTapParameters {
+        var params = doubleTapParameters
+        if !isDoubleTapEnabled {
+            params.window = 0
+        }
+        return params
+    }
+
     func limitMinutes(for facetID: UInt8) -> Int {
         mappingIndex(for: facetID).map { clampLimit(facetMappings[$0].limitMinutes) } ?? 0
     }
@@ -493,9 +515,6 @@ final class AppState: ObservableObject {
         return UInt16(max(0, min(240, Int(value))))
     }
 
-    private func clampBlinkInterval(_ value: UInt8) -> UInt8 {
-        return UInt8(max(5, min(60, Int(value))))
-    }
 
     func confirmPaired(name: String, uuid: String?) {
         isPaired = true

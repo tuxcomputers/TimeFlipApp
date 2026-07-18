@@ -14,7 +14,6 @@ struct DeviceEventRecord {
 
 enum IntegrationTarget: String {
     case calendar
-    case sheets
     case local
 }
 
@@ -33,7 +32,7 @@ protocol IntegrationEventCursorStore {
     func recordEventFailure(target: IntegrationTarget, identifier: String, error: String)
     func loadEventCursorStatus(target: IntegrationTarget, identifier: String) -> IntegrationEventCursorStatus?
     /// True if some other identifier already has a cursor for this target — i.e. integrations
-    /// were previously delivering to a different calendar/sheet, and this one is a switch rather
+    /// were previously delivering to a different calendar, and this one is a switch rather
     /// than the very first setup (which should still see the existing backlog).
     func hasCursor(target: IntegrationTarget, excludingIdentifier identifier: String) -> Bool
 }
@@ -431,6 +430,113 @@ final class AppDataStore: IntegrationEventCursorStore {
             return true
         }
         return enabled
+    }
+
+    /// LED brightness percent (the `led_settings` setting's `brightness` field, seeded to `50`;
+    /// see `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// malformed.
+    func loadLEDBrightnessPercent() -> UInt8 {
+        guard let percent = loadSettingJSON(name: "led_settings")?["brightness"] as? Int else {
+            return 50
+        }
+        return UInt8(max(1, min(100, percent)))
+    }
+
+    /// LED blink interval in seconds (the `led_settings` setting's `blink_interval` field, seeded
+    /// to `15`; see `database/009_setting.sql`). Falls back to the seeded default if the row is
+    /// missing or malformed.
+    func loadLEDBlinkIntervalSeconds() -> UInt8 {
+        guard let seconds = loadSettingJSON(name: "led_settings")?["blink_interval"] as? Int else {
+            return 15
+        }
+        return UInt8(max(5, min(60, seconds)))
+    }
+
+    /// Persists a new LED brightness percent to the `led_settings` row, leaving `blink_interval`
+    /// untouched.
+    func saveLEDBrightnessPercent(_ percent: UInt8) {
+        saveSettingJSON(name: "led_settings", merging: ["brightness": Int(percent)])
+    }
+
+    /// Persists a new LED blink interval (seconds) to the `led_settings` row, leaving
+    /// `brightness` untouched.
+    func saveLEDBlinkIntervalSeconds(_ seconds: UInt8) {
+        saveSettingJSON(name: "led_settings", merging: ["blink_interval": Int(seconds)])
+    }
+
+    /// Double-tap accelerometer register values (the `double_tap_settings` setting's
+    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/009_setting.sql`). Falls
+    /// back to `DoubleTapParameters.default` -- itself, and per-field, if the row or an individual
+    /// field is missing or malformed.
+    func loadDoubleTapParameters() -> DoubleTapParameters {
+        let fallback = DoubleTapParameters.default
+        guard let json = loadSettingJSON(name: "double_tap_settings") else { return fallback }
+        func byte(_ key: String, default defaultValue: UInt8) -> UInt8 {
+            guard let value = json[key] as? Int else { return defaultValue }
+            return UInt8(max(0, min(255, value)))
+        }
+        return DoubleTapParameters(
+            clickThreshold: byte("clickThreshold", default: fallback.clickThreshold),
+            limit: byte("limit", default: fallback.limit),
+            latency: byte("latency", default: fallback.latency),
+            window: byte("window", default: fallback.window)
+        )
+    }
+
+    /// Whether double-tap detection is enabled (the `double_tap_settings` setting's `enabled`
+    /// field, seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default
+    /// if the row is missing or malformed.
+    func loadDoubleTapEnabled() -> Bool {
+        guard let enabled = loadSettingJSON(name: "double_tap_settings")?["enabled"] as? Bool else {
+            return true
+        }
+        return enabled
+    }
+
+    /// Persists new double-tap accelerometer register values to the `double_tap_settings` row,
+    /// leaving `enabled` untouched.
+    func saveDoubleTapParameters(_ params: DoubleTapParameters) {
+        saveSettingJSON(name: "double_tap_settings", merging: [
+            "clickThreshold": Int(params.clickThreshold),
+            "limit": Int(params.limit),
+            "latency": Int(params.latency),
+            "window": Int(params.window)
+        ])
+    }
+
+    /// Persists a new enabled flag to the `double_tap_settings` row, leaving the accelerometer
+    /// register values untouched.
+    func saveDoubleTapEnabled(_ enabled: Bool) {
+        saveSettingJSON(name: "double_tap_settings", merging: ["enabled": enabled])
+    }
+
+    /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
+    /// result back -- the row always already exists (seeded by `009_setting.sql`), so this is a
+    /// plain `UPDATE`, not an upsert.
+    private func saveSettingJSON(name: String, merging updates: [String: Any]) {
+        guard let db else { return }
+        var current = loadSettingJSON(name: name) ?? [:]
+        for (key, value) in updates { current[key] = value }
+        guard let data = try? JSONSerialization.data(withJSONObject: current),
+              let json = String(data: data, encoding: .utf8) else {
+            logger.error("saveSettingJSON encode failed name=\(name, privacy: .public)")
+            return
+        }
+        let sql = "UPDATE setting SET setting_value = ? WHERE setting_name = ?;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("saveSettingJSON prepare failed name=\(name, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, json, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("saveSettingJSON exec failed name=\(name, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
     }
 
     // MARK: - Device notifications (point-in-time, non-timing device events)

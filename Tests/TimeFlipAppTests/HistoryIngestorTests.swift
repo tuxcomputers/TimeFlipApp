@@ -90,7 +90,11 @@ final class HistoryIngestorTests: XCTestCase {
         let appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
-            devicePasswordStore: InMemoryDevicePasswordStore()
+            devicePasswordStore: InMemoryDevicePasswordStore(),
+            ledBrightnessPercent: 50,
+            blinkIntervalSeconds: 15,
+            doubleTapParameters: .default,
+            isDoubleTapEnabled: true
         )
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
@@ -129,7 +133,11 @@ final class HistoryIngestorTests: XCTestCase {
         let appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
-            devicePasswordStore: InMemoryDevicePasswordStore()
+            devicePasswordStore: InMemoryDevicePasswordStore(),
+            ledBrightnessPercent: 50,
+            blinkIntervalSeconds: 15,
+            doubleTapParameters: .default,
+            isDoubleTapEnabled: true
         )
 
         // Seed cursor to 5 so only event 6 should be processed.
@@ -160,7 +168,11 @@ final class HistoryIngestorTests: XCTestCase {
         let appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
-            devicePasswordStore: InMemoryDevicePasswordStore()
+            devicePasswordStore: InMemoryDevicePasswordStore(),
+            ledBrightnessPercent: 50,
+            blinkIntervalSeconds: 15,
+            doubleTapParameters: .default,
+            isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
 
@@ -191,7 +203,11 @@ final class HistoryIngestorTests: XCTestCase {
         let appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
-            devicePasswordStore: InMemoryDevicePasswordStore()
+            devicePasswordStore: InMemoryDevicePasswordStore(),
+            ledBrightnessPercent: 50,
+            blinkIntervalSeconds: 15,
+            doubleTapParameters: .default,
+            isDoubleTapEnabled: true
         )
         // Simulates a fresh app launch reconnecting to a device it already has history for: the
         // persisted cursor from a previous session already matches the device's current event,
@@ -219,7 +235,11 @@ final class HistoryIngestorTests: XCTestCase {
         let appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
-            devicePasswordStore: InMemoryDevicePasswordStore()
+            devicePasswordStore: InMemoryDevicePasswordStore(),
+            ledBrightnessPercent: 50,
+            blinkIntervalSeconds: 15,
+            doubleTapParameters: .default,
+            isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)
@@ -268,7 +288,11 @@ final class HistoryIngestorTests: XCTestCase {
         let appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
-            devicePasswordStore: InMemoryDevicePasswordStore()
+            devicePasswordStore: InMemoryDevicePasswordStore(),
+            ledBrightnessPercent: 50,
+            blinkIntervalSeconds: 15,
+            doubleTapParameters: .default,
+            isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)

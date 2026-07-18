@@ -3,8 +3,7 @@ import Foundation
 struct GoogleAuthConfiguration: Sendable, Equatable {
     private static let requiredScopes: Set<String> = [
         "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/spreadsheets"
+        "https://www.googleapis.com/auth/calendar.readonly"
     ]
 
     static let defaultScopes = Array(requiredScopes).sorted()

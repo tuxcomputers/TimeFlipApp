@@ -7,7 +7,8 @@ struct DoubleTapParameters: Codable, Equatable, Sendable {
     var window: UInt8
 
     static var `default`: DoubleTapParameters {
-        // Conservative baseline values; real devices should be read via cmd 0x17.
-        DoubleTapParameters(clickThreshold: 20, limit: 10, latency: 20, window: 40)
+        // Captured from a real device's actual registers (Tests/Interactive/
+        // device_register_snapshot.json), not an arbitrary guess -- see database/009_setting.sql.
+        DoubleTapParameters(clickThreshold: 90, limit: 20, latency: 50, window: 50)
     }
 }

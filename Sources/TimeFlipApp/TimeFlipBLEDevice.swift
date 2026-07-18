@@ -693,6 +693,43 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         return true
     }
 
+    /// Full factory reset (command 0xFF): erases all flash-stored data on the device -- facet
+    /// colors, task/pomodoro parameters, name, password, everything -- back to factory settings.
+    /// Per the vendor spec this is the same command the official app's "Disconnect TimeFlip"
+    /// button triggers, which implies the device may drop the BLE connection or reboot afterward;
+    /// that behavior isn't documented and hasn't been verified live yet, so the confirmation
+    /// re-login below may simply fail with a connection error rather than a clean "wrong
+    /// password" rejection in that case -- either way, this only returns true once the reset is
+    /// confirmed via a real re-login with the factory default password, same guarantee as
+    /// `resetDevicePasswordToDefault()`. The caller must not clear pairing state unless this
+    /// returns true.
+    @discardableResult
+    func factoryReset() async -> Bool {
+        guard isLoggedIn else { return false }
+        let payload = Data([0xFF])
+        do {
+            _ = try await performCommand(payload)
+        } catch {
+            logger.error("Failed to factory reset device: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.timeFlip, "Failed to factory reset device: \(error.localizedDescription)")
+            return false
+        }
+        do {
+            guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
+                logger.error("Device rejected re-login with default password after factory reset; reset not confirmed")
+                DeveloperMode.debugPrint(.timeFlip, "Factory reset NOT confirmed — device did not accept default password")
+                return false
+            }
+        } catch {
+            logger.error("Failed to confirm factory reset: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.timeFlip, "Failed to confirm factory reset (device may have disconnected): \(error.localizedDescription)")
+            return false
+        }
+        logger.notice("Device factory reset and confirmed")
+        DeveloperMode.debugPrint(.timeFlip, "Device factory reset confirmed, password back to default: \(TimeFlipConstants.defaultPassword)")
+        return true
+    }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         snapshotState
     }
@@ -1211,11 +1248,26 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             0x3C, params.latency,
             0x3D, params.window
         ])
+        let summary = "ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)"
         do {
-            logger.debug("Setting double-tap params ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
+            logger.debug("Setting double-tap params \(summary, privacy: .public)")
+            DeveloperMode.debugPrint(.doubleTap, "Writing \(summary)")
             _ = try await performCommand(payload)
+            // Read back via cmd 0x17 to confirm the write actually took effect, per
+            // docs/timeflip.md's "confirming a command actually took effect" guidance.
+            let confirmedParams = await readDoubleTapParameters()
+            let confirmed = confirmedParams == params
+            let actualSummary = confirmedParams.map {
+                "ths=\($0.clickThreshold) lim=\($0.limit) lat=\($0.latency) win=\($0.window)"
+            } ?? "no response"
+            logger.debug("Double-tap verification confirmed=\(confirmed, privacy: .public) actual=\(actualSummary, privacy: .public)")
+            DeveloperMode.debugPrint(
+                .doubleTap,
+                "Verification \(confirmed ? "confirmed" : "MISMATCH"): requested \(summary); actual \(actualSummary)"
+            )
         } catch {
             logger.error("Failed to set double-tap params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.doubleTap, "Write failed: \(error.localizedDescription)")
         }
     }
 
@@ -1224,6 +1276,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             let response = try await performCommand(Data([0x17]))
             guard response.count >= 9, response[0] == 0x17 else {
                 logger.error("Unexpected double-tap read response len=\(response.count) resp=\(response.hexString(), privacy: .public)")
+                DeveloperMode.debugPrint(.doubleTap, "Unexpected read response len=\(response.count) resp=\(response.hexString())")
                 return nil
             }
             let params = DoubleTapParameters(
@@ -1233,9 +1286,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 window: response[8]
             )
             logger.debug("Read double-tap params ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
+            DeveloperMode.debugPrint(.doubleTap, "Read ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
             return params
         } catch {
             logger.error("Failed to read double-tap params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.doubleTap, "Read failed: \(error.localizedDescription)")
             return nil
         }
     }
@@ -1297,7 +1352,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             let model = try await readString(TimeFlipUUIDs.modelNumber)
             let hardware = try await readString(TimeFlipUUIDs.hardwareRevision)
             let firmware = try await readString(TimeFlipUUIDs.firmwareRevision)
-            let systemID = try await readString(TimeFlipUUIDs.systemID)
+            // Unlike the other Device Information characteristics above, System ID (0x2A23) is a
+            // standard Bluetooth SIG characteristic defined as raw binary -- a 5-byte
+            // manufacturer-assigned ID + 3-byte IEEE OUI, not UTF-8 text -- so it's hex-encoded
+            // here instead of decoded with readString(), which would produce garbage.
+            let systemID = try await read(TimeFlipUUIDs.systemID)?.hexString(separator: ":")
             let info = TimeFlipDeviceInfo(
                 manufacturer: manufacturer,
                 modelNumber: model,
@@ -1807,8 +1866,8 @@ final class AsyncGate {
 }
 
 private extension Data {
-    /// Render as uppercase hex bytes separated by spaces.
-    func hexString() -> String {
-        map { String(format: "%02X", $0) }.joined(separator: " ")
+    /// Render as uppercase hex bytes, space-separated by default.
+    func hexString(separator: String = " ") -> String {
+        map { String(format: "%02X", $0) }.joined(separator: separator)
     }
 }

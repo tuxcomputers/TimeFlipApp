@@ -4,8 +4,13 @@ import OSLog
 
 @MainActor
 final class ApplicationDelegate: NSObject, NSApplicationDelegate {
-    private let appState = AppState()
     private let dataStore = AppDataStore()
+    private lazy var appState = AppState(
+        ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
+        blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
+        doubleTapParameters: dataStore.loadDoubleTapParameters(),
+        isDoubleTapEnabled: dataStore.loadDoubleTapEnabled()
+    )
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(
         stateStore: (DeveloperMode.isEnabled && appState.isDeveloperConfigLoaded)
@@ -35,10 +40,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         authManager: enableGoogleIntegrations ? authManager : nil,
         store: dataStore,
         preferencesProvider: { [weak appState] in
-            IntegrationPreferences(
-                calendarId: appState?.googleCalendarID,
-                sheetURL: appState?.googleSheetURL
-            )
+            IntegrationPreferences(calendarId: appState?.googleCalendarID)
         },
         integrationEnabled: enableGoogleIntegrations
     )
@@ -186,6 +188,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
             return confirmed
         }
+        appState.onFactoryResetRequest = { [weak self] in
+            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
+            let confirmed = await bleDevice.factoryReset()
+            if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false) {
+                try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+            }
+            return confirmed
+        }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
@@ -199,12 +209,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onLEDBrightnessChange = { [weak self] percent in
             guard let self else { return }
+            self.dataStore.saveLEDBrightnessPercent(percent)
             Task { @MainActor in
                 await self.device?.setLEDBrightness(percent: percent)
             }
         }
         appState.onBlinkIntervalChange = { [weak self] seconds in
             guard let self else { return }
+            self.dataStore.saveLEDBlinkIntervalSeconds(seconds)
             Task { @MainActor in
                 await self.device?.setBlinkInterval(seconds: seconds)
             }
@@ -215,9 +227,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 await self.device?.setDoubleTapParameters(params)
             }
         }
-        appState.onDoubleTapParametersRequest = { [weak self] in
-            guard let self else { return nil }
-            return await self.device?.readDoubleTapParameters()
+        appState.onDoubleTapSettingsPersist = { [weak self] params, enabled in
+            guard let self else { return }
+            self.dataStore.saveDoubleTapParameters(params)
+            self.dataStore.saveDoubleTapEnabled(enabled)
         }
         appState.$facetMappings
             .sink { [weak self] mappings in
@@ -402,11 +415,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             await device.enableNotifications()
             let desiredAutoPause = appState.autoPauseMinutes ?? 0
             await device.initializeSession(hostTime: Date(), desiredAutoPauseMinutes: desiredAutoPause)
+            // LED brightness/blink have no device read-back (vendor spec defines none for 0x09/
+            // 0x0A -- see docs/timeflip.md), so unlike auto-pause and double-tap below, these two
+            // can't be checked against the device first; they're always (re-)applied.
+            DeveloperMode.debugPrint(.deviceSync, "LED brightness: no device read-back available; applying \(appState.ledBrightnessPercent)%")
             await device.setLEDBrightness(percent: appState.ledBrightnessPercent)
+            DeveloperMode.debugPrint(.deviceSync, "LED blink interval: no device read-back available; applying \(appState.blinkIntervalSeconds)s")
             await device.setBlinkInterval(seconds: appState.blinkIntervalSeconds)
-            if let params = appState.doubleTapParameters {
-                await device.setDoubleTapParameters(params)
-            }
+            await syncDoubleTapParameters(expected: appState.effectiveDoubleTapParameters, device: device)
             guard !Task.isCancelled else { return }
             logger.notice("Backfill starting")
             awaitingInitialStatus = true
@@ -481,6 +497,26 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard self.appState.isPaired || self.appState.wantsPairing else { return }
             self.startDeviceEvents()
         }
+    }
+
+    /// Checked once per connect (see startDeviceEvents' startup sync): reads the device's current
+    /// double-tap registers (cmd 0x17) and only writes (cmd 0x16) if they differ from `expected`,
+    /// instead of blindly re-writing on every reconnect. `expected` is `AppState`'s
+    /// `effectiveDoubleTapParameters`, which already accounts for the "disabled" (window=0) trick.
+    private func syncDoubleTapParameters(expected: DoubleTapParameters, device: TimeFlipSessionManaging) async {
+        let expectedSummary = "ths=\(expected.clickThreshold) lim=\(expected.limit) lat=\(expected.latency) win=\(expected.window)"
+        guard let current = await device.readDoubleTapParameters() else {
+            DeveloperMode.debugPrint(.deviceSync, "Double-tap: could not read current value; applying \(expectedSummary)")
+            await device.setDoubleTapParameters(expected)
+            return
+        }
+        guard current == expected else {
+            let currentSummary = "ths=\(current.clickThreshold) lim=\(current.limit) lat=\(current.latency) win=\(current.window)"
+            DeveloperMode.debugPrint(.deviceSync, "Double-tap MISMATCH: device=\(currentSummary) expected=\(expectedSummary); applying")
+            await device.setDoubleTapParameters(expected)
+            return
+        }
+        DeveloperMode.debugPrint(.deviceSync, "Double-tap OK: device matches expected \(expectedSummary)")
     }
 
     private func sendFacetColors(_ mappings: [FacetMapping], force: Bool = false) async {

@@ -233,34 +233,18 @@ Constraints:
 - `setting_value` is `NOT NULL`.
 
 Seeded rows:
-- `double_tap_settings` = `{"enabled":true,"clickThreshold":20,"limit":10,"latency":20,"window":40}`
+- `double_tap_settings` = `{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}`
   — `enabled` controls whether double-tap gesture detection is on; if `false`, double-tap
   notifications from the device are ignored. `clickThreshold`/`limit`/`latency`/`window` are the
   accelerometer parameters, seeded from `DoubleTapParameters.default` in
-  `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift`.
-- `led_settings` = `{"brightness":50,"blink_interval":5,"blink_length":0,"blink_speed":0}` — a
-  single record for all LED settings:
+  `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift` -- captured from a real device's actual
+  registers (see `Tests/Interactive/device_register_snapshot.json`), not an arbitrary guess.
+- `led_settings` = `{"brightness":50,"blink_interval":5}` — a single record for the only two LED
+  properties the vendor protocol exposes (device cmd `0x09`/`0x0A`; see
+  [`docs/TimeFlip2 BLE Protocol v4.3.md`](TimeFlip2%20BLE%20Protocol%20v4.3.md)):
   - `brightness` (%) and `blink_interval` (seconds — the gap from the end of one blink to the
     start of the next) are seeded from `AppState`'s `ledBrightnessPercent`/`blinkIntervalSeconds`
     defaults (`Sources/TimeFlipApp/AppState.swift` lines 91-92).
-  - `blink_length` (seconds — the full duration of one blink, start to end) and `blink_speed`
-    (`0`-`100`%) have no code equivalent yet, so `0` is a placeholder. Their intended behavior:
-    `blink_speed` is the percentage of `blink_length` spent ramping up from `0` to `brightness`,
-    before immediately fading back down. Precisely:
-    - `ramp = blink_length × (blink_speed / 100)`
-    - if `blink_speed ≤ 50`: fade back down also takes `ramp` seconds, and the LED holds at
-      `brightness` for the leftover `blink_length − 2 × ramp` seconds in between.
-    - if `blink_speed > 50`: there's no time left for a full symmetric fade, so the fade takes
-      whatever time remains (`blink_length − ramp`) and there's no hold at `brightness`.
-
-    Worked examples (`blink_length = 5` seconds):
-    | `blink_speed` | Behavior |
-    |---|---|
-    | `0%` | Instantly on at 100% brightness, holds for all 5s, then turns off instantly. |
-    | `20%` | Ramps up over 1s, holds at 100% for 3s, fades off over the last 1s. |
-    | `50%` | Ramps up over 2.5s, then immediately starts fading for the remaining 2.5s (no hold). |
-    | `80%` | Ramps up over 4s, then fades off over the remaining 1s (no hold). |
-    | `100%` | Ramps up over the full 5s, then turns off instantly. |
 - `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired
   face, it can briefly pass over other faces, creating unwanted `device_events` segments for
   them. Any segment shorter than `seconds` is merged into the *following* segment rather than

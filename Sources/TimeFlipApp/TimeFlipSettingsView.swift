@@ -16,12 +16,17 @@ struct TimeFlipSettingsView: View {
     @State private var blinkIntervalValue: Int = 5
     @State private var lastAppliedBlinkInterval: UInt8 = 5
     @State private var isAdvancedExpanded: Bool = false
+    @State private var isMoreExpanded: Bool = false
+    @State private var isLEDExpanded: Bool = false
+    @State private var isDoubleTapExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
+    @State private var showingFactoryResetConfirmation: Bool = false
 
     var body: some View {
         Form {
             deviceSection
+            settingsSection
             pairingSection
             advancedSection
         }
@@ -43,19 +48,95 @@ struct TimeFlipSettingsView: View {
             lastAppliedBlinkInterval = UInt8(clamped)
         }
         .onChange(of: appState.doubleTapParameters) { _, newValue in
-            doubleTapParams = newValue ?? .default
+            doubleTapParams = newValue
         }
     }
 
     // MARK: - Sections
 
     private var deviceSection: some View {
-        Section("Device") {
+        Section("Info") {
             LabeledContent("Name") {
                 Text(appState.pairedDeviceName)
             }
-            LabeledContent("Status") {
+            LabeledContent("Connection") {
                 Text(statusText)
+            }
+            LabeledContent("Battery") {
+                Text(batteryText)
+            }
+            DisclosureGroup(isExpanded: $isMoreExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Manufacturer") {
+                        Text(manufacturerText)
+                    }
+                    LabeledContent("Model") {
+                        Text(modelText)
+                    }
+                    LabeledContent("Hardware") {
+                        Text(hardwareText)
+                    }
+                    LabeledContent("Firmware") {
+                        Text(firmwareText)
+                    }
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Button {
+                    isMoreExpanded.toggle()
+                } label: {
+                    Text("More")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var settingsSection: some View {
+        Section("Settings") {
+            DisclosureGroup(isExpanded: $isLEDExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Brightness") {
+                        brightnessControls
+                    }
+                    .disabled(!appState.isPaired)
+                    LabeledContent("Blink Interval") {
+                        blinkIntervalControls
+                    }
+                    .disabled(!appState.isPaired)
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Button {
+                    isLEDExpanded.toggle()
+                } label: {
+                    Text("LED")
+                }
+                .buttonStyle(.plain)
+            }
+            DisclosureGroup(isExpanded: $isDoubleTapExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Disable", isOn: Binding(
+                        get: { !appState.isDoubleTapEnabled },
+                        set: { setDoubleTapEnabled(!$0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .disabled(!appState.isPaired)
+                    doubleTapControls
+                        .disabled(!appState.isDoubleTapEnabled)
+                    Button("Apply") {
+                        applyDoubleTapParameters(doubleTapParams)
+                    }
+                    .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Button {
+                    isDoubleTapExpanded.toggle()
+                } label: {
+                    Text("Double tap")
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -68,6 +149,27 @@ struct TimeFlipSettingsView: View {
                         Task { await appState.resetAndForgetDevice() }
                     }
                     .disabled(appState.pairingStatus == .pairing)
+
+                    Button("Reset Device") {
+                        showingFactoryResetConfirmation = true
+                    }
+                    .disabled(appState.pairingStatus == .pairing)
+                    .confirmationDialog(
+                        "Reset this TimeFlip to factory settings?",
+                        isPresented: $showingFactoryResetConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Reset Device", role: .destructive) {
+                            Task { await appState.factoryResetAndForgetDevice() }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("""
+                        This erases everything stored on the device -- facet colors, task \
+                        settings, name, and password -- back to factory defaults. This cannot be \
+                        undone.
+                        """)
+                    }
                 } else {
                     Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
                         if appState.isScanningForDevices {
@@ -209,9 +311,6 @@ struct TimeFlipSettingsView: View {
         Section("Advanced") {
             DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("Battery") {
-                        Text(batteryText)
-                    }
                     LabeledContent("System") {
                         Text(systemText)
                     }
@@ -219,33 +318,10 @@ struct TimeFlipSettingsView: View {
                         Text(lastEventText)
                     }
                     Divider()
-                    LabeledContent("LED Brightness") {
-                        brightnessControls
-                    }
-                    .disabled(!appState.isPaired)
-                    LabeledContent("LED Blink Interval") {
-                        blinkIntervalControls
-                    }
-                    .disabled(!appState.isPaired)
                     LabeledContent("Auto-pause (0 disable, max 240m)") {
                         autoPauseControls
                     }
                     .disabled(!appState.isPaired)
-                    Divider()
-                    Text("Double-tap sensitivity (accelerometer registers)")
-                        .foregroundStyle(.secondary)
-                    doubleTapControls
-                    HStack {
-                        Button("Sync from device") {
-                            Task { await fetchDoubleTapParameters() }
-                        }
-                        .disabled(appState.onDoubleTapParametersRequest == nil || !appState.isPaired)
-                        Spacer()
-                        Button("Apply") {
-                            applyDoubleTapParameters(doubleTapParams)
-                        }
-                        .disabled(!appState.isPaired)
-                    }
                 }
                 .padding(.vertical, 4)
             } label: {
@@ -269,6 +345,7 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.clickThreshold = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Limit")
@@ -278,6 +355,7 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.limit = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Latency")
@@ -287,6 +365,7 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.latency = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
             }
             GridRow {
                 Text("Window")
@@ -296,8 +375,17 @@ struct TimeFlipSettingsView: View {
                         set: { doubleTapParams.window = $0 }
                     )
                 )
+                doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func doubleTapFieldCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize()
     }
 
     private func numericField(
@@ -334,7 +422,7 @@ struct TimeFlipSettingsView: View {
         let blink = appState.blinkIntervalSeconds
         blinkIntervalValue = Int(blink)
         lastAppliedBlinkInterval = blink
-        doubleTapParams = appState.doubleTapParameters ?? .default
+        doubleTapParams = appState.doubleTapParameters
     }
 
     private func applyAutoPause(newValue: Int) {
@@ -374,17 +462,27 @@ struct TimeFlipSettingsView: View {
         guard appState.isPaired else { return }
         doubleTapParams = params
         appState.doubleTapParameters = params
-        appState.onDoubleTapParametersChange?(params)
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params))
+        appState.onDoubleTapSettingsPersist?(params, appState.isDoubleTapEnabled)
     }
 
-    private func fetchDoubleTapParameters() async {
-        guard let loader = appState.onDoubleTapParametersRequest, appState.isPaired else { return }
-        if let params = await loader() {
-            await MainActor.run {
-                doubleTapParams = params
-                appState.doubleTapParameters = params
-            }
+    private func setDoubleTapEnabled(_ enabled: Bool) {
+        guard appState.isPaired else { return }
+        appState.isDoubleTapEnabled = enabled
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
+        appState.onDoubleTapSettingsPersist?(doubleTapParams, enabled)
+    }
+
+    /// The real, on-screen parameters when enabled; the same parameters with `window` forced to
+    /// 0 when disabled -- window 0 makes the accelerometer's double-tap gesture unrecognizable,
+    /// which is how "disable" is faked without a real on/off on the device itself.
+    private func effectiveDoubleTapParameters(_ params: DoubleTapParameters) -> DoubleTapParameters {
+        guard appState.isDoubleTapEnabled else {
+            var zeroed = params
+            zeroed.window = 0
+            return zeroed
         }
+        return params
     }
 
     private var batteryText: String {
@@ -395,13 +493,6 @@ struct TimeFlipSettingsView: View {
     }
 
     private var systemText: String {
-        if let info = appState.deviceInfo {
-            let manufacturer = info.manufacturer ?? "Unknown manufacturer"
-            let model = info.modelNumber ?? "Unknown model"
-            let firmware = info.firmwareRevision ?? "FW n/a"
-            let hardware = info.hardwareRevision ?? "HW n/a"
-            return "\(manufacturer) \(model) • FW \(firmware) • HW \(hardware)"
-        }
         if let state = appState.systemState {
             let sync = state.syncStatus.description
             let hardware = state.hardwareStatus.description
@@ -409,6 +500,22 @@ struct TimeFlipSettingsView: View {
             return "Sync: \(sync), HW: \(hardware) (\(raw))"
         }
         return "Unknown (no system report yet)"
+    }
+
+    private var manufacturerText: String {
+        appState.deviceInfo?.manufacturer ?? "Unknown"
+    }
+
+    private var modelText: String {
+        appState.deviceInfo?.modelNumber ?? "Unknown"
+    }
+
+    private var hardwareText: String {
+        appState.deviceInfo?.hardwareRevision ?? "Unknown"
+    }
+
+    private var firmwareText: String {
+        appState.deviceInfo?.firmwareRevision ?? "Unknown"
     }
 
     private var statusText: String {

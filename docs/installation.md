@@ -77,4 +77,4 @@ swiftlint --fix
 ## Next Steps
 
 Once the app is running, head over to the [Configuration guide](configuration.md) to set up Google
-Calendar/Sheets integration and pair your TimeFlip device.
+Calendar integration and pair your TimeFlip device.

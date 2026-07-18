@@ -23,17 +23,6 @@ struct ActivityRecordFormatter {
         return formatter
     }
 
-    /// Format compatible with Google Sheets' USER_ENTERED parsing (no 'T' or timezone suffix).
-    /// Uses the provided time zone (defaults to local) so worklogs reflect local wall time.
-    static func sheetsTimestamp(from date: Date, timeZone: TimeZone = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .iso8601)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.string(from: date)
-    }
-
     static func formattedDuration(_ duration: TimeInterval) -> String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.hour, .minute, .second]

@@ -4,22 +4,19 @@ import XCTest
 // swiftlint:disable trailing_closure
 @MainActor
 final class GoogleIntegrationCoordinatorTests: XCTestCase {
-    private let sheetURL = "https://docs.google.com/spreadsheets/d/test-spreadsheet/edit#gid=0"
     private let calendarID = "primary"
 
-    func testRecordsAreRoutedToCalendarAndSheetsRespectingThresholds() async throws {
+    func testRecordsAreRoutedToCalendarRespectingThresholds() async throws {
         let calendar = CapturingCalendarClient()
-        let sheets = CapturingSheetsClient()
         let dbURL = AppDataStore.testDatabaseURL()
         AppDataStore.resetForTests(at: dbURL)
         let store = AppDataStore(databaseURL: dbURL)
         let coordinator = GoogleIntegrationCoordinator(
             authManager: dummyAuthManager(),
             calendarClient: calendar,
-            sheetsClient: sheets,
             tokenProvider: { "token" },
             store: store,
-            preferencesProvider: { IntegrationPreferences(calendarId: self.calendarID, sheetURL: self.sheetURL) }
+            preferencesProvider: { IntegrationPreferences(calendarId: self.calendarID) }
         )
 
         // Seed logbook directly with event-numbered records (new pipeline).
@@ -70,12 +67,6 @@ final class GoogleIntegrationCoordinatorTests: XCTestCase {
             ["Review", "Standup"],
             "Calendar should receive only events >= 15 minutes."
         )
-
-        XCTAssertEqual(sheets.appendedRows.count, 4, "Sheets should receive all sessions.")
-        XCTAssertTrue(
-            sheets.appendedRows.allSatisfy { $0.values.count == 1 && ($0.values.first?.count == 3) },
-            "Each Sheets append should include one row with three columns."
-        )
     }
 
     // MARK: - Helpers
@@ -120,31 +111,3 @@ private final class CapturingCalendarClient: GoogleCalendarClient {
     }
 }
 // swiftlint:enable trailing_closure
-
-@MainActor
-private final class CapturingSheetsClient: GoogleSheetsClient {
-    struct AppendCall {
-        let accessToken: String
-        let spreadsheetId: String
-        let range: String
-        let values: [[String]]
-    }
-
-    private(set) var appendedRows: [AppendCall] = []
-
-    func fetchSheets(accessToken: String, spreadsheetId: String) async throws -> [GoogleSheetInfo] {
-        _ = accessToken
-        return [GoogleSheetInfo(id: 0, title: "Sheet1")]
-    }
-
-    func appendRow(accessToken: String, spreadsheetId: String, range: String, values: [[String]]) async throws {
-        appendedRows.append(
-            AppendCall(
-                accessToken: accessToken,
-                spreadsheetId: spreadsheetId,
-                range: range,
-                values: values
-            )
-        )
-    }
-}
