@@ -17,6 +17,7 @@ struct TimeFlipSettingsView: View {
     @State private var lastAppliedBlinkInterval: UInt8 = 5
     @State private var isAdvancedExpanded: Bool = false
     @State private var isMoreExpanded: Bool = false
+    @State private var isLEDExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
     @State private var showingFactoryResetConfirmation: Bool = false
@@ -24,6 +25,7 @@ struct TimeFlipSettingsView: View {
     var body: some View {
         Form {
             deviceSection
+            settingsSection
             pairingSection
             advancedSection
         }
@@ -76,9 +78,6 @@ struct TimeFlipSettingsView: View {
                     LabeledContent("Firmware") {
                         Text(firmwareText)
                     }
-                    LabeledContent("System ID") {
-                        Text(systemIDText)
-                    }
                 }
                 .padding(.vertical, 4)
             } label: {
@@ -86,6 +85,31 @@ struct TimeFlipSettingsView: View {
                     isMoreExpanded.toggle()
                 } label: {
                     Text("More")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var settingsSection: some View {
+        Section("Settings") {
+            DisclosureGroup(isExpanded: $isLEDExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Brightness") {
+                        brightnessControls
+                    }
+                    .disabled(!appState.isPaired)
+                    LabeledContent("Blink Interval") {
+                        blinkIntervalControls
+                    }
+                    .disabled(!appState.isPaired)
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Button {
+                    isLEDExpanded.toggle()
+                } label: {
+                    Text("LED")
                 }
                 .buttonStyle(.plain)
             }
@@ -269,14 +293,6 @@ struct TimeFlipSettingsView: View {
                         Text(lastEventText)
                     }
                     Divider()
-                    LabeledContent("LED Brightness") {
-                        brightnessControls
-                    }
-                    .disabled(!appState.isPaired)
-                    LabeledContent("LED Blink Interval") {
-                        blinkIntervalControls
-                    }
-                    .disabled(!appState.isPaired)
                     LabeledContent("Auto-pause (0 disable, max 240m)") {
                         autoPauseControls
                     }
@@ -468,10 +484,6 @@ struct TimeFlipSettingsView: View {
 
     private var firmwareText: String {
         appState.deviceInfo?.firmwareRevision ?? "Unknown"
-    }
-
-    private var systemIDText: String {
-        appState.deviceInfo?.systemID ?? "Unknown"
     }
 
     private var statusText: String {
