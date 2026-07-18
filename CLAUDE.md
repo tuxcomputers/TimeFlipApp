@@ -1,5 +1,16 @@
 # Project Conventions
 
+## Requests that affect real device behavior
+
+- Before implementing a request that changes how the physical TimeFlip device behaves (e.g.
+  "set auto-pause to 10 seconds"), check it against what the device's BLE protocol actually
+  supports (see `docs/TimeFlip2 BLE Protocol v4.3.md`/`docs/timeflip.md`) -- granularity,
+  ranges, whether a value has any read-back, etc.
+- If the request isn't achievable as literally stated (e.g. the device only supports whole-minute
+  auto-pause delays, so "10 seconds" can't make it fire in 10 seconds), say so explicitly and
+  explain the actual constraint before implementing anything -- don't silently build something
+  that looks like it does what was asked but can't actually behave that way on real hardware.
+
 ## TimeFlip2 BLE protocol documentation
 
 - `docs/TimeFlip2 BLE Protocol v4.3.md` is the official vendor protocol spec and takes priority
