@@ -18,6 +18,7 @@ struct TimeFlipSettingsView: View {
     @State private var isAdvancedExpanded: Bool = false
     @State private var isMoreExpanded: Bool = false
     @State private var isLEDExpanded: Bool = false
+    @State private var isDoubleTapExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
     @State private var showingFactoryResetConfirmation: Bool = false
@@ -110,6 +111,30 @@ struct TimeFlipSettingsView: View {
                     isLEDExpanded.toggle()
                 } label: {
                     Text("LED")
+                }
+                .buttonStyle(.plain)
+            }
+            DisclosureGroup(isExpanded: $isDoubleTapExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Disable", isOn: Binding(
+                        get: { !appState.isDoubleTapEnabled },
+                        set: { setDoubleTapEnabled(!$0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .disabled(!appState.isPaired)
+                    doubleTapControls
+                        .disabled(!appState.isDoubleTapEnabled)
+                    Button("Apply") {
+                        applyDoubleTapParameters(doubleTapParams)
+                    }
+                    .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Button {
+                    isDoubleTapExpanded.toggle()
+                } label: {
+                    Text("Double tap")
                 }
                 .buttonStyle(.plain)
             }
@@ -297,21 +322,6 @@ struct TimeFlipSettingsView: View {
                         autoPauseControls
                     }
                     .disabled(!appState.isPaired)
-                    Divider()
-                    Text("Double-tap sensitivity (accelerometer registers)")
-                        .foregroundStyle(.secondary)
-                    doubleTapControls
-                    HStack {
-                        Button("Sync from device") {
-                            Task { await fetchDoubleTapParameters() }
-                        }
-                        .disabled(appState.onDoubleTapParametersRequest == nil || !appState.isPaired)
-                        Spacer()
-                        Button("Apply") {
-                            applyDoubleTapParameters(doubleTapParams)
-                        }
-                        .disabled(!appState.isPaired)
-                    }
                 }
                 .padding(.vertical, 4)
             } label: {
@@ -440,17 +450,25 @@ struct TimeFlipSettingsView: View {
         guard appState.isPaired else { return }
         doubleTapParams = params
         appState.doubleTapParameters = params
-        appState.onDoubleTapParametersChange?(params)
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params))
     }
 
-    private func fetchDoubleTapParameters() async {
-        guard let loader = appState.onDoubleTapParametersRequest, appState.isPaired else { return }
-        if let params = await loader() {
-            await MainActor.run {
-                doubleTapParams = params
-                appState.doubleTapParameters = params
-            }
+    private func setDoubleTapEnabled(_ enabled: Bool) {
+        guard appState.isPaired else { return }
+        appState.isDoubleTapEnabled = enabled
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
+    }
+
+    /// The real, on-screen parameters when enabled; the same parameters with `window` forced to
+    /// 0 when disabled -- window 0 makes the accelerometer's double-tap gesture unrecognizable,
+    /// which is how "disable" is faked without a real on/off on the device itself.
+    private func effectiveDoubleTapParameters(_ params: DoubleTapParameters) -> DoubleTapParameters {
+        guard appState.isDoubleTapEnabled else {
+            var zeroed = params
+            zeroed.window = 0
+            return zeroed
         }
+        return params
     }
 
     private var batteryText: String {

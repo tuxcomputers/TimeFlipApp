@@ -26,6 +26,7 @@ struct PreferencesPayload: Codable {
     var autoPauseMinutes: UInt16?
     var blinkIntervalSeconds: UInt8?
     var doubleTapParameters: DoubleTapParameters?
+    var isDoubleTapEnabled: Bool?
 }
 
 struct FacetMappingRecord: Codable {

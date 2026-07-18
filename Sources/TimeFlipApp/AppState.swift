@@ -40,6 +40,11 @@ final class AppState: ObservableObject {
     @Published var ledBrightnessPercent: UInt8
     @Published var blinkIntervalSeconds: UInt8
     @Published var doubleTapParameters: DoubleTapParameters?
+    // Whether double-tap-to-pause is enabled. Disabling it is a UI-level trick: the device has
+    // no real on/off for this, so we keep the user's real settings here and, whenever disabled,
+    // send them to the device with `window` forced to 0 (which makes the accelerometer's
+    // double-tap gesture unrecognizable) instead of the real value. See effectiveDoubleTapParameters.
+    @Published var isDoubleTapEnabled: Bool = true
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
@@ -61,7 +66,6 @@ final class AppState: ObservableObject {
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
     var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
-    var onDoubleTapParametersRequest: (() async -> DoubleTapParameters?)?
     var onStartDeviceScan: ((Bool) -> Void)?
     var onStopDeviceScan: (() -> Void)?
 
@@ -359,6 +363,9 @@ final class AppState: ObservableObject {
         if let storedDoubleTap = payload.doubleTapParameters {
             doubleTapParameters = storedDoubleTap
         }
+        if let storedDoubleTapEnabled = payload.isDoubleTapEnabled {
+            isDoubleTapEnabled = storedDoubleTapEnabled
+        }
         isApplyingPreferences = false
     }
 
@@ -393,7 +400,8 @@ final class AppState: ObservableObject {
             $ledBrightnessPercent.map { _ in () }.eraseToAnyPublisher(),
             $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher(),
             $blinkIntervalSeconds.map { _ in () }.eraseToAnyPublisher(),
-            $doubleTapParameters.map { _ in () }.eraseToAnyPublisher()
+            $doubleTapParameters.map { _ in () }.eraseToAnyPublisher(),
+            $isDoubleTapEnabled.map { _ in () }.eraseToAnyPublisher()
         ])
         .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -454,7 +462,8 @@ final class AppState: ObservableObject {
             ledBrightnessPercent: ledBrightnessPercent,
             autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
             blinkIntervalSeconds: clampBlinkInterval(blinkIntervalSeconds),
-            doubleTapParameters: doubleTapParameters
+            doubleTapParameters: doubleTapParameters,
+            isDoubleTapEnabled: isDoubleTapEnabled
         )
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
@@ -491,6 +500,16 @@ final class AppState: ObservableObject {
         } catch {
             // Ignore persistence errors; the in-memory value still drives the current session.
         }
+    }
+
+    /// What should actually be sent to the device: the real parameters when double-tap is
+    /// enabled, or the same parameters with `window` forced to 0 when disabled.
+    var effectiveDoubleTapParameters: DoubleTapParameters? {
+        guard var params = doubleTapParameters else { return nil }
+        if !isDoubleTapEnabled {
+            params.window = 0
+        }
+        return params
     }
 
     func limitMinutes(for facetID: UInt8) -> Int {

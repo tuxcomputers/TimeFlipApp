@@ -1248,11 +1248,26 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             0x3C, params.latency,
             0x3D, params.window
         ])
+        let summary = "ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)"
         do {
-            logger.debug("Setting double-tap params ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
+            logger.debug("Setting double-tap params \(summary, privacy: .public)")
+            DeveloperMode.debugPrint(.doubleTap, "Writing \(summary)")
             _ = try await performCommand(payload)
+            // Read back via cmd 0x17 to confirm the write actually took effect, per
+            // docs/timeflip.md's "confirming a command actually took effect" guidance.
+            let confirmedParams = await readDoubleTapParameters()
+            let confirmed = confirmedParams == params
+            let actualSummary = confirmedParams.map {
+                "ths=\($0.clickThreshold) lim=\($0.limit) lat=\($0.latency) win=\($0.window)"
+            } ?? "no response"
+            logger.debug("Double-tap verification confirmed=\(confirmed, privacy: .public) actual=\(actualSummary, privacy: .public)")
+            DeveloperMode.debugPrint(
+                .doubleTap,
+                "Verification \(confirmed ? "confirmed" : "MISMATCH"): requested \(summary); actual \(actualSummary)"
+            )
         } catch {
             logger.error("Failed to set double-tap params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.doubleTap, "Write failed: \(error.localizedDescription)")
         }
     }
 
@@ -1261,6 +1276,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             let response = try await performCommand(Data([0x17]))
             guard response.count >= 9, response[0] == 0x17 else {
                 logger.error("Unexpected double-tap read response len=\(response.count) resp=\(response.hexString(), privacy: .public)")
+                DeveloperMode.debugPrint(.doubleTap, "Unexpected read response len=\(response.count) resp=\(response.hexString())")
                 return nil
             }
             let params = DoubleTapParameters(
@@ -1270,9 +1286,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 window: response[8]
             )
             logger.debug("Read double-tap params ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
+            DeveloperMode.debugPrint(.doubleTap, "Read ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
             return params
         } catch {
             logger.error("Failed to read double-tap params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.doubleTap, "Read failed: \(error.localizedDescription)")
             return nil
         }
     }

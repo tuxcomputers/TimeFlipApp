@@ -40,6 +40,8 @@ enum DeveloperMode {
         case history = "history"
         case battery = "battery"
         case dbType = "db-type"
+        case doubleTap = "double-tap"
+        case deviceSync = "device-sync"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 
