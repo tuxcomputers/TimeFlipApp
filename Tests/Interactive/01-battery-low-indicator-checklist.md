@@ -98,4 +98,4 @@ that one already restored the threshold to a value (5%) far enough below the liv
       `isLowBattery=false`.
 
       Confirmed: `level=27 threshold=5 recoveryAt=10 isLowBattery=false`.
-- [x] **(You)** Confirm the activity name is no longer flashing.
+- [ ] **(You)** Confirm the activity name is no longer flashing.
