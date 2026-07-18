@@ -48,7 +48,7 @@ struct TimeFlipSettingsView: View {
             lastAppliedBlinkInterval = UInt8(clamped)
         }
         .onChange(of: appState.doubleTapParameters) { _, newValue in
-            doubleTapParams = newValue ?? .default
+            doubleTapParams = newValue
         }
     }
 
@@ -422,7 +422,7 @@ struct TimeFlipSettingsView: View {
         let blink = appState.blinkIntervalSeconds
         blinkIntervalValue = Int(blink)
         lastAppliedBlinkInterval = blink
-        doubleTapParams = appState.doubleTapParameters ?? .default
+        doubleTapParams = appState.doubleTapParameters
     }
 
     private func applyAutoPause(newValue: Int) {
@@ -463,12 +463,14 @@ struct TimeFlipSettingsView: View {
         doubleTapParams = params
         appState.doubleTapParameters = params
         appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params))
+        appState.onDoubleTapSettingsPersist?(params, appState.isDoubleTapEnabled)
     }
 
     private func setDoubleTapEnabled(_ enabled: Bool) {
         guard appState.isPaired else { return }
         appState.isDoubleTapEnabled = enabled
         appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
+        appState.onDoubleTapSettingsPersist?(doubleTapParams, enabled)
     }
 
     /// The real, on-screen parameters when enabled; the same parameters with `window` forced to

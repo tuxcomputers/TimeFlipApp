@@ -7,7 +7,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let dataStore = AppDataStore()
     private lazy var appState = AppState(
         ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
-        blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds()
+        blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
+        doubleTapParameters: dataStore.loadDoubleTapParameters(),
+        isDoubleTapEnabled: dataStore.loadDoubleTapEnabled()
     )
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(
@@ -225,6 +227,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 await self.device?.setDoubleTapParameters(params)
             }
         }
+        appState.onDoubleTapSettingsPersist = { [weak self] params, enabled in
+            guard let self else { return }
+            self.dataStore.saveDoubleTapParameters(params)
+            self.dataStore.saveDoubleTapEnabled(enabled)
+        }
         appState.$facetMappings
             .sink { [weak self] mappings in
                 Task { @MainActor in
@@ -415,9 +422,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             await device.setLEDBrightness(percent: appState.ledBrightnessPercent)
             DeveloperMode.debugPrint(.deviceSync, "LED blink interval: no device read-back available; applying \(appState.blinkIntervalSeconds)s")
             await device.setBlinkInterval(seconds: appState.blinkIntervalSeconds)
-            if let params = appState.effectiveDoubleTapParameters {
-                await syncDoubleTapParameters(expected: params, device: device)
-            }
+            await syncDoubleTapParameters(expected: appState.effectiveDoubleTapParameters, device: device)
             guard !Task.isCancelled else { return }
             logger.notice("Backfill starting")
             awaitingInitialStatus = true

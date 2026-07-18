@@ -39,12 +39,12 @@ final class AppState: ObservableObject {
     @Published var deviceInfo: TimeFlipDeviceInfo?
     @Published var ledBrightnessPercent: UInt8
     @Published var blinkIntervalSeconds: UInt8
-    @Published var doubleTapParameters: DoubleTapParameters?
+    @Published var doubleTapParameters: DoubleTapParameters
     // Whether double-tap-to-pause is enabled. Disabling it is a UI-level trick: the device has
     // no real on/off for this, so we keep the user's real settings here and, whenever disabled,
     // send them to the device with `window` forced to 0 (which makes the accelerometer's
     // double-tap gesture unrecognizable) instead of the real value. See effectiveDoubleTapParameters.
-    @Published var isDoubleTapEnabled: Bool = true
+    @Published var isDoubleTapEnabled: Bool
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
@@ -66,6 +66,11 @@ final class AppState: ObservableObject {
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
     var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
+    // Fired with the real (never window-zeroed) parameters/enabled flag whenever either changes
+    // from the UI, so a listener can persist them -- separate from onDoubleTapParametersChange,
+    // which instead receives whatever should actually be sent to the device (see
+    // effectiveDoubleTapParameters).
+    var onDoubleTapSettingsPersist: ((DoubleTapParameters, Bool) -> Void)?
     var onStartDeviceScan: ((Bool) -> Void)?
     var onStopDeviceScan: (() -> Void)?
 
@@ -75,7 +80,9 @@ final class AppState: ObservableObject {
         devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared,
         developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared,
         ledBrightnessPercent: UInt8,
-        blinkIntervalSeconds: UInt8
+        blinkIntervalSeconds: UInt8,
+        doubleTapParameters: DoubleTapParameters,
+        isDoubleTapEnabled: Bool
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
@@ -107,7 +114,8 @@ final class AppState: ObservableObject {
         deviceInfo = nil
         self.ledBrightnessPercent = ledBrightnessPercent
         self.blinkIntervalSeconds = blinkIntervalSeconds
-        doubleTapParameters = nil
+        self.doubleTapParameters = doubleTapParameters
+        self.isDoubleTapEnabled = isDoubleTapEnabled
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
 
@@ -356,12 +364,6 @@ final class AppState: ObservableObject {
         if let storedAutoPause = payload.autoPauseMinutes {
             autoPauseMinutes = clampAutoPause(storedAutoPause)
         }
-        if let storedDoubleTap = payload.doubleTapParameters {
-            doubleTapParameters = storedDoubleTap
-        }
-        if let storedDoubleTapEnabled = payload.isDoubleTapEnabled {
-            isDoubleTapEnabled = storedDoubleTapEnabled
-        }
         isApplyingPreferences = false
     }
 
@@ -393,9 +395,7 @@ final class AppState: ObservableObject {
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
-            $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher(),
-            $doubleTapParameters.map { _ in () }.eraseToAnyPublisher(),
-            $isDoubleTapEnabled.map { _ in () }.eraseToAnyPublisher()
+            $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher()
         ])
         .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -453,9 +453,7 @@ final class AppState: ObservableObject {
             wantsPairing: wantsPairing,
             pairedDeviceName: pairedDeviceName,
             pairedDeviceUUID: pairedDeviceUUID,
-            autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) },
-            doubleTapParameters: doubleTapParameters,
-            isDoubleTapEnabled: isDoubleTapEnabled
+            autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) }
         )
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
@@ -496,8 +494,8 @@ final class AppState: ObservableObject {
 
     /// What should actually be sent to the device: the real parameters when double-tap is
     /// enabled, or the same parameters with `window` forced to 0 when disabled.
-    var effectiveDoubleTapParameters: DoubleTapParameters? {
-        guard var params = doubleTapParameters else { return nil }
+    var effectiveDoubleTapParameters: DoubleTapParameters {
+        var params = doubleTapParameters
         if !isDoubleTapEnabled {
             params.window = 0
         }

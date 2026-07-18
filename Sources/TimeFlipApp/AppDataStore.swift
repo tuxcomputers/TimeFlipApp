@@ -464,6 +464,52 @@ final class AppDataStore: IntegrationEventCursorStore {
         saveSettingJSON(name: "led_settings", merging: ["blink_interval": Int(seconds)])
     }
 
+    /// Double-tap accelerometer register values (the `double_tap_settings` setting's
+    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/009_setting.sql`). Falls
+    /// back to `DoubleTapParameters.default` -- itself, and per-field, if the row or an individual
+    /// field is missing or malformed.
+    func loadDoubleTapParameters() -> DoubleTapParameters {
+        let fallback = DoubleTapParameters.default
+        guard let json = loadSettingJSON(name: "double_tap_settings") else { return fallback }
+        func byte(_ key: String, default defaultValue: UInt8) -> UInt8 {
+            guard let value = json[key] as? Int else { return defaultValue }
+            return UInt8(max(0, min(255, value)))
+        }
+        return DoubleTapParameters(
+            clickThreshold: byte("clickThreshold", default: fallback.clickThreshold),
+            limit: byte("limit", default: fallback.limit),
+            latency: byte("latency", default: fallback.latency),
+            window: byte("window", default: fallback.window)
+        )
+    }
+
+    /// Whether double-tap detection is enabled (the `double_tap_settings` setting's `enabled`
+    /// field, seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default
+    /// if the row is missing or malformed.
+    func loadDoubleTapEnabled() -> Bool {
+        guard let enabled = loadSettingJSON(name: "double_tap_settings")?["enabled"] as? Bool else {
+            return true
+        }
+        return enabled
+    }
+
+    /// Persists new double-tap accelerometer register values to the `double_tap_settings` row,
+    /// leaving `enabled` untouched.
+    func saveDoubleTapParameters(_ params: DoubleTapParameters) {
+        saveSettingJSON(name: "double_tap_settings", merging: [
+            "clickThreshold": Int(params.clickThreshold),
+            "limit": Int(params.limit),
+            "latency": Int(params.latency),
+            "window": Int(params.window)
+        ])
+    }
+
+    /// Persists a new enabled flag to the `double_tap_settings` row, leaving the accelerometer
+    /// register values untouched.
+    func saveDoubleTapEnabled(_ enabled: Bool) {
+        saveSettingJSON(name: "double_tap_settings", merging: ["enabled": enabled])
+    }
+
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
     /// result back -- the row always already exists (seeded by `009_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.

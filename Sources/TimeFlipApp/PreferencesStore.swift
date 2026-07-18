@@ -23,8 +23,6 @@ struct PreferencesPayload: Codable {
     var pairedDeviceName: String?
     var pairedDeviceUUID: String?
     var autoPauseMinutes: UInt16?
-    var doubleTapParameters: DoubleTapParameters?
-    var isDoubleTapEnabled: Bool?
 }
 
 struct FacetMappingRecord: Codable {
