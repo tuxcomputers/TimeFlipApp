@@ -21,7 +21,7 @@ SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":20,"limit":10,"l
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'double_tap_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'led_settings', '{"brightness":50,"blink_interval":15,"blink_length":5,"blink_speed":0}', 'LED settings: brightness (%) and blink_interval (seconds, gap from the end of one blink to the start of the next) seeded from AppState''s ledBrightnessPercent/blinkIntervalSeconds defaults. blink_length (seconds, start-of-blink to end-of-blink) and blink_speed (0-100%, how much of blink_length is spent ramping up to full brightness before fading) have no code equivalent yet, so 0 is a placeholder -- see docs/database-design.md for the full ramp/hold/fade behavior blink_speed controls.'
+SELECT 'led_settings', '{"brightness":50,"blink_interval":15}', 'LED settings: brightness (%, device cmd 0x09) and blink_interval (seconds, device cmd 0x0A) -- the only two LED properties the vendor protocol exposes (see docs/TimeFlip2 BLE Protocol v4.3.md), seeded from AppState''s ledBrightnessPercent/blinkIntervalSeconds defaults.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'led_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
