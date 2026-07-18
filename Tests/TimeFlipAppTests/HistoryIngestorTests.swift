@@ -181,6 +181,34 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertNil(cursor, "Cursor should not advance when only a live entry is present.")
     }
 
+    func testSkipsStreamOnFirstRefreshOfSessionWhenPersistedCursorAlreadyMatchesDevice() async {
+        let now = Date()
+        let entries = [
+            TimeFlipHistoryEntry(eventNumber: 20, facetID: 1, startedAt: now.addingTimeInterval(-10), duration: 10, isPaused: false)
+        ]
+        let device = FakeDevice(history: entries)
+        let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
+        let appState = AppState(
+            preferencesStore: InMemoryPreferencesStore(),
+            googleClientSecretStore: InMemoryGoogleClientSecretStore(),
+            devicePasswordStore: InMemoryDevicePasswordStore()
+        )
+        // Simulates a fresh app launch reconnecting to a device it already has history for: the
+        // persisted cursor from a previous session already matches the device's current event,
+        // with no in-memory state populated yet (lastCommittedEventNumber/lastObservedEventNumber
+        // are both nil until something reads them).
+        dataStore.saveEventCursor(target: .local, identifier: "device-history", lastSentEventID: 20)
+        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
+
+        // The very first refresh call of this instance's lifetime must still hydrate the
+        // persisted cursor before comparing against the device's reported max -- otherwise it
+        // reads as "nothing known yet" and always falls through to a full stream regardless of
+        // whether anything actually changed while disconnected.
+        await ingestor.refreshHistory(trigger: "startup")
+        XCTAssertEqual(device.fetchHistoryCallCount, 0, "Stream should be skipped on the very first refresh when the persisted cursor already matches the device.")
+    }
+
     func testSkipsStreamWhenDeviceMaxEventNumberUnchanged() async {
         let now = Date()
         let entries = [

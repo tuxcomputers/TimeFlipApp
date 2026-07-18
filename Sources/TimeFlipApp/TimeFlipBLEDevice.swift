@@ -751,21 +751,75 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
 
         return await historyGate.withLock {
-            await streamHistory(startingFrom: eventNumber ?? 0)
+            let start = eventNumber ?? 0
+            let entries = await streamHistory(startingFrom: start)
+            return await fillHistoryGaps(entries, startingFrom: start)
         }
     }
 
+    /// Per the vendor spec, the 0x02 stream only sends "intervals that lasted for at least 5 sec"
+    /// -- confirmed against real hardware: a missing event number turned out to be a genuine,
+    /// valid 4-second segment the device holds and will return via a single-event (0x01) read, but
+    /// deliberately omits from the 0x02 stream. Below this duration, an "absent" event number is
+    /// the device's own documented filtering, not something to recover.
+    private static let minimumStreamedIntervalSeconds: TimeInterval = 5
+
+    /// A BLE notification can also be dropped mid-stream (confirmed separately against real
+    /// hardware) -- streamHistory has no way to tell "the device deliberately omitted this" or "we
+    /// just didn't receive that notification" apart from "the device deliberately omitted this
+    /// because it's under 5 seconds" vs either of those, so this checks for any event number in
+    /// [startingFrom...last received] that's absent from the batch, and re-requests each one
+    /// individually (the same single-event command readLastEvent uses, just with a real event
+    /// number instead of the 0xFFFFFFFF sentinel). A recovered entry only gets kept if it meets the
+    /// same minimum duration the stream itself requires -- otherwise it's the device's own filter
+    /// working as documented, not a gap. Also recovers frames streamHistory itself skipped due to a
+    /// local parse failure, since that takes the same "missing from entries" shape.
+    private func fillHistoryGaps(_ entries: [TimeFlipHistoryEntry], startingFrom start: UInt32) async -> [TimeFlipHistoryEntry] {
+        guard let lastEventNumber = entries.compactMap(\.eventNumber).max(), lastEventNumber >= start else {
+            return entries
+        }
+        let received = Set(entries.compactMap(\.eventNumber))
+        var filled = entries
+        var recoveredAny = false
+
+        for candidate in start...lastEventNumber where !received.contains(candidate) {
+            guard let recovered = await readLastEventLocked(candidate) else {
+                logger.error("History gap NOT recovered ev=\(candidate, privacy: .public)")
+                DeveloperMode.debugPrint(.history, "history gap NOT recovered ev=\(candidate)")
+                continue
+            }
+            guard recovered.duration >= Self.minimumStreamedIntervalSeconds else {
+                logger.notice("History gap explained ev=\(candidate, privacy: .public) dur=\(recovered.duration, privacy: .public) (under 5s, device's own filter)")
+                DeveloperMode.debugPrint(.history, "history gap explained: ev=\(candidate) dur=\(recovered.duration)s under 5s, device's own filter")
+                continue
+            }
+            filled.append(recovered)
+            recoveredAny = true
+            logger.notice("History gap recovered ev=\(candidate, privacy: .public)")
+            DeveloperMode.debugPrint(.history, "history gap recovered ev=\(candidate)")
+        }
+
+        if recoveredAny {
+            filled.sort { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
+        }
+        return filled
+    }
+
     func readLastEvent() async -> TimeFlipHistoryEntry? {
+        await readSingleEvent(0xFFFFFFFF)
+    }
+
+    private func readSingleEvent(_ eventNumber: UInt32) async -> TimeFlipHistoryEntry? {
         guard isLoggedIn else {
-            logger.error("readLastEvent skipped: not logged in")
+            logger.error("readSingleEvent skipped: not logged in")
             return nil
         }
         guard characteristics[TimeFlipUUIDs.history] != nil else {
-            logger.error("readLastEvent skipped: history characteristic missing")
+            logger.error("readSingleEvent skipped: history characteristic missing")
             return nil
         }
         return await historyGate.withLock {
-            await readLastEventLocked()
+            await readLastEventLocked(eventNumber)
         }
     }
 
@@ -1045,47 +1099,52 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     /// Per the vendor spec, requesting event 0xFFFFFFFF via command 0x01 substitutes the real
     /// last event's complete "History block" frame (same layout a single-event read would
-    /// return -- event number, facet, start time, duration), rather than the multi-frame stream
-    /// 0x02 produces -- so this only ever waits for one frame instead of looping until a sentinel.
-    private func readLastEventLocked() async -> TimeFlipHistoryEntry? {
-        let stream = AsyncStream<Data> { continuation in
-            historyStreamContinuation = continuation
-        }
-        defer {
-            historyStreamContinuation?.finish()
-            historyStreamContinuation = nil
-        }
-
+    /// return -- event number, facet, start time, duration). Unlike 0x02, whose response is
+    /// explicitly documented as "data flow with notification", 0x01's response isn't described as
+    /// a notification at all -- confirmed empirically too: waiting on a notification here reliably
+    /// timed out against real hardware, while an explicit read of the characteristic's value right
+    /// after the write works. So this writes the command, then reads the characteristic directly,
+    /// rather than waiting on historyStreamContinuation the way streamHistory does.
+    private func readLastEventLocked(_ eventNumber: UInt32) async -> TimeFlipHistoryEntry? {
+        var command = Data(repeating: 0, count: 5)
+        command[0] = 0x01
+        command.replaceSubrange(1..<5, with: withUnsafeBytes(of: eventNumber.bigEndian, Array.init))
         do {
-            await withNotification(TimeFlipUUIDs.history, enabled: true)
-            var command = Data(repeating: 0, count: 5)
-            command[0] = 0x01
-            command.replaceSubrange(1..<5, with: [0xFF, 0xFF, 0xFF, 0xFF])
-            logger.debug("History last-event request")
+            logger.debug("History single-event request ev=\(eventNumber, privacy: .public)")
             try await write(command, to: TimeFlipUUIDs.history, type: .withResponse)
         } catch {
-            logger.error("readLastEvent write failed: \(error.localizedDescription, privacy: .public)")
-            await withNotification(TimeFlipUUIDs.history, enabled: false)
+            logger.error("readSingleEvent write failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
 
-        let watchdog = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(nanoseconds: self.deviceOperationTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
-            guard !Task.isCancelled else { return }
-            self.historyStreamContinuation?.finish()
-            self.logger.error("readLastEvent timed out waiting for response")
+        guard let data = await readHistoryValueWithoutDisconnect() else {
+            logger.error("readSingleEvent timed out or failed waiting for response")
+            return nil
         }
-        defer { watchdog.cancel() }
+        return TimeFlipHistoryParser.parse(data)
+    }
 
-        var result: TimeFlipHistoryEntry?
-        for await frame in stream {
-            result = TimeFlipHistoryParser.parse(frame)
-            break
+    /// Reads the history characteristic's current value directly, using its own short timeout
+    /// rather than the shared read(_:) helper's -- a failure here should just fall back to the
+    /// full 0x02 stream, not disconnect the whole device the way handleTimeout (triggered by
+    /// read(_:)'s scheduleTimeout) does. Returns nil on any failure/timeout instead of throwing,
+    /// since callers treat this as a best-effort optimization, never a required step.
+    private func readHistoryValueWithoutDisconnect() async -> Data? {
+        guard let characteristic = characteristics[TimeFlipUUIDs.history] else { return nil }
+        guard continuations.reads[TimeFlipUUIDs.history] == nil else { return nil }
+        let uuid = TimeFlipUUIDs.history
+
+        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            continuations.reads[uuid] = continuation
+            peripheral?.readValue(for: characteristic)
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5 * TimeConstants.nanosecondsPerSecond)
+                guard let self else { return }
+                if let pending = self.continuations.reads.removeValue(forKey: uuid) {
+                    pending.resume(throwing: DeviceError.readFailed(uuid))
+                }
+            }
         }
-
-        await withNotification(TimeFlipUUIDs.history, enabled: false)
-        return result
     }
 
     private func withNotification(_ uuid: CBUUID, enabled: Bool) async {

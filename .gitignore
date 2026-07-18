@@ -8,3 +8,4 @@
 client_secret_*.json
 .vscode/
 config.json
+/Tests/Interactive/current_settings.json
