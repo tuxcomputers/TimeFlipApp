@@ -7,7 +7,7 @@ connect your Google account, pair your TimeFlip device, and configure activities
 
 ## Google Account Setup
 
-To enable Google Calendar and Google Sheets integration, you need to create a Google Cloud project and configure
+To enable Google Calendar integration, you need to create a Google Cloud project and configure
 OAuth credentials.
 
 ### Step 1: Create a Google Cloud Project
@@ -20,9 +20,8 @@ OAuth credentials.
 ### Step 2: Enable Required APIs
 
 1. In your project, go to "APIs & Services" > "Library"
-2. Search for and enable the following APIs:
+2. Search for and enable the following API:
    - **Google Calendar API**
-   - **Google Sheets API**
 
 ### Step 3: Configure OAuth Consent Screen
 
@@ -43,7 +42,6 @@ instead of a single wizard. Configure them in this order:
    - Add the following scopes:
      - `https://www.googleapis.com/auth/calendar.events`
      - `https://www.googleapis.com/auth/calendar.readonly`
-     - `https://www.googleapis.com/auth/spreadsheets`
    - Click "Update" and then "Save"
 
 ### Step 4: Create OAuth Credentials
@@ -73,18 +71,13 @@ instead of a single wizard. Configure them in this order:
 
 ![Preferences - Reports](../image/preferences-report.png)
 
-### Step 6: Configure Calendar and Sheet
+### Step 6: Configure Calendar
 
-1. In the Reports tab preferences:
-   - **Calendar**: Click "Load calendars" to fetch your Google calendars, then select the calendar where events
-     should be created from the dropdown menu. You can use "Refresh calendars" to reload the list if needed.
-   - **Sheet URL**:
-     - Click "Set" to enter a Google Sheets URL (if you have a sheet URL in your clipboard, it will be pre-filled)
-     - Press Enter to save, or Escape to cancel
-     - Once set, use "Update" to change the URL or "Open" to view the sheet in your browser
-     - To remove the URL, click "Update", clear the field, and press Enter
+1. In the Reports tab preferences, under **Calendar**: click "Load calendars" to fetch your Google
+   calendars, then select the calendar where events should be created from the dropdown menu. You
+   can use "Refresh calendars" to reload the list if needed.
 
-The app will now automatically sync your time tracking data to Google Calendar and Sheets.
+The app will now automatically sync your time tracking data to Google Calendar.
 
 ## TimeFlip Device Setup
 
@@ -259,15 +252,14 @@ The app includes a mock device that simulates TimeFlip behavior and accepts comm
 ### Google OAuth Fails
 
 - Verify your email is added as a test user in Google Cloud Console
-- Check that all required APIs are enabled (Calendar API, Sheets API)
+- Check that the required API is enabled (Calendar API)
 - Ensure the Client ID and Client Secret are correct
 - Try signing out and signing in again
 
 ### Events Not Syncing to Google
 
 - Verify you're authenticated
-- Check that Calendar Name and Sheet URL are configured
-- Ensure the sheet is accessible to your Google account
+- Check that a Calendar is configured
 - Check Console.app logs for error messages (filter by "timeflip")
 
 ### Menu Bar Not Updating

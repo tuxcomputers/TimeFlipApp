@@ -15,7 +15,6 @@ struct PreferencesPayload: Codable {
     var facetMappings: [FacetMappingRecord] = []
     var googleCalendarID: String?
     var googleCalendarName: String?
-    var googleSheetURL: String?
     var googleClientID: String?
     var isPaired: Bool = false
     // optional for backward compatibility

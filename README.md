@@ -1,7 +1,7 @@
 # TimeFlip macOS
 
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device with seamless 
-Google Calendar and Google Sheets integration.
+Google Calendar integration.
 
 ## Provenance
 
@@ -21,7 +21,6 @@ VS Code plugin. The design decisions are mine (Harry Phillips), for better or wo
   low-battery warning at a glance
 - **Device Lock Control**: Double-click to lock/unlock the device directly from the menu bar
 - **Google Calendar Sync**: Automatically creates calendar events for completed time tracking sessions
-- **Google Sheets Export**: Appends activity logs to a designated Google Sheet workbook
 - **Activity Management**: Configure custom activities with icons, colors, and daily time limits
 - **Auto-Pause Support**: Automatic pause after configurable idle time
 - **Daily Statistics**: Track daily time spent per activity
@@ -56,7 +55,7 @@ Menu bar item preview:
 - **MenuBarController**: Menu bar UI and timer display
 - **TimeFlipBLEDevice**: Bluetooth Low Energy device driver
 - **HistoryIngestor**: Event processing and logbook management
-- **GoogleIntegrationCoordinator**: Syncs data to Google Calendar and Sheets
+- **GoogleIntegrationCoordinator**: Syncs data to Google Calendar
 - **AppState**: Application state and user preferences
 
 ### Data Flow
@@ -69,7 +68,6 @@ Device History Events
 Logbook Database (SQLite)
     ↓
 ├─> Google Calendar Events
-├─> Google Sheets Rows
 └─> Menu Bar UI + Daily Stats
 ```
 

@@ -29,7 +29,6 @@ final class AppState: ObservableObject {
     @Published var facetMappings: [FacetMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
-    @Published var googleSheetURL: String
     @Published var googleClientID: String
     @Published var googleClientSecret: String
     @Published var devicePassword: String
@@ -87,7 +86,6 @@ final class AppState: ObservableObject {
         facetMappings = ActivityLibrary.defaultMappings()
         googleCalendarID = nil
         googleCalendarName = nil
-        googleSheetURL = ""
         googleClientID = ""
         googleClientSecret = ""
         devicePassword = TimeFlipConstants.defaultPassword
@@ -320,7 +318,6 @@ final class AppState: ObservableObject {
         }
         googleCalendarID = payload.googleCalendarID
         googleCalendarName = payload.googleCalendarName
-        googleSheetURL = payload.googleSheetURL ?? ""
         googleClientID = payload.googleClientID ?? ""
         wantsPairing = payload.wantsPairing ?? payload.isPaired
         isPaired = false
@@ -366,7 +363,6 @@ final class AppState: ObservableObject {
             $facetMappings.map { _ in () }.eraseToAnyPublisher(),
             $googleCalendarID.map { _ in () }.eraseToAnyPublisher(),
             $googleCalendarName.map { _ in () }.eraseToAnyPublisher(),
-            $googleSheetURL.map { _ in () }.eraseToAnyPublisher(),
             $googleClientID.map { _ in () }.eraseToAnyPublisher(),
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
@@ -427,7 +423,6 @@ final class AppState: ObservableObject {
             facetMappings: records,
             googleCalendarID: googleCalendarID,
             googleCalendarName: googleCalendarName,
-            googleSheetURL: sanitizedSheetURL(),
             googleClientID: sanitizedClientID(),
             isPaired: wantsPairing,
             wantsPairing: wantsPairing,
@@ -442,11 +437,6 @@ final class AppState: ObservableObject {
         if isDeveloperConfigActive {
             persistDeveloperConfig()
         }
-    }
-
-    private func sanitizedSheetURL() -> String? {
-        let trimmed = googleSheetURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func sanitizedClientID() -> String? {

@@ -9,13 +9,11 @@ final class GoogleIntegrationCoordinator {
 
     private let authManager: GoogleAuthManager?
     private let calendarClient: GoogleCalendarClient
-    private let sheetsClient: GoogleSheetsClient
     private let dataStore: AppDataStore
     private let cursorStore: IntegrationEventCursorStore
     private let tokenProvider: () async throws -> String
     private let preferencesProvider: () -> IntegrationPreferences
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "google-integration")
-    private var sheetTitleCache: [SheetCacheKey: String] = [:]
     private let integrationEnabled: Bool
     private var isProcessing = false
     // Set when a trigger arrives while processPending is already running, so that run picks up
@@ -29,17 +27,15 @@ final class GoogleIntegrationCoordinator {
     init(
         authManager: GoogleAuthManager? = nil,
         calendarClient: GoogleCalendarClient = GoogleCalendarAPIClient(),
-        sheetsClient: GoogleSheetsClient = GoogleSheetsAPIClient(),
         tokenProvider: (() async throws -> String)? = nil,
         store: AppDataStore = AppDataStore(),
         preferencesProvider: @escaping () -> IntegrationPreferences = {
-            IntegrationPreferences(calendarId: nil, sheetURL: nil)
+            IntegrationPreferences(calendarId: nil)
         },
         integrationEnabled: Bool = true
     ) {
         self.authManager = authManager
         self.calendarClient = calendarClient
-        self.sheetsClient = sheetsClient
         self.dataStore = store
         self.cursorStore = store
         self.preferencesProvider = preferencesProvider
@@ -106,71 +102,14 @@ final class GoogleIntegrationCoordinator {
         try await calendarClient.insertEvent(accessToken: accessToken, calendarId: calendarId, event: event)
     }
 
-    private func appendSheetRow(accessToken: String, sheetURL: String, record: ActivityRecord) async throws {
-        guard let destination = GoogleSheetDestination.parse(from: sheetURL) else {
-            logger.error("Invalid Google Sheet URL: \(sheetURL, privacy: .public)")
-            throw GoogleIntegrationCoordinatorError.invalidSheetURL
-        }
-
-        let range = try await resolveSheetRange(accessToken: accessToken, destination: destination)
-        let timestamp = ActivityRecordFormatter.sheetsTimestamp(from: record.startDate)
-        let duration = ActivityRecordFormatter.formattedDuration(record.duration)
-        let values = [[timestamp, duration, record.activityName]]
-        logger.debug("appendSheetRow sheet=\(destination.spreadsheetId, privacy: .public) start=\(record.startDate.timeIntervalSince1970, privacy: .public) dur=\(record.duration, privacy: .public)")
-        try await sheetsClient.appendRow(
-            accessToken: accessToken,
-            spreadsheetId: destination.spreadsheetId,
-            range: range,
-            values: values
-        )
-    }
-
-    private func resolveSheetRange(
-        accessToken: String,
-        destination: GoogleSheetDestination
-    ) async throws -> String {
-        let cacheKey = SheetCacheKey(spreadsheetId: destination.spreadsheetId, sheetGid: destination.sheetGid)
-        if let cached = sheetTitleCache[cacheKey] {
-            return Self.quotedSheetRange(title: cached)
-        }
-
-        let sheets = try await sheetsClient.fetchSheets(
-            accessToken: accessToken,
-            spreadsheetId: destination.spreadsheetId
-        )
-        let resolvedTitle: String?
-        if let gid = destination.sheetGid {
-            resolvedTitle = sheets.first { $0.id == gid }?.title
-        } else {
-            resolvedTitle = sheets.first?.title
-        }
-
-        if let resolvedTitle {
-            sheetTitleCache[cacheKey] = resolvedTitle
-            return Self.quotedSheetRange(title: resolvedTitle)
-        }
-
-        return "A:C"
-    }
-
-    /// A1 notation requires sheet names to be single-quoted (with embedded quotes doubled) —
-    /// otherwise a title containing a space or special character produces an invalid range.
-    private static func quotedSheetRange(title: String) -> String {
-        "'\(title.replacingOccurrences(of: "'", with: "''"))'!A:C"
-    }
-
     // MARK: - Session helpers
 
     private func buildTargets(preferences: IntegrationPreferences) -> [IntegrationTargetDescriptor] {
         guard integrationEnabled else { return [] }
         var targets: [IntegrationTargetDescriptor] = []
         let calendarId = preferences.calendarId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let sheetURL = preferences.sheetURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !calendarId.isEmpty {
             targets.append(.calendar(calendarId))
-        }
-        if !sheetURL.isEmpty {
-            targets.append(.sheets(sheetURL))
         }
         return targets
     }
@@ -196,7 +135,7 @@ final class GoogleIntegrationCoordinator {
             let targetList = targets.map { $0.asTarget.rawValue }.joined(separator: ",")
             logger.debug("process_pending targets=\(targetList, privacy: .public)")
             guard !targets.isEmpty else {
-                logger.warning("processPending skipped: no calendar/sheets configured")
+                logger.warning("processPending skipped: no calendar configured")
                 break
             }
             for target in targets {
@@ -321,11 +260,6 @@ final class GoogleIntegrationCoordinator {
                 "deliver_calendar id=\(calendarId, privacy: .public) start=\(record.startDate.timeIntervalSince1970, privacy: .public) dur=\(record.duration, privacy: .public)"
             )
             try await writeCalendarEvent(accessToken: accessToken, calendarId: calendarId, record: record)
-        case .sheets(let sheetURL):
-            logger.debug(
-                "deliver_sheet url=\(sheetURL, privacy: .private) start=\(record.startDate.timeIntervalSince1970, privacy: .public) dur=\(record.duration, privacy: .public)"
-            )
-            try await appendSheetRow(accessToken: accessToken, sheetURL: sheetURL, record: record)
         }
 
         if let rowid = event.id {
@@ -366,14 +300,11 @@ final class GoogleIntegrationCoordinator {
 
 private enum IntegrationTargetDescriptor {
     case calendar(String)
-    case sheets(String)
 
     var asTarget: IntegrationTarget {
         switch self {
         case .calendar:
             return .calendar
-        case .sheets:
-            return .sheets
         }
     }
 
@@ -381,25 +312,16 @@ private enum IntegrationTargetDescriptor {
         switch self {
         case .calendar(let id):
             return id
-        case .sheets(let url):
-            return url
         }
     }
 
 }
 
-private struct SheetCacheKey: Hashable {
-    let spreadsheetId: String
-    let sheetGid: Int?
-}
-
 enum GoogleIntegrationCoordinatorError: Error {
     case missingAuthManager
     case disabled
-    case invalidSheetURL
 }
 
 struct IntegrationPreferences {
     let calendarId: String?
-    let sheetURL: String?
 }

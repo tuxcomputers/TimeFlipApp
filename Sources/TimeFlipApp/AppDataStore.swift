@@ -14,7 +14,6 @@ struct DeviceEventRecord {
 
 enum IntegrationTarget: String {
     case calendar
-    case sheets
     case local
 }
 
@@ -33,7 +32,7 @@ protocol IntegrationEventCursorStore {
     func recordEventFailure(target: IntegrationTarget, identifier: String, error: String)
     func loadEventCursorStatus(target: IntegrationTarget, identifier: String) -> IntegrationEventCursorStatus?
     /// True if some other identifier already has a cursor for this target — i.e. integrations
-    /// were previously delivering to a different calendar/sheet, and this one is a switch rather
+    /// were previously delivering to a different calendar, and this one is a switch rather
     /// than the very first setup (which should still see the existing backlog).
     func hasCursor(target: IntegrationTarget, excludingIdentifier identifier: String) -> Bool
 }

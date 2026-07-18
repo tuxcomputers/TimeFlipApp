@@ -35,10 +35,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         authManager: enableGoogleIntegrations ? authManager : nil,
         store: dataStore,
         preferencesProvider: { [weak appState] in
-            IntegrationPreferences(
-                calendarId: appState?.googleCalendarID,
-                sheetURL: appState?.googleSheetURL
-            )
+            IntegrationPreferences(calendarId: appState?.googleCalendarID)
         },
         integrationEnabled: enableGoogleIntegrations
     )

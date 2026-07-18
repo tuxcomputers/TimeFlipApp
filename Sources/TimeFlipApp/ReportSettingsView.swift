@@ -9,10 +9,6 @@ struct ReportSettingsView: View {
     @State private var calendars: [GoogleCalendarSummary] = []
     @State private var isLoadingCalendars = false
     @State private var calendarError: String?
-    @State private var isEditingSheetURL = false
-    @State private var sheetURLDraft = ""
-    @State private var sheetSyncError: String?
-    @FocusState private var sheetURLFieldFocused: Bool
 
     var body: some View {
         Form {
@@ -23,7 +19,7 @@ struct ReportSettingsView: View {
                 if !integrationsEnabled {
                     Text(
                         """
-                        Google Calendar and Sheets sync are disabled for this build;
+                        Google Calendar sync is disabled for this build;
                         events stay local while we debug history.
                         """
                     )
@@ -32,8 +28,6 @@ struct ReportSettingsView: View {
                     authSection
                     Divider()
                     calendarSection
-                    Divider()
-                    sheetSection
                 }
             }
         }
@@ -168,105 +162,6 @@ struct ReportSettingsView: View {
                 appState.googleCalendarName = calendars.first { $0.id == trimmed }?.summary
             }
         )
-    }
-
-    @ViewBuilder private var sheetSection: some View {
-        let currentURL = appState.googleSheetURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasURL = !currentURL.isEmpty
-
-        if isEditingSheetURL {
-            TextField("", text: $sheetURLDraft)
-            .textFieldStyle(.roundedBorder)
-            .focused($sheetURLFieldFocused)
-            .onSubmit {
-                saveSheetURL()
-            }
-            .onKeyPress(.escape) {
-                cancelEditingSheetURL()
-                return .handled
-            }
-            .onChange(of: sheetURLFieldFocused) { _, isFocused in
-                if !isFocused {
-                    cancelEditingSheetURL()
-                }
-            }
-        } else {
-            LabeledContent("Sheet URL") {
-                HStack {
-                    Button(hasURL ? "Update" : "Set") {
-                        startEditingSheetURL()
-                    }
-
-                    if hasURL {
-                        Button("Open") {
-                            if let url = URL(string: currentURL) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let error = sheetSyncError {
-            Text(error)
-                .foregroundStyle(.red)
-        }
-    }
-
-    private func startEditingSheetURL() {
-        let currentURL = appState.googleSheetURL.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if currentURL.isEmpty {
-            // Check clipboard for Google Sheets URL
-            if let clipboardString = NSPasteboard.general.string(forType: .string),
-               clipboardString.hasPrefix("https://docs.google.com/spreadsheets/d/") {
-                sheetURLDraft = clipboardString
-            } else {
-                sheetURLDraft = ""
-            }
-        } else {
-            sheetURLDraft = currentURL
-        }
-
-        isEditingSheetURL = true
-        sheetURLFieldFocused = true
-    }
-
-    private func cancelEditingSheetURL() {
-        isEditingSheetURL = false
-        sheetURLFieldFocused = false
-        sheetURLDraft = ""
-        sheetSyncError = nil
-    }
-
-    private func saveSheetURL() {
-        let trimmed = sheetURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Empty value clears the URL
-        if trimmed.isEmpty {
-            appState.googleSheetURL = ""
-            sheetSyncError = nil
-            cancelEditingSheetURL()
-            return
-        }
-
-        // Validate URL prefix
-        if !trimmed.hasPrefix("https://docs.google.com/spreadsheets/d/") {
-            sheetSyncError = "URL must start with https://docs.google.com/spreadsheets/d/"
-            return
-        }
-
-        // Additional validation using existing parser
-        if GoogleSheetDestination.parse(from: trimmed) == nil {
-            sheetSyncError = "Invalid Google Sheets URL format"
-            return
-        }
-
-        // Save and close
-        appState.googleSheetURL = trimmed
-        sheetSyncError = nil
-        cancelEditingSheetURL()
     }
 
     @MainActor
