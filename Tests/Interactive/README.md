@@ -10,7 +10,7 @@ of the PR that needed them, so the PR record shows the manual verification actua
 - `README.md` (this file) — the convention, not a checklist. Never scanned by CI.
 - `<NN>-<feature>-checklist.md` -- one checklist per feature/behavior under test, numbered from
   `00` so they sort and list together instead of being interspersed alphabetically with each other
-  or with `README.md`/`current_settings.json`. The number reflects sensible **run order**, not just
+  or with `README.md`/`device_register_snapshot.json`. The number reflects sensible **run order**, not just
   creation order -- broader/foundational checks before narrower or independent ones (e.g.
   `00-history-refresh-checklist.md`, covering core data-flow correctness, before
   `01-battery-low-indicator-checklist.md`, a smaller, independent UI feature), and anything a later
@@ -82,48 +82,43 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
 `TimeFlip`, `dev-check`), and `logged_at`/`logged_at_timezone` let you correlate against when a
 `(You)` step happened.
 
-### Temporarily changing a DB setting for a test
+### Switching to the test database before testing
 
-Some checklists need to change a `setting` row to make a slow/rare condition happen on demand (a
-short `fetch_history_interval_seconds` instead of waiting out the real interval, a
-`low_battery_level` at/above the current reading instead of waiting for the battery to actually
-drain). Never do this without recording the full settings state first, in
-`Tests/Interactive/current_settings.json` -- gitignored, not committed, since it only reflects
-tests currently/previously in progress on this machine:
+Interactive testing runs against `~/Library/Application Support/TimeFlip/appdata.sqlite`, but that
+path is a symlink, not a real file (see `AppDataStore.ensureDatabaseSymlink`, only active under
+Developer Mode) -- it points at one of two real database files living alongside it:
+`production.sqlite` (the user's real, permanent data) and `test.sqlite` (created on demand,
+disposable). Two scripts repoint the symlink:
 
-```json
-{
-  "settings_as_at": {
-    "2026-07-18-11.00.51": [
-      {"setting_name": "blip_time", "setting_value": "{\"seconds\":5}"},
-      {"setting_name": "fetch_history_interval_seconds", "setting_value": "{\"seconds\":600}"}
-    ]
-  }
-}
+```
+scripts/use-test-database.sh        # appdata.sqlite -> test.sqlite (creates it fresh if missing)
+scripts/use-production-database.sh  # appdata.sqlite -> production.sqlite
 ```
 
-`settings_as_at` is the top-level key; each key under it is a `YYYY-MM-DD-hh.mi.ss` timestamp, and
-its value is a full snapshot of **every** row in the `setting` table at that moment (not just the
-ones about to change) -- `SELECT setting_name, setting_value FROM setting`. Workflow:
+The symlink is only read at the app's next launch (`sqlite3_open` is called once at startup and
+held for the process's lifetime) -- repointing it while the app is running does nothing until you
+quit and relaunch. Workflow for any testing session:
 
-1. Take exactly **one** snapshot per testing session, right before the *first* setting change of
-   that session -- not one per individual change. If you're about to change `low_battery_level`
-   and then later, in the same session, also change `fetch_history_interval_seconds`, that's still
-   only one snapshot total, taken before the first of the two.
-2. Make whatever changes the session's checklist(s) need, in any order, without snapshotting again.
-3. Once testing is complete, or the user says they're done, restore every row back to the values
-   from the snapshot taken in step 1 for *this* session -- which, since each session adds its
-   snapshot after any prior ones, is the **latest** (most recent) entry under `settings_as_at`, not
-   the earliest.
+1. Quit the app if it's running.
+2. Run `scripts/use-test-database.sh`.
+3. Start the app.
+4. **(Claude)** Query `db_type` as the very first step of Setup, every session, no exceptions:
+   `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
+   setting WHERE setting_name = 'db_type';"`. It must read `{"type":"test"}`. If it reads
+   `{"type":"production"}` instead, **stop immediately** -- the symlink switch didn't happen (or
+   didn't take effect yet because the app wasn't restarted) -- do not run any checklist step that
+   would mutate data until this reads `test`.
+5. Run the session's checklist(s) freely -- change any `setting` row, generate any `device_events`,
+   with no snapshot/restore needed at all, since none of it exists in `production.sqlite`.
+   Real timings are never at risk of interference.
+6. Once testing is complete, quit the app, run `scripts/use-production-database.sh`, and start the
+   app again -- back to real data, exactly as it was before testing started. `test.sqlite` is left
+   in place (not deleted) so the next session can reuse its accumulated state rather than starting
+   from a bare schema every time.
 
-The reason it has to be the latest, not the earliest: a setting's real, permanent value can
-legitimately change between sessions for reasons that have nothing to do with testing -- e.g. it
-was `1200` during an earlier session (snapshotted as `1200`), genuinely changed to `600` afterwards
-outside of testing, and *today's* session snapshots it as `600`. Restoring to the oldest snapshot
-would wrongly revert that real change back to `1200`; restoring to the latest correctly puts it
-back to `600`, which is what was actually true immediately before today's testing started. Never
-snapshot mid-session just because a value changed -- that's the state testing is *supposed* to
-perturb, not something to preserve.
+This replaces the old settings-snapshot-and-restore workflow entirely: since a testing session's
+`setting` changes only ever land in `test.sqlite`, there's nothing that could carry over to
+`production.sqlite` for a snapshot to protect against.
 
 ### Suppressing incidental physical double-taps during a test session
 
@@ -135,15 +130,24 @@ accelerometer click-detection *sensitivity* (commands `0x16` write / `0x17` read
 section in Settings, not a `setting` DB row (the `double_tap_settings` DB row exists but nothing in
 the app reads it -- it's dead seed data, don't rely on it).
 
-Since an accidental double-tap mid-test can otherwise look like a confusing, unexplained state
-change, suppress it for the duration of a testing session:
+This is unaffected by which database file the app is pointed at (production or test) -- it's a
+physical register on the one shared device, not a DB row -- so it needs its own snapshot/restore,
+separate from the database-switching workflow above. Suppress it for the duration of a testing
+session:
 
-1. At the very start of the session (same one-snapshot rule as DB settings above), ask the user to
-   expand the Advanced section (click the "Advanced" label or its arrow) in Settings, then click
-   "Sync from device" under Double-tap sensitivity and report the four current values. Record them
-   in `current_settings.json` under a `double_tap_params_as_at` key (same timestamp-keyed structure
-   as `settings_as_at`) -- this is a device hardware register, not a DB row, so it can't be read via
-   `sqlite3`.
+1. At the very start of the session, ask the user to expand the Advanced section (click the
+   "Advanced" label or its arrow) in Settings, then click "Sync from device" under Double-tap
+   sensitivity and report the four current values. Record them in
+   `Tests/Interactive/device_register_snapshot.json` -- gitignored, not committed, since it only
+   reflects tests currently/previously in progress on this machine -- under a timestamp-keyed
+   `double_tap_params_as_at` object, same shape as the old settings snapshot used to be:
+   ```json
+   {"double_tap_params_as_at": {"2026-07-18-13.32.08": {"clickThreshold": 90, "limit": 20, "latency": 50, "window": 50}}}
+   ```
+   Take exactly one snapshot per session, before the first change, and restore from the **latest**
+   entry once done -- same reasoning as the old DB-setting snapshot: the real values can legitimately
+   change between sessions for reasons unrelated to testing, so the most recent snapshot is the only
+   one that reflects "what was true right before this session started."
 2. Ask the user to set `window` (`TIME_WINDOW`) to `0` and click "Apply". `window` is the maximum
    time the accelerometer allows between the first and second tap for it to still count as one
    double-tap -- `0` structurally guarantees no double-tap can ever complete, a stronger guarantee
@@ -151,12 +155,19 @@ change, suppress it for the duration of a testing session:
    `clickThreshold`/`limit`/`latency` alone; this doesn't touch the separate facet-flip/orientation
    detection either way.
 3. Run the session's checklist(s) as normal.
-4. Once testing is complete, ask the user to re-enter the original values from step 1 and click
-   "Apply" again -- restoring from the latest snapshot, same rule as DB settings.
+4. Once testing is complete, ask the user to re-enter the original values from step 1's latest
+   snapshot and click "Apply" again.
 
 If a checklist scenario is specifically testing double-tap-to-pause behavior itself, that scenario
 needs the real sensitivity active -- temporarily restore the original values for just that scenario,
 then re-suppress before continuing with anything else in the session.
+
+**Planned, not yet built:** a future feature will read `double_tap_settings` from whichever database
+is active and push it to the device automatically (making the DB row a real source of truth instead
+of dead seed data). Once that exists, `production.sqlite` and `test.sqlite` can each hold their own
+sensitivity (e.g. `test.sqlite` permanently seeded with `window: 0`), and switching databases would
+reconfigure the device by itself -- at that point this entire manual snapshot/suppress/restore
+workflow and `device_register_snapshot.json` become unnecessary and should be removed.
 
 ## Running a checklist
 

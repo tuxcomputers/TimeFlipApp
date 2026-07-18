@@ -8,4 +8,4 @@
 client_secret_*.json
 .vscode/
 config.json
-/Tests/Interactive/current_settings.json
+/Tests/Interactive/device_register_snapshot.json
