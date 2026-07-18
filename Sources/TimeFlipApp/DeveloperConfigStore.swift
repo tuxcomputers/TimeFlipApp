@@ -39,6 +39,7 @@ enum DeveloperMode {
         case devCheck = "dev-check"
         case history = "history"
         case battery = "battery"
+        case dbType = "db-type"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

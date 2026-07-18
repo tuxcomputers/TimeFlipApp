@@ -67,6 +67,13 @@ final class AppDataStore: IntegrationEventCursorStore {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        // Only the real default path is symlink-managed (production.sqlite/test.sqlite), and only
+        // under Developer Mode -- an explicit databaseURL means a caller (unit tests) wants an
+        // isolated file of its own, and an end-user (non-dev-mode) build has no use for the
+        // production/test split at all, so it just gets a plain appdata.sqlite file as before.
+        if databaseURL == nil, DeveloperMode.isEnabled {
+            AppDataStore.ensureDatabaseSymlink(at: url)
+        }
         var handle: OpaquePointer?
         if sqlite3_open(url.path, &handle) != SQLITE_OK {
             db = nil
@@ -384,6 +391,14 @@ final class AppDataStore: IntegrationEventCursorStore {
             return true
         }
         return enabled
+    }
+
+    /// Which physical database file this is -- `"production"` or `"test"` (the `db_type` setting;
+    /// see `database/009_setting.sql`). Set once when a database file is first created and never
+    /// changed afterward; see `Tests/Interactive/README.md` for the test-database-switching
+    /// workflow this backs. Falls back to `"production"` if the row is missing or malformed.
+    func loadDbType() -> String {
+        loadSettingJSON(name: "db_type")?["type"] as? String ?? "production"
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
@@ -820,8 +835,16 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// schema — this method never needs to change.
     private func runDatabaseDDL() {
         guard let db else { return }
-        guard let directory = AppDataStore.resolveDatabaseDirectory() else {
-            logger.error("Could not locate bundled Database DDL directory")
+        AppDataStore.runDatabaseDDL(on: db, logger: logger)
+    }
+
+    /// Runs every `.sql` file bundled under the `Database` resource directory, in filename order,
+    /// against an arbitrary open handle -- shared by the instance's own `runDatabaseDDL()` above
+    /// and by `ensureTestDatabaseExists(alongside:)`, which seeds a fresh `test.sqlite` without an
+    /// `AppDataStore` instance of its own to seed it through.
+    private static func runDatabaseDDL(on db: OpaquePointer, logger: Logger?) {
+        guard let directory = resolveDatabaseDirectory() else {
+            logger?.error("Could not locate bundled Database DDL directory")
             return
         }
         let files: [URL]
@@ -830,16 +853,16 @@ final class AppDataStore: IntegrationEventCursorStore {
                 .filter { $0.pathExtension == "sql" }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
         } catch {
-            logger.error("Could not list Database DDL directory: \(error.localizedDescription, privacy: .public)")
+            logger?.error("Could not list Database DDL directory: \(error.localizedDescription, privacy: .public)")
             return
         }
         for file in files {
             guard let sql = try? String(contentsOf: file, encoding: .utf8) else {
-                logger.error("Could not read DDL file \(file.lastPathComponent, privacy: .public)")
+                logger?.error("Could not read DDL file \(file.lastPathComponent, privacy: .public)")
                 continue
             }
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-                logger.error("DDL file \(file.lastPathComponent, privacy: .public) failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                logger?.error("DDL file \(file.lastPathComponent, privacy: .public) failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
         }
     }
@@ -863,6 +886,51 @@ final class AppDataStore: IntegrationEventCursorStore {
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base.appendingPathComponent("TimeFlip", isDirectory: true)
             .appendingPathComponent("appdata.sqlite")
+    }
+
+    /// Makes sure `appdata.sqlite` is a symlink to `production.sqlite`, not a plain file, so
+    /// `scripts/use-test-database.sh`/`scripts/use-production-database.sh` can repoint it at
+    /// `test.sqlite` for a testing session without touching real data (see
+    /// `Tests/Interactive/README.md`). A no-op if it's already a symlink, whatever it currently
+    /// points at -- this only ever runs the one-time migration for a plain file (an install from
+    /// before this symlink scheme existed, or a fresh install with no database yet). Also ensures
+    /// `test.sqlite` exists and is already seeded with `db_type: "test"`, every time this runs --
+    /// so both database files are present together from the moment the symlink scheme is set up
+    /// (or re-set-up after `run.sh --clean`), rather than `test.sqlite` only coming into being the
+    /// first time a testing session actually switches to it. Internal (not private) so
+    /// `AppDataStoreTests` can exercise it directly against a temp directory, independent of the
+    /// `DeveloperMode.isEnabled` gate at its one production call site (`init`).
+    static func ensureDatabaseSymlink(at url: URL) {
+        let fileManager = FileManager.default
+        let productionURL = url.deletingLastPathComponent().appendingPathComponent("production.sqlite")
+        // destinationOfSymbolicLink(atPath:) throws for anything that isn't a symlink (missing
+        // path, or a plain file) -- success alone is enough to confirm the migration already
+        // happened, regardless of which file it currently resolves to.
+        if (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) == nil {
+            if fileManager.fileExists(atPath: url.path), !fileManager.fileExists(atPath: productionURL.path) {
+                // Pre-existing real database from before this symlink scheme -- preserve it as
+                // production.sqlite rather than let sqlite3_open silently create an empty file at
+                // the symlink target below.
+                try? fileManager.moveItem(at: url, to: productionURL)
+            }
+            if !fileManager.fileExists(atPath: url.path) {
+                try? fileManager.createSymbolicLink(at: url, withDestinationURL: productionURL)
+            }
+        }
+        ensureTestDatabaseExists(alongside: productionURL)
+    }
+
+    /// Creates and fully seeds `test.sqlite` next to `production.sqlite`, with its `db_type`
+    /// overridden to `"test"`, if it doesn't already exist. A no-op otherwise -- an existing
+    /// `test.sqlite`'s accumulated state is never reset just because this runs again.
+    private static func ensureTestDatabaseExists(alongside productionURL: URL) {
+        let testURL = productionURL.deletingLastPathComponent().appendingPathComponent("test.sqlite")
+        guard !FileManager.default.fileExists(atPath: testURL.path) else { return }
+        var handle: OpaquePointer?
+        guard sqlite3_open(testURL.path, &handle) == SQLITE_OK, let handle else { return }
+        defer { sqlite3_close(handle) }
+        runDatabaseDDL(on: handle, logger: nil)
+        sqlite3_exec(handle, "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';", nil, nil, nil)
     }
 
     /// Test-only helper to reset the persisted database.
