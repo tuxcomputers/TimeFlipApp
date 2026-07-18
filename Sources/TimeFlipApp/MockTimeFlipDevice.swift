@@ -232,6 +232,10 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         fetchHistorySync(startingFrom: eventNumber)
     }
 
+    func readLastEvent() async -> TimeFlipHistoryEntry? {
+        history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
+    }
+
     func pair() {
         guard !isPaired else { return }
         isPaired = true

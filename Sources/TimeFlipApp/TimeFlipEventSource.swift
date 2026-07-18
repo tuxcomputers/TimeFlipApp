@@ -12,6 +12,13 @@ protocol TimeFlipEventSource: AnyObject {
 protocol TimeFlipDevice: TimeFlipEventSource {
     func snapshot() -> TimeFlipDeviceSnapshot
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry]
+    /// Cheap single-frame read of the device's actual current record (history characteristic
+    /// command 0x01, sentinel value 0xFFFFFFFF) without pulling the full history stream. Per the
+    /// vendor spec this returns a complete History block (event number, facet, start time,
+    /// duration) for the device's last event, not just the bare number, so the caller can refresh
+    /// its stored duration for that entry even when nothing else has changed. Returns nil if the
+    /// read fails or times out.
+    func readLastEvent() async -> TimeFlipHistoryEntry?
 }
 
 /// Session-layer operations that mirror the real device's connection/login/notify flow.

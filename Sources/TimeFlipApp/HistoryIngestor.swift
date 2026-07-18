@@ -14,6 +14,12 @@ final class HistoryIngestor {
 
     private var lastQueuedEventNumber: UInt32?
     private var lastCommittedEventNumber: UInt32?
+    // Highest event number actually seen in a device response, including the still-open segment
+    // -- unlike lastCommittedEventNumber (which only advances once a later event closes one out),
+    // this is what the cheap max-event-number check below compares against, so it correctly
+    // recognizes "the open segment hasn't moved on either" as "nothing new" instead of always
+    // treating the open segment's own number as unseen.
+    private var lastObservedEventNumber: UInt32?
     private var isFetching = false
     private var pending = false
     private let debounceInterval: UInt64 = 250_000_000 // 250ms
@@ -74,24 +80,56 @@ final class HistoryIngestor {
         isFetching = true
         pending = false
 
+        // Step 1: the max event number already known locally, including a still-open segment
+        // that's never been formally "committed" to the cursor (see lastObservedEventNumber) --
+        // falls back to the committed cursor on a fresh session for an already-paired device,
+        // so the check below still applies rather than silently skipping it until the first
+        // observation happens to land.
+        let knownMax = lastObservedEventNumber ?? lastCommittedEventNumber
+        logger.debug("history_ingest trigger=\(trigger, privacy: .public) known_max=\(knownMax ?? 0)")
+        DeveloperMode.debugPrint(.history, "history fetch triggered: trigger=\(trigger) known_max=\(knownMax ?? 0)")
+
+        // Step 2: cheap single-frame read of the device's actual current record. Per the vendor
+        // spec this comes back as a complete History block (facet/start time/duration included,
+        // not just the event number), so if it turns out nothing changed we can still refresh the
+        // DB's duration for that entry below without paying for the full stream. A brand-new
+        // pairing has nothing local to compare against, and a failed/timed-out read comes back
+        // nil -- both fall through to the full fetch rather than getting stuck.
+        let deviceEntry = await device.readLastEvent()
+        let deviceLastEventNumber = deviceEntry?.eventNumber
+
+        if let knownMax, let deviceEntry, let deviceLastEventNumber, deviceLastEventNumber == knownMax {
+            // Same event -- nothing new, but its duration may have grown since we last saw it.
+            dataStore.recordDeviceEvent(
+                eventNumber: deviceLastEventNumber,
+                deviceFace: deviceEntry.facetID,
+                startedAt: deviceEntry.startedAt,
+                durationSeconds: deviceEntry.duration,
+                isPaused: deviceEntry.isPaused
+            )
+            onLatestEntry?(deviceEntry)
+            logger.debug("history_ingest device_max=\(deviceLastEventNumber, privacy: .public) unchanged; DB refreshed, stream skipped")
+            DeveloperMode.debugPrint(.history, "history fetch: device max_event_number=\(deviceLastEventNumber) unchanged; DB refreshed")
+            await finishFetch()
+            return
+        }
+
+        // Step 3: different (or unknown) -- fetch history starting AT the last known event
+        // (nextStartCursor() resolves to lastCommittedEventNumber + 1, which is the previously
+        // still-open entry's own number, not past it) so its complete/updated record comes back
+        // too, instead of leaving its state ambiguous.
         let startCursor = nextStartCursor()
-        logger.debug("history_ingest trigger=\(trigger, privacy: .public) start_cursor=\(startCursor ?? 0)")
-        DeveloperMode.debugPrint(.history, "history fetch triggered: trigger=\(trigger) start_cursor=\(startCursor ?? 0)")
         let rawEntries = await device.fetchHistory(startingFrom: startCursor)
             .filter { $0.eventNumber != nil }
             .sorted { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
         guard let latestEntry = rawEntries.last else {
             logger.debug("history_ingest no new entries")
-            isFetching = false
-            if pending {
-                pending = false
-                try? await Task.sleep(nanoseconds: debounceInterval)
-                await refreshHistory(trigger: "debounce")
-            }
+            await finishFetch()
             return
         }
 
-        // Deliver all but the last entry to the logbook; keep the last entry for live menu/state updates.
+        // Step 5: insert the rest -- deliver all but the last entry to the logbook; the last entry
+        // is handled separately below (step 4) since it's the live/current one, not a closed one.
         // Must run BEFORE the live-entry recordDeviceEvent call below: AppDataStore.recordDeviceEvent
         // tracks the highest start_epoch it's seen so it can pick UPDATE vs INSERT without an
         // ON CONFLICT round-trip, so device_events rows have to be written in ascending
@@ -100,6 +138,7 @@ final class HistoryIngestor {
         // branch against a row that was never inserted -- a silent no-op that drops the entire
         // backfill batch.
         let deliverableEntries = Array(rawEntries.dropLast())
+        var allDeliverableCommitted = true
         if deliverableEntries.isEmpty {
             logger.debug("history_ingest no deliverable entries (live entry withheld for UI)")
         } else {
@@ -114,17 +153,47 @@ final class HistoryIngestor {
                     lastCommittedEventNumber = max(lastCommittedEventNumber ?? 0, maxEv)
                     persistDeviceCursor()
                     logger.notice("history_ingest logbook advanced_event_to=\(maxEv, privacy: .public)")
+                    allDeliverableCommitted = maxEv == newEntries.last?.eventNumber
                 } else {
                     logger.error("history_ingest no entries committed this batch; cursor unchanged")
+                    allDeliverableCommitted = false
                 }
                 onNewEvents?()
             }
         }
 
-        // The device always reports its still-open, in-progress segment as the last frame (see
-        // docs/timeflip.md §5); record it as not-yet-finalised so device_events reflects the live
-        // segment, growing in duration on each refresh until a later event closes it out.
-        if let latestEventNumber = latestEntry.eventNumber {
+        // Step 4: update the last known (current) entry from the history just received. The last
+        // frame of a *complete* transmission is always the device's still-open segment (see
+        // docs/timeflip.md §5) -- but a stream cut short by a dropped connection can also end on a
+        // frame that's actually already closed, with more (unfetched) history beyond it that we
+        // simply haven't received yet. Only trust and surface this frame as "current" once it
+        // matches the device's own last event number read in step 2 AND everything ahead of it
+        // actually made it into the logbook; otherwise leave it untouched (neither committed nor
+        // displayed) so the next refresh resumes from the same point and resolves the ambiguity,
+        // instead of showing a stale or premature "current" activity.
+        let latestEventNumber = latestEntry.eventNumber
+        let latestIsConfirmedCurrent: Bool = {
+            guard let deviceLastEventNumber else { return true }
+            guard let latestEventNumber else { return false }
+            return latestEventNumber >= deviceLastEventNumber
+        }()
+        guard latestIsConfirmedCurrent, allDeliverableCommitted else {
+            // Deliberately doesn't force an immediate retry (e.g. via `pending`): if the ambiguity
+            // is a transient stream cutoff, the next periodic/live-event trigger re-resolves it
+            // naturally; if it's a persistently stuck connection, retrying in a tight loop here
+            // would just hammer the device forever instead of leaving recovery to the existing
+            // reconnect/backoff handling.
+            logger.debug(
+                "history_ingest live entry withheld: confirmed_current=\(latestIsConfirmedCurrent, privacy: .public) all_committed=\(allDeliverableCommitted, privacy: .public)"
+            )
+            DeveloperMode.debugPrint(.history, "history fetch: live entry ambiguous or backlog incomplete, deferring to next trigger")
+            await finishFetch()
+            return
+        }
+
+        // Record the confirmed-current segment as not-yet-finalised so device_events reflects the
+        // live segment, growing in duration on each refresh until a later event closes it out.
+        if let latestEventNumber {
             dataStore.recordDeviceEvent(
                 eventNumber: latestEventNumber,
                 deviceFace: latestEntry.facetID,
@@ -132,6 +201,7 @@ final class HistoryIngestor {
                 durationSeconds: latestEntry.duration,
                 isPaused: latestEntry.isPaused
             )
+            lastObservedEventNumber = max(lastObservedEventNumber ?? 0, latestEventNumber)
         }
 
         // Update UI with latest entry AFTER accumulating deliverable entries
@@ -141,10 +211,16 @@ final class HistoryIngestor {
         // doesn't spam the console with one line per record.
         dataStore.verifyMaxKnownStartEpochConsistency()
 
+        await finishFetch()
+    }
+
+    /// Clears the in-flight flag and, if another trigger arrived while this fetch was running,
+    /// re-runs after a short debounce so dense bursts collapse into one trailing re-fetch instead
+    /// of hammering the device back-to-back.
+    private func finishFetch() async {
         isFetching = false
         if pending {
             pending = false
-            // Debounce to avoid hammering the device on dense event bursts.
             try? await Task.sleep(nanoseconds: debounceInterval)
             await refreshHistory(trigger: "debounce")
         }
@@ -213,6 +289,7 @@ final class HistoryIngestor {
     func resetCursors(reason: String) {
         lastQueuedEventNumber = nil
         lastCommittedEventNumber = nil
+        lastObservedEventNumber = nil
         dataStore.clearEventCursors()
         dataStore.purgeAllEvents()
         logger.notice("history_ingest cursors reset reason=\(reason, privacy: .public)")
