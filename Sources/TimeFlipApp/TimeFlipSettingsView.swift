@@ -249,7 +249,12 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Text("Advanced")
+                Button {
+                    isAdvancedExpanded.toggle()
+                } label: {
+                    Text("Advanced")
+                }
+                .buttonStyle(.plain)
             }
         }
     }

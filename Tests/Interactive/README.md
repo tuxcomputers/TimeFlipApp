@@ -53,6 +53,17 @@ when asking the user to confirm a duration on screen, convert it to `mm:ss` firs
 seconds -> `10:24`) -- that's the format the menu bar actually displays, and it's what the user can
 compare at a glance.
 
+Always make sure the `display_seconds` setting is enabled (`{"enabled":true}`) at the start of a
+testing session -- check it as part of Setup, same as any other DB setting. With it on, the menu
+bar shows to-the-second granularity, which is what makes "is the time increasing or static" (see
+below) something the user can actually judge over a short glance instead of needing to wait out a
+whole displayed minute to see the number move.
+
+To confirm whether the device is currently running or paused, don't ask "is it paused?" -- ask "is
+the time increasing?" as a plain yes/no over a couple of seconds of watching (yes = running, no =
+paused). That's a concrete, directly-observable thing to check; "paused" is a state name the user
+would otherwise have to infer.
+
 ### Reading debug output: use `debug_log`, not the terminal
 
 Don't rely on reading a live terminal/console transcript for `(Claude)` steps -- there's usually no
@@ -114,6 +125,39 @@ back to `600`, which is what was actually true immediately before today's testin
 snapshot mid-session just because a value changed -- that's the state testing is *supposed* to
 perturb, not something to preserve.
 
+### Suppressing incidental physical double-taps during a test session
+
+The TimeFlip2 device pauses itself whenever it detects a physical double-tap -- this is
+unconditional firmware behavior (see `docs/TimeFlip2 BLE Protocol v4.3.md`'s double-tap notify
+description) with **no BLE command to disable it outright**. The only adjustable lever is
+accelerometer click-detection *sensitivity* (commands `0x16` write / `0x17` read -- `clickThreshold`,
+`limit`, `latency`, `window`, each a `UInt8` 0-255), exposed through the app's own Double Tap
+section in Settings, not a `setting` DB row (the `double_tap_settings` DB row exists but nothing in
+the app reads it -- it's dead seed data, don't rely on it).
+
+Since an accidental double-tap mid-test can otherwise look like a confusing, unexplained state
+change, suppress it for the duration of a testing session:
+
+1. At the very start of the session (same one-snapshot rule as DB settings above), ask the user to
+   expand the Advanced section (click the "Advanced" label or its arrow) in Settings, then click
+   "Sync from device" under Double-tap sensitivity and report the four current values. Record them
+   in `current_settings.json` under a `double_tap_params_as_at` key (same timestamp-keyed structure
+   as `settings_as_at`) -- this is a device hardware register, not a DB row, so it can't be read via
+   `sqlite3`.
+2. Ask the user to set `window` (`TIME_WINDOW`) to `0` and click "Apply". `window` is the maximum
+   time the accelerometer allows between the first and second tap for it to still count as one
+   double-tap -- `0` structurally guarantees no double-tap can ever complete, a stronger guarantee
+   than raising `clickThreshold` (which only requires more force, not zero opportunity). Leave
+   `clickThreshold`/`limit`/`latency` alone; this doesn't touch the separate facet-flip/orientation
+   detection either way.
+3. Run the session's checklist(s) as normal.
+4. Once testing is complete, ask the user to re-enter the original values from step 1 and click
+   "Apply" again -- restoring from the latest snapshot, same rule as DB settings.
+
+If a checklist scenario is specifically testing double-tap-to-pause behavior itself, that scenario
+needs the real sensitivity active -- temporarily restore the original values for just that scenario,
+then re-suppress before continuing with anything else in the session.
+
 ## Running a checklist
 
 When asked to run through a checklist:
@@ -127,10 +171,77 @@ When asked to run through a checklist:
    register that an action is expected of them. Use a large markdown heading (e.g. `## Action
    needed`) or comparably bold/distinct formatting, not a plain sentence sitting among other plain
    sentences.
-5. Under that heading, match the format to the step count: a single action is just the plain
+5. Only put things under that heading that the user actually has to do. A `(Claude)` step --
+   including one that happens to involve a setting the user can't practically change themselves,
+   like a DB value -- is not an action-needed item; do it, then move straight to whatever the next
+   real `(You)` step is. Don't ask the user to "confirm" something Claude already did/verified
+   itself just to pad out a list.
+6. When a feature can be triggered more than one way (e.g. a menu item vs. an equivalent
+   click/gesture on the status icon), don't fold both into a single step ("click X, or do gesture
+   Y") -- give each its own scenario/steps so a bug in one path isn't masked by the other having
+   been exercised instead.
+7. The checkbox tick is the record that a step happened -- don't add a note underneath just to say
+   so (e.g. a bare "Confirmed."). Only add a note when it carries actual evidence the tick alone
+   doesn't: a queried value, an exact log line, a reading -- something a future reader of the
+   checklist would want to see without re-running the test themselves. When there is such a value,
+   put it in parentheses at the end of the same list item (wrapped/indented like the rest of the
+   item's text), not as a separate paragraph underneath:
+   ```markdown
+   - [x] **(Claude)** Query `debug_log` for recent `battery` rows and note the live level's natural
+         fluctuation range (its lower and higher reading). (Confirmed: flaps between 26% (lower)
+         and 27% (higher).)
+   ```
+8. Under that heading, match the format to the step count: a single action is just the plain
    instruction sentence; multiple actions (e.g. "turn off Bluetooth, then flip the device twice")
    are a numbered list, one action per line, not run together in prose -- so the user can tell at a
    glance how many things they need to do and check them off one at a time.
+9. When finishing one scenario/section and moving to the next, say so with a heading as visually
+   big as `## Action needed` -- e.g. `## Scenario A complete`, followed by a one-line result (all
+   passed, or what was found and fixed) -- before starting the next one. This keeps the user
+   oriented on where the run is up to without having to scroll back through the file themselves.
+10. When a single confirmation step covers several conditions at once (e.g. "lock badge shown, menu
+    reads Unlock, Pause disabled"), phrase it as one combined yes/no ask -- a short lead-in sentence
+    plus a numbered list of the conditions -- so the user can answer with one word instead of
+    individually addressing each item:
+    ```markdown
+    Confirm the following with a single yes or no:
+    1. The red lock icon is there
+    2. The menu says Unlocked
+    3. The Pause item is greyed out
+    ```
+    If the answer is anything other than a clean yes, dig deeper -- ask which part didn't match --
+    instead of ticking every box on an ambiguous or partial answer.
+11. Watch the user's answers for signs they did something that wasn't asked for (an extra click, a
+    setting changed early, an unrequested action mentioned in passing). If that happens, don't just
+    press on -- work out what state that leaves things in, tell the user plainly, and give explicit
+    instructions to get back to the state the current step actually requires before re-asking for
+    confirmation.
+12. When a feature has more than one trigger (a menu item vs. a click/gesture on the status icon,
+    tested as separate scenarios per point 6), always name which one an action-needed step means --
+    "click the Lock **menu item**", not just "click Lock" -- even if it seems obvious from context.
+    Don't make the user infer which gesture from which scenario they're currently in.
+
+## Bugs found and fixed
+
+If running a checklist surfaces a real bug and it gets fixed as part of the same session, record it
+right under the checklist item that exposed it, as its own heading:
+
+```markdown
+- [x] **(You)** Confirm the activity name is blinking red/white.
+### Bugs found and fixed
+2026-07-15 - The user is a mornon and could not find the app, slapped him upside the head, fixed.
+2026-07-18 - The off flash was 0 so it looked like the icon was always red, fixed.
+```
+
+One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, so don't
+re-explain it here. If the same checklist gets run again later on the same branch and another bug
+turns up, add another dated line under the existing heading instead of replacing it -- this builds
+a running history of what testing found and fixed on this branch.
+
+This is branch-specific history, not permanent documentation: if the checklist is later run again
+on a *different* branch (e.g. this branch got merged to main and a new feature branch was cut from
+it), remove any "Bugs found and fixed" sections before that run starts -- they document work that
+happened on a branch the new one didn't inherit.
 
 ## Restarting
 

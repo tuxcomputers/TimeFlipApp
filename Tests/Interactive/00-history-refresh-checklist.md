@@ -51,16 +51,10 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] **(Claude)** Confirm every intermediate flip shows up as its own finalised `device_events`
       row in ascending `event_number` order with no gaps, and the final row (still open) matches
       the device's actual current facet.
-
-      **Found and fixed during this run:** the first disconnect cycle actually surfaced a real,
-      pre-existing gap (event 29 missing from `device_events`). Root cause turned out to be the
-      vendor spec's own documented behavior -- 0x02 only streams "intervals that lasted at least 5
-      sec", and event 29 was a genuine 4-second segment the device still holds but doesn't include
-      in the stream. Added gap detection + targeted single-event (0x01) recovery to
-      `TimeFlipBLEDevice.fetchHistory`, which only keeps a recovered entry if it meets that same
-      5-second minimum (otherwise it's the device's own filter working as intended, not a bug).
-      Verified live: a subsequent disconnect/flip/reconnect cycle produced a fully gapless sequence
-      (events 33-36).
+### Bugs found and fixed
+2026-07-18 - Silent BLE notification drop caused a permanent gap in `device_events` (event 29
+missing), fixed with gap detection + targeted single-event recovery in
+`TimeFlipBLEDevice.fetchHistory`.
 - [x] **(Claude)** Confirm `integration_event_cursors` (`identifier = 'device-history'`) advanced
       to the last finalised event number, not the still-open one.
 
@@ -71,17 +65,15 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] **(You)** Quit the app, then relaunch it.
 - [x] **(Claude)** Query `debug_log` for the startup history fetch's `known_max=` value and
       confirm it matches that persisted cursor (not `known_max=0` / a full re-fetch of all
-      history).
-
-      Confirmed: `trigger=startup known_max=36`. The cursor had legitimately advanced from 35 to
-      36 between the baseline note and quitting (event 36 was finalised in that window), and
-      startup correctly resumed from that persisted value rather than re-fetching all history.
+      history). (Confirmed: `trigger=startup known_max=36` -- the cursor had legitimately advanced
+      from 35 to 36 between the baseline note and quitting, since event 36 was finalised in that
+      window, and startup correctly resumed from that persisted value rather than re-fetching all
+      history.)
 - [x] **(You)** Confirm the menu bar shows the correct current facet/duration immediately after
-      reconnecting, matching the device's actual state.
-
-      Confirmed: menu bar showed "Meeting" at 20:07, paused. That's the accumulated total of
-      today's non-paused, finalized Meeting segments since the 3am daily reset window (events 18,
-      20, 23, 27, 32, 34, 36: 1+301+301+33+5+265+302 = 1208s = 20:08) -- not the still-open event
-      37's own `duration_seconds`, which is excluded both because it isn't finalized yet and
-      because it's currently paused (`is_paused=1`). Matches `dailyFacetDurations`/`isPaused` logic
-      in `MenuBarController.swift`/`DailyFacetTotals.swift` exactly.
+      reconnecting, matching the device's actual state. (Confirmed: menu bar showed "Meeting" at
+      20:07, paused. That's the accumulated total of today's non-paused, finalized Meeting
+      segments since the 3am daily reset window -- events 18, 20, 23, 27, 32, 34, 36:
+      1+301+301+33+5+265+302 = 1208s = 20:08 -- not the still-open event 37's own
+      `duration_seconds`, which is excluded both because it isn't finalized yet and because it's
+      currently paused (`is_paused=1`). Matches `dailyFacetDurations`/`isPaused` logic in
+      `MenuBarController.swift`/`DailyFacetTotals.swift` exactly.)
