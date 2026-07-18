@@ -248,6 +248,10 @@ Seeded rows:
   - `brightness` (%) and `blink_interval` (seconds — the gap from the end of one blink to the
     start of the next) are seeded from `AppState`'s `ledBrightnessPercent`/`blinkIntervalSeconds`
     defaults (`Sources/TimeFlipApp/AppState.swift` lines 91-92).
+- `auto_pause_minutes` = `{"minutes":0}` — delay after which the device pauses itself if the facet
+  hasn't changed (device cmd `0x05`; `0` disables, matching the vendor protocol's own
+  disabled-by-default behavior). The timer resets every time the facet changes. Seeded from
+  `AppState`'s `autoPauseMinutes` default (`nil`, treated as `0`/disabled).
 - `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired
   face, it can briefly pass over other faces, creating unwanted `device_events` segments for
   them. Any segment shorter than `seconds` is merged into the *following* segment rather than
