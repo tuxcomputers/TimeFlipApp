@@ -158,7 +158,9 @@ Constraints:
   so a new category can be inserted without specifying one.
 - `colour_id` is a foreign key referencing `colour(colour_id)`, `NOT NULL`, defaulting to `0`
   (`blank`) for the same reason.
-- Seeded with an `Unassigned` row, linked to the `blank` icon and the `blank` colour.
+- Seeded with an `Unassigned` row (linked to the `blank` icon and the `blank` colour), a `Break`
+  row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
+  both seeded with the `blank` colour, since none was specified.
 
 ### `face` (`database/006_face.sql`)
 
@@ -172,7 +174,8 @@ it.
 
 Constraints:
 - `category_id` is a foreign key referencing `category(category_id)`, `NOT NULL`.
-- Seeded with all 12 faces pointing at the `Unassigned` category.
+- Seeded with all 12 faces pointing at the `Unassigned` category, except face `2` (`Meeting`) and
+  face `8` (`Break`).
 
 ### `time_entry` (`database/007_time_entry.sql`)
 
