@@ -20,3 +20,6 @@ jobs:
 
       - name: Test
         run: swift test
+
+      - name: Verify interactive test checklists are complete
+        run: ./scripts/check_interactive_checklists.sh

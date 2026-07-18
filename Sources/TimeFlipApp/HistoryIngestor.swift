@@ -82,9 +82,13 @@ final class HistoryIngestor {
 
         // Step 1: the max event number already known locally, including a still-open segment
         // that's never been formally "committed" to the cursor (see lastObservedEventNumber) --
-        // falls back to the committed cursor on a fresh session for an already-paired device,
-        // so the check below still applies rather than silently skipping it until the first
-        // observation happens to land.
+        // falls back to the committed cursor on a fresh session for an already-paired device, so
+        // the check below still applies rather than silently skipping it until the first
+        // observation happens to land. ensureCursorLoaded() must run first: on a session's very
+        // first refresh, lastCommittedEventNumber is still nil in memory even though a persisted
+        // cursor exists on disk, and without loading it here, knownMax would read as nil (forcing
+        // a full fetch) on every app launch regardless of whether anything actually changed.
+        ensureCursorLoaded()
         let knownMax = lastObservedEventNumber ?? lastCommittedEventNumber
         logger.debug("history_ingest trigger=\(trigger, privacy: .public) known_max=\(knownMax ?? 0)")
         DeveloperMode.debugPrint(.history, "history fetch triggered: trigger=\(trigger) known_max=\(knownMax ?? 0)")
@@ -97,6 +101,10 @@ final class HistoryIngestor {
         // nil -- both fall through to the full fetch rather than getting stuck.
         let deviceEntry = await device.readLastEvent()
         let deviceLastEventNumber = deviceEntry?.eventNumber
+        DeveloperMode.debugPrint(
+            .history,
+            "history fetch: cheap check device_last_event=\(deviceLastEventNumber.map(String.init) ?? "nil") known_max=\(knownMax.map(String.init) ?? "nil")"
+        )
 
         if let knownMax, let deviceEntry, let deviceLastEventNumber, deviceLastEventNumber == knownMax {
             // Same event -- nothing new, but its duration may have grown since we last saw it.
@@ -295,15 +303,24 @@ final class HistoryIngestor {
         logger.notice("history_ingest cursors reset reason=\(reason, privacy: .public)")
     }
 
-    private func nextStartCursor() -> UInt32? {
-        if let cached = lastCommittedEventNumber {
-            return cached &+ 1
-        }
+    /// Hydrates lastCommittedEventNumber/lastQueuedEventNumber from the persisted cursor exactly
+    /// once per instance lifetime (a no-op once either is already set, whether from a prior
+    /// commit this session or a previous call to this method) -- must run before anything reads
+    /// lastCommittedEventNumber, or a fresh session would see it as nil despite a real persisted
+    /// value existing on disk.
+    private func ensureCursorLoaded() {
+        guard lastCommittedEventNumber == nil else { return }
         if let persisted = dataStore.loadEventCursor(target: .local, identifier: deviceCursorIdentifier) {
             let asUInt32 = UInt32(clamping: persisted)
             lastCommittedEventNumber = asUInt32
             lastQueuedEventNumber = asUInt32
-            return asUInt32 &+ 1
+        }
+    }
+
+    private func nextStartCursor() -> UInt32? {
+        ensureCursorLoaded()
+        if let cached = lastCommittedEventNumber {
+            return cached &+ 1
         }
         return 0
     }
