@@ -233,11 +233,12 @@ Constraints:
 - `setting_value` is `NOT NULL`.
 
 Seeded rows:
-- `double_tap_settings` = `{"enabled":true,"clickThreshold":20,"limit":10,"latency":20,"window":40}`
+- `double_tap_settings` = `{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}`
   — `enabled` controls whether double-tap gesture detection is on; if `false`, double-tap
   notifications from the device are ignored. `clickThreshold`/`limit`/`latency`/`window` are the
   accelerometer parameters, seeded from `DoubleTapParameters.default` in
-  `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift`.
+  `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift` -- captured from a real device's actual
+  registers (see `Tests/Interactive/device_register_snapshot.json`), not an arbitrary guess.
 - `led_settings` = `{"brightness":50,"blink_interval":5}` — a single record for the only two LED
   properties the vendor protocol exposes (device cmd `0x09`/`0x0A`; see
   [`docs/TimeFlip2 BLE Protocol v4.3.md`](TimeFlip2%20BLE%20Protocol%20v4.3.md)):

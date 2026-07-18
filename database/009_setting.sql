@@ -17,7 +17,7 @@ SELECT 'db_type', '{"type":"production"}', 'type: "production" or "test" -- whic
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'db_type');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":20,"limit":10,"latency":20,"window":40}', 'Double-tap detection settings. enabled controls whether double-tap gesture detection is on; if false, double-tap notifications from the device are ignored. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift.'
+SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}', 'Double-tap detection settings. enabled controls whether double-tap gesture detection is on; if false, double-tap notifications from the device are ignored. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift -- captured from a real device''s actual registers via Tests/Interactive (see Tests/Interactive/device_register_snapshot.json), not an arbitrary guess.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'double_tap_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
