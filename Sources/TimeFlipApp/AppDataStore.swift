@@ -1020,7 +1020,13 @@ final class AppDataStore: IntegrationEventCursorStore {
                 try? fileManager.moveItem(at: url, to: productionURL)
             }
             if !fileManager.fileExists(atPath: url.path) {
-                try? fileManager.createSymbolicLink(at: url, withDestinationURL: productionURL)
+                // Relative destination (not productionURL's full path) -- both files live in the
+                // same directory by construction, and a relative link keeps working if this whole
+                // directory is ever moved or restored somewhere else.
+                try? fileManager.createSymbolicLink(
+                    atPath: url.path,
+                    withDestinationPath: productionURL.lastPathComponent
+                )
             }
         }
         ensureTestDatabaseExists(alongside: productionURL)

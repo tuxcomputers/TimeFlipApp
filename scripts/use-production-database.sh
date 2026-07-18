@@ -25,6 +25,6 @@ if pgrep -x TimeFlipApp > /dev/null 2>&1; then
 fi
 
 rm -f "$APPDATA"
-ln -s "$PRODUCTION" "$APPDATA"
+ln -s "$(basename "$PRODUCTION")" "$APPDATA"
 
 echo "appdata.sqlite now points at production.sqlite. Quit and relaunch the app to pick this up."

@@ -44,7 +44,7 @@ final class AppDataStoreDatabaseSymlinkTests: XCTestCase {
         AppDataStore.ensureDatabaseSymlink(at: appdataURL)
 
         let destination = try FileManager.default.destinationOfSymbolicLink(atPath: appdataURL.path)
-        XCTAssertEqual(destination, productionURL.path)
+        XCTAssertEqual(destination, productionURL.lastPathComponent, "relative, not absolute, so the link keeps working if this directory is ever moved")
         XCTAssertFalse(FileManager.default.fileExists(atPath: productionURL.path), "sqlite3_open, not this method, creates the target file")
     }
 
@@ -81,7 +81,7 @@ final class AppDataStoreDatabaseSymlinkTests: XCTestCase {
         AppDataStore.ensureDatabaseSymlink(at: appdataURL)
 
         let destination = try FileManager.default.destinationOfSymbolicLink(atPath: appdataURL.path)
-        XCTAssertEqual(destination, productionURL.path)
+        XCTAssertEqual(destination, productionURL.lastPathComponent, "relative, not absolute, so the link keeps working if this directory is ever moved")
         XCTAssertEqual(try Data(contentsOf: productionURL), originalData, "pre-existing data must be preserved under production.sqlite, not discarded")
     }
 

@@ -41,6 +41,6 @@ else
 fi
 
 rm -f "$APPDATA"
-ln -s "$TEST_DB" "$APPDATA"
+ln -s "$(basename "$TEST_DB")" "$APPDATA"
 
 echo "appdata.sqlite now points at test.sqlite. Quit and relaunch the app to pick this up."
