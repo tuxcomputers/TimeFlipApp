@@ -272,16 +272,13 @@ struct TimeFlipSettingsView: View {
 
     private var autoPauseControls: some View {
         HStack {
-            Stepper(
-                value: Binding(
-                    get: { autoPauseValue },
-                    set: { applyAutoPause(newValue: $0) }
-                ),
-                in: 0...240
-            ) {
-                EmptyView()
+            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
+            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
+            // custom buttons driving our own repeat loop instead.
+            VStack(spacing: 1) {
+                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
+                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
             }
-            .labelsHidden()
             TextField(
                 "",
                 value: Binding(
@@ -296,6 +293,26 @@ struct TimeFlipSettingsView: View {
             Text("min")
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func autoPauseStepButton(direction: Int, systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.secondary)
+            .frame(width: 16, height: 10)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
+                if isPressing {
+                    guard appState.isPaired, appState.autoPauseHoldDirection != direction else { return }
+                    appState.autoPauseHoldDirection = direction
+                    let startValue = autoPauseValue
+                    applyAutoPause(newValue: startValue + direction)
+                    beginAutoPauseHold(direction: direction, startValue: startValue)
+                } else if appState.autoPauseHoldDirection == direction {
+                    appState.autoPauseHoldDirection = nil
+                    endAutoPauseHold()
+                }
+            }, perform: {})
     }
 
     private var doubleTapControls: some View {
@@ -395,6 +412,31 @@ struct TimeFlipSettingsView: View {
         lastAppliedAutoPause = minutes
         appState.autoPauseMinutes = minutes
         appState.onAutoPauseChange?(minutes)
+    }
+
+    /// Starts the repeat loop for a held auto-pause arrow. `startValue` is the value from just
+    /// before this hold began -- fixed for the whole hold, since it's what AutoPauseStepper uses
+    /// to compute the boundary where ticking switches from step 1 to step 5.
+    private func beginAutoPauseHold(direction: Int, startValue: Int) {
+        appState.autoPauseHoldTask?.cancel()
+        appState.autoPauseHoldTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AutoPauseStepper.initialHoldDelay * 1_000_000_000))
+            while !Task.isCancelled {
+                let current = autoPauseValue
+                let next = AutoPauseStepper.nextValue(current: current, holdStartValue: startValue, direction: direction)
+                applyAutoPause(newValue: next)
+                // Interval before the *next* tick is based on the value just reached (next), not
+                // the pre-tick value -- otherwise the first step-5 tick after crossing the
+                // boundary fires at the fast single-digit cadence instead of the slower one.
+                let interval = AutoPauseStepper.tickInterval(current: next, holdStartValue: startValue, direction: direction)
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+
+    private func endAutoPauseHold() {
+        appState.autoPauseHoldTask?.cancel()
+        appState.autoPauseHoldTask = nil
     }
 
     private func applyLEDBrightness(newValue: Int) {

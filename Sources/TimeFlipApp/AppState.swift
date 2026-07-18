@@ -63,6 +63,16 @@ final class AppState: ObservableObject {
     @Published var isMoreExpanded: Bool = false
     @Published var isLEDExpanded: Bool = false
     @Published var isDoubleTapExpanded: Bool = false
+    // The auto-pause arrows' press-and-hold repeat loop (see TimeFlipSettingsView), owned here --
+    // along with which direction is currently held -- rather than as View @State, for the same
+    // reason as the disclosure-group states above: the window survives close, and a
+    // physically-still-held mouse button never delivers its release event to the view if the
+    // window closes out from under it (e.g. a keyboard-driven close). Both are reset together
+    // from collapseDeviceTabDisclosures() so the task can't keep ticking (and keep sending
+    // device/DB writes) in the background after the window closes, and so the arrow it was
+    // holding isn't left stuck "pressed" once the window reopens.
+    var autoPauseHoldTask: Task<Void, Never>?
+    var autoPauseHoldDirection: Int?
     // Mirrors MenuBarController's low-battery blink state so the Settings window's Battery line
     // (a different view hierarchy from the status bar) can flash in sync with it and with the
     // "Preferences..." menu item -- MenuBarController owns the actual timer/latch and pushes
@@ -276,12 +286,17 @@ final class AppState: ObservableObject {
         discoveredDevices = []
     }
 
-    /// Collapses every Device-tab disclosure group. Called when the Preferences window closes so
-    /// reopening it always starts fully collapsed.
+    /// Collapses every Device-tab disclosure group and cancels any in-progress auto-pause
+    /// press-and-hold repeat. Called when the Preferences window closes so reopening it always
+    /// starts fully collapsed, and so a hold that never received its release event (window closed
+    /// out from under it) can't keep ticking in the background.
     func collapseDeviceTabDisclosures() {
         isMoreExpanded = false
         isLEDExpanded = false
         isDoubleTapExpanded = false
+        autoPauseHoldTask?.cancel()
+        autoPauseHoldTask = nil
+        autoPauseHoldDirection = nil
     }
 
     /// Called by MenuBarController every time its low-battery blink state changes (starts, stops,
