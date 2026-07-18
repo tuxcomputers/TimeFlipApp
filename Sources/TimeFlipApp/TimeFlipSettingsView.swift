@@ -15,10 +15,6 @@ struct TimeFlipSettingsView: View {
     @State private var lastAppliedLEDBrightness: UInt8 = 50
     @State private var blinkIntervalValue: Int = 5
     @State private var lastAppliedBlinkInterval: UInt8 = 5
-    @State private var isAdvancedExpanded: Bool = false
-    @State private var isMoreExpanded: Bool = false
-    @State private var isLEDExpanded: Bool = false
-    @State private var isDoubleTapExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
     @State private var showingFactoryResetConfirmation: Bool = false
@@ -65,7 +61,7 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Battery") {
                 Text(batteryText)
             }
-            DisclosureGroup(isExpanded: $isMoreExpanded) {
+            DisclosureGroup(isExpanded: $appState.isMoreExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Manufacturer") {
                         Text(manufacturerText)
@@ -83,7 +79,7 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isMoreExpanded.toggle()
+                    appState.isMoreExpanded.toggle()
                 } label: {
                     Text("More")
                 }
@@ -94,7 +90,7 @@ struct TimeFlipSettingsView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            DisclosureGroup(isExpanded: $isLEDExpanded) {
+            DisclosureGroup(isExpanded: $appState.isLEDExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Brightness") {
                         brightnessControls
@@ -108,13 +104,13 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isLEDExpanded.toggle()
+                    appState.isLEDExpanded.toggle()
                 } label: {
                     Text("LED")
                 }
                 .buttonStyle(.plain)
             }
-            DisclosureGroup(isExpanded: $isDoubleTapExpanded) {
+            DisclosureGroup(isExpanded: $appState.isDoubleTapExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Disable", isOn: Binding(
                         get: { !appState.isDoubleTapEnabled },
@@ -123,16 +119,12 @@ struct TimeFlipSettingsView: View {
                     .toggleStyle(.checkbox)
                     .disabled(!appState.isPaired)
                     doubleTapControls
-                        .disabled(!appState.isDoubleTapEnabled)
-                    Button("Apply") {
-                        applyDoubleTapParameters(doubleTapParams)
-                    }
-                    .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
+                        .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
                 }
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isDoubleTapExpanded.toggle()
+                    appState.isDoubleTapExpanded.toggle()
                 } label: {
                     Text("Double tap")
                 }
@@ -309,7 +301,7 @@ struct TimeFlipSettingsView: View {
 
     private var advancedSection: some View {
         Section("Advanced") {
-            DisclosureGroup(isExpanded: $isAdvancedExpanded) {
+            DisclosureGroup(isExpanded: $appState.isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("System") {
                         Text(systemText)
@@ -326,7 +318,7 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isAdvancedExpanded.toggle()
+                    appState.isAdvancedExpanded.toggle()
                 } label: {
                     Text("Advanced")
                 }
@@ -398,6 +390,7 @@ struct TimeFlipSettingsView: View {
                 set: { newValue in
                     let clamped = UInt8(max(0, min(255, newValue)))
                     value.wrappedValue = clamped
+                    applyDoubleTapParameters(doubleTapParams)
                 }
             ),
             format: .number
@@ -405,9 +398,6 @@ struct TimeFlipSettingsView: View {
         .frame(width: 60)
         .labelsHidden()
         .multilineTextAlignment(.trailing)
-        .onSubmit {
-            applyDoubleTapParameters(doubleTapParams)
-        }
     }
 
     // MARK: - Helpers

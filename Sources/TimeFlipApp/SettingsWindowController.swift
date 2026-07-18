@@ -59,6 +59,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         appState.clearDiscoveredDevicesOnClose()
+        appState.collapseDeviceTabDisclosures()
     }
 
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {

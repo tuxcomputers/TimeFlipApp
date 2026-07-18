@@ -56,6 +56,14 @@ final class AppState: ObservableObject {
     @Published var deviceStatusMessages: [UUID: String] = [:]
     @Published var pendingPairingDeviceName: String?
     @Published var pendingPairingDeviceID: UUID?
+    // Device tab disclosure-group expand states. Deliberately not persisted -- the Preferences
+    // window is hidden rather than deallocated on close (see SettingsWindowController), so plain
+    // View @State would otherwise keep whatever was expanded across a close/reopen. Reset to
+    // false via collapseDeviceTabDisclosures() from windowWillClose instead.
+    @Published var isMoreExpanded: Bool = false
+    @Published var isLEDExpanded: Bool = false
+    @Published var isDoubleTapExpanded: Bool = false
+    @Published var isAdvancedExpanded: Bool = false
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
@@ -256,6 +264,15 @@ final class AppState: ObservableObject {
             stopDeviceScan()
         }
         discoveredDevices = []
+    }
+
+    /// Collapses every Device-tab disclosure group. Called when the Preferences window closes so
+    /// reopening it always starts fully collapsed.
+    func collapseDeviceTabDisclosures() {
+        isMoreExpanded = false
+        isLEDExpanded = false
+        isDoubleTapExpanded = false
+        isAdvancedExpanded = false
     }
 
     func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {
