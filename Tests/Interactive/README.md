@@ -9,11 +9,11 @@ of the PR that needed them, so the PR record shows the manual verification actua
 
 - `README.md` (this file) — the convention, not a checklist. Never scanned by CI.
 - `<NN>-<feature>-checklist.md` -- one checklist per feature/behavior under test, numbered from
-  `00` so they sort and list together instead of being interspersed alphabetically with each other
+  `01` so they sort and list together instead of being interspersed alphabetically with each other
   or with `README.md`/`device_register_snapshot.json`. The number reflects sensible **run order**, not just
   creation order -- broader/foundational checks before narrower or independent ones (e.g.
-  `00-history-refresh-checklist.md`, covering core data-flow correctness, before
-  `01-battery-low-indicator-checklist.md`, a smaller, independent UI feature), and anything a later
+  `01-history-refresh-checklist.md`, covering core data-flow correctness, before
+  `02-battery-low-indicator-checklist.md`, a smaller, independent UI feature), and anything a later
   checklist's setup actually depends on before that checklist. When adding a new one, pick its
   number by where it belongs in that order, not by appending to the end.
 
