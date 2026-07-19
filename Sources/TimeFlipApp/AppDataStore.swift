@@ -611,6 +611,25 @@ final class AppDataStore: IntegrationEventCursorStore {
         saveSettingJSON(name: "google_account", merging: ["name": "", "email": ""])
     }
 
+    /// Local hour (0-23) and minute (0-59) at which each category's tracked-time-vs-`daily_limit`
+    /// accounting rolls over to a new day (the `daily_reset_time` setting, seeded to 3:00 AM; see
+    /// `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// malformed.
+    func loadDailyResetTime() -> (hour: Int, minute: Int) {
+        let json = loadSettingJSON(name: "daily_reset_time")
+        let hour = json?["hour"] as? Int ?? 3
+        let minute = json?["minute"] as? Int ?? 0
+        return (hour: max(0, min(23, hour)), minute: max(0, min(59, minute)))
+    }
+
+    /// Persists a new daily reset time (local hour/minute) to the `daily_reset_time` row.
+    func saveDailyResetTime(hour: Int, minute: Int) {
+        saveSettingJSON(name: "daily_reset_time", merging: [
+            "hour": max(0, min(23, hour)),
+            "minute": max(0, min(59, minute))
+        ])
+    }
+
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
     /// result back -- the row always already exists (seeded by `009_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.
