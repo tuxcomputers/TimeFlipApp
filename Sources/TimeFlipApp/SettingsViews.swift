@@ -33,7 +33,7 @@ struct SettingsRootView: View {
                     .tag(SettingsTab.timeflip)
                 PaneSetupView(appState: appState)
                     .tabItem {
-                        Text("Facets")
+                        Text("Faces")
                     }
                     .tag(SettingsTab.facets)
                 ReportSettingsView(
@@ -42,7 +42,7 @@ struct SettingsRootView: View {
                     integrationCoordinator: integrationCoordinator
                 )
                     .tabItem {
-                        Text("Report")
+                        Text("App")
                     }
                     .tag(SettingsTab.report)
             }
@@ -112,7 +112,7 @@ private struct PaneSetupView: View {
                 .frame(maxHeight: .infinity, alignment: .topLeading)
 
                 VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                    Text("Facets")
+                    Text("Faces")
                         .font(.headline)
 
                     FacetMappingList(

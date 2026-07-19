@@ -173,7 +173,7 @@ final class MenuBarController: NSObject {
         let isLocked = appState.isLocked
 
         let settingsItem = NSMenuItem(
-            title: "Preferences...",
+            title: "Settings...",
             action: #selector(openPreferences),
             keyEquivalent: ""
         )
@@ -336,7 +336,7 @@ final class MenuBarController: NSObject {
         }
         let color: NSColor = lowBatteryBlinkPhaseOn ? .systemRed : .labelColor
         item.attributedTitle = NSAttributedString(
-            string: "Preferences...",
+            string: "Settings...",
             attributes: [.foregroundColor: color, .font: NSFont.menuFont(ofSize: 0)]
         )
     }
