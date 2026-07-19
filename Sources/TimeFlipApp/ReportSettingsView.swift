@@ -43,6 +43,8 @@ struct ReportSettingsView: View {
                     calendarSection
                 }
             }
+
+            dailyResetSection
         }
         .formStyle(.grouped)
         .task(id: authManager.isAuthenticated) {
@@ -75,6 +77,99 @@ struct ReportSettingsView: View {
         } message: { calendar in
             Text("A calendar named \"\(calendar.summary)\" already exists. Use it instead of creating a new one?")
         }
+    }
+
+    // MARK: - Daily reset
+
+    /// AM/PM half of the 12-hour picker. The stored value stays 24-hour (`appState.dailyResetHour`);
+    /// this only drives the display.
+    private enum Meridiem: Hashable {
+        case am, pm
+    }
+
+    @ViewBuilder private var dailyResetSection: some View {
+        Section("Daily reset") {
+            LabeledContent("Reset at") {
+                HStack(spacing: 16) {
+                    // Same stacked-chevron stepper as the Device tab's auto-pause control. Hour and
+                    // AM/PM step independently -- the hour wraps 1<->12 without flipping AM/PM.
+                    HStack(spacing: 4) {
+                        stepArrows(up: { stepHour(1) }, down: { stepHour(-1) })
+                        Text("\(Self.to12Hour(appState.dailyResetHour).hour)")
+                            .monospacedDigit()
+                            .frame(width: 22, alignment: .trailing)
+                    }
+                    HStack(spacing: 4) {
+                        stepArrows(up: toggleMeridiem, down: toggleMeridiem)
+                        Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
+                            .frame(width: 30, alignment: .leading)
+                    }
+                }
+            }
+            // Whole-hour + AM/PM is all the stepper sets, but the stored time keeps minutes so a
+            // finer reset can be dialled in for testing; show the effective 24-hour time so that
+            // minute is visible even though it isn't editable here.
+            Text(String(format: "Each category's daily total rolls over at %02d:%02d local time.",
+                        appState.dailyResetHour, appState.dailyResetMinute))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The stacked up/down chevron pair used by the auto-pause stepper (see
+    /// `TimeFlipSettingsView.autoPauseStepButton`). Hour/AM-PM ranges are tiny, so a plain tap is
+    /// enough -- no press-and-hold accelerating repeat is needed here.
+    private func stepArrows(up: @escaping () -> Void, down: @escaping () -> Void) -> some View {
+        VStack(spacing: 1) {
+            stepArrow("chevron.up", action: up)
+            stepArrow("chevron.down", action: down)
+        }
+    }
+
+    private func stepArrow(_ systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Steps the hour by ±1 on the 12-hour face (wrapping 12->1 / 1->12), keeping AM/PM fixed.
+    private func stepHour(_ delta: Int) {
+        let current = Self.to12Hour(appState.dailyResetHour)
+        var hour12 = current.hour + delta
+        if hour12 > 12 { hour12 = 1 }
+        if hour12 < 1 { hour12 = 12 }
+        appState.setDailyResetTime(
+            hour: Self.to24Hour(hour12: hour12, meridiem: current.meridiem),
+            minute: appState.dailyResetMinute
+        )
+    }
+
+    /// Flips AM<->PM, keeping the hour on the clock face fixed.
+    private func toggleMeridiem() {
+        let current = Self.to12Hour(appState.dailyResetHour)
+        let flipped: Meridiem = current.meridiem == .am ? .pm : .am
+        appState.setDailyResetTime(
+            hour: Self.to24Hour(hour12: current.hour, meridiem: flipped),
+            minute: appState.dailyResetMinute
+        )
+    }
+
+    /// 24-hour hour (0-23) → 12-hour clock face (1-12) plus AM/PM. 0 → 12 AM, 12 → 12 PM.
+    private static func to12Hour(_ hour24: Int) -> (hour: Int, meridiem: Meridiem) {
+        let meridiem: Meridiem = hour24 < 12 ? .am : .pm
+        let hour12 = hour24 % 12
+        return (hour12 == 0 ? 12 : hour12, meridiem)
+    }
+
+    /// 12-hour clock face (1-12) plus AM/PM → 24-hour hour (0-23). 12 AM → 0, 12 PM → 12.
+    private static func to24Hour(hour12: Int, meridiem: Meridiem) -> Int {
+        let base = hour12 % 12
+        return meridiem == .pm ? base + 12 : base
     }
 
     private var integrationsEnabled: Bool {
