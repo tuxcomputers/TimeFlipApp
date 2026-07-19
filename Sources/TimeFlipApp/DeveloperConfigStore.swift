@@ -42,6 +42,8 @@ enum DeveloperMode {
         case dbType = "db-type"
         case doubleTap = "double-tap"
         case deviceSync = "device-sync"
+        case autoPause = "auto-pause"
+        case led = "led"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 
