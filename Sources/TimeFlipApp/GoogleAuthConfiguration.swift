@@ -2,8 +2,17 @@ import Foundation
 
 struct GoogleAuthConfiguration: Sendable, Equatable {
     private static let requiredScopes: Set<String> = [
+        // Calendar: read the user's existing calendars, and read/write events on them.
         "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.readonly"
+        "https://www.googleapis.com/auth/calendar.readonly",
+        // Create (and fully manage) a dedicated secondary calendar for TimeFlip. app.created is the
+        // least-privilege calendar-creation scope: it only grants access to calendars this app
+        // itself creates, never the user's other calendars.
+        "https://www.googleapis.com/auth/calendar.app.created",
+        // Identity: the signed-in account's email and name (via an OpenID Connect ID token).
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile"
     ]
 
     static let defaultScopes = Array(requiredScopes).sorted()

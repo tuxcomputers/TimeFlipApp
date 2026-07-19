@@ -9,12 +9,26 @@ struct ReportSettingsView: View {
     @State private var calendars: [GoogleCalendarSummary] = []
     @State private var isLoadingCalendars = false
     @State private var calendarError: String?
+    @State private var account: GoogleAccountInfo?
+    @State private var accountError: String?
+    // "New calendar" flow: whether the name field is showing, its contents, an in-flight create,
+    // and the already-existing calendar awaiting the "use it?" confirmation.
+    @State private var isCreatingCalendar = false
+    @State private var newCalendarName = Self.defaultNewCalendarName
+    @State private var isSavingCalendar = false
+    @State private var existingCalendar: GoogleCalendarSummary?
+    @State private var showExistingCalendarAlert = false
+
+    private static let defaultNewCalendarName = "TimeFlipApp"
 
     var body: some View {
         Form {
             Section("Google") {
-                credentialsSection
-                Divider()
+                // Once verified (authenticated), the Client ID/Secret fields are no longer needed,
+                // so drop them and let the Status line lead the section.
+                if !authManager.isAuthenticated {
+                    credentialsSection
+                }
 
                 if !integrationsEnabled {
                     Text(
@@ -26,7 +40,6 @@ struct ReportSettingsView: View {
                     .foregroundStyle(.secondary)
                 } else {
                     authSection
-                    Divider()
                     calendarSection
                 }
             }
@@ -35,11 +48,32 @@ struct ReportSettingsView: View {
         .task(id: authManager.isAuthenticated) {
             guard integrationsEnabled else { return }
             if authManager.isAuthenticated {
+                await loadAccount()
                 await loadCalendars()
             } else {
                 calendars = []
                 calendarError = nil
+                account = nil
+                accountError = nil
+                // Signed out: drop the cached identity so a later sign-in re-fetches fresh.
+                integrationCoordinator.clearCachedAccountInfo()
             }
+        }
+        .alert(
+            "Calendar already exists",
+            isPresented: $showExistingCalendarAlert,
+            presenting: existingCalendar
+        ) { calendar in
+            Button("Use it") {
+                selectCalendar(calendar)
+                finishCreatingCalendar()
+            }
+            Button("Cancel", role: .cancel) {
+                // Leave the name field open so a different name can be entered.
+                existingCalendar = nil
+            }
+        } message: { calendar in
+            Text("A calendar named \"\(calendar.summary)\" already exists. Use it instead of creating a new one?")
         }
     }
 
@@ -85,11 +119,6 @@ struct ReportSettingsView: View {
             .textFieldStyle(.roundedBorder)
             .disableAutocorrection(true)
         }
-
-        if !credentialsReady {
-            Text("Paste your Google OAuth client ID and secret to enable sign-in.")
-                .foregroundStyle(.secondary)
-        }
     }
 
     @ViewBuilder private var authSection: some View {
@@ -97,16 +126,39 @@ struct ReportSettingsView: View {
             LabeledContent("Status") {
                 Text("Connected")
             }
+            if let name = account?.name, !name.isEmpty {
+                LabeledContent("Account") {
+                    Text(name)
+                }
+            }
+            if let email = account?.email, !email.isEmpty {
+                LabeledContent("Email") {
+                    Text(email)
+                }
+            }
+            if let accountError {
+                Text(accountError)
+                    .foregroundStyle(.secondary)
+            }
+            // Signing out flips isAuthenticated to false, restarting the .task(id:) above, which
+            // clears the cached account and resets the section back to the credential fields.
             Button("Sign out") {
                 authManager.signOut()
             }
         } else {
-            Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
-                Task { @MainActor in
-                    await authManager.authenticate()
+            HStack {
+                Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
+                    Task { @MainActor in
+                        await authManager.authenticate()
+                    }
+                }
+                .disabled(authManager.isAuthenticating || !credentialsReady)
+
+                if !credentialsReady {
+                    Text("Paste your Google OAuth client ID and secret to enable sign-in.")
+                        .foregroundStyle(.secondary)
                 }
             }
-            .disabled(authManager.isAuthenticating || !credentialsReady)
         }
 
         if let errorMessage = authManager.errorMessage {
@@ -141,12 +193,35 @@ struct ReportSettingsView: View {
                     .foregroundStyle(.red)
             }
 
-            Button("Refresh calendars") {
-                Task { @MainActor in
-                    await loadCalendars()
+            if isCreatingCalendar {
+                HStack {
+                    TextField("Calendar name", text: $newCalendarName)
+                        .textFieldStyle(.roundedBorder)
+                        .disableAutocorrection(true)
+                        .onSubmit { attemptCreateCalendar() }
+                    Button("Create") {
+                        attemptCreateCalendar()
+                    }
+                    .disabled(isSavingCalendar || trimmedNewCalendarName.isEmpty)
+                    Button("Cancel") {
+                        cancelCreatingCalendar()
+                    }
+                    .disabled(isSavingCalendar)
+                }
+            } else {
+                HStack {
+                    Button("New calendar") {
+                        beginCreatingCalendar()
+                    }
+                    .disabled(isLoadingCalendars)
+                    Button("Refresh calendars") {
+                        Task { @MainActor in
+                            await loadCalendars()
+                        }
+                    }
+                    .disabled(isLoadingCalendars)
                 }
             }
-            .disabled(isLoadingCalendars)
         } else {
             Text("Authenticate to load calendars.")
                 .foregroundStyle(.secondary)
@@ -162,6 +237,86 @@ struct ReportSettingsView: View {
                 appState.googleCalendarName = calendars.first { $0.id == trimmed }?.summary
             }
         )
+    }
+
+    private var trimmedNewCalendarName: String {
+        newCalendarName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func beginCreatingCalendar() {
+        newCalendarName = Self.defaultNewCalendarName
+        isCreatingCalendar = true
+    }
+
+    private func cancelCreatingCalendar() {
+        isCreatingCalendar = false
+        existingCalendar = nil
+    }
+
+    /// Resets the "New calendar" flow back to the New/Refresh buttons after a successful create or
+    /// after picking an existing calendar.
+    private func finishCreatingCalendar() {
+        isCreatingCalendar = false
+        existingCalendar = nil
+        newCalendarName = Self.defaultNewCalendarName
+    }
+
+    private func selectCalendar(_ calendar: GoogleCalendarSummary) {
+        appState.googleCalendarID = calendar.id
+        appState.googleCalendarName = calendar.summary
+    }
+
+    private func attemptCreateCalendar() {
+        let name = trimmedNewCalendarName
+        guard !name.isEmpty, !isSavingCalendar else { return }
+        // Check the calendars already loaded in the picker for a same-name match (case-insensitive).
+        // If one exists, ask before creating a duplicate; otherwise create it outright.
+        if let existing = calendars.first(where: { $0.summary.caseInsensitiveCompare(name) == .orderedSame }) {
+            existingCalendar = existing
+            showExistingCalendarAlert = true
+            return
+        }
+        Task { @MainActor in
+            await createCalendar(named: name)
+        }
+    }
+
+    @MainActor
+    private func createCalendar(named name: String) async {
+        guard !isSavingCalendar else { return }
+        isSavingCalendar = true
+        calendarError = nil
+        defer { isSavingCalendar = false }
+        do {
+            let created = try await integrationCoordinator.createCalendar(named: name)
+            // Refresh so the new calendar shows in the picker, then select it.
+            await loadCalendars()
+            selectCalendar(created)
+            finishCreatingCalendar()
+        } catch is CancellationError {
+            // The view went away; nothing to report.
+        } catch {
+            calendarError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadAccount() async {
+        guard integrationsEnabled else { return }
+        // Show the cached identity immediately; only hit the userinfo endpoint on a cache miss.
+        account = integrationCoordinator.cachedAccountInfo()
+        do {
+            if let info = try await integrationCoordinator.loadAccountInfo() {
+                account = info
+            }
+            accountError = nil
+        } catch is CancellationError {
+            // The .task(id:) restarted; the replacement load reports its own result.
+        } catch {
+            if !Task.isCancelled && account == nil {
+                accountError = "Couldn't load account details."
+            }
+        }
     }
 
     @MainActor

@@ -41,9 +41,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private lazy var integrationCoordinator = GoogleIntegrationCoordinator(
         authManager: enableGoogleIntegrations ? authManager : nil,
         store: dataStore,
-        preferencesProvider: { [weak appState] in
-            IntegrationPreferences(calendarId: appState?.googleCalendarID)
-        },
         integrationEnabled: enableGoogleIntegrations
     )
     private lazy var settingsWindowController = SettingsWindowController(
@@ -275,7 +272,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
         seedDailyTotals()
         scheduleDayReset()
-        integrationCoordinator.startPeriodicRetryTimer()
+        // If already authenticated at launch and the account identity isn't cached yet, fetch it
+        // once and store it in the `google_account` setting so later reads come from the DB rather
+        // than hitting the userinfo endpoint again.
+        if authManager.isAuthenticated {
+            Task { @MainActor in
+                _ = try? await integrationCoordinator.loadAccountInfo()
+            }
+        }
         menuBarController.start()
         if appState.isPaired {
             startDeviceEvents()
@@ -366,10 +370,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             dataStore: dataStore,
             appState: appState,
             dailyTotals: dailyTotals,
-            onNewEvents: { [weak self] in
-                guard let self, self.enableGoogleIntegrations else { return }
-                self.integrationCoordinator.flushPendingSessions()
-            },
             onLatestEntry: { [weak self] entry in
                 guard let self else { return }
                 self.applyActiveInterval(from: entry)

@@ -585,6 +585,32 @@ final class AppDataStore: IntegrationEventCursorStore {
         saveSettingJSON(name: "double_tap_settings", merging: ["enabled": enabled])
     }
 
+    /// The cached identity of the connected Google account -- name/email from the OpenID Connect
+    /// userinfo endpoint (the `google_account` setting, seeded empty; see
+    /// `database/009_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
+    /// empty/absent), which is the signal to fetch it from Google once and cache it.
+    func loadGoogleAccount() -> GoogleAccountInfo? {
+        guard let json = loadSettingJSON(name: "google_account") else { return nil }
+        let name = (json["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let email = (json["email"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard name != nil || email != nil else { return nil }
+        return GoogleAccountInfo(name: name, email: email)
+    }
+
+    /// Caches the connected account's identity in the `google_account` setting so the userinfo
+    /// endpoint isn't called again on subsequent launches.
+    func saveGoogleAccount(_ account: GoogleAccountInfo) {
+        saveSettingJSON(name: "google_account", merging: [
+            "name": account.name ?? "",
+            "email": account.email ?? ""
+        ])
+    }
+
+    /// Clears the cached account identity (e.g. on sign-out) so a later sign-in re-fetches fresh.
+    func clearGoogleAccount() {
+        saveSettingJSON(name: "google_account", merging: ["name": "", "email": ""])
+    }
+
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
     /// result back -- the row always already exists (seeded by `009_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.

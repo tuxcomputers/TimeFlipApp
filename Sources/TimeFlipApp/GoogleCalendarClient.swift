@@ -5,6 +5,14 @@ struct GoogleCalendarSummary: Identifiable, Equatable, Sendable {
     let summary: String
 }
 
+/// The signed-in Google account's identity, from the OpenID Connect userinfo endpoint. Both fields
+/// are optional: they only arrive when the matching `userinfo.profile`/`userinfo.email` scopes were
+/// granted.
+struct GoogleAccountInfo: Equatable, Sendable {
+    let name: String?
+    let email: String?
+}
+
 struct GoogleCalendarEvent: Sendable {
     let summary: String
     let description: String
@@ -16,6 +24,8 @@ struct GoogleCalendarEvent: Sendable {
 protocol GoogleCalendarClient {
     func listCalendars(accessToken: String) async throws -> [GoogleCalendarSummary]
     func insertEvent(accessToken: String, calendarId: String, event: GoogleCalendarEvent) async throws
+    func fetchUserInfo(accessToken: String) async throws -> GoogleAccountInfo
+    func createCalendar(accessToken: String, summary: String) async throws -> GoogleCalendarSummary
 }
 
 @MainActor
@@ -38,6 +48,36 @@ final class GoogleCalendarAPIClient: GoogleCalendarClient {
         try GoogleAPIError.validate(response: response, data: data)
         let payload = try JSONDecoder().decode(CalendarListResponse.self, from: data)
         return payload.items.map { GoogleCalendarSummary(id: $0.id, summary: $0.summary) }
+    }
+
+    func fetchUserInfo(accessToken: String) async throws -> GoogleAccountInfo {
+        guard let url = URL(string: "https://openidconnect.googleapis.com/v1/userinfo") else {
+            throw GoogleAPIError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        try GoogleAPIError.validate(response: response, data: data)
+        let payload = try JSONDecoder().decode(UserInfoResponse.self, from: data)
+        return GoogleAccountInfo(name: payload.name, email: payload.email)
+    }
+
+    func createCalendar(accessToken: String, summary: String) async throws -> GoogleCalendarSummary {
+        guard let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars") else {
+            throw GoogleAPIError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(CalendarInsertPayload(summary: summary))
+
+        let (data, response) = try await session.data(for: request)
+        try GoogleAPIError.validate(response: response, data: data)
+        let created = try JSONDecoder().decode(CalendarListEntry.self, from: data)
+        return GoogleCalendarSummary(id: created.id, summary: created.summary)
     }
 
     func insertEvent(accessToken: String, calendarId: String, event: GoogleCalendarEvent) async throws {
@@ -65,12 +105,21 @@ final class GoogleCalendarAPIClient: GoogleCalendarClient {
     }
 }
 
+private struct UserInfoResponse: Decodable {
+    let name: String?
+    let email: String?
+}
+
 private struct CalendarListResponse: Decodable {
     let items: [CalendarListEntry]
 }
 
 private struct CalendarListEntry: Decodable {
     let id: String
+    let summary: String
+}
+
+private struct CalendarInsertPayload: Encodable {
     let summary: String
 }
 

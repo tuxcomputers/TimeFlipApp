@@ -12,37 +12,72 @@ OAuth credentials.
 
 ### Step 1: Create a Google Cloud Project
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+1. Go to the [Google Cloud Manage resources](https://console.cloud.google.com/cloud-resource-manager)
 2. Click on the project dropdown at the top and select "New Project"
 3. Enter a project name (e.g., "TimeFlip Integration")
 4. Click "Create"
 
 ### Step 2: Enable Required APIs
 
-1. In your project, go to "APIs & Services" > "Library"
-2. Search for and enable the following API:
+1. Go to the [Google Cloud ](https://console.cloud.google.com/)
+2. In your project, go to "APIs & Services" > "Library"
+3. Search for and enable the following API:
    - **Google Calendar API**
+4. Enable
 
 ### Step 3: Configure OAuth Consent Screen
 
 Google's console now organizes this under "Google Auth Platform" as separate tabs (in the left sidebar)
 instead of a single wizard. Configure them in this order:
 
-1. Go to "APIs & Services" > "OAuth consent screen" (this lands you on the "Google Auth Platform" page)
+1. Click the "OAuth consent screen" (this lands you on the "Google Auth Platform" page)
 2. On first visit, click "Get Started" and select "External" as the user type (unless you have a
    Google Workspace account), then fill in:
    - **App name**: TimeFlip macOS
    - **User support email**: Your email address
-3. Go to the **"Branding"** tab and confirm the app name/support email/developer contact info are set
-4. Go to the **"Audience"** tab:
-   - Confirm "External" is selected
-   - Under "Test users", click "Add Users" and **add your own email address**
-5. Go to the **"Data access"** tab:
+   - Click next
+3. Select External, click Next
+4. Enter the contact information email, click next
+5. Agree and click continue
+6. Click Create
+7. Go to the **"Data access"** tab:
    - Click "Add or remove scopes"
    - Add the following scopes:
      - `https://www.googleapis.com/auth/calendar.events`
      - `https://www.googleapis.com/auth/calendar.readonly`
+     - `https://www.googleapis.com/auth/calendar.app.created`
+     - `https://www.googleapis.com/auth/userinfo.email`
+     - `https://www.googleapis.com/auth/userinfo.profile`
+     - `openid`
    - Click "Update" and then "Save"
+
+   What each scope is for:
+
+   | Scope | Grants |
+   |---|---|
+   | `calendar.events` | Read/write events on calendars you can access |
+   | `calendar.readonly` | List your existing calendars (populates the calendar picker) |
+   | `calendar.app.created` | Create a dedicated secondary calendar (e.g. "TimeFlipApp") and manage events on it. This is a least-privilege scope — it only ever touches calendars this app itself creates, never your other calendars |
+   | `userinfo.email` | See your Google account's primary email address |
+   | `userinfo.profile` | See your Google account's name and profile info |
+   | `openid` | Sign-in via OpenID Connect, so the account name/email arrive in a verifiable ID token |
+
+   > **Note on re-consent:** The `calendar.*` scopes are classed by Google as "sensitive." While
+   > your OAuth app is in **Testing** mode, added test users can grant them without Google's app
+   > verification. If you had already signed in before this scope list changed, the old token
+   > doesn't carry the new scopes — **sign out in the app and sign in again** so the consent screen
+   > re-appears and grants them (see the "Disconnect / re-authenticate" note in Step 5).
+
+8. Go to the **"Audience"** tab and add yourself as a test user:
+   - Confirm the **Publishing status** is **Testing** (the default for a new app)
+   - Under **Test users**, click **"Add users"**
+   - Enter the Google account email address you'll sign in with, then click **Save**
+
+   > **Why this is required:** while the app is in Testing, only accounts listed here can complete
+   > the OAuth consent flow — everyone else is blocked with an "access_denied"/"app not verified"
+   > error. Add every Google account you intend to sign in with (up to 100). You don't need to
+   > submit the app for Google verification to use it yourself; staying in Testing with your own
+   > email listed here is enough.
 
 ### Step 4: Create OAuth Credentials
 
@@ -68,6 +103,12 @@ instead of a single wizard. Configure them in this order:
 9. Review the permissions and click "Continue"
 10. The browser will show "Authorization complete" and you can close the window
 11. Return to the TimeFlip app - you should now see "Authenticated"
+
+> **Disconnect / re-authenticate:** If you had already authenticated under an older, narrower set
+> of scopes, sign out and sign in again so Google re-prompts for the new permissions — a token
+> issued before the scope list changed does not gain the new scopes on its own. The consent screen
+> will now additionally ask to see your name and email address and to create/manage calendars it
+> makes for you.
 
 ![Preferences - Reports](../image/preferences-report.png)
 
