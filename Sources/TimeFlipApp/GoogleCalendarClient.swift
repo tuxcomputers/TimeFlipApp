@@ -25,6 +25,7 @@ protocol GoogleCalendarClient {
     func listCalendars(accessToken: String) async throws -> [GoogleCalendarSummary]
     func insertEvent(accessToken: String, calendarId: String, event: GoogleCalendarEvent) async throws
     func fetchUserInfo(accessToken: String) async throws -> GoogleAccountInfo
+    func createCalendar(accessToken: String, summary: String) async throws -> GoogleCalendarSummary
 }
 
 @MainActor
@@ -63,6 +64,22 @@ final class GoogleCalendarAPIClient: GoogleCalendarClient {
         return GoogleAccountInfo(name: payload.name, email: payload.email)
     }
 
+    func createCalendar(accessToken: String, summary: String) async throws -> GoogleCalendarSummary {
+        guard let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars") else {
+            throw GoogleAPIError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(CalendarInsertPayload(summary: summary))
+
+        let (data, response) = try await session.data(for: request)
+        try GoogleAPIError.validate(response: response, data: data)
+        let created = try JSONDecoder().decode(CalendarListEntry.self, from: data)
+        return GoogleCalendarSummary(id: created.id, summary: created.summary)
+    }
+
     func insertEvent(accessToken: String, calendarId: String, event: GoogleCalendarEvent) async throws {
         let encodedId = calendarId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? calendarId
         guard let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/\(encodedId)/events") else {
@@ -99,6 +116,10 @@ private struct CalendarListResponse: Decodable {
 
 private struct CalendarListEntry: Decodable {
     let id: String
+    let summary: String
+}
+
+private struct CalendarInsertPayload: Encodable {
     let summary: String
 }
 

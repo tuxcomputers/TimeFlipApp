@@ -52,6 +52,14 @@ final class GoogleIntegrationCoordinator {
         return try await calendarClient.listCalendars(accessToken: accessToken)
     }
 
+    /// Creates a new secondary calendar (`calendars.insert`, permitted by the `calendar.app.created`
+    /// scope) and returns it. The caller is responsible for the "already exists" check beforehand.
+    func createCalendar(named name: String) async throws -> GoogleCalendarSummary {
+        guard integrationEnabled else { throw GoogleIntegrationCoordinatorError.disabled }
+        let accessToken = try await tokenProvider()
+        return try await calendarClient.createCalendar(accessToken: accessToken, summary: name)
+    }
+
     /// The connected account's identity as already cached in the `setting` table, with no network
     /// call. `nil` on a cache miss (nothing fetched yet).
     func cachedAccountInfo() -> GoogleAccountInfo? {
