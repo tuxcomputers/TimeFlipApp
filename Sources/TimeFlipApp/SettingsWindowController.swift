@@ -80,6 +80,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if height != minimumContentHeight {
             minimumContentHeight = height
             updateMinimumSize()
+            growWindowToFitMinimumHeight()
         }
     }
 
@@ -87,5 +88,26 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let minContentSize = NSSize(width: minimumContentWidth, height: minimumContentHeight)
         window.contentMinSize = minContentSize
         window.minSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: minContentSize)).size
+    }
+
+    /// Raising `minSize` only stops the user from manually resizing *below* it -- AppKit never
+    /// grows a window just because its minimum grew, so a tab that suddenly needs more height
+    /// (e.g. more facets added) would keep silently scrolling its content until the user happened
+    /// to drag the window taller themselves. Grows the window's actual frame to match whenever
+    /// the new minimum exceeds the current size, keeping the top-left corner fixed (NSWindow's
+    /// origin is its bottom-left corner, so growing downward on screen means *lowering* origin.y)
+    /// so the window extends downward instead of jumping to a new position. Never shrinks the
+    /// window -- only grows it, respecting a user's own choice to size it larger than the minimum.
+    private func growWindowToFitMinimumHeight() {
+        let currentContentHeight = window.contentRect(forFrameRect: window.frame).height
+        guard minimumContentHeight > currentContentHeight else { return }
+        let neededFrameHeight = window.frameRect(
+            forContentRect: NSRect(origin: .zero, size: NSSize(width: minimumContentWidth, height: minimumContentHeight))
+        ).height
+        var frame = window.frame
+        let delta = neededFrameHeight - frame.height
+        frame.origin.y -= delta
+        frame.size.height = neededFrameHeight
+        window.setFrame(frame, display: true, animate: true)
     }
 }

@@ -3,7 +3,12 @@ import CoreGraphics
 enum SettingsLayoutConstants {
     static let minimumWindowWidth: CGFloat = 560
     static let defaultWindowWidth: CGFloat = 640
-    static let defaultWindowHeight: CGFloat = 520
+
+    // The Device tab (Info + Settings + TimeFlip sections, every disclosure group collapsed,
+    // paired -- its shortest state) measured at ~660pt: at the previous 520pt default, the
+    // TimeFlip/pairing section was clipped below the fold, needing a scroll to reach it.
+    static let deviceTabMinimumContentHeight: CGFloat = 660
+    static let defaultWindowHeight: CGFloat = deviceTabMinimumContentHeight + 20
 
     static let facetRowHeight: CGFloat = 36
     static let facetDividerHeight: CGFloat = 1
@@ -55,9 +60,13 @@ enum SettingsLayoutConstants {
         static let cornerRadius: CGFloat = 8
     }
 
+    /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the
+    /// window's minimum never shrinks below what the Device tab (the default-opened tab) needs,
+    /// even when there are few enough facets that the Facets tab alone would ask for less.
     static func fallbackMinimumContentHeight(facetCount: Int) -> CGFloat {
         let rows = CGFloat(facetCount) * facetRowHeight
         let dividers = CGFloat(max(0, facetCount - 1)) * facetDividerHeight
-        return paneVerticalPadding + columnHeaderHeight + columnHeaderSpacing + rows + dividers + paneVerticalPadding
+        let facetsHeight = paneVerticalPadding + columnHeaderHeight + columnHeaderSpacing + rows + dividers + paneVerticalPadding
+        return max(facetsHeight, deviceTabMinimumContentHeight)
     }
 }

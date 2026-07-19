@@ -21,6 +21,21 @@
   `swift test` (the hermetic unit suite) -- "run the device tests" means the checklists, not
   `swift test`.
 
+## Running the app interactively for visual verification (screenshots, driving the UI)
+
+- This launches a real window on the user's actual screen -- it is not an isolated/headless
+  sandbox. Keystrokes and clicks the user makes while the app has focus can land in it (this has
+  actually happened -- see git history around the Settings-window sizing fix).
+- Before launching the app for this purpose, post a clear, prominent, impossible-to-miss message
+  asking the user to acknowledge and to avoid touching the keyboard/mouse until told the
+  verification is finished. Wait for that acknowledgment before launching.
+- Once done (or if interrupted), immediately kill the launched process, revert any temporary
+  debug-only scaffolding added purely to drive the verification (e.g. an env-var-gated hook to
+  jump straight to a window/tab) -- these must never ship as part of the actual change -- and post
+  an equally big, equally prominent message telling the user it's safe to use the keyboard/mouse
+  again. The "all clear" matters as much as the initial warning -- don't let it shrink to a small
+  aside in a longer message.
+
 ## TimeFlip2 BLE protocol documentation
 
 - `docs/TimeFlip2 BLE Protocol v4.3.md` is the official vendor protocol spec and takes priority
