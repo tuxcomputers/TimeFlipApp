@@ -53,5 +53,9 @@ SELECT 'low_battery_level', '{"percent":5}', 'percent: battery_level (0-100, fro
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'low_battery_level');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'google_account', '{}', 'Cached identity of the connected Google account -- name and email from the OpenID Connect userinfo endpoint. Empty object until the first successful fetch after Google sign-in; populated once and then reused so the userinfo endpoint is not called again on every launch or Settings open (see GoogleIntegrationCoordinator.loadAccountInfo). Cleared back to {} on sign-out so a later sign-in with a different account re-fetches.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'google_account');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
 SELECT 'debug', '{"enabled":true,"to_file":false,"directory":"~/Documents/TimeFlip"}', 'NOT YET IMPLEMENTED -- placeholder for a planned feature, see docs/TODO-devmode.md. Intent: enabled controls whether the same messages DeveloperMode.debugPrint sends to the terminal (when DeveloperMode.isEnabled is true, for local development) are gathered at all for this user-facing setting; to_file controls whether those messages are ALSO written to a log file, so a non-technical end user can turn this on and send the file back for support without running the app from a terminal -- defaulted to false since the file-writing side of this is not built yet. directory is the folder the log file is written to; a future Preferences UI will let the user override this via a folder-selection dialog. The log filename format and per-launch behavior are intentionally not stored here -- see docs/TODO-devmode.md.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'debug');

@@ -52,6 +52,32 @@ final class GoogleIntegrationCoordinator {
         return try await calendarClient.listCalendars(accessToken: accessToken)
     }
 
+    /// The connected account's identity as already cached in the `setting` table, with no network
+    /// call. `nil` on a cache miss (nothing fetched yet).
+    func cachedAccountInfo() -> GoogleAccountInfo? {
+        guard integrationEnabled else { return nil }
+        return dataStore.loadGoogleAccount()
+    }
+
+    /// Cache-first account identity: returns the cached copy if present, otherwise fetches it from
+    /// the userinfo endpoint once and caches it. Only the first call after sign-in hits the network.
+    @discardableResult
+    func loadAccountInfo() async throws -> GoogleAccountInfo? {
+        guard integrationEnabled else { return nil }
+        if let cached = dataStore.loadGoogleAccount() {
+            return cached
+        }
+        let accessToken = try await tokenProvider()
+        let info = try await calendarClient.fetchUserInfo(accessToken: accessToken)
+        dataStore.saveGoogleAccount(info)
+        return info
+    }
+
+    /// Drops the cached account identity (sign-out) so the next `loadAccountInfo()` re-fetches.
+    func clearCachedAccountInfo() {
+        dataStore.clearGoogleAccount()
+    }
+
     func flushPendingSessions() {
         guard integrationEnabled else {
             logger.info("flushPendingSessions skipped: integrations disabled")

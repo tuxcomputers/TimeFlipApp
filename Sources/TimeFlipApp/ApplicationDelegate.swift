@@ -276,6 +276,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         seedDailyTotals()
         scheduleDayReset()
         integrationCoordinator.startPeriodicRetryTimer()
+        // If already authenticated at launch and the account identity isn't cached yet, fetch it
+        // once and store it in the `google_account` setting so later reads come from the DB rather
+        // than hitting the userinfo endpoint again.
+        if authManager.isAuthenticated {
+            Task { @MainActor in
+                _ = try? await integrationCoordinator.loadAccountInfo()
+            }
+        }
         menuBarController.start()
         if appState.isPaired {
             startDeviceEvents()

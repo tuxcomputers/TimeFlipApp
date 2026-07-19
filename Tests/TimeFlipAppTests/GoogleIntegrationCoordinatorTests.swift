@@ -97,6 +97,11 @@ private final class CapturingCalendarClient: GoogleCalendarClient {
         return []
     }
 
+    func fetchUserInfo(accessToken: String) async throws -> GoogleAccountInfo {
+        _ = accessToken
+        return GoogleAccountInfo(name: nil, email: nil)
+    }
+
     func insertEvent(accessToken: String, calendarId: String, event: GoogleCalendarEvent) async throws {
         insertedEvents.append(
             InsertedEvent(

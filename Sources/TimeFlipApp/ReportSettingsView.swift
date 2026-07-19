@@ -9,6 +9,8 @@ struct ReportSettingsView: View {
     @State private var calendars: [GoogleCalendarSummary] = []
     @State private var isLoadingCalendars = false
     @State private var calendarError: String?
+    @State private var account: GoogleAccountInfo?
+    @State private var accountError: String?
 
     var body: some View {
         Form {
@@ -29,7 +31,6 @@ struct ReportSettingsView: View {
                     .foregroundStyle(.secondary)
                 } else {
                     authSection
-                    Divider()
                     calendarSection
                 }
             }
@@ -38,10 +39,15 @@ struct ReportSettingsView: View {
         .task(id: authManager.isAuthenticated) {
             guard integrationsEnabled else { return }
             if authManager.isAuthenticated {
+                await loadAccount()
                 await loadCalendars()
             } else {
                 calendars = []
                 calendarError = nil
+                account = nil
+                accountError = nil
+                // Signed out: drop the cached identity so a later sign-in re-fetches fresh.
+                integrationCoordinator.clearCachedAccountInfo()
             }
         }
     }
@@ -92,10 +98,22 @@ struct ReportSettingsView: View {
 
     @ViewBuilder private var authSection: some View {
         if authManager.isAuthenticated {
-            // Keep this the single leading line of the Google section for now; more connected-state
-            // rows (account details, disconnect, etc.) get added here later.
             LabeledContent("Status") {
                 Text("Connected")
+            }
+            if let name = account?.name, !name.isEmpty {
+                LabeledContent("Account") {
+                    Text(name)
+                }
+            }
+            if let email = account?.email, !email.isEmpty {
+                LabeledContent("Email") {
+                    Text(email)
+                }
+            }
+            if let accountError {
+                Text(accountError)
+                    .foregroundStyle(.secondary)
             }
         } else {
             HStack {
@@ -166,6 +184,25 @@ struct ReportSettingsView: View {
                 appState.googleCalendarName = calendars.first { $0.id == trimmed }?.summary
             }
         )
+    }
+
+    @MainActor
+    private func loadAccount() async {
+        guard integrationsEnabled else { return }
+        // Show the cached identity immediately; only hit the userinfo endpoint on a cache miss.
+        account = integrationCoordinator.cachedAccountInfo()
+        do {
+            if let info = try await integrationCoordinator.loadAccountInfo() {
+                account = info
+            }
+            accountError = nil
+        } catch is CancellationError {
+            // The .task(id:) restarted; the replacement load reports its own result.
+        } catch {
+            if !Task.isCancelled && account == nil {
+                accountError = "Couldn't load account details."
+            }
+        }
     }
 
     @MainActor
