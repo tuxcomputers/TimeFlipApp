@@ -8,8 +8,8 @@ import Foundation
 final class DailyFacetTotals {
     private let dataStore: AppDataStore
     private let calendar: Calendar
-    private let resetHour: Int
-    private let resetMinute: Int
+    private(set) var resetHour: Int
+    private(set) var resetMinute: Int
 
     private(set) var windowStart: Date
     private(set) var totals: [UInt8: TimeInterval] = [:]
@@ -51,6 +51,14 @@ final class DailyFacetTotals {
             return todayReset
         }
         return calendar.date(byAdding: .day, value: -1, to: todayReset) ?? todayReset
+    }
+
+    /// Update the local reset time (hour 0-23, minute 0-59) after the user edits it in Settings.
+    /// Only stores the new values; the caller re-seeds the window (`resetWindow`) and re-arms the
+    /// day-reset timer so the change takes effect immediately.
+    func updateResetTime(hour: Int, minute: Int) {
+        resetHour = max(0, min(23, hour))
+        resetMinute = max(0, min(59, minute))
     }
 
     /// Next scheduled reset boundary after the current window start.

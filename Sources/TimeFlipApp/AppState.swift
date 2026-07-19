@@ -50,6 +50,11 @@ final class AppState: ObservableObject {
     @Published var isDoubleTapEnabled: Bool
     @Published var dailyFacetDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
+    // Local time (24-hour) at which each category's daily accounting rolls over, mirroring the
+    // `daily_reset_time` setting. The App-tab stepper edits it in whole hours + AM/PM, but the
+    // stored value keeps hour AND minute so a finer time can be set for testing the reset firing.
+    @Published var dailyResetHour: Int
+    @Published var dailyResetMinute: Int
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
@@ -96,6 +101,9 @@ final class AppState: ObservableObject {
     // colour's `colour_id`, so the assigned category's colour can be persisted (see
     // ApplicationDelegate). Not fired for the `blank`/Unassigned no-op path.
     var onFacetColourPicked: ((_ facetID: UInt8, _ colourID: Int) -> Void)?
+    // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
+    // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
+    var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
@@ -118,7 +126,9 @@ final class AppState: ObservableObject {
         blinkIntervalSeconds: UInt8,
         doubleTapParameters: DoubleTapParameters,
         isDoubleTapEnabled: Bool,
-        colourOptions: [ActivityColorOption] = []
+        colourOptions: [ActivityColorOption] = [],
+        dailyResetHour: Int = 3,
+        dailyResetMinute: Int = 0
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
@@ -155,6 +165,8 @@ final class AppState: ObservableObject {
         self.isDoubleTapEnabled = isDoubleTapEnabled
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
+        self.dailyResetHour = dailyResetHour
+        self.dailyResetMinute = dailyResetMinute
 
         applyPreferences()
         if DeveloperMode.isEnabled { applyDeveloperConfig() }
@@ -429,6 +441,16 @@ final class AppState: ObservableObject {
 
     func setDailyWindowStart(_ date: Date) {
         dailyWindowStart = date
+    }
+
+    /// Updates the daily-reset time (24-hour) from the App-tab picker and fires
+    /// `onDailyResetTimeChange` so it's persisted and applied to the live day window.
+    func setDailyResetTime(hour: Int, minute: Int) {
+        let clampedHour = max(0, min(23, hour))
+        let clampedMinute = max(0, min(59, minute))
+        dailyResetHour = clampedHour
+        dailyResetMinute = clampedMinute
+        onDailyResetTimeChange?(clampedHour, clampedMinute)
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {

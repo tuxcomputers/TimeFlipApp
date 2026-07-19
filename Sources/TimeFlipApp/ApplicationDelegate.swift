@@ -11,7 +11,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
         isDoubleTapEnabled: dataStore.loadDoubleTapEnabled(),
-        colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours())
+        colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
+        dailyResetHour: dataStore.loadDailyResetTime().hour,
+        dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(
@@ -209,6 +211,18 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onFacetColourPicked = { [weak self] facetID, colourID in
             self?.dataStore.updateCategoryColour(faceID: Int(facetID), colourID: colourID)
+        }
+        appState.onDailyResetTimeChange = { [weak self] hour, minute in
+            guard let self else { return }
+            DeveloperMode.debugPrint(.dailyReset, String(format: "Daily reset time changed to %02d:%02d", hour, minute))
+            self.dataStore.saveDailyResetTime(hour: hour, minute: minute)
+            // Re-read the boundary into the live accumulator, re-seed totals from the new window,
+            // and re-arm the timer so the change takes effect immediately (matters for testing the
+            // reset firing at a near-future minute).
+            self.dailyTotals.updateResetTime(hour: hour, minute: minute)
+            self.seedDailyTotals()
+            self.scheduleDayReset()
+            self.menuBarController.refreshFromState()
         }
         // The settings view updates appState before invoking these callbacks. Each handler prints
         // the new value and persists it to the DB immediately (every intermediate change while a
