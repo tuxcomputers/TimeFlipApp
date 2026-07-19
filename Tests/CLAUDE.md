@@ -1,297 +1,267 @@
 # Running the device tests
 
+Everything in this file is verified against a real, live test run -- not guessed. When you
+discover something new, add a **minimal** entry here (the fact/command itself, not the story of how
+you found it) in the relevant section below. Put any longer backstory, discovery narrative, or
+"here's what happened when..." detail in `README.md` instead -- that file is historical interest
+only; this one is what you actually need to operate.
+
 When the user asks to run the device tests, work through the on-device checklists under `Tests/` --
-**not** `swift test` (that's the hermetic unit suite, run separately with no device). Run them in
-two phases, in this order:
+**not** `swift test` (the hermetic unit suite, run separately, no device). Two phases, in order:
 
-1. **Bench first.** Every `Tests/Bench/<NN>-*-checklist.md`, in numeric order (`01`, `02`, ...) --
-   the parts a UI-automation harness can drive against a connected device (launch/quit the app, edit
-   the DB, drive Preferences-window controls, wait on timers, assert from
-   `debug_log`/`device_events`). No human hands or eyes required beyond a powered, in-range cube.
-2. **Interactive after.** Every `Tests/Interactive/<NN>-*-checklist.md`, in numeric order -- the
-   parts needing a person (a physical cube action like a facet flip or double-tap, a status-item
-   gesture or status-**menu** click, or a visual confirmation of the custom-drawn menu-bar status
-   item that isn't machine-readable).
+1. **Bench** (`Tests/Bench/<NN>-*-checklist.md`, numeric order) -- entirely Claude-driven. No actor
+   labels; every step is Claude's.
+2. **Interactive** (`Tests/Interactive/<NN>-*-checklist.md`, numeric order) -- steps needing a
+   person: a physical cube action (facet flip, double-tap), a sustained press-and-hold mouse
+   gesture, a status-item gesture unverified via script, or multiple elements needing to be
+   confirmed changing in lockstep with each other (a single or even double screenshot doesn't
+   establish synchrony -- see "Screenshot-based visual confirmation" below). Uses `(Claude)`/`(You)`
+   labels.
 
-Each folder's `README.md` describes just that suite. Everything below is common to both.
+Each folder's own `README.md` describes just that suite.
 
 ## Rules
 
-- Finish the **entire** Bench phase before starting the Interactive phase.
-- Each numbered checklist has a file in **both** folders under the same name. When one side has no
-  work, its file is a stub containing just `Nothing needed` (no checkboxes) -- skip it and move on.
-- Go top to bottom within a checklist; do each `(Claude)` step, ask the user for each `(You)` step
-  and wait for confirmation, then tick the box. Don't skip ahead -- later steps depend on state
-  earlier ones establish.
+- Finish the entire Bench phase before starting Interactive.
+- Each numbered checklist has a file in both folders. A side with no work is a stub: `Nothing
+  needed` (no checkboxes).
+- Go top to bottom, in order -- later steps depend on state earlier ones establish.
 
 ## File naming
 
-- Each folder's `README.md` describes that suite; this `CLAUDE.md` holds the shared convention.
-  Neither is a checklist -- CI never scans them.
-- `<NN>-<feature>-checklist.md` -- one checklist per feature/behavior under test, numbered from
-  `01` so they sort and list together instead of being interspersed alphabetically with each other
-  or with `README.md`/`device_register_snapshot.json`. The number reflects sensible **run order**, not just
-  creation order -- broader/foundational checks before narrower or independent ones (e.g.
-  `02-history-refresh-checklist.md`, covering core data-flow correctness, before
-  `03-battery-low-indicator-checklist.md`, a smaller, independent UI feature), and anything a later
-  checklist's setup actually depends on before that checklist. When adding a new one, pick its
-  number by where it belongs in that order, not by appending to the end. A given number means the
-  same checklist in both folders, so renumber in both folders together.
-
-  If it belongs earlier than the current last number, renumber to make room, rather than reusing
-  or skipping a number:
-  1. Decide the new file's correct position (call its target number `K`).
-  2. For every existing file numbered `K` and above, rename it up by one (`git mv`), working from
-     the *highest* number down so no rename overwrites another file still waiting to be moved.
-  3. Add the new file as `K-<feature>-checklist.md` in both folders (a real checklist on the side
-     that has work, a `Nothing needed` stub on the side that doesn't).
-  4. Grep the repo for the old filenames (`grep -rn "NN-old-name"`) and fix any references (e.g. in
-     this file's own examples above) to the new numbers.
-
-  These are scanned by CI (see below) and must have every box checked before the PR can merge.
+- `<NN>-<feature>-checklist.md`, numbered by run order (broader/foundational before
+  narrower/independent), not creation order. Same number in both folders.
+- Neither folder's `README.md` nor this `CLAUDE.md` is a checklist -- CI never scans them.
+- To insert one earlier: rename every file numbered >= the target position up by one (`git mv`,
+  highest number first, so no rename overwrites another), add the new file at that number in both
+  folders (a real checklist on the side with work, a stub on the side without), then grep for and
+  fix any references to the old numbers.
 
 ## Format
 
-Each checklist is a GitHub-flavored Markdown task list. Every item is prefixed with who performs
-it:
+- `Tests/Bench/`: no actor label, one plain instruction per line.
+- `Tests/Interactive/`: `**(Claude)**` (DB/file/command) or `**(You)**` (needs a person) prefix on
+  every item. Single ordered sequence, not grouped by actor -- order matters (e.g. "note the event
+  number" before "flip the device").
 
-- `**(Claude)**` — something Claude does itself: query the DB, inspect a file, run a command.
-- `**(You)**` — something performed against the running app. In `Tests/Bench/` these are
-  app-driving actions a UI-automation harness can perform (launch/quit the app, wait out a timer,
-  type into or click a Preferences-window control); in `Tests/Interactive/` they are the ones that
-  genuinely need a person -- flip the device, a status-item gesture/menu click, or confirm what's on
-  the menu-bar status item (a color, a blink, an icon). The split between the two folders is exactly
-  this line: if a `(You)` step needs a human's hands or eyes, it belongs in `Tests/Interactive/`.
+## Driving the app directly
 
-Steps are ordered as a single sequence (not grouped by who does them), because order matters --
-e.g. "note the current event number" has to happen before "flip the device."
+- **Build**: `scripts/run.sh` (`mint run stackotter/swift-bundler@main run TimeFlip`) builds and
+  launches in one step, blocking in the foreground -- background it and poll the log for `"Build of
+  product"`/`"error:"`. Bundle path once built:
+  `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
+- **Launch for a Claude-driven step**: invoke that binary directly, not `scripts/run.sh` again --
+  it inherits the shell's env vars (needed for a debug hook like `TF_DEBUG_OPEN_SETTINGS`);
+  `scripts/run.sh` does not reliably pass them through.
+- **Quit**: `osascript -e 'tell application "TimeFlip" to quit'`. Never `pkill`/`kill` for an actual
+  test step -- it skips `applicationShouldTerminate`/`applicationWillTerminate` (e.g. the
+  `pause_on_lock`-on-quit behavior never fires). `pkill` is fine only as last-resort cleanup when
+  there's nothing to assert about the shutdown itself.
+- **Confirm reconnect**: query `debug_log` for a fresh `TimeFlip`-tagged `"Login accepted,
+  code=0x02"` row -- don't ask the user.
+  ```
+  sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
+    "SELECT logged_at, message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
+  ```
+- **Accessibility permission** (separate from Screen Recording) must be granted to the calling app
+  -- trace it via `ps -o ppid=,comm= -p <pid>` up the process tree from the current shell -- under
+  System Settings -> Privacy & Security -> Accessibility (not the top-level "Accessibility"
+  sidebar item, which is unrelated accessibility-*features* settings), then that app fully
+  quit/reopened. Canary check -- a shallow System Events query succeeding is *not* sufficient proof:
+  ```
+  osascript -e 'tell application "System Events" to tell process "Finder" to get name of every menu bar item of menu bar 1'
+  ```
+  A real result (not a `"not allowed assistive access" (-1719)` error) confirms it works.
+- **Status-item menu** (Lock/Unlock, Pause/Resume, Preferences, Quit): click to open, then click the
+  named item, in the same `tell` block (opening and addressing the menu in one line without a
+  separate `click` first does not work):
+  ```applescript
+  tell application "System Events"
+      tell process "TimeFlip"
+          tell menu bar item 1 of menu bar 2
+              click
+              delay 0.5
+              click menu item "Unlock" of menu 1
+          end tell
+      end tell
+  end tell
+  ```
+  Read item names first (`name of every menu item of menu 1`) to check current state before
+  deciding what to click. `key code 53` (Escape) dismisses without acting, in the same block. The
+  status item's single/double-click-right-half gesture (`MenuBarController.swift`) is a genuine
+  screen-position hit-test against a real `NSEvent.locationInWindow`, not a menu action --
+  `tell application "System Events" to click at {x, y}` at the status item's right-half screen
+  coordinates (from its `position`/`size`) does **not** trigger it (confirmed no `debug_log`/
+  `device_events` change resulted); this gesture stays `(You)` in `Tests/Interactive/`, not a
+  capability gap worth re-attempting the same way.
+- **Preferences window** (open via the status-item menu's "Preferences..."):
+  - Switch tabs: `click radio button <N> of radio group 1 of group 1 of toolbar 1 of window
+    "TimeFlip Settings"` (`N` = 1/2/3 for Device/Facets/Report). A radio button's `title` is
+    `missing value` -- use `description` to identify which is which.
+  - Read any label/value directly via accessibility (`static text`/a control's `value`) -- exact
+    string, no screenshot needed. Locate a specific element by dumping `entire contents` of the
+    window first and reading off its `group`/`scroll area` nesting -- indices shift depending on
+    which tab/disclosure groups are expanded, so re-derive the path each time rather than hardcoding
+    one from a prior session.
+  - Type into a text field: focus it, `keystroke "a" using {command down}` (select all), type the
+    value, `keystroke tab` to commit.
+  - Buttons/checkboxes/sliders/dialogs use the same mechanism (`click button "..."`, `set value of
+    checkbox ... to true`) but aren't all individually verified -- confirm via `debug_log`/DB
+    evidence the first time each is actually used.
+  - Screenshots are needed only for what SwiftUI's default accessibility doesn't decompose into
+    separate elements: the status item's own custom-drawn icon/badge (one rendered image), and
+    color/animation (not a queryable AX attribute).
+- Any script-driven click still mutates real app/device state -- treat it exactly like a human
+  click: run against the test database (below) except for narrow discovery work, and follow the
+  root `CLAUDE.md`'s live-app-interaction rule (heads-up before, all-clear after). **A factory
+  reset** (`01-reset-device-checklist.md`) is irreversible on real hardware -- pause and get the
+  user's explicit go-ahead immediately before that specific click, every time, even though it's
+  otherwise just another scripted step.
 
+### Screenshot-based visual confirmation
+
+For a **static** state (badge/icon presence, text, a field's value) that isn't otherwise
+accessibility-readable (prefer the accessibility read above when it applies), a `(Claude)`
+screenshot-and-inspect step replaces asking the user, in `Tests/Interactive/`:
 ```markdown
-- [ ] **(Claude)** Query `device_events` for the current max event number; note it as N.
-- [ ] **(You)** Flip the TimeFlip device to a new facet.
-- [ ] **(Claude)** Confirm a new `device_events` row appeared with event number > N.
+- [ ] **(You)** Click the "Lock" menu item.
+- [ ] **(Claude)** Screenshot the menu bar status item; confirm the red lock badge is visible.
 ```
+The triggering action stays `(You)` if it genuinely needs a human's hands. If reading it needs a
+dropdown open, "open it" stays `(You)` -- leave it open until told the screenshot is captured,
+rather than reading the text out loud.
+
+**Time-based checks are not automatically `(You)`** -- a *single* frozen frame can't show change
+over time, but two or more screenshots taken more than a second apart can, and often replace asking
+the user just as well:
+- A value that should simply be increasing (e.g. a duration ticking up): prefer a DB-based check
+  instead if one exists (see the `device_events`/`duration_seconds` pattern used in
+  `02-history-refresh-checklist.md` and `04-lock-and-pause-on-lock-checklist.md`'s Bench Scenario
+  C) -- it's more direct than reading rendered text at all. Fall back to two time-spaced
+  screenshots (or two accessibility text reads) only when there's no DB proxy for what's actually
+  being confirmed (e.g. confirming the *rendering itself* updates, not just the underlying data).
+- A single element blinking between two states: two screenshots roughly half a blink-interval
+  apart, confirmed to show different colors, is enough to prove it's animating at all.
+- **Multiple elements blinking in lockstep** (e.g. `03-battery-low-indicator-checklist.md`'s three
+  elements) is a stronger claim than "it's animating" -- it requires them to change at the *same
+  moment*, which two screenshots can't establish (both could easily show "changed" despite having
+  flipped at different times within the gap). This needs several screenshots spaced closely
+  relative to the blink interval (enough to see multiple full cycles), comparing all elements at
+  each sample -- more samples than the simple cases above, but still not fundamentally
+  human-only. Not yet actually converted this way in any checklist here -- if you do, verify it
+  first and update this entry and the checklist together, the same as everything else in this file.
+
+Launching the app for any of this still needs the root `CLAUDE.md`'s heads-up/wait/all-clear
+ritual.
 
 ### Presenting durations
 
-`duration_seconds` (and any other duration pulled from the DB) is stored/logged in raw seconds, but
-when asking the user to confirm a duration on screen, convert it to `mm:ss` first (e.g. `624`
-seconds -> `10:24`) -- that's the format the menu bar actually displays, and it's what the user can
-compare at a glance.
+Convert `duration_seconds` to `mm:ss` when asking the user to compare it on screen -- that's the
+menu bar's own display format. Keep the `display_seconds` setting enabled during testing so the
+menu bar shows seconds, not just minutes. To ask whether the device is running vs. paused, ask "is
+the time increasing?" over a couple of seconds of watching, not "is it paused?".
 
-Always make sure the `display_seconds` setting is enabled (`{"enabled":true}`) at the start of a
-testing session -- check it as part of Setup, same as any other DB setting. With it on, the menu
-bar shows to-the-second granularity, which is what makes "is the time increasing or static" (see
-below) something the user can actually judge over a short glance instead of needing to wait out a
-whole displayed minute to see the number move.
+### Reading debug output
 
-To confirm whether the device is currently running or paused, don't ask "is it paused?" -- ask "is
-the time increasing?" as a plain yes/no over a couple of seconds of watching (yes = running, no =
-paused). That's a concrete, directly-observable thing to check; "paused" is a state name the user
-would otherwise have to infer.
-
-### Reading debug output: use `debug_log`, not the terminal
-
-Don't rely on reading a live terminal/console transcript for `(Claude)` steps -- there's usually no
-reliable way to attach to whatever terminal/session the app happens to be running in. Instead,
-every `DeveloperMode.debugPrint` call is also recorded to the `debug_log` table whenever Developer
-Mode is on and the `debug` setting's `enabled` field is `true` (see `009_setting.sql`), specifically
-so a test session can be inspected after the fact via a plain `sqlite3` query instead of a captured
-console transcript. Query it directly, e.g.:
-
+Use `debug_log`, not a live terminal transcript (no reliable way to attach to one):
 ```
 sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
   "SELECT tag, message, logged_at FROM debug_log ORDER BY debug_log_id DESC LIMIT 20;"
 ```
-
-`tag` matches the bracketed prefix from `DeveloperMode.DebugTag` (e.g. `history`, `battery`,
-`TimeFlip`, `dev-check`), and `logged_at`/`logged_at_timezone` let you correlate against when a
-`(You)` step happened.
+`tag` matches the bracketed prefix from `DeveloperMode.DebugTag` (`history`, `battery`, `TimeFlip`,
+`dev-check`, ...); `logged_at` lets you correlate against when a step happened.
 
 ### Switching to the test database before testing
 
-Device testing runs against `~/Library/Application Support/TimeFlip/appdata.sqlite`, but that
-path is a symlink, not a real file (see `AppDataStore.ensureDatabaseSymlink`, only active under
-Developer Mode) -- it points at one of two real database files living alongside it:
-`production.sqlite` (the user's real, permanent data) and `test.sqlite` (created on demand,
-disposable). Two scripts repoint the symlink:
-
+`~/Library/Application Support/TimeFlip/appdata.sqlite` is a symlink to `production.sqlite` or
+`test.sqlite`, only re-read at the app's next launch:
 ```
-scripts/use-test-database.sh        # appdata.sqlite -> test.sqlite (creates it fresh if missing)
+scripts/use-test-database.sh        # appdata.sqlite -> test.sqlite (creates fresh if missing)
 scripts/use-production-database.sh  # appdata.sqlite -> production.sqlite
 ```
-
-The symlink is only read at the app's next launch (`sqlite3_open` is called once at startup and
-held for the process's lifetime) -- repointing it while the app is running does nothing until you
-quit and relaunch. Workflow for any testing session:
-
-1. Quit the app if it's running.
-2. Run `scripts/use-test-database.sh`.
-3. Start the app.
-4. **(Claude)** Query `db_type` as the very first step of Setup, every session, no exceptions:
-   `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
-   setting WHERE setting_name = 'db_type';"`. It must read `{"type":"test"}`. If it reads
-   `{"type":"production"}` instead, **stop immediately** -- the symlink switch didn't happen (or
-   didn't take effect yet because the app wasn't restarted) -- do not run any checklist step that
-   would mutate data until this reads `test`.
-5. Run the session's checklist(s) freely -- change any `setting` row, generate any `device_events`,
-   with no snapshot/restore needed at all, since none of it exists in `production.sqlite`.
-   Real timings are never at risk of interference.
-6. Once testing is complete, quit the app, run `scripts/use-production-database.sh`, and start the
-   app again -- back to real data, exactly as it was before testing started. `test.sqlite` is left
-   in place (not deleted) so the next session can reuse its accumulated state rather than starting
-   from a bare schema every time.
-
-This replaces the old settings-snapshot-and-restore workflow entirely: since a testing session's
-`setting` changes only ever land in `test.sqlite`, there's nothing that could carry over to
-`production.sqlite` for a snapshot to protect against.
+Every session: quit the app, run the test-database script, start the app, then query `db_type` as
+the very first Setup step, every time -- it must read `{"type":"test"}`. If it reads
+`{"type":"production"}`, **stop immediately** -- don't run anything that would mutate data. When
+done: quit, run the production-database script, start the app again. `test.sqlite` is left in place
+between sessions (not deleted), so accumulated state carries forward.
 
 ### Suppressing incidental physical double-taps during a test session
 
-The TimeFlip2 device pauses itself whenever it detects a physical double-tap -- this is
-unconditional firmware behavior (see `docs/TimeFlip2 BLE Protocol v4.3.md`'s double-tap notify
-description) with **no BLE command to disable it outright**. The only adjustable lever is
-accelerometer click-detection *sensitivity* (commands `0x16` write / `0x17` read -- `clickThreshold`,
-`limit`, `latency`, `window`, each a `UInt8` 0-255), exposed through the app's own Double Tap
-section in Settings, not a `setting` DB row (the `double_tap_settings` DB row exists but nothing in
-the app reads it -- it's dead seed data, don't rely on it).
+The device pauses itself on any physical double-tap -- unconditional firmware behavior; no BLE
+command disables it outright. The only lever is accelerometer sensitivity
+(`clickThreshold`/`limit`/`latency`/`window`, each `UInt8` 0-255) via the app's Double Tap section
+in Settings -- not the `double_tap_settings` DB row (nothing reads that yet, it's dead seed data).
+This is a physical register on the device, unaffected by which database is active, so it needs its
+own snapshot/restore separate from the database switch above:
 
-This is unaffected by which database file the app is pointed at (production or test) -- it's a
-physical register on the one shared device, not a DB row -- so it needs its own snapshot/restore,
-separate from the database-switching workflow above. Suppress it for the duration of a testing
-session:
-
-1. At the very start of the session, ask the user to expand the Advanced section (click the
-   "Advanced" label or its arrow) in Settings, then click "Sync from device" under Double-tap
-   sensitivity and report the four current values. Record them in
-   `Tests/Bench/device_register_snapshot.json` -- gitignored, not committed, since it only
-   reflects tests currently/previously in progress on this machine -- under a timestamp-keyed
-   `double_tap_params_as_at` object, same shape as the old settings snapshot used to be:
-   ```json
-   {"double_tap_params_as_at": {"2026-07-18-13.32.08": {"clickThreshold": 90, "limit": 20, "latency": 50, "window": 50}}}
-   ```
-   Take exactly one snapshot per session, before the first change, and restore from the **latest**
-   entry once done -- same reasoning as the old DB-setting snapshot: the real values can legitimately
-   change between sessions for reasons unrelated to testing, so the most recent snapshot is the only
-   one that reflects "what was true right before this session started."
-2. Ask the user to set `window` (`TIME_WINDOW`) to `0` and click "Apply". `window` is the maximum
-   time the accelerometer allows between the first and second tap for it to still count as one
-   double-tap -- `0` structurally guarantees no double-tap can ever complete, a stronger guarantee
-   than raising `clickThreshold` (which only requires more force, not zero opportunity). Leave
-   `clickThreshold`/`limit`/`latency` alone; this doesn't touch the separate facet-flip/orientation
-   detection either way.
+1. Expand Advanced -> Double-tap sensitivity -> "Sync from device"; record the four values in
+   `Tests/Bench/device_register_snapshot.json` (gitignored) under a timestamp-keyed
+   `double_tap_params_as_at` object. One snapshot per session, before the first change; restore
+   from the **latest** entry once done.
+2. Set `window` to `0` and Apply -- guarantees no double-tap can complete (stronger than raising
+   `clickThreshold`, which only requires more force). Leave the other three alone.
 3. Run the session's checklist(s) as normal.
-4. Once testing is complete, ask the user to re-enter the original values from step 1's latest
-   snapshot and click "Apply" again.
+4. Once done, restore the original values from step 1 and Apply again.
 
-If a checklist scenario is specifically testing double-tap-to-pause behavior itself, that scenario
-needs the real sensitivity active -- temporarily restore the original values for just that scenario,
-then re-suppress before continuing with anything else in the session.
-
-**Planned, not yet built:** a future feature will read `double_tap_settings` from whichever database
-is active and push it to the device automatically (making the DB row a real source of truth instead
-of dead seed data). Once that exists, `production.sqlite` and `test.sqlite` can each hold their own
-sensitivity (e.g. `test.sqlite` permanently seeded with `window: 0`), and switching databases would
-reconfigure the device by itself -- at that point this entire manual snapshot/suppress/restore
-workflow and `device_register_snapshot.json` become unnecessary and should be removed.
+If a scenario specifically tests double-tap-to-pause behavior, temporarily restore real sensitivity
+for just that scenario, then re-suppress before continuing.
 
 ## Running a checklist
 
-When asked to run through a checklist:
-
-1. Go top to bottom. For a `(Claude)` step, do the thing, then check the box.
-2. For a `(You)` step, ask the user to do it, wait for confirmation, then check the box.
-3. Don't skip ahead — later steps often depend on the state a prior step established.
-4. Anything the user needs to physically go do -- a `(You)` step, or an ad hoc request that comes
-   up mid-run and isn't in the checklist text at all (e.g. "turn off Bluetooth") -- has to visually
-   stand out from ordinary conversational replies, or it reads as just more chat and the user won't
-   register that an action is expected of them. Use a large markdown heading (e.g. `## Action
-   needed`) or comparably bold/distinct formatting, not a plain sentence sitting among other plain
-   sentences.
-5. Only put things under that heading that the user actually has to do. A `(Claude)` step --
-   including one that happens to involve a setting the user can't practically change themselves,
-   like a DB value -- is not an action-needed item; do it, then move straight to whatever the next
-   real `(You)` step is. Don't ask the user to "confirm" something Claude already did/verified
-   itself just to pad out a list.
-6. When a feature can be triggered more than one way (e.g. a menu item vs. an equivalent
-   click/gesture on the status icon), don't fold both into a single step ("click X, or do gesture
-   Y") -- give each its own scenario/steps so a bug in one path isn't masked by the other having
-   been exercised instead.
-7. The checkbox tick is the record that a step happened -- don't add a note underneath just to say
-   so (e.g. a bare "Confirmed."). Only add a note when it carries actual evidence the tick alone
-   doesn't: a queried value, an exact log line, a reading -- something a future reader of the
-   checklist would want to see without re-running the test themselves. When there is such a value,
-   put it in parentheses at the end of the same list item (wrapped/indented like the rest of the
-   item's text), not as a separate paragraph underneath:
+1. Top to bottom. In `Tests/Bench/`, do each step and check the box, no asking. In
+   `Tests/Interactive/`, do each `(Claude)` step the same way; for `(You)`, ask the user, wait for
+   confirmation, then check the box.
+2. Don't skip ahead -- later steps often depend on state a prior step established.
+3. Anything the user has to do -- a `(You)` step, or an ad hoc mid-run request not in the checklist
+   text at all (e.g. "turn off Bluetooth") -- gets a large heading (e.g. `## Action needed`), not a
+   plain sentence among ordinary replies.
+4. Only put things the user actually has to do under that heading -- not a `(Claude)` step, even one
+   involving a setting the user could technically change themselves. Don't ask the user to "confirm"
+   something Claude already did/verified, just to pad out a list.
+5. When a feature has more than one trigger (a menu item vs. a gesture), give each its own
+   scenario/steps -- don't fold both into one step, so a bug in one path can't hide behind the
+   other having been exercised instead.
+6. A checkbox tick is the record a step happened -- don't add a note just to say so (e.g. bare
+   "Confirmed."). Only add one when it carries real evidence the tick alone doesn't (a queried
+   value, an exact log line), in parentheses at the end of the same item:
    ```markdown
-   - [x] **(Claude)** Query `debug_log` for recent `battery` rows and note the live level's natural
-         fluctuation range (its lower and higher reading). (Confirmed: flaps between 26% (lower)
-         and 27% (higher).)
+   - [x] Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
+         range. (Confirmed: flaps between 26% (lower) and 27% (higher).)
    ```
-8. Under that heading, match the format to the step count: a single action is just the plain
-   instruction sentence; multiple actions (e.g. "turn off Bluetooth, then flip the device twice")
-   are a numbered list, one action per line, not run together in prose -- so the user can tell at a
-   glance how many things they need to do and check them off one at a time.
-9. When finishing one scenario/section and moving to the next, say so with a heading as visually
-   big as `## Action needed` -- e.g. `## Scenario A complete`, followed by a one-line result (all
-   passed, or what was found and fixed) -- before starting the next one. This keeps the user
-   oriented on where the run is up to without having to scroll back through the file themselves.
-10. When a single confirmation step covers several conditions at once (e.g. "lock badge shown, menu
-    reads Unlock, Pause disabled"), phrase it as one combined yes/no ask -- a short lead-in sentence
-    plus a numbered list of the conditions -- so the user can answer with one word instead of
-    individually addressing each item:
-    ```markdown
-    Confirm the following with a single yes or no:
-    1. The red lock icon is there
-    2. The menu says Unlocked
-    3. The Pause item is greyed out
-    ```
-    If the answer is anything other than a clean yes, dig deeper -- ask which part didn't match --
-    instead of ticking every box on an ambiguous or partial answer.
-11. Watch the user's answers for signs they did something that wasn't asked for (an extra click, a
-    setting changed early, an unrequested action mentioned in passing). If that happens, don't just
-    press on -- work out what state that leaves things in, tell the user plainly, and give explicit
-    instructions to get back to the state the current step actually requires before re-asking for
-    confirmation.
-12. When a feature has more than one trigger (a menu item vs. a click/gesture on the status icon,
-    tested as separate scenarios per point 6), always name which one an action-needed step means --
-    "click the Lock **menu item**", not just "click Lock" -- even if it seems obvious from context.
-    Don't make the user infer which gesture from which scenario they're currently in.
+7. Match the action-needed format to the step count: a single action is a plain sentence; multiple
+   actions are a numbered list, one per line.
+8. Announce finishing a scenario/section with a heading as big as `## Action needed` (e.g. `##
+   Scenario A complete`) plus a one-line result, before starting the next.
+9. Combine multiple conditions into one yes/no ask with a short lead-in plus a numbered list, not
+   separate questions per condition. Anything other than a clean yes: ask which part didn't match,
+   don't tick on an ambiguous or partial answer.
+10. If the user did something unasked (an extra click, an early setting change), don't press on --
+    work out what state that leaves things in, say so plainly, and give explicit steps back to the
+    state the current step requires before re-asking for confirmation.
+11. Always name which trigger an action-needed step means ("click the Lock **menu item**"), even if
+    it seems obvious from context -- don't make the user infer which gesture/scenario applies.
 
 ## Bugs found and fixed
 
-If running a checklist surfaces a real bug and it gets fixed as part of the same session, record it
-right under the checklist item that exposed it, as its own heading:
-
+Record a real bug found and fixed mid-session right under the item that exposed it:
 ```markdown
 - [x] **(You)** Confirm the activity name is blinking red/white.
 ### Bugs found and fixed
-2026-07-15 - The user is a mornon and could not find the app, slapped him upside the head, fixed.
 2026-07-18 - The off flash was 0 so it looked like the icon was always red, fixed.
 ```
-
-One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, so don't
-re-explain it here. If the same checklist gets run again later on the same branch and another bug
-turns up, add another dated line under the existing heading instead of replacing it -- this builds
-a running history of what testing found and fixed on this branch.
-
-This is branch-specific history, not permanent documentation: if the checklist is later run again
-on a *different* branch (e.g. this branch got merged to main and a new feature branch was cut from
-it), remove any "Bugs found and fixed" sections before that run starts -- they document work that
-happened on a branch the new one didn't inherit.
+One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, don't
+re-explain it here. Append further bugs found on later runs of the same checklist on the same
+branch under the existing heading, rather than replacing it. Remove this section entirely if the
+checklist runs again on a *different* branch -- it's branch-specific history, not permanent
+documentation.
 
 ## Restarting
 
-If asked to restart a checklist, clear every box in that file back to `- [ ]` (don't delete or
-reorder the steps) and start again from the top. This is a deliberate reset, not a bug: it means
-the checklist needs to be re-verified from scratch, e.g. against a code change made after the last
-run.
+To restart a checklist: clear every box in that file back to `- [ ]` (don't delete or reorder the
+steps) and start again from the top.
 
 ## CI enforcement
 
 `scripts/check_interactive_checklists.sh` (wired into `.github/workflows/tests.yml`) fails the
-build if any `<feature>-checklist.md` file under either `Tests/Bench/` or `Tests/Interactive/` has
-an unchecked (`- [ ]`) item -- it reports the bench folder first, then interactive, mirroring the
-run order. This means: if a PR adds or touches a checklist in either folder, it must be fully ticked
-and committed before the PR can merge -- the checklist itself is the evidence that the steps were
-done.
+build if any `<feature>-checklist.md` under either `Tests/Bench/` or `Tests/Interactive/` has an
+unchecked (`- [ ]`) item. A PR touching either folder must have it fully ticked before merging.

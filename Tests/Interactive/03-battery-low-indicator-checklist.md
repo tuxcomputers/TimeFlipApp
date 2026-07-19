@@ -18,12 +18,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 - [ ] **(Claude)** Query the current threshold and the most recent `battery` `level`, and note both
       as the original values to restore later.
-- [ ] **(You)** Quit the app.
+- [ ] **(Claude)** Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
 - [ ] **(Claude)** Update `low_battery_level` to at/above the live level noted above, so the fresh
       connection registers as low immediately: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite
       "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name =
       'low_battery_level';"`.
-- [ ] **(You)** Start the app and confirm it reconnects to the device.
+- [ ] **(Claude)** Start the app and confirm it reconnects to the device (fresh `debug_log`
+      `"Login accepted, code=0x02"` row).
 - [ ] **(Claude)** Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`, so the visual checks below are being made while the app really is in the
       low state.
@@ -39,9 +40,10 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Restore and confirm it all stops
 
-- [ ] **(You)** Quit the app.
+- [ ] **(Claude)** Quit the app.
 - [ ] **(Claude)** Restore `low_battery_level` to its original value noted above.
-- [ ] **(You)** Start the app and confirm it reconnects to the device.
+- [ ] **(Claude)** Start the app and confirm it reconnects to the device (fresh `debug_log`
+      `"Login accepted, code=0x02"` row).
 - [ ] **(Claude)** Query `debug_log` and confirm a `battery` row now shows `isLowBattery=false`.
 - [ ] **(You)** Confirm the activity name and the "Preferences..." menu item are no longer flashing,
       and that the Battery line on the Device tab is no longer flashing.

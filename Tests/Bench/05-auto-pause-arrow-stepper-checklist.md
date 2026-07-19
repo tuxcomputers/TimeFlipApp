@@ -13,30 +13,34 @@ unit-tested in `Tests/TimeFlipAppTests/AutoPauseStepperTests.swift`, the `auto_p
 round-trip in `SettingsPersistenceTests.swift`, and the hold-cancel-on-window-close in
 `AppStateDeviceTabTests.swift`.
 
-This bench file covers only what a harness can drive against a connected device: typing a value into
-the field and confirming it lands in the DB. The real **press-and-hold acceleration gesture** (and
-the window-closed-mid-hold case), which needs a person holding the mouse button, lives in
+This bench file covers what's Claude-drivable against a connected device: typing a value into the
+field and confirming it lands in the DB. The real **press-and-hold acceleration gesture** (and the
+window-closed-mid-hold case) needs a person to actually hold the mouse button down -- System
+Events can click a control but not sustain a held mouse-down/up over time -- and lives in
 `Tests/Interactive/05-auto-pause-arrow-stepper-checklist.md`, run after this one.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] **(You)** Quit the app if it's running.
-- [ ] **(Claude)** Run `scripts/use-test-database.sh`.
-- [ ] **(You)** Start the app and confirm it reconnects to the device.
-- [ ] **(Claude)** Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
+- [ ] Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
+- [ ] Run `scripts/use-test-database.sh`.
+- [ ] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
+      code=0x02"` row).
+- [ ] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
       setting WHERE setting_name = 'db_type';"`.
-- [ ] **(You)** Open Preferences, Device tab. Confirm **Auto-pause** sits at the top of the
-      **Settings** section, above the collapsed **LED** disclosure (not inside a separate
-      **Advanced** section, which no longer exists).
+- [ ] Open Preferences (status-item menu -> "Preferences...") and switch to the Device tab (radio
+      button 1 of the tab picker). Confirm **Auto-pause** sits at the top of the **Settings**
+      section, above the collapsed **LED** disclosure (not inside a separate **Advanced** section,
+      which no longer exists) -- read the ordering of static text/control elements in that section
+      via accessibility (see "Driving the app directly" in `../CLAUDE.md`).
 
 ## Scenario -- typing a value into the field persists to the DB
 
-- [ ] **(Claude)** Type `4` directly into the auto-pause text field and confirm the DB row updated:
+- [ ] Type `4` directly into the auto-pause text field and confirm the DB row updated:
       `SELECT setting_value FROM setting WHERE setting_name = 'auto_pause_minutes';` should read
       `{"minutes":4}`.
-- [ ] **(Claude)** Type `26` into the field and confirm the same row now reads `{"minutes":26}`.
-- [ ] **(Claude)** Type `0` into the field and confirm the row reads `{"minutes":0}`, leaving
-      auto-pause disabled for the next run.
+- [ ] Type `26` into the field and confirm the same row now reads `{"minutes":26}`.
+- [ ] Type `0` into the field and confirm the row reads `{"minutes":0}`, leaving auto-pause
+      disabled for the next run.

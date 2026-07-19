@@ -14,7 +14,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario A -- press-and-hold acceleration, up arrow
 
-- [ ] **(Claude)** Type `4` directly into the auto-pause text field (starting value for the hold).
+- [ ] **(Claude)** Type `1` directly into the auto-pause text field (starting value for the hold).
 
 ### Action needed
 Click and hold the **up** arrow on the auto-pause field (don't release the mouse button) until the
@@ -22,11 +22,12 @@ value passes 30, then release. Report the full sequence of numbers you see, and 
 rate visibly changes partway through.
 
 - [ ] **(You)** Report the observed sequence and whether the pace changed.
-- [ ] **(Claude)** Confirm the reported sequence is `5, 6, 7, 8, 9, 10, 15, 20, 25, 30` (or further
-      multiples of 5 beyond 30, depending on how long the button was held) -- single-digit steps
-      up through 10 (the second gridline past the starting value of 4), then steps of 5 -- and
-      that the user reported the steps-of-5 phase as *slower*, not faster or the same pace, than
-      the single-digit phase.
+- [ ] **(Claude)** Confirm the reported sequence is `2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30` (or
+      further multiples of 5 beyond 30, depending on how long the button was held) -- single-digit
+      steps up through 10 (the second gridline past the starting value of 1 -- `secondBoundary`
+      uses integer division, so 1 and 4 both land on the same 5/10 gridlines, just with a longer
+      visible ramp starting from 1), then steps of 5 -- and that the user reported the steps-of-5
+      phase as *slower*, not faster or the same pace, than the single-digit phase.
 - [ ] **(Claude)** Query the DB and confirm `auto_pause_minutes` matches the final on-screen value.
 
 ## Scenario B -- press-and-hold acceleration, down arrow
@@ -55,5 +56,6 @@ your other hand to close the Preferences window. Wait about 5 seconds, then reop
 - [ ] **(Claude)** Query `auto_pause_minutes` immediately after reopening and again 5 seconds later;
       confirm the two readings are identical (the hold did not keep advancing after the window
       closed).
-- [ ] **(You)** On the reopened Device tab, click the up arrow once (a plain click, not a hold) and
-      confirm the value increases by exactly 1 -- i.e. the arrow isn't stuck "held" from before.
+- [ ] **(Claude)** Note `auto_pause_minutes`, click the up arrow once (a plain click, not a hold --
+      this is a normal button click, unlike the hold gesture above, so it's Claude-drivable), and
+      confirm the value increased by exactly 1 -- i.e. the arrow isn't stuck "held" from before.
