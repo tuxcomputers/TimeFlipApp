@@ -394,7 +394,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Which physical database file this is -- `"production"` or `"test"` (the `db_type` setting;
     /// see `database/009_setting.sql`). Set once when a database file is first created and never
-    /// changed afterward; see `Tests/Interactive/README.md` for the test-database-switching
+    /// changed afterward; see `Tests/CLAUDE.md` for the test-database-switching
     /// workflow this backs. Falls back to `"production"` if the row is missing or malformed.
     func loadDbType() -> String {
         loadSettingJSON(name: "db_type")?["type"] as? String ?? "production"
@@ -462,6 +462,22 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// `brightness` untouched.
     func saveLEDBlinkIntervalSeconds(_ seconds: UInt8) {
         saveSettingJSON(name: "led_settings", merging: ["blink_interval": Int(seconds)])
+    }
+
+    /// Auto-pause delay in minutes (the `auto_pause_minutes` setting's `minutes` field, seeded to
+    /// `0`; see `database/009_setting.sql`) -- the device itself only supports whole-minute
+    /// granularity for this (device cmd 0x05), so there's no finer unit to store. Falls back to
+    /// the seeded default if the row is missing or malformed.
+    func loadAutoPauseMinutes() -> UInt16 {
+        guard let minutes = loadSettingJSON(name: "auto_pause_minutes")?["minutes"] as? Int else {
+            return 0
+        }
+        return UInt16(max(0, min(240, minutes)))
+    }
+
+    /// Persists a new auto-pause delay, in minutes, to the `auto_pause_minutes` row.
+    func saveAutoPauseMinutes(_ minutes: UInt16) {
+        saveSettingJSON(name: "auto_pause_minutes", merging: ["minutes": Int(minutes)])
     }
 
     /// Double-tap accelerometer register values (the `double_tap_settings` setting's
@@ -997,7 +1013,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// Makes sure `appdata.sqlite` is a symlink to `production.sqlite`, not a plain file, so
     /// `scripts/use-test-database.sh`/`scripts/use-production-database.sh` can repoint it at
     /// `test.sqlite` for a testing session without touching real data (see
-    /// `Tests/Interactive/README.md`). A no-op if it's already a symlink, whatever it currently
+    /// `Tests/CLAUDE.md`). A no-op if it's already a symlink, whatever it currently
     /// points at -- this only ever runs the one-time migration for a plain file (an install from
     /// before this symlink scheme existed, or a fresh install with no database yet). Also ensures
     /// `test.sqlite` exists and is already seeded with `db_type: "test"`, every time this runs --
@@ -1020,7 +1036,13 @@ final class AppDataStore: IntegrationEventCursorStore {
                 try? fileManager.moveItem(at: url, to: productionURL)
             }
             if !fileManager.fileExists(atPath: url.path) {
-                try? fileManager.createSymbolicLink(at: url, withDestinationURL: productionURL)
+                // Relative destination (not productionURL's full path) -- both files live in the
+                // same directory by construction, and a relative link keeps working if this whole
+                // directory is ever moved or restored somewhere else.
+                try? fileManager.createSymbolicLink(
+                    atPath: url.path,
+                    withDestinationPath: productionURL.lastPathComponent
+                )
             }
         }
         ensureTestDatabaseExists(alongside: productionURL)

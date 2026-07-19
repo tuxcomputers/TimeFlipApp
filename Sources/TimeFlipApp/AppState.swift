@@ -35,7 +35,7 @@ final class AppState: ObservableObject {
     @Published var pairedDeviceUUID: String?
     @Published var pairingStatus: PairingStatus
     @Published var wantsPairing: Bool
-    @Published var autoPauseMinutes: UInt16?
+    @Published var autoPauseMinutes: UInt16
     @Published var deviceInfo: TimeFlipDeviceInfo?
     @Published var ledBrightnessPercent: UInt8
     @Published var blinkIntervalSeconds: UInt8
@@ -56,6 +56,33 @@ final class AppState: ObservableObject {
     @Published var deviceStatusMessages: [UUID: String] = [:]
     @Published var pendingPairingDeviceName: String?
     @Published var pendingPairingDeviceID: UUID?
+    // Device tab disclosure-group expand states. Deliberately not persisted -- the Preferences
+    // window is hidden rather than deallocated on close (see SettingsWindowController), so plain
+    // View @State would otherwise keep whatever was expanded across a close/reopen. Reset to
+    // false via collapseDeviceTabDisclosures() from windowWillClose instead.
+    @Published var isMoreExpanded: Bool = false
+    @Published var isLEDExpanded: Bool = false
+    @Published var isDoubleTapExpanded: Bool = false
+    // The auto-pause arrows' press-and-hold repeat loop (see TimeFlipSettingsView), owned here --
+    // along with which direction is currently held -- rather than as View @State, for the same
+    // reason as the disclosure-group states above: the window survives close, and a
+    // physically-still-held mouse button never delivers its release event to the view if the
+    // window closes out from under it (e.g. a keyboard-driven close). Both are reset together
+    // from collapseDeviceTabDisclosures() so the task can't keep ticking (and keep sending
+    // device/DB writes) in the background after the window closes, and so the arrow it was
+    // holding isn't left stuck "pressed" once the window reopens.
+    var autoPauseHoldTask: Task<Void, Never>?
+    var autoPauseHoldDirection: Int?
+    // Mirrors MenuBarController's low-battery blink state so the Settings window's Battery line
+    // (a different view hierarchy from the status bar) can flash in sync with it and with the
+    // "Preferences..." menu item -- MenuBarController owns the actual timer/latch and pushes
+    // updates here via setLowBatteryBlinkState(). Deliberately not persisted.
+    @Published private(set) var isLowBattery: Bool = false
+    @Published private(set) var lowBatteryBlinkPhaseOn: Bool = false
+    // Set by MenuBarController.openPreferences() when Preferences is opened while low-battery is
+    // flashing, so the window jumps straight to the Device tab (where the battery line lives)
+    // instead of leaving whatever tab was last selected. SettingsRootView consumes and clears it.
+    @Published var pendingSettingsTab: SettingsTab?
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
@@ -79,6 +106,7 @@ final class AppState: ObservableObject {
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
         devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared,
         developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared,
+        autoPauseMinutes: UInt16,
         ledBrightnessPercent: UInt8,
         blinkIntervalSeconds: UInt8,
         doubleTapParameters: DoubleTapParameters,
@@ -110,7 +138,7 @@ final class AppState: ObservableObject {
         pairedDeviceUUID = nil
         pairingStatus = .notPaired
         wantsPairing = false
-        autoPauseMinutes = nil
+        self.autoPauseMinutes = autoPauseMinutes
         deviceInfo = nil
         self.ledBrightnessPercent = ledBrightnessPercent
         self.blinkIntervalSeconds = blinkIntervalSeconds
@@ -185,7 +213,7 @@ final class AppState: ObservableObject {
             // Live events only trigger history fetch; state comes from history
             break
         case .autoPauseMinutes(let minutes):
-            autoPauseMinutes = clampAutoPause(minutes)
+            autoPauseMinutes = clampAutoPauseMinutes(minutes)
         case .batteryLevel(let level):
             batteryLevel = level
         case .systemState(let state):
@@ -258,6 +286,27 @@ final class AppState: ObservableObject {
         discoveredDevices = []
     }
 
+    /// Collapses every Device-tab disclosure group and cancels any in-progress auto-pause
+    /// press-and-hold repeat. Called when the Preferences window closes so reopening it always
+    /// starts fully collapsed, and so a hold that never received its release event (window closed
+    /// out from under it) can't keep ticking in the background.
+    func collapseDeviceTabDisclosures() {
+        isMoreExpanded = false
+        isLEDExpanded = false
+        isDoubleTapExpanded = false
+        autoPauseHoldTask?.cancel()
+        autoPauseHoldTask = nil
+        autoPauseHoldDirection = nil
+    }
+
+    /// Called by MenuBarController every time its low-battery blink state changes (starts, stops,
+    /// or toggles phase) so the Settings window's Battery line and the "Preferences..." menu item
+    /// can mirror it.
+    func setLowBatteryBlinkState(isLowBattery: Bool, blinkPhaseOn: Bool) {
+        self.isLowBattery = isLowBattery
+        self.lowBatteryBlinkPhaseOn = blinkPhaseOn
+    }
+
     func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {
         pendingPairingDeviceID = device.id
         pendingPairingDeviceName = device.name
@@ -327,7 +376,6 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         deviceInfo = nil
-        autoPauseMinutes = nil
         devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }
@@ -361,9 +409,6 @@ final class AppState: ObservableObject {
         pairingStatus = wantsPairing ? .pairing : .notPaired
         pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
         pairedDeviceUUID = payload.pairedDeviceUUID
-        if let storedAutoPause = payload.autoPauseMinutes {
-            autoPauseMinutes = clampAutoPause(storedAutoPause)
-        }
         isApplyingPreferences = false
     }
 
@@ -394,8 +439,7 @@ final class AppState: ObservableObject {
             $googleClientID.map { _ in () }.eraseToAnyPublisher(),
             $isPaired.map { _ in () }.eraseToAnyPublisher(),
             $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
-            $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher(),
-            $autoPauseMinutes.map { _ in () }.eraseToAnyPublisher()
+            $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher()
         ])
         .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -452,8 +496,7 @@ final class AppState: ObservableObject {
             isPaired: wantsPairing,
             wantsPairing: wantsPairing,
             pairedDeviceName: pairedDeviceName,
-            pairedDeviceUUID: pairedDeviceUUID,
-            autoPauseMinutes: autoPauseMinutes.map { clampAutoPause($0) }
+            pairedDeviceUUID: pairedDeviceUUID
         )
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
@@ -510,7 +553,7 @@ final class AppState: ObservableObject {
         return max(0, min(480, value))
     }
 
-    private func clampAutoPause(_ value: UInt16) -> UInt16 {
+    private func clampAutoPauseMinutes(_ value: UInt16) -> UInt16 {
         // UI clamps to 0–240 minutes; keep the same guardrails at persistence.
         return UInt16(max(0, min(240, Int(value))))
     }

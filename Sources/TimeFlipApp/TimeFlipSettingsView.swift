@@ -1,13 +1,6 @@
 import SwiftUI
 
 struct TimeFlipSettingsView: View {
-    private static let eventFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
     @ObservedObject var appState: AppState
     @State private var autoPauseValue: Int = 0
     @State private var lastAppliedAutoPause: UInt16 = 0
@@ -15,10 +8,6 @@ struct TimeFlipSettingsView: View {
     @State private var lastAppliedLEDBrightness: UInt8 = 50
     @State private var blinkIntervalValue: Int = 5
     @State private var lastAppliedBlinkInterval: UInt8 = 5
-    @State private var isAdvancedExpanded: Bool = false
-    @State private var isMoreExpanded: Bool = false
-    @State private var isLEDExpanded: Bool = false
-    @State private var isDoubleTapExpanded: Bool = false
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
     @State private var showingFactoryResetConfirmation: Bool = false
@@ -28,14 +17,12 @@ struct TimeFlipSettingsView: View {
             deviceSection
             settingsSection
             pairingSection
-            advancedSection
         }
         .formStyle(.grouped)
         .onAppear(perform: syncViewState)
         .onChange(of: appState.autoPauseMinutes) { _, newValue in
-            let minutes = newValue ?? 0
-            autoPauseValue = Int(minutes)
-            lastAppliedAutoPause = minutes
+            autoPauseValue = Int(newValue)
+            lastAppliedAutoPause = newValue
         }
         .onChange(of: appState.ledBrightnessPercent) { _, newValue in
             let clamped = max(1, min(100, Int(newValue)))
@@ -62,10 +49,14 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Connection") {
                 Text(statusText)
             }
-            LabeledContent("Battery") {
+            LabeledContent {
                 Text(batteryText)
+                    .foregroundStyle(batteryTextColor)
+            } label: {
+                Text("Battery")
+                    .foregroundStyle(batteryTextColor)
             }
-            DisclosureGroup(isExpanded: $isMoreExpanded) {
+            DisclosureGroup(isExpanded: $appState.isMoreExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Manufacturer") {
                         Text(manufacturerText)
@@ -83,7 +74,7 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isMoreExpanded.toggle()
+                    appState.isMoreExpanded.toggle()
                 } label: {
                     Text("More")
                 }
@@ -94,7 +85,11 @@ struct TimeFlipSettingsView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            DisclosureGroup(isExpanded: $isLEDExpanded) {
+            LabeledContent("Auto-pause (0 disable, max 240m)") {
+                autoPauseControls
+            }
+            .disabled(!appState.isPaired)
+            DisclosureGroup(isExpanded: $appState.isLEDExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Brightness") {
                         brightnessControls
@@ -108,13 +103,13 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isLEDExpanded.toggle()
+                    appState.isLEDExpanded.toggle()
                 } label: {
                     Text("LED")
                 }
                 .buttonStyle(.plain)
             }
-            DisclosureGroup(isExpanded: $isDoubleTapExpanded) {
+            DisclosureGroup(isExpanded: $appState.isDoubleTapExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Disable", isOn: Binding(
                         get: { !appState.isDoubleTapEnabled },
@@ -123,16 +118,12 @@ struct TimeFlipSettingsView: View {
                     .toggleStyle(.checkbox)
                     .disabled(!appState.isPaired)
                     doubleTapControls
-                        .disabled(!appState.isDoubleTapEnabled)
-                    Button("Apply") {
-                        applyDoubleTapParameters(doubleTapParams)
-                    }
-                    .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
+                        .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
                 }
                 .padding(.vertical, 4)
             } label: {
                 Button {
-                    isDoubleTapExpanded.toggle()
+                    appState.isDoubleTapExpanded.toggle()
                 } label: {
                     Text("Double tap")
                 }
@@ -281,16 +272,13 @@ struct TimeFlipSettingsView: View {
 
     private var autoPauseControls: some View {
         HStack {
-            Stepper(
-                value: Binding(
-                    get: { autoPauseValue },
-                    set: { applyAutoPause(newValue: $0) }
-                ),
-                in: 0...240
-            ) {
-                EmptyView()
+            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
+            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
+            // custom buttons driving our own repeat loop instead.
+            VStack(spacing: 1) {
+                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
+                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
             }
-            .labelsHidden()
             TextField(
                 "",
                 value: Binding(
@@ -307,32 +295,24 @@ struct TimeFlipSettingsView: View {
         }
     }
 
-    private var advancedSection: some View {
-        Section("Advanced") {
-            DisclosureGroup(isExpanded: $isAdvancedExpanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("System") {
-                        Text(systemText)
-                    }
-                    LabeledContent("Last event") {
-                        Text(lastEventText)
-                    }
-                    Divider()
-                    LabeledContent("Auto-pause (0 disable, max 240m)") {
-                        autoPauseControls
-                    }
-                    .disabled(!appState.isPaired)
+    private func autoPauseStepButton(direction: Int, systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.secondary)
+            .frame(width: 16, height: 10)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
+                if isPressing {
+                    guard appState.isPaired, appState.autoPauseHoldDirection != direction else { return }
+                    appState.autoPauseHoldDirection = direction
+                    let startValue = autoPauseValue
+                    applyAutoPause(newValue: startValue + direction)
+                    beginAutoPauseHold(direction: direction, startValue: startValue)
+                } else if appState.autoPauseHoldDirection == direction {
+                    appState.autoPauseHoldDirection = nil
+                    endAutoPauseHold()
                 }
-                .padding(.vertical, 4)
-            } label: {
-                Button {
-                    isAdvancedExpanded.toggle()
-                } label: {
-                    Text("Advanced")
-                }
-                .buttonStyle(.plain)
-            }
-        }
+            }, perform: {})
     }
 
     private var doubleTapControls: some View {
@@ -398,6 +378,7 @@ struct TimeFlipSettingsView: View {
                 set: { newValue in
                     let clamped = UInt8(max(0, min(255, newValue)))
                     value.wrappedValue = clamped
+                    applyDoubleTapParameters(doubleTapParams)
                 }
             ),
             format: .number
@@ -405,15 +386,12 @@ struct TimeFlipSettingsView: View {
         .frame(width: 60)
         .labelsHidden()
         .multilineTextAlignment(.trailing)
-        .onSubmit {
-            applyDoubleTapParameters(doubleTapParams)
-        }
     }
 
     // MARK: - Helpers
 
     private func syncViewState() {
-        let minutes = appState.autoPauseMinutes ?? 0
+        let minutes = appState.autoPauseMinutes
         autoPauseValue = Int(minutes)
         lastAppliedAutoPause = minutes
         let brightness = appState.ledBrightnessPercent
@@ -434,6 +412,31 @@ struct TimeFlipSettingsView: View {
         lastAppliedAutoPause = minutes
         appState.autoPauseMinutes = minutes
         appState.onAutoPauseChange?(minutes)
+    }
+
+    /// Starts the repeat loop for a held auto-pause arrow. `startValue` is the value from just
+    /// before this hold began -- fixed for the whole hold, since it's what AutoPauseStepper uses
+    /// to compute the boundary where ticking switches from step 1 to step 5.
+    private func beginAutoPauseHold(direction: Int, startValue: Int) {
+        appState.autoPauseHoldTask?.cancel()
+        appState.autoPauseHoldTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AutoPauseStepper.initialHoldDelay * 1_000_000_000))
+            while !Task.isCancelled {
+                let current = autoPauseValue
+                let next = AutoPauseStepper.nextValue(current: current, holdStartValue: startValue, direction: direction)
+                applyAutoPause(newValue: next)
+                // Interval before the *next* tick is based on the value just reached (next), not
+                // the pre-tick value -- otherwise the first step-5 tick after crossing the
+                // boundary fires at the fast single-digit cadence instead of the slower one.
+                let interval = AutoPauseStepper.tickInterval(current: next, holdStartValue: startValue, direction: direction)
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+
+    private func endAutoPauseHold() {
+        appState.autoPauseHoldTask?.cancel()
+        appState.autoPauseHoldTask = nil
     }
 
     private func applyLEDBrightness(newValue: Int) {
@@ -492,14 +495,12 @@ struct TimeFlipSettingsView: View {
         return "\(level)%"
     }
 
-    private var systemText: String {
-        if let state = appState.systemState {
-            let sync = state.syncStatus.description
-            let hardware = state.hardwareStatus.description
-            let raw = String(format: "0x%04X/0x%04X", state.rawStatus, state.rawHardware)
-            return "Sync: \(sync), HW: \(hardware) (\(raw))"
-        }
-        return "Unknown (no system report yet)"
+    /// Flashes red/default in sync with the menu bar's low-battery blink (mirrored via
+    /// AppState.isLowBattery/lowBatteryBlinkPhaseOn) so a first-time low-battery warning is
+    /// obvious here too, not just as an easy-to-miss color change in the menu bar text.
+    private var batteryTextColor: Color {
+        guard appState.isLowBattery else { return .primary }
+        return appState.lowBatteryBlinkPhaseOn ? .red : .primary
     }
 
     private var manufacturerText: String {
@@ -536,14 +537,4 @@ struct TimeFlipSettingsView: View {
         }
     }
 
-    private var lastEventText: String {
-        guard let date = appState.lastEventDate else {
-            return "No events yet"
-        }
-        let formatted = Self.eventFormatter.string(from: date)
-        if let detail = appState.lastEventDescription {
-            return "\(formatted) (\(detail))"
-        }
-        return formatted
-    }
 }

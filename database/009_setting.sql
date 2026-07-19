@@ -13,11 +13,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS UN1_setting ON setting(setting_name);
 -- Every setting_value is a JSON object, even single-value settings, so reading this table never
 -- needs to branch on which row it is -- callers always decode setting_value as JSON.
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'db_type', '{"type":"production"}', 'type: "production" or "test" -- which physical database file (see AppDataStore.ensureDatabaseSymlink) this row lives in. Set once, when that file is first created, and never changed afterward: production.sqlite always seeds as "production" via this default; scripts/use-test-database.sh overrides a freshly-created test.sqlite to "test" immediately after seeding it. Used as a pre-testing safety check (see Tests/Interactive/README.md) -- if this reads "production" during what is supposed to be a testing session, the appdata.sqlite symlink was never repointed at test.sqlite, and testing must not proceed.'
+SELECT 'db_type', '{"type":"production"}', 'type: "production" or "test" -- which physical database file (see AppDataStore.ensureDatabaseSymlink) this row lives in. Set once, when that file is first created, and never changed afterward: production.sqlite always seeds as "production" via this default; scripts/use-test-database.sh overrides a freshly-created test.sqlite to "test" immediately after seeding it. Used as a pre-testing safety check (see Tests/CLAUDE.md) -- if this reads "production" during what is supposed to be a testing session, the appdata.sqlite symlink was never repointed at test.sqlite, and testing must not proceed.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'db_type');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}', 'Double-tap detection settings. enabled controls whether double-tap gesture detection is on; if false, double-tap notifications from the device are ignored. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift -- captured from a real device''s actual registers via Tests/Interactive (see Tests/Interactive/device_register_snapshot.json), not an arbitrary guess.'
+SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}', 'Double-tap detection settings. enabled controls whether double-tap gesture detection is on; if false, double-tap notifications from the device are ignored. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift -- captured from a real device''s actual registers via Tests/Bench (see Tests/Bench/device_register_snapshot.json), not an arbitrary guess.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'double_tap_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
@@ -25,7 +25,7 @@ SELECT 'led_settings', '{"brightness":50,"blink_interval":15}', 'LED settings: b
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'led_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the device pauses itself if the facet hasn''t changed (device cmd 0x05; 0 disables, matching the vendor protocol''s own disabled-by-default behavior). The timer resets every time the facet changes. Seeded from AppState''s autoPauseMinutes default (nil, treated as 0/disabled).'
+SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the device pauses itself if the facet hasn''t changed (device cmd 0x05; 0 disables, matching the vendor protocol''s own disabled-by-default behavior; the device itself only supports whole-minute granularity, so this can''t be made finer). The timer resets every time the facet changes.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'auto_pause_minutes');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

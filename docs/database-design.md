@@ -241,7 +241,7 @@ Seeded rows:
   notifications from the device are ignored. `clickThreshold`/`limit`/`latency`/`window` are the
   accelerometer parameters, seeded from `DoubleTapParameters.default` in
   `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift` -- captured from a real device's actual
-  registers (see `Tests/Interactive/device_register_snapshot.json`), not an arbitrary guess.
+  registers (see `Tests/Bench/device_register_snapshot.json`), not an arbitrary guess.
 - `led_settings` = `{"brightness":50,"blink_interval":5}` — a single record for the only two LED
   properties the vendor protocol exposes (device cmd `0x09`/`0x0A`; see
   [`docs/TimeFlip2 BLE Protocol v4.3.md`](TimeFlip2%20BLE%20Protocol%20v4.3.md)):
@@ -250,8 +250,8 @@ Seeded rows:
     defaults (`Sources/TimeFlipApp/AppState.swift` lines 91-92).
 - `auto_pause_minutes` = `{"minutes":0}` — delay after which the device pauses itself if the facet
   hasn't changed (device cmd `0x05`; `0` disables, matching the vendor protocol's own
-  disabled-by-default behavior). The timer resets every time the facet changes. Seeded from
-  `AppState`'s `autoPauseMinutes` default (`nil`, treated as `0`/disabled).
+  disabled-by-default behavior; the device itself only supports whole-minute granularity, so this
+  can't be made finer). The timer resets every time the facet changes.
 - `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired
   face, it can briefly pass over other faces, creating unwanted `device_events` segments for
   them. Any segment shorter than `seconds` is merged into the *following* segment rather than

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Fails if any Tests/Interactive/*-checklist.md file has an unchecked (- [ ]) item. See
-# Tests/Interactive/README.md for the checklist convention this enforces.
+# Fails if any Tests/Bench/*-checklist.md or Tests/Interactive/*-checklist.md file has an unchecked
+# (- [ ]) item. Bench is reported first, then Interactive, mirroring the run order. See
+# Tests/CLAUDE.md for the checklist convention this enforces.
 set -euo pipefail
 
 shopt -s nullglob
-files=(Tests/Interactive/*-checklist.md)
+# Bench first, then Interactive -- the order the suites are meant to be run in.
+files=(Tests/Bench/*-checklist.md Tests/Interactive/*-checklist.md)
 
 if [ ${#files[@]} -eq 0 ]; then
-  echo "No interactive test checklists found; skipping."
+  echo "No test checklists found; skipping."
   exit 0
 fi
 
@@ -23,9 +25,9 @@ for f in "${files[@]}"; do
 done
 
 if [ "$failed" -ne 0 ]; then
-  echo "One or more interactive test checklists have unchecked items."
+  echo "One or more test checklists have unchecked items."
   echo "Complete the checklist(s) and commit the fully-ticked version before merging."
   exit 1
 fi
 
-echo "All interactive test checklists are fully checked."
+echo "All test checklists are fully checked."

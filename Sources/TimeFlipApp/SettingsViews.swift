@@ -46,6 +46,11 @@ struct SettingsRootView: View {
                     }
                     .tag(SettingsTab.report)
             }
+            .onChange(of: appState.pendingSettingsTab) { _, newValue in
+                guard let newValue else { return }
+                selectedTab = newValue
+                appState.pendingSettingsTab = nil
+            }
             .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }
                 onMinimumContentHeightChange(height)
@@ -64,7 +69,7 @@ struct SettingsRootView: View {
     }
 }
 
-private enum SettingsTab: Hashable {
+enum SettingsTab: Hashable {
     case timeflip
     case facets
     case report

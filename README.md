@@ -26,10 +26,6 @@ VS Code plugin. The design decisions are mine (Harry Phillips), for better or wo
 - **Daily Statistics**: Track daily time spent per activity
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
 
-Menu bar item preview:
-
-![Menu bar timer](image/menu-item.png)
-
 ### Not supported
 
 - **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. 
@@ -86,9 +82,9 @@ This project is released into the public domain under [The Unlicense](https://un
 
 ### Important Note About Icons
 
-The TimeFlip icon set included in this project is used with permission from TimeFlip exclusively for this 
-application. If you wish to fork this project, you must obtain your own permission from TimeFlip 
-to use their icon assets, or replace them with your own icons.
+I have not yet obtained permission from TimeFlip to use their icons, I am in the process
+of doing that. Until then the icons will be just an AI generated generic clock and not
+match the ones you have stickers for.
 
 ## Acknowledgments
 

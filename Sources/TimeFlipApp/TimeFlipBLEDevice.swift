@@ -96,6 +96,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // Set by cancelConnectionAttempt() so a login failure downstream of a cancelled
     // connect can be told apart from a genuine wrong-PIN rejection.
     private(set) var wasCancelled = false
+    // Set when the device explicitly rejects a login (a real commandResult response with a
+    // non-success code), as opposed to a connection-level failure (thrown error, no response) --
+    // lets a caller tell "this password is wrong" apart from "couldn't reach the device at all",
+    // e.g. to fall back to the factory default password on reconnect after an out-of-band reset.
+    private(set) var wasWrongPassword = false
     // When true we accept peripherals that advertise the TimeFlip service or name.
     private var allowBroadDiscovery = false
     // When true, discovered peripherals are only reported via onDeviceDiscovered, never connected to.
@@ -539,6 +544,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     func login(password: String) async -> Bool {
+        wasWrongPassword = false
         guard password.count == 6 else {
             logger.error("Password must be 6 characters")
             return false
@@ -572,6 +578,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             DeveloperMode.debugPrint(.timeFlip, String(format: "Login accepted, code=0x%02X", code))
             return true
         } else {
+            wasWrongPassword = true
             logger.error("TimeFlip login rejected code=\(code)")
             DeveloperMode.debugPrint(.timeFlip, String(format: "Login rejected, code=0x%02X", code))
             return false

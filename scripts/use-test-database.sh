@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Repoints the appdata.sqlite symlink at test.sqlite instead of production.sqlite, so an
-# interactive testing session (see Tests/Interactive/README.md) never touches real data. Only
+# interactive testing session (see Tests/CLAUDE.md) never touches real data. Only
 # meaningful under Developer Mode -- AppDataStore only creates the symlink at all when
 # DeveloperMode.isEnabled is true (see AppDataStore.ensureDatabaseSymlink).
 set -euo pipefail
@@ -41,6 +41,6 @@ else
 fi
 
 rm -f "$APPDATA"
-ln -s "$TEST_DB" "$APPDATA"
+ln -s "$(basename "$TEST_DB")" "$APPDATA"
 
 echo "appdata.sqlite now points at test.sqlite. Quit and relaunch the app to pick this up."

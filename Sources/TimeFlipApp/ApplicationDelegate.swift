@@ -6,6 +6,7 @@ import OSLog
 final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let dataStore = AppDataStore()
     private lazy var appState = AppState(
+        autoPauseMinutes: dataStore.loadAutoPauseMinutes(),
         ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
         blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
@@ -107,7 +108,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         // Surfaced so an interactive testing session can confirm from debug_log alone (no need to
         // separately inspect the appdata.sqlite symlink target) which physical database this
-        // launch actually opened -- see Tests/Interactive/README.md's database-switching workflow.
+        // launch actually opened -- see Tests/CLAUDE.md's database-switching workflow.
         DeveloperMode.debugPrint(.dbType, "Database type: \(dataStore.loadDbType())")
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
@@ -203,6 +204,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // so the handlers only forward the new value to the device.
         appState.onAutoPauseChange = { [weak self] minutes in
             guard let self else { return }
+            self.dataStore.saveAutoPauseMinutes(minutes)
             Task { @MainActor in
                 await self.device?.setAutoPause(minutes: minutes)
             }
@@ -375,7 +377,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             guard !Task.isCancelled else { return }
-            guard await device.login(password: appState.devicePassword) else {
+            var passwordUsed = appState.devicePassword
+            var loggedIn = await device.login(password: passwordUsed)
+            if !loggedIn, (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
+               passwordUsed != TimeFlipConstants.defaultPassword {
+                // The stored password can go stale if the device was reset out-of-band (e.g. a
+                // factory reset whose own confirmation login raced a disconnect and never
+                // completed, see TimeFlipBLEDevice.factoryReset) -- a reset device reverts to the
+                // factory default, so retry with that before giving up on this reconnect, same
+                // reasoning already used for a freshly-selected device in onDeviceSelectedForPairing.
+                passwordUsed = TimeFlipConstants.defaultPassword
+                loggedIn = await device.login(password: passwordUsed)
+            }
+            guard loggedIn else {
                 logger.error("TimeFlip login failed; events not started")
                 await device.disconnect()
                 let wasCancelled = (device as? TimeFlipBLEDevice)?.wasCancelled ?? false
@@ -395,6 +409,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     self.appState.pairingStatus = .paired
                 }
                 self.reconnectAttempt = 0
+                // Persist the password that actually worked if it differs from the stored one
+                // (the default-password fallback above), so the next reconnect doesn't have to
+                // rediscover this via another rejection first.
+                if passwordUsed != self.appState.devicePassword {
+                    self.appState.devicePassword = passwordUsed
+                    if !self.appState.isDeveloperConfigLoaded {
+                        do {
+                            try TimeFlipDevicePasswordStore.shared.savePassword(passwordUsed)
+                        } catch {
+                            self.logger.error("Failed to save recovered device password to Keychain: \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
+                }
             }
             // Only rotate the password during the pairing flow itself (skipConnect is only ever
             // true there) — routine reconnects afterward must keep reusing that same password.
@@ -413,7 +440,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
             guard !Task.isCancelled else { return }
             await device.enableNotifications()
-            let desiredAutoPause = appState.autoPauseMinutes ?? 0
+            let desiredAutoPause = appState.autoPauseMinutes
             await device.initializeSession(hostTime: Date(), desiredAutoPauseMinutes: desiredAutoPause)
             // LED brightness/blink have no device read-back (vendor spec defines none for 0x09/
             // 0x0A -- see docs/timeflip.md), so unlike auto-pause and double-tap below, these two
