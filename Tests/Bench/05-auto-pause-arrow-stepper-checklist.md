@@ -23,14 +23,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
-- [ ] Run `scripts/use-test-database.sh`.
-- [ ] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
+- [x] Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
+- [x] Run `scripts/use-test-database.sh`.
+- [x] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
       code=0x02"` row).
-- [ ] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
+- [x] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
       setting WHERE setting_name = 'db_type';"`.
-- [ ] Open Preferences (status-item menu -> "Preferences...") and switch to the Device tab (radio
+- [x] Open Preferences (status-item menu -> "Preferences...") and switch to the Device tab (radio
       button 1 of the tab picker). Confirm **Auto-pause** sits at the top of the **Settings**
       section, above the collapsed **LED** disclosure (not inside a separate **Advanced** section,
       which no longer exists) -- read the ordering of static text/control elements in that section
@@ -38,9 +38,9 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario -- typing a value into the field persists to the DB
 
-- [ ] Type `4` directly into the auto-pause text field and confirm the DB row updated:
+- [x] Type `4` directly into the auto-pause text field and confirm the DB row updated:
       `SELECT setting_value FROM setting WHERE setting_name = 'auto_pause_minutes';` should read
       `{"minutes":4}`.
-- [ ] Type `26` into the field and confirm the same row now reads `{"minutes":26}`.
-- [ ] Type `0` into the field and confirm the row reads `{"minutes":0}`, leaving auto-pause
+- [x] Type `26` into the field and confirm the same row now reads `{"minutes":26}`.
+- [x] Type `0` into the field and confirm the row reads `{"minutes":0}`, leaving auto-pause
       disabled for the next run.

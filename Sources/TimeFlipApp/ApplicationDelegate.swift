@@ -377,7 +377,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             guard !Task.isCancelled else { return }
-            guard await device.login(password: appState.devicePassword) else {
+            var passwordUsed = appState.devicePassword
+            var loggedIn = await device.login(password: passwordUsed)
+            if !loggedIn, (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
+               passwordUsed != TimeFlipConstants.defaultPassword {
+                // The stored password can go stale if the device was reset out-of-band (e.g. a
+                // factory reset whose own confirmation login raced a disconnect and never
+                // completed, see TimeFlipBLEDevice.factoryReset) -- a reset device reverts to the
+                // factory default, so retry with that before giving up on this reconnect, same
+                // reasoning already used for a freshly-selected device in onDeviceSelectedForPairing.
+                passwordUsed = TimeFlipConstants.defaultPassword
+                loggedIn = await device.login(password: passwordUsed)
+            }
+            guard loggedIn else {
                 logger.error("TimeFlip login failed; events not started")
                 await device.disconnect()
                 let wasCancelled = (device as? TimeFlipBLEDevice)?.wasCancelled ?? false
@@ -397,6 +409,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     self.appState.pairingStatus = .paired
                 }
                 self.reconnectAttempt = 0
+                // Persist the password that actually worked if it differs from the stored one
+                // (the default-password fallback above), so the next reconnect doesn't have to
+                // rediscover this via another rejection first.
+                if passwordUsed != self.appState.devicePassword {
+                    self.appState.devicePassword = passwordUsed
+                    if !self.appState.isDeveloperConfigLoaded {
+                        do {
+                            try TimeFlipDevicePasswordStore.shared.savePassword(passwordUsed)
+                        } catch {
+                            self.logger.error("Failed to save recovered device password to Keychain: \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
+                }
             }
             // Only rotate the password during the pairing flow itself (skipConnect is only ever
             // true there) — routine reconnects afterward must keep reusing that same password.

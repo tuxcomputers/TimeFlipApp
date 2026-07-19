@@ -17,39 +17,25 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Launch the app with the device already paired and connected (see "Driving the app directly"
+- [x] Launch the app with the device already paired and connected (see "Driving the app directly"
       in `../CLAUDE.md`); confirm via a fresh `debug_log` `"Login accepted, code=0x02"` row.
-- [ ] Query the current state as a baseline:
+- [x] Query the current state as a baseline:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT event_number, device_face, duration_seconds, finalised FROM device_events ORDER BY event_number DESC LIMIT 3;"`
+      (Run immediately after `01-reset-device-checklist.md` in the same session -- the device has
+      just been factory reset and has **zero** events (`device_last_event=nil` on every fetch), no
+      currently-open facet to track. The row returned is a stale pre-reset row, not live.)
 
 ## Scenario A -- nothing changes (skip path + duration refresh)
 
-- [ ] Note the current max `event_number` and its `duration_seconds` from Setup.
-- [ ] Wait out at least one full `fetch_history_interval_seconds` period (check the setting;
-      default is short enough to not need a long wait), leaving the device untouched (same facet,
-      not paused).
-- [ ] Query `debug_log` for a `history` row containing `device max_event_number=<N> unchanged; DB
-      refreshed` (not a full stream fetch) logged after the baseline query.
-- [ ] Re-query `device_events` for that same `event_number` and confirm `duration_seconds`
-      increased since the baseline, with no new rows added.
+**Not verifiable this run** -- this scenario needs an already-open, actively-growing event to
+confirm "duration keeps increasing while nothing else changes." Post-reset, with no facet flip yet
+(that's Interactive 01's job, which runs after the entire Bench phase, not before), there is no
+such event. Noted and skipped per the user's call rather than forced or faked; revisit on a normal
+(non-just-reset) session, or after Interactive 01 has run once.
 
 ## Scenario D -- quit and relaunch resumes from the persisted cursor
 
-- [ ] Note the current `integration_event_cursors.last_sent_ev` for `identifier = 'device-history'`.
-- [ ] Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`), then relaunch it;
-      confirm via a fresh `debug_log` `"Login accepted, code=0x02"` row.
-- [ ] Query `debug_log` for the startup history fetch's `known_max=` value and confirm it matches
-      that persisted cursor (not `known_max=0` / a full re-fetch of all history). (Confirmed:
-      `trigger=startup known_max=36` -- the cursor had legitimately advanced from 35 to 36 between
-      the baseline note and quitting, since event 36 was finalised in that window, and startup
-      correctly resumed from that persisted value rather than re-fetching all history.)
-- [ ] Confirm the menu bar's displayed facet/duration matches the DB-derived state immediately
-      after reconnecting -- the accumulated total of today's non-paused, finalized segments for the
-      current facet, from `device_events`, per the `dailyFacetDurations`/`isPaused` logic in
-      `MenuBarController.swift`/`DailyFacetTotals.swift`, not the still-open event's own
-      `duration_seconds`. Read the status item's title directly via accessibility (`get name of
-      every menu bar item of menu bar 2` for process `"TimeFlip"` -- see "Driving the app directly"
-      in `../CLAUDE.md`), no screenshot needed. (Confirmed: menu bar showed "Meeting" at 20:07,
-      paused -- events 18, 20, 23, 27, 32, 34, 36: 1+301+301+33+5+265+302 = 1208s = 20:08 -- the
-      still-open event 37 is excluded both because it isn't finalized yet and because it's
-      currently paused (`is_paused=1`).)
+**Not verifiable this run**, same root cause -- `integration_event_cursors` has no
+`device-history`/local row at all yet (nothing to have resumed from), so "confirm it resumes from
+the persisted cursor rather than re-fetching everything" has nothing meaningful to check against
+post-reset. Noted and skipped; revisit once the device has real history again.

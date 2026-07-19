@@ -20,50 +20,50 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario A -- manual Lock/Unlock via the menu item, with pause_on_lock disabled
 
-- [ ] **(Claude)** Ensure `pause_on_lock` is `false`: `sqlite3 ~/Library/Application\
+- [x] **(Claude)** Ensure `pause_on_lock` is `false`: `sqlite3 ~/Library/Application\
       Support/TimeFlip/appdata.sqlite "UPDATE setting SET setting_value = '{\"enabled\":false}'
       WHERE setting_name = 'pause_on_lock';"`.
-- [ ] **(Claude)** Click the "Lock" menu item.
-- [ ] **(Claude)** Query `debug_log` (`SELECT message FROM debug_log WHERE tag = 'TimeFlip' ORDER BY
+- [x] **(Claude)** Click the "Lock" menu item.
+- [x] **(Claude)** Query `debug_log` (`SELECT message FROM debug_log WHERE tag = 'TimeFlip' ORDER BY
       debug_log_id DESC LIMIT 10;`) and confirm `"Lock ON triggered"` followed by `"Lock
       verification confirmed: requested=ON actual=ON"`.
-- [ ] **(Claude)** Screenshot the menu bar; confirm the red lock badge is now visible.
-- [ ] **(Claude)** Open the menu; confirm the item reads "Unlock" and the Pause item is
+- [x] **(Claude)** Screenshot the menu bar; confirm the red lock badge is now visible.
+- [x] **(Claude)** Open the menu; confirm the item reads "Unlock" and the Pause item is
       disabled/greyed out (gated purely by lock state -- `isEnabled = isPaired && !isLocked`,
       independent of `pause_on_lock`).
-- [ ] **(Claude)** Confirm no new `is_paused = 1` row was added to `device_events` -- Lock alone,
+- [x] **(Claude)** Confirm no new `is_paused = 1` row was added to `device_events` -- Lock alone,
       with `pause_on_lock` off, must not pause the device.
-- [ ] **(You)** Single-click (not double-click) the right half of the status icon.
-- [ ] **(Claude)** Screenshot the menu bar; confirm nothing changed -- still locked, no pause/resume
+- [x] **(You)** Single-click (not double-click) the right half of the status icon.
+- [x] **(Claude)** Screenshot the menu bar; confirm nothing changed -- still locked, no pause/resume
       toggle. This is a separate gesture from the double-click lock toggle tested in Scenario B, and
       is a no-op while locked (`togglePause()`'s own guard).
-- [ ] **(You)** Try flipping the device to a different facet while locked; confirm nothing happens
+- [x] **(You)** Try flipping the device to a different facet while locked; confirm nothing happens
       (the device itself refuses the flip while locked).
-- [ ] **(Claude)** Click "Unlock" from the menu.
-- [ ] **(Claude)** Confirm `debug_log` shows `"Lock OFF triggered"` followed by `"Lock verification
+- [x] **(Claude)** Click "Unlock" from the menu.
+- [x] **(Claude)** Confirm `debug_log` shows `"Lock OFF triggered"` followed by `"Lock verification
       confirmed: requested=OFF actual=OFF"`.
-- [ ] **(Claude)** Screenshot the menu bar; confirm the lock badge is gone.
-- [ ] **(Claude)** Open the menu; confirm the item reads "Lock" again.
+- [x] **(Claude)** Screenshot the menu bar; confirm the lock badge is gone.
+- [x] **(Claude)** Open the menu; confirm the item reads "Lock" again.
 
 ## Scenario B -- manual Lock/Unlock via the double-click gesture, with pause_on_lock disabled
 
 Same as Scenario A, but via the status icon's double-click-right-half gesture instead of the menu
 item, to confirm the gesture is a genuine equivalent and not just wired to open the menu.
 
-- [ ] **(You)** Double-click the right half of the status icon.
-- [ ] **(Claude)** Query `debug_log` and confirm the same `"Lock ON triggered"` /
+- [x] **(You)** Double-click the right half of the status icon.
+- [x] **(Claude)** Query `debug_log` and confirm the same `"Lock ON triggered"` /
       `"...confirmed: requested=ON actual=ON"` pair.
-- [ ] **(Claude)** Screenshot the menu bar; confirm the lock badge is now visible.
-- [ ] **(Claude)** Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
-- [ ] **(Claude)** Confirm no new `is_paused = 1` row was added -- same as Scenario A, still
+- [x] **(Claude)** Screenshot the menu bar; confirm the lock badge is now visible.
+- [x] **(Claude)** Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
+- [x] **(Claude)** Confirm no new `is_paused = 1` row was added -- same as Scenario A, still
       `pause_on_lock` disabled. (A pause row did appear at the same time in one run, but
       `device_notifications` confirmed it was a physical double-tap on the device itself -- not
       caused by the double-click gesture.)
-- [ ] **(You)** Single-click (not double-click) the right half of the status icon.
-- [ ] **(Claude)** Screenshot the menu bar; confirm nothing changed -- still locked, no pause toggle.
-- [ ] **(You)** Double-click the right half of the status icon again.
-- [ ] **(Claude)** Confirm `debug_log` shows `"Lock OFF triggered"` / `"...confirmed: requested=OFF
+- [x] **(You)** Single-click (not double-click) the right half of the status icon.
+- [x] **(Claude)** Screenshot the menu bar; confirm nothing changed -- still locked, no pause toggle.
+- [x] **(You)** Double-click the right half of the status icon again.
+- [x] **(Claude)** Confirm `debug_log` shows `"Lock OFF triggered"` / `"...confirmed: requested=OFF
       actual=OFF"`.
-- [ ] **(Claude)** Screenshot the menu bar; confirm the lock badge is gone.
-- [ ] **(Claude)** Open the menu; confirm the item reads "Lock" again, and the Pause item is enabled
+- [x] **(Claude)** Screenshot the menu bar; confirm the lock badge is gone.
+- [x] **(Claude)** Open the menu; confirm the item reads "Lock" again, and the Pause item is enabled
       (no longer greyed out).

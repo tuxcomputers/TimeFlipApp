@@ -98,25 +98,63 @@ Each folder's own `README.md` describes just that suite.
   - Switch tabs: `click radio button <N> of radio group 1 of group 1 of toolbar 1 of window
     "TimeFlip Settings"` (`N` = 1/2/3 for Device/Facets/Report). A radio button's `title` is
     `missing value` -- use `description` to identify which is which.
+  - The auto-pause field's up/down stepper arrows (custom `Image` views with
+    `onLongPressGesture(minimumDuration: 0)`, not real `AXButton`/`NSStepper` controls) do not
+    respond to a synthetic click at all -- neither `tell application "System Events" to click at
+    {x, y}` at their screen coordinates nor the `click`/AX-press action on the element reference
+    registers any change (confirmed live: repeated synthetic clicks left `auto_pause_minutes`
+    completely unchanged), while a real physical click reliably moves the value by exactly 1. Same
+    class of limitation as the status-item gesture above -- treat as `(You)` in
+    `Tests/Interactive/`, not a bug to chase or a capability gap worth re-attempting the same way.
   - Read any label/value directly via accessibility (`static text`/a control's `value`) -- exact
     string, no screenshot needed. Locate a specific element by dumping `entire contents` of the
     window first and reading off its `group`/`scroll area` nesting -- indices shift depending on
     which tab/disclosure groups are expanded, so re-derive the path each time rather than hardcoding
     one from a prior session.
   - Type into a text field: focus it, `keystroke "a" using {command down}` (select all), type the
-    value, `keystroke tab` to commit.
+    value, `keystroke tab` to commit. `keystroke` always goes to the frontmost application
+    regardless of which process a `tell` block targets -- clicking the field via its UI element
+    reference does not guarantee TimeFlip is actually frontmost (confirmed live: a stray `cmd+A`/
+    `1`/`tab` sequence landed in VS Code instead, mid-`05-auto-pause-arrow-stepper-checklist.md`,
+    with TimeFlip's Preferences window visibly on screen the whole time). Run
+    `tell application "TimeFlip" to activate` immediately before the click, then confirm with
+    `tell application "System Events" to name of first process whose frontmost is true` -- do this
+    before every keystroke sequence, not just the first. Even with TimeFlip frontmost, `click e` on
+    the field alone did not actually set keyboard focus (`focused of e` read back `false`
+    immediately after) -- follow the click with an explicit `set focused of e to true` and confirm
+    it reads back `true` before sending keystrokes, in the same `osascript` invocation as the click
+    (a stale UI element reference doesn't carry across separate invocations).
   - Buttons/checkboxes/sliders/dialogs use the same mechanism (`click button "..."`, `set value of
     checkbox ... to true`) but aren't all individually verified -- confirm via `debug_log`/DB
     evidence the first time each is actually used.
+  - A `DisclosureGroup`'s row shows up as role `AXDisclosureTriangle` ("UI element", not `button`
+    or `static text`), with no label text readable off it directly via `description`/`title` --
+    identify it by position/ordering among its siblings instead, and `click` it the same as any
+    other element to expand/collapse.
   - Screenshots are needed only for what SwiftUI's default accessibility doesn't decompose into
     separate elements: the status item's own custom-drawn icon/badge (one rendered image), and
     color/animation (not a queryable AX attribute).
 - Any script-driven click still mutates real app/device state -- treat it exactly like a human
   click: run against the test database (below) except for narrow discovery work, and follow the
   root `CLAUDE.md`'s live-app-interaction rule (heads-up before, all-clear after). **A factory
-  reset** (`01-reset-device-checklist.md`) is irreversible on real hardware -- pause and get the
-  user's explicit go-ahead immediately before that specific click, every time, even though it's
-  otherwise just another scripted step.
+  reset** (`01-reset-device-checklist.md`) is irreversible on real hardware, but does **not** need
+  a live pause-and-confirm before the click -- the "Switching to the test database" pre-flight
+  below (sync real device history to `production.sqlite` first, only then switch to test) already
+  guarantees nothing real is at risk, so it's safe to run unattended like everything else in
+  Bench. Only pause if that pre-flight wasn't actually done first this session.
+- The device may drop its BLE connection immediately after a factory reset (a real reboot) --
+  `factoryReset()`'s own immediate re-login confirmation can race that disconnect and report
+  failure even though the reset genuinely succeeded, leaving the app's automatic reconnect retrying
+  a now-stale stored password forever with no recovery path (confirmed live; fixed by adding a
+  fallback in the reconnect login path -- see `ApplicationDelegate.startDeviceEvents`'s login guard
+  -- to retry with `TimeFlipConstants.defaultPassword` when the stored password is explicitly
+  rejected, `TimeFlipBLEDevice.wasWrongPassword`). If a reset still leaves the device stuck
+  reconnecting with neither Forget Device nor Reset Device doing anything (both silently no-op
+  while not logged in), that fallback is the fix to check for regressions in, not something to
+  route around by hand again.
+- The device correctly rejects an arbitrary wrong password (confirmed live: `login(password:
+  "999999")` against an authenticated session got an explicit rejection, raw commandResult
+  `0x01`, not silently accepted) -- no known security concern there.
 
 ### Screenshot-based visual confirmation
 
@@ -161,6 +199,16 @@ menu bar's own display format. Keep the `display_seconds` setting enabled during
 menu bar shows seconds, not just minutes. To ask whether the device is running vs. paused, ask "is
 the time increasing?" over a couple of seconds of watching, not "is it paused?".
 
+### Detecting a physical action instead of asking "are you done?"
+
+For a `(You)` physical action that produces a verifiable DB/`debug_log` change (a facet flip
+creating a new `device_events` row, a double-tap logging to `device_notifications`), poll for that
+change instead of asking the user to confirm they did it -- e.g. after asking for a flip, loop
+`SELECT device_events_id, event_number, device_face ... ORDER BY device_events_id DESC LIMIT 1;`
+every couple of seconds until the row changes. Only ask for explicit confirmation when the action
+has no detectable side effect at all (or the detectable side effect is ambiguous about which
+specific action produced it).
+
 ### Reading debug output
 
 Use `debug_log`, not a live terminal transcript (no reliable way to attach to one):
@@ -171,6 +219,14 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
 `tag` matches the bracketed prefix from `DeveloperMode.DebugTag` (`history`, `battery`, `TimeFlip`,
 `dev-check`, ...); `logged_at` lets you correlate against when a step happened.
 
+**After a factory reset, query `device_events` by `device_events_id DESC`, not
+`MAX(event_number)`.** `event_number` is the device's own counter and isn't unique across a reset
+(it restarts from 1), and old pre-reset rows are never deleted -- so `MAX(event_number)` returns
+whichever is bigger, pre- or post-reset, silently hiding the real current state.
+`device_events_id` is the local auto-increment PK and is always strictly increasing regardless of
+what the device's own counter is doing, so `ORDER BY device_events_id DESC LIMIT 1` is the only
+reliable way to find the actual latest row.
+
 ### Switching to the test database before testing
 
 `~/Library/Application Support/TimeFlip/appdata.sqlite` is a symlink to `production.sqlite` or
@@ -179,11 +235,22 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
 scripts/use-test-database.sh        # appdata.sqlite -> test.sqlite (creates fresh if missing)
 scripts/use-production-database.sh  # appdata.sqlite -> production.sqlite
 ```
-Every session: quit the app, run the test-database script, start the app, then query `db_type` as
-the very first Setup step, every time -- it must read `{"type":"test"}`. If it reads
-`{"type":"production"}`, **stop immediately** -- don't run anything that would mutate data. When
-done: quit, run the production-database script, start the app again. `test.sqlite` is left in place
-between sessions (not deleted), so accumulated state carries forward.
+**Pre-flight, before switching, every session:** confirm `db_type` currently reads
+`{"type":"production"}`, confirm the device is connected, and wait until a `history` fetch
+completes (`debug_log`, `trigger=startup`/`periodic` followed by a `DB refreshed` or stream-fetch
+line) so any real, not-yet-synced device history lands in `production.sqlite` first. Only then
+quit and switch to test. This is what makes it safe to run anything in these checklists --
+including `01-reset-device-checklist.md`'s factory reset -- **without pausing to confirm with the
+user first**: real timings are already captured before the device's own state is touched, so there
+is nothing left to lose. (The `CLAUDE.md`/checklist text elsewhere may still say to pause and
+confirm before the reset -- that's superseded by this paragraph; update those in place if you land
+here from a link.)
+
+Then: quit the app, run the test-database script, start the app, then query `db_type` as the very
+first Setup step, every time -- it must read `{"type":"test"}`. If it reads `{"type":"production"}`,
+**stop immediately** -- don't run anything that would mutate data. When done: quit, run the
+production-database script, start the app again. `test.sqlite` is left in place between sessions
+(not deleted), so accumulated state carries forward.
 
 ### Suppressing incidental physical double-taps during a test session
 

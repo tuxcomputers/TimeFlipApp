@@ -16,26 +16,26 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
-- [ ] Run `scripts/use-test-database.sh`.
-- [ ] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
+- [x] Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
+- [x] Run `scripts/use-test-database.sh`.
+- [x] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
       code=0x02"` row).
-- [ ] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
+- [x] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
       setting WHERE setting_name = 'db_type';"`.
-- [ ] Open Preferences (status-item menu -> "Preferences...") and switch to the Device tab (radio
+- [x] Open Preferences (status-item menu -> "Preferences...") and switch to the Device tab (radio
       button 1 of the tab picker), then expand the **Double tap** disclosure under Settings.
 
 ## Scenario -- enabled flag persists across a restart
 
-- [ ] Read whether **Disable** is currently checked or not (accessibility `value` of the checkbox),
+- [x] Read whether **Disable** is currently checked or not (accessibility `value` of the checkbox),
       then toggle it to the opposite state.
-- [ ] Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if
+- [x] Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if
       Disable is now checked, `true` if not).
-- [ ] Quit the app and start it again; confirm reconnect via a fresh `debug_log` `"Login accepted,
+- [x] Quit the app and start it again; confirm reconnect via a fresh `debug_log` `"Login accepted,
       code=0x02"` row.
-- [ ] Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable** still shows the
+- [x] Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable** still shows the
       state set above -- read the checkbox's value directly via accessibility, no screenshot
       needed.
-- [ ] Toggle **Disable** back to its original state from the first step, so the session doesn't
+- [x] Toggle **Disable** back to its original state from the first step, so the session doesn't
       leave a real setting changed.
