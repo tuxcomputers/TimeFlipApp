@@ -13,6 +13,15 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario -- a real post-reset event uses the device's own low numbering
 
+**Preconditions:** app running, test DB active (`db_type` = `test`), device freshly reset and
+re-paired, pre-reset baseline **N** noted -- all left by the Bench run above. Check `db_type` and
+device connection before the flip below; if either doesn't match, the Bench checklist needs
+(re-)running first rather than proceeding here.
+
+- [x] **(Claude)** Confirm `db_type` reads `{"type":"test"}` and the device shows connected before
+      asking for the flip below. (Confirmed: state carried straight over from the Bench run in the
+      same session.)
+
 ### Action needed
 Flip the device to a different facet once.
 

@@ -14,6 +14,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario A -- press-and-hold acceleration, up arrow
 
+**Preconditions:** device connected and paired, Preferences open on the Device tab with the
+auto-pause field focusable, TimeFlip frontmost before typing (see "Driving the app directly" in
+`../CLAUDE.md`) -- left by the Bench run above. Check via the field's current value below; this
+scenario overwrites it immediately regardless, so no fix step is needed beyond that.
+
 - [x] **(Claude)** Type `1` directly into the auto-pause text field (starting value for the hold).
 
 ### Action needed
@@ -32,6 +37,10 @@ rate visibly changes partway through.
 
 ## Scenario B -- press-and-hold acceleration, down arrow
 
+**Preconditions:** same as Scenario A -- device connected and paired, Preferences open on the
+Device tab, TimeFlip frontmost before typing. This scenario overwrites the field's value
+immediately via its own first step, so Scenario A's ending value doesn't matter.
+
 - [x] **(Claude)** Type `26` directly into the auto-pause text field.
 
 ### Action needed
@@ -44,6 +53,11 @@ the full sequence of numbers you see.
       stayed at 0 rather than going negative once the down arrow was held past it.
 
 ## Scenario C -- a hold interrupted by closing the window doesn't keep running
+
+**Preconditions:** same as Scenarios A/B -- device connected and paired, Preferences open on the
+Device tab (this scenario closes and reopens that window mid-scenario, so it must start open),
+TimeFlip frontmost before typing. This scenario overwrites the field's value immediately via its
+own first step, so Scenario B's ending value doesn't matter.
 
 - [x] **(Claude)** Type `50` directly into the auto-pause text field.
 

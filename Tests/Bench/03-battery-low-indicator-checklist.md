@@ -27,6 +27,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Trigger the low-battery state
 
+**Preconditions:** device connected, threshold at its real default (5%), not currently in a
+low-battery state -- check via the query below; if it shows `isLowBattery=true` or a non-default
+threshold left over from an interrupted prior run, restore the threshold to 5% and restart the app
+before continuing.
+
 - [x] Query `debug_log` for the most recent `battery` row for the current actual `level`.
       (Confirmed: level 23%, threshold 5%, not low.)
 - [x] Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
@@ -41,6 +46,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Confirm recovery clears it
 
+**Preconditions:** currently in the low-battery state the previous section put it in
+(`isLowBattery=true`, threshold above the live level) -- confirm via the query below before
+restoring; if it already reads `false`, the previous section's trigger didn't hold and needs
+re-running first.
+
+- [x] Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true` before
+      proceeding (state left by the previous section). (Confirmed: `level=23 threshold=30
+      recoveryAt=35 isLowBattery=true`.)
 - [x] Quit the app.
 - [x] Restore the threshold to its original value via the same `UPDATE setting ...` command.
       (Restored to 5%.)
@@ -50,6 +63,10 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
       bare threshold. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
 
 ## Confirm the recovery margin, not just the bare threshold, controls the latch
+
+**Preconditions:** clean baseline left by the previous section -- threshold restored to its real
+default (5%), `isLowBattery=false`. Confirmed by that section's own final query above; re-check it
+directly if running this section standalone rather than straight after.
 
 The battery's live reading naturally flaps by 1-2% even when not actively charging/draining (it
 was observed genuinely slowly draining over the course of this session, 23% down to 21%, then
@@ -79,6 +96,10 @@ satisfied.
       `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
 
 ## Opening Preferences on low battery force-selects the Device tab
+
+**Preconditions:** clean baseline left by the previous section -- threshold restored to its real
+default (5%), `isLowBattery=false`. Confirmed by that section's own final query above; re-check it
+directly if running this section standalone rather than straight after.
 
 Covers the `AppState.pendingSettingsTab` hint: opening Preferences while low-battery is active jumps
 straight to the Device tab (where the battery reading lives), regardless of whichever tab was last

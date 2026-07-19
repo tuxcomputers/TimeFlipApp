@@ -16,6 +16,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Re-trigger the low-battery state
 
+**Preconditions:** device connected, threshold at its real default (5%), not currently in a
+low-battery state -- the clean state the Bench run's own restore leaves behind. Check via the
+query below; if it shows a non-default threshold or `isLowBattery=true` left over from an
+interrupted prior run, restore the threshold to 5% and restart the app before continuing.
+
 - [x] **(Claude)** Query the current threshold and the most recent `battery` `level`, and note both
       as the original values to restore later.
 - [x] **(Claude)** Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
@@ -31,6 +36,10 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Confirm the flashing (all three in lockstep)
 
+**Preconditions:** currently in the low-battery state the previous section triggered
+(`isLowBattery=true`) -- confirmed by that section's own final query above; re-check it directly
+if running this section standalone rather than straight after.
+
 - [x] **(You)** Confirm the activity name (left side of the menu bar item) is blinking red/white.
 - [x] **(You)** Click the menu bar item to open the dropdown (don't click Preferences yet) and
       confirm the "Preferences..." item is flashing red/white in sync with the activity-name blink
@@ -39,6 +48,9 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
       **label** and the percentage value -- is flashing red/default in sync with the menu bar blink.
 
 ## Restore and confirm it all stops
+
+**Preconditions:** still in the low-battery state, all three elements still flashing (the previous
+section's own state, unchanged) -- so there's something real to restore and confirm stops.
 
 - [x] **(Claude)** Quit the app.
 - [x] **(Claude)** Restore `low_battery_level` to its original value noted above.
