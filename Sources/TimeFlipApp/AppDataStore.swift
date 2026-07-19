@@ -404,6 +404,33 @@ final class AppDataStore: IntegrationEventCursorStore {
         return results
     }
 
+    /// Sets the `colour_id` of the category currently assigned to `faceID` (1-12, via the `face`
+    /// table) to `colourID`. The `category_id >= 1` guard means the `Unassigned` category
+    /// (`category_id 0`) is never given a colour — if the face maps to it, this is a no-op. See
+    /// `database/005_category.sql` / `database/006_face.sql`.
+    func updateCategoryColour(faceID: Int, colourID: Int) {
+        guard let db else { return }
+        let sql = """
+        UPDATE category SET colour_id = ?
+        WHERE category_id = (SELECT category_id FROM face WHERE face_id = ?)
+          AND category_id >= 1;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category colour update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(colourID))
+            sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category colour update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the
     /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/009_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.

@@ -210,6 +210,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
+        appState.onFacetColourPicked = { [weak self] facetID, colourID in
+            self?.dataStore.updateCategoryColour(faceID: Int(facetID), colourID: colourID)
+        }
         // The settings view updates appState before invoking these callbacks. Each handler prints
         // the new value and persists it to the DB immediately (every intermediate change while a
         // stepper/slider is moving), then debounces the actual device write through its

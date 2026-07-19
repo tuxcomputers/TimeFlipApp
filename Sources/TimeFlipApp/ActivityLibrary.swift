@@ -26,6 +26,7 @@ struct ActivityIconOption: Identifiable {
 }
 
 struct ActivityColorOption: Identifiable {
+    let colourId: Int
     let name: String
     let color: Color
 
@@ -94,7 +95,7 @@ enum ActivityLibrary {
             guard let hex = record.deviceHex, let components = ColorComponents(hex: hex) else {
                 return nil
             }
-            return ActivityColorOption(name: record.name, color: components.color)
+            return ActivityColorOption(colourId: record.id, name: record.name, color: components.color)
         }
     }
 

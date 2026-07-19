@@ -92,6 +92,10 @@ final class AppState: ObservableObject {
     var onResetDevicePasswordRequest: (() async -> Bool)?
     var onFactoryResetRequest: (() async -> Bool)?
     var onCurrentFacetMappingChange: (() -> Void)?
+    // Fired when a colour is chosen in the facet picker, with the facet's ID and the chosen
+    // colour's `colour_id`, so the assigned category's colour can be persisted (see
+    // ApplicationDelegate). Not fired for the `blank`/Unassigned no-op path.
+    var onFacetColourPicked: ((_ facetID: UInt8, _ colourID: Int) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
@@ -261,6 +265,12 @@ final class AppState: ObservableObject {
         if mapping.facetID == currentFacetID {
             onCurrentFacetMappingChange?()
         }
+    }
+
+    /// Called when a colour is chosen for `facetID` in the picker, forwarding the chosen colour's
+    /// `colour_id` so the facet's assigned category colour can be persisted.
+    func assignFacetColour(facetID: UInt8, colourID: Int) {
+        onFacetColourPicked?(facetID, colourID)
     }
 
     func startDeviceScan(filterToTimeFlip: Bool) {
