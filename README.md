@@ -26,10 +26,6 @@ VS Code plugin. The design decisions are mine (Harry Phillips), for better or wo
 - **Daily Statistics**: Track daily time spent per activity
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
 
-Menu bar item preview:
-
-![Menu bar timer](image/menu-item.png)
-
 ### Not supported
 
 - **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. 
