@@ -99,7 +99,7 @@ private struct PaneSetupView: View {
                             get: { appState.facetMappings[index] },
                             set: { appState.updateMapping($0) }
                         )
-                        TopFacetEditor(mapping: binding)
+                        TopFacetEditor(mapping: binding, colourOptions: appState.colourOptions)
                     } else {
                         Text("Flip the device to pick a facet.")
                             .foregroundStyle(.secondary)
@@ -138,6 +138,7 @@ private struct PaneSetupView: View {
 
 private struct TopFacetEditor: View {
     @Binding var mapping: FacetMapping
+    let colourOptions: [ActivityColorOption]
 
     var body: some View {
         let nameBinding = Binding(
@@ -156,7 +157,7 @@ private struct TopFacetEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
-                FacetColorPicker(selection: $mapping.color)
+                FacetColorPicker(selection: $mapping.color, colourOptions: colourOptions)
             }
 
             HStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
@@ -301,10 +302,12 @@ private struct IconGridCell: View {
     }
 }
 
-/// Custom color picker restricted to `ActivityLibrary.colorOptions` — the system-color palette
-/// shown in the design's swatch list — instead of AppKit's full color wheel/sliders.
+/// Custom color picker restricted to the `colour` reference table's palette (passed in as
+/// `colourOptions`, sourced from `AppDataStore.loadColours`) instead of AppKit's full color
+/// wheel/sliders.
 private struct FacetColorPicker: View {
     @Binding var selection: Color
+    let colourOptions: [ActivityColorOption]
     @State private var isPresented = false
 
     var body: some View {
@@ -326,7 +329,7 @@ private struct FacetColorPicker: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented) {
-            ColorOptionList(selection: $selection) {
+            ColorOptionList(selection: $selection, colourOptions: colourOptions) {
                 isPresented = false
             }
         }
@@ -335,11 +338,12 @@ private struct FacetColorPicker: View {
 
 private struct ColorOptionList: View {
     @Binding var selection: Color
+    let colourOptions: [ActivityColorOption]
     let onSelect: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(ActivityLibrary.colorOptions) { option in
+            ForEach(colourOptions) { option in
                 Button {
                     selection = option.color
                     onSelect()

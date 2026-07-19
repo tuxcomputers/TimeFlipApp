@@ -12,6 +12,14 @@ struct DeviceEventRecord {
     let activityName: String
 }
 
+/// A row from the `colour` reference table (`database/004_colour.sql`). `deviceHex` is the
+/// "#rrggbb" LED value, `nil` for the `blank` colour.
+struct ColourRecord: Equatable, Sendable {
+    let id: Int
+    let name: String
+    let deviceHex: String?
+}
+
 enum IntegrationTarget: String {
     case calendar
     case local
@@ -370,6 +378,30 @@ final class AppDataStore: IntegrationEventCursorStore {
             sqlite3_finalize(stmt)
         }
         return result
+    }
+
+    /// All rows of the `colour` reference table (`database/004_colour.sql`), ordered by
+    /// `colour_id`. Drives the facet colour picker; see `ActivityLibrary.colorOptions(from:)`.
+    func loadColours() -> [ColourRecord] {
+        guard let db else { return [] }
+        var results: [ColourRecord] = []
+        let sql = "SELECT colour_id, colour_name, device_hex FROM colour ORDER BY colour_id;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("colour load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = Int(sqlite3_column_int64(stmt, 0))
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                let hex = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
+                results.append(ColourRecord(id: id, name: name, deviceHex: hex))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
     }
 
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the

@@ -10,7 +10,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
         blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
-        isDoubleTapEnabled: dataStore.loadDoubleTapEnabled()
+        isDoubleTapEnabled: dataStore.loadDoubleTapEnabled(),
+        colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours())
     )
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(

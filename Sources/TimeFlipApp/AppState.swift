@@ -8,6 +8,9 @@ final class AppState: ObservableObject {
     private let googleClientSecretStore: GoogleClientSecretStore
     private let devicePasswordStore: TimeFlipDevicePasswordStoring
     private let developerConfigStore: DeveloperConfigStoring // Developer mode; see DeveloperConfigStore.swift
+    /// The facet colour-picker palette, loaded once from the `colour` reference table at launch
+    /// (see `ActivityLibrary.colorOptions(from:)`). Fixed for the session — no UI edits it.
+    let colourOptions: [ActivityColorOption]
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -110,12 +113,14 @@ final class AppState: ObservableObject {
         ledBrightnessPercent: UInt8,
         blinkIntervalSeconds: UInt8,
         doubleTapParameters: DoubleTapParameters,
-        isDoubleTapEnabled: Bool
+        isDoubleTapEnabled: Bool,
+        colourOptions: [ActivityColorOption] = []
     ) {
         self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
         self.devicePasswordStore = devicePasswordStore
         self.developerConfigStore = developerConfigStore
+        self.colourOptions = colourOptions
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         isLocked = false

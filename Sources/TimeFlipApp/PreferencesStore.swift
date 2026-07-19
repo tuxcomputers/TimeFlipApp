@@ -91,6 +91,18 @@ extension ColorComponents {
     var color: Color {
         Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
+
+    /// Parses an `"#rrggbb"` (or `"rrggbb"`) hex string into opaque sRGB components. Returns `nil`
+    /// for anything that isn't exactly six hex digits (e.g. an empty/`NULL` `device_hex`).
+    init?(hex: String) {
+        var value = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("#") { value.removeFirst() }
+        guard value.count == 6, let rgb = UInt32(value, radix: 16) else { return nil }
+        self.red = Double((rgb >> 16) & 0xFF) / 255.0
+        self.green = Double((rgb >> 8) & 0xFF) / 255.0
+        self.blue = Double(rgb & 0xFF) / 255.0
+        self.alpha = 1.0
+    }
 }
 
 extension FacetMappingRecord {

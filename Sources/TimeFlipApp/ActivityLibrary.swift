@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct FacetMapping: Identifiable {
@@ -87,25 +86,16 @@ enum ActivityLibrary {
         ActivityIconOption(name: displayName(for: $0), iconName: $0)
     }
 
-    /// The only colors selectable for a facet — every other AppKit "system" color/tint stays
-    /// off-limits so the picker's swatches match this fixed set exactly.
-    private static let systemColorIdentifiers: [(identifier: String, nsColor: NSColor)] = [
-        ("systemRedColor", .systemRed),
-        ("systemGreenColor", .systemGreen),
-        ("systemBlueColor", .systemBlue),
-        ("systemOrangeColor", .systemOrange),
-        ("systemYellowColor", .systemYellow),
-        ("systemBrownColor", .systemBrown),
-        ("systemPinkColor", .systemPink),
-        ("systemPurpleColor", .systemPurple),
-        ("systemTealColor", .systemTeal),
-        ("systemIndigoColor", .systemIndigo),
-        ("systemMintColor", .systemMint),
-        ("systemCyanColor", .systemCyan)
-    ]
-
-    static let colorOptions: [ActivityColorOption] = systemColorIdentifiers.map { entry in
-        ActivityColorOption(name: colorDisplayName(for: entry.identifier), color: Color(entry.nsColor))
+    /// The facet colour-picker options, built from the `colour` reference table
+    /// (`AppDataStore.loadColours`). Each option's swatch is the row's `device_hex`; rows without
+    /// one (e.g. the `blank` colour) are skipped.
+    static func colorOptions(from colours: [ColourRecord]) -> [ActivityColorOption] {
+        colours.compactMap { record in
+            guard let hex = record.deviceHex, let components = ColorComponents(hex: hex) else {
+                return nil
+            }
+            return ActivityColorOption(name: record.name, color: components.color)
+        }
     }
 
     static let validIconNames: Set<String> = Set(iconOptions.map { $0.iconName })
@@ -177,15 +167,4 @@ enum ActivityLibrary {
         return parts.joined(separator: " ")
     }
 
-    /// Extracts a display name from an NSColor property identifier, e.g. `"systemRedColor"` -> `"Red"`.
-    private static func colorDisplayName(for identifier: String) -> String {
-        var name = identifier
-        if name.hasPrefix("system") {
-            name.removeFirst("system".count)
-        }
-        if name.hasSuffix("Color") {
-            name.removeLast("Color".count)
-        }
-        return name
-    }
 }
