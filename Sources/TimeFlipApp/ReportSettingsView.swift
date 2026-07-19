@@ -13,8 +13,11 @@ struct ReportSettingsView: View {
     var body: some View {
         Form {
             Section("Google") {
-                credentialsSection
-                Divider()
+                // Once verified (authenticated), the Client ID/Secret fields are no longer needed,
+                // so drop them and let the Status line lead the section.
+                if !authManager.isAuthenticated {
+                    credentialsSection
+                }
 
                 if !integrationsEnabled {
                     Text(
@@ -85,28 +88,29 @@ struct ReportSettingsView: View {
             .textFieldStyle(.roundedBorder)
             .disableAutocorrection(true)
         }
-
-        if !credentialsReady {
-            Text("Paste your Google OAuth client ID and secret to enable sign-in.")
-                .foregroundStyle(.secondary)
-        }
     }
 
     @ViewBuilder private var authSection: some View {
         if authManager.isAuthenticated {
+            // Keep this the single leading line of the Google section for now; more connected-state
+            // rows (account details, disconnect, etc.) get added here later.
             LabeledContent("Status") {
                 Text("Connected")
             }
-            Button("Sign out") {
-                authManager.signOut()
-            }
         } else {
-            Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
-                Task { @MainActor in
-                    await authManager.authenticate()
+            HStack {
+                Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
+                    Task { @MainActor in
+                        await authManager.authenticate()
+                    }
+                }
+                .disabled(authManager.isAuthenticating || !credentialsReady)
+
+                if !credentialsReady {
+                    Text("Paste your Google OAuth client ID and secret to enable sign-in.")
+                        .foregroundStyle(.secondary)
                 }
             }
-            .disabled(authManager.isAuthenticating || !credentialsReady)
         }
 
         if let errorMessage = authManager.errorMessage {

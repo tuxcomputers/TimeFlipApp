@@ -136,19 +136,76 @@ final class DeveloperConfigStore: DeveloperConfigStoring, @unchecked Sendable {
     }
 }
 
-/// Session-only stand-in for `KeychainAuthStateStore` while developer mode is active — OAuth
-/// tokens aren't part of config.json, so this just keeps them in memory instead of ever touching
-/// the Keychain (re-authenticating each launch is expected in developer mode).
+/// Stand-in for `KeychainAuthStateStore` while developer mode is active. Persists the OAuth state
+/// to `config.auth.json` (alongside `config.json`) rather than the Keychain: an unsigned/ad-hoc
+/// `swift build` binary's code signature changes on every rebuild, so the login Keychain treats
+/// each rebuild as a different app and re-prompts for access — a plain file has no such per-app
+/// ACL, so the authorization survives quit/relaunch and rebuilds with no access prompt. The file
+/// holds live refresh tokens, so it is gitignored and written `0600`. Kept out of `config.json`
+/// itself because that file is often symlinked to a dev's checked-out credentials.
 final class DeveloperModeGoogleAuthStateStore: GoogleAuthStateStore, @unchecked Sendable {
-    private var state: OIDAuthState?
+    private let fileURL: URL
+    private let lock = NSLock()
+    private var hasLoaded = false
+    private var cachedState: OIDAuthState?
+    private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "developer-auth-store")
 
-    func loadState() throws -> OIDAuthState? { state }
+    init(fileURL: URL = DeveloperModeGoogleAuthStateStore.defaultFileURL) {
+        self.fileURL = fileURL
+    }
+
+    private static var defaultFileURL: URL {
+        let fileManager = FileManager.default
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("TimeFlip", isDirectory: true)
+            .appendingPathComponent("config.auth.json")
+    }
+
+    func loadState() throws -> OIDAuthState? {
+        lock.lock()
+        defer { lock.unlock() }
+        if hasLoaded {
+            return cachedState
+        }
+        cachedState = readFromDisk()
+        hasLoaded = true
+        return cachedState
+    }
 
     func saveState(_ state: OIDAuthState) throws {
-        self.state = state
+        let data = try NSKeyedArchiver.archivedData(withRootObject: state, requiringSecureCoding: true)
+        lock.lock()
+        cachedState = state
+        hasLoaded = true
+        lock.unlock()
+
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: fileURL, options: .atomic)
+        // Best-effort: restrict to owner-only, since this holds live refresh tokens.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     func clearState() throws {
-        state = nil
+        lock.lock()
+        cachedState = nil
+        hasLoaded = true
+        lock.unlock()
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: fileURL.path) {
+            try fileManager.removeItem(at: fileURL)
+        }
+    }
+
+    private func readFromDisk() -> OIDAuthState? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        do {
+            return try NSKeyedUnarchiver.unarchivedObject(ofClass: OIDAuthState.self, from: data)
+        } catch {
+            logger.error("Failed to unarchive config.auth.json: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 }
