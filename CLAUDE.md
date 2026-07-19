@@ -11,6 +11,16 @@
   explain the actual constraint before implementing anything -- don't silently build something
   that looks like it does what was asked but can't actually behave that way on real hardware.
 
+## Running the device tests
+
+- When the user asks to "run the device tests" (or to run the bench/interactive checklists), read
+  `Tests/CLAUDE.md` first and follow it. It defines the procedure: run the **Bench** suite (the
+  script-drivable on-device checklists) first, then the **Interactive** suite (the ones needing a
+  person).
+- These on-device checklists under `Tests/Bench/` and `Tests/Interactive/` are separate from
+  `swift test` (the hermetic unit suite) -- "run the device tests" means the checklists, not
+  `swift test`.
+
 ## TimeFlip2 BLE protocol documentation
 
 - `docs/TimeFlip2 BLE Protocol v4.3.md` is the official vendor protocol spec and takes priority

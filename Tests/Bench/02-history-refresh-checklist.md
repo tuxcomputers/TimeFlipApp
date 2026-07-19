@@ -8,6 +8,11 @@ with Developer Mode enabled and the `debug` setting's `enabled` field `true` (se
 so all `(Claude)` log-reading steps below are plain `sqlite3` queries against it, not a terminal
 transcript that has to be captured live.
 
+The scenarios here need no human hand on the cube: they either wait on the refresh timer or
+quit/relaunch the app, and assert entirely from the DB. The scenarios that require physically
+flipping the device (a normal flip, and the out-of-range backlog) live in
+`Tests/Interactive/02-history-refresh-checklist.md`, run after this one.
+
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
@@ -27,37 +32,6 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] **(Claude)** Re-query `device_events` for that same `event_number` and confirm
       `duration_seconds` increased since the baseline, with no new rows added.
 
-## Scenario B -- normal flip
-
-- [x] **(Claude)** Note the current max `event_number` (call it N).
-- [x] **(You)** Flip the device to a different facet.
-- [x] **(Claude)** Confirm a new `device_events` row exists with `event_number` > N, and that
-      event N's row is now `finalised = 1` with a `duration_seconds` that stopped growing.
-- [x] **(You)** Confirm the menu bar activity name/icon updated to the new facet.
-
-## Scenario C -- backlog after being out of range
-
-> Facets used throughout this checklist's run: facet 2 ("Meeting") and facet 8 ("Break") only.
-
-- [x] **(Claude)** Note the current max `event_number` (call it N).
-- [x] **(You)** Disconnect the device from the app -- either move it out of Bluetooth range, or (the
-      practical equivalent used for this run, since the device's real range is long enough to make
-      physically walking away impractical) turn off Bluetooth on the Mac itself, via the menu bar
-      icon or System Settings, NOT `sudo`/system-wide toggling, which also disconnects any other
-      Bluetooth peripherals -- wait for the menu bar to turn yellow (disconnected), then flip it
-      2-3 times while still disconnected, then reconnect (bring it back in range, or turn Bluetooth
-      back on).
-- [x] **(You)** Confirm the app reconnects automatically (menu bar returns to green).
-- [x] **(Claude)** Confirm every intermediate flip shows up as its own finalised `device_events`
-      row in ascending `event_number` order with no gaps, and the final row (still open) matches
-      the device's actual current facet.
-### Bugs found and fixed
-2026-07-18 - Silent BLE notification drop caused a permanent gap in `device_events` (event 29
-missing), fixed with gap detection + targeted single-event recovery in
-`TimeFlipBLEDevice.fetchHistory`.
-- [x] **(Claude)** Confirm `integration_event_cursors` (`identifier = 'device-history'`) advanced
-      to the last finalised event number, not the still-open one.
-
 ## Scenario D -- quit and relaunch resumes from the persisted cursor
 
 - [x] **(Claude)** Note the current `integration_event_cursors.last_sent_ev` for
@@ -69,11 +43,10 @@ missing), fixed with gap detection + targeted single-event recovery in
       from 35 to 36 between the baseline note and quitting, since event 36 was finalised in that
       window, and startup correctly resumed from that persisted value rather than re-fetching all
       history.)
-- [x] **(You)** Confirm the menu bar shows the correct current facet/duration immediately after
-      reconnecting, matching the device's actual state. (Confirmed: menu bar showed "Meeting" at
-      20:07, paused. That's the accumulated total of today's non-paused, finalized Meeting
-      segments since the 3am daily reset window -- events 18, 20, 23, 27, 32, 34, 36:
-      1+301+301+33+5+265+302 = 1208s = 20:08 -- not the still-open event 37's own
-      `duration_seconds`, which is excluded both because it isn't finalized yet and because it's
-      currently paused (`is_paused=1`). Matches `dailyFacetDurations`/`isPaused` logic in
-      `MenuBarController.swift`/`DailyFacetTotals.swift` exactly.)
+- [x] **(Claude)** Confirm the menu bar's displayed facet/duration matches the DB-derived state
+      immediately after reconnecting -- the accumulated total of today's non-paused, finalized
+      segments for the current facet, from `device_events`, per the `dailyFacetDurations`/`isPaused`
+      logic in `MenuBarController.swift`/`DailyFacetTotals.swift`, not the still-open event's own
+      `duration_seconds`. (Confirmed: menu bar showed "Meeting" at 20:07, paused -- events 18, 20,
+      23, 27, 32, 34, 36: 1+301+301+33+5+265+302 = 1208s = 20:08 -- the still-open event 37 is
+      excluded both because it isn't finalized yet and because it's currently paused (`is_paused=1`).)

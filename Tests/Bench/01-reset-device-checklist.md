@@ -7,6 +7,12 @@ from the device (`TimeFlipBLEDevice.factoryReset()` only returns success once it
 real re-login with the factory default password, and `AppState.forgetDevice()` only runs after
 that), so this also exercises fresh re-pairing afterward.
 
+Every step here is script-drivable against a connected device -- the reset and re-pair are
+Preferences-window controls, and the assertions are `sqlite3`/`debug_log` reads -- so no human
+eyes or hands on the physical cube are needed. The one part that requires a physical facet flip
+(generating a *real* post-reset event to see the device's own low numbering) lives in
+`Tests/Interactive/01-reset-device-checklist.md`, run after this one.
+
 **Do not reset the device before this checklist starts** -- the reset is the test itself, not
 setup. Requires Developer Mode enabled, the `debug` setting's `enabled` field `true` (see
 `009_setting.sql`), and a device that is *already paired*, with some pre-existing event history on
@@ -47,13 +53,10 @@ Re-pair with the device: click **Scan for Devices**, select it once it appears i
 wait for pairing to complete.
 
 - [ ] **(You)** Confirm the Device tab shows the device as paired and connected again.
-- [ ] **(Claude)** Query `device_events` for the max `event_number` now. If it's still 0 (no event
-      generated yet -- reconnecting alone doesn't create one), ask the user to flip the device to a
-      different facet once, then re-query.
-- [ ] **(Claude)** Confirm this new event's `event_number` is a small number close to the device's
-      own reset baseline -- **1** is expected, but **2** or **3** is also a pass if the device was
-      flipped quickly enough right around the reset for an intermediate event to be skipped -- and
-      confirm it is far lower than the pre-reset baseline **N** from Setup either way.
-- [ ] **(Claude)** Query `debug_log` for the `history`-tagged fetch that picked up this new event
-      and a following `dev-check` row confirming `device_events max_start_epoch OK`, so the
-      post-reset event number is backed by logged evidence, not just the queried row.
+- [ ] **(Claude)** Query `device_events` for the max `event_number` now and confirm it is `0` --
+      reconnecting alone generates no event, so a wiped counter reads `0` here, far below the
+      pre-reset baseline **N** from Setup. (Seeing a *real* post-reset event with the device's own
+      low numbering needs a physical flip -- that's the Interactive counterpart.)
+- [ ] **(Claude)** Query `debug_log` for the `history`-tagged fetch that ran on re-pair and confirm
+      its `device_last_event=0` (down from the pre-reset baseline), backing the counter wipe with
+      logged evidence, not just the queried row.

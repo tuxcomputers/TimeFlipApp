@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Repoints the appdata.sqlite symlink back at production.sqlite, ending a testing session started
-# by use-test-database.sh. See Tests/Bench/README.md.
+# by use-test-database.sh. See Tests/CLAUDE.md.
 set -euo pipefail
 
 DB_DIR="$HOME/Library/Application Support/TimeFlip"

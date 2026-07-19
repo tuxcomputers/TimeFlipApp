@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Repoints the appdata.sqlite symlink at test.sqlite instead of production.sqlite, so an
-# interactive testing session (see Tests/Bench/README.md) never touches real data. Only
+# interactive testing session (see Tests/CLAUDE.md) never touches real data. Only
 # meaningful under Developer Mode -- AppDataStore only creates the symlink at all when
 # DeveloperMode.isEnabled is true (see AppDataStore.ensureDatabaseSymlink).
 set -euo pipefail
