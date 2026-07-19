@@ -167,16 +167,21 @@ true will misreport a real bug as a broken precondition (or vice versa) the next
   below (sync real device history to `production.sqlite` first, only then switch to test) already
   guarantees nothing real is at risk, so it's safe to run unattended like everything else in
   Bench. Only pause if that pre-flight wasn't actually done first this session.
-- The device may drop its BLE connection immediately after a factory reset (a real reboot) --
-  `factoryReset()`'s own immediate re-login confirmation can race that disconnect and report
-  failure even though the reset genuinely succeeded, leaving the app's automatic reconnect retrying
-  a now-stale stored password forever with no recovery path (confirmed live; fixed by adding a
-  fallback in the reconnect login path -- see `ApplicationDelegate.startDeviceEvents`'s login guard
-  -- to retry with `TimeFlipConstants.defaultPassword` when the stored password is explicitly
-  rejected, `TimeFlipBLEDevice.wasWrongPassword`). If a reset still leaves the device stuck
-  reconnecting with neither Forget Device nor Reset Device doing anything (both silently no-op
-  while not logged in), that fallback is the fix to check for regressions in, not something to
-  route around by hand again.
+- A factory reset intentionally ends with the device **forgotten / "Not paired"**, not reconnected
+  (changed on `bugfix/resetDevice`). Flow: `TimeFlipBLEDevice.factoryReset()` just *sends* the 0xFF
+  command -- the device gives no usable ack for it (the command-result read comes back stale, e.g. a
+  leftover `17 3A ...` double-tap response) and reboots. The app then drops the connection, and the
+  reconnect path re-logs-in with `TimeFlipConstants.defaultPassword`; a successful default-password
+  login is the confirmation the wipe took (confirmed via os_log / `debug_log` "Factory reset
+  confirmed"), and is deliberately **not** treated as a pairing -- it forgets the device into the
+  pristine never-paired state. Expect the UI to read **"Resetting..." -> "Not paired"** (Name /
+  Connection / Battery all greyed), *not* "Reconnecting..." -> "Connected", and to require a fresh
+  Scan/re-pair afterward. Watch for: on the first reconnect the device can still accept the OLD
+  password briefly (reset not yet applied) -- the app logs "not yet confirmed ... retrying" and waits
+  for a later reconnect where only the default works; confirmation is gated on the default password
+  specifically, so don't expect it on the first successful login. The default-password fallback in
+  `ApplicationDelegate.startDeviceEvents`'s login guard still exists and also covers an out-of-band
+  reset done by other means.
 - The device correctly rejects an arbitrary wrong password (confirmed live: `login(password:
   "999999")` against an authenticated session got an explicit rejection, raw commandResult
   `0x01`, not silently accepted) -- no known security concern there.

@@ -2,10 +2,19 @@
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
-device's event numbering before and after a real reset. A confirmed reset also unpairs the app
-from the device (`TimeFlipBLEDevice.factoryReset()` only returns success once it verifies via a
-real re-login with the factory default password, and `AppState.forgetDevice()` only runs after
-that), so this also exercises fresh re-pairing afterward.
+device's event numbering before and after a real reset. A reset intentionally ends with the device
+**forgotten / "Not paired"**: `TimeFlipBLEDevice.factoryReset()` just *sends* 0xFF (the device gives
+no usable ack and reboots), then the app reconnects, and a successful re-login with the factory
+default password confirms the wipe -- that login is deliberately **not** treated as a pairing, so
+the app drops the connection into the pristine never-paired state ("Resetting..." -> "Not paired").
+Continuing to use the device therefore requires a fresh Scan/re-pair, which this checklist also
+exercises.
+
+> **⚠ Needs re-running on `bugfix/resetDevice`.** The recorded run below (Setup, Scenario, and "Bugs
+> found and fixed") predates the reset-flow change and still describes the old "stays paired ->
+> auto-reconnects to Connected" outcome. The intro above and `../CLAUDE.md` are corrected; the step
+> bodies and their ticks are not yet re-verified against the new "Resetting... -> Not paired ->
+> re-pair" flow. Re-run before relying on the ticks.
 
 Every step here is Claude-driven against a connected device -- launching/quitting the app, driving
 Preferences-window controls via System Events, and reading `sqlite3`/`debug_log` -- see "Driving

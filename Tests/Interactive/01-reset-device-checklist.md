@@ -9,6 +9,12 @@ Requires a person: the flip can only come from physically turning the cube. Assu
 bench run left -- app running, test DB active (`db_type` = `test`), device freshly reset and
 re-paired -- and the pre-reset baseline **N** noted there.
 
+> **⚠ Needs re-running on `bugfix/resetDevice`.** The reset flow changed: a reset now ends with the
+> device **forgotten / "Not paired"**, so the Bench run no longer leaves it "re-paired" -- a re-pair
+> (Scan) is required before this flip test can run. The flip -> low-event-number check itself is
+> unchanged. Re-verify the preconditions/ticks below against the new flow (see the Bench 01 intro
+> and `../CLAUDE.md`).
+
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario -- a real post-reset event uses the device's own low numbering

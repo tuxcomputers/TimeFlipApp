@@ -640,7 +640,9 @@ final class MenuBarController: NSObject {
             // requires pairingStatusSnapshot == .paired) and refresh the tooltip.
             rebuildMenu()
             updateStatusView(force: true)
-        case .notPaired, .failed:
+        case .notPaired, .failed, .resetting:
+            // .resetting: a factory reset is underway and the device is going away -- tear the
+            // menu bar down to the unpaired look, same as .notPaired.
             handlePairingChange(false)
         }
     }

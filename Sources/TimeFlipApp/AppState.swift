@@ -375,18 +375,25 @@ final class AppState: ObservableObject {
         forgetDevice()
     }
 
-    /// Full factory reset (erases facet colors, task parameters, name, password -- everything --
-    /// back to defaults), confirmed via a real re-login with the factory default password, then
-    /// forgets the device -- mirrors `resetAndForgetDevice()`'s "only forget once confirmed" shape,
-    /// but for a full reset rather than just the password. The caller (the Settings UI) is
-    /// responsible for confirming with the user before calling this -- it proceeds immediately.
+    /// Starts a full factory reset (erases facet colors, task parameters, name, password --
+    /// everything -- back to defaults). The caller (the Settings UI) confirms with the user first;
+    /// this proceeds immediately.
+    ///
+    /// The reset is NOT confirmed synchronously here: the device erases flash and reboots, so
+    /// `onFactoryResetRequest` only sends the 0xFF command and returns whether it was sent. The
+    /// actual confirmation -- the device coming back on the factory default password -- happens
+    /// asynchronously in ApplicationDelegate's reconnect path, which then drops the connection and
+    /// forgets the device into the pristine never-paired state (that login is deliberately NOT
+    /// treated as pairing). Until then we sit in `.resetting` ("Resetting...").
     func factoryResetAndForgetDevice() async {
-        let confirmed = await onFactoryResetRequest?() ?? true
-        guard confirmed else {
-            pairingStatus = .failed("Could not confirm device reset — device left paired")
-            return
+        pairingStatus = .resetting
+        pairedDeviceName = "Not paired"
+        let sent = await onFactoryResetRequest?() ?? false
+        if !sent {
+            // Couldn't even send the command (e.g. not connected/logged in) -- surface it rather
+            // than sit in "Resetting..." forever.
+            pairingStatus = .failed("Couldn't send the reset command")
         }
-        forgetDevice()
     }
 
     func forgetDevice() {
@@ -633,5 +640,10 @@ enum PairingStatus: Equatable {
     /// reconnect is in progress. Distinct from `.failed`/`.notPaired` so the menu bar keeps
     /// showing the last known activity/icon instead of tearing down to an unpaired look.
     case reconnecting
+    /// A factory reset is in progress: the 0xFF command was sent and we're waiting for the device
+    /// to reboot and come back on the default password (the confirmation), after which the app
+    /// drops to the pristine never-paired state. Shown as "Resetting..." rather than a scary
+    /// "Failed/Disconnected" while the device reboots. See ApplicationDelegate's reset flow.
+    case resetting
     case failed(String?)
 }

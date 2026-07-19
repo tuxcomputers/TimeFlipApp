@@ -45,16 +45,18 @@ struct TimeFlipSettingsView: View {
         Section("Info") {
             LabeledContent("Name") {
                 Text(appState.pairedDeviceName)
+                    .foregroundStyle(infoValueColor)
             }
             LabeledContent("Connection") {
                 Text(statusText)
+                    .foregroundStyle(infoValueColor)
             }
             LabeledContent {
                 Text(batteryText)
                     .foregroundStyle(batteryTextColor)
             } label: {
                 Text("Battery")
-                    .foregroundStyle(batteryTextColor)
+                    .foregroundStyle(batteryLabelColor)
             }
             DisclosureGroup(isExpanded: $appState.isMoreExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -135,7 +137,14 @@ struct TimeFlipSettingsView: View {
     private var pairingSection: some View {
         Section("TimeFlip") {
             HStack {
-                if appState.isPaired {
+                if appState.pairingStatus == .resetting {
+                    // Reset confirmed and in progress: show only a progress indicator -- no Forget/
+                    // Reset buttons, so they can't be clicked mid-reset and disrupt the confirm cycle.
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Resetting device…")
+                        .foregroundStyle(.secondary)
+                } else if appState.isPaired {
                     Button("Forget Device") {
                         Task { await appState.resetAndForgetDevice() }
                     }
@@ -488,17 +497,45 @@ struct TimeFlipSettingsView: View {
         return params
     }
 
+    /// Mirrors the Name row: it reads "Not paired" until a connection is actually confirmed
+    /// (`isPaired` flips true on pairing, false again on forget), and stays that way while a reset
+    /// is in progress. Battery follows the same rule so it holds at "Not paired" through the whole
+    /// pairing attempt instead of briefly flashing "Unknown" before the first battery reading
+    /// arrives. `isPaired` stays true through a `.reconnecting` blip, so the last value keeps
+    /// showing then, exactly as the Name keeps showing the device name.
+    private var isUnpairedForDisplay: Bool {
+        !appState.isPaired || appState.pairingStatus == .resetting
+    }
+
+    /// Name/Connection value colour: black (primary) once connected, greyed (secondary) while
+    /// "Not paired"/pairing/resetting -- so the Info values read solid black when live, matching
+    /// the battery %, and fall back to grey together when there's no connection.
+    private var infoValueColor: Color {
+        isUnpairedForDisplay ? .secondary : .primary
+    }
+
     private var batteryText: String {
+        if isUnpairedForDisplay {
+            return "Not paired"
+        }
         guard let level = appState.batteryLevel else {
             return "Unknown"
         }
         return "\(level)%"
     }
 
-    /// Flashes red/default in sync with the menu bar's low-battery blink (mirrored via
-    /// AppState.isLowBattery/lowBatteryBlinkPhaseOn) so a first-time low-battery warning is
-    /// obvious here too, not just as an easy-to-miss color change in the menu bar text.
+    /// The battery *value* colour: greyed (secondary) when unpaired so "Not paired" matches the
+    /// Name/Connection rows; otherwise it flashes red/default in sync with the menu bar's
+    /// low-battery blink (see `batteryLabelColor`).
     private var batteryTextColor: Color {
+        if isUnpairedForDisplay { return .secondary }
+        return batteryLabelColor
+    }
+
+    /// The "Battery" *label* colour: primary like the other row labels, but still flashes red with
+    /// the low-battery blink (mirrored via AppState.isLowBattery/lowBatteryBlinkPhaseOn) so a
+    /// first-time low-battery warning is obvious here too, not just in the menu bar text.
+    private var batteryLabelColor: Color {
         guard appState.isLowBattery else { return .primary }
         return appState.lowBatteryBlinkPhaseOn ? .red : .primary
     }
@@ -532,6 +569,8 @@ struct TimeFlipSettingsView: View {
             return "Connected"
         case .reconnecting:
             return "Reconnecting..."
+        case .resetting:
+            return "Resetting..."
         case .failed(let message):
             return "Failed" + (message.map { ": \($0)" } ?? "")
         }

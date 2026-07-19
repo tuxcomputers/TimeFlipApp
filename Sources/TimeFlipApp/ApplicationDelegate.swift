@@ -103,6 +103,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     // Backoff counter for reconnect attempts after losing connection to an already-paired
     // device; reset to 0 as soon as a reconnect succeeds. Capped in scheduleReconnect().
     private var reconnectAttempt = 0
+    // Set from the moment a factory reset's 0xFF command is sent until the device is confirmed
+    // reset (it reconnects on the factory default password) or the deadline passes. While set, the
+    // reconnect path treats a successful default-password login as the reset confirmation -- NOT a
+    // pairing -- then drops the connection into the pristine never-paired state; and the disconnect
+    // caused by the device rebooting is shown as "Resetting..." rather than a reconnect failure.
+    private var pendingFactoryResetConfirm = false
+    private var factoryResetConfirmDeadline: Date?
+    // How long to keep trying to catch the device coming back on the default password after a reset
+    // before giving up and surfacing a failure (the device reboots in well under this).
+    private let factoryResetConfirmTimeout: TimeInterval = 120
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
@@ -199,12 +209,28 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             return confirmed
         }
         appState.onFactoryResetRequest = { [weak self] in
-            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
-            let confirmed = await bleDevice.factoryReset()
-            if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false) {
-                try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+            guard let self, let bleDevice = self.device as? TimeFlipBLEDevice else { return false }
+            // Arm the confirmation window BEFORE sending 0xFF so the disconnect the reset triggers
+            // is recognised as "device rebooting" (kept as .resetting) rather than a reconnect
+            // failure. The stored password is cleared only once the reset is actually confirmed
+            // (see the pendingFactoryResetConfirm branch in startDeviceEvents).
+            self.pendingFactoryResetConfirm = true
+            self.factoryResetConfirmDeadline = Date().addingTimeInterval(self.factoryResetConfirmTimeout)
+            self.reconnectAttempt = 0
+            let sent = await bleDevice.factoryReset()
+            guard sent else {
+                self.pendingFactoryResetConfirm = false
+                self.factoryResetConfirmDeadline = nil
+                return false
             }
-            return confirmed
+            // Tear the current (soon-dead) session down intentionally and start the confirm-reconnect
+            // loop now, rather than waiting for the device's own ~30s stream timeout. The reconnect
+            // path re-logs-in with the default password to confirm the wipe took (see the
+            // pendingFactoryResetConfirm branch in startDeviceEvents). isPaired is still true here, so
+            // scheduleReconnect proceeds.
+            self.stopDeviceEvents()
+            self.scheduleReconnect()
+            return true
         }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
@@ -419,21 +445,59 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             var loggedIn = await device.login(password: passwordUsed)
             if !loggedIn, (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
                passwordUsed != TimeFlipConstants.defaultPassword {
-                // The stored password can go stale if the device was reset out-of-band (e.g. a
-                // factory reset whose own confirmation login raced a disconnect and never
-                // completed, see TimeFlipBLEDevice.factoryReset) -- a reset device reverts to the
-                // factory default, so retry with that before giving up on this reconnect, same
-                // reasoning already used for a freshly-selected device in onDeviceSelectedForPairing.
+                // The stored password goes stale after a reset (the device reverts to the factory
+                // default) -- both during a reset we initiated (pendingFactoryResetConfirm) and for
+                // an out-of-band reset -- so retry with the default before giving up, same reasoning
+                // already used for a freshly-selected device in onDeviceSelectedForPairing. During
+                // our own reset this default-password login is what confirms the wipe (below).
                 passwordUsed = TimeFlipConstants.defaultPassword
                 loggedIn = await device.login(password: passwordUsed)
             }
             guard loggedIn else {
                 logger.error("TimeFlip login failed; events not started")
-                await device.disconnect()
                 let wasCancelled = (device as? TimeFlipBLEDevice)?.wasCancelled ?? false
+                if pendingFactoryResetConfirm {
+                    // Device is still rebooting after the reset -- tear down intentionally and keep
+                    // waiting for it to come back on the default password, rather than reporting a
+                    // pairing failure.
+                    await MainActor.run {
+                        self.stopDeviceEvents()
+                        self.retryOrTimeOutFactoryResetConfirm()
+                    }
+                    return
+                }
+                await device.disconnect()
                 if !wasCancelled {
                     await MainActor.run {
                         self.appState.pairingFailed(message: "Wrong PIN")
+                    }
+                }
+                return
+            }
+            // A factory reset we initiated is confirmed only by the device coming back on the
+            // FACTORY DEFAULT password -- that's the proof the 0xFF wipe took effect. When it does,
+            // this login is deliberately NOT treated as a pairing: forget the device into the
+            // pristine never-paired state (forgetDevice() tears down the connection via
+            // onPairingChange(false) -> stopDeviceEvents, which also detaches onDisconnect so no
+            // spurious failure/reconnect follows).
+            if pendingFactoryResetConfirm {
+                if passwordUsed == TimeFlipConstants.defaultPassword {
+                    pendingFactoryResetConfirm = false
+                    factoryResetConfirmDeadline = nil
+                    DeveloperMode.debugPrint(.timeFlip, "Factory reset confirmed: device is back on the default password; returning to never-paired state")
+                    if !appState.isDeveloperConfigLoaded {
+                        try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
+                    }
+                    await MainActor.run {
+                        self.appState.forgetDevice()
+                    }
+                } else {
+                    // Logged in, but with the OLD password -- the wipe hasn't taken yet. Tear down
+                    // and keep waiting for the reboot; only fail once the deadline passes.
+                    DeveloperMode.debugPrint(.timeFlip, "Factory reset not yet confirmed: device still accepts the old password; retrying")
+                    await MainActor.run {
+                        self.stopDeviceEvents()
+                        self.retryOrTimeOutFactoryResetConfirm()
                     }
                 }
                 return
@@ -510,6 +574,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopDeviceEvents() {
+        // This is always an *intentional* teardown (forget/reset/reconnect cycle), so detach the
+        // disconnect handler first: cancelPeripheralConnection below still fires the CoreBluetooth
+        // didDisconnect callback, and without this that would re-enter handleDeviceDisconnect and
+        // surface a spurious "Disconnected before pairing completed" failure (or a stray reconnect)
+        // after a deliberate forget. startDeviceEvents re-installs the handler when it reconnects.
+        (device as? TimeFlipBLEDevice)?.onDisconnect = nil
         device?.stop()
         Task { [weak self] in
             await self?.device?.disconnect()
@@ -540,6 +610,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     /// last known icon/activity/timer on screen. History resync after a successful reconnect
     /// corrects anything that drifted while offline.
     private func handleReconnectFailure(message: String) {
+        // Mid factory-reset: the disconnect is the device rebooting after the 0xFF command. Keep the
+        // "Resetting..." status (not a scary "Reconnecting/Failed") and keep retrying to catch the
+        // device coming back on the default password.
+        if pendingFactoryResetConfirm {
+            retryOrTimeOutFactoryResetConfirm()
+            return
+        }
         // Retry on wantsPairing too: a drop between connect() and the first facet event happens
         // before isPaired is ever set, so gating on isPaired alone would leave the UI stuck with
         // no retry and no failure surfaced.
@@ -549,6 +626,22 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.pairingStatus = .reconnecting
         scheduleReconnect()
+    }
+
+    /// While a factory reset is pending confirmation, keep retrying the reconnect (to catch the
+    /// device coming back on the default password) until `factoryResetConfirmDeadline`; once that
+    /// passes, give up and surface a failure. Keeps the UI in `.resetting` throughout.
+    private func retryOrTimeOutFactoryResetConfirm() {
+        guard pendingFactoryResetConfirm else { return }
+        if let deadline = factoryResetConfirmDeadline, Date() < deadline {
+            appState.pairingStatus = .resetting
+            scheduleReconnect()
+        } else {
+            pendingFactoryResetConfirm = false
+            factoryResetConfirmDeadline = nil
+            DeveloperMode.debugPrint(.timeFlip, "Factory reset NOT confirmed within timeout; the device never came back on the default password")
+            appState.pairingStatus = .failed("Reset sent, but couldn't confirm — check the device")
+        }
     }
 
     /// Retries startDeviceEvents() with capped exponential backoff (2s, 4s, ... up to 30s) for as
