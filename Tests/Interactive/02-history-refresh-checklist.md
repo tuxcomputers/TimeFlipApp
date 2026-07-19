@@ -15,6 +15,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario B -- normal flip
 
+**Preconditions:** device connected and paired, test DB active -- left by the Bench run above,
+which this scenario runs straight on from. Check device connection before asking for the flip.
+
+- [x] **(Claude)** Confirm the device shows connected before asking for the flip below. (Confirmed:
+      state carried straight over from the Bench run in the same session.)
 - [x] **(Claude)** Note the current max `event_number` (call it N). (N = 11, by
       `device_events_id DESC`, not `MAX(event_number)` -- see the note in `../CLAUDE.md`.)
 - [x] **(You)** Flip the device to a different facet. (Detected automatically by polling
@@ -29,6 +34,12 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario C -- backlog after being out of range
 
+**Preconditions:** device connected and paired (Scenario B's own ending state), so there's a
+starting point to disconnect from below. Check device connection first; if it's not connected,
+reconnect before proceeding rather than starting this scenario already disconnected.
+
+- [x] **(Claude)** Confirm the device shows connected before disconnecting it below. (Confirmed:
+      state carried straight over from Scenario B above, in the same session.)
 - [x] **(Claude)** Note the current max `event_number` (call it N). (N = 12.)
 - [x] **(You)** Disconnect the device from the app -- either move it out of Bluetooth range, or (the
       practical equivalent used for this run, since the device's real range is long enough to make

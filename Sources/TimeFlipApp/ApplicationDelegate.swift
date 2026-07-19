@@ -82,6 +82,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "lifecycle")
     private var cancellables: Set<AnyCancellable> = []
     private var lastSentFacetColors: [UInt8: ColorComponents] = [:]
+    // Debounces the device write for each live-editable setting below: DB persistence and the
+    // "value changed" debug print happen immediately on every change, but the actual device write
+    // (and, where the protocol supports it, its read-back verification) only fires once the value
+    // has been stable for autoPauseWriteDelay -- rescheduled on every intervening change so a fast
+    // sequence (a held stepper arrow, a dragged slider) reaches the device once, not per tick.
+    private let autoPauseWriteDebouncer = DeviceWriteDebouncer()
+    private let ledBrightnessWriteDebouncer = DeviceWriteDebouncer()
+    private let blinkIntervalWriteDebouncer = DeviceWriteDebouncer()
+    private let doubleTapWriteDebouncer = DeviceWriteDebouncer()
     private var facetColorInitialized = false
     private var awaitingInitialStatus = false
     // Guards handleDeviceEvent against acting on live BLE notifications until the initial history
@@ -200,39 +209,50 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
-        // The settings view updates appState before invoking these callbacks,
-        // so the handlers only forward the new value to the device.
+        // The settings view updates appState before invoking these callbacks. Each handler prints
+        // the new value and persists it to the DB immediately (every intermediate change while a
+        // stepper/slider is moving), then debounces the actual device write through its
+        // DeviceWriteDebouncer above -- see that type's doc comment.
         appState.onAutoPauseChange = { [weak self] minutes in
             guard let self else { return }
+            DeveloperMode.debugPrint(.autoPause, "Auto-pause value changed to \(minutes)m")
             self.dataStore.saveAutoPauseMinutes(minutes)
-            Task { @MainActor in
-                await self.device?.setAutoPause(minutes: minutes)
+            DeveloperMode.debugPrint(.autoPause, "Auto-pause saved to DB: \(minutes)m")
+            self.autoPauseWriteDebouncer.schedule { [weak self] in
+                await self?.device?.setAutoPause(minutes: minutes)
             }
         }
         appState.onLEDBrightnessChange = { [weak self] percent in
             guard let self else { return }
+            DeveloperMode.debugPrint(.led, "Brightness value changed to \(percent)%")
             self.dataStore.saveLEDBrightnessPercent(percent)
-            Task { @MainActor in
-                await self.device?.setLEDBrightness(percent: percent)
+            DeveloperMode.debugPrint(.led, "Brightness saved to DB: \(percent)%")
+            self.ledBrightnessWriteDebouncer.schedule { [weak self] in
+                await self?.device?.setLEDBrightness(percent: percent)
             }
         }
         appState.onBlinkIntervalChange = { [weak self] seconds in
             guard let self else { return }
+            DeveloperMode.debugPrint(.led, "Blink interval value changed to \(seconds)s")
             self.dataStore.saveLEDBlinkIntervalSeconds(seconds)
-            Task { @MainActor in
-                await self.device?.setBlinkInterval(seconds: seconds)
+            DeveloperMode.debugPrint(.led, "Blink interval saved to DB: \(seconds)s")
+            self.blinkIntervalWriteDebouncer.schedule { [weak self] in
+                await self?.device?.setBlinkInterval(seconds: seconds)
             }
         }
         appState.onDoubleTapParametersChange = { [weak self] params in
             guard let self else { return }
-            Task { @MainActor in
-                await self.device?.setDoubleTapParameters(params)
+            let summary = "ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)"
+            DeveloperMode.debugPrint(.doubleTap, "Params changed: \(summary)")
+            self.doubleTapWriteDebouncer.schedule { [weak self] in
+                await self?.device?.setDoubleTapParameters(params)
             }
         }
         appState.onDoubleTapSettingsPersist = { [weak self] params, enabled in
             guard let self else { return }
             self.dataStore.saveDoubleTapParameters(params)
             self.dataStore.saveDoubleTapEnabled(enabled)
+            DeveloperMode.debugPrint(.doubleTap, "Params saved to DB: enabled=\(enabled)")
         }
         appState.$facetMappings
             .sink { [weak self] mappings in

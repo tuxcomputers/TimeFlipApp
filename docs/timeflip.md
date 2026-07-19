@@ -71,6 +71,29 @@ on which command was sent — there's no single mechanism that covers all of the
   already how `rotateDevicePassword`/`resetDevicePasswordToDefault` work, and is the model for any
   other command that turns out to need functional (rather than read-back) confirmation.
 
+### Debouncing writes for live-editable settings
+
+Auto-pause, LED brightness/blink interval, and double-tap parameters are all edited live in
+Preferences (press-and-hold steppers, sliders, or plain text fields), which can fire many
+intermediate value changes in quick succession. For each of these, `AppState`'s `onXChange`
+callback (wired in `ApplicationDelegate`) does two things on every single change:
+
+1. Prints a debug message with the new value and persists it to the DB immediately — so the DB
+   and debug log always reflect the live value, even mid-drag/mid-hold.
+2. Reschedules a `DeviceWriteDebouncer` (1s delay): only the value still current a full second
+   after the last change actually reaches the device, so a fast sequence writes to the device
+   once, not once per tick.
+
+Once the debounced write actually fires, whether it's followed by a read-back verification depends
+entirely on the read-back matrix above — this debounce doesn't change what's possible to confirm,
+only how often the device is bothered:
+
+- Auto-pause (`setAutoPause`) and double-tap parameters (`setDoubleTapParameters`) write, then
+  immediately read back (0x10 / 0x17 respectively) and log confirmed/MISMATCH.
+- LED brightness/blink interval (`setLEDBrightness`/`setBlinkInterval`) write and log that the
+  write happened, but log "no device read-back available" instead of a verification — there is no
+  read command for either, per the matrix above, so nothing to compare against.
+
 ## 4. Event and notification semantics
 
 - **Facet (`...52`)**: 1 B facet ID 1–12. `0` indicates undefined or rejected password. App updates active facet and seeds snapshots from this value.

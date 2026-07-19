@@ -44,6 +44,24 @@ Each folder's own `README.md` describes just that suite.
   every item. Single ordered sequence, not grouped by actor -- order matters (e.g. "note the event
   number" before "flip the device").
 
+## Scenario preconditions
+
+Every `## Scenario`/named section states the device/app state it needs right after its heading, as
+a `**Preconditions:**` line (e.g. "device connected, unlocked, unpaused, `pause_on_lock=true`"),
+followed by a step that checks the current state against it and resolves any mismatch before the
+scenario's real steps begin -- don't assume state a previous scenario or session left behind is
+still true, even within the same file. A single checkbox combining check-and-fix is fine when the
+fix is simple (e.g. "confirm X; if not, do Y"); point back at an existing resolution step elsewhere
+in the same file instead of duplicating it when one already exists (e.g. Setup's own lock/pause
+resolution).
+
+This matters because a checklist can be restarted mid-way (see "Restarting" below), run standalone
+out of its usual order, or simply re-run much later after unrelated state drifted between sessions
+-- confirmed live: `Interactive/04` found the device locked *and* paused at the very start of a run,
+left over from a previous session's quit-while-`pause_on_lock`-enabled, not anything that session's
+own checklist had done. A scenario that silently assumes a prior scenario's ending state is still
+true will misreport a real bug as a broken precondition (or vice versa) the next time it's run.
+
 ## Driving the app directly
 
 - **Build**: `scripts/run.sh` (`mint run stackotter/swift-bundler@main run TimeFlip`) builds and
@@ -112,7 +130,14 @@ Each folder's own `README.md` describes just that suite.
     which tab/disclosure groups are expanded, so re-derive the path each time rather than hardcoding
     one from a prior session.
   - Type into a text field: focus it, `keystroke "a" using {command down}` (select all), type the
-    value, `keystroke tab` to commit. `keystroke` always goes to the frontmost application
+    value, `keystroke tab` to commit. The value actually commits live on every keystroke, not only
+    on `tab` -- confirmed live by querying the DB immediately after a `keystroke` with no `tab` at
+    all and seeing it already updated. `tab` only shifts focus off the field (useful to finalize
+    display formatting or move on), and doing so **breaks** a rapid multi-value sequence in the
+    same field -- a `keystroke tab` between edits sends the next `cmd+A`/value to whatever control
+    focus landed on instead, not back to the same field. For back-to-back edits of the same field
+    (e.g. testing a debounce), omit `tab` between them and only send it (if at all) after the last
+    one. `keystroke` always goes to the frontmost application
     regardless of which process a `tell` block targets -- clicking the field via its UI element
     reference does not guarantee TimeFlip is actually frontmost (confirmed live: a stray `cmd+A`/
     `1`/`tab` sequence landed in VS Code instead, mid-`05-auto-pause-arrow-stepper-checklist.md`,

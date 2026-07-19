@@ -20,6 +20,18 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario A -- manual Lock/Unlock via the menu item, with pause_on_lock disabled
 
+**Preconditions:** device connected, unlocked, unpaused -- the clean state the Bench run's last
+scenario is supposed to leave behind, though don't take that on faith: check the menu bar (lock
+badge, play/pause icon) before continuing, and resolve via Unlock/Resume from the menu if it isn't
+actually clean. (Confirmed live this run: the device was found locked *and* paused at this exact
+point, left over from a previous session's quit-while-`pause_on_lock`-enabled, not anything the
+Bench run itself had done -- resolved via Unlock then Resume before Scenario A's own steps below.)
+`pause_on_lock` itself is forced to `false` by this scenario's own first step regardless of its
+starting value, so it isn't part of the precondition check.
+
+- [x] **(Claude)** Confirm the menu bar shows no lock badge and a play icon; if it doesn't, click
+      Unlock and/or Resume from the menu first. (Found locked and paused; resolved via Unlock then
+      Resume.)
 - [x] **(Claude)** Ensure `pause_on_lock` is `false`: `sqlite3 ~/Library/Application\
       Support/TimeFlip/appdata.sqlite "UPDATE setting SET setting_value = '{\"enabled\":false}'
       WHERE setting_name = 'pause_on_lock';"`.
@@ -50,6 +62,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 Same as Scenario A, but via the status icon's double-click-right-half gesture instead of the menu
 item, to confirm the gesture is a genuine equivalent and not just wired to open the menu.
 
+**Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=false` -- the clean state
+Scenario A's own last two steps (Unlock via menu, `pause_on_lock` still `false` from its first
+step) leave behind. Check the menu bar before continuing; resolve via Unlock/Resume from the menu
+if it doesn't match.
+
+- [x] **(Claude)** Confirm the menu bar shows no lock badge and a play icon before asking for the
+      double-click below; if it doesn't, click Unlock and/or Resume from the menu first.
+      (Confirmed clean, left by Scenario A.)
 - [x] **(You)** Double-click the right half of the status icon.
 - [x] **(Claude)** Query `debug_log` and confirm the same `"Lock ON triggered"` /
       `"...confirmed: requested=ON actual=ON"` pair.

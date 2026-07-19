@@ -43,6 +43,9 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario A -- Lock also pauses when pause_on_lock is enabled, and Unlock does not auto-resume
 
+**Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=true` -- checked and
+resolved in Setup immediately above, which this scenario runs straight on from.
+
 - [x] Set `pause_on_lock` to `true`. (Already `true` from Setup.)
 - [x] Screenshot the menu bar; confirm the status item shows the play icon (▶) -- device not
       already paused. (Confirmed.)
@@ -67,6 +70,12 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] Confirm a new `is_paused = 0` row appears in `device_events` for the resume. (Confirmed.)
 
 ## Scenario B -- Quit pauses and locks the device when pause_on_lock is enabled; disabled it does nothing extra
+
+**Preconditions:** `pause_on_lock=true`, device connected, unlocked, unpaused -- the clean state
+Scenario A's own last two steps (Unlock, Resume) leave behind. Check via the query/screenshot
+below; if it doesn't match (a locked/paused leftover from an interrupted prior run, e.g.), resolve
+it the same way Setup does above (Unlock/Resume via the menu, set `pause_on_lock=true`) before
+continuing.
 
 - [x] Confirm `pause_on_lock` is still `true`. Screenshot: no lock badge, play icon. (Confirmed.)
 - [x] Quit the app.
@@ -97,6 +106,10 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
       value. (Confirmed.)
 
 ## Scenario C -- time genuinely passes in this clean, running state
+
+**Preconditions:** device connected, unlocked, unpaused, `pause_on_lock` back to its real original
+value -- the clean state Scenario B's own last step leaves behind. Check via the screenshot below;
+if it doesn't match, resolve the same way as Scenario B's own precondition above before continuing.
 
 - [x] Screenshot the menu bar; confirm no lock badge is shown and the icon shows play (▶).
       (Confirmed.)

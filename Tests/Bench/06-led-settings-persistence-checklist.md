@@ -27,6 +27,10 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario -- brightness and blink interval persist across a restart
 
+**Preconditions:** device connected and paired, Preferences open on the Device tab with the LED
+disclosure expanded -- established in Setup immediately above, which this scenario runs straight
+on from.
+
 - [x] Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields (see
       "Driving the app directly" in `../CLAUDE.md` for the focus/select-all/type/tab pattern).
 - [x] Query `led_settings` and confirm it reads `{"brightness":77,"blink_interval":42}`.
@@ -37,3 +41,37 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
       screenshot needed.
 - [x] Query `led_settings` again and confirm it's unchanged (the restart's startup sync re-applies
       the stored value to the device but doesn't alter the stored row).
+
+## Scenario -- device write is debounced 1s after the value settles, with no read-back verification
+
+Covers `ApplicationDelegate`'s `onLEDBrightnessChange`/`onBlinkIntervalChange` (prints + immediate
+DB write on every change, device write debounced through `DeviceWriteDebouncer`) and
+`TimeFlipBLEDevice.setLEDBrightness`/`setBlinkInterval`. Unlike auto-pause/double-tap, the BLE
+protocol has no read-back command for LED brightness (`0x09`) or blink interval (`0x0A`) at all, so
+these log that the write happened with no verification, rather than a fabricated confirm/mismatch.
+
+**Preconditions:** device connected and paired, Preferences open on the Device tab with the LED
+disclosure expanded, Brightness/Blink Interval at `77`/`42` -- the clean state the previous
+scenario leaves behind (check `led_settings` directly if running this scenario standalone).
+
+- [x] Note the latest `debug_log_id`. In the Brightness field, type three distinct values in quick
+      succession without tabbing away between them: `10`, then immediately `50`, then immediately
+      `95`. (Confirmed: typing landed as select-all -> `1` -> `10` -> `5` -> `50` -> `9` -> `95`,
+      7 distinct intermediate values in total.)
+- [x] Query `debug_log` (tag `led`) for rows newer than the noted ID and confirm a `"Brightness
+      value changed to X%"` + `"Brightness saved to DB: X%"` pair for **each** intermediate value,
+      in order. (Confirmed: 7 pairs, `debug_log_id` 3448-3459.)
+- [x] Confirm `led_settings` already reads `"brightness":95` immediately (before the 1s debounce
+      elapses). (Confirmed.)
+- [x] Wait about 1.5s, then query `debug_log` again and confirm exactly **one** `"Brightness set to
+      95% triggered"` line (not one per intermediate value), followed immediately by `"Brightness
+      written to 95% (no device read-back available)"` -- no confirmed/MISMATCH line, since the
+      protocol has no brightness read-back. (Confirmed: `debug_log_id` 3460-3461, ~1s after the
+      last value-changed line.)
+- [x] Repeat the same rapid-sequence test on the Blink Interval field (`8`, then `25`, then `55`)
+      and confirm the identical pattern: every intermediate value printed+DB-saved immediately, one
+      debounced `"Blink interval set to 55s triggered"` + `"Blink interval written to 55s (no
+      device read-back available)"` pair about 1s later. (Confirmed: `debug_log_id` 3474-3485.)
+- [x] Restore Brightness to `77` and Blink Interval to `42` (the values from the persistence
+      scenario above), and confirm `led_settings` reads `{"brightness":77,"blink_interval":42}`
+      again, so the session doesn't leave a real setting changed.

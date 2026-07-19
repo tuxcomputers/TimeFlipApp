@@ -46,6 +46,9 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario -- factory reset resets the device's own event counter
 
+**Preconditions:** test DB active, device paired and connected, pre-reset baseline **N** noted --
+all established immediately above in Setup, which this scenario runs straight on from.
+
 - [x] Open Preferences (status-item menu -> "Preferences...") and switch to the Device tab (radio
       button 1 of the tab picker).
 - [x] Click **Reset Device** and confirm the destructive-action dialog (button 2 of the sheet,
