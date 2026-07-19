@@ -338,6 +338,24 @@ for just that scenario, then re-suppress before continuing.
 11. Always name which trigger an action-needed step means ("click the Lock **menu item**"), even if
     it seems obvious from context -- don't make the user infer which gesture/scenario applies.
 
+## Last run tracking
+
+Each checklist records when and on which branch it was last *actually run against the device*, as a
+heading directly under the file's title (the first `#` heading), before any intro prose:
+
+```markdown
+# Reset Device Checklist
+
+### Last run - 2026-07-20 on the branch 'feature/blahBlah'
+```
+
+Update it to today's date and the current branch **only when you actually run that checklist on this
+branch** -- never when merely editing the file during development. Each checklist tracks its own last
+run independently: running only `01` on a branch updates only `01`'s heading; every other checklist
+keeps the date/branch from whenever *it* was last run (an earlier branch, or nothing at all --
+checklists predating this convention simply won't have the line until their next run, and that's
+expected).
+
 ## Bugs found and fixed
 
 This section is **only** for a real bug found while *running the checklist against the device* --
@@ -353,9 +371,15 @@ it's unambiguous which branch's testing found it:
 ```
 One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, don't
 re-explain it here. Append further bugs found on later runs of the same checklist on the same
-branch under the existing heading, rather than replacing it. Remove this section entirely if the
-checklist runs again on a *different* branch -- it's branch-specific history, not permanent
-documentation.
+branch under the existing heading, rather than replacing it.
+
+Clearing is per-checklist and tied to *actually running it*: when you re-run a checklist on a
+different branch (the same run that updates its `### Last run` heading), clear its old Bugs found and
+fixed first -- those bugs belonged to the previous branch, and the fresh run starts its own history.
+But a checklist you **don't** run on the current branch keeps **both** its `### Last run` heading and
+its Bugs found and fixed exactly as the previous branch left them -- untouched history for the branch
+it was last run on. So a found-and-fixed (or Last run) whose branch doesn't match the current one is
+never stale-to-delete on sight; it just means that test hasn't been re-run here yet.
 
 ## Restarting
 
