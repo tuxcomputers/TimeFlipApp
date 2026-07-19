@@ -340,10 +340,15 @@ for just that scenario, then re-suppress before continuing.
 
 ## Bugs found and fixed
 
-Record a real bug found and fixed mid-session right under the item that exposed it:
+This section is **only** for a real bug found while *running the checklist against the device* --
+never for changes made during normal development (like the reset-flow work that produced this very
+rule). If no bug surfaced during a test run, there's no section.
+
+Record such a bug right under the item that exposed it, and **name the branch in the heading** so
+it's unambiguous which branch's testing found it:
 ```markdown
 - [x] **(You)** Confirm the activity name is blinking red/white.
-### Bugs found and fixed
+### Bugs found and fixed - branch 'feature/blahBlah'
 2026-07-18 - The off flash was 0 so it looked like the icon was always red, fixed.
 ```
 One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, don't
