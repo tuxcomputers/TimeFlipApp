@@ -86,9 +86,8 @@ This project is released into the public domain under [The Unlicense](https://un
 
 ### Important Note About Icons
 
-The TimeFlip icon set included in this project is used with permission from TimeFlip exclusively for this 
-application. If you wish to fork this project, you must obtain your own permission from TimeFlip 
-to use their icon assets, or replace them with your own icons.
+I have not yet obtained permission from TimeFlip, I am in the process of doing that. Until then
+the icons will be just AI generated ones and not match the ones you have stickers for.
 
 ## Acknowledgments
 
