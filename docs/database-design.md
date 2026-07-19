@@ -129,18 +129,24 @@ Constraints:
 
 Reference table of the colours available to assign to a category.
 
-| Column      | Type    | Description                                              |
-|-------------|---------|--------------------------------------------------------------|
+| Column       | Type    | Description                                              |
+|--------------|---------|--------------------------------------------------------------|
 | `colour_id`   | INTEGER | Primary key. Not autoincrementing — seeded with fixed IDs.   |
 | `colour_name` | TEXT    | Colour name, e.g. `Red`, `Teal`, `Cyan`.                      |
+| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `blank`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
 
 Constraints:
 - `colour_name` is `UNIQUE` — each colour is only represented by one row.
-- Seeded with a `blank` row (`colour_id = 0`) representing "no colour assigned", alongside the 12
-  selectable system colours (`colour_id` 1-12: `Red`, `Green`, `Blue`, `Orange`, `Yellow`,
-  `Brown`, `Pink`, `Purple`, `Teal`, `Indigo`, `Mint`, `Cyan`) — matching
-  `ActivityLibrary.colorOptions` in the app's facet color picker — so `category.colour_id` can
-  stay a `NOT NULL` foreign key instead of allowing `NULL`.
+- Seeded with a `blank` row (`colour_id = 0`, `device_hex` `NULL`) representing "no colour
+  assigned" — so `category.colour_id` can stay a `NOT NULL` foreign key instead of allowing `NULL` —
+  alongside 20 named colours (`colour_id` 1-20).
+- The 20 named colours are the categories listed on [html-color.codes](https://html-color.codes),
+  each seeded with the **first** (canonical) colour of its category as `device_hex`: `Red`
+  (`#ff0000`), `Maroon`, `Brown`, `Tan`, `Orange`, `Peach`, `Gold`, `Yellow`, `Lime`, `Olive`,
+  `Green`, `Teal`, `Cyan`, `Blue`, `Navy`, `Purple`, `Magenta`, `Pink` (`#ffc0cb`), `Grey`,
+  `Silver`. `White` and `Black` are deliberately excluded — the device's LED can't render either
+  (black is just off; white isn't reproducible). Nothing reads `device_hex` yet — it's groundwork
+  for matching calendar-entry colours to the device LED.
 
 ### `category` (`database/005_category.sql`)
 

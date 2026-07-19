@@ -9,8 +9,10 @@ CREATE TABLE IF NOT EXISTS category (
     colour_id INTEGER NOT NULL DEFAULT 0 REFERENCES colour(colour_id)
 );
 
-INSERT INTO category (category_name, icon_id, colour_id)
-SELECT 'Unassigned', 0, 0
+-- Unassigned is pinned to category_id 0 (a fixed sentinel, like the blank colour) so the
+-- colour-update path can skip it with `category_id >= 1` -- it must never be given a colour.
+INSERT INTO category (category_id, category_name, icon_id, colour_id)
+SELECT 0, 'Unassigned', 0, 0
 WHERE NOT EXISTS (SELECT 1 FROM category WHERE category_name = 'Unassigned');
 
 INSERT INTO category (category_name, icon_id, colour_id)

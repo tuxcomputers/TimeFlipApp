@@ -10,7 +10,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         ledBrightnessPercent: dataStore.loadLEDBrightnessPercent(),
         blinkIntervalSeconds: dataStore.loadLEDBlinkIntervalSeconds(),
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
-        isDoubleTapEnabled: dataStore.loadDoubleTapEnabled()
+        isDoubleTapEnabled: dataStore.loadDoubleTapEnabled(),
+        colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours())
     )
     private let enableGoogleIntegrations = true
     private lazy var authManager = GoogleAuthManager(
@@ -208,6 +209,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
+        }
+        appState.onFacetColourPicked = { [weak self] facetID, colourID in
+            self?.dataStore.updateCategoryColour(faceID: Int(facetID), colourID: colourID)
         }
         // The settings view updates appState before invoking these callbacks. Each handler prints
         // the new value and persists it to the DB immediately (every intermediate change while a
