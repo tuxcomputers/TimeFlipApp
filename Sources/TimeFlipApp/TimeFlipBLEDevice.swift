@@ -709,37 +709,38 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// Full factory reset (command 0xFF): erases all flash-stored data on the device -- facet
     /// colors, task/pomodoro parameters, name, password, everything -- back to factory settings.
     /// Per the vendor spec this is the same command the official app's "Disconnect TimeFlip"
-    /// button triggers, which implies the device may drop the BLE connection or reboot afterward;
-    /// that behavior isn't documented and hasn't been verified live yet, so the confirmation
-    /// re-login below may simply fail with a connection error rather than a clean "wrong
-    /// password" rejection in that case -- either way, this only returns true once the reset is
-    /// confirmed via a real re-login with the factory default password, same guarantee as
-    /// `resetDevicePasswordToDefault()`. The caller must not clear pairing state unless this
-    /// returns true.
+    /// button triggers.
+    ///
+    /// Returns true once the 0xFF command has been written (the device sends no usable ack for it --
+    /// see below). This only *sends* the reset; it does NOT confirm it. We deliberately do not
+    /// re-login here to confirm: the device erases flash and reboots asynchronously (reverting the
+    /// password to the factory default), so an immediate same-connection re-login races that reboot
+    /// and comes back as a spurious wrong-password rejection (observed live: code 0x01). Instead the
+    /// caller (ApplicationDelegate) drops the connection and confirms the reset out-of-band, by the
+    /// device coming back on the factory default password on the next reconnect -- and treats that
+    /// login as the reset confirmation, NOT as a pairing.
     @discardableResult
     func factoryReset() async -> Bool {
         guard isLoggedIn else { return false }
         let payload = Data([0xFF])
+        let result: Data
         do {
-            _ = try await performCommand(payload)
+            result = try await performCommand(payload)
         } catch {
             logger.error("Failed to factory reset device: \(error.localizedDescription, privacy: .public)")
             DeveloperMode.debugPrint(.timeFlip, "Failed to factory reset device: \(error.localizedDescription)")
             return false
         }
-        do {
-            guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
-                logger.error("Device rejected re-login with default password after factory reset; reset not confirmed")
-                DeveloperMode.debugPrint(.timeFlip, "Factory reset NOT confirmed — device did not accept default password")
-                return false
-            }
-        } catch {
-            logger.error("Failed to confirm factory reset: \(error.localizedDescription, privacy: .public)")
-            DeveloperMode.debugPrint(.timeFlip, "Failed to confirm factory reset (device may have disconnected): \(error.localizedDescription)")
-            return false
-        }
-        logger.notice("Device factory reset and confirmed")
-        DeveloperMode.debugPrint(.timeFlip, "Device factory reset confirmed, password back to default: \(TimeFlipConstants.defaultPassword)")
+        // The device sends NO usable ack for 0xFF: verified live (bugfix/resetDevice), the command
+        // result characteristic still held the *previous* command's response (a stale 0x17 double-tap
+        // read: "17 3A 5A 3B 14 3C 32 3D 32 ...") -- the device reboots without writing a fresh result
+        // for 0xFF. So there's nothing synchronous to confirm on; we treat the successful write as the
+        // trigger to forget, and the reset is confirmed out-of-band (the 0x01 0x00 System State
+        // notification and the default password being accepted on any later manual re-pair). The raw
+        // read-back is still logged for regression visibility (performCommand's own log is
+        // .debug-level os_log that macOS doesn't persist), but it is NOT a meaningful ack.
+        logger.notice("Device factory reset (0xFF) sent; no ack expected, read-back=\(result.hexString(), privacy: .public) (likely stale)")
+        DeveloperMode.debugPrint(.timeFlip, "Factory reset (0xFF) sent; device sends no ack, read-back=\(result.hexString()) (likely stale); awaiting device reboot to confirm via default-password login")
         return true
     }
 

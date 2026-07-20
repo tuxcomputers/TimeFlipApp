@@ -105,7 +105,14 @@ true will misreport a real bug as a broken precondition (or vice versa) the next
   end tell
   ```
   Read item names first (`name of every menu item of menu 1`) to check current state before
-  deciding what to click. `key code 53` (Escape) dismisses without acting, in the same block. The
+  deciding what to click. `key code 53` (Escape) dismisses without acting, in the same block.
+  **Always finish an open menu in the same block** -- either click an item or send Escape. If you
+  read the item names in one `osascript` call and then click in a *separate* call, the menu is left
+  open, and the second call's `click menu bar item ... / click menu item ...` collides with the
+  already-open menu and **hangs** (confirmed live: a ~2-minute System Events stall, misread at first
+  as an Accessibility problem -- it was not; the canary passes and a real permission denial errors
+  instantly with `-1719`, it doesn't hang). So either do read-then-click in one block, or dismiss
+  with Escape before a fresh open -- never re-`click` a menu that's still open. The
   status item's single/double-click-right-half gesture (`MenuBarController.swift`) is a genuine
   screen-position hit-test against a real `NSEvent.locationInWindow`, not a menu action --
   `tell application "System Events" to click at {x, y}` at the status item's right-half screen
@@ -167,16 +174,21 @@ true will misreport a real bug as a broken precondition (or vice versa) the next
   below (sync real device history to `production.sqlite` first, only then switch to test) already
   guarantees nothing real is at risk, so it's safe to run unattended like everything else in
   Bench. Only pause if that pre-flight wasn't actually done first this session.
-- The device may drop its BLE connection immediately after a factory reset (a real reboot) --
-  `factoryReset()`'s own immediate re-login confirmation can race that disconnect and report
-  failure even though the reset genuinely succeeded, leaving the app's automatic reconnect retrying
-  a now-stale stored password forever with no recovery path (confirmed live; fixed by adding a
-  fallback in the reconnect login path -- see `ApplicationDelegate.startDeviceEvents`'s login guard
-  -- to retry with `TimeFlipConstants.defaultPassword` when the stored password is explicitly
-  rejected, `TimeFlipBLEDevice.wasWrongPassword`). If a reset still leaves the device stuck
-  reconnecting with neither Forget Device nor Reset Device doing anything (both silently no-op
-  while not logged in), that fallback is the fix to check for regressions in, not something to
-  route around by hand again.
+- A factory reset intentionally ends with the device **forgotten / "Not paired"**, not reconnected
+  (changed on `bugfix/resetDevice`). Flow: `TimeFlipBLEDevice.factoryReset()` just *sends* the 0xFF
+  command -- the device gives no usable ack for it (the command-result read comes back stale, e.g. a
+  leftover `17 3A ...` double-tap response) and reboots. The app then drops the connection, and the
+  reconnect path re-logs-in with `TimeFlipConstants.defaultPassword`; a successful default-password
+  login is the confirmation the wipe took (confirmed via os_log / `debug_log` "Factory reset
+  confirmed"), and is deliberately **not** treated as a pairing -- it forgets the device into the
+  pristine never-paired state. Expect the UI to read **"Resetting..." -> "Not paired"** (Name /
+  Connection / Battery all greyed), *not* "Reconnecting..." -> "Connected", and to require a fresh
+  Scan/re-pair afterward. Watch for: on the first reconnect the device can still accept the OLD
+  password briefly (reset not yet applied) -- the app logs "not yet confirmed ... retrying" and waits
+  for a later reconnect where only the default works; confirmation is gated on the default password
+  specifically, so don't expect it on the first successful login. The default-password fallback in
+  `ApplicationDelegate.startDeviceEvents`'s login guard still exists and also covers an out-of-band
+  reset done by other means.
 - The device correctly rejects an arbitrary wrong password (confirmed live: `login(password:
   "999999")` against an authenticated session got an explicit rejection, raw commandResult
   `0x01`, not silently accepted) -- no known security concern there.
@@ -333,19 +345,48 @@ for just that scenario, then re-suppress before continuing.
 11. Always name which trigger an action-needed step means ("click the Lock **menu item**"), even if
     it seems obvious from context -- don't make the user infer which gesture/scenario applies.
 
+## Last run tracking
+
+Each checklist records when and on which branch it was last *actually run against the device*, as a
+heading directly under the file's title (the first `#` heading), before any intro prose:
+
+```markdown
+# Reset Device Checklist
+
+### Last run - 2026-07-20 on the branch 'feature/blahBlah'
+```
+
+Update it to today's date and the current branch **only when you actually run that checklist on this
+branch** -- never when merely editing the file during development. Each checklist tracks its own last
+run independently: running only `01` on a branch updates only `01`'s heading; every other checklist
+keeps the date/branch from whenever *it* was last run (an earlier branch, or nothing at all --
+checklists predating this convention simply won't have the line until their next run, and that's
+expected).
+
 ## Bugs found and fixed
 
-Record a real bug found and fixed mid-session right under the item that exposed it:
+This section is **only** for a real bug found while *running the checklist against the device* --
+never for changes made during normal development (like the reset-flow work that produced this very
+rule). If no bug surfaced during a test run, there's no section.
+
+Record such a bug right under the item that exposed it, and **name the branch in the heading** so
+it's unambiguous which branch's testing found it:
 ```markdown
 - [x] **(You)** Confirm the activity name is blinking red/white.
-### Bugs found and fixed
+### Bugs found and fixed - branch 'feature/blahBlah'
 2026-07-18 - The off flash was 0 so it looked like the icon was always red, fixed.
 ```
 One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, don't
 re-explain it here. Append further bugs found on later runs of the same checklist on the same
-branch under the existing heading, rather than replacing it. Remove this section entirely if the
-checklist runs again on a *different* branch -- it's branch-specific history, not permanent
-documentation.
+branch under the existing heading, rather than replacing it.
+
+Clearing is per-checklist and tied to *actually running it*: when you re-run a checklist on a
+different branch (the same run that updates its `### Last run` heading), clear its old Bugs found and
+fixed first -- those bugs belonged to the previous branch, and the fresh run starts its own history.
+But a checklist you **don't** run on the current branch keeps **both** its `### Last run` heading and
+its Bugs found and fixed exactly as the previous branch left them -- untouched history for the branch
+it was last run on. So a found-and-fixed (or Last run) whose branch doesn't match the current one is
+never stale-to-delete on sight; it just means that test hasn't been re-run here yet.
 
 ## Restarting
 
