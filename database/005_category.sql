@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS category (
     category_name TEXT NOT NULL,
     icon_id INTEGER NOT NULL DEFAULT 0 REFERENCES icon(icon_id),
     colour_id INTEGER NOT NULL DEFAULT 0 REFERENCES colour(colour_id),
-    daily_limit INTEGER NOT NULL DEFAULT 0
+    daily_limit INTEGER NOT NULL DEFAULT 0,
+    cost INTEGER NOT NULL DEFAULT 0
 );
 
 -- Unassigned is pinned to category_id 0 (a fixed sentinel, like the blank colour) so the

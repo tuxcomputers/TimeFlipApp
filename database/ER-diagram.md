@@ -71,6 +71,7 @@ erDiagram
         INTEGER icon_id FK
         INTEGER colour_id FK
         INTEGER daily_limit
+        INTEGER cost
     }
 
     face {
@@ -87,6 +88,7 @@ erDiagram
         TEXT    ended_at
         TEXT    ended_at_timezone
         REAL    duration_seconds
+        INTEGER total_cost
         INTEGER synced_to_google_calendar
     }
 

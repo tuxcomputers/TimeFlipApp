@@ -10,5 +10,6 @@ CREATE TABLE IF NOT EXISTS time_entry (
     ended_at TEXT NOT NULL,
     ended_at_timezone TEXT NOT NULL,
     duration_seconds REAL NOT NULL CHECK (duration_seconds >= 0),
+    total_cost INTEGER NOT NULL DEFAULT 0,
     synced_to_google_calendar INTEGER NOT NULL DEFAULT 0 CHECK (synced_to_google_calendar IN (0, 1))
 );

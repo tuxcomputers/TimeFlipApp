@@ -158,6 +158,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | `category_name`| TEXT    | Category name (e.g. an activity mapped to a facet).        |
 | `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `blank` icon) if no real icon is assigned. |
 | `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `blank` colour) if no real colour is assigned. |
+| `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
 
 Constraints:
 - `icon_id` is a foreign key referencing `icon(icon_id)`, `NOT NULL`, defaulting to `0` (`blank`)
@@ -197,6 +198,7 @@ A single tracked time span, linked to the category it was logged against.
 | `ended_at`                   | TEXT    | When the entry ended, as a local-time ISO 8601 timestamp with no UTC offset. |
 | `ended_at_timezone`          | TEXT    | IANA timezone identifier `ended_at` was recorded in.                   |
 | `duration_seconds`           | REAL    | How long the entry lasted, in seconds.                                 |
+| `total_cost`                 | INTEGER | Total cost of this entry, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing computes it yet — groundwork alongside `category.cost` for a planned cost/billing feature. |
 | `synced_to_google_calendar`  | INTEGER | `1` if this entry has been synced to Google Calendar, `0` otherwise.  |
 
 Constraints:
