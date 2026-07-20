@@ -2,10 +2,10 @@
 -- Generic key/value store for device/app settings. One row per setting.
 
 CREATE TABLE IF NOT EXISTS setting (
-    setting_id INTEGER CONSTRAINT PK_setting PRIMARY KEY AUTOINCREMENT,
-    setting_name TEXT NOT NULL,
-    setting_value TEXT NOT NULL,
-    setting_description TEXT
+  setting_id            INTEGER CONSTRAINT PK_setting PRIMARY KEY AUTOINCREMENT
+  , setting_name        TEXT NOT NULL
+  , setting_value       TEXT NOT NULL
+  , setting_description TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_setting ON setting(setting_name);

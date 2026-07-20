@@ -4,8 +4,8 @@
 -- Sources/TimeFlipApp/ActivityIconLoader.swift).
 
 CREATE TABLE IF NOT EXISTS icon (
-    icon_id INTEGER CONSTRAINT PK_icon PRIMARY KEY,
-    icon_name TEXT NOT NULL
+  icon_id     INTEGER CONSTRAINT PK_icon PRIMARY KEY
+  , icon_name TEXT NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_icon ON icon(icon_name);

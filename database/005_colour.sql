@@ -2,9 +2,9 @@
 -- Reference table of the colours available to assign to a category.
 
 CREATE TABLE IF NOT EXISTS colour (
-    colour_id INTEGER CONSTRAINT PK_colour PRIMARY KEY,
-    colour_name TEXT NOT NULL,
-    device_hex TEXT
+  colour_id     INTEGER CONSTRAINT PK_colour PRIMARY KEY
+  , colour_name TEXT NOT NULL
+  , device_hex  TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_colour ON colour(colour_name);

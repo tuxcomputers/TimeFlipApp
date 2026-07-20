@@ -13,19 +13,29 @@
 ## Date/time storage
 
 - All date/time columns must store **local time**, not UTC.
-- Every table with a date/time column must also have a companion column recording the IANA
-  timezone identifier (e.g. `America/New_York`) that the local time was captured in, so the
-  stored value can be unambiguously converted to UTC or any other timezone later.
-- Naming: for a date/time column named `<name>`, the companion column is `<name>_timezone`
-  (e.g. `started_at` / `started_at_timezone`).
-- Store local time as ISO 8601 text without a UTC offset/`Z` suffix (e.g.
-  `2026-07-16T09:30:00`) — the offset lives in the timezone column, not the timestamp itself.
+- Every table with a date/time column must also record the IANA time zone (e.g.
+  `America/New_York`) the local time was captured in, so the stored value can be unambiguously
+  converted to UTC or any other zone later. This is a **foreign key to the `timezone` table**
+  (`002_timezone.sql`), not an inline text column — the zone identifier is stored once in `timezone`
+  and referenced by id. The app resolves the current zone's id once at startup (get-or-create; see
+  `AppDataStore.resolveTimezoneID`).
+- Naming: when a table has a **single** timestamp/zone, name the FK column simply `timezone_id`
+  (referencing `timezone(timezone_id)`) — e.g. `device_events.timezone_id`. When a table has
+  **more than one** timestamp that each need a zone, disambiguate per timestamp with a short
+  `<prefix>_timezone_id` column — e.g. `time_entry.start_timezone_id` / `end_timezone_id` for its
+  `started_at` / `ended_at` timestamps.
+- Every `timezone_id` / `<prefix>_timezone_id` column is `NOT NULL DEFAULT 0` — id `0` is the
+  seeded `Unknown` sentinel row in `timezone` (see `002_timezone.sql`), so a row can always satisfy
+  the FK even before a real zone has been resolved. `AppDataStore.resolveTimezoneID` likewise falls
+  back to `0` when a lookup fails.
+- Store local time as ISO 8601 text without a UTC offset/`Z` suffix (e.g. `2026-07-16T09:30:00`) —
+  the offset is recoverable via the referenced `timezone` row, not the timestamp itself.
 - If a table needs to *order by* or *compare* a date/time column (not just display it), also add
   an indexed `<name>_epoch` INTEGER column (Unix epoch seconds, same moment as `<name>`) and
   compare/sort on that instead of the text column or any device-supplied sequence number. A
   device-side counter (e.g. an event number) can reset independently of wall-clock time, so it
   isn't safe to use for ordering — see `device_events`/`device_notifications` (`start_time` /
-  `start_time_timezone` / `start_epoch`) for the pattern.
+  `timezone_id` / `start_epoch`) for the pattern.
 
 ## Naming: primary keys, indexes, and unique constraints
 
@@ -47,11 +57,11 @@
 
 ## Seed inserts
 
-- Every seed `INSERT` must be idempotent via the guarded pattern in `006_category.sql`:
+- Every seed `INSERT` must be idempotent via the guarded pattern in `007_category.sql`:
   `INSERT INTO <table> (<columns>) SELECT <values> WHERE NOT EXISTS (SELECT 1 FROM <table> WHERE
   <uniqueness condition>);` — never `INSERT ... VALUES (...) ON CONFLICT DO NOTHING`.
 - Each seed row is its own separate guarded `INSERT` statement (see `001_event_type.sql`,
-  `003_icon.sql`, `004_colour.sql`, `010_setting.sql`) — do not combine multiple rows into one
+  `004_icon.sql`, `005_colour.sql`, `011_setting.sql`) — do not combine multiple rows into one
   statement with `UNION ALL`. This keeps each row's existence check self-contained, so a DDL file
   that adds a new seed row to an otherwise-already-seeded table still inserts just the new row.
 
@@ -61,7 +71,7 @@
   `AppDataStore.runDatabaseDDL`). Foreign keys are **enforced** (`PRAGMA foreign_keys = ON`), so a
   table must be numbered **after every table it references** — a parent is created and seeded before
   any child that points at it, otherwise the child's seed insert fails on a missing parent row. For
-  example `003_icon`, `004_colour`, and `005_project` all precede `006_category`, which references
+  example `004_icon`, `005_colour`, and `006_project` all precede `007_category`, which references
   all three.
 - To insert a new table at a given position: rename every file numbered `>=` the target position up
   by one (highest number first, so no rename overwrites another), add the new file at that number,

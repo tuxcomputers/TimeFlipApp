@@ -18,7 +18,7 @@ anything — removing one doesn't require removing the other.
    Printing is now also gated on the `debug` setting's `enabled` field (loaded once at launch
    into `DeveloperMode.isDebugSettingEnabled`), so a user can turn terminal logging off/on
    themselves by editing that DB row directly, without a rebuild. Every message is now *also*
-   persisted into the `debug_log` table (`database/011_debug_log.sql`) under the same gate, so a
+   persisted into the `debug_log` table (`database/012_debug_log.sql`) under the same gate, so a
    failed test session can be queried from the database afterward instead of needing a captured
    terminal transcript.
 3. **Planned: debug log-to-file for end users** (§3 below) — a separate, user-facing feature
@@ -74,7 +74,7 @@ drift as the code changes — treat them as a starting point, not gospel.
 - **`Sources/TimeFlipApp/ApplicationDelegate.swift`**: the
   `DeveloperMode.isDebugSettingEnabled = dataStore.loadDebugEnabled()` assignment and the
   `DeveloperMode.logSink = { ... }` wiring, both at the top of `applicationDidFinishLaunching`
-- **`database/011_debug_log.sql`**: the `debug_log` table itself — if debug logging is removed
+- **`database/012_debug_log.sql`**: the `debug_log` table itself — if debug logging is removed
   entirely, drop this table/migration file too, not just the Swift call sites
 - **`CLAUDE.md`** (root): the entire "Debug print messages" convention section — describes this
   exact mechanism and would need to be removed or rewritten
@@ -105,7 +105,7 @@ site was missed with `grep -rn "DeveloperMode" Sources/`.
 
 **Status: not implemented.** The `debug` setting's `enabled` field already gates two real
 destinations today — terminal output (§2 above) and the `debug_log` table (§2 above, added in
-`database/011_debug_log.sql`) — so a failed test session can already be analyzed by querying the
+`database/012_debug_log.sql`) — so a failed test session can already be analyzed by querying the
 database directly, without a terminal transcript. Its `to_file` field is seeded but does nothing
 yet; everything below is the intended design for whoever builds the file-writing side, not
 current behavior.

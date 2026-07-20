@@ -20,7 +20,7 @@ lives in `Tests/Interactive/01-reset-device-checklist.md`, run after this one.
 
 **Do not reset the device before this checklist starts** -- the reset is the test itself, not
 setup. Requires Developer Mode enabled, the `debug` setting's `enabled` field `true` (see
-`010_setting.sql`), and a device that is *already paired*, with some pre-existing event history on
+`011_setting.sql`), and a device that is *already paired*, with some pre-existing event history on
 it, going into Setup below.
 
 **The reset step below is irreversible on real hardware, but does not need a live pause-and-confirm

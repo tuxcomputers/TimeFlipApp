@@ -12,7 +12,7 @@ struct DeviceEventRecord {
     let activityName: String
 }
 
-/// A row from the `colour` reference table (`database/004_colour.sql`). `deviceHex` is the
+/// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
 /// "#rrggbb" LED value, `nil` for the `blank` colour.
 struct ColourRecord: Equatable, Sendable {
     let id: Int
@@ -67,6 +67,12 @@ final class AppDataStore: IntegrationEventCursorStore {
     // takes the insert path without needing Optional handling at every comparison site.
     private var maxKnownStartEpoch: Int64 = -1
 
+    // The `timezone.timezone_id` of the device's current IANA time zone, resolved once at startup
+    // (get-or-create, see `resolveTimezoneID`) and bound into every date/time row's
+    // `<name>_timezone_id` foreign key. Cached because the zone identifier changes only if the OS's
+    // zone changes mid-session (a physical move, not DST — DST stays within the same IANA id).
+    private var currentTimezoneID: Int64 = 0
+
     init(databaseURL: URL? = nil) {
         let url = databaseURL ?? AppDataStore.defaultDatabaseURL()
         self.dbURL = url
@@ -91,9 +97,14 @@ final class AppDataStore: IntegrationEventCursorStore {
         // file), so the schema's REFERENCES clauses are otherwise inert. Enabling it keeps local
         // behaviour aligned with the eventual remote server (which enforces FKs) and catches orphans
         // early. Set before runDatabaseDDL() so seed inserts are validated -- which requires the DDL
-        // files to be ordered parent-before-child (e.g. 005_project precedes 006_category).
+        // files to be ordered parent-before-child (e.g. 006_project precedes 007_category).
         sqlite3_exec(handle, "PRAGMA foreign_keys = ON;", nil, nil, nil)
         runDatabaseDDL()
+        // Resolve the current time zone's id now (after the DDL has created/seeded nothing for it --
+        // it's get-or-create), so every date/time insert below can bind a valid FK. Must run before
+        // any recordDeviceEvent/recordDeviceNotification/recordDebugLog call (all of which happen
+        // after init completes).
+        currentTimezoneID = resolveTimezoneID(TimeZone.current.identifier)
         loadMaxKnownStartEpoch()
     }
 
@@ -115,6 +126,38 @@ final class AppDataStore: IntegrationEventCursorStore {
             maxKnownStartEpoch = -1
         }
         sqlite3_finalize(stmt)
+    }
+
+    /// Get-or-create the `timezone` row for an IANA identifier and return its `timezone_id`.
+    /// Called once at startup (from `init`, before any concurrent access) for the current zone; the
+    /// date/time tables reference the result via their `<name>_timezone_id` foreign key instead of
+    /// storing the identifier text on every row. Returns `0` on failure — no real row has id `0`
+    /// (the table is unseeded and autoincrements from 1), so a write binding `0` fails its FK check
+    /// rather than silently pointing at a wrong zone.
+    private func resolveTimezoneID(_ identifier: String) -> Int64 {
+        guard let db else { return 0 }
+        var sel: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT timezone_id FROM timezone WHERE timezone_name = ?;", -1, &sel, nil) == SQLITE_OK {
+            sqlite3_bind_text(sel, 1, identifier, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(sel) == SQLITE_ROW {
+                let id = sqlite3_column_int64(sel, 0)
+                sqlite3_finalize(sel)
+                return id
+            }
+        }
+        sqlite3_finalize(sel)
+        var ins: OpaquePointer?
+        defer { sqlite3_finalize(ins) }
+        guard sqlite3_prepare_v2(db, "INSERT INTO timezone (timezone_name) VALUES (?);", -1, &ins, nil) == SQLITE_OK else {
+            logger.error("resolveTimezoneID prepare failed for \(identifier, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            return 0
+        }
+        sqlite3_bind_text(ins, 1, identifier, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(ins) == SQLITE_DONE else {
+            logger.error("resolveTimezoneID insert failed for \(identifier, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            return 0
+        }
+        return sqlite3_last_insert_rowid(db)
     }
 
     deinit {
@@ -246,7 +289,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                     event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
                     device_face = ?,
                     start_time = ?,
-                    start_time_timezone = ?,
+                    timezone_id = ?,
                     duration_seconds = ?,
                     is_paused = ?,
                     finalised = ?
@@ -261,7 +304,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
                 sqlite3_bind_int(stmt, 2, Int32(deviceFace))
                 sqlite3_bind_text(stmt, 3, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 4, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int64(stmt, 4, currentTimezoneID)
                 sqlite3_bind_double(stmt, 5, durationSeconds)
                 sqlite3_bind_int(stmt, 6, isPaused ? 1 : 0)
                 sqlite3_bind_int(stmt, 7, finalised ? 1 : 0)
@@ -283,7 +326,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
                 let sql = """
                 INSERT INTO device_events (
-                    event_number, event_type_id, device_face, start_time, start_time_timezone, start_epoch, duration_seconds, is_paused, finalised
+                    event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, is_paused, finalised
                 ) VALUES (
                     ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, ?
                 );
@@ -298,7 +341,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_bind_text(stmt, 2, eventType, -1, SQLITE_TRANSIENT)
                 sqlite3_bind_int(stmt, 3, Int32(deviceFace))
                 sqlite3_bind_text(stmt, 4, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 5, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int64(stmt, 5, currentTimezoneID)
                 sqlite3_bind_int64(stmt, 6, startEpoch)
                 sqlite3_bind_double(stmt, 7, durationSeconds)
                 sqlite3_bind_int(stmt, 8, isPaused ? 1 : 0)
@@ -359,7 +402,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Reads and JSON-decodes a `setting` row's value, or `nil` if the row is missing or its
     /// value isn't a JSON object -- every `setting_value` is a JSON object by convention, see
-    /// `database/010_setting.sql`.
+    /// `database/011_setting.sql`.
     private func loadSettingJSON(name: String) -> [String: Any]? {
         guard let db else { return nil }
         var result: [String: Any]?
@@ -386,7 +429,7 @@ final class AppDataStore: IntegrationEventCursorStore {
         return result
     }
 
-    /// All rows of the `colour` reference table (`database/004_colour.sql`), ordered by
+    /// All rows of the `colour` reference table (`database/005_colour.sql`), ordered by
     /// `colour_id`. Drives the facet colour picker; see `ActivityLibrary.colorOptions(from:)`.
     func loadColours() -> [ColourRecord] {
         guard let db else { return [] }
@@ -413,7 +456,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// Sets the `colour_id` of the category currently assigned to `faceID` (1-12, via the `face`
     /// table) to `colourID`. The `category_id >= 1` guard means the `Unassigned` category
     /// (`category_id 0`) is never given a colour — if the face maps to it, this is a no-op. See
-    /// `database/006_category.sql` / `database/007_face.sql`.
+    /// `database/007_category.sql` / `database/008_face.sql`.
     func updateCategoryColour(faceID: Int, colourID: Int) {
         guard let db else { return }
         let sql = """
@@ -438,7 +481,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the
-    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/010_setting.sql`).
+    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
     func loadFetchHistoryIntervalSeconds() -> TimeInterval {
         guard let seconds = loadSettingJSON(name: "fetch_history_interval_seconds")?["seconds"] as? Int else {
@@ -448,7 +491,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether locking the device via the app should also pause it first if it isn't already
-    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/010_setting.sql`).
+    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
     func loadPauseOnLockEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "pause_on_lock")?["enabled"] as? Bool else {
@@ -458,7 +501,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Which physical database file this is -- `"production"` or `"test"` (the `db_type` setting;
-    /// see `database/010_setting.sql`). Set once when a database file is first created and never
+    /// see `database/011_setting.sql`). Set once when a database file is first created and never
     /// changed afterward; see `Tests/CLAUDE.md` for the test-database-switching
     /// workflow this backs. Falls back to `"production"` if the row is missing or malformed.
     func loadDbType() -> String {
@@ -466,7 +509,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
-    /// seeded to `true`; see `database/010_setting.sql`). Falls back to the seeded default if the
+    /// seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default if the
     /// row is missing or malformed.
     func loadDisplaySecondsEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "display_seconds")?["enabled"] as? Bool else {
@@ -476,7 +519,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Battery percentage at or below which the device is considered low on battery (the
-    /// `low_battery_level` setting, seeded to `5`; see `database/010_setting.sql`). Falls back to
+    /// `low_battery_level` setting, seeded to `5`; see `database/011_setting.sql`). Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadLowBatteryLevelPercent() -> Int {
         guard let percent = loadSettingJSON(name: "low_battery_level")?["percent"] as? Int else {
@@ -487,7 +530,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Whether dev-only debug messages (`DeveloperMode.debugPrint`) are actually emitted to the
     /// terminal (the `debug` setting's `enabled` field, seeded to `true`; see
-    /// `database/010_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed. Lets a user turn terminal logging off (or back on) by editing this setting
     /// directly, without needing a rebuild -- see docs/TODO-devmode.md.
     func loadDebugEnabled() -> Bool {
@@ -498,7 +541,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// LED brightness percent (the `led_settings` setting's `brightness` field, seeded to `50`;
-    /// see `database/010_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// see `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed.
     func loadLEDBrightnessPercent() -> UInt8 {
         guard let percent = loadSettingJSON(name: "led_settings")?["brightness"] as? Int else {
@@ -508,7 +551,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// LED blink interval in seconds (the `led_settings` setting's `blink_interval` field, seeded
-    /// to `15`; see `database/010_setting.sql`). Falls back to the seeded default if the row is
+    /// to `15`; see `database/011_setting.sql`). Falls back to the seeded default if the row is
     /// missing or malformed.
     func loadLEDBlinkIntervalSeconds() -> UInt8 {
         guard let seconds = loadSettingJSON(name: "led_settings")?["blink_interval"] as? Int else {
@@ -530,7 +573,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Auto-pause delay in minutes (the `auto_pause_minutes` setting's `minutes` field, seeded to
-    /// `0`; see `database/010_setting.sql`) -- the device itself only supports whole-minute
+    /// `0`; see `database/011_setting.sql`) -- the device itself only supports whole-minute
     /// granularity for this (device cmd 0x05), so there's no finer unit to store. Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadAutoPauseMinutes() -> UInt16 {
@@ -546,7 +589,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Double-tap accelerometer register values (the `double_tap_settings` setting's
-    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/010_setting.sql`). Falls
+    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/011_setting.sql`). Falls
     /// back to `DoubleTapParameters.default` -- itself, and per-field, if the row or an individual
     /// field is missing or malformed.
     func loadDoubleTapParameters() -> DoubleTapParameters {
@@ -565,7 +608,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether double-tap detection is enabled (the `double_tap_settings` setting's `enabled`
-    /// field, seeded to `true`; see `database/010_setting.sql`). Falls back to the seeded default
+    /// field, seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default
     /// if the row is missing or malformed.
     func loadDoubleTapEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "double_tap_settings")?["enabled"] as? Bool else {
@@ -593,7 +636,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// The cached identity of the connected Google account -- name/email from the OpenID Connect
     /// userinfo endpoint (the `google_account` setting, seeded empty; see
-    /// `database/010_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
+    /// `database/011_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
     /// empty/absent), which is the signal to fetch it from Google once and cache it.
     func loadGoogleAccount() -> GoogleAccountInfo? {
         guard let json = loadSettingJSON(name: "google_account") else { return nil }
@@ -619,7 +662,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Local hour (0-23) and minute (0-59) at which each category's tracked-time-vs-`daily_limit`
     /// accounting rolls over to a new day (the `daily_reset_time` setting, seeded to 3:00 AM; see
-    /// `database/010_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed.
     func loadDailyResetTime() -> (hour: Int, minute: Int) {
         let json = loadSettingJSON(name: "daily_reset_time")
@@ -637,7 +680,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
-    /// result back -- the row always already exists (seeded by `010_setting.sql`), so this is a
+    /// result back -- the row always already exists (seeded by `011_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.
     private func saveSettingJSON(name: String, merging updates: [String: Any]) {
         guard let db else { return }
@@ -667,8 +710,9 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Device notifications (point-in-time, non-timing device events)
 
-    /// Local-time-without-offset formatter matching the `<name>`/`<name>_timezone` column
-    /// convention in `database/CLAUDE.md` (e.g. `2026-07-16T09:30:00`).
+    /// Local-time-without-offset formatter for the `<name>` timestamp columns (e.g.
+    /// `2026-07-16T09:30:00`); the zone that local time was captured in is recorded separately via
+    /// the `<name>_timezone_id` foreign key to `timezone` (see `database/CLAUDE.md`).
     private static let localTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
@@ -685,7 +729,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     func recordDeviceNotification(eventType: String, payload: String?, occurredAt: Date = Date()) -> Bool {
         guard let db else { return false }
         let sql = """
-        INSERT INTO device_notifications (event_type_id, start_time, start_time_timezone, start_epoch, payload)
+        INSERT INTO device_notifications (event_type_id, start_time, timezone_id, start_epoch, payload)
         VALUES ((SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?);
         """
         var success = false
@@ -698,7 +742,7 @@ final class AppDataStore: IntegrationEventCursorStore {
             }
             sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 2, AppDataStore.localTimeFormatter.string(from: occurredAt), -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 3, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 3, currentTimezoneID)
             sqlite3_bind_int64(stmt, 4, Int64(occurredAt.timeIntervalSince1970))
             if let payload {
                 sqlite3_bind_text(stmt, 5, payload, -1, SQLITE_TRANSIENT)
@@ -723,7 +767,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     func recordDebugLog(tag: String, message: String, loggedAt: Date = Date()) -> Bool {
         guard let db else { return false }
         let sql = """
-        INSERT INTO debug_log (logged_at, logged_at_timezone, tag, message)
+        INSERT INTO debug_log (logged_at, timezone_id, tag, message)
         VALUES (?, ?, ?, ?);
         """
         var success = false
@@ -735,7 +779,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                 return
             }
             sqlite3_bind_text(stmt, 1, AppDataStore.localTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 2, currentTimezoneID)
             sqlite3_bind_text(stmt, 3, tag, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 4, message, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) == SQLITE_DONE {

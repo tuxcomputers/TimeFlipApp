@@ -13,9 +13,14 @@ Foreign keys (referencing → referenced):
 - `face.category_id` → `category`
 - `time_entry.category_id` → `category`
 - `time_entry.device_events_id` → `device_events`
+- `device_events.timezone_id` → `timezone`
+- `device_notifications.timezone_id` → `timezone`
+- `time_entry.start_timezone_id` → `timezone`
+- `time_entry.end_timezone_id` → `timezone`
+- `debug_log.timezone_id` → `timezone`
 
-Standalone tables with no foreign keys — `logbook`, `integration_event_cursors`, `setting`,
-`debug_log` — are shown but unconnected.
+Standalone tables with no foreign keys — `logbook`, `integration_event_cursors`, `setting` — are
+shown but unconnected.
 
 ```mermaid
 erDiagram
@@ -27,6 +32,10 @@ erDiagram
     category ||--o{ face : "assigned to"
     category ||--o{ time_entry : "accrues"
     device_events ||--o{ time_entry : "derived from"
+    timezone ||--o{ device_events : "captured in"
+    timezone ||--o{ device_notifications : "captured in"
+    timezone ||--o{ time_entry : "captured in"
+    timezone ||--o{ debug_log : "captured in"
 
     event_type {
         INTEGER event_type_id PK
@@ -39,7 +48,7 @@ erDiagram
         INTEGER event_type_id FK
         INTEGER device_face
         TEXT    start_time
-        TEXT    start_time_timezone
+        INTEGER timezone_id FK
         INTEGER start_epoch
         REAL    duration_seconds
         INTEGER is_paused
@@ -51,7 +60,7 @@ erDiagram
         INTEGER device_notifications_id PK
         INTEGER event_type_id FK
         TEXT    start_time
-        TEXT    start_time_timezone
+        INTEGER timezone_id FK
         INTEGER start_epoch
         TEXT    payload
     }
@@ -87,9 +96,9 @@ erDiagram
         INTEGER category_id FK
         INTEGER device_events_id FK
         TEXT    started_at
-        TEXT    started_at_timezone
+        INTEGER start_timezone_id FK
         TEXT    ended_at
-        TEXT    ended_at_timezone
+        INTEGER end_timezone_id FK
         REAL    duration_seconds
         INTEGER total_cost
         INTEGER synced_to_google_calendar
@@ -126,7 +135,7 @@ erDiagram
     debug_log {
         INTEGER debug_log_id PK
         TEXT    logged_at
-        TEXT    logged_at_timezone
+        INTEGER timezone_id FK
         TEXT    tag
         TEXT    message
     }
@@ -134,5 +143,12 @@ erDiagram
     project {
         INTEGER project_id PK
         TEXT    project_name
+    }
+
+    timezone {
+        INTEGER timezone_id PK
+        TEXT    timezone_name
+        TEXT    display_name
+        INTEGER is_active
     }
 ```

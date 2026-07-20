@@ -8,7 +8,7 @@ struct DoubleTapParameters: Codable, Equatable, Sendable {
 
     static var `default`: DoubleTapParameters {
         // Captured from a real device's actual registers (Tests/Bench/
-        // device_register_snapshot.json), not an arbitrary guess -- see database/010_setting.sql.
+        // device_register_snapshot.json), not an arbitrary guess -- see database/011_setting.sql.
         DoubleTapParameters(clickThreshold: 90, limit: 20, latency: 50, window: 50)
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 
 /// Maintains per-facet accumulated active seconds within a sliding "day" window that starts at
 /// a configurable local time, defaulting to the `daily_reset_time` setting (seeded to 03:00; see
-/// `database/010_setting.sql` and `AppDataStore.loadDailyResetTime()`). Uses the logbook only on
+/// `database/011_setting.sql` and `AppDataStore.loadDailyResetTime()`). Uses the logbook only on
 /// startup/reset; subsequent updates are fed in-memory to avoid extra I/O.
 @MainActor
 final class DailyFacetTotals {
@@ -16,7 +16,7 @@ final class DailyFacetTotals {
 
     /// - Parameters:
     ///   - resetHour: Local hour (0-23) the day window rolls over at. Defaults to the
-    ///     `daily_reset_time` setting's seeded value (3:00 AM); see `database/010_setting.sql`
+    ///     `daily_reset_time` setting's seeded value (3:00 AM); see `database/011_setting.sql`
     ///     and `AppDataStore.loadDailyResetTime()`.
     ///   - resetMinute: Local minute (0-59) the day window rolls over at, alongside `resetHour`.
     init(
