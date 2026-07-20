@@ -1115,9 +1115,8 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Runs every `.sql` file bundled under the `Database` resource directory, in filename order,
-    /// against an arbitrary open handle -- shared by the instance's own `runDatabaseDDL()` above
-    /// and by `ensureTestDatabaseExists(alongside:)`, which seeds a fresh `test.sqlite` without an
-    /// `AppDataStore` instance of its own to seed it through.
+    /// against an arbitrary open handle -- factored out from the instance's own `runDatabaseDDL()`
+    /// so the same seeding can run against any open connection.
     private static func runDatabaseDDL(on db: OpaquePointer, logger: Logger?) {
         guard let directory = resolveDatabaseDirectory() else {
             logger?.error("Could not locate bundled Database DDL directory")
@@ -1169,13 +1168,13 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// `test.sqlite` for a testing session without touching real data (see
     /// `Tests/CLAUDE.md`). A no-op if it's already a symlink, whatever it currently
     /// points at -- this only ever runs the one-time migration for a plain file (an install from
-    /// before this symlink scheme existed, or a fresh install with no database yet). Also ensures
-    /// `test.sqlite` exists and is already seeded with `db_type: "test"`, every time this runs --
-    /// so both database files are present together from the moment the symlink scheme is set up
-    /// (or re-set-up after `run.sh --clean`), rather than `test.sqlite` only coming into being the
-    /// first time a testing session actually switches to it. Internal (not private) so
-    /// `AppDataStoreTests` can exercise it directly against a temp directory, independent of the
-    /// `DeveloperMode.isEnabled` gate at its one production call site (`init`).
+    /// before this symlink scheme existed, or a fresh install with no database yet). Only
+    /// `production.sqlite` is ever brought into being through this scheme (by `sqlite3_open` on the
+    /// symlink target at the app's next launch); `test.sqlite` is **not** created at startup -- it
+    /// is created fresh only when a testing session is started (`scripts/use-test-database.sh`,
+    /// which deletes any existing one first). Internal (not private) so `AppDataStoreTests` can
+    /// exercise it directly against a temp directory, independent of the `DeveloperMode.isEnabled`
+    /// gate at its one production call site (`init`).
     static func ensureDatabaseSymlink(at url: URL) {
         let fileManager = FileManager.default
         let productionURL = url.deletingLastPathComponent().appendingPathComponent("production.sqlite")
@@ -1199,23 +1198,6 @@ final class AppDataStore: IntegrationEventCursorStore {
                 )
             }
         }
-        ensureTestDatabaseExists(alongside: productionURL)
-    }
-
-    /// Creates and fully seeds `test.sqlite` next to `production.sqlite`, with its `db_type`
-    /// overridden to `"test"`, if it doesn't already exist. A no-op otherwise -- an existing
-    /// `test.sqlite`'s accumulated state is never reset just because this runs again.
-    private static func ensureTestDatabaseExists(alongside productionURL: URL) {
-        let testURL = productionURL.deletingLastPathComponent().appendingPathComponent("test.sqlite")
-        guard !FileManager.default.fileExists(atPath: testURL.path) else { return }
-        var handle: OpaquePointer?
-        guard sqlite3_open(testURL.path, &handle) == SQLITE_OK, let handle else { return }
-        defer { sqlite3_close(handle) }
-        // Match the main connection: enforce FKs so the fresh test.sqlite is seeded under the same
-        // parent-before-child ordering rules.
-        sqlite3_exec(handle, "PRAGMA foreign_keys = ON;", nil, nil, nil)
-        runDatabaseDDL(on: handle, logger: nil)
-        sqlite3_exec(handle, "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';", nil, nil, nil)
     }
 
     /// Test-only helper to reset the persisted database.

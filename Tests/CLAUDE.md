@@ -267,9 +267,10 @@ reliable way to find the actual latest row.
 ### Switching to the test database before testing
 
 `~/Library/Application Support/TimeFlip/appdata.sqlite` is a symlink to `production.sqlite` or
-`test.sqlite`, only re-read at the app's next launch:
+`test.sqlite`, only re-read at the app's next launch. The app itself only ever creates
+`production.sqlite`; `test.sqlite` comes into being **only** when a testing session is started:
 ```
-scripts/use-test-database.sh        # appdata.sqlite -> test.sqlite (creates fresh if missing)
+scripts/use-test-database.sh        # appdata.sqlite -> test.sqlite (deletes any existing test.sqlite and recreates it fresh)
 scripts/use-production-database.sh  # appdata.sqlite -> production.sqlite
 ```
 **Pre-flight, before switching, every session:** confirm `db_type` currently reads
@@ -286,8 +287,10 @@ here from a link.)
 Then: quit the app, run the test-database script, start the app, then query `db_type` as the very
 first Setup step, every time -- it must read `{"type":"test"}`. If it reads `{"type":"production"}`,
 **stop immediately** -- don't run anything that would mutate data. When done: quit, run the
-production-database script, start the app again. `test.sqlite` is left in place between sessions
-(not deleted), so accumulated state carries forward.
+production-database script, start the app again. `test.sqlite` is **not** carried over between
+sessions: `use-test-database.sh` deletes any existing one and recreates it fresh each time, so every
+testing session starts from a clean seeded database. (`run.sh --clean` still deletes both
+`production.sqlite` and `test.sqlite`.)
 
 ### Suppressing incidental physical double-taps during a test session
 

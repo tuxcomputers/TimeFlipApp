@@ -28,17 +28,21 @@ if pgrep -x TimeFlipApp > /dev/null 2>&1; then
     "and won't see this change until you quit and relaunch it." >&2
 fi
 
-if [ ! -e "$TEST_DB" ]; then
-  echo "Creating $TEST_DB..."
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  # Same DDL files, same filename-sorted order AppDataStore.runDatabaseDDL() runs at every launch.
-  for sql_file in "$SCRIPT_DIR"/database/*.sql; do
-    sqlite3 "$TEST_DB" < "$sql_file"
-  done
-  sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
-else
-  echo "$TEST_DB already exists -- reusing it as-is (not re-seeded/reset)."
+# A testing session always starts from a fresh test database. Delete any existing test.sqlite
+# (and its WAL/SHM sidecars) and recreate + seed it from scratch, so no state ever carries over
+# between sessions. This only ever touches test.sqlite -- production.sqlite is never affected.
+if [ -e "$TEST_DB" ]; then
+  echo "Deleting existing $TEST_DB (a fresh one is created for every testing session)..."
+  rm -f "$TEST_DB" "$TEST_DB-wal" "$TEST_DB-shm"
 fi
+echo "Creating $TEST_DB..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Same DDL files, same filename-sorted order AppDataStore.runDatabaseDDL() runs at every launch,
+# with foreign keys enforced during seeding to match the app's own connection.
+for sql_file in "$SCRIPT_DIR"/database/*.sql; do
+  { echo "PRAGMA foreign_keys = ON;"; cat "$sql_file"; } | sqlite3 "$TEST_DB"
+done
+sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
 
 rm -f "$APPDATA"
 ln -s "$(basename "$TEST_DB")" "$APPDATA"

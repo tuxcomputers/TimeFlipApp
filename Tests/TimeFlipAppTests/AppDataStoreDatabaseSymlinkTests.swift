@@ -27,19 +27,6 @@ final class AppDataStoreDatabaseSymlinkTests: XCTestCase {
         directory.appendingPathComponent("test.sqlite")
     }
 
-    private func dbType(at url: URL) throws -> String {
-        var handle: OpaquePointer?
-        XCTAssertEqual(sqlite3_open(url.path, &handle), SQLITE_OK)
-        defer { sqlite3_close(handle) }
-        var stmt: OpaquePointer?
-        XCTAssertEqual(sqlite3_prepare_v2(handle, "SELECT setting_value FROM setting WHERE setting_name = 'db_type';", -1, &stmt, nil), SQLITE_OK)
-        defer { sqlite3_finalize(stmt) }
-        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
-        let json = String(cString: sqlite3_column_text(stmt, 0))
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
-        return try XCTUnwrap(object["type"] as? String)
-    }
-
     func testFreshInstallCreatesSymlinkToProduction() throws {
         AppDataStore.ensureDatabaseSymlink(at: appdataURL)
 
@@ -48,30 +35,10 @@ final class AppDataStoreDatabaseSymlinkTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: productionURL.path), "sqlite3_open, not this method, creates the target file")
     }
 
-    func testFreshInstallAlsoEagerlyCreatesAFullySeededTestDatabase() throws {
+    func testFreshInstallDoesNotCreateTestDatabase() throws {
         AppDataStore.ensureDatabaseSymlink(at: appdataURL)
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: testURL.path), "test.sqlite must exist immediately, not only once a testing session first switches to it")
-        XCTAssertEqual(try dbType(at: testURL), "test")
-    }
-
-    func testExistingTestDatabaseIsNotResetOnSubsequentRuns() throws {
-        AppDataStore.ensureDatabaseSymlink(at: appdataURL)
-        var handle: OpaquePointer?
-        XCTAssertEqual(sqlite3_open(testURL.path, &handle), SQLITE_OK)
-        sqlite3_exec(handle, "INSERT INTO event_type (event_type_id, event_name) VALUES (99, 'marker_row');", nil, nil, nil)
-        sqlite3_close(handle)
-
-        AppDataStore.ensureDatabaseSymlink(at: appdataURL)
-
-        var recheck: OpaquePointer?
-        sqlite3_open(testURL.path, &recheck)
-        var stmt: OpaquePointer?
-        sqlite3_prepare_v2(recheck, "SELECT COUNT(*) FROM event_type WHERE event_type_id = 99;", -1, &stmt, nil)
-        sqlite3_step(stmt)
-        XCTAssertEqual(sqlite3_column_int(stmt, 0), 1, "an existing test.sqlite's accumulated state must survive re-running the bootstrap")
-        sqlite3_finalize(stmt)
-        sqlite3_close(recheck)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: testURL.path), "test.sqlite is created only when a testing session is started (scripts/use-test-database.sh), never at app startup")
     }
 
     func testPreExistingPlainFileIsMigratedIntoProduction() throws {
