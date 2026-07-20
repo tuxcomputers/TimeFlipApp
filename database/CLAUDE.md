@@ -47,10 +47,24 @@
 
 ## Seed inserts
 
-- Every seed `INSERT` must be idempotent via the guarded pattern in `005_category.sql`:
+- Every seed `INSERT` must be idempotent via the guarded pattern in `006_category.sql`:
   `INSERT INTO <table> (<columns>) SELECT <values> WHERE NOT EXISTS (SELECT 1 FROM <table> WHERE
   <uniqueness condition>);` — never `INSERT ... VALUES (...) ON CONFLICT DO NOTHING`.
 - Each seed row is its own separate guarded `INSERT` statement (see `001_event_type.sql`,
-  `003_icon.sql`, `004_colour.sql`, `009_setting.sql`) — do not combine multiple rows into one
+  `003_icon.sql`, `004_colour.sql`, `010_setting.sql`) — do not combine multiple rows into one
   statement with `UNION ALL`. This keeps each row's existence check self-contained, so a DDL file
   that adds a new seed row to an otherwise-already-seeded table still inserts just the new row.
+
+## File numbering and dependency order
+
+- DDL files are named `<NNN>_<tablename>.sql` and applied in ascending filename order (see
+  `AppDataStore.runDatabaseDDL`). Foreign keys are **enforced** (`PRAGMA foreign_keys = ON`), so a
+  table must be numbered **after every table it references** — a parent is created and seeded before
+  any child that points at it, otherwise the child's seed insert fails on a missing parent row. For
+  example `003_icon`, `004_colour`, and `005_project` all precede `006_category`, which references
+  all three.
+- To insert a new table at a given position: rename every file numbered `>=` the target position up
+  by one (highest number first, so no rename overwrites another), add the new file at that number,
+  then grep for and fix **every** reference to the old filenames — DDL files, `docs/`, code comments
+  (`Sources/`), and the test checklists (`Tests/`) all cite them by name. This mirrors the checklist
+  renumber rule in [`../Tests/CLAUDE.md`](../Tests/CLAUDE.md).

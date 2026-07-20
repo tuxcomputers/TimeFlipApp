@@ -23,6 +23,19 @@ column holding the IANA timezone identifier the local time was captured in (e.g.
 recoverable via the timezone column — so it always reads the same as the wall-clock time at the
 moment it was recorded, regardless of what timezone the reader is in.
 
+## Design principle: foreign keys enforced
+
+The app opens every database connection with `PRAGMA foreign_keys = ON` (SQLite defaults this OFF,
+and it's a per-connection setting, not stored in the file — see `AppDataStore`). So the `REFERENCES`
+clauses in the schema are real, enforced constraints, not just documentation: an insert or update
+with a dangling foreign key fails. This keeps local behaviour aligned with the eventual remote
+server (which enforces them) and lets the same DDL be reused there.
+
+Because enforcement is on, the DDL files are numbered so a **parent table is created and seeded
+before any table that references it** — e.g. `003_icon`, `004_colour`, and `005_project` all
+precede `006_category`. Inserting a new table therefore follows the renumber rule in
+[`database/CLAUDE.md`](../database/CLAUDE.md).
+
 ## Tables
 
 ### `event_type` (`database/001_event_type.sql`)
@@ -148,7 +161,24 @@ Constraints:
   (black is just off; white isn't reproducible). Nothing reads `device_hex` yet — it's groundwork
   for matching calendar-entry colours to the device LED.
 
-### `category` (`database/005_category.sql`)
+### `project` (`database/005_project.sql`)
+
+A named project. Id and name only for now — groundwork for a planned projects feature. Numbered
+`005_*`, before `category`, so it's created and seeded before the tables that reference it — which
+matters now that foreign keys are enforced (see the design principle above).
+
+| Column         | Type    | Description                                              |
+|----------------|---------|----------------------------------------------------------|
+| `project_id`   | INTEGER | Row identifier, primary key, autoincrementing.           |
+| `project_name` | TEXT    | Project name. `NOT NULL`.                                |
+
+Constraints:
+- `project_name` is `NOT NULL`.
+- Seeded with a `None` row pinned to `project_id = 0` — a fixed sentinel for "no project assigned",
+  the same id-0 convention used by `category` (`Unassigned`) and `colour` (`blank`), so
+  `category.project_id` can stay `NOT NULL` and default to `0` instead of allowing `NULL`.
+
+### `category` (`database/006_category.sql`)
 
 Named activity category, linked to the icon and colour assigned to it.
 
@@ -158,6 +188,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | `category_name`| TEXT    | Category name (e.g. an activity mapped to a facet).        |
 | `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `blank` icon) if no real icon is assigned. |
 | `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `blank` colour) if no real colour is assigned. |
+| `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
 | `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
 
 Constraints:
@@ -165,11 +196,15 @@ Constraints:
   so a new category can be inserted without specifying one.
 - `colour_id` is a foreign key referencing `colour(colour_id)`, `NOT NULL`, defaulting to `0`
   (`blank`) for the same reason.
+- `project_id` is a foreign key referencing `project(project_id)`, `NOT NULL`, defaulting to `0`
+  (the `None` project) for the same reason. (Foreign keys are declared but not enforced — the app
+  doesn't set `PRAGMA foreign_keys = ON` — so it's fine that `project` is created after `category`
+  in file order; the reference and the `0` default resolve once `project` is seeded.)
 - Seeded with an `Unassigned` row (linked to the `blank` icon and the `blank` colour), a `Break`
   row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
   both seeded with the `blank` colour, since none was specified.
 
-### `face` (`database/006_face.sql`)
+### `face` (`database/007_face.sql`)
 
 The 12 physical facets of the TimeFlip device, each linked to the category currently assigned to
 it.
@@ -184,7 +219,7 @@ Constraints:
 - Seeded with all 12 faces pointing at the `Unassigned` category, except face `2` (`Meeting`) and
   face `8` (`Break`).
 
-### `time_entry` (`database/007_time_entry.sql`)
+### `time_entry` (`database/008_time_entry.sql`)
 
 A single tracked time span, linked to the category it was logged against.
 
@@ -208,7 +243,7 @@ Constraints:
 - `synced_to_google_calendar` is constrained to `0`/`1` (SQLite has no native boolean type) and
   defaults to `0`.
 
-### `device_notifications` (`database/008_device_notifications.sql`)
+### `device_notifications` (`database/009_device_notifications.sql`)
 
 Point-in-time device notifications that aren't timing segments — `double_tap`, `battery_level`,
 `system_state`, `device_info`, `event_log` (see `event_type`). Unlike `device_events`, these don't
@@ -227,7 +262,7 @@ Constraints:
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
 - `start_epoch` has a non-unique index (`IN1_device_notifications`).
 
-### `setting` (`database/009_setting.sql`)
+### `setting` (`database/010_setting.sql`)
 
 Generic key/value store for device/app settings — one row per setting, rather than a dedicated
 column per setting.
@@ -312,7 +347,7 @@ Seeded rows:
   - See `docs/TODO-devmode.md` for the full design of the `to_file` half (log filename format,
     restart-required behavior).
 
-### `debug_log` (`database/010_debug_log.sql`)
+### `debug_log` (`database/011_debug_log.sql`)
 
 Every `DeveloperMode.debugPrint` message, recorded here whenever the `debug` setting's `enabled`
 field is `true` (see above), in addition to being printed to the terminal — lets a failed test

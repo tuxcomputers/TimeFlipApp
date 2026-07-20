@@ -87,6 +87,12 @@ final class AppDataStore: IntegrationEventCursorStore {
             return
         }
         db = handle
+        // Enforce foreign keys. SQLite defaults this OFF and it's per-connection (not stored in the
+        // file), so the schema's REFERENCES clauses are otherwise inert. Enabling it keeps local
+        // behaviour aligned with the eventual remote server (which enforces FKs) and catches orphans
+        // early. Set before runDatabaseDDL() so seed inserts are validated -- which requires the DDL
+        // files to be ordered parent-before-child (e.g. 005_project precedes 006_category).
+        sqlite3_exec(handle, "PRAGMA foreign_keys = ON;", nil, nil, nil)
         runDatabaseDDL()
         loadMaxKnownStartEpoch()
     }
@@ -353,7 +359,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Reads and JSON-decodes a `setting` row's value, or `nil` if the row is missing or its
     /// value isn't a JSON object -- every `setting_value` is a JSON object by convention, see
-    /// `database/009_setting.sql`.
+    /// `database/010_setting.sql`.
     private func loadSettingJSON(name: String) -> [String: Any]? {
         guard let db else { return nil }
         var result: [String: Any]?
@@ -407,7 +413,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// Sets the `colour_id` of the category currently assigned to `faceID` (1-12, via the `face`
     /// table) to `colourID`. The `category_id >= 1` guard means the `Unassigned` category
     /// (`category_id 0`) is never given a colour — if the face maps to it, this is a no-op. See
-    /// `database/005_category.sql` / `database/006_face.sql`.
+    /// `database/006_category.sql` / `database/007_face.sql`.
     func updateCategoryColour(faceID: Int, colourID: Int) {
         guard let db else { return }
         let sql = """
@@ -432,7 +438,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the
-    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/009_setting.sql`).
+    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/010_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
     func loadFetchHistoryIntervalSeconds() -> TimeInterval {
         guard let seconds = loadSettingJSON(name: "fetch_history_interval_seconds")?["seconds"] as? Int else {
@@ -442,7 +448,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether locking the device via the app should also pause it first if it isn't already
-    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/009_setting.sql`).
+    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/010_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
     func loadPauseOnLockEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "pause_on_lock")?["enabled"] as? Bool else {
@@ -452,7 +458,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Which physical database file this is -- `"production"` or `"test"` (the `db_type` setting;
-    /// see `database/009_setting.sql`). Set once when a database file is first created and never
+    /// see `database/010_setting.sql`). Set once when a database file is first created and never
     /// changed afterward; see `Tests/CLAUDE.md` for the test-database-switching
     /// workflow this backs. Falls back to `"production"` if the row is missing or malformed.
     func loadDbType() -> String {
@@ -460,7 +466,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
-    /// seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default if the
+    /// seeded to `true`; see `database/010_setting.sql`). Falls back to the seeded default if the
     /// row is missing or malformed.
     func loadDisplaySecondsEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "display_seconds")?["enabled"] as? Bool else {
@@ -470,7 +476,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Battery percentage at or below which the device is considered low on battery (the
-    /// `low_battery_level` setting, seeded to `5`; see `database/009_setting.sql`). Falls back to
+    /// `low_battery_level` setting, seeded to `5`; see `database/010_setting.sql`). Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadLowBatteryLevelPercent() -> Int {
         guard let percent = loadSettingJSON(name: "low_battery_level")?["percent"] as? Int else {
@@ -481,7 +487,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Whether dev-only debug messages (`DeveloperMode.debugPrint`) are actually emitted to the
     /// terminal (the `debug` setting's `enabled` field, seeded to `true`; see
-    /// `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// `database/010_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed. Lets a user turn terminal logging off (or back on) by editing this setting
     /// directly, without needing a rebuild -- see docs/TODO-devmode.md.
     func loadDebugEnabled() -> Bool {
@@ -492,7 +498,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// LED brightness percent (the `led_settings` setting's `brightness` field, seeded to `50`;
-    /// see `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// see `database/010_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed.
     func loadLEDBrightnessPercent() -> UInt8 {
         guard let percent = loadSettingJSON(name: "led_settings")?["brightness"] as? Int else {
@@ -502,7 +508,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// LED blink interval in seconds (the `led_settings` setting's `blink_interval` field, seeded
-    /// to `15`; see `database/009_setting.sql`). Falls back to the seeded default if the row is
+    /// to `15`; see `database/010_setting.sql`). Falls back to the seeded default if the row is
     /// missing or malformed.
     func loadLEDBlinkIntervalSeconds() -> UInt8 {
         guard let seconds = loadSettingJSON(name: "led_settings")?["blink_interval"] as? Int else {
@@ -524,7 +530,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Auto-pause delay in minutes (the `auto_pause_minutes` setting's `minutes` field, seeded to
-    /// `0`; see `database/009_setting.sql`) -- the device itself only supports whole-minute
+    /// `0`; see `database/010_setting.sql`) -- the device itself only supports whole-minute
     /// granularity for this (device cmd 0x05), so there's no finer unit to store. Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadAutoPauseMinutes() -> UInt16 {
@@ -540,7 +546,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Double-tap accelerometer register values (the `double_tap_settings` setting's
-    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/009_setting.sql`). Falls
+    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/010_setting.sql`). Falls
     /// back to `DoubleTapParameters.default` -- itself, and per-field, if the row or an individual
     /// field is missing or malformed.
     func loadDoubleTapParameters() -> DoubleTapParameters {
@@ -559,7 +565,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether double-tap detection is enabled (the `double_tap_settings` setting's `enabled`
-    /// field, seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default
+    /// field, seeded to `true`; see `database/010_setting.sql`). Falls back to the seeded default
     /// if the row is missing or malformed.
     func loadDoubleTapEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "double_tap_settings")?["enabled"] as? Bool else {
@@ -587,7 +593,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// The cached identity of the connected Google account -- name/email from the OpenID Connect
     /// userinfo endpoint (the `google_account` setting, seeded empty; see
-    /// `database/009_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
+    /// `database/010_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
     /// empty/absent), which is the signal to fetch it from Google once and cache it.
     func loadGoogleAccount() -> GoogleAccountInfo? {
         guard let json = loadSettingJSON(name: "google_account") else { return nil }
@@ -613,7 +619,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Local hour (0-23) and minute (0-59) at which each category's tracked-time-vs-`daily_limit`
     /// accounting rolls over to a new day (the `daily_reset_time` setting, seeded to 3:00 AM; see
-    /// `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// `database/010_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed.
     func loadDailyResetTime() -> (hour: Int, minute: Int) {
         let json = loadSettingJSON(name: "daily_reset_time")
@@ -631,7 +637,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
-    /// result back -- the row always already exists (seeded by `009_setting.sql`), so this is a
+    /// result back -- the row always already exists (seeded by `010_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.
     private func saveSettingJSON(name: String, merging updates: [String: Any]) {
         guard let db else { return }
@@ -1161,6 +1167,9 @@ final class AppDataStore: IntegrationEventCursorStore {
         var handle: OpaquePointer?
         guard sqlite3_open(testURL.path, &handle) == SQLITE_OK, let handle else { return }
         defer { sqlite3_close(handle) }
+        // Match the main connection: enforce FKs so the fresh test.sqlite is seeded under the same
+        // parent-before-child ordering rules.
+        sqlite3_exec(handle, "PRAGMA foreign_keys = ON;", nil, nil, nil)
         runDatabaseDDL(on: handle, logger: nil)
         sqlite3_exec(handle, "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';", nil, nil, nil)
     }

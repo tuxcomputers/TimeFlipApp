@@ -4,7 +4,7 @@ Covers the periodic/live-event history refresh rework: the cheap max-event-numbe
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see
 `HistoryIngestor.refreshHistory`). Requires a paired physical TimeFlip device and the app running
 with Developer Mode enabled and the `debug` setting's `enabled` field `true` (see
-`009_setting.sql`) -- every dev-only debug message is then also recorded to the `debug_log` table,
+`010_setting.sql`) -- every dev-only debug message is then also recorded to the `debug_log` table,
 so all log-reading steps below are plain `sqlite3` queries against it, not a terminal transcript
 that has to be captured live.
 

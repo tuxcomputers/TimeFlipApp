@@ -9,6 +9,7 @@ Foreign keys (referencing → referenced):
 - `device_notifications.event_type_id` → `event_type`
 - `category.icon_id` → `icon`
 - `category.colour_id` → `colour`
+- `category.project_id` → `project`
 - `face.category_id` → `category`
 - `time_entry.category_id` → `category`
 - `time_entry.device_events_id` → `device_events`
@@ -22,6 +23,7 @@ erDiagram
     event_type ||--o{ device_notifications : "classifies"
     icon ||--o{ category : "shown by"
     colour ||--o{ category : "coloured by"
+    project ||--o{ category : "groups"
     category ||--o{ face : "assigned to"
     category ||--o{ time_entry : "accrues"
     device_events ||--o{ time_entry : "derived from"
@@ -70,6 +72,7 @@ erDiagram
         TEXT    category_name
         INTEGER icon_id FK
         INTEGER colour_id FK
+        INTEGER project_id FK
         INTEGER daily_limit
         INTEGER cost
     }
@@ -126,5 +129,10 @@ erDiagram
         TEXT    logged_at_timezone
         TEXT    tag
         TEXT    message
+    }
+
+    project {
+        INTEGER project_id PK
+        TEXT    project_name
     }
 ```
