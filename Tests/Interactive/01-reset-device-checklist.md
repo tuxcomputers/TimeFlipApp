@@ -30,7 +30,7 @@ device connection before the flip below; if either doesn't match, the Bench chec
 Flip the device to a different facet once.
 
 - [x] **(You)** Confirm you flipped the device to a different facet. (Confirmed.)
-- [x] **(Claude)** Query `device_events` (by `device_events_id DESC`, not `MAX(event_number)`, since
+- [x] **(Claude)** Query `device_event` (by `device_event_id DESC`, not `MAX(event_number)`, since
       old pre-reset rows aren't deleted and the device's own counter isn't unique across a reset)
       for the new event's `event_number` and confirm it is a small number close to the device's own
       reset baseline -- **1** is expected, but a slightly higher small number is also a pass if
@@ -40,6 +40,6 @@ Flip the device to a different facet once.
       counter restarted from **1**, far below the pre-reset baseline **N = 6**.)
 - [x] **(Claude)** Query `debug_log` for the `history`-tagged fetch that picked up this new event
       (`trigger=live_event`, `device_last_event=` the new small number) and a following `dev-check`
-      row confirming `device_events max_start_epoch OK`, so the post-reset event number is backed by
+      row confirming `device_event max_start_epoch OK`, so the post-reset event number is backed by
       logged evidence, not just the queried row. (Confirmed: `trigger=live_event` fetch then
       `device_last_event=1`, followed by a `dev-check` `max_start_epoch OK` row.)

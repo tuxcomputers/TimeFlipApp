@@ -48,12 +48,12 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] Query `debug_log` for `history`-tagged rows logged since the restart and confirm a
       `trigger=startup` fetch ran. (Confirmed: `trigger=startup known_max=0`.)
 - [x] Note the device's current event counter as **N** (the pre-reset baseline): query
-      `device_events` by `device_events_id DESC` for the latest `event_number`, and/or read a
+      `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a
       `history` fetch's `device_last_event=`. **N** must be > 0; if the device has no events yet,
       flip it once first to create one (that single flip is the only physical action Setup needs).
-      (**N = 6** -- `device_last_event=6`, `device_events` max `event_number=6`; no Setup flip
+      (**N = 6** -- `device_last_event=6`, `device_event` max `event_number=6`; no Setup flip
       needed, the device already had history.)
-- [x] Query `debug_log` for a `dev-check` row confirming `device_events max_start_epoch OK` logged
+- [x] Query `debug_log` for a `dev-check` row confirming `device_event max_start_epoch OK` logged
       after the backfill. (Confirmed.)
 
 ## Scenario -- factory reset wipes the device's own event counter and ends never-paired
@@ -91,9 +91,9 @@ noted -- all established immediately above in Setup, which this scenario runs st
       instead comes from the re-pair's startup fetch below.)
 - [x] Confirm the device's own event counter was wiped by the reset: the first `history` fetch after
       re-pairing reads `device_last_event=nil` (a wiped counter with no events yet), not resuming
-      from the pre-reset baseline **N**. (`MAX(event_number)` in the local `device_events` table
+      from the pre-reset baseline **N**. (`MAX(event_number)` in the local `device_event` table
       still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by
-      `device_events_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence.
+      `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence.
       Seeing a *real* post-reset event with the device's own low numbering needs a physical flip --
       that's the Interactive counterpart.) (Confirmed: post-re-pair fetch read `device_last_event=nil`
       where it had read `6` pre-reset -- the device's own counter was wiped.)

@@ -95,7 +95,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var awaitingInitialStatus = false
     // Guards handleDeviceEvent against acting on live BLE notifications until the initial history
     // backfill (recordDeviceEvent's ascending-order requirement -- see HistoryIngestor.refreshHistory)
-    // has finished, so a live notification can't race a fresh device_events table.
+    // has finished, so a live notification can't race a fresh device_event table.
     private var isHistoryBackfillComplete = false
     private var historyIngestor: HistoryIngestor?
     private let useHistoryPipeline = true

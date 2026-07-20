@@ -43,7 +43,7 @@ starting value, so it isn't part of the precondition check.
 - [x] **(Claude)** Open the menu; confirm the item reads "Unlock" and the Pause item is
       disabled/greyed out (gated purely by lock state -- `isEnabled = isPaired && !isLocked`,
       independent of `pause_on_lock`).
-- [x] **(Claude)** Confirm no new `is_paused = 1` row was added to `device_events` -- Lock alone,
+- [x] **(Claude)** Confirm no new `is_paused = 1` row was added to `device_event` -- Lock alone,
       with `pause_on_lock` off, must not pause the device.
 - [x] **(You)** Single-click (not double-click) the right half of the status icon.
 - [x] **(Claude)** Screenshot the menu bar; confirm nothing changed -- still locked, no pause/resume
@@ -77,7 +77,7 @@ if it doesn't match.
 - [x] **(Claude)** Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 - [x] **(Claude)** Confirm no new `is_paused = 1` row was added -- same as Scenario A, still
       `pause_on_lock` disabled. (A pause row did appear at the same time in one run, but
-      `device_notifications` confirmed it was a physical double-tap on the device itself -- not
+      `device_notification` confirmed it was a physical double-tap on the device itself -- not
       caused by the double-click gesture.)
 - [x] **(You)** Single-click (not double-click) the right half of the status icon.
 - [x] **(Claude)** Screenshot the menu bar; confirm nothing changed -- still locked, no pause toggle.

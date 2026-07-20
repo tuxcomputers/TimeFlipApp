@@ -4,8 +4,8 @@
 
 This document describes how the app is meant to turn a TimeFlip device's raw Bluetooth activity
 into the rows stored by the schema in [Database Design](database-design.md). It's the intended
-data flow for the redesigned schema (`event_type`, `device_events`, `icon`, `category`, `face`,
-`time_entry`, `device_notifications`) — not a description of the app's current (pre-redesign)
+data flow for the redesigned schema (`event_type`, `device_event`, `icon`, `category`, `face`,
+`time_entry`, `device_notification`) — not a description of the app's current (pre-redesign)
 behavior, which this schema is replacing. For *why* the schema is shaped this way — how the
 device owner wants to organize activities and faces — see [Workflow](workflow.md).
 
@@ -17,9 +17,9 @@ TimeFlip device (BLE)
       ▼
 Decode raw notification/history frame
       │
-      ├─ Timing segment (facet flip / pause) ──► device_events ──► time_entry ──► Google Calendar
+      ├─ Timing segment (facet flip / pause) ──► device_event ──► time_entry ──► Google Calendar
       │                                                 ▲
-      └─ Point-in-time notification ──────────► device_notifications
+      └─ Point-in-time notification ──────────► device_notification
                                        (double tap, battery, system state, device info, event log)
 ```
 
@@ -32,18 +32,18 @@ When the app receives a decoded event from the BLE driver (`TimeFlipEvent` today
 to an `event_type` row by name:
 
 - `facet_flip`, `pause` → come only from the **history stream** (the `...58` characteristic).
-  These carry a duration and belong to a timing segment → go to `device_events`.
+  These carry a duration and belong to a timing segment → go to `device_event`.
 - `double_tap`, `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`,
-  `event_log` → live BLE notifications with no duration → go to `device_notifications`.
+  `event_log` → live BLE notifications with no duration → go to `device_notification`.
 
-## 2. Recording a timing segment (`device_events`)
+## 2. Recording a timing segment (`device_event`)
 
 1. The device's history stream reports a frame: event number, facet byte, timestamp, duration.
    The app decodes this into human-readable values (never stores the raw hex) — see
    [Database Design § decoded, not raw](database-design.md#design-principle-decoded-not-raw).
 2. The facet byte's high bit determines `event_type_id` (`facet_flip` vs `pause`) and the decoded
    `face` number (`1`-`12`).
-3. The app inserts a `device_events` row: `event_number`, `event_type_id`, `face`, `started_at` /
+3. The app inserts a `device_event` row: `event_number`, `event_type_id`, `face`, `started_at` /
    `started_at_timezone` (captured in the local timezone at the moment the segment started —
    see [Database Design § local time + timezone](database-design.md#design-principle-local-time--timezone)),
    `duration_seconds`, `is_paused`.
@@ -53,29 +53,29 @@ to an `event_type` row by name:
 5. Per the device's own behavior (see `docs/timeflip.md` §5), the **last frame in every history
    dump is the current, still-open interval** — its duration keeps growing until the segment
    ends. The app should treat this last frame as provisional: keep updating the same
-   `device_events` row (matched by `event_number`) rather than creating a new one, until a
+   `device_event` row (matched by `event_number`) rather than creating a new one, until a
    subsequent flip/pause frame finalizes it.
 
 ## 3. Turning a finalized segment into a `time_entry`
 
-A `device_events` row becomes a `time_entry` once its segment is finalized (i.e. it's no longer
+A `device_event` row becomes a `time_entry` once its segment is finalized (i.e. it's no longer
 the device's in-progress last frame — a later event has closed it out):
 
 1. Resolve which `category` the segment belongs to: look up `face.category_id` for the
-   `device_events.device_face` value **as it was mapped at the time the segment occurred** — if the
+   `device_event.device_face` value **as it was mapped at the time the segment occurred** — if the
    user re-maps a face to a different category later, already-created `time_entry` rows keep
    their original `category_id` rather than retroactively changing.
-2. Insert a `time_entry` row: `category_id`, `device_events_id` (the `device_events` row it came
-   from), `started_at`/`started_at_timezone` (copied from the `device_events` row),
+2. Insert a `time_entry` row: `category_id`, `device_event_id` (the `device_event` row it came
+   from), `started_at`/`started_at_timezone` (copied from the `device_event` row),
    `ended_at`/`ended_at_timezone` (`started_at` + `duration_seconds`, converted back to local
    time), `duration_seconds`, and `synced_to_google_calendar = 0`.
-3. Not every `device_events` row necessarily becomes a `time_entry` — see applying `blip_time`
+3. Not every `device_event` row necessarily becomes a `time_entry` — see applying `blip_time`
    below.
 
 ### Applying `blip_time`
 
 While picking the device up and turning it to find the desired face, it can briefly pass over
-other faces, creating short, unwanted `device_events` segments for them before landing on the
+other faces, creating short, unwanted `device_event` segments for them before landing on the
 intended one. The `blip_time` setting (see [Database Design § `setting`](database-design.md),
 seeded to `5` seconds) filters these out:
 
@@ -85,13 +85,13 @@ seeded to `5` seconds) filters these out:
   segment's `started_at` rather than its own, so the accidental blip's duration counts toward
   whichever face the user actually settled on, rather than being recorded against the
   momentarily-passed-over face or lost entirely.
-- The `device_events` row for the merged-away segment is still kept as-is (per the "decoded, not
+- The `device_event` row for the merged-away segment is still kept as-is (per the "decoded, not
   raw" principle nothing there is deleted) — only `time_entry` creation is affected.
 
-## 4. Recording a point-in-time notification (`device_notifications`)
+## 4. Recording a point-in-time notification (`device_notification`)
 
 For any non-timing event type (`double_tap`, `battery_level`, `system_state`, `device_info`,
-`event_log`, `auto_pause_minutes`): insert a `device_notifications` row with `event_type_id`,
+`event_log`, `auto_pause_minutes`): insert a `device_notification` row with `event_type_id`,
 `occurred_at`/`occurred_at_timezone` (now, in local time), and `payload` — the decoded value for
 that event type (e.g. a battery percentage, a system state name), not the device's raw encoding.
 

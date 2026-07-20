@@ -160,7 +160,7 @@ right half.
 The natural next attempt was `tell application "System Events" to click at {x, y}`, which *does*
 simulate a real, positioned mouse click at absolute screen coordinates -- reading the status item's
 `position`/`size` via accessibility (`{2172, 3}, {166, 24}` in that session) to compute a point
-well inside the right half (`{2300, 15}`). It did not work: after the click, `device_events` showed
+well inside the right half (`{2300, 15}`). It did not work: after the click, `device_event` showed
 no new pause-toggle row and `debug_log` showed nothing related, on a device that was confirmed
 unlocked and paused right beforehand (so a working right-half single-click should have resumed it).
 A left-half coordinate click was tried too, with similarly inconclusive results -- menu item names
@@ -211,7 +211,7 @@ increasing?" check as `(You)`, reasoning by analogy from the "Presenting duratio
 elsewhere in `CLAUDE.md` -- which is about how to *phrase* a question when a human genuinely has to
 watch the menu bar, not a blanket rule that every time-based fact needs a human. That was too broad
 a generalization. The actual fact being checked -- is the device currently running, not paused --
-already has a direct DB proxy: the same still-open `device_events` row's `duration_seconds` is
+already has a direct DB proxy: the same still-open `device_event` row's `duration_seconds` is
 computed live from `start_epoch`, so noting it, waiting a few seconds, and re-querying the same row
 proves the same thing a human watching the menu bar would, without needing eyes on the screen at
 all -- exactly the technique `02-history-refresh-checklist.md`'s Bench Scenario A already used for

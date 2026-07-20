@@ -148,10 +148,10 @@ extension TimeFlipSystemState.HardwareStatus {
 }
 
 extension TimeFlipEvent {
-    /// The `event_type` name and decoded payload to record in `device_notifications` for this
+    /// The `event_type` name and decoded payload to record in `device_notification` for this
     /// event, or `nil` for events that don't belong there. `facetChanged` is the live "Facets"
     /// characteristic value, not the history-stream-derived `facet_flip` event_type (which
-    /// belongs in `device_events` instead) — see docs/database-design.md and
+    /// belongs in `device_event` instead) — see docs/database-design.md and
     /// docs/operation-spec.md for the full classification.
     var deviceNotification: (eventType: String, payload: String?)? {
         switch self {

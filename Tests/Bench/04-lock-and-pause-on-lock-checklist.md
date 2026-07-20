@@ -50,7 +50,7 @@ resolved in Setup immediately above, which this scenario runs straight on from.
 - [x] Screenshot the menu bar; confirm the status item shows the play icon (▶) -- device not
       already paused. (Confirmed.)
 - [x] Click the "Lock" menu item.
-- [x] Confirm a new `is_paused = 1` device_events row was written, and that `debug_log` shows
+- [x] Confirm a new `is_paused = 1` device_event row was written, and that `debug_log` shows
       `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`.
       (Confirmed -- this is also where real post-reset events started appearing again after
       `01-reset-device-checklist.md`'s reset: event_number 1, then 2 here, proving the counter
@@ -67,7 +67,7 @@ resolved in Setup immediately above, which this scenario runs straight on from.
 - [x] Open the menu; confirm the item reads "Lock" again, and the Pause item is now enabled and
       reads "Resume". (Confirmed: `Resume` item `enabled = true`.)
 - [x] Click "Resume" to bring the device back to a clean unpaused state.
-- [x] Confirm a new `is_paused = 0` row appears in `device_events` for the resume. (Confirmed.)
+- [x] Confirm a new `is_paused = 0` row appears in `device_event` for the resume. (Confirmed.)
 
 ## Scenario B -- Quit pauses and locks the device when pause_on_lock is enabled; disabled it does nothing extra
 
@@ -84,7 +84,7 @@ continuing.
       (Confirmed.)
 - [x] Start the app; confirm reconnect and via screenshot that the status icon is green. (Confirmed
       fresh `"Login accepted, code=0x02"`.)
-- [x] Confirm a new `is_paused = 1` device_events row now appears (only after this relaunch's
+- [x] Confirm a new `is_paused = 1` device_event row now appears (only after this relaunch's
       startup fetch, not immediately after quit). (Confirmed.)
 - [x] Screenshot the menu bar; confirm the lock badge is shown and the icon shows pause (⏸).
       (Confirmed visually.)
@@ -99,7 +99,7 @@ continuing.
       genuinely `false`).
 - [x] Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or no paired device,
       exiting immediately"` -- not the pause/lock sequence above. (Confirmed.)
-- [x] Confirm no new `is_paused = 1` device_events row was added around the quit time. (Confirmed.)
+- [x] Confirm no new `is_paused = 1` device_event row was added around the quit time. (Confirmed.)
 - [x] Restore `pause_on_lock` to the real original value (`true`) noted in Setup.
 - [x] Start the app; confirm reconnect and via screenshot that the status icon is green with no
       lock badge -- a clean, unlocked, unpaused state, `pause_on_lock` back to its real original
@@ -113,9 +113,9 @@ if it doesn't match, resolve the same way as Scenario B's own precondition above
 
 - [x] Screenshot the menu bar; confirm no lock badge is shown and the icon shows play (▶).
       (Confirmed.)
-- [x] Note the current (still-open, non-finalised) `device_events` row's `device_events_id` and
+- [x] Note the current (still-open, non-finalised) `device_event` row's `device_event_id` and
       `duration_seconds`. Wait a few seconds.
-- [x] Re-query the same `device_events_id` and confirm `duration_seconds` increased and it's still
+- [x] Re-query the same `device_event_id` and confirm `duration_seconds` increased and it's still
       the same row. (Confirmed: 51.0s -> 71.0s, same row, `is_paused = 0`.)
 - [x] Open the menu; confirm the Lock item reads "Lock" and the Pause item reads "Pause" and is
       enabled -- a clean state ready for `Tests/Interactive/04-lock-and-pause-on-lock-checklist.md`.

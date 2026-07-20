@@ -20,14 +20,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] Launch the app with the device already paired and connected (see "Driving the app directly"
       in `../CLAUDE.md`); confirm via a fresh `debug_log` `"Login accepted, code=0x02"` row.
 - [x] Query the current state as a baseline:
-      `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT event_number, device_face, duration_seconds, finalised FROM device_events ORDER BY event_number DESC LIMIT 3;"`
+      `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT event_number, device_face, duration_seconds, finalised FROM device_event ORDER BY event_number DESC LIMIT 3;"`
       (Run immediately after `01-reset-device-checklist.md` in the same session -- the device has
       just been factory reset and has **zero** events (`device_last_event=nil` on every fetch), no
       currently-open facet to track. The row returned is a stale pre-reset row, not live.)
 
 ## Scenario A -- nothing changes (skip path + duration refresh)
 
-**Preconditions:** an already-open, actively-growing `device_events` row (i.e. the device has
+**Preconditions:** an already-open, actively-growing `device_event` row (i.e. the device has
 real, non-post-reset history and a currently-open facet) -- check this via the Setup baseline
 query above before starting; if the most recent row is post-reset with nothing open yet, this
 scenario isn't verifiable this run (see below), not a failure.

@@ -117,7 +117,7 @@ true will misreport a real bug as a broken precondition (or vice versa) the next
   screen-position hit-test against a real `NSEvent.locationInWindow`, not a menu action --
   `tell application "System Events" to click at {x, y}` at the status item's right-half screen
   coordinates (from its `position`/`size`) does **not** trigger it (confirmed no `debug_log`/
-  `device_events` change resulted); this gesture stays `(You)` in `Tests/Interactive/`, not a
+  `device_event` change resulted); this gesture stays `(You)` in `Tests/Interactive/`, not a
   capability gap worth re-attempting the same way.
 - **Preferences window** (open via the status-item menu's "Preferences..."):
   - Switch tabs: `click radio button <N> of radio group 1 of group 1 of toolbar 1 of window
@@ -210,7 +210,7 @@ rather than reading the text out loud.
 over time, but two or more screenshots taken more than a second apart can, and often replace asking
 the user just as well:
 - A value that should simply be increasing (e.g. a duration ticking up): prefer a DB-based check
-  instead if one exists (see the `device_events`/`duration_seconds` pattern used in
+  instead if one exists (see the `device_event`/`duration_seconds` pattern used in
   `02-history-refresh-checklist.md` and `04-lock-and-pause-on-lock-checklist.md`'s Bench Scenario
   C) -- it's more direct than reading rendered text at all. Fall back to two time-spaced
   screenshots (or two accessibility text reads) only when there's no DB proxy for what's actually
@@ -239,9 +239,9 @@ the time increasing?" over a couple of seconds of watching, not "is it paused?".
 ### Detecting a physical action instead of asking "are you done?"
 
 For a `(You)` physical action that produces a verifiable DB/`debug_log` change (a facet flip
-creating a new `device_events` row, a double-tap logging to `device_notifications`), poll for that
+creating a new `device_event` row, a double-tap logging to `device_notification`), poll for that
 change instead of asking the user to confirm they did it -- e.g. after asking for a flip, loop
-`SELECT device_events_id, event_number, device_face ... ORDER BY device_events_id DESC LIMIT 1;`
+`SELECT device_event_id, event_number, device_face ... ORDER BY device_event_id DESC LIMIT 1;`
 every couple of seconds until the row changes. Only ask for explicit confirmation when the action
 has no detectable side effect at all (or the detectable side effect is ambiguous about which
 specific action produced it).
@@ -256,12 +256,12 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
 `tag` matches the bracketed prefix from `DeveloperMode.DebugTag` (`history`, `battery`, `TimeFlip`,
 `dev-check`, ...); `logged_at` lets you correlate against when a step happened.
 
-**After a factory reset, query `device_events` by `device_events_id DESC`, not
+**After a factory reset, query `device_event` by `device_event_id DESC`, not
 `MAX(event_number)`.** `event_number` is the device's own counter and isn't unique across a reset
 (it restarts from 1), and old pre-reset rows are never deleted -- so `MAX(event_number)` returns
 whichever is bigger, pre- or post-reset, silently hiding the real current state.
-`device_events_id` is the local auto-increment PK and is always strictly increasing regardless of
-what the device's own counter is doing, so `ORDER BY device_events_id DESC LIMIT 1` is the only
+`device_event_id` is the local auto-increment PK and is always strictly increasing regardless of
+what the device's own counter is doing, so `ORDER BY device_event_id DESC LIMIT 1` is the only
 reliable way to find the actual latest row.
 
 ### Switching to the test database before testing

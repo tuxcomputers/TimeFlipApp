@@ -49,7 +49,7 @@
   a zero-padded 24-hour local time, followed by the `[Tag]` naming the action/source, e.g.:
   ```
   13:25:38 [TimeFlip ] Login accepted, code=0x02
-  13:25:39 [dev-check] device_events max_event_number OK: in_memory=112 db=112
+  13:25:39 [dev-check] device_event max_event_number OK: in_memory=112 db=112
   ```
 - Use `DeveloperMode.debugPrint(_ tag: DebugTag, _:)` (in `DeveloperConfigStore.swift`) rather than
   a bare `print(...)` call — it prepends the timestamp and gates on `isEnabled` itself, so call

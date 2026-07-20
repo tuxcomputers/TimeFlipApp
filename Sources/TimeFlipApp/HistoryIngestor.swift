@@ -140,7 +140,7 @@ final class HistoryIngestor {
         // is handled separately below (step 4) since it's the live/current one, not a closed one.
         // Must run BEFORE the live-entry recordDeviceEvent call below: AppDataStore.recordDeviceEvent
         // tracks the highest start_epoch it's seen so it can pick UPDATE vs INSERT without an
-        // ON CONFLICT round-trip, so device_events rows have to be written in ascending
+        // ON CONFLICT round-trip, so device_event rows have to be written in ascending
         // start_epoch (i.e. chronological) order. Recording the live (latest) entry first would
         // make every one of these earlier entries look "already superseded", taking the UPDATE
         // branch against a row that was never inserted -- a silent no-op that drops the entire
@@ -199,7 +199,7 @@ final class HistoryIngestor {
             return
         }
 
-        // Record the confirmed-current segment as not-yet-finalised so device_events reflects the
+        // Record the confirmed-current segment as not-yet-finalised so device_event reflects the
         // live segment, growing in duration on each refresh until a later event closes it out.
         if let latestEventNumber {
             dataStore.recordDeviceEvent(

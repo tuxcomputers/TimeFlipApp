@@ -1,9 +1,25 @@
 # Database Conventions
 
+## Legacy tables (`000_*`)
+
+- The `000_`-numbered files (`000_logbook.sql`, `000_integration_event_cursors.sql`) are **legacy**
+  pre-redesign tables, kept only until the code that still reads them is migrated onto the
+  `device_event`/`time_entry` schema. They will eventually be deleted from the repo.
+- Treat them as **out of scope for these conventions** — don't reformat them, renumber them, or
+  bring them into line with the rules below (naming, primary keys, seeds, etc.), and don't count
+  them when reasoning about the schema. Leave them exactly as they are until they're removed.
+
+## Table naming
+
+- Every table name is **singular** — `device_event`, not `device_events`; `device_notification`,
+  not `device_notifications`. The singular form flows through to every derived identifier: the
+  primary key column (`device_event_id`), the constraint name (`PK_device_event`), and index names
+  (`IN1_device_event`, `UN1_device_event`).
+
 ## Primary keys
 
-- Every autoincrementing primary key column must be named `<tablename>_id` (e.g. the `device_events`
-  table's primary key is `device_events_id`, not `id`).
+- Every autoincrementing primary key column must be named `<tablename>_id` (e.g. the `device_event`
+  table's primary key is `device_event_id`, not `id`).
 
 ## Column naming
 
@@ -20,7 +36,7 @@
   and referenced by id. The app resolves the current zone's id once at startup (get-or-create; see
   `AppDataStore.resolveTimezoneID`).
 - Naming: when a table has a **single** timestamp/zone, name the FK column simply `timezone_id`
-  (referencing `timezone(timezone_id)`) — e.g. `device_events.timezone_id`. When a table has
+  (referencing `timezone(timezone_id)`) — e.g. `device_event.timezone_id`. When a table has
   **more than one** timestamp that each need a zone, disambiguate per timestamp with a short
   `<prefix>_timezone_id` column — e.g. `time_entry.start_timezone_id` / `end_timezone_id` for its
   `started_at` / `ended_at` timestamps.
@@ -34,16 +50,16 @@
   an indexed `<name>_epoch` INTEGER column (Unix epoch seconds, same moment as `<name>`) and
   compare/sort on that instead of the text column or any device-supplied sequence number. A
   device-side counter (e.g. an event number) can reset independently of wall-clock time, so it
-  isn't safe to use for ordering — see `device_events`/`device_notifications` (`start_time` /
+  isn't safe to use for ordering — see `device_event`/`device_notification` (`start_time` /
   `timezone_id` / `start_epoch`) for the pattern.
 
 ## Naming: primary keys, indexes, and unique constraints
 
-- Primary key: `PK_<tablename>` (e.g. `CONSTRAINT PK_device_events PRIMARY KEY AUTOINCREMENT`).
+- Primary key: `PK_<tablename>` (e.g. `CONSTRAINT PK_device_event PRIMARY KEY AUTOINCREMENT`).
   This is part of the column/table definition inside `CREATE TABLE` — SQLite requires
   `PRIMARY KEY AUTOINCREMENT` to be declared on the column itself for rowid-aliasing to work, so
   it can't be split into a separate statement the way indexes and unique constraints are below.
-- Non-unique index: `IN<n>_<tablename>` (e.g. `IN1_device_events`), as a separate `CREATE INDEX`
+- Non-unique index: `IN<n>_<tablename>` (e.g. `IN1_device_event`), as a separate `CREATE INDEX`
   statement after the `CREATE TABLE`.
 - Unique constraint: `UN<n>_<tablename>` (e.g. `UN1_setting`), as a separate
   `CREATE UNIQUE INDEX` statement after the `CREATE TABLE` — not an inline `UNIQUE` column

@@ -4,7 +4,7 @@ The physical-flip parts of the history refresh test. Run **after**
 `Tests/Bench/02-history-refresh-checklist.md`. Both scenarios need a person to physically flip the
 cube -- Scenario B a single normal flip, Scenario C several flips while the app is disconnected --
 which is the only way to make the device generate the new events these scenarios verify. The
-`(Claude)` steps assert the resulting rows from `device_events`/`debug_log`.
+`(Claude)` steps assert the resulting rows from `device_event`/`debug_log`.
 
 Assumes the state the bench run left: app running, device paired and connected, Developer Mode and
 `debug` enabled.
@@ -21,11 +21,11 @@ which this scenario runs straight on from. Check device connection before asking
 - [x] **(Claude)** Confirm the device shows connected before asking for the flip below. (Confirmed:
       state carried straight over from the Bench run in the same session.)
 - [x] **(Claude)** Note the current max `event_number` (call it N). (N = 11, by
-      `device_events_id DESC`, not `MAX(event_number)` -- see the note in `../CLAUDE.md`.)
+      `device_event_id DESC`, not `MAX(event_number)` -- see the note in `../CLAUDE.md`.)
 - [x] **(You)** Flip the device to a different facet. (Detected automatically by polling
-      `device_events` every couple of seconds -- no need to ask for confirmation, per the note in
+      `device_event` every couple of seconds -- no need to ask for confirmation, per the note in
       `../CLAUDE.md`.)
-- [x] **(Claude)** Confirm a new `device_events` row exists with `event_number` > N, and that
+- [x] **(Claude)** Confirm a new `device_event` row exists with `event_number` > N, and that
       event N's row is now `finalised = 1` with a `duration_seconds` that stopped growing.
       (Confirmed: new row event_number=12 on facet 9; event 11's row finalised=1,
       duration_seconds=113.0.)
@@ -55,7 +55,7 @@ reconnect before proceeding rather than starting this scenario already disconnec
       `TimeFlip`-tagged `"Login accepted, code=0x02"` row logged after the reconnect. (Confirmed.
       Flips while disconnected can't be polled in real time -- no connection means no data flows --
       so this is the point to resume automatic detection, once reconnected.)
-- [x] **(Claude)** Confirm every intermediate flip shows up as its own finalised `device_events`
+- [x] **(Claude)** Confirm every intermediate flip shows up as its own finalised `device_event`
       row in ascending `event_number` order with no gaps, and the final row (still open) matches
       the device's actual current facet. (Confirmed: events 12 (facet 9) -> 14 (facet 2) -> 15
       (facet 8, open) -- event 13 wasn't missing/a bug, it was correctly explained via

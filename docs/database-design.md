@@ -22,7 +22,7 @@ suffix (e.g. `2026-07-16T09:30:00`) so it always reads the same as the wall-cloc
 moment it was recorded, regardless of the reader's timezone. The IANA zone that local time was
 captured in — needed to recover the offset — is held in a **foreign key to the `timezone` table**,
 not repeated as inline text on every row: a single `timezone_id` column when the table has one
-timestamp (e.g. `device_events.timezone_id`), or short per-timestamp `<prefix>_timezone_id` columns
+timestamp (e.g. `device_event.timezone_id`), or short per-timestamp `<prefix>_timezone_id` columns
 when it has several (e.g. `time_entry.start_timezone_id` / `end_timezone_id` for `started_at` /
 `ended_at`). The app resolves the current zone's id once at startup
 (`AppDataStore.resolveTimezoneID`, get-or-create) and binds it into each row. These columns are
@@ -49,8 +49,8 @@ precede `007_category`. Inserting a new table therefore follows the renumber rul
 Reference table of the different event types the TimeFlip device can trigger. Most of these
 (`double_tap`, `battery_level`, `system_state`, `device_info`, `event_log`) are live BLE
 notifications the device sends outside the history stream, not timing segments, and so never
-appear in `device_events` — only `facet_flip` and `pause` come from the history stream that
-populates `device_events` (see `Sources/TimeFlipApp/TimeFlipEvent.swift` and
+appear in `device_event` — only `facet_flip` and `pause` come from the history stream that
+populates `device_event` (see `Sources/TimeFlipApp/TimeFlipEvent.swift` and
 `docs/timeflip.md` §4-5 for the full notification/history breakdown).
 
 | Column           | Type    | Description                                              |
@@ -63,14 +63,14 @@ Constraints:
 - Seeded with all known device event types: `facet_flip`, `pause`, `double_tap`,
   `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`, `event_log`.
 
-### `device_events` (`database/003_device_events.sql`)
+### `device_event` (`database/003_device_event.sql`)
 
 One row per device-reported timing segment — created whenever the device is flipped to a new
 facet or paused/resumed, marking the end of the previous segment.
 
 | Column             | Type    | Description                                                                 |
 |---------------------|---------|-------------------------------------------------------------------------------|
-| `device_events_id`  | INTEGER | Row identifier, primary key, autoincrementing (`PK_device_events`).          |
+| `device_event_id`  | INTEGER | Row identifier, primary key, autoincrementing (`PK_device_event`).          |
 | `event_number`      | INTEGER | The device's own sequence number for this event. Part of the composite matching key with `start_epoch` — see below — but not unique on its own, and not used for ordering. |
 | `event_type_id`     | INTEGER | References `event_type.event_type_id` — always `facet_flip` or `pause` for rows in this table. |
 | `device_face`       | INTEGER | Decoded facet number, `1`-`12`. Decoded from the device's raw facet byte, not stored as hex. |
@@ -83,7 +83,7 @@ facet or paused/resumed, marking the end of the previous segment.
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
 Constraints:
-- `(event_number, start_epoch)` has a composite `UNIQUE` index (`UN1_device_events`) — see below
+- `(event_number, start_epoch)` has a composite `UNIQUE` index (`UN1_device_event`) — see below
   for why it's the pair, not `event_number` alone, that's unique.
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
 - `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
@@ -92,7 +92,7 @@ Constraints:
 - `is_paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `processed` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
-- `start_epoch` also has its own non-unique index (`IN1_device_events`) for ordering queries that
+- `start_epoch` also has its own non-unique index (`IN1_device_event`) for ordering queries that
   don't also filter on `event_number`.
 
 Why matching and ordering are both keyed off `start_epoch`, and neither trusts `event_number`
@@ -234,7 +234,7 @@ A single tracked time span, linked to the category it was logged against.
 |------------------------------|---------|-----------------------------------------------------------------------|
 | `time_entry_id`              | INTEGER | Row identifier, primary key, autoincrementing.                        |
 | `category_id`                | INTEGER | References `category.category_id` — the category this entry was logged against. |
-| `device_events_id`           | INTEGER | References `device_events.device_events_id` — the device event this entry was created from. Every time entry has exactly one device event, but not every device event becomes a time entry. |
+| `device_event_id`           | INTEGER | References `device_event.device_event_id` — the device event this entry was created from. Every time entry has exactly one device event, but not every device event becomes a time entry. |
 | `started_at`                 | TEXT    | When the entry started, as a local-time ISO 8601 timestamp with no UTC offset. |
 | `start_timezone_id`     | INTEGER | References `timezone.timezone_id` — the IANA zone `started_at` was recorded in.        |
 | `ended_at`                   | TEXT    | When the entry ended, as a local-time ISO 8601 timestamp with no UTC offset. |
@@ -245,24 +245,24 @@ A single tracked time span, linked to the category it was logged against.
 
 Constraints:
 - `category_id` is a foreign key referencing `category(category_id)`, `NOT NULL`.
-- `device_events_id` is a foreign key referencing `device_events(device_events_id)`, `NOT NULL`.
+- `device_event_id` is a foreign key referencing `device_event(device_event_id)`, `NOT NULL`.
 - `start_timezone_id` and `end_timezone_id` are foreign keys referencing
   `timezone(timezone_id)`, both `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 - `duration_seconds` is constrained to be non-negative.
 - `synced_to_google_calendar` is constrained to `0`/`1` (SQLite has no native boolean type) and
   defaults to `0`.
 
-### `device_notifications` (`database/010_device_notifications.sql`)
+### `device_notification` (`database/010_device_notification.sql`)
 
 Point-in-time device notifications that aren't timing segments — `double_tap`, `battery_level`,
-`system_state`, `device_info`, `event_log` (see `event_type`). Unlike `device_events`, these don't
+`system_state`, `device_info`, `event_log` (see `event_type`). Unlike `device_event`, these don't
 have a duration or a facet; each row is a single moment with a decoded value.
 
 | Column                  | Type    | Description                                                              |
 |--------------------------|---------|------------------------------------------------------------------------------|
-| `device_notifications_id`| INTEGER | Row identifier, primary key, autoincrementing.                              |
+| `device_notification_id`| INTEGER | Row identifier, primary key, autoincrementing.                              |
 | `event_type_id`          | INTEGER | References `event_type.event_type_id` — which kind of notification this is. |
-| `start_time`             | TEXT    | When the notification was received, as a local-time ISO 8601 timestamp with no UTC offset. Named to match `device_events` rather than e.g. `occurred_at`, so both device tables can be queried/ordered the same way. |
+| `start_time`             | TEXT    | When the notification was received, as a local-time ISO 8601 timestamp with no UTC offset. Named to match `device_event` rather than e.g. `occurred_at`, so both device tables can be queried/ordered the same way. |
 | `timezone_id`          | INTEGER | References `timezone.timezone_id` — the IANA zone `start_time` was recorded in.              |
 | `start_epoch`            | INTEGER | The same moment as `start_time`, as Unix epoch seconds. Indexed.            |
 | `payload`                | TEXT    | The decoded value this event type carries (e.g. a battery percentage, a system state name), not the device's raw encoding. |
@@ -270,7 +270,7 @@ have a duration or a facet; each row is a single moment with a decoded value.
 Constraints:
 - `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
 - `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
-- `start_epoch` has a non-unique index (`IN1_device_notifications`).
+- `start_epoch` has a non-unique index (`IN1_device_notification`).
 
 ### `setting` (`database/011_setting.sql`)
 
@@ -306,7 +306,7 @@ Seeded rows:
   disabled-by-default behavior; the device itself only supports whole-minute granularity, so this
   can't be made finer). The timer resets every time the facet changes.
 - `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired
-  face, it can briefly pass over other faces, creating unwanted `device_events` segments for
+  face, it can briefly pass over other faces, creating unwanted `device_event` segments for
   them. Any segment shorter than `seconds` is merged into the *following* segment rather than
   becoming its own `time_entry` — see [Operation Spec § applying `blip_time`](operation-spec.md).
 - `firmware_check` = `{"last_alert":"<today>","interval_months":2}` — a single record for the

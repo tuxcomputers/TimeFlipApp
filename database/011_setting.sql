@@ -29,7 +29,7 @@ SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the de
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'auto_pause_minutes');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'blip_time', '{"seconds":5}', 'seconds: while picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_events segment shorter than this is merged into the following segment instead of becoming its own time_entry.'
+SELECT 'blip_time', '{"seconds":5}', 'seconds: while picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_event segment shorter than this is merged into the following segment instead of becoming its own time_entry.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'blip_time');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

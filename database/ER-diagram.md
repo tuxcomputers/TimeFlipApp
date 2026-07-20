@@ -5,16 +5,16 @@ directory. Generated from the DDL; keep it in sync when the schema changes.
 
 Foreign keys (referencing → referenced):
 
-- `device_events.event_type_id` → `event_type`
-- `device_notifications.event_type_id` → `event_type`
+- `device_event.event_type_id` → `event_type`
+- `device_notification.event_type_id` → `event_type`
 - `category.icon_id` → `icon`
 - `category.colour_id` → `colour`
 - `category.project_id` → `project`
 - `face.category_id` → `category`
 - `time_entry.category_id` → `category`
-- `time_entry.device_events_id` → `device_events`
-- `device_events.timezone_id` → `timezone`
-- `device_notifications.timezone_id` → `timezone`
+- `time_entry.device_event_id` → `device_event`
+- `device_event.timezone_id` → `timezone`
+- `device_notification.timezone_id` → `timezone`
 - `time_entry.start_timezone_id` → `timezone`
 - `time_entry.end_timezone_id` → `timezone`
 - `debug_log.timezone_id` → `timezone`
@@ -24,16 +24,16 @@ shown but unconnected.
 
 ```mermaid
 erDiagram
-    event_type ||--o{ device_events : "classifies"
-    event_type ||--o{ device_notifications : "classifies"
+    event_type ||--o{ device_event : "classifies"
+    event_type ||--o{ device_notification : "classifies"
     icon ||--o{ category : "shown by"
     colour ||--o{ category : "coloured by"
     project ||--o{ category : "groups"
     category ||--o{ face : "assigned to"
     category ||--o{ time_entry : "accrues"
-    device_events ||--o{ time_entry : "derived from"
-    timezone ||--o{ device_events : "captured in"
-    timezone ||--o{ device_notifications : "captured in"
+    device_event ||--o{ time_entry : "derived from"
+    timezone ||--o{ device_event : "captured in"
+    timezone ||--o{ device_notification : "captured in"
     timezone ||--o{ time_entry : "captured in"
     timezone ||--o{ debug_log : "captured in"
 
@@ -42,8 +42,8 @@ erDiagram
         TEXT    event_name
     }
 
-    device_events {
-        INTEGER device_events_id PK
+    device_event {
+        INTEGER device_event_id PK
         INTEGER event_number
         INTEGER event_type_id FK
         INTEGER device_face
@@ -56,8 +56,8 @@ erDiagram
         INTEGER processed
     }
 
-    device_notifications {
-        INTEGER device_notifications_id PK
+    device_notification {
+        INTEGER device_notification_id PK
         INTEGER event_type_id FK
         TEXT    start_time
         INTEGER timezone_id FK
@@ -94,7 +94,7 @@ erDiagram
     time_entry {
         INTEGER time_entry_id PK
         INTEGER category_id FK
-        INTEGER device_events_id FK
+        INTEGER device_event_id FK
         TEXT    started_at
         INTEGER start_timezone_id FK
         TEXT    ended_at
