@@ -105,7 +105,14 @@ true will misreport a real bug as a broken precondition (or vice versa) the next
   end tell
   ```
   Read item names first (`name of every menu item of menu 1`) to check current state before
-  deciding what to click. `key code 53` (Escape) dismisses without acting, in the same block. The
+  deciding what to click. `key code 53` (Escape) dismisses without acting, in the same block.
+  **Always finish an open menu in the same block** -- either click an item or send Escape. If you
+  read the item names in one `osascript` call and then click in a *separate* call, the menu is left
+  open, and the second call's `click menu bar item ... / click menu item ...` collides with the
+  already-open menu and **hangs** (confirmed live: a ~2-minute System Events stall, misread at first
+  as an Accessibility problem -- it was not; the canary passes and a real permission denial errors
+  instantly with `-1719`, it doesn't hang). So either do read-then-click in one block, or dismiss
+  with Escape before a fresh open -- never re-`click` a menu that's still open. The
   status item's single/double-click-right-half gesture (`MenuBarController.swift`) is a genuine
   screen-position hit-test against a real `NSEvent.locationInWindow`, not a menu action --
   `tell application "System Events" to click at {x, y}` at the status item's right-half screen
