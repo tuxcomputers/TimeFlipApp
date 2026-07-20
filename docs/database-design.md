@@ -171,7 +171,7 @@ Constraints:
 ### `project` (`database/006_project.sql`)
 
 A named project. Id and name only for now — groundwork for a planned projects feature. Numbered
-`005_*`, before `category`, so it's created and seeded before the tables that reference it — which
+`006_*`, before `category`, so it's created and seeded before the tables that reference it — which
 matters now that foreign keys are enforced (see the design principle above).
 
 | Column         | Type    | Description                                              |
@@ -196,6 +196,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `blank` icon) if no real icon is assigned. |
 | `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `blank` colour) if no real colour is assigned. |
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
+| `daily_limit`| INTEGER | Seconds of tracked time allowed against this category per day (`0` = no limit), following the same seconds convention as `duration_seconds` elsewhere (e.g. `time_entry`). The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
 | `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
 
 Constraints:
@@ -204,9 +205,8 @@ Constraints:
 - `colour_id` is a foreign key referencing `colour(colour_id)`, `NOT NULL`, defaulting to `0`
   (`blank`) for the same reason.
 - `project_id` is a foreign key referencing `project(project_id)`, `NOT NULL`, defaulting to `0`
-  (the `None` project) for the same reason. (Foreign keys are declared but not enforced — the app
-  doesn't set `PRAGMA foreign_keys = ON` — so it's fine that `project` is created after `category`
-  in file order; the reference and the `0` default resolve once `project` is seeded.)
+  (the `None` project) for the same reason. `project` (`006`) is created and seeded before
+  `category` (`007`), so the reference resolves under enforced foreign keys.
 - Seeded with an `Unassigned` row (linked to the `blank` icon and the `blank` colour), a `Break`
   row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
   both seeded with the `blank` colour, since none was specified.

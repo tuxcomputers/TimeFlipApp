@@ -1,7 +1,5 @@
 -- icon
--- Reference table of activity icons available to assign to a facet. `icon_name` is the
--- identifier the app uses to locate the icon asset (see
--- Sources/TimeFlipApp/ActivityIconLoader.swift).
+-- Reference table of activity icons available to assign to a facet.
 
 CREATE TABLE IF NOT EXISTS icon (
   icon_id     INTEGER CONSTRAINT PK_icon PRIMARY KEY

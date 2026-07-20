@@ -1,8 +1,5 @@
 -- category
--- Named activity category (e.g. an activity mapped to a facet), linked to the icon and colour
--- assigned to it. daily_limit is seconds of tracked time allowed against this category per day
--- (0 = no limit), matching the duration_seconds convention used elsewhere (e.g. time_entry);
--- the day boundary is the setting table's daily_reset_time, not midnight.
+-- Named activity category (e.g. an activity mapped to a facet), linked to an icon and colour.
 
 CREATE TABLE IF NOT EXISTS category (
   category_id     INTEGER CONSTRAINT PK_category PRIMARY KEY AUTOINCREMENT
