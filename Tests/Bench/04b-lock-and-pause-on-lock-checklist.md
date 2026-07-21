@@ -4,14 +4,17 @@ Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actio
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for
 the scenarios that use only menu clicks and DB-verifiable state -- no status-item gesture
 (single/double-click on the right half) and no physical device flip, so all three are fully
-Claude-drivable via the verified status-item-menu mechanic (see "Driving the app directly" in
-`../CLAUDE.md`). Scenario A and B were originally Scenario C and D of a single combined checklist;
+Claude-drivable via the verified status-item-menu mechanic (Method: Click a status-item menu item,
+`../Methods.md`). Scenario A and B were originally Scenario C and D of a single combined checklist;
 Scenario C was originally Scenario E, with "is the time increasing?" converted from a `(You)`
 menu-bar observation to a DB check (the same still-open event's `duration_seconds` growing) --
 proving the same fact without needing eyes on the screen. Scenario A, B in
-`Tests/Interactive/04-lock-and-pause-on-lock-checklist.md` still need the status-item gesture
-(unverified via script) or a physical flip, and assume the clean, unlocked/unpaused state this
-file's last scenario leaves behind.
+`Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md` still need the status-item gesture
+(Method: Status-item click gesture -- not automatable, `../Methods.md`) or a physical flip, and
+assume the clean, unlocked/unpaused state this file's last scenario leaves behind.
+
+Methods used throughout this file: Click a status-item menu item, Screenshot-based visual
+confirmation (`../Methods.md`).
 
 Despite the setting's name, `pause_on_lock` has **nothing to do with the Mac's screen locking or
 sleeping** -- it only controls whether *this app's own* Lock action (menu item, or the
@@ -34,9 +37,9 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [x] Query the current `pause_on_lock` value and note it as the original value to restore later.
+- [ ] Query the current `pause_on_lock` value and note it as the original value to restore later.
       (Original: `true`.)
-- [x] Query the device's current lock/pause state and the status-item menu's item names. If the
+- [ ] Query the device's current lock/pause state and the status-item menu's item names. If the
       device is currently paused or locked, resolve that first (click Resume / Unlock via the
       menu) so the scenarios below start from a clean unlocked, unpaused state. (Found locked +
       paused leftover from an earlier session; resolved via Unlock then Resume.)
@@ -46,28 +49,28 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=true` -- checked and
 resolved in Setup immediately above, which this scenario runs straight on from.
 
-- [x] Set `pause_on_lock` to `true`. (Already `true` from Setup.)
-- [x] Screenshot the menu bar; confirm the status item shows the play icon (▶) -- device not
+- [ ] Set `pause_on_lock` to `true`. (Already `true` from Setup.)
+- [ ] Screenshot the menu bar; confirm the status item shows the play icon (▶) -- device not
       already paused. (Confirmed.)
-- [x] Click the "Lock" menu item.
-- [x] Confirm a new `is_paused = 1` device_event row was written, and that `debug_log` shows
+- [ ] Click the "Lock" menu item.
+- [ ] Confirm a new `is_paused = 1` device_event row was written, and that `debug_log` shows
       `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`.
       (Confirmed -- this is also where real post-reset events started appearing again after
-      `01-reset-device-checklist.md`'s reset: event_number 1, then 2 here, proving the counter
+      `02b-reset-device-checklist.md`'s reset: event_number 1, then 2 here, proving the counter
       wipe more directly than the `device_last_event=nil` evidence noted there.)
-- [x] Screenshot the menu bar; confirm the lock badge is now shown and the icon switched to pause
+- [ ] Screenshot the menu bar; confirm the lock badge is now shown and the icon switched to pause
       (⏸). (Confirmed visually.)
-- [x] Open the menu; confirm the item reads "Unlock" and the Pause item is disabled. (Confirmed:
+- [ ] Open the menu; confirm the item reads "Unlock" and the Pause item is disabled. (Confirmed:
       `Resume` item `enabled = false`.)
-- [x] Click "Unlock".
-- [x] Confirm the device is still paused after unlocking -- no new `is_paused = 0` row appears.
+- [ ] Click "Unlock".
+- [ ] Confirm the device is still paused after unlocking -- no new `is_paused = 0` row appears.
       (Confirmed.)
-- [x] Screenshot the menu bar; confirm the lock badge is gone but the icon still shows pause (⏸).
+- [ ] Screenshot the menu bar; confirm the lock badge is gone but the icon still shows pause (⏸).
       (Confirmed visually, duration frozen.)
-- [x] Open the menu; confirm the item reads "Lock" again, and the Pause item is now enabled and
+- [ ] Open the menu; confirm the item reads "Lock" again, and the Pause item is now enabled and
       reads "Resume". (Confirmed: `Resume` item `enabled = true`.)
-- [x] Click "Resume" to bring the device back to a clean unpaused state.
-- [x] Confirm a new `is_paused = 0` row appears in `device_event` for the resume. (Confirmed.)
+- [ ] Click "Resume" to bring the device back to a clean unpaused state.
+- [ ] Confirm a new `is_paused = 0` row appears in `device_event` for the resume. (Confirmed.)
 
 ## Scenario B -- Quit pauses and locks the device when pause_on_lock is enabled; disabled it does nothing extra
 
@@ -77,31 +80,31 @@ below; if it doesn't match (a locked/paused leftover from an interrupted prior r
 it the same way Setup does above (Unlock/Resume via the menu, set `pause_on_lock=true`) before
 continuing.
 
-- [x] Confirm `pause_on_lock` is still `true`. Screenshot: no lock badge, play icon. (Confirmed.)
-- [x] Quit the app.
-- [x] Query `debug_log` and confirm the sequence `"Quit requested; pause_on_lock enabled, pausing
+- [ ] Confirm `pause_on_lock` is still `true`. Screenshot: no lock badge, play icon. (Confirmed.)
+- [ ] Quit the app.
+- [ ] Query `debug_log` and confirm the sequence `"Quit requested; pause_on_lock enabled, pausing
       and locking device before exit"` then `"Pause+lock on quit complete, terminating now"`.
       (Confirmed.)
-- [x] Start the app; confirm reconnect and via screenshot that the status icon is green. (Confirmed
+- [ ] Start the app; confirm reconnect and via screenshot that the status icon is green. (Confirmed
       fresh `"Login accepted, code=0x02"`.)
-- [x] Confirm a new `is_paused = 1` device_event row now appears (only after this relaunch's
+- [ ] Confirm a new `is_paused = 1` device_event row now appears (only after this relaunch's
       startup fetch, not immediately after quit). (Confirmed.)
-- [x] Screenshot the menu bar; confirm the lock badge is shown and the icon shows pause (⏸).
+- [ ] Screenshot the menu bar; confirm the lock badge is shown and the icon shows pause (⏸).
       (Confirmed visually.)
-- [x] Open the menu; confirm the item reads "Unlock" and the Pause item is disabled. (Confirmed:
+- [ ] Open the menu; confirm the item reads "Unlock" and the Pause item is disabled. (Confirmed:
       `Resume` item `enabled = false`.)
-- [x] Click "Unlock", then click "Resume" to return to a clean state. (Confirmed via new
+- [ ] Click "Unlock", then click "Resume" to return to a clean state. (Confirmed via new
       `is_paused = 0` row.)
-- [x] Test the *disabled* case properly: the noted "original" value is `true`, not `false`, so
+- [ ] Test the *disabled* case properly: the noted "original" value is `true`, not `false`, so
       restoring "to original" here wouldn't actually exercise the disabled-quit path. Explicitly
       set `pause_on_lock` to `false` instead, confirmed via querying the setting back.
-- [x] Quit the app (from the clean, unlocked/unpaused state above, with `pause_on_lock` now
+- [ ] Quit the app (from the clean, unlocked/unpaused state above, with `pause_on_lock` now
       genuinely `false`).
-- [x] Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or no paired device,
+- [ ] Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or no paired device,
       exiting immediately"` -- not the pause/lock sequence above. (Confirmed.)
-- [x] Confirm no new `is_paused = 1` device_event row was added around the quit time. (Confirmed.)
-- [x] Restore `pause_on_lock` to the real original value (`true`) noted in Setup.
-- [x] Start the app; confirm reconnect and via screenshot that the status icon is green with no
+- [ ] Confirm no new `is_paused = 1` device_event row was added around the quit time. (Confirmed.)
+- [ ] Restore `pause_on_lock` to the real original value (`true`) noted in Setup.
+- [ ] Start the app; confirm reconnect and via screenshot that the status icon is green with no
       lock badge -- a clean, unlocked, unpaused state, `pause_on_lock` back to its real original
       value. (Confirmed.)
 
@@ -111,12 +114,12 @@ continuing.
 value -- the clean state Scenario B's own last step leaves behind. Check via the screenshot below;
 if it doesn't match, resolve the same way as Scenario B's own precondition above before continuing.
 
-- [x] Screenshot the menu bar; confirm no lock badge is shown and the icon shows play (▶).
+- [ ] Screenshot the menu bar; confirm no lock badge is shown and the icon shows play (▶).
       (Confirmed.)
-- [x] Note the current (still-open, non-finalised) `device_event` row's `device_event_id` and
+- [ ] Note the current (still-open, non-finalised) `device_event` row's `device_event_id` and
       `duration_seconds`. Wait a few seconds.
-- [x] Re-query the same `device_event_id` and confirm `duration_seconds` increased and it's still
+- [ ] Re-query the same `device_event_id` and confirm `duration_seconds` increased and it's still
       the same row. (Confirmed: 51.0s -> 71.0s, same row, `is_paused = 0`.)
-- [x] Open the menu; confirm the Lock item reads "Lock" and the Pause item reads "Pause" and is
-      enabled -- a clean state ready for `Tests/Interactive/04-lock-and-pause-on-lock-checklist.md`.
+- [ ] Open the menu; confirm the Lock item reads "Lock" and the Pause item reads "Pause" and is
+      enabled -- a clean state ready for `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md`.
       (Confirmed.)

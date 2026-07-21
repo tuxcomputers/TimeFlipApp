@@ -33,7 +33,7 @@ runs, is `pkill -f "TimeFlip.app/Contents/MacOS/TimeFlip"` good enough, or does 
 a hard kill rather than a real quit?
 
 It matters a lot. `ApplicationDelegate.applicationShouldTerminate` is where the
-`pause_on_lock`-before-quit behavior lives (see `04-lock-and-pause-on-lock-checklist.md`) --
+`pause_on_lock`-before-quit behavior lives (see `Bench/04b-lock-and-pause-on-lock-checklist.md`) --
 logging `"Quit requested; pause_on_lock enabled, pausing and locking device before exit"` then
 `"Pause+lock on quit complete, terminating now"`. A `pkill`/signal-based kill bypasses AppKit's
 whole termination lifecycle -- neither `applicationShouldTerminate` nor `applicationWillTerminate`
@@ -105,7 +105,7 @@ With Accessibility working, the next question was whether the same approach reac
 Preferences window, not just the status-item menu -- and if so, what its actual element structure
 looks like, since none of it had ever been introspected before.
 
-Clicking "Preferences..." in the status-item menu (verified first, since that's what any checklist
+Clicking "Settings..." in the status-item menu (verified first, since that's what any checklist
 step opening Preferences would actually do) opened a real window visible to System Events:
 `get name of every window` returned `TimeFlip Settings`. A first attempt to switch tabs assumed a
 standard `tab group` element (`click radio button "Device" of tab group 1 of window ...`) -- that
@@ -145,7 +145,7 @@ confirmation dialog. They're expected to work via the same general System Events
 ## Trying to automate the status item's single/double-click-right-half gesture
 
 With ordinary menu-item clicks proven reliable, the obvious next target was
-`04-lock-and-pause-on-lock-checklist.md`'s Scenario B -- the status icon's
+`Interactive/04i-lock-and-pause-on-lock-checklist.md`'s Scenario B -- the status icon's
 right-half single-click (pause/resume toggle) and double-click (lock request) gesture, which is
 its own distinct code path from the menu item and specifically exists to confirm the gesture is a
 genuine equivalent, not just wired to open the menu. Reading `MenuBarController
@@ -177,7 +177,7 @@ plainly so a future session doesn't spend time re-attempting the identical appro
 ## Splitting 04's scenarios between Bench and Interactive
 
 Once menu clicks were verified and the right-half gesture verified *not* automatable (previous
-section), `04-lock-and-pause-on-lock-checklist.md` -- originally five scenarios (A-E), entirely in
+section), the lock-and-pause-on-lock checklist -- originally five scenarios (A-E), entirely in
 `Tests/Interactive/` -- needed sorting scenario-by-scenario rather than treated as one atomic unit.
 Checking each for an irreducible human-only step (the right-half gesture, a physical flip, or the
 time-increasing check):
@@ -204,6 +204,55 @@ always runs before Interactive in the same overall session, Interactive's Scenar
 assume Bench already established a clean baseline -- consistent with how `01`/`02`/`03`/`05`'s
 Interactive files already say "assumes the state the bench run left."
 
+## The history-refresh checklist's split never got the same renumbering treatment as 04
+
+Unlike 04 (previous section), when the history-refresh checklist's scenarios were split -- the
+DB/timer-only ones to Bench, the ones needing a physical flip to Interactive -- both sides just kept
+their original letters as-is: Bench ended up holding "A" and "D" while Interactive held "B" and "C",
+instead of each file restarting its own lettering at A the way 04's split deliberately did. This sat
+unnoticed until a later session pointed it out directly. Fixed the same way as 04: each file's
+letters renumbered to run consecutively from A, with every cross-reference updated to match.
+
+## A wrong assumption about run order, corrected, then resolved by reordering the files
+
+While fixing the lettering above, the Bench-side scenarios ("nothing changes" / skip path, and
+"resumes from the persisted cursor") turned out to be pure prose -- a "Preconditions" line plus a
+"Not verifiable this run" conclusion -- with **no actual checklist steps** for the case where the
+precondition *is* met. Fixing that led to a real misunderstanding that took two attempts to sort
+out.
+
+First attempt (wrong): the "Not verifiable this run" conclusion claimed the needed precondition (an
+already-open/growing event, or an existing `integration_event_cursors` row) could only exist "after
+Interactive's reset checklist has run, which happens after the entire Bench phase" -- and reasoned
+that since the reset checklist's own intro says its physical-flip counterpart is "run after this
+one," that counterpart must run *interleaved*, immediately after the reset checklist and before the
+rest of Bench (since the reset checklist needs a paired device for the rest of Bench to run at all).
+That reasoning was invented, not verified -- `CLAUDE.md`'s rule is unqualified ("finish the entire
+Bench phase... before starting any Interactive checklist"), with no stated exception, and a
+downstream fix (adding real steps to the Bench scenarios on the theory that the precondition would
+already be satisfied by the time Bench got to them) was built on top of this same wrong premise.
+Caught and corrected directly rather than left to be discovered later.
+
+Once the reset checklist really does need to end with the device paired for the rest of Bench to
+run (true, and unavoidable under the real, unqualified ordering rule), and its own Setup can't rely
+on a not-yet-run Interactive checklist for anything -- the actual fix wasn't in the reasoning, it
+was in the file order: **the history-refresh checklist now runs *before* the reset checklist**
+(swapped from `02`/`01` to `01`/`02`). `HistoryIngestor.nextStartCursor()` starts a fresh
+`test.sqlite`'s very first fetch at event 0, so that fetch pulls in whatever real history the device
+still has onboard -- which is exactly what the "nothing changes" and "resumes from cursor" scenarios
+need, and it's naturally available *before* a reset wipes it, with no dependency on any Interactive
+checklist at all. Setup now checks the device has a real event count of at least 10 while still on
+`production.sqlite`, syncs it, then switches to test and confirms the fresh backfill landed --
+making both scenarios reliably verifiable in Bench, no waiting on Interactive required.
+
+That reorder also surfaced a second, independent bug: the reset checklist's own last steps already
+ad hoc-click the discovered-device row to re-pair (necessary, since Bench must end with the device
+paired and Interactive doesn't run until afterward) -- but the Interactive reset checklist *also*
+had its own "re-pairing the forgotten device" scenario, with confirmed evidence that reads like the
+same real click recorded twice. Given the real, unqualified run order, the device is already paired
+by the time Interactive runs, so that scenario can never have anything to do. Removed it, keeping
+only the genuinely irreducible physical-flip scenario there.
+
 ## "Is the time increasing?" doesn't have to mean asking a human
 
 The first pass at splitting 04 (previous section) left its final scenario's "is the time
@@ -214,7 +263,7 @@ a generalization. The actual fact being checked -- is the device currently runni
 already has a direct DB proxy: the same still-open `device_event` row's `duration_seconds` is
 computed live from `start_epoch`, so noting it, waiting a few seconds, and re-querying the same row
 proves the same thing a human watching the menu bar would, without needing eyes on the screen at
-all -- exactly the technique `02-history-refresh-checklist.md`'s Bench Scenario A already used for
+all -- exactly the technique `Bench/01b-history-refresh-checklist.md`'s Scenario A already used for
 a different purpose (confirming a *skip-path* refresh). Once converted, that scenario had zero
 remaining `(You)` steps and moved to Bench too, as Scenario C.
 
@@ -224,7 +273,7 @@ here), and when there truly isn't one (confirming the *rendering itself*, not ju
 data), two or more screenshots taken more than a second apart can serve the same purpose a human
 would. For a single element, two screenshots showing different states is enough to prove it's
 changing. For *multiple* elements that must change in lockstep with each other (the actual
-remaining case in `03-battery-low-indicator-checklist.md`), two screenshots aren't enough --
+remaining case in `Interactive/03i-battery-low-indicator-checklist.md`), two screenshots aren't enough --
 both could show "changed" despite having flipped at different moments within the gap -- that needs
 several samples spaced closely relative to the blink interval, comparing all elements at each one.
 This hasn't actually been done yet for `03` -- doing so is a real, separate task (verify the
@@ -235,7 +284,7 @@ because the reasoning sounds right, consistent with every other capability in th
 
 Once Accessibility-driven clicking was proven to work in general, it became technically possible to
 also drive the Reset Device button and its destructive-action confirmation dialog in
-`01-reset-device-checklist.md` -- and briefly tempting to just convert that step to fully
+`Bench/02b-reset-device-checklist.md` -- and briefly tempting to just convert that step to fully
 unattended `(Claude)`, like everything else in Bench.
 
 That was deliberately not done. A factory reset erases the physical device's facet colors, task
@@ -252,7 +301,7 @@ from "needs a human's hands," even once the hands are no longer strictly require
 Before Accessibility was working at all, the only way to confirm a static visual element (a lock
 badge, a menu item's text) without asking the user was `screencapture` plus visual inspection of
 the resulting image -- which is what "Screenshot-based visual confirmation" in `CLAUDE.md`
-describes, and what `04-lock-and-pause-on-lock-checklist.md` was converted to use, item by item,
+describes, and what the lock-and-pause-on-lock checklist was converted to use, item by item,
 before Accessibility-based text reads were available.
 
 That conversion required its own mid-session correction: a first attempt at driving Preferences to
@@ -276,7 +325,7 @@ debug scaffolding used purely to drive a verification must never ship as part of
 Now that Accessibility-based tab-switching and text-reading are verified working, screenshots are
 only actually necessary for the narrower "custom-drawn image, or color/animation" case described
 above -- but the technique remains documented and in active use in
-`04-lock-and-pause-on-lock-checklist.md` and elsewhere for exactly that case.
+`Interactive/04i-lock-and-pause-on-lock-checklist.md` and elsewhere for exactly that case.
 
 ## The first live-testing incident, and the heads-up/all-clear rule it produced
 

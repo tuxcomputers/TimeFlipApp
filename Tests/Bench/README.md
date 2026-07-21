@@ -14,4 +14,5 @@ numbered checklist has no bench-side work, its file here is a stub containing ju
 For how to run these -- the two-phase order, the `(Claude)`/`(You)` step tags used in
 `Tests/Interactive/`, the test-database switch, reading `debug_log`, the file-numbering convention,
 recording bugs, and CI enforcement -- see [`../CLAUDE.md`](../CLAUDE.md), which holds everything
-common to both suites.
+common to both suites. For the concrete mechanics behind a step (clicking a menu item, editing a
+field, switching tabs, etc.), see [`../Methods.md`](../Methods.md).
