@@ -82,9 +82,15 @@ This project is released into the public domain under [The Unlicense](https://un
 
 ### Important Note About Icons
 
-I have not yet obtained permission from TimeFlip to use their icons, I am in the process
-of doing that. Until then the icons will be just an AI generated generic clock and not
-match the ones you have stickers for.
+The activity icons are TimeFlip's copyrighted icon set. I now have permission from TimeFlip
+(the copyright holder) to use them in this application, so the real icons — the ones that match
+the stickers on your device — are included here rather than the generic placeholder clock.
+
+That permission was granted to me, for this project specifically, and **does not transfer with
+the code**. This project's licence (The Unlicense, above) covers my code — it does **not** cover
+TimeFlip's icons. If you fork or copy this repository and want to distribute it, or otherwise make
+it available to others, with these icons included, you must obtain your own permission from
+TimeFlip first. Without that permission, remove or replace the icons before sharing it on.
 
 ## Acknowledgments
 
