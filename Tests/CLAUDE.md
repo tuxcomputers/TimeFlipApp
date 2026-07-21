@@ -1,5 +1,11 @@
 # Running the device tests
 
+Read this entire file, `Methods.md`, and each relevant checklist/`README.md` all the way through
+*before* taking the first action -- don't start executing (launching the app, quitting, ticking a
+box) partway through discovering the rules. A rule further down (the live-app-interaction warning,
+a run-order constraint, a step-sequencing requirement) still applies to the very first action
+taken, so read first, then act.
+
 Everything here is verified against a real, live run -- not guessed. When you discover something
 new, add a **minimal** entry (the fact/command, not the discovery story -- that goes in
 `README.md`). This suite runs repeatedly over time: treat friction (a retry, a workaround, an
@@ -149,6 +155,10 @@ it was last run on. So a found-and-fixed (or Last run) whose branch doesn't matc
 never stale-to-delete on sight; it just means that test hasn't been re-run here yet.
 
 ## Restarting
+
+Before clearing any checkboxes (single-file or the across-every-checklist form below), ask the
+user first via AskUserQuestion -- it discards recorded evidence (confirmation notes, bug entries
+tied to those ticks), so confirm the restart is actually wanted before running it.
 
 To restart a checklist: clear every box in that file back to `- [ ]` (don't delete or reorder the
 steps) and start again from the top. To do this across every checklist at once, match the literal

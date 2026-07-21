@@ -25,14 +25,19 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Confirm `db_type` currently reads `{"type":"production"}` and the device is connected.
-- [ ] Query `device_event` (`ORDER BY device_event_id DESC LIMIT 1`) and confirm the largest
+- [x] Confirm `db_type` currently reads `{"type":"production"}` and the device is connected.
+      (Confirmed: `db_type` setting = `{"type":"production"}`; `history` debug_log rows show
+      periodic fetches succeeding against a connected device.)
+- [x] Query `device_event` (`ORDER BY device_event_id DESC LIMIT 1`) and confirm the largest
       `event_number` is at least 10 -- enough real history for Scenario A/B below to have something
       substantial to observe, not just a couple of events. If it's lower, let the device accumulate
-      more real use first rather than proceeding on thin history.
-- [ ] Quit the app. Method: Quit the app (`../Methods.md`).
-- [ ] Run `scripts/use-test-database.sh`. Method: Switch to the test database (`../Methods.md`) --
-      this creates a fresh, empty `test.sqlite`, with no persisted cursor.
+      more real use first rather than proceeding on thin history. (Confirmed: latest
+      `event_number`=13, row open with `finalised=0`, `duration_seconds=3802.0`.)
+- [x] Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: `osascript ... quit`, no
+      `TimeFlip.app` process remained.)
+- [x] Run `scripts/use-test-database.sh`. Method: Switch to the test database (`../Methods.md`) --
+      this creates a fresh, empty `test.sqlite`, with no persisted cursor. (Confirmed: script
+      created a fresh `test.sqlite` and repointed the `appdata.sqlite` symlink at it.)
 - [ ] Start the app and confirm it reconnects to the device. Method: Launch the app for a
       Claude-driven step, Confirm device reconnect (`../Methods.md`).
 - [ ] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding.
