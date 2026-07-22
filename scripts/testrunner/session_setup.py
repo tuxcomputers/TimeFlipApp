@@ -129,6 +129,16 @@ def _latest_debug_log_id(db_path):
         conn.close()
 
 
+def _sibling_db_path(db_path, filename):
+    """db_path is the appdata.sqlite symlink; resolves to one of the actual files it can
+    point at (production.sqlite/test.sqlite), directly, regardless of what the symlink
+    currently points at -- needed because debug_log_id is per-file, not global, so a
+    baseline captured through the symlink before a switch is only meaningful if it's
+    read from the file the switch will land on, not whichever file happened to be
+    active a moment ago."""
+    return os.path.join(os.path.dirname(db_path), filename)
+
+
 def _wait_for_reconnect(db_path, since_id=0, timeout=30):
     """since_id must be the max debug_log_id captured BEFORE quitting/launching --
     debug_log persists across restarts, so an unscoped query would immediately match
@@ -185,7 +195,6 @@ def ensure_known_state(db_path, repo_root):
                   "check the device connection, then re-run.")
             return False
         print("Real history confirmed synced against production. Switching to the test database...")
-        since_id = _latest_debug_log_id(db_path)
         if not _quit_app():
             print("error: app did not quit -- refusing to launch a second instance on top of it. "
                   "Quit it manually, then re-run.")
@@ -195,7 +204,13 @@ def ensure_known_state(db_path, repo_root):
             print(f"error running use-test-database.sh: {r.stderr.strip()}")
             return False
         _launch_app(repo_root)
-        if not _wait_for_reconnect(db_path, since_id=since_id):
+        # since_id=0, not a pre-switch max id: use-test-database.sh deletes and recreates
+        # test.sqlite from scratch every time, so its debug_log_id sequence restarts at 1
+        # -- a since_id carried over from production's (much larger) sequence would never
+        # be exceeded by the fresh file, guaranteeing a timeout even on an instant
+        # reconnect (debug_log_id is per-file, not global; confirmed live: this masked a
+        # real reconnect that completed in ~4s).
+        if not _wait_for_reconnect(db_path, since_id=0):
             print("error: device did not reconnect after switching to the test database.")
             return False
         db_type = _read_db_type(db_path)
@@ -242,7 +257,14 @@ def restore_production_database(db_path, repo_root):
               "Run scripts/use-production-database.sh manually once you've confirmed it's safe.")
         return False
 
-    since_id = _latest_debug_log_id(db_path)
+    # Read production.sqlite's own current max id directly, by its real path -- not
+    # through the appdata.sqlite symlink, which still points at test.sqlite at this
+    # point. debug_log_id is per-file: a since_id read through the symlink here would be
+    # test.sqlite's own (small, session-local) counter, which production.sqlite's much
+    # larger, already-accumulated history would trivially exceed immediately, making the
+    # reconnect wait below pass on a stale pre-existing row instead of a genuinely fresh
+    # one (the mirror image of the prod->test bug this session just fixed).
+    since_id = _latest_debug_log_id(_sibling_db_path(db_path, "production.sqlite"))
     if not _quit_app():
         print("  app did not quit -- refusing to launch a second instance on top of it. "
               "Quit it manually, then re-run.")
