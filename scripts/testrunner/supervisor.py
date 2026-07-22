@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
 from actions import run_step  # noqa: E402
+from session_setup import confirm_warning, ensure_known_state  # noqa: E402
 
 DEFAULT_DB_PATH = os.path.expanduser("~/Library/Application Support/TimeFlip/appdata.sqlite")
 
@@ -98,6 +99,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("checklists", nargs="+", help="Checklist .md file paths, in the order they should run.")
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="Path to appdata.sqlite (default: the real app data location).")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt (still prints the warning) -- for CI/non-interactive runs only.",
+    )
     args = parser.parse_args()
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -107,6 +113,28 @@ def main():
     log_path = os.path.join(log_dir, f"{timestamp}.txt")
 
     log_lines = [f"TimeFlip device-test run started {timestamp}", f"Checklists: {', '.join(args.checklists)}"]
+
+    if args.yes:
+        from session_setup import WARNING_TEMPLATE, RESET_WARNING
+        includes_reset = any("02b" in os.path.basename(p) or "02i" in os.path.basename(p) for p in args.checklists)
+        print(WARNING_TEMPLATE.format(reset_warning=RESET_WARNING if includes_reset else ""))
+        print("(--yes passed: skipping confirmation prompt)")
+        confirmed = True
+    else:
+        confirmed = confirm_warning(args.checklists)
+    if not confirmed:
+        print("Aborted -- confirmation not given.")
+        sys.exit(1)
+    log_lines.append("Developer confirmed the device-manipulation warning.")
+
+    if not ensure_known_state(args.db_path, repo_root):
+        print("Aborted -- could not establish a known device/database state.")
+        log_lines.append("ABORTED: could not establish known device/database state.")
+        with open(log_path, "w") as f:
+            f.write("\n".join(log_lines) + "\n")
+        sys.exit(1)
+    log_lines.append("Known device/database state established.")
+
     overall_ok = True
     for path in args.checklists:
         ok = run_checklist(path, args.db_path, log_lines)

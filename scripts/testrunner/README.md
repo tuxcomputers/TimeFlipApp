@@ -18,6 +18,21 @@ Requires `pyobjc` (`pip3 install pyobjc-framework-Quartz`) for `cgevent_click` s
 Run checklists in the order `Tests/CLAUDE.md` specifies (whole Bench phase, then whole
 Interactive phase); this runner does not enforce that order for you.
 
+## Before anything runs
+
+Every invocation prints a warning that this manipulates the real, physical device (and
+specifically calls out a factory reset if a `02b`/`02i` path is passed), and blocks on a
+typed `yes` confirmation -- there's no way to skip this interactively; pass `--yes` only
+for CI/non-interactive runs (it still prints the warning, just doesn't wait for input).
+
+Once confirmed, `session_setup.py` establishes the known state every checklist assumes,
+mirroring "Switch to the test database" in `../../Tests/Methods.md`: confirms/switches to
+the test database (quitting, running `use-test-database.sh`, relaunching, and waiting for
+a **fresh** post-relaunch reconnect -- not a stale pre-relaunch row, since `debug_log`
+persists across restarts) if currently on production, or just confirms the device is
+connected if the test database is already active. This runs once per invocation, not once
+per checklist file.
+
 ## How a checklist step becomes runnable
 
 A step is a normal `- [ ]`/`- [x]` checklist line, same as any other -- the human-readable
