@@ -99,9 +99,20 @@ def _app_running():
     return r.returncode == 0
 
 
-def _quit_app():
+def _quit_app(timeout=10):
+    """Sends the AppleScript quit, then polls until the process actually disappears --
+    a fixed sleep trusted the quit silently, so a stuck/ignored quit (a dialog waiting
+    on input, an AppleScript error swallowed by capture_output) would fall through to
+    _launch_app() launching a second instance on top of the still-running first one,
+    instead of surfacing the failure. Returns False (without launching anything) if the
+    process is still there after timeout."""
     subprocess.run(["osascript", "-e", 'tell application "TimeFlip" to quit'], capture_output=True, text=True)
-    time.sleep(2)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _app_running():
+            return True
+        time.sleep(1)
+    return False
 
 
 def _launch_app(repo_root):
@@ -161,7 +172,10 @@ def ensure_known_state(db_path, repo_root):
         )
         since_id = _latest_debug_log_id(db_path)
         if _app_running():
-            _quit_app()
+            if not _quit_app():
+                print("error: app did not quit -- refusing to launch a second instance on top of it. "
+                      "Quit it manually, then re-run.")
+                return False
         _launch_app(repo_root)
         if not _wait_for_reconnect(db_path, since_id=since_id):
             print("error: device did not reconnect after restarting against production.")
@@ -172,7 +186,10 @@ def ensure_known_state(db_path, repo_root):
             return False
         print("Real history confirmed synced against production. Switching to the test database...")
         since_id = _latest_debug_log_id(db_path)
-        _quit_app()
+        if not _quit_app():
+            print("error: app did not quit -- refusing to launch a second instance on top of it. "
+                  "Quit it manually, then re-run.")
+            return False
         r = subprocess.run(["scripts/use-test-database.sh"], cwd=repo_root, capture_output=True, text=True)
         if r.returncode != 0:
             print(f"error running use-test-database.sh: {r.stderr.strip()}")
@@ -226,7 +243,10 @@ def restore_production_database(db_path, repo_root):
         return False
 
     since_id = _latest_debug_log_id(db_path)
-    _quit_app()
+    if not _quit_app():
+        print("  app did not quit -- refusing to launch a second instance on top of it. "
+              "Quit it manually, then re-run.")
+        return False
     r = subprocess.run(["scripts/use-production-database.sh"], cwd=repo_root, capture_output=True, text=True)
     if r.returncode != 0:
         print(f"  error running use-production-database.sh: {r.stderr.strip()}")
