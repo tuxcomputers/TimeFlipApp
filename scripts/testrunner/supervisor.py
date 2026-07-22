@@ -281,14 +281,31 @@ def main():
             "history once you switch back."
         )
 
-    db_restore_ok = restore_production_database(args.db_path, repo_root)
-    log_lines.append(f"End-of-run database restore: {'OK' if db_restore_ok else 'FAILED -- run scripts/use-production-database.sh manually'}")
-    if not db_restore_ok:
-        print(
-            "\n!!! Could not switch back to the production database automatically -- quit "
-            "the app and run scripts/use-production-database.sh yourself, then relaunch, "
-            "before trusting production history."
+    if args.yes:
+        print("(--yes passed: switching back to the production database)")
+        restore_now = True
+    else:
+        restore_now = prompt_yn(
+            "\nSwitch back to the production database now? Say 'n' if you're about to run "
+            "more tests -- switching back and forth every run is wasted effort."
         )
+    log_lines.append(f"Switch back to production database requested: {restore_now}")
+
+    if restore_now:
+        db_restore_ok = restore_production_database(args.db_path, repo_root)
+        log_lines.append(f"End-of-run database restore: {'OK' if db_restore_ok else 'FAILED -- run scripts/use-production-database.sh manually'}")
+        if not db_restore_ok:
+            print(
+                "\n!!! Could not switch back to the production database automatically -- quit "
+                "the app and run scripts/use-production-database.sh yourself, then relaunch, "
+                "before trusting production history."
+            )
+    else:
+        print(
+            "\nStaying on the test database. Run scripts/use-production-database.sh (quit the "
+            "app first) whenever you're ready to switch back."
+        )
+        log_lines.append("Developer chose to stay on the test database for now.")
 
     log_lines.append(f"\nOverall result: {'PASS' if overall_ok else 'FAIL'}")
     with open(log_path, "w") as f:

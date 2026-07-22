@@ -26,12 +26,12 @@ WARNING_TEMPLATE = """
 
   At the end of the run, the device is factory reset and needs a quick re-pair
   click from you. This wipes the test session's activity from the device's own
-  onboard counter, so none of it can leak into your real history. The run then
-  switches the app back to the production database itself -- you don't need to
-  run scripts/use-production-database.sh by hand afterward.
+  onboard counter, so none of it can leak into your real history. You'll then
+  be asked whether to switch the app back to the production database now, or
+  stay on test (handy if you're about to run more tests).
 
   Do NOT run this while you're relying on the device to track real time --
-  its current activity will be interrupted until the run switches back at the end.
+  its current activity will be interrupted until you switch back to production.
 ################################################################################
 """
 

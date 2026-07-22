@@ -55,13 +55,17 @@ per checklist file.
 Once every requested checklist has finished (pass or fail), the supervisor factory-resets
 the device and asks you to re-pair it (one click, can't be scripted) -- this wipes the
 whole session's test activity from the device's own onboard counter, so none of it gets
-mistaken for real history. It then repoints `appdata.sqlite` back at `production.sqlite`
-itself (`scripts/use-production-database.sh`, quit/relaunch included) and confirms the
-app reconnects against it -- you don't need to remember to do this by hand. If either the
-cleanup reset or the database restore can't complete for some reason, the run prints a
-clear warning and the log records it -- resolve that manually (reset/pair the device,
-and/or run `scripts/use-production-database.sh` yourself) before trusting production
-history in that case.
+mistaken for real history. It then asks (`y/n`) whether to switch the app back to the
+production database now -- say `n` if you're about to run more tests, since switching to
+production and back to test every run is wasted effort (`use-test-database.sh` rebuilds
+`test.sqlite` from scratch each time). `y` repoints `appdata.sqlite` back at
+`production.sqlite` itself (`scripts/use-production-database.sh`, quit/relaunch included)
+and confirms the app reconnects against it. `--yes` answers `y` automatically, for
+CI/non-interactive use. If either the cleanup reset or (when requested) the database
+restore can't complete for some reason, the run prints a clear warning and the log
+records it -- resolve that manually (reset/pair the device, and/or run
+`scripts/use-production-database.sh` yourself) before trusting production history in
+that case.
 
 ## Answering a question mid-run
 
