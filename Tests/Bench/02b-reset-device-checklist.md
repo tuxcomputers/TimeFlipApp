@@ -1,5 +1,7 @@
 # Reset Device Checklist
 
+### Last run - 2026-07-21 on the branch 'feature/projects'
+
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
 device's event numbering before and after a real reset. A reset intentionally ends with the device
@@ -32,15 +34,15 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Confirm `db_type` still reads `{"type":"test"}` (left active by `01b-history-refresh-checklist.md`)
+- [x] Confirm `db_type` still reads `{"type":"test"}` (left active by `01b-history-refresh-checklist.md`)
       and the device is connected. If it reads `production`, `01b`'s Setup needs (re-)running first
-      rather than switching databases from here.
-- [ ] Note the device's current event counter as **N** (the pre-reset baseline): query
+      rather than switching databases from here. (Confirmed: `{"type":"test"}`, device connected.)
+- [x] Note the device's current event counter as **N** (the pre-reset baseline): query
       `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a
       `history` fetch's `device_last_event=`. **N** must be > 0 -- `01b`'s Setup backfill should
       already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` --
       use `start_epoch`/`start_time` if a time is needed, or omit entirely and just order by
-      `device_event_id DESC`.)
+      `device_event_id DESC`.) (Confirmed: N=13.)
 
 ## Scenario A -- factory reset wipes the device's own event counter and ends never-paired
 
@@ -51,7 +53,8 @@ noted -- all established immediately above in Setup, which this scenario runs st
       button 1 of the tab picker). Method: Click a status-item menu item, Switch Settings-window
       tabs (`../Methods.md`). (Note: on this branch the menu item is "Settings..." and the other
       tabs are "Faces"/"App" -- it is based on `main`, which includes the settings-rename merge;
-      the Device tab is still radio button 1.)
+      the Device tab is still radio button 1.) (Confirmed via screenshot: Device tab open, Name
+      `TimeFlip`, Connection `Connected`, Battery `23%`.)
 - [x] Click **Reset Device** (`AXButton` in the pairing section's `AXGroup`, right of **Forget
       Device**) and confirm the destructive-action dialog. Method: Confirm a confirmation-dialog
       sheet (`../Methods.md`) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
@@ -63,7 +66,7 @@ noted -- all established immediately above in Setup, which this scenario runs st
       row, then reconnect/login attempts, then
       `"Factory reset confirmed: device is back on the default password; returning to never-paired state"`.
       (Confirmed, including the expected transient: `0xFF` sent with stale read-back
-      `17 3A 5A 3B 14 3C 32 3D 00 00 ...`; reconnect #1 accepted the OLD password `123456` -> logged
+      `17 3A 5A 3B 14 3C 32 3D 32 00 ...`; reconnect #1 accepted the OLD password `123456` -> logged
       `"Factory reset not yet confirmed: device still accepts the old password; retrying"`; reconnect
       #2 rejected `123456` (`0x01`), accepted `000000` (`0x02`) -> `"Factory reset confirmed ...
       returning to never-paired state"`.)
@@ -86,7 +89,7 @@ noted -- all established immediately above in Setup, which this scenario runs st
       `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence.
       Seeing a *real* post-reset event with the device's own low numbering needs a physical flip --
       that's the Interactive counterpart.) (Confirmed: post-re-pair fetch read `device_last_event=nil`
-      where it had read `13` pre-reset -- the device's own counter was wiped.)
+      where N was `13` pre-reset -- the device's own counter was wiped.)
 - [x] Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
       (`static text` matching the device name, e.g. `"TimeFlip v2.0"`, under "Click a device below to
       pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`). (Confirmed:
@@ -95,9 +98,11 @@ noted -- all established immediately above in Setup, which this scenario runs st
       `000000` now). Method: Discovered-device row click -- not automatable (`../Methods.md`); ask
       the user ad hoc (a large `## Action needed` heading, per "Running a checklist" rule 3 in
       `../CLAUDE.md`). Confirm a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row (Method:
-      Confirm device reconnect). (Confirmed: user clicked the row; paired with `000000` (`Login
-      accepted 0x02`), then the pairing flow rotated the password to `123456` and re-confirmed,
-      followed by the usual device-sync of auto-pause/LED/double-tap.)
+      Confirm device reconnect) -- detected by polling `debug_log`, not waiting on chat confirmation
+      (Method: Detect a physical action instead of asking, `../Methods.md`). (Confirmed: user clicked
+      the row; paired with `000000` (`Login accepted 0x02`), then the pairing flow rotated the
+      password to `123456` and re-confirmed, followed by the usual device-sync of
+      auto-pause/LED/double-tap.)
 - [x] Confirm the Device tab shows the device paired and connected again: read the `Connection` row
       (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no
       longer "Not paired"). (Confirmed: `Name`=`TimeFlip`, `Connection`=`Connected`, `Battery`=`23%`.)

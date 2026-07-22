@@ -1,5 +1,7 @@
 # Low-Battery Indicator Checklist
 
+### Last run - 2026-07-21 on the branch 'feature/projects'
+
 Covers the low-battery blink (`MenuBarController.updateLowBatteryBlinkTimer`/
 `updatedLowBatteryLatch`): the activity name blinks red/white once battery drops to or below
 `low_battery_level`, and only clears once it climbs `lowBatteryRecoveryMarginPercent` (5 points)
@@ -19,9 +21,14 @@ must be changed while the app is down, not while it's running.
 
 This bench file drives the state transitions and asserts them from `debug_log` (the `isLowBattery`
 latch flipping true/false with the right hysteresis) plus the accessibility-readable forced-Device-tab
-behavior. Confirming the actual *flash rendering* -- the menu-bar text, the "Settings..." menu
-item, and the Battery line visibly blinking over time -- is a genuinely time-based visual check and
-lives in `Tests/Interactive/03i-battery-low-indicator-checklist.md`, run after this one.
+behavior. Confirming the actual *flash rendering* -- the menu-bar text and the Battery line visibly
+blinking over time -- is a genuinely time-based visual check and lives in
+`Tests/Interactive/03i-battery-low-indicator-checklist.md`, run after this one. The "Settings..."
+dropdown menu item no longer flashes (design changed live during a test run -- `NSMenuItem` doesn't
+reliably repaint an already-open menu row after a highlight change, so continuously animating it
+raced AppKit's own redraw during hover); clicking the left side of the status item while low now
+opens Settings on the Device tab directly instead, which -- needing real click-position data a
+synthetic click doesn't carry -- is also `03i`'s to confirm, not this file's.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
@@ -32,16 +39,16 @@ low-battery state -- check via the query below; if it shows `isLowBattery=true` 
 threshold left over from an interrupted prior run, restore the threshold to 5% and restart the app
 before continuing.
 
-- [ ] Query `debug_log` for the most recent `battery` row for the current actual `level`.
-      (Confirmed: level 23%, threshold 5%, not low.)
-- [ ] Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
-- [ ] Query the current threshold and note it as the original value to restore later. (Original:
+- [x] Query `debug_log` for the most recent `battery` row for the current actual `level`.
+      (Confirmed: level 22%, threshold 5%, not low.)
+- [x] Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
+- [x] Query the current threshold and note it as the original value to restore later. (Original:
       5%.)
-- [ ] Update the threshold to at/above the level noted above, so the fresh connection registers as
-      low immediately. (Set to 30% -- battery was at 23%.)
-- [ ] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
+- [x] Update the threshold to at/above the level noted above, so the fresh connection registers as
+      low immediately. (Set to 30% -- battery was at 22%.)
+- [x] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
       code=0x02"` row).
-- [ ] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`. (Confirmed: `level=23 threshold=30 recoveryAt=35 isLowBattery=true`.)
 
 ## Scenario B -- confirm recovery clears it
@@ -51,16 +58,17 @@ before continuing.
 restoring; if it already reads `false`, the previous section's trigger didn't hold and needs
 re-running first.
 
-- [ ] Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true` before
+- [x] Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true` before
       proceeding (state left by the previous section). (Confirmed: `level=23 threshold=30
       recoveryAt=35 isLowBattery=true`.)
-- [ ] Quit the app.
-- [ ] Restore the threshold to its original value via the same `UPDATE setting ...` command.
+- [x] Quit the app.
+- [x] Restore the threshold to its original value via the same `UPDATE setting ...` command.
       (Restored to 5%.)
-- [ ] Start the app and confirm it reconnects to the device.
-- [ ] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [x] Start the app and confirm it reconnects to the device. (Confirmed: fresh `"Login accepted,
+      code=0x02"` row.)
+- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`, with `level` above `recoveryAt` (threshold + 5), not just above the
-      bare threshold. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
+      bare threshold. (Confirmed: `level=19 threshold=5 recoveryAt=10 isLowBattery=false`.)
 
 ## Scenario C -- confirm the recovery margin, not just the bare threshold, controls the latch
 
@@ -77,22 +85,25 @@ the fresh connection is immediately low, then confirms a small flap upward -- st
 threshold to a value (5%) far enough below the live level that `recoveryAt` was trivially
 satisfied.
 
-- [ ] Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
-      range. (Confirmed: flapped 23/22/21%, later stabilizing around 22/23%.)
-- [ ] Quit the app.
-- [ ] Update the threshold to a value at/near the live reading via the same `UPDATE setting ...`
+- [x] Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
+      range. (Confirmed: flapped 17-23% over the session, settling around 22-23%. Two thresholds
+      were tried first -- 21% and 23% -- but the live level happened to sit exactly at each on
+      relaunch, so the initial post-connect reading wasn't reliably low; 22% was the value that
+      actually landed inside the flap range on relaunch.)
+- [x] Quit the app.
+- [x] Update the threshold to a value at/near the live reading via the same `UPDATE setting ...`
       command. (Set to 22%; recoveryAt = 27%.)
-- [ ] Start the app and confirm it reconnects to the device.
-- [ ] Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`. (Confirmed: `level=22 threshold=22 recoveryAt=27 isLowBattery=true`.)
-- [ ] Poll `debug_log` until a `battery` row shows a higher reading than the threshold, and confirm
+- [x] Start the app and confirm it reconnects to the device.
+- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+      `isLowBattery=true`. (Confirmed: `level=20 threshold=22 recoveryAt=27 isLowBattery=true`.)
+- [x] Poll `debug_log` until a `battery` row shows a higher reading than the threshold, and confirm
       `isLowBattery` is still `true` on that row (since it remains below `recoveryAt`). (Confirmed:
       `level=23 threshold=22 recoveryAt=27 isLowBattery=true` -- the flap up to 23% did not clear
       the latch, as expected since 23 < recoveryAt 27.)
-- [ ] Quit the app.
-- [ ] Restore the threshold to its original value (5%) via the same `UPDATE setting ...` command.
-- [ ] Start the app and confirm it reconnects to the device.
-- [ ] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [x] Quit the app.
+- [x] Restore the threshold to its original value (5%) via the same `UPDATE setting ...` command.
+- [x] Start the app and confirm it reconnects to the device.
+- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
 
 ## Scenario D -- opening Preferences on low battery force-selects the Device tab
@@ -104,32 +115,33 @@ directly if running this section standalone rather than straight after.
 Covers the `AppState.pendingSettingsTab` hint: opening Preferences while low-battery is active jumps
 straight to the Device tab (where the battery reading lives), regardless of whichever tab was last
 selected. This is accessibility-readable (the selected tab), so it stays here; the *flashing* of the
-menu item and Battery line is the Interactive counterpart.
+Battery line, and confirming the left side of the status item now opens Settings directly (skipping
+the dropdown) while low, are the Interactive counterpart.
 
-- [ ] Query `db_type` to confirm which database is active. (Confirmed: `{"type":"test"}`.)
-- [ ] Query the current threshold and the live battery level and note them as the original values
-      to restore later. (Original threshold: 5%. Live level: 23%.)
-- [ ] Quit the app.
-- [ ] Update the threshold to at/above the live level noted above, so the fresh connection
-      registers as low immediately. (Set to 24%.)
-- [ ] Start the app and confirm it reconnects to the device.
-- [ ] Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`. (Confirmed: `level=23 threshold=24 recoveryAt=29 isLowBattery=true`.)
-- [ ] With some non-Device tab last selected, open Preferences and confirm via the accessibility
+- [x] Query `db_type` to confirm which database is active. (Confirmed: `{"type":"test"}`.)
+- [x] Query the current threshold and the live battery level and note them as the original values
+      to restore later. (Original threshold: 5%. Live level: 22%.)
+- [x] Quit the app.
+- [x] Update the threshold to at/above the live level noted above, so the fresh connection
+      registers as low immediately. (Set to 25%.)
+- [x] Start the app and confirm it reconnects to the device.
+- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+      `isLowBattery=true`. (Confirmed: `level=22 threshold=25 recoveryAt=30 isLowBattery=true`.)
+- [x] With some non-Device tab last selected, open Preferences and confirm via the accessibility
       tree (Method: Read a label or value via accessibility, `../Methods.md`) that the **Device**
       tab is the selected one (the `pendingSettingsTab` hint forced it),
-      not whatever was last open. (Confirmed: opened on Facets, closed, reopened -- Device radio
-      button read `value = 1` (selected), and its content -- `Connection`/`Connected`,
-      `Battery`/`22%` -- was genuinely showing, not just the radio state.)
-- [ ] Switch to a different tab (e.g. Facets), close Preferences, then reopen it while still low on
+      not whatever was last open. (Confirmed: switched to Facets (radio button 2, value=1), closed,
+      reopened -- Device radio button read `value = 1` (selected), and its content --
+      `Connection`/`Connected`, `Battery`/`23%` -- was genuinely showing, not just the radio state.)
+- [x] Switch to a different tab (e.g. Facets), close Preferences, then reopen it while still low on
       battery, and confirm it jumped back to the Device tab again, not the Facets tab. (Covered by
       the same confirmation above -- this was a reopen after Facets was last selected.)
-- [ ] Quit the app.
-- [ ] Restore the threshold to its original value. (Restored to 5%.)
-- [ ] Start the app and confirm it reconnects to the device.
-- [ ] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [x] Quit the app.
+- [x] Restore the threshold to its original value. (Restored to 5%.)
+- [x] Start the app and confirm it reconnects to the device.
+- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
-- [ ] Open Preferences and confirm that, no longer low, opening it no longer force-selects the
+- [x] Open Preferences and confirm that, no longer low, opening it no longer force-selects the
       Device tab -- whatever tab was open previously stays selected. (Confirmed: switched to
       Facets, closed, reopened -- Facets radio button read `value = 1`, Device `value = 0`, i.e.
       stayed on Facets.)

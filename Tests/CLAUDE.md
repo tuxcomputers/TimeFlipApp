@@ -110,6 +110,11 @@ What's below is background behavior/facts, not technique:
     state the current step requires before re-asking for confirmation.
 11. Always name which trigger an action-needed step means ("click the Lock **menu item**"), even if
     it seems obvious from context -- don't make the user infer which gesture/scenario applies.
+12. When asking the user to flip the device, name the exact facet to flip to (e.g. "flip to the
+    **Break** face"), not just "flip to a different facet" -- that way the expected resulting facet
+    is known in advance rather than accepting whatever the user happened to land on. Only ask for
+    **Break** (facet 8) or **Meeting** (facet 2) -- the only two faces with stickers on the physical
+    cube used for these tests.
 
 ## Last run tracking
 
@@ -153,6 +158,12 @@ But a checklist you **don't** run on the current branch keeps **both** its `### 
 its Bugs found and fixed exactly as the previous branch left them -- untouched history for the branch
 it was last run on. So a found-and-fixed (or Last run) whose branch doesn't match the current one is
 never stale-to-delete on sight; it just means that test hasn't been re-run here yet.
+
+## Resuming a mid-run checklist
+
+A checklist with some but not all boxes checked is mid-run. Before acting on it, ask the user
+(AskUserQuestion) whether to continue from the first unchecked box or restart from the top --
+don't assume either.
 
 ## Restarting
 

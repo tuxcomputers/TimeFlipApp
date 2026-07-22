@@ -66,22 +66,91 @@ dismisses (Escape), same block. **Never split read and click across two `osascri
 menu stays open and the next call collides and hangs (~2 min stall, easily misread as an
 Accessibility problem; a real permission denial errors instantly with `-1719`, it doesn't hang).
 
-## Status-item click gesture (not automatable)
+## Simulate a real click, double-click, or held press via CGEventPost
+
+AppleScript's `click`/`click at {x, y}` (System Events) never reaches genuine screen-position-based
+gestures -- confirmed dead ends for the status item's click-right-half toggle and the auto-pause
+stepper arrows' held press: both are raw `NSEvent`-driven hit-tests, not menu/AX actions, and
+synthetic AX/coordinate clicks simply never arrive (no effect, and -- once the `click`-tagged debug
+print existed to check -- no log line either).
+
+A raw `CGEventPost` (e.g. via Python's `pyobjc`/`Quartz`) *does* arrive correctly, but only if
+`kCGMouseEventClickState` is set explicitly on both the down and up events -- omitting it makes
+macOS treat every event as a fresh single click (`clickCount` always `1`), which is the actual root
+cause behind "synthetic double-clicks don't work" (not click speed, a missing metadata field):
+
+```python
+import Quartz, time
+X, Y = <screen point x>, <screen point y>
+def post(kind, click_state):
+    e = Quartz.CGEventCreateMouseEvent(None, kind, (X, Y), Quartz.kCGMouseButtonLeft)
+    Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, click_state)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+
+# Double-click (click_state=2 on the second down/up pair, within the system double-click interval):
+post(Quartz.kCGEventLeftMouseDown, 1); post(Quartz.kCGEventLeftMouseUp, 1)
+time.sleep(0.15)
+post(Quartz.kCGEventLeftMouseDown, 2); post(Quartz.kCGEventLeftMouseUp, 2)
+
+# Held press (mouseDown, wait, mouseUp -- same click_state=1 throughout):
+post(Quartz.kCGEventLeftMouseDown, 1)
+time.sleep(4)  # however long the hold needs to run
+post(Quartz.kCGEventLeftMouseUp, 1)
+```
+
+Confirmed live: this genuinely locked/unlocked the device via the status item's double-click
+gesture (`debug_log` showed `clickCount=1` then `clickCount=2`, then `"Lock ON triggered"`), and a
+plain single click (`click_state=1`, no second pair) genuinely toggled pause/resume the same way
+(`debug_log` `side=right clickCount=1`, a fresh `device_event` row with `is_paused` flipped) -- both
+previously believed impossible to script (see the now-superseded notes this replaced, still visible
+in git history).
+
+Also confirmed live for the auto-pause stepper: a single held `mouseDown`/wait/`mouseUp` pair ran
+the full documented deceleration curve correctly in **both** directions -- a 4-second hold on the
+down arrow (`26 -> 25...20 -> 15, 10, 5, 0`, stopping cleanly at 0) and a 4-second hold on the up
+arrow (`51 -> 52...60 -> 65, 70...100`, single steps to the next 10-gridline then by-5) -- and a
+plain quick click (no hold at all) also genuinely incremented the value by 1, superseding the older
+belief that this control needed a real click.
+
+Also confirmed for the compound "hold interrupted by closing the window" gesture (previously assumed
+to need two real hands): `mouseDown` on the arrow, wait ~1s, post a synthetic `Escape` keydown/keyup
+(`CGEventCreateKeyboardEvent(None, 53, True/False)`) while the mouse is still conceptually "down" (no
+`mouseUp` posted yet), wait, then `mouseUp` -- the window closed on the synthetic Escape exactly as
+it does on a real one, the value stopped advancing at that instant and stayed put (checked
+immediately and 5s later), and reopening the window and clicking once afterward still incremented by
+exactly 1 -- the control wasn't left in a stuck "held" state. Two independent synthetic event streams
+(mouse and keyboard) interleave exactly like two real hands would; nothing about the gesture actually
+required physical simultaneity, just event ordering.
+
+Get target coordinates from the element's `position`/`size` via accessibility (Read a label or value
+via accessibility, below) -- already in points, no pixel conversion needed. Caveat: this failed for
+the auto-pause stepper's own two `image` elements specifically -- both reported identical
+`position`/`size` (a SwiftUI AX quirk collapsing custom-drawn glyphs to their container's frame, not
+their own) -- so for that control, derive the coordinates instead from the adjacent text field's
+reliable `position`/`size` (real `AXTextField`) plus a `screencapture -R` crop to visually place the
+arrows relative to it (pixel-based, 2x retina -- halve to convert back to point space).
+
+## Status-item click gesture
 
 The status item's own click-right-half gesture (single-click pause/resume toggle, double-click lock
-toggle) is a raw screen-position hit-test (`MenuBarController.swift`), not a menu action -- neither
-an AX `click` nor `click at {x, y}` on its coordinates triggers it (confirmed live, zero effect
-either way -- menu-bar status items aren't hit-testable via screen-coordinate clicks the way
-ordinary window content is; they live in a different window layer). Stays `(You)`.
+toggle) is a raw screen-position hit-test (`MenuBarController.swift`), not a menu action. Drive it
+with the CGEventPost technique above, at the status item's own `position`/`size` (right half: `x =
+position.x + size.width * 0.75`, `y = position.y + size.height / 2` roughly) -- confirmed live for
+both the single-click pause/resume toggle and the double-click lock toggle. `handleStatusItemClick`
+also logs every real click it receives (`debug_log` tag `click`, `"Status item clicked:
+side=left/right clickCount=N"`), useful to confirm a click (synthetic or real) actually landed.
 
-## Discovered-device row click (not automatable)
+## Discovered-device row click
 
 The discovered-device row in the pairing list (Device tab -> TimeFlip section) is a plain
 `Text`+`.onTapGesture`, not a `Button` -- neither an AX `click` nor `click at {x, y}` triggers it
-(confirmed live, zero effect either way). Same capability class as the status-item gesture above.
-Where this can't be deferred to an Interactive checklist (e.g. `Bench/02b-reset-device-checklist.md`
-must end with the device paired for `03b`-`07b` to run), ask the user ad hoc instead of a formal
-`(You)` step -- see "Running a checklist" rule 3 in `CLAUDE.md`.
+(confirmed live, zero effect either way). Same capability class as the status-item gesture above, so
+the CGEventPost technique likely also drives it, though not yet re-confirmed live with this specific
+control. Where this can't be deferred to an Interactive checklist (e.g.
+`Bench/02b-reset-device-checklist.md` must end with the device paired for `03b`-`07b` to run), ask
+the user ad hoc instead of a formal `(You)` step -- see "Running a checklist" rule 3 in `CLAUDE.md`
+-- unless the CGEventPost technique is confirmed for it too, in which case it becomes a normal
+`(Claude)` step.
 
 ## Switch Settings-window tabs
 
@@ -111,11 +180,12 @@ across calls).
 `click button "..."` / `set value of checkbox ... to true` -- confirm each via `debug_log`/DB the
 first time it's actually used.
 
-## Auto-pause stepper arrows (not automatable)
+## Auto-pause stepper arrows
 
 The auto-pause field's up/down stepper arrows are custom `Image`+`onLongPressGesture` views, not
-real controls -- no synthetic click (AX or coordinate) moves them, and no synthetic mechanism can
-sustain a held mouse-down/up over time either. Only a real physical click/hold does. Stays `(You)`.
+real controls -- AX/coordinate clicks via AppleScript don't move them, but the CGEventPost technique
+above (see the coordinate caveat there) does: confirmed live for a plain click, a held press (both
+directions, full deceleration curve), and the hold-interrupted-by-window-close compound gesture.
 
 ## Expand or collapse a disclosure group
 
@@ -160,6 +230,11 @@ asking for confirmation -- e.g. loop a `device_event` query every couple of seco
 a flip. Only ask outright when there's no detectable side effect, or it's ambiguous which action
 produced it.
 
+**Before asking for a flip specifically, confirm the device isn't locked** (no lock badge on the
+menu bar) -- the device silently refuses flips while locked (no error, just no face-change event),
+so polling `device_event` afterward would hang forever with nothing to detect. Unlock first if
+locked, unless the scenario is deliberately testing the locked-refusal behavior itself.
+
 ## Read debug output
 
 Use `debug_log`, not a live terminal transcript:
@@ -190,6 +265,13 @@ Then: quit, run the test-database script, start the app, query `db_type` as the 
 step -- it must read `{"type":"test"}`; if it reads `production`, **stop immediately**. When done:
 quit, run the production-database script, relaunch. `test.sqlite` never carries over -- each session
 starts fresh.
+
+**This switch happens once per testing session** (when the user first asks to run the device
+tests), not before every individual checklist -- a checklist's own Setup listing "run
+`scripts/use-test-database.sh`" describes what a *standalone* run of that checklist needs, not a
+mandatory re-wipe when it's one of several checklists run back-to-back in the same session. If
+`db_type` already reads `{"type":"test"}` from an earlier checklist this session, skip straight to
+confirming that, rather than deleting and recreating `test.sqlite` again.
 
 ## Suppress incidental double-taps during a session
 

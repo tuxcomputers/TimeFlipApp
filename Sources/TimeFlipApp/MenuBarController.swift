@@ -40,7 +40,6 @@ final class MenuBarController: NSObject {
     private var lowBatteryBlinkTimer: Timer?
     private var lowBatteryBlinkPhaseOn = false
     private var isLowBatteryLatched = false
-    private var preferencesMenuItem: NSMenuItem?
     private var lastSnapshot: StatusSnapshot?
     private var cachedIcon: NSImage?
     private var cachedIconName: String?
@@ -179,7 +178,6 @@ final class MenuBarController: NSObject {
         )
         settingsItem.target = self
         newMenu.addItem(settingsItem)
-        preferencesMenuItem = settingsItem
 
         newMenu.addItem(.separator())
 
@@ -213,7 +211,6 @@ final class MenuBarController: NSObject {
         newMenu.addItem(quitItem)
 
         statusMenu = newMenu
-        updatePreferencesMenuItemAppearance()
         updateStatusView()
     }
 
@@ -305,40 +302,21 @@ final class MenuBarController: NSObject {
             lowBatteryBlinkTimer = nil
             lowBatteryBlinkPhaseOn = false
             appState.setLowBatteryBlinkState(isLowBattery: false, blinkPhaseOn: false)
-            updatePreferencesMenuItemAppearance()
             return
         }
         guard lowBatteryBlinkTimer == nil else { return }
         appState.setLowBatteryBlinkState(isLowBattery: true, blinkPhaseOn: lowBatteryBlinkPhaseOn)
-        updatePreferencesMenuItemAppearance()
         let timer = Timer(timeInterval: Constants.lowBatteryBlinkInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.lowBatteryBlinkPhaseOn.toggle()
                 self.appState.setLowBatteryBlinkState(isLowBattery: true, blinkPhaseOn: self.lowBatteryBlinkPhaseOn)
-                self.updatePreferencesMenuItemAppearance()
                 self.updateStatusView(force: true)
             }
         }
         timer.tolerance = 0
         RunLoop.main.add(timer, forMode: .common)
         lowBatteryBlinkTimer = timer
-    }
-
-    /// Alternates the "Preferences..." menu item between its plain title and a red variant in
-    /// sync with the same blink timer that flashes the status bar text and the Settings window's
-    /// Battery line, so the low-battery warning is visible before the dropdown is even opened.
-    private func updatePreferencesMenuItemAppearance() {
-        guard let item = preferencesMenuItem else { return }
-        guard lowBatteryBlinkTimer != nil else {
-            item.attributedTitle = nil
-            return
-        }
-        let color: NSColor = lowBatteryBlinkPhaseOn ? .systemRed : .labelColor
-        item.attributedTitle = NSAttributedString(
-            string: "Settings...",
-            attributes: [.foregroundColor: color, .font: NSFont.menuFont(ofSize: 0)]
-        )
     }
 
     /// Hysteresis (Schmitt trigger) around `lowBatteryThresholdPercent`: latches into the
@@ -472,7 +450,9 @@ final class MenuBarController: NSObject {
     }
 
     /// Splits the status item into two click zones, but only once the device is actually
-    /// paired: the left side (icon + activity name) opens the dropdown menu as before; the right
+    /// paired: the left side (icon + activity name) opens the dropdown menu as before -- unless
+    /// the low-battery warning is active, in which case it jumps straight to Settings (Device
+    /// tab, where the blinking Battery line lives) instead, skipping the menu entirely. The right
     /// side (duration/indicator) toggles pause/resume on a single click, or requests a device lock
     /// on a double-click, without opening anything. If the device has never connected (or can't
     /// connect), there's no pause/resume state to toggle, so any click just pops the menu. While
@@ -487,8 +467,14 @@ final class MenuBarController: NSObject {
             return
         }
         let location = button.convert(event.locationInWindow, from: nil)
+        let side = location.x > button.bounds.width / 2 ? "right" : "left"
+        DeveloperMode.debugPrint(.click, "Status item clicked: side=\(side) clickCount=\(event.clickCount)")
         guard location.x > button.bounds.width / 2 else {
-            showMenu()
+            if lowBatteryBlinkTimer != nil {
+                openPreferences()
+            } else {
+                showMenu()
+            }
             return
         }
         if event.clickCount >= 2 {
