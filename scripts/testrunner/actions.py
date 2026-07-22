@@ -282,17 +282,21 @@ def act_ensure_unlocked_unpaused(spec, ctx):
 
 
 def act_ask_user(spec, ctx):
-    """A real yes/no question -- lowercase 'y' is the only answer that passes;
-    anything else (including a blank Enter) is a genuine 'no' and fails the step.
-    One shot, no re-prompting -- see ask_user_or_detect for the polling variant,
-    and confirm_warning() in session_setup.py for the (deliberately different)
-    loop-until-valid initial acknowledgment gate."""
+    """A real yes/no question -- lowercase 'y' passes, lowercase 'n' fails, and
+    anything else (a stray keystroke, a blank Enter, wrong case) re-prompts instead
+    of being silently treated as either answer, so an accidental key can't flip the
+    result. See ask_user_or_detect for the polling variant, and confirm_warning() in
+    session_setup.py for the same loop-until-valid pattern applied to the initial
+    acknowledgment gate."""
     prompt = _sub(spec["prompt"], ctx)
     print(f"\n>>> ACTION NEEDED: {prompt}")
-    answer = input(">>> y = yes, anything else = no: ").strip()
-    if answer == "y":
-        return StepResult(True, "user answered y")
-    return StepResult(False, f"user answered {answer!r} (treated as no)")
+    while True:
+        answer = input(">>> y/n: ").strip()
+        if answer == "y":
+            return StepResult(True, "user answered y")
+        if answer == "n":
+            return StepResult(False, "user answered n")
+        print(f"Not recognized: {answer!r} -- please answer exactly 'y' or 'n'.")
 
 
 def act_ask_user_or_detect(spec, ctx):

@@ -62,13 +62,13 @@ the device manually before trusting production history in that case.
 
 ## Answering a question mid-run
 
-Two different conventions, deliberately not the same:
+Two prompts, same loop-until-valid shape, different accepted words:
 - **The initial acknowledgment** (above) requires the full phrase `I understand` or `Not
-  yet`, looping on anything else -- high-stakes, so a stray keystroke can't slip through.
+  yet`, re-prompting on anything else.
 - **Every other yes/no question** (an `ask_user` step, e.g. "did the device refuse the
-  flip while locked?") is a single-shot lowercase `y` for yes; anything else -- including
-  a blank Enter -- is a genuine no and fails that step. There's no re-prompting; a `y/n`
-  step is a real assertion, not a gate.
+  flip while locked?") wants a single `y` or `n` -- lowercase, exact. Anything else (a
+  stray keystroke, wrong case, a blank Enter) re-prompts instead of being silently
+  counted as an answer, so an accidental key can't flip the result either way.
 
 ## How a checklist step becomes runnable
 
