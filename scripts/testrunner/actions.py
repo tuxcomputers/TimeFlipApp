@@ -183,6 +183,41 @@ def act_cgevent_click(spec, ctx):
     return StepResult(True, f"{mode} click at ({x:.1f}, {y:.1f})")
 
 
+def act_cgevent_hold_interrupted_by_key(spec, ctx):
+    """mouseDown, wait, post a keydown/keyup (e.g. Escape=53) while the mouse is still
+    conceptually held (no mouseUp yet), wait again, then mouseUp -- two independent
+    synthetic event streams interleaving like two real hands would. See "hold interrupted
+    by closing the window" in the auto-pause stepper checklist."""
+    import Quartz
+
+    target = spec["target"]
+    if target not in LOCATORS:
+        return StepResult(False, f"unknown target: {target}")
+    x, y = LOCATORS[target]()
+    keycode = spec.get("keycode", 53)  # Escape
+    before_key_seconds = spec.get("before_key_seconds", 1.0)
+    after_key_seconds = spec.get("after_key_seconds", 1.0)
+
+    down = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, (x, y), Quartz.kCGMouseButtonLeft)
+    Quartz.CGEventSetIntegerValueField(down, Quartz.kCGMouseEventClickState, 1)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+
+    time.sleep(before_key_seconds)
+
+    key_down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
+    key_up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, key_down)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, key_up)
+
+    time.sleep(after_key_seconds)
+
+    up = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, (x, y), Quartz.kCGMouseButtonLeft)
+    Quartz.CGEventSetIntegerValueField(up, Quartz.kCGMouseEventClickState, 1)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+
+    return StepResult(True, f"held at ({x:.1f}, {y:.1f}), keycode {keycode} interjected, released")
+
+
 def _menu_item_names(process="TimeFlip"):
     script = f"""
 tell application "System Events"
@@ -281,6 +316,7 @@ ACTIONS = {
     "sql_exec": act_sql_exec,
     "wait_for_sql": act_wait_for_sql,
     "cgevent_click": act_cgevent_click,
+    "cgevent_hold_interrupted_by_key": act_cgevent_hold_interrupted_by_key,
     "click_menu_item": act_click_menu_item,
     "ensure_unlocked_unpaused": act_ensure_unlocked_unpaused,
     "ask_user": act_ask_user,
