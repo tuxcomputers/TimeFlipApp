@@ -36,16 +36,64 @@ interrupted prior run, restore the threshold to 5% and restart the app before co
 
 - [x] **(Claude)** Query the current threshold and the most recent `battery` `level`, and note both
       as the original values to restore later. (Original threshold: 5%. Live level: 22%.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name='low_battery_level';"
+capture = "threshold_original"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "level="
+timeout_seconds = 15
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
+capture = "battery_level_a"
+```
 - [x] **(Claude)** Quit the app. Method: Quit the app (`../Methods.md`).
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_quit_id"
+
+[[actions]]
+action = "shell"
+command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+```
 - [x] **(Claude)** Update `low_battery_level` to at/above the live level noted above, so the fresh
       connection registers as low immediately: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite
       "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name =
       'low_battery_level';"`. (Set to 25%.)
+```toml step
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_a}' WHERE setting_name = 'low_battery_level';"
+```
 - [x] **(Claude)** Start the app and confirm it reconnects to the device (fresh `debug_log`
       `"Login accepted, code=0x02"` row). (Confirmed.)
+```toml step
+[[actions]]
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+timeout_seconds = 30
+```
 - [x] **(Claude)** Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`, so the visual checks below are being made while the app really is in the
       low state. (Confirmed: `level=22 threshold=25 recoveryAt=30 isLowBattery=true`.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "isLowBattery=true"
+timeout_seconds = 15
+```
 
 ## Scenario B -- confirm the flashing and the left-click-skips-the-menu behavior
 
@@ -60,6 +108,16 @@ if running this section standalone rather than straight after.
       dropdown menu. (Confirmed: "The settings opened".)
 - [x] **(Claude)** Confirm via accessibility that the Device tab is selected (radio button 1 of the
       tab picker reads `value = 1`). (Confirmed: `value = 1`.)
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        return value of radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+expect = "1"
+```
 - [x] **(You)** Confirm the "Battery" line on the Device tab -- both the **label** and the
       percentage value -- is flashing red/default in sync with the menu bar blink. (Confirmed.)
 
@@ -76,11 +134,42 @@ Settings directly on the Device tab instead of showing the menu at all.
 section's own state, unchanged) -- so there's something real to restore and confirm stops.
 
 - [x] **(Claude)** Quit the app.
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_quit_id"
+
+[[actions]]
+action = "shell"
+command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+```
 - [x] **(Claude)** Restore `low_battery_level` to its original value noted above. (Restored to 5%.)
+```toml step
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
+```
 - [x] **(Claude)** Start the app and confirm it reconnects to the device (fresh `debug_log`
       `"Login accepted, code=0x02"` row). (Confirmed.)
+```toml step
+[[actions]]
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+timeout_seconds = 30
+```
 - [x] **(Claude)** Query `debug_log` and confirm a `battery` row now shows `isLowBattery=false`.
       (Confirmed: `level=22 threshold=5 recoveryAt=10 isLowBattery=false`.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "isLowBattery=false"
+timeout_seconds = 15
+```
 - [x] **(You)** Confirm the activity name is no longer flashing, and that the Battery line on the
       Device tab is no longer flashing. (Confirmed.)
 - [x] **(You)** Click the **left side** of the status item again and confirm it now opens the

@@ -99,6 +99,13 @@ can't see an image. These are left without a `toml step` block (skipped, visibly
 than faked. A future action type could sample specific pixels/crops via `screencapture` +
 simple color/template checks; not implemented here.
 
+A `wait_for_sql` step is only as reliable as the real-world event it's waiting for. Most
+waits here are deterministic (a device round-trip, a debounce timer), but `03b`'s hysteresis
+check (waiting for the live battery reading to naturally flap up 1-2%) depends on genuine,
+unpredictable analog battery behavior -- confirmed live to sometimes not happen within 5
+minutes at all. A long timeout doesn't fix non-determinism it just papers over it; that
+step can legitimately need re-running, same as the original human-driven checklist did.
+
 ## Mid-run / restart behavior
 
 If a checklist has some but not all boxes checked, the runner asks whether to continue
