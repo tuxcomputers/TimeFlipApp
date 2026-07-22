@@ -36,6 +36,15 @@
   again. The "all clear" matters as much as the initial warning -- don't let it shrink to a small
   aside in a longer message.
 
+## Working with the git remote (push, PR, etc.)
+
+- Before any operation that touches the GitHub remote (`git push`, `gh pr create`, deleting/renaming
+  a remote branch, etc.), run `gh auth status` and confirm the **active** account is `tuxcomputers`
+  (matches the repo's org, `tuxcomputers/TimeFlipApp`) -- switch to it first with `gh auth switch
+  --user tuxcomputers` if some other account is active. `git`'s own credential helper delegates to
+  `gh auth git-credential`, so a push under the wrong active account fails with a `403 Permission
+  denied` (confirmed live: the `harryphillips-byte` account has no push access to this repo).
+
 ## TimeFlip2 BLE protocol documentation
 
 - `docs/TimeFlip2 BLE Protocol v4.3.md` is the official vendor protocol spec and takes priority
