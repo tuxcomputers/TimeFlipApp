@@ -57,9 +57,24 @@ def act_shell(spec, ctx):
     return StepResult(ok, detail)
 
 
+def _run_osascript_with_retry(script, retries=2, retry_delay=0.6):
+    """Back-to-back osascript calls that open/close the status-item menu can race --
+    the previous call's menu-close hasn't fully settled before this one opens it again,
+    producing a transient "-1719 Invalid index" (confirmed live, not a real permission
+    denial -- those error instantly and consistently, this doesn't). Retrying after a
+    short delay resolves it; a genuine problem still fails after retries are exhausted."""
+    last = None
+    for attempt in range(retries + 1):
+        last = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if last.returncode == 0 or "-1719" not in last.stderr:
+            return last
+        time.sleep(retry_delay)
+    return last
+
+
 def act_applescript(spec, ctx):
     script = _sub(spec["script"], ctx)
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    r = _run_osascript_with_retry(script)
     ok = r.returncode == 0
     text = r.stdout.strip() if ok else r.stderr.strip()
     if ok:
@@ -181,7 +196,7 @@ tell application "System Events"
     end tell
 end tell
 return names"""
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    r = _run_osascript_with_retry(script)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip())
     return [n.strip() for n in r.stdout.strip().split(",")]
@@ -198,7 +213,7 @@ tell application "System Events"
         end tell
     end tell
 end tell"""
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    r = _run_osascript_with_retry(script)
     return r.returncode == 0, (r.stdout.strip() or r.stderr.strip())
 
 

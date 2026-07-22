@@ -62,27 +62,112 @@ action = "ensure_unlocked_unpaused"
 resolved in Setup immediately above, which this scenario runs straight on from.
 
 - [x] Set `pause_on_lock` to `true`. (Already `true` from Setup.)
+```toml step
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_name = 'pause_on_lock';"
+```
 - [x] Screenshot the menu bar; confirm the status item shows the play icon (▶) -- device not
       already paused. (Confirmed.)
+```toml step
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+```
 - [x] Click the "Lock" menu item.
+```toml step
+action = "click_menu_item"
+item = "Lock"
+```
 - [x] Confirm a new `is_paused = 1` device_event row was written, and that `debug_log` shows
       `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`.
       (Confirmed -- this is also where real post-reset events started appearing again after
       `02b-reset-device-checklist.md`'s reset: event_number 1, then 2 here, proving the counter
       wipe more directly than the `device_last_event=nil` evidence noted there.)
+```toml step
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=ON actual=ON"
+timeout_seconds = 10
+
+[[actions]]
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "1"
+```
 - [x] Screenshot the menu bar; confirm the lock badge is now shown and the icon switched to pause
       (⏸). (Confirmed visually.)
 - [x] Open the menu; confirm the item reads "Unlock" and the Pause item is disabled. (Confirmed:
       `Resume` item `enabled = false`.)
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+            set pauseEnabled to enabled of menu item 3 of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names & {"enabled=" & pauseEnabled}'''
+expect_contains = "Unlock"
+```
 - [x] Click "Unlock".
+```toml step
+[[actions]]
+action = "click_menu_item"
+item = "Unlock"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
+timeout_seconds = 10
+```
 - [x] Confirm the device is still paused after unlocking -- no new `is_paused = 0` row appears.
       (Confirmed.)
+```toml step
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "1"
+```
 - [x] Screenshot the menu bar; confirm the lock badge is gone but the icon still shows pause (⏸).
       (Confirmed visually, duration frozen.)
 - [x] Open the menu; confirm the item reads "Lock" again, and the Pause item is now enabled and
       reads "Resume". (Confirmed: `Resume` item `enabled = true`.)
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names'''
+expect_contains = "Resume"
+```
 - [x] Click "Resume" to bring the device back to a clean unpaused state.
+```toml step
+action = "click_menu_item"
+item = "Resume"
+```
 - [x] Confirm a new `is_paused = 0` row appears in `device_event` for the resume. (Confirmed.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+timeout_seconds = 8
+poll_interval = 1
+```
 
 ## Scenario B -- Quit pauses and locks the device when pause_on_lock is enabled; disabled it does nothing extra
 
@@ -93,32 +178,187 @@ it the same way Setup does above (Unlock/Resume via the menu, set `pause_on_lock
 continuing.
 
 - [x] Confirm `pause_on_lock` is still `true`. Screenshot: no lock badge, play icon. (Confirmed.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name='pause_on_lock';"
+expect = "{\"enabled\":true}"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+```
 - [x] Quit the app.
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_quit_1_id"
+
+[[actions]]
+action = "shell"
+command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+```
 - [x] Query `debug_log` and confirm the sequence `"Quit requested; pause_on_lock enabled, pausing
       and locking device before exit"` then `"Pause+lock on quit complete, terminating now"`.
       (Confirmed.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_1_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Pause+lock on quit complete, terminating now"
+timeout_seconds = 10
+```
 - [x] Start the app; confirm reconnect and via screenshot that the status icon is green. (Confirmed
       fresh `"Login accepted, code=0x02"`.)
+```toml step
+[[actions]]
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_1_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+timeout_seconds = 30
+```
 - [x] Confirm a new `is_paused = 1` device_event row now appears (only after this relaunch's
       startup fetch, not immediately after quit). (Confirmed.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "1"
+timeout_seconds = 20
+poll_interval = 2
+```
 - [x] Screenshot the menu bar; confirm the lock badge is shown and the icon shows pause (⏸).
       (Confirmed visually.)
 - [x] Open the menu; confirm the item reads "Unlock" and the Pause item is disabled. (Confirmed:
       `Resume` item `enabled = false`.)
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names'''
+expect_contains = "Unlock"
+```
 - [x] Click "Unlock", then click "Resume" to return to a clean state. (Confirmed via new
       `is_paused = 0` row.)
+```toml step
+[[actions]]
+action = "click_menu_item"
+item = "Unlock"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
+timeout_seconds = 10
+
+[[actions]]
+action = "click_menu_item"
+item = "Resume"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+timeout_seconds = 8
+poll_interval = 1
+```
 - [x] Test the *disabled* case properly: the noted "original" value is `true`, not `false`, so
       restoring "to original" here wouldn't actually exercise the disabled-quit path. Explicitly
       set `pause_on_lock` to `false` instead, confirmed via querying the setting back.
+```toml step
+[[actions]]
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '{\"enabled\":false}' WHERE setting_name = 'pause_on_lock';"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name='pause_on_lock';"
+expect = "{\"enabled\":false}"
+```
 - [x] Quit the app (from the clean, unlocked/unpaused state above, with `pause_on_lock` now
       genuinely `false`).
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_quit_2_id"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+capture = "event_id_before_disabled_quit"
+
+[[actions]]
+action = "shell"
+command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+```
 - [x] Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or no paired device,
       exiting immediately"` -- not the pause/lock sequence above. (Confirmed.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_2_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Quit requested; pause_on_lock disabled or no paired device, exiting immediately"
+timeout_seconds = 10
+```
 - [x] Confirm no new `is_paused = 1` device_event row was added around the quit time. (Confirmed.)
+```toml step
+action = "sql_query"
+query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "$event_id_before_disabled_quit"
+```
 - [x] Restore `pause_on_lock` to the real original value (`true`) noted in Setup.
+```toml step
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_name = 'pause_on_lock';"
+```
 - [x] Start the app; confirm reconnect and via screenshot that the status icon is green with no
       lock badge -- a clean, unlocked, unpaused state, `pause_on_lock` back to its real original
       value. (Confirmed.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_launch_3_id"
+
+[[actions]]
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_launch_3_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+timeout_seconds = 30
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names'''
+expect_contains = "Lock"
+```
 
 ## Scenario C -- time genuinely passes in this clean, running state
 
@@ -128,13 +368,46 @@ if it doesn't match, resolve the same way as Scenario B's own precondition above
 
 - [x] Screenshot the menu bar; confirm no lock badge is shown and the icon shows play (▶).
       (Confirmed.)
+```toml step
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+```
 - [x] Note the current (still-open, non-finalised) `device_event` row's `device_event_id` and
       `duration_seconds`. Wait a few seconds.
+```toml step
+action = "sql_query"
+query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+capture = "duration_before_wait"
+```
 - [x] Re-query the same `device_event_id` and confirm `duration_seconds` increased and it's still
       the same row. (Confirmed: 88.0s -> 97.0s, same row `device_event_id=11`, `is_paused = 0`.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT CASE WHEN duration_seconds > $duration_before_wait THEN 'increased' ELSE duration_seconds END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "increased"
+timeout_seconds = 15
+poll_interval = 3
+```
 - [x] Open the menu; confirm the Lock item reads "Lock" and the Pause item reads "Pause" and is
       enabled -- a clean state ready for `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md`.
       (Confirmed.)
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names'''
+expect_contains = "Pause"
+```
 
 ## Scenario D -- manual Lock/Unlock via the status item's double-click gesture, with pause_on_lock disabled
 
