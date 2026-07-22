@@ -38,17 +38,22 @@ way to skip this interactively; pass `--yes` only for CI/non-interactive runs (i
 prints the warning, just doesn't wait for input).
 
 The warning's own wording is deliberately reassuring about production history: the
-test-database switch only happens once a completed sync against production is confirmed,
-so nothing real is ever at risk, regardless of what the test session does to the device
-afterward.
+test-database switch only happens once a completed history fetch against production is
+confirmed, so nothing real is ever at risk, regardless of what the test session does to
+the device afterward.
 
 Once confirmed, `session_setup.py` establishes the known state every checklist assumes,
-mirroring "Switch to the test database" in `../../Tests/Methods.md`: confirms/switches to
-the test database (quitting, running `use-test-database.sh`, relaunching, and waiting for
-a **fresh** post-relaunch reconnect -- not a stale pre-relaunch row, since `debug_log`
-persists across restarts) if currently on production, or just confirms the device is
-connected if the test database is already active. This runs once per invocation, not once
-per checklist file.
+mirroring "Switch to the test database" in `../../Tests/Methods.md`. If currently on
+production, it first **restarts the app itself** to force a fresh history fetch rather
+than waiting on the periodic fetch timer (`fetch_history_interval_seconds`, which a
+developer may have set as long as 15 minutes), and polls `debug_log` for that fetch's own
+`"history fetch complete: trigger=startup"` marker (logged on every exit path of
+`HistoryIngestor.refreshHistory()`, not just the nothing-changed branch, so a fetch that
+actually pulls in a real backlog is still detected). Only then does it switch to the test
+database (quitting, running `use-test-database.sh`, relaunching, and waiting for a
+**fresh** post-relaunch reconnect -- not a stale pre-relaunch row, since `debug_log`
+persists across restarts). If already on the test database, it just confirms the device
+is connected. This runs once per invocation, not once per checklist file.
 
 ## After everything runs
 

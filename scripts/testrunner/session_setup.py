@@ -17,9 +17,11 @@ WARNING_TEMPLATE = """
   WARNING -- this run manipulates the REAL, PHYSICAL TimeFlip device.
 
   It switches the app to a TEST database first. Your production history is NOT
-  at risk: the switch only happens once a completed sync against production is
-  confirmed, so everything real is already safely recorded before any testing
-  starts. From that point on, all test activity -- locking/unlocking,
+  at risk: it first restarts the app to force a fresh history fetch against
+  production (rather than waiting on the periodic fetch timer, which may be
+  set as long as 15 minutes) and confirms that fetch completed, so everything
+  real is already safely recorded before any testing starts. From that point
+  on, all test activity -- locking/unlocking,
   pausing/resuming, changing settings (LED, auto-pause, double-tap
   sensitivity), event history -- happens only against the test database, never
   production.{reset_warning}
@@ -68,16 +70,28 @@ def _read_db_type(db_path):
         conn.close()
 
 
-def _history_fetch_confirmed(db_path):
-    conn = sqlite3.connect(db_path)
-    try:
-        row = conn.execute(
-            "SELECT message FROM debug_log WHERE tag='history' AND message LIKE '%DB refreshed%' "
-            "ORDER BY debug_log_id DESC LIMIT 1;"
-        ).fetchone()
-        return row is not None
-    finally:
-        conn.close()
+def _wait_for_history_fetch_complete(db_path, trigger, since_id=0, timeout=60):
+    """Polls for HistoryIngestor.refreshHistory()'s own "history fetch complete: trigger=..."
+    marker (logged on every exit path, whether or not anything actually changed -- unlike
+    the old, narrower "DB refreshed" text, which is only ever logged on the
+    nothing-changed branch and never appears at all for a fetch that pulls in a real
+    backlog). since_id must be captured before the triggering restart/action, same
+    reasoning as _wait_for_reconnect."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT debug_log_id FROM debug_log WHERE tag='history' "
+                "AND message = ? AND debug_log_id > ? ORDER BY debug_log_id DESC LIMIT 1;",
+                (f"history fetch complete: trigger={trigger}", since_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row:
+            return True
+        time.sleep(2)
+    return False
 
 
 def _app_running():
@@ -140,15 +154,23 @@ def ensure_known_state(db_path, repo_root):
     if db_type == "test":
         print("Already on the test database -- not switching again this session.")
     elif db_type == "production":
-        if not _app_running():
-            print("error: app isn't running, so a production->test switch can't be pre-flighted safely. "
-                  "Launch the app on production first, let it sync, then re-run.")
+        print(
+            "Ensuring real history is fully preserved against production before switching -- "
+            "restarting the app now to force a fresh history fetch, rather than waiting on "
+            "the periodic fetch timer (a developer may have set that as long as 15 minutes)."
+        )
+        since_id = _latest_debug_log_id(db_path)
+        if _app_running():
+            _quit_app()
+        _launch_app(repo_root)
+        if not _wait_for_reconnect(db_path, since_id=since_id):
+            print("error: device did not reconnect after restarting against production.")
             return False
-        if not _history_fetch_confirmed(db_path):
-            print("error: no completed history fetch found against production yet -- wait for the "
-                  "device to finish syncing (debug_log tag 'history', 'DB refreshed'), then re-run.")
+        if not _wait_for_history_fetch_complete(db_path, trigger="startup", since_id=since_id):
+            print("error: startup history fetch against production did not complete in time -- "
+                  "check the device connection, then re-run.")
             return False
-        print("History fetch confirmed against production. Switching to the test database...")
+        print("Real history confirmed synced against production. Switching to the test database...")
         since_id = _latest_debug_log_id(db_path)
         _quit_app()
         r = subprocess.run(["scripts/use-test-database.sh"], cwd=repo_root, capture_output=True, text=True)

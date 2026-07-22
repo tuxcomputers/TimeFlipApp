@@ -257,9 +257,14 @@ scripts/use-test-database.sh        # -> test.sqlite (deletes and recreates fres
 scripts/use-production-database.sh  # -> production.sqlite
 ```
 **Pre-flight, every session, before switching:** confirm `db_type` reads `{"type":"production"}`,
-device connected, and a `history` fetch has completed (`debug_log`, `DB refreshed`) -- so real
-device history lands in `production.sqlite` first. This is what makes it safe to run anything after,
-including a factory reset, without pausing to confirm with the user.
+then restart the app and confirm a fresh `history` fetch against production has completed
+(`debug_log`, tag `history`, `"history fetch complete: trigger=startup"`) -- so real device history
+lands in `production.sqlite` first. This is what makes it safe to run anything after, including a
+factory reset, without pausing to confirm with the user. Don't just wait on the periodic fetch timer
+instead (`fetch_history_interval_seconds`, a developer may have set that as long as 15 minutes) --
+restarting forces the fetch immediately via the app's own startup backfill. Match on this exact
+message, not the older `"DB refreshed"` text: that one only ever logs on the branch where nothing
+changed, and never appears at all for a fetch that actually pulls in a real backlog.
 
 Then: quit, run the test-database script, start the app, query `db_type` as the very first Setup
 step -- it must read `{"type":"test"}`; if it reads `production`, **stop immediately**. When done:
