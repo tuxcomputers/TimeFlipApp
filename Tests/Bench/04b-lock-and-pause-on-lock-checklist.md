@@ -43,10 +43,18 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 - [x] Query the current `pause_on_lock` value and note it as the original value to restore later.
       (Original: `true`.)
+```toml step
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name='pause_on_lock';"
+capture = "pause_on_lock_original"
+```
 - [x] Query the device's current lock/pause state and the status-item menu's item names. If the
       device is currently paused or locked, resolve that first (click Resume / Unlock via the
       menu) so the scenarios below start from a clean unlocked, unpaused state. (Found locked +
       paused leftover from an earlier session; resolved via Unlock then Resume.)
+```toml step
+action = "ensure_unlocked_unpaused"
+```
 
 ## Scenario A -- Lock also pauses when pause_on_lock is enabled, and Unlock does not auto-resume
 
@@ -142,24 +150,121 @@ behind, though `pause_on_lock` is still `true` from there; this scenario's own f
 to `false` regardless.
 
 - [x] Set `pause_on_lock` to `false`. (Confirmed: `{"enabled":false}`.)
+```toml step
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '{\"enabled\":false}' WHERE setting_name = 'pause_on_lock';"
+```
 - [x] Confirm the menu bar shows no lock badge and a play icon (unlocked, unpaused).
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names'''
+expect_contains = "Lock"
+```
 - [x] Double-click the right half of the status icon (CGEventPost, `click_state=1` then `2`,
       ~0.15s apart). Query `debug_log` (tag `click`) and confirm `clickCount=1` then `clickCount=2`,
       both `side=right`, then (tag `TimeFlip`) `"Lock ON triggered"` / `"...confirmed: requested=ON
       actual=ON"`. (Confirmed live.)
+```toml step
+[[actions]]
+action = "cgevent_click"
+target = "status_item_right"
+mode = "double"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=ON actual=ON"
+timeout_seconds = 10
+```
 - [x] Confirm no new `is_paused = 1` row was added -- `pause_on_lock` disabled, so Lock alone must
       not pause.
+```toml step
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+```
 - [x] Single-click (not double) the right half of the status icon; confirm via `debug_log`
       (`clickCount=1`, no accompanying second click) the click landed, and that nothing else
       changed -- still locked, no pause/resume toggle, no new `device_event` row (a no-op while
       locked, `togglePause()`'s own guard). (Confirmed live: click logged, `device_event` row
       unchanged.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+capture = "event_id_before_noop_click"
+
+[[actions]]
+action = "cgevent_click"
+target = "status_item_right"
+mode = "single"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='click' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "clickCount=1"
+timeout_seconds = 5
+
+[[actions]]
+action = "sql_query"
+query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "$event_id_before_noop_click"
+```
 - [x] Double-click the right half of the status icon again; confirm `debug_log` shows
       `clickCount=1` then `clickCount=2` again, then `"Lock OFF triggered"` / `"...confirmed:
       requested=OFF actual=OFF"`. (Confirmed live.)
+```toml step
+[[actions]]
+action = "cgevent_click"
+target = "status_item_right"
+mode = "double"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
+timeout_seconds = 10
+```
 - [x] Confirm the menu bar shows no lock badge again (unlocked).
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names'''
+expect_contains = "Lock"
+```
 - [x] Restore `pause_on_lock` to `true` and confirm the device is unlocked, unpaused -- clean for
       the next scenario. (Confirmed.)
+```toml step
+[[actions]]
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_name = 'pause_on_lock';"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+```
 
 ## Scenario E -- status-item single-click gesture is a no-op while locked (menu-driven lock)
 
@@ -174,12 +279,48 @@ it doesn't match.
 
 - [x] Click the "Lock" menu item. Confirm `debug_log` shows `"Lock ON triggered"` / `"...confirmed:
       requested=ON actual=ON"`. (Confirmed.)
+```toml step
+[[actions]]
+action = "click_menu_item"
+item = "Lock"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=ON actual=ON"
+timeout_seconds = 10
+```
 - [x] Single-click the right half of the status icon (CGEventPost, single `click_state=1`). Confirm
       via `debug_log` (tag `click`, `clickCount=1`) the click landed, and confirm no new
       `device_event` row appeared -- still locked, no pause/resume toggle. (Confirmed live: click
       logged, no new row.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+capture = "event_id_before_menu_lock_noop"
+
+[[actions]]
+action = "cgevent_click"
+target = "status_item_right"
+mode = "single"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='click' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "clickCount=1"
+timeout_seconds = 5
+
+[[actions]]
+action = "sql_query"
+query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "$event_id_before_menu_lock_noop"
+```
 - [x] Click "Unlock" from the menu, then "Resume" to return to a clean, unlocked, unpaused state.
       (Confirmed.)
+```toml step
+action = "ensure_unlocked_unpaused"
+```
 
 The physical facet-flip-while-locked check still needs a real cube flip -- see
 `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md`.

@@ -10,3 +10,5 @@ client_secret_*.json
 config.json
 config.auth.json
 /Tests/Bench/device_register_snapshot.json
+/logs/
+__pycache__/

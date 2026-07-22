@@ -1,0 +1,100 @@
+# Device-test runner (no Claude required)
+
+Runs the `Tests/Bench/`/`Tests/Interactive/` checklists standalone: a bash entry point
+(`run_tests.sh`) launches a Python supervisor that executes each checklist step, ticks
+its checkbox on success, and writes a timestamped log -- for developers who don't have
+an AI driving the checklist by hand.
+
+## Usage
+
+```
+scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md
+scripts/testrunner/run_tests.sh Tests/Bench/04b-*.md Tests/Interactive/04i-*.md
+```
+
+Requires `pyobjc` (`pip3 install pyobjc-framework-Quartz`) for `cgevent_click` steps --
+`run_tests.sh` checks for it up front. Everything else is Python 3.11+ stdlib.
+
+Run checklists in the order `Tests/CLAUDE.md` specifies (whole Bench phase, then whole
+Interactive phase); this runner does not enforce that order for you.
+
+## How a checklist step becomes runnable
+
+A step is a normal `- [ ]`/`- [x]` checklist line, same as any other -- the human-readable
+`.md` doesn't change. What makes it *runnable* is a fenced ` ```toml step ` block placed
+directly under it, holding that step's action(s). A step with no such block is
+documentation-only (a Preconditions note, a not-yet-converted step) and the runner skips
+it with a visible `SKIP` line rather than guessing.
+
+```markdown
+- [ ] Click the "Lock" menu item.
+\`\`\`toml step
+action = "click_menu_item"
+item = "Lock"
+\`\`\`
+```
+
+A step needing more than one action (e.g. "click, then confirm via `debug_log`") uses an
+array of actions, run in order, stopping at the first failure:
+
+```markdown
+- [ ] Double-click the right half of the status icon; confirm it locked.
+\`\`\`toml step
+[[actions]]
+action = "cgevent_click"
+target = "status_item_right"
+mode = "double"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Lock verification confirmed: requested=ON actual=ON"
+timeout_seconds = 10
+\`\`\`
+```
+
+A value captured by one step (`capture = "some_name"`) is available to every later step
+in the same run via `{some_name}` inside `query`/`command`/`script`/`expect`/`expect_contains`
+(Python `str.format`).
+
+## Action vocabulary (`actions.py`)
+
+| action | purpose |
+|---|---|
+| `shell` | run a shell command (`command`) |
+| `applescript` | run an AppleScript (`script`), optionally assert its output (`expect`/`expect_contains`) or `capture` it |
+| `sql_query` | run a `SELECT` (`query`), optionally assert (`expect`/`expect_contains`) or `capture` the result |
+| `sql_exec` | run an `INSERT`/`UPDATE` (`query`), no assertion |
+| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s) |
+| `cgevent_click` | a real synthetic click/double-click/held-press at a named `target` (see `locators.py`), via `CGEventPost` with `kCGMouseEventClickState` set -- see "Simulate a real click..." in `../../Tests/Methods.md` for why this works where AppleScript's `click` doesn't |
+| `click_menu_item` | open the status-item menu and click `item` by name |
+| `ensure_unlocked_unpaused` | idempotent precondition resolver: clicks Unlock/Resume only if the menu currently shows them |
+| `ask_user` | print `prompt`, block on Enter -- for a step that genuinely needs a human (a physical flip) |
+| `ask_user_or_detect` | print `prompt`, then poll `detect_query` for a change instead of waiting on Enter -- see "Detect a physical action instead of asking" in `Methods.md` |
+
+`locators.py` resolves named on-screen targets (currently `status_item_left`/`status_item_right`)
+fresh via accessibility on every call, since the status item's width shifts with its
+content. Add a new named target there before referencing it from a `cgevent_click` step.
+
+## What this can't do (yet)
+
+Several existing checklist lines are pure visual confirmations ("Screenshot the menu bar;
+confirm the red lock badge is visible") with no accessibility or DB equivalent -- a script
+can't see an image. These are left without a `toml step` block (skipped, visibly) rather
+than faked. A future action type could sample specific pixels/crops via `screencapture` +
+simple color/template checks; not implemented here.
+
+## Mid-run / restart behavior
+
+If a checklist has some but not all boxes checked, the runner asks whether to continue
+from the first unchecked step or stop so you can restart it yourself -- it never clears
+checkboxes for you (see "Restarting" in `../../Tests/CLAUDE.md`; that discards recorded
+evidence, so it stays a deliberate, asked-for action).
+
+## Failure handling and logs
+
+On a step's failure, that checklist stops immediately (later steps assume earlier ones
+left the state they need) -- other checklists passed on the command line still run.
+Every run writes `logs/YYYY-MM-DD_hh.mm.ss.txt` (gitignored -- these are run artifacts,
+not source) with a full transcript, and the process exits non-zero if anything failed or
+was skipped. Attach that file when filing an issue, or point CI at it as a build artifact.
