@@ -61,16 +61,56 @@ immediately above, which this scenario runs straight on from.
 
 - [x] Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
       latter D0). (event_number=13, D0=4878.0.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+capture = "event_number_d0"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+capture = "duration_d0"
+```
 - [x] Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
       setting_name = 'fetch_history_interval_seconds';`) without touching the device. (Interval is
       10s; waited 12s.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name = 'fetch_history_interval_seconds';"
+capture = "refresh_interval"
+
+[[actions]]
+action = "shell"
+command = "sleep 15"
+```
 - [x] Query `debug_log` and confirm a `history` row logged `"history fetch: device
       max_event_number=<event_number> unchanged; DB refreshed"` -- the cheap-check skip path was
       taken, not a full stream fetch. (Confirmed: `"history fetch: device max_event_number=13
       unchanged; DB refreshed"`.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='history' ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "history fetch: device max_event_number=$event_number_d0 unchanged; DB refreshed"
+timeout_seconds = 15
+```
 - [x] Re-query the same `device_event` row: confirm `event_number` is unchanged but
       `duration_seconds` increased beyond D0 -- the skip path still refreshes the open row's
       duration. (Confirmed: event_number still 13, duration_seconds 4878.0 -> 4898.0.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "$event_number_d0"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT CASE WHEN duration_seconds > $duration_d0 THEN 'increased' ELSE duration_seconds END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "increased"
+timeout_seconds = 15
+poll_interval = 3
+```
 
 ## Scenario B -- quit and relaunch resumes from the persisted cursor
 
@@ -86,12 +126,44 @@ than forcing it.
 - [x] Query `integration_event_cursors` for the `device-history` row's persisted event number (call
       it C). (Confirmed: row `local|device-history|last_sent_ev=12|attempts=0|last_success_ev=12`;
       C=12.)
+```toml step
+action = "sql_query"
+query = "SELECT last_success_ev FROM integration_event_cursors WHERE target='local' AND identifier='device-history';"
+capture = "cursor_c"
+```
 - [x] Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: no `TimeFlip.app` process
       remained.)
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_quit_id"
+
+[[actions]]
+action = "shell"
+command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+```
 - [x] Start the app again and confirm reconnect. Method: Launch the app for a Claude-driven step,
       Confirm device reconnect (`../Methods.md`). (Confirmed: fresh `"Login accepted, code=0x02"`
       row.)
+```toml step
+[[actions]]
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+timeout_seconds = 30
+```
 - [x] Query `debug_log` for the startup fetch's `"history fetch triggered: trigger=startup
       known_max=<N>"` line and confirm `known_max` equals C -- it resumed from the persisted
       cursor rather than re-fetching from scratch (which would show `known_max=0`). (Confirmed:
       `"history fetch triggered: trigger=startup known_max=12"` -- equals C.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='history' AND message LIKE 'history fetch triggered: trigger=startup%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"
+expect_contains = "history fetch triggered: trigger=startup known_max=$cursor_c"
+timeout_seconds = 15
+```
