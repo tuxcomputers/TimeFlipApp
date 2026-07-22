@@ -2,8 +2,12 @@
 # Runs device-test checklists without Claude in the loop. See scripts/testrunner/README.md.
 #
 # Usage:
-#   scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md
-#   scripts/testrunner/run_tests.sh Tests/Bench/04b-*.md Tests/Interactive/04i-*.md
+#   scripts/testrunner/run_tests.sh                          # everything: Bench sorted, then Interactive sorted
+#   scripts/testrunner/run_tests.sh -f Bench                 # only that folder, sorted
+#   scripts/testrunner/run_tests.sh -s 01                    # both folders, filenames containing "01" (01b then 01i)
+#   scripts/testrunner/run_tests.sh -s reset                 # substring match works by name too
+#   scripts/testrunner/run_tests.sh -f Bench -s reset         # combine both
+#   scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md   # explicit paths, exact order
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

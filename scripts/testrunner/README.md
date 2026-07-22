@@ -8,15 +8,24 @@ an AI driving the checklist by hand.
 ## Usage
 
 ```
-scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md
-scripts/testrunner/run_tests.sh Tests/Bench/04b-*.md Tests/Interactive/04i-*.md
+scripts/testrunner/run_tests.sh                        # everything: Bench (sorted), then Interactive (sorted)
+scripts/testrunner/run_tests.sh -f Bench                # only that folder, sorted
+scripts/testrunner/run_tests.sh -s 01                   # both folders, filenames containing "01" -- 01b then 01i
+scripts/testrunner/run_tests.sh -s reset                # substring match works by name too, not just number
+scripts/testrunner/run_tests.sh -f Bench -s reset       # combine both
+scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md   # explicit paths, exact order
 ```
+
+With no arguments (or just `-f`/`-s`), checklists are auto-discovered from
+`Tests/Bench/`/`Tests/Interactive/` (matching `*-checklist.md`, sorted by filename --
+the zero-padded `NN` prefix sorts correctly) and run Bench-then-Interactive automatically,
+satisfying `Tests/CLAUDE.md`'s run-order rule without you having to list files yourself.
+`-f`/`-s` only narrow that auto-discovery; they're mutually exclusive with passing
+explicit file paths, which still run in the exact order given, bypassing discovery
+entirely. Both flags accept the `--folder=Bench`/`--search=reset` equals-style form too.
 
 Requires `pyobjc` (`pip3 install pyobjc-framework-Quartz`) for `cgevent_click` steps --
 `run_tests.sh` checks for it up front. Everything else is Python 3.11+ stdlib.
-
-Run checklists in the order `Tests/CLAUDE.md` specifies (whole Bench phase, then whole
-Interactive phase); this runner does not enforce that order for you.
 
 ## Before anything runs
 
