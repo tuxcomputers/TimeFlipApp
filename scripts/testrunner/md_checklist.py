@@ -18,6 +18,7 @@ CHECKBOX_RE = re.compile(r"^(\s*)- \[( |x)\](.*)$")
 FENCE_START_RE = re.compile(r"^```toml step\s*$")
 FENCE_END_RE = re.compile(r"^```\s*$")
 HEADING_RE = re.compile(r"^#+\s")
+NOTE_RE = re.compile(r"^\s*\((?:Automated|AUTOMATED FAILURE): .*\)\s*$")
 
 
 @dataclass
@@ -112,6 +113,23 @@ class Checklist:
         prefix = "Automated" if success else "AUTOMATED FAILURE"
         note_line = f"{step.note_indent}({prefix}: {note})"
         self.lines.insert(step.note_insert_line, note_line)
+        self.steps = self._parse()
+
+    def clear_checkboxes(self):
+        """Reset every checkbox back to unchecked and drop any auto-generated
+        (Automated: ...)/(AUTOMATED FAILURE: ...) notes from a previous run -- used for
+        a deliberate rerun-from-scratch, so the next run's notes don't pile up alongside
+        stale ones. Call save() afterward to persist."""
+        new_lines = []
+        for line in self.lines:
+            if NOTE_RE.match(line):
+                continue
+            m = CHECKBOX_RE.match(line)
+            if m:
+                indent, _, rest = m.groups()
+                line = f"{indent}- [ ]{rest}"
+            new_lines.append(line)
+        self.lines = new_lines
         self.steps = self._parse()
 
     def save(self):

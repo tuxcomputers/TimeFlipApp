@@ -42,7 +42,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
 from actions import run_step  # noqa: E402
-from session_setup import confirm_warning, ensure_known_state, reset_device_for_cleanup  # noqa: E402
+from session_setup import (  # noqa: E402
+    confirm_warning,
+    ensure_known_state,
+    reset_device_for_cleanup,
+    restore_production_database,
+)
 
 DEFAULT_DB_PATH = os.path.expanduser("~/Library/Application Support/TimeFlip/appdata.sqlite")
 
@@ -67,24 +72,75 @@ def discover_checklists(repo_root, folder=None, search=None):
     return paths
 
 
+def prompt_yn(prompt):
+    """Same loop-until-exact-y-or-n shape as actions.act_ask_user, for the two
+    whole-run rerun/resume questions asked before any checklist starts."""
+    while True:
+        answer = input(f"{prompt} [y/n]: ").strip()
+        if answer == "y":
+            return True
+        if answer == "n":
+            return False
+        print(f"Not recognized: {answer!r} -- please answer exactly 'y' or 'n'.")
+
+
+def summarize_progress(checklist_paths):
+    """Checked/total step counts for each path, without mutating anything -- the basis
+    for the up-front rerun/resume decision."""
+    infos = []
+    for p in checklist_paths:
+        checklist = Checklist(p)
+        total = len(checklist.steps)
+        done = sum(1 for s in checklist.steps if s.checked)
+        infos.append((p, done, total))
+    return infos
+
+
+def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
+    """Whole-batch, up-front check replacing the old per-checklist continue/restart
+    prompt: if every requested checklist is already fully ticked, offer to clear them
+    all and run again; otherwise (any checklist partially or entirely unticked) offer
+    to resume from where things left off, clearing the whole batch and starting over
+    if the developer declines the resume. Returns False if there's nothing to run."""
+    infos = summarize_progress(checklist_paths)
+    all_complete = all(done == total for _, done, total in infos)
+
+    print("\nRequested checklists:")
+    for p, done, total in infos:
+        print(f"  {os.path.relpath(p)}: {done}/{total} steps checked")
+
+    if all_complete:
+        if auto_yes:
+            print("(--yes passed: clearing results and running again)")
+            clear_again = True
+        else:
+            clear_again = prompt_yn("\nAll requested checklists are already fully completed. Clear their results and run again?")
+        log_lines.append(f"All requested checklists already complete; clear-and-rerun: {clear_again}")
+        if not clear_again:
+            return False
+        for p, _, _ in infos:
+            c = Checklist(p)
+            c.clear_checkboxes()
+            c.save()
+        return True
+
+    if auto_yes:
+        print("(--yes passed: resuming from where things left off)")
+        resume = True
+    else:
+        resume = prompt_yn("\nSome requested checklists are not fully completed. Resume from where they left off?")
+    log_lines.append(f"Requested checklists mid-run; resume: {resume}")
+    if not resume:
+        for p, _, _ in infos:
+            c = Checklist(p)
+            c.clear_checkboxes()
+            c.save()
+    return True
+
+
 def run_checklist(path, db_path, log_lines):
     checklist = Checklist(path)
     log_lines.append(f"\n=== {path} ===")
-
-    total = len(checklist.steps)
-    already_done = sum(1 for s in checklist.steps if s.checked)
-    if 0 < already_done < total:
-        print(f"\n{path}: {already_done}/{total} steps already checked -- this checklist is mid-run.")
-        choice = input("Continue from the first unchecked step (c), or restart from the top (r)? [c/r] ").strip().lower()
-        log_lines.append(f"Mid-run ({already_done}/{total}); user chose: {choice or 'c'}")
-        if choice == "r":
-            print(
-                "Restart requested -- per Tests/CLAUDE.md's Restarting section, clear this file's "
-                "checkboxes yourself first (it discards recorded evidence, so it's not done "
-                "automatically), then re-run."
-            )
-            log_lines.append("Restart requested; user must clear checkboxes manually before re-running.")
-            return False
 
     ctx = {"db_path": db_path, "vars": {}}
     all_ok = True
@@ -180,7 +236,15 @@ def main():
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"{timestamp}.txt")
 
-    log_lines = [f"TimeFlip device-test run started {timestamp}", f"Checklists: {', '.join(checklist_paths)}"]
+    log_lines = [f"TimeFlip device-test run started {timestamp}", "Checklists:"]
+    log_lines.extend(f"  {p}" for p in checklist_paths)
+
+    if not resolve_rerun_state(checklist_paths, log_lines, args.yes):
+        print("\nNothing to run.")
+        log_lines.append("Nothing to run.")
+        with open(log_path, "w") as f:
+            f.write("\n".join(log_lines) + "\n")
+        sys.exit(0)
 
     if args.yes:
         from session_setup import WARNING_TEMPLATE, RESET_WARNING
@@ -215,6 +279,15 @@ def main():
             "\n!!! Cleanup reset did not complete -- the device may still carry this "
             "session's test activity. Reset/pair it manually before trusting production "
             "history once you switch back."
+        )
+
+    db_restore_ok = restore_production_database(args.db_path, repo_root)
+    log_lines.append(f"End-of-run database restore: {'OK' if db_restore_ok else 'FAILED -- run scripts/use-production-database.sh manually'}")
+    if not db_restore_ok:
+        print(
+            "\n!!! Could not switch back to the production database automatically -- quit "
+            "the app and run scripts/use-production-database.sh yourself, then relaunch, "
+            "before trusting production history."
         )
 
     log_lines.append(f"\nOverall result: {'PASS' if overall_ok else 'FAIL'}")

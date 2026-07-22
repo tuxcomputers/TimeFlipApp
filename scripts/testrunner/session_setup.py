@@ -26,11 +26,12 @@ WARNING_TEMPLATE = """
 
   At the end of the run, the device is factory reset and needs a quick re-pair
   click from you. This wipes the test session's activity from the device's own
-  onboard counter, so none of it can leak into your real history once you
-  switch back to the production database yourself (scripts/use-production-database.sh).
+  onboard counter, so none of it can leak into your real history. The run then
+  switches the app back to the production database itself -- you don't need to
+  run scripts/use-production-database.sh by hand afterward.
 
   Do NOT run this while you're relying on the device to track real time --
-  its current activity will be interrupted until you switch back afterward.
+  its current activity will be interrupted until the run switches back at the end.
 ################################################################################
 """
 
@@ -182,6 +183,41 @@ def ensure_known_state(db_path, repo_root):
               "paired against this database. Continuing, but expect early steps to fail if so.")
 
     print("Device connected. Known state established.")
+    return True
+
+
+def restore_production_database(db_path, repo_root):
+    """Runs once, after the end-of-run device cleanup reset: repoints appdata.sqlite back
+    at production.sqlite (scripts/use-production-database.sh) and confirms the app
+    reconnects against it, mirroring ensure_known_state()'s production->test switch in
+    reverse. Without this, the app is silently left pointed at test.sqlite until someone
+    notices and runs that script by hand."""
+    print("\n=== End-of-run cleanup: restoring the production database ===")
+
+    db_type = _read_db_type(db_path)
+    if db_type == "production":
+        print("Already on the production database -- nothing to restore.")
+        return True
+    if db_type != "test":
+        print(f"  unexpected db_type {db_type!r} -- not switching automatically. "
+              "Run scripts/use-production-database.sh manually once you've confirmed it's safe.")
+        return False
+
+    since_id = _latest_debug_log_id(db_path)
+    _quit_app()
+    r = subprocess.run(["scripts/use-production-database.sh"], cwd=repo_root, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  error running use-production-database.sh: {r.stderr.strip()}")
+        return False
+    _launch_app(repo_root)
+    if not _wait_for_reconnect(db_path, since_id=since_id):
+        print("  error: device did not reconnect after switching back to production.")
+        return False
+    db_type = _read_db_type(db_path)
+    if db_type != "production":
+        print(f"  error: expected db_type='production' after switching back, got {db_type!r}.")
+        return False
+    print("  Switched back to the production database; device reconnected.")
     return True
 
 

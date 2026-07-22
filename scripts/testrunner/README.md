@@ -55,10 +55,13 @@ per checklist file.
 Once every requested checklist has finished (pass or fail), the supervisor factory-resets
 the device and asks you to re-pair it (one click, can't be scripted) -- this wipes the
 whole session's test activity from the device's own onboard counter, so none of it gets
-mistaken for real history once you later switch back to the production database yourself
-(`scripts/use-production-database.sh`, still a manual step). If the cleanup reset can't
-complete for some reason, the run prints a clear warning and the log records it -- reset
-the device manually before trusting production history in that case.
+mistaken for real history. It then repoints `appdata.sqlite` back at `production.sqlite`
+itself (`scripts/use-production-database.sh`, quit/relaunch included) and confirms the
+app reconnects against it -- you don't need to remember to do this by hand. If either the
+cleanup reset or the database restore can't complete for some reason, the run prints a
+clear warning and the log records it -- resolve that manually (reset/pair the device,
+and/or run `scripts/use-production-database.sh` yourself) before trusting production
+history in that case.
 
 ## Answering a question mid-run
 
@@ -143,12 +146,21 @@ unpredictable analog battery behavior -- confirmed live to sometimes not happen 
 minutes at all. A long timeout doesn't fix non-determinism it just papers over it; that
 step can legitimately need re-running, same as the original human-driven checklist did.
 
-## Mid-run / restart behavior
+## Rerun / resume behavior
 
-If a checklist has some but not all boxes checked, the runner asks whether to continue
-from the first unchecked step or stop so you can restart it yourself -- it never clears
-checkboxes for you (see "Restarting" in `../../Tests/CLAUDE.md`; that discards recorded
-evidence, so it stays a deliberate, asked-for action).
+Before anything else (even the device-manipulation warning), the supervisor checks the
+progress of every checklist about to run, as one whole-batch decision -- not per file:
+
+- **All of them already fully checked** -- asks `y/n`: clear their results and run again?
+  `n` exits with nothing run.
+- **Any of them not fully checked** (partially or entirely unticked) -- asks `y/n`: resume
+  from where things left off? `y` continues each checklist from its first unchecked step,
+  same as always. `n` clears every requested checklist's results (checkboxes and any
+  `(Automated: ...)`/`(AUTOMATED FAILURE: ...)` notes from the previous run) and starts
+  the whole batch over from the top.
+
+`--yes` answers both automatically (clear-and-rerun, and resume, respectively) without
+blocking, for CI/non-interactive use.
 
 ## Failure handling and logs
 
