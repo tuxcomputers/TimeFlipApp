@@ -55,6 +55,14 @@ database (quitting, running `use-test-database.sh`, relaunching, and waiting for
 persists across restarts). If already on the test database, it just confirms the device
 is connected. This runs once per invocation, not once per checklist file.
 
+From here on, every checklist step and the end-of-run cleanup queries `test.sqlite`
+directly by its resolved, concrete path -- not the `appdata.sqlite` symlink the app
+itself keeps using. `debug_log_id` is per-file, not global, so a check needs to stay
+pinned to one concrete file for its whole lifetime; querying through the symlink instead
+would let a later, unrelated repoint of it quietly change what an in-flight check is
+comparing against (this caused two real, opposite-direction bugs during development --
+see git history on `session_setup.py` if curious).
+
 ## After everything runs
 
 Once every requested checklist has finished (pass or fail), the supervisor factory-resets

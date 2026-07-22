@@ -259,20 +259,24 @@ def main():
         sys.exit(1)
     log_lines.append("Developer confirmed the device-manipulation warning.")
 
-    if not ensure_known_state(args.db_path, repo_root):
+    resolved_db_path = ensure_known_state(args.db_path, repo_root)
+    if not resolved_db_path:
         print("Aborted -- could not establish a known device/database state.")
         log_lines.append("ABORTED: could not establish known device/database state.")
         with open(log_path, "w") as f:
             f.write("\n".join(log_lines) + "\n")
         sys.exit(1)
-    log_lines.append("Known device/database state established.")
+    log_lines.append(f"Known device/database state established (db file: {resolved_db_path}).")
 
+    # Every checklist/cleanup query below targets this resolved, concrete file directly
+    # -- not args.db_path (the appdata.sqlite symlink, which the app itself keeps using)
+    # -- so nothing here can be affected by a later, unrelated change to the symlink.
     overall_ok = True
     for path in checklist_paths:
-        ok = run_checklist(path, args.db_path, log_lines)
+        ok = run_checklist(path, resolved_db_path, log_lines)
         overall_ok = overall_ok and ok
 
-    cleanup_ok = reset_device_for_cleanup(args.db_path)
+    cleanup_ok = reset_device_for_cleanup(resolved_db_path)
     log_lines.append(f"\nEnd-of-run device cleanup: {'OK' if cleanup_ok else 'FAILED -- reset/pair the device manually'}")
     if not cleanup_ok:
         print(
