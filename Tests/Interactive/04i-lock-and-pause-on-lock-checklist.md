@@ -44,7 +44,7 @@ capture = "event_id_before_locked_flip"
 
 [[actions]]
 action = "ask_user"
-prompt = "Flip the cube to the Meeting face while it's locked -- the device should refuse the flip (nothing should happen). Press Enter once you've tried it."
+prompt = "Flip the cube to the Meeting face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
 - [x] **(Claude)** Confirm no new `device_event` row appeared for the attempted flip (query
       `device_event_id DESC`, latest row unchanged before/after). (Confirmed.)

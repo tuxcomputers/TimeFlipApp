@@ -208,7 +208,7 @@ expect_contains = "TimeFlip"
 ```toml step
 action = "ask_user_or_detect"
 prompt = "Click the discovered device's row in the Device tab to pair it (this can't be scripted -- it's a plain Text+onTapGesture, not a Button)."
-detect_query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
+detect_query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
 timeout_seconds = 120
 poll_interval = 2
 ```

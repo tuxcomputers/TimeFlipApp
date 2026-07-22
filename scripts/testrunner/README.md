@@ -30,9 +30,17 @@ Requires `pyobjc` (`pip3 install pyobjc-framework-Quartz`) for `cgevent_click` s
 ## Before anything runs
 
 Every invocation prints a warning that this manipulates the real, physical device (and
-specifically calls out a factory reset if a `02b`/`02i` path is passed), and blocks on a
-typed `yes` confirmation -- there's no way to skip this interactively; pass `--yes` only
-for CI/non-interactive runs (it still prints the warning, just doesn't wait for input).
+specifically calls out that `02b`/`02i` itself also does a mid-run reset, on top of the
+end-of-run cleanup reset described below), and blocks on typed input -- type `I
+understand` to proceed or `Not yet` to abort; anything else re-prompts instead of being
+treated as a no, so a typo can't accidentally abort or accidentally proceed. There's no
+way to skip this interactively; pass `--yes` only for CI/non-interactive runs (it still
+prints the warning, just doesn't wait for input).
+
+The warning's own wording is deliberately reassuring about production history: the
+test-database switch only happens once a completed sync against production is confirmed,
+so nothing real is ever at risk, regardless of what the test session does to the device
+afterward.
 
 Once confirmed, `session_setup.py` establishes the known state every checklist assumes,
 mirroring "Switch to the test database" in `../../Tests/Methods.md`: confirms/switches to
@@ -41,6 +49,26 @@ a **fresh** post-relaunch reconnect -- not a stale pre-relaunch row, since `debu
 persists across restarts) if currently on production, or just confirms the device is
 connected if the test database is already active. This runs once per invocation, not once
 per checklist file.
+
+## After everything runs
+
+Once every requested checklist has finished (pass or fail), the supervisor factory-resets
+the device and asks you to re-pair it (one click, can't be scripted) -- this wipes the
+whole session's test activity from the device's own onboard counter, so none of it gets
+mistaken for real history once you later switch back to the production database yourself
+(`scripts/use-production-database.sh`, still a manual step). If the cleanup reset can't
+complete for some reason, the run prints a clear warning and the log records it -- reset
+the device manually before trusting production history in that case.
+
+## Answering a question mid-run
+
+Two different conventions, deliberately not the same:
+- **The initial acknowledgment** (above) requires the full phrase `I understand` or `Not
+  yet`, looping on anything else -- high-stakes, so a stray keystroke can't slip through.
+- **Every other yes/no question** (an `ask_user` step, e.g. "did the device refuse the
+  flip while locked?") is a single-shot lowercase `y` for yes; anything else -- including
+  a blank Enter -- is a genuine no and fails that step. There's no re-prompting; a `y/n`
+  step is a real assertion, not a gate.
 
 ## How a checklist step becomes runnable
 

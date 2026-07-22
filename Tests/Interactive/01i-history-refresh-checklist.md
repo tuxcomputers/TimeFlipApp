@@ -123,7 +123,7 @@ capture = "n_before_disconnect"
       `device_last_event=nil` against `known_max=9` at 23:15:15 and 23:15:25 while disconnected.)
 ```toml step
 action = "ask_user"
-prompt = "Turn off Bluetooth on the Mac (menu bar icon or System Settings, not sudo/system-wide). Wait for the status item to show disconnected, flip the cube 2-3 times while still disconnected, then turn Bluetooth back on. Press Enter once you've turned Bluetooth back on."
+prompt = "Turn off Bluetooth on the Mac (menu bar icon or System Settings, not sudo/system-wide). Wait for the status item to show disconnected, flip the cube 2-3 times while still disconnected, then turn Bluetooth back on. Did you complete all of that? (y/n)"
 ```
 - [x] **(Claude)** Confirm the app reconnects automatically (Method: Confirm device reconnect,
       `../Methods.md`): query `debug_log` for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"`

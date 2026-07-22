@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
 from actions import run_step  # noqa: E402
-from session_setup import confirm_warning, ensure_known_state  # noqa: E402
+from session_setup import confirm_warning, ensure_known_state, reset_device_for_cleanup  # noqa: E402
 
 DEFAULT_DB_PATH = os.path.expanduser("~/Library/Application Support/TimeFlip/appdata.sqlite")
 
@@ -207,6 +207,15 @@ def main():
     for path in checklist_paths:
         ok = run_checklist(path, args.db_path, log_lines)
         overall_ok = overall_ok and ok
+
+    cleanup_ok = reset_device_for_cleanup(args.db_path)
+    log_lines.append(f"\nEnd-of-run device cleanup: {'OK' if cleanup_ok else 'FAILED -- reset/pair the device manually'}")
+    if not cleanup_ok:
+        print(
+            "\n!!! Cleanup reset did not complete -- the device may still carry this "
+            "session's test activity. Reset/pair it manually before trusting production "
+            "history once you switch back."
+        )
 
     log_lines.append(f"\nOverall result: {'PASS' if overall_ok else 'FAIL'}")
     with open(log_path, "w") as f:

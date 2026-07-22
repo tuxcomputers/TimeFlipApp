@@ -16,20 +16,28 @@ WARNING_TEMPLATE = """
 ################################################################################
   WARNING -- this run manipulates the REAL, PHYSICAL TimeFlip device.
 
-  It will switch the app to a TEST database and, depending which checklists you
-  passed, may lock/unlock it, pause/resume it, and change its settings (LED,
-  auto-pause, double-tap sensitivity).{reset_warning}
+  It switches the app to a TEST database first. Your production history is NOT
+  at risk: the switch only happens once a completed sync against production is
+  confirmed, so everything real is already safely recorded before any testing
+  starts. From that point on, all test activity -- locking/unlocking,
+  pausing/resuming, changing settings (LED, auto-pause, double-tap
+  sensitivity), event history -- happens only against the test database, never
+  production.{reset_warning}
+
+  At the end of the run, the device is factory reset and needs a quick re-pair
+  click from you. This wipes the test session's activity from the device's own
+  onboard counter, so none of it can leak into your real history once you
+  switch back to the production database yourself (scripts/use-production-database.sh).
 
   Do NOT run this while you're relying on the device to track real time --
-  its current activity will be interrupted, and it will not resume tracking
-  normally in your production data until you switch back to the production
-  database (scripts/use-production-database.sh) and relaunch the app.
+  its current activity will be interrupted until you switch back afterward.
 ################################################################################
 """
 
 RESET_WARNING = (
-    "\n\n  This run INCLUDES a reset-device checklist -- the device WILL be factory\n"
-    "  reset (0xFF) and end up unpaired. A fresh Scan/re-pair is required after."
+    "\n\n  This run also includes the reset-device checklist itself (02b/02i) -- in\n"
+    "  addition to the end-of-run cleanup reset described below, the device is\n"
+    "  factory reset and re-paired mid-run, as the test being exercised."
 )
 
 
@@ -38,8 +46,13 @@ def confirm_warning(checklist_paths):
         "02b" in os.path.basename(p) or "02i" in os.path.basename(p) for p in checklist_paths
     )
     print(WARNING_TEMPLATE.format(reset_warning=RESET_WARNING if includes_reset else ""))
-    answer = input("Type 'yes' to confirm you understand and want to proceed: ").strip().lower()
-    return answer == "yes"
+    while True:
+        answer = input("Type 'I understand' to proceed, or 'Not yet' if you're not ready: ").strip().lower()
+        if answer == "i understand":
+            return True
+        if answer == "not yet":
+            return False
+        print("Not recognized -- please type exactly 'I understand' or 'Not yet'.")
 
 
 def _read_db_type(db_path):
@@ -169,4 +182,122 @@ def ensure_known_state(db_path, repo_root):
               "paired against this database. Continuing, but expect early steps to fail if so.")
 
     print("Device connected. Known state established.")
+    return True
+
+
+def reset_device_for_cleanup(db_path):
+    """Runs once, at the end of the whole invocation (after every requested checklist
+    has finished, pass or fail): factory-resets the device and re-pairs it, so no
+    test-session activity (event counter advances, LED/auto-pause/double-tap changes)
+    can leak into production history once the developer switches back manually. Reuses
+    the exact AX paths verified live in Tests/Bench/02b's own reset scenario -- see that
+    file's toml step blocks for where these were derived and confirmed."""
+    from actions import run_step  # local import: avoids a hard circular dependency at module load
+
+    ctx = {"db_path": db_path, "vars": {}}
+    print("\n=== End-of-run cleanup: factory-resetting the device ===")
+
+    r = run_step(
+        {
+            "actions": [
+                {"action": "click_menu_item", "item": "Settings..."},
+                {"action": "shell", "command": "sleep 1"},
+                {
+                    "action": "applescript",
+                    "script": (
+                        'tell application "System Events"\n'
+                        '    tell process "TimeFlip"\n'
+                        '        click radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"\n'
+                        "    end tell\n"
+                        "end tell"
+                    ),
+                },
+            ]
+        },
+        ctx,
+    )
+    if not r.success:
+        print(f"  could not open Settings/Device tab: {r.detail} -- skipping cleanup reset.")
+        return False
+
+    run_step({"action": "sql_query", "query": "SELECT MAX(debug_log_id) FROM debug_log;", "capture": "cleanup_before_id"}, ctx)
+
+    r = run_step(
+        {
+            "action": "applescript",
+            "script": (
+                'tell application "System Events"\n'
+                '    tell process "TimeFlip"\n'
+                '        if exists button 2 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" then\n'
+                '            click button 2 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"\n'
+                "            delay 0.5\n"
+                '            click button 2 of sheet 1 of window "TimeFlip Settings"\n'
+                '            return "clicked"\n'
+                "        else\n"
+                '            return "not_paired"\n'
+                "        end if\n"
+                "    end tell\n"
+                "end tell"
+            ),
+        },
+        ctx,
+    )
+    if not r.success:
+        print(f"  could not click Reset Device: {r.detail} -- skipping cleanup reset.")
+        return False
+    if r.detail.strip() == "not_paired":
+        print("  device already shows unpaired -- nothing to reset.")
+        return True
+
+    r = run_step(
+        {
+            "action": "wait_for_sql",
+            "query": "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' "
+            "AND debug_log_id > $cleanup_before_id ORDER BY debug_log_id DESC LIMIT 1;",
+            "expect_contains": "Factory reset confirmed",
+            "timeout_seconds": 60,
+        },
+        ctx,
+    )
+    if not r.success:
+        print(f"  reset did not confirm: {r.detail} -- pair/reset the device manually before relying on it again.")
+        return False
+    print("  Factory reset confirmed -- the test session's activity is wiped from the device.")
+
+    run_step(
+        {
+            "actions": [
+                {
+                    "action": "applescript",
+                    "script": (
+                        'tell application "System Events"\n'
+                        '    tell process "TimeFlip"\n'
+                        '        click button 1 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"\n'
+                        "    end tell\n"
+                        "end tell"
+                    ),
+                },
+                {"action": "shell", "command": "sleep 2"},
+            ]
+        },
+        ctx,
+    )
+
+    r = run_step(
+        {
+            "action": "ask_user_or_detect",
+            "prompt": "End-of-run cleanup: click the discovered device's row in Settings to re-pair it (can't be scripted).",
+            # Select debug_log_id (unique, monotonic), not message -- "Login accepted,
+            # code=0x02" repeats verbatim on every login, including the reset
+            # confirmation itself, so comparing text never detects a genuinely new row.
+            "detect_query": "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' "
+            "ORDER BY debug_log_id DESC LIMIT 1;",
+            "timeout_seconds": 120,
+        },
+        ctx,
+    )
+    if not r.success:
+        print(f"  re-pair not detected: {r.detail} -- please pair the device manually before using it again.")
+        return False
+    print("  Device re-paired. Cleanup complete.")
     return True
