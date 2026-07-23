@@ -70,6 +70,48 @@ def _read_db_type(db_path):
         conn.close()
 
 
+def _last_event_is_paused(db_path):
+    """The most recent device_event's is_paused flag, ordered by start_epoch (the schema's
+    stable time ordering -- event_number can reset independently of wall-clock time, see
+    database/CLAUDE.md). Returns True (paused), False (timing an activity), or None if the
+    database has no events yet."""
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT is_paused FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return row[0] == 1
+
+
+def ensure_not_timing_on_production(db_path):
+    """Pre-flight guard: refuses to start a test run while the app is on the PRODUCTION
+    database and the device is mid-timing a real activity (its last synced event isn't a
+    pause). This run switches to the test database and factory-resets the device at the
+    end, so proceeding would interfere with that live timing event. Only guards production
+    -- on the test database there's nothing real to protect. Returns True if it's safe to
+    proceed, False (with an explanatory print) if the developer must pause the device
+    first. Reflects the last state the app synced to the DB; if you just flipped the
+    device, give it a moment to sync before re-running."""
+    if _read_db_type(db_path) != "production":
+        return True
+    # Read the concrete production.sqlite directly (the symlink points at it right now),
+    # consistent with the rest of this module's post-switch queries.
+    if _last_event_is_paused(os.path.realpath(db_path)) is False:
+        print(
+            "\n!!! The app is on the PRODUCTION database and the device is currently TIMING a\n"
+            "    real activity (its last event isn't a pause). Pause the device first, then\n"
+            "    re-run -- otherwise this test run (which switches to the test database and\n"
+            "    factory-resets the device at the end) would interfere with that real timing\n"
+            "    event."
+        )
+        return False
+    return True
+
+
 def _wait_for_history_fetch_complete(db_path, trigger, since_id=0, timeout=60):
     """Polls for HistoryIngestor.refreshHistory()'s own "history fetch complete: trigger=..."
     marker (logged on every exit path, whether or not anything actually changed -- unlike

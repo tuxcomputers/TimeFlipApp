@@ -42,6 +42,13 @@ test-database switch only happens once a completed history fetch against product
 confirmed, so nothing real is ever at risk, regardless of what the test session does to
 the device afterward.
 
+Immediately after confirmation, a safety gate (`ensure_not_timing_on_production`) checks
+whether we're still on the production database with the device **mid-timing** a real
+activity -- i.e. the most recent `device_event` isn't a pause. If so it aborts and tells
+you to pause the device first, since the run switches to the test database and
+factory-resets the device at the end and would otherwise interrupt that live timing event.
+On the test database (nothing real to protect) it's a no-op.
+
 Once confirmed, `session_setup.py` establishes the known state every checklist assumes,
 mirroring "Switch to the test database" in `../../Tests/Methods.md`. If currently on
 production, it first **restarts the app itself** to force a fresh history fetch rather
@@ -62,6 +69,11 @@ pinned to one concrete file for its whole lifetime; querying through the symlink
 would let a later, unrelated repoint of it quietly change what an in-flight check is
 comparing against (this caused two real, opposite-direction bugs during development --
 see git history on `session_setup.py` if curious).
+
+For the underlying mechanics -- exactly which tables and `debug_log` markers the runner
+queries to detect each piece of state (active database, paused vs timing, reconnect,
+history-fetch completion, factory reset), and the `since_id`/per-file pitfalls -- see
+[`DETECTION.md`](DETECTION.md).
 
 ## After everything runs
 

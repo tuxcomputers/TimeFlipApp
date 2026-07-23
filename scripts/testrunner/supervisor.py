@@ -45,6 +45,7 @@ from actions import run_step  # noqa: E402
 from session_setup import (  # noqa: E402
     confirm_warning,
     ensure_known_state,
+    ensure_not_timing_on_production,
     reset_device_for_cleanup,
     restore_production_database,
 )
@@ -259,6 +260,15 @@ def main():
         print("Aborted -- confirmation not given.")
         sys.exit(1)
     log_lines.append("Developer confirmed the device-manipulation warning.")
+
+    # Safety gate before we touch anything: if we're still on production and the device is
+    # mid-timing a real activity, refuse to switch/reset out from under it.
+    if not ensure_not_timing_on_production(args.db_path):
+        print("\nAborted -- pause the device, then re-run.")
+        log_lines.append("ABORTED: on production and device is mid-timing; developer must pause first.")
+        with open(log_path, "w") as f:
+            f.write("\n".join(log_lines) + "\n")
+        sys.exit(1)
 
     resolved_db_path = ensure_known_state(args.db_path, repo_root)
     if not resolved_db_path:
