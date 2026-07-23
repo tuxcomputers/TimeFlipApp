@@ -68,10 +68,11 @@ class Step:
     number: int  # 1-based ordinal within `section`
     full_text: str  # prose joined across wrapped continuation lines (excludes the toml block)
 
-    def description(self, maxlen=80):
-        """A short, human instruction for prompts: actor label and `Step N:` prefix
-        stripped, cut at `Method:` (or the trailing evidence note when there's no
-        Method), wrapped lines collapsed, truncated."""
+    def description(self, maxlen=None):
+        """A human instruction for prompts: actor label and `Step N:` prefix stripped, cut at
+        `Method:` (or the trailing evidence note when there's no Method), wrapped lines
+        collapsed onto one line. Full length by default -- pass `maxlen` to cap it with an
+        ellipsis (callers generally don't; the terminal can take the whole line)."""
         t = _ACTOR_RE.sub("", self.full_text.strip())
         t = _STEP_NUM_RE.sub("", t)
         m = _METHOD_RE.search(t)
@@ -80,7 +81,7 @@ class Step:
         else:
             t = _strip_trailing_paren(t)
         t = " ".join(t.split()).rstrip(" .")
-        if len(t) > maxlen:
+        if maxlen is not None and len(t) > maxlen:
             t = t[: maxlen - 1].rstrip() + "…"
         return t
 
