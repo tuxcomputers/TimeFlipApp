@@ -46,6 +46,8 @@ enum DeveloperMode {
         case dailyReset = "daily-reset"
         case led = "led"
         case click = "click"
+        case menu = "menu"
+        case tab = "tab"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

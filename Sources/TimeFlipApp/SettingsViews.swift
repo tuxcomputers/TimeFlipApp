@@ -51,6 +51,9 @@ struct SettingsRootView: View {
                 selectedTab = newValue
                 appState.pendingSettingsTab = nil
             }
+            .onChange(of: selectedTab) { _, newValue in
+                DeveloperMode.debugPrint(.tab, "Tab switched to: \(newValue.debugName)")
+            }
             .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }
                 onMinimumContentHeightChange(height)
@@ -73,6 +76,15 @@ enum SettingsTab: Hashable {
     case timeflip
     case facets
     case report
+
+    /// Matches the tab's visible title, for the `tab` debug log (see SettingsRootView).
+    var debugName: String {
+        switch self {
+        case .timeflip: return "Device"
+        case .facets: return "Faces"
+        case .report: return "App"
+        }
+    }
 }
 
 private struct PaneSetupView: View {

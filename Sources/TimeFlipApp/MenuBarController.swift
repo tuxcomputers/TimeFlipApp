@@ -171,9 +171,12 @@ final class MenuBarController: NSObject {
         let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
         let isLocked = appState.isLocked
 
+        // Menu items point at thin logging wrappers (menuSettings/menuPauseResume/...) rather
+        // than the shared handlers directly, so a dropdown selection is logged as a menu click
+        // (tag `menu`) distinctly from the status-item click gesture, which already logs `click`.
         let settingsItem = NSMenuItem(
             title: "Settings...",
-            action: #selector(openPreferences),
+            action: #selector(menuSettings),
             keyEquivalent: ""
         )
         settingsItem.target = self
@@ -184,7 +187,7 @@ final class MenuBarController: NSObject {
         let pauseTitle = isPaired ? (isPaused ? "Resume" : "Pause") : "Pause"
         let pauseItem = NSMenuItem(
             title: pauseTitle,
-            action: #selector(togglePause),
+            action: #selector(menuPauseResume),
             keyEquivalent: ""
         )
         pauseItem.target = self
@@ -195,7 +198,7 @@ final class MenuBarController: NSObject {
 
         let lockItem = NSMenuItem(
             title: isLocked ? "Unlock" : "Lock",
-            action: #selector(toggleLock),
+            action: #selector(menuLockUnlock),
             keyEquivalent: ""
         )
         lockItem.target = self
@@ -204,7 +207,7 @@ final class MenuBarController: NSObject {
 
         let quitItem = NSMenuItem(
             title: "Quit",
-            action: #selector(quitApp),
+            action: #selector(menuQuit),
             keyEquivalent: ""
         )
         quitItem.target = self
@@ -438,6 +441,32 @@ final class MenuBarController: NSObject {
     private func handleSystemClockChange() {
         logger.info("System clock changed; refreshing duration display")
         updateStatusView()
+    }
+
+    // Dropdown menu-item wrappers: log the click (tag `menu`), then run the shared handler. The
+    // handlers stay reachable from the status-item gesture without logging a menu click there.
+    @objc
+    private func menuSettings() {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: Settings...")
+        openPreferences()
+    }
+
+    @objc
+    private func menuPauseResume(_ sender: NSMenuItem) {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: \(sender.title)")
+        togglePause()
+    }
+
+    @objc
+    private func menuLockUnlock(_ sender: NSMenuItem) {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: \(sender.title)")
+        toggleLock()
+    }
+
+    @objc
+    private func menuQuit() {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: Quit")
+        quitApp()
     }
 
     @objc
