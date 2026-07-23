@@ -41,6 +41,10 @@ Each folder's own `README.md` describes just that suite.
   the two sides of one numbered pair are never identically named (a same-named pair used to be
   ambiguous to tell apart when both were open at once).
 - Neither folder's `README.md` nor this file is a checklist -- CI never scans them.
+- `Tests/00-test-setup.md` is the standalone script runner's shared, always-run-first setup
+  (switch to the test DB once; see `scripts/testrunner/README.md`) -- not a feature checklist and
+  not CI-scanned. When **you** run the tests, do the setup per `Methods.md` as usual; don't treat
+  this file as one of the feature checklists to work through.
 - To insert one earlier: `git mv` every file numbered >= the target up by one (highest first), add
   the new file at that number in both folders, fix references to the old numbers.
 

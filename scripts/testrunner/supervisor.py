@@ -44,7 +44,6 @@ from md_checklist import Checklist  # noqa: E402
 from actions import run_step, capture_names  # noqa: E402
 from session_setup import (  # noqa: E402
     confirm_warning,
-    ensure_known_state,
     ensure_not_timing_on_production,
     reset_device_for_cleanup,
     restore_production_database,
@@ -283,13 +282,13 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
 
         if step.spec is None:
             if step.section == "Setup":
-                # A Setup step with no toml is the quit/switch-to-test/relaunch procedure
-                # that session_setup.ensure_known_state() already performed once, before any
-                # checklist ran (see 01b/05b/06b/07b) -- so record it done rather than skip.
-                # Re-running it here would rebuild test.sqlite and wipe the synced history
-                # the scenarios depend on.
-                print("  -> OK (setup already established by session_setup): ticking.")
-                log_lines.append(f"OK (setup via session_setup): {step.prose}")
+                # A Setup step with no toml describes the switch-to-test procedure that the
+                # shared Tests/00-test-setup.md already performed once at the start of the run
+                # (see 01b/05b/06b/07b, whose Setup narrates it) -- so record it done rather
+                # than skip. Re-running it here would rebuild test.sqlite and wipe the history
+                # 00-test-setup just synced.
+                print("  -> OK (setup already done by 00-test-setup.md): ticking.")
+                log_lines.append(f"OK (setup via 00-test-setup.md): {step.prose}")
                 if confirm_steps and not _confirm_step(path, step, "setup established by session_setup", log_lines):
                     all_ok = False
                     _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "setup step not confirmed")
@@ -461,20 +460,29 @@ def main():
         sys.exit(1)
     log_lines.append("Developer confirmed the device-manipulation warning.")
 
-    resolved_db_path = ensure_known_state(args.db_path, repo_root)
-    if not resolved_db_path:
-        print("Aborted -- could not establish a known device/database state.")
-        log_lines.append("ABORTED: could not establish known device/database state.")
-        sys.exit(1)
-    log_lines.append(f"Known device/database state established (db file: {resolved_db_path}).")
+    # Query the appdata.sqlite symlink from here on. The shared setup below repoints it (that's
+    # the one place the test database is built), and every step runs sequentially, so following
+    # the symlink is correct -- no concrete path needs pinning.
+    db_path = args.db_path
+    setup_path = os.path.join(repo_root, "Tests", "00-test-setup.md")
 
-    # Every checklist/cleanup query below targets this resolved, concrete file directly
-    # -- not args.db_path (the appdata.sqlite symlink, which the app itself keeps using)
-    # -- so nothing here can be affected by a later, unrelated change to the symlink.
     overall_ok = True
     try:
+        # Always run the shared setup first, fresh, whatever subset was requested (Bench,
+        # Interactive, a single file) -- it switches to the test database once and confirms the
+        # device is connected. Its boxes are cleared so it re-runs every time; a failure here
+        # aborts before any feature checklist.
+        setup = Checklist(setup_path)
+        setup.clear_checkboxes()
+        setup.save()
+        log_lines.append("\n--- Test setup (00-test-setup.md), always run first ---")
+        if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps):
+            print("\nAborted -- test setup failed; not running any checklists.")
+            log_lines.append("ABORTED: test setup failed.")
+            sys.exit(1)
+
         for path in checklist_paths:
-            ok = run_checklist(path, resolved_db_path, log_lines, args.yes, confirm_steps)
+            ok = run_checklist(path, db_path, log_lines, args.yes, confirm_steps)
             overall_ok = overall_ok and ok
     except _RunHalted as halt:
         banner = "!" * 70
@@ -487,7 +495,7 @@ def main():
         log_lines.append(f"\nRUN HALTED: {halt} (end-of-run cleanup skipped)")
         sys.exit(2)
 
-    cleanup_ok = reset_device_for_cleanup(resolved_db_path)
+    cleanup_ok = reset_device_for_cleanup(db_path)
     log_lines.append(f"\nEnd-of-run device cleanup: {'OK' if cleanup_ok else 'FAILED -- reset/pair the device manually'}")
     if not cleanup_ok:
         print(

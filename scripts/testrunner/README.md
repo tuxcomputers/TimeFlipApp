@@ -50,24 +50,23 @@ test-database switch only happens once a completed history fetch against product
 confirmed, so nothing real is ever at risk, regardless of what the test session does to
 the device afterward.
 
-Once confirmed, `session_setup.py` establishes the known state every checklist assumes,
-mirroring "Switch to the test database" in `../../Tests/Methods.md`. If currently on
-production, it first **restarts the app itself** to force a fresh history fetch rather
-than waiting on the periodic fetch timer (`fetch_history_interval_seconds`, which a
-developer may have set as long as 15 minutes), and polls `debug_log` for that fetch's own
-`"history fetch complete: trigger=startup"` marker (logged on every exit path of
-`HistoryIngestor.refreshHistory()`, not just the nothing-changed branch, so a fetch that
-actually pulls in a real backlog is still detected). Only then does it switch to the test
-database (quitting, running `use-test-database.sh`, relaunching, and waiting for a
-**fresh** post-relaunch reconnect -- not a stale pre-relaunch row, since `debug_log`
-persists across restarts). If already on the test database, it just confirms the device
-is connected. This runs once per invocation, not once per checklist file.
+Once confirmed, the supervisor **always runs `Tests/00-test-setup.md` first** -- a shared
+setup checklist (common to Bench and Interactive), run fresh (its boxes are cleared) no
+matter which subset was requested, even an Interactive-only or single-file run. It is the
+**one and only** place the test database is switched/rebuilt. Its `toml` steps: confirm the
+app is on production; capture production's max `debug_log_id`; restart the app to force a
+fresh history fetch against production and confirm `"history fetch complete: trigger=startup"`
+(so all real history is recorded before switching -- the end-of-run factory reset later wipes
+the device's own counter); then `use-test-database.sh`, relaunch, confirm reconnect, and
+confirm `db_type` is now `test`. If any setup step fails the whole run aborts before any
+feature checklist. (`session_setup.py` no longer switches; it just holds the warning and
+mid-timing gates and the end-of-run reset/restore.)
 
-Because `session_setup` already performs the quit/switch-to-test/relaunch procedure, the
-`## Setup` steps that describe it (in `01b`/`05b`/`06b`/`07b`) carry no `toml` block. The
+Because `00-test-setup.md` has already performed the quit/switch-to-test/relaunch procedure,
+the `## Setup` steps that *narrate* it (in `01b`/`05b`/`06b`/`07b`) carry no `toml` block. The
 runner treats a **Setup** step with no `toml` as already done -- it ticks it rather than
 skipping or re-running it (re-running `use-test-database.sh` mid-checklist would rebuild
-`test.sqlite` and wipe the synced history the scenarios depend on).
+`test.sqlite` and wipe the history `00-test-setup` just synced).
 
 A step with no `toml` **outside** the Setup section (e.g. a screenshot/visual confirmation
 in `03b`/`04b`/`03i`) is one the script can't automate, so it **asks you** -- prints the
@@ -78,13 +77,13 @@ the run ends non-zero). Contrast the AI-driven path (see `../../Tests/CLAUDE.md`
 Claude runs the Bench suite it automates these itself (doing the screenshot/visual check
 via its own tooling) rather than asking.
 
-From here on, every checklist step and the end-of-run cleanup queries `test.sqlite`
-directly by its resolved, concrete path -- not the `appdata.sqlite` symlink the app
-itself keeps using. `debug_log_id` is per-file, not global, so a check needs to stay
-pinned to one concrete file for its whole lifetime; querying through the symlink instead
-would let a later, unrelated repoint of it quietly change what an in-flight check is
-comparing against (this caused two real, opposite-direction bugs during development --
-see git history on `session_setup.py` if curious).
+Every step queries the `appdata.sqlite` **symlink**. `00-test-setup.md` repoints it (the one
+switch) as an ordered step, and all steps run sequentially, so following the symlink is
+correct -- a step only ever runs after the previous one finished, so there's no in-flight
+check for a mid-run repoint to disturb. (`debug_log_id` is still per-file: after the switch,
+`test.sqlite` starts its own id sequence, so 00-test-setup's post-switch "reconnect" wait
+looks for any recent `Login accepted` in the fresh file rather than filtering on a
+production-era id.)
 
 For the underlying mechanics -- exactly which tables and `debug_log` markers the runner
 queries to detect each piece of state (active database, paused vs timing, reconnect,

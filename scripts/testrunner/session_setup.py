@@ -97,7 +97,7 @@ def ensure_not_timing_on_production(db_path):
     first. Reflects the last state the app synced to the DB; if you just flipped the
     device, give it a moment to sync before re-running."""
     # Runs first, before any prompt -- so don't let sqlite3.connect() create an empty file
-    # if it's missing; leave that error for ensure_known_state()'s own existence check.
+    # if it's missing; the setup checklist (00-test-setup.md) surfaces a missing DB itself.
     if not os.path.exists(db_path):
         return True
     if _read_db_type(db_path) != "production":
@@ -114,30 +114,6 @@ def ensure_not_timing_on_production(db_path):
         )
         return False
     return True
-
-
-def _wait_for_history_fetch_complete(db_path, trigger, since_id=0, timeout=60):
-    """Polls for HistoryIngestor.refreshHistory()'s own "history fetch complete: trigger=..."
-    marker (logged on every exit path, whether or not anything actually changed -- unlike
-    the old, narrower "DB refreshed" text, which is only ever logged on the
-    nothing-changed branch and never appears at all for a fetch that pulls in a real
-    backlog). since_id must be captured before the triggering restart/action, same
-    reasoning as _wait_for_reconnect."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        conn = sqlite3.connect(db_path)
-        try:
-            row = conn.execute(
-                "SELECT debug_log_id FROM debug_log WHERE tag='history' "
-                "AND message = ? AND debug_log_id > ? ORDER BY debug_log_id DESC LIMIT 1;",
-                (f"history fetch complete: trigger={trigger}", since_id),
-            ).fetchone()
-        finally:
-            conn.close()
-        if row:
-            return True
-        time.sleep(2)
-    return False
 
 
 def _app_running():
@@ -206,102 +182,12 @@ def _wait_for_reconnect(db_path, since_id=0, timeout=30):
     return False
 
 
-def ensure_known_state(db_path, repo_root):
-    """Returns the resolved, concrete path to the active database file (test.sqlite in
-    the normal case) once it's active and the device is connected -- callers should
-    query THIS path directly for the rest of the run, not db_path (the appdata.sqlite
-    symlink the app itself keeps using): debug_log_id is per-file, not global, so a
-    check pinned to one concrete file can't be quietly redirected by a later, unrelated
-    change to the symlink (see the prod<->test switch bugs this fixed). Returns None
-    (with an explanatory print) if that state can't be safely established."""
-    print("\n=== Establishing known device/database state ===")
-
-    if not os.path.exists(db_path):
-        print(f"error: {db_path} does not exist. Launch the app manually once first, then re-run.")
-        return None
-
-    db_type = _read_db_type(db_path)
-    print(f"Current db_type: {db_type!r}")
-
-    if db_type == "test":
-        print("Already on the test database -- not switching again this session.")
-        resolved_db_path = os.path.realpath(db_path)
-    elif db_type == "production":
-        print(
-            "Ensuring real history is fully preserved against production before switching -- "
-            "restarting the app now to force a fresh history fetch, rather than waiting on "
-            "the periodic fetch timer (a developer may have set that as long as 15 minutes)."
-        )
-        # Pinned now, while the symlink still points at production: every check in this
-        # branch queries this concrete file directly instead of re-resolving db_path each
-        # time, so nothing here can be affected by the switch further down.
-        production_path = os.path.realpath(db_path)
-        since_id = _latest_debug_log_id(production_path)
-        if _app_running():
-            if not _quit_app():
-                print("error: app did not quit -- refusing to launch a second instance on top of it. "
-                      "Quit it manually, then re-run.")
-                return None
-        _launch_app(repo_root)
-        if not _wait_for_reconnect(production_path, since_id=since_id):
-            print("error: device did not reconnect after restarting against production.")
-            return None
-        if not _wait_for_history_fetch_complete(production_path, trigger="startup", since_id=since_id):
-            print("error: startup history fetch against production did not complete in time -- "
-                  "check the device connection, then re-run.")
-            return None
-        print("Real history confirmed synced against production. Switching to the test database...")
-        if not _quit_app():
-            print("error: app did not quit -- refusing to launch a second instance on top of it. "
-                  "Quit it manually, then re-run.")
-            return None
-        r = subprocess.run(["scripts/use-test-database.sh"], cwd=repo_root, capture_output=True, text=True)
-        if r.returncode != 0:
-            print(f"error running use-test-database.sh: {r.stderr.strip()}")
-            return None
-        _launch_app(repo_root)
-        # Pinned now, right after use-test-database.sh repointed the symlink -- resolves
-        # to the freshly (re)created test.sqlite. since_id=0, not a pre-switch max id:
-        # that file's debug_log_id sequence always restarts at 1, so a since_id carried
-        # over from production's (much larger) sequence would never be exceeded,
-        # guaranteeing a timeout even on an instant reconnect (debug_log_id is per-file,
-        # not global; confirmed live: this masked a real reconnect that completed in ~4s).
-        resolved_db_path = os.path.realpath(db_path)
-        if not _wait_for_reconnect(resolved_db_path, since_id=0):
-            print("error: device did not reconnect after switching to the test database.")
-            return None
-        db_type = _read_db_type(db_path)
-        if db_type != "test":
-            print(f"error: expected db_type='test' after switching, got {db_type!r}. Stopping.")
-            return None
-        print("Switched to the test database; device reconnected.")
-    else:
-        print(f"error: unexpected db_type {db_type!r} -- stopping rather than guessing what to do.")
-        return None
-
-    if not _app_running():
-        print("App isn't running -- launching it...")
-        since_id = _latest_debug_log_id(resolved_db_path)
-        _launch_app(repo_root)
-        if not _wait_for_reconnect(resolved_db_path, since_id=since_id):
-            print("error: device did not connect after launching. Pair/reconnect it, then re-run.")
-            return None
-    elif not _wait_for_reconnect(resolved_db_path, since_id=0, timeout=5):
-        # App was already running -- a quick, unscoped check is enough here (any past
-        # login row is fine, we're not restarting anything); a real disconnect would
-        # still surface once checklist steps start querying/asserting against it.
-        print("warning: no 'Login accepted' row found at all -- the device may never have "
-              "paired against this database. Continuing, but expect early steps to fail if so.")
-
-    print(f"Device connected. Known state established (querying {resolved_db_path} directly from here on).")
-    return resolved_db_path
-
-
 def restore_production_database(db_path, repo_root):
     """Runs once, after the end-of-run device cleanup reset: repoints appdata.sqlite back
     at production.sqlite (scripts/use-production-database.sh) and confirms the app
-    reconnects against it, mirroring ensure_known_state()'s production->test switch in
-    reverse. Without this, the app is silently left pointed at test.sqlite until someone
+    reconnects against it, the reverse of the production->test switch that
+    Tests/00-test-setup.md does at the start. Without this, the app is silently left pointed
+    at test.sqlite until someone
     notices and runs that script by hand."""
     print("\n=== End-of-run cleanup: restoring the production database ===")
 
