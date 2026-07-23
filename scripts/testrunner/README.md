@@ -82,12 +82,13 @@ that case.
 
 ## Answering a question mid-run
 
-Two prompts, same loop-until-valid shape, different accepted words:
+Two prompts, same loop-until-valid shape, different accepted words. Input is lowercased
+before comparison in both, so any casing works:
 - **The initial acknowledgment** (above) requires the full phrase `I understand` or `Not
-  yet`, re-prompting on anything else.
+  yet` (any case), re-prompting on anything else.
 - **Every other yes/no question** (an `ask_user` step, e.g. "did the device refuse the
-  flip while locked?") wants a single `y` or `n` -- lowercase, exact. Anything else (a
-  stray keystroke, wrong case, a blank Enter) re-prompts instead of being silently
+  flip while locked?") wants a single `y` or `n` (either case -- `Y`/`N` are fine too).
+  Anything else (a stray keystroke, a blank Enter) re-prompts instead of being silently
   counted as an answer, so an accidental key can't flip the result either way.
 
 ## How a checklist step becomes runnable

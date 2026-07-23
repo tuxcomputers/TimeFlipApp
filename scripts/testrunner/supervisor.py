@@ -73,15 +73,16 @@ def discover_checklists(repo_root, folder=None, search=None):
 
 
 def prompt_yn(prompt):
-    """Same loop-until-exact-y-or-n shape as actions.act_ask_user, for the two
-    whole-run rerun/resume questions asked before any checklist starts."""
+    """Same loop-until-valid-y-or-n shape as actions.act_ask_user (input lowercased
+    before comparison, so any case works), for the two whole-run rerun/resume
+    questions asked before any checklist starts."""
     while True:
-        answer = input(f"{prompt} [y/n]: ").strip()
+        answer = input(f"{prompt} [y/n]: ").strip().lower()
         if answer == "y":
             return True
         if answer == "n":
             return False
-        print(f"Not recognized: {answer!r} -- please answer exactly 'y' or 'n'.")
+        print(f"Not recognized: {answer!r} -- please answer 'y' or 'n'.")
 
 
 def summarize_progress(checklist_paths):
