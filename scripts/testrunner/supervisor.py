@@ -401,7 +401,7 @@ def main():
         help="Skip the interactive confirmation prompt (still prints the warning) -- for CI/non-interactive runs only.",
     )
     parser.add_argument(
-        "--no-confirm-steps",
+        "-nc", "--no-confirm-steps",
         dest="confirm_steps",
         action="store_false",
         help="Don't pause after each step. By default (interactive runs) the runner shows every "

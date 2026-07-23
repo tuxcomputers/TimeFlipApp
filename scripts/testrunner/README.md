@@ -138,9 +138,9 @@ skipped so you can inspect the state) for you to work out what went wrong. Your 
 follow-up is logged too. This is the guard against a run sailing through steps that didn't
 really happen (e.g. against a disconnected device).
 
-`--no-confirm-steps` turns the per-step pausing off (fast, hands-off within a checklist; a
-failing step then just stops that checklist as before). `--yes` implies `--no-confirm-steps`
--- with no human present there's nobody to confirm.
+`--no-confirm-steps` (short: `-nc`) turns the per-step pausing off (fast, hands-off within a
+checklist; a failing step then just stops that checklist as before). `--yes` implies
+`--no-confirm-steps` -- with no human present there's nobody to confirm.
 
 ## How a checklist step becomes runnable
 
