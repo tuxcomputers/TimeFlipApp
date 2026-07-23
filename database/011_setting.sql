@@ -63,3 +63,7 @@ WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'debug');
 INSERT INTO setting (setting_name, setting_value, setting_description)
 SELECT 'daily_reset_time', '{"hour":3,"minute":0}', 'NOT YET IMPLEMENTED -- placeholder for a planned feature. hour (0-23) and minute (0-59), local time, at which each category''s tracked-time-vs-category.daily_limit accounting rolls over to a new day (default 3 AM, not midnight, so a session spanning midnight isn''t split). A future Preferences UI will let the user override this.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'daily_reset_time');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'last_connection', '{"connected_at":"' || strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime') || '"}', 'connected_at (local date-time, YYYY-MM-DDTHH:MM:SS) of the most recent successful device connection. Written by AppDataStore.recordLastConnection() as part of every successful device login -- i.e. when a new device is paired and on each app-start/reconnect login (see ApplicationDelegate.startDeviceEvents). Seeded to the time this row was first created. Lets a test or observer confirm the device actually connected (the value advances to ~now) rather than assuming it did.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'last_connection');

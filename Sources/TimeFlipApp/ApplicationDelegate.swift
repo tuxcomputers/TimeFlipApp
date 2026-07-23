@@ -507,6 +507,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             guard !Task.isCancelled else { return }
+            // A genuine device connection (a new pairing, or an app-start/reconnect login --
+            // the factory-reset-confirmation login returned above and is deliberately excluded).
+            // Stamp last_connection so an observer/test can confirm the device really connected.
+            let connectedAt = dataStore.recordLastConnection()
+            DeveloperMode.debugPrint(.timeFlip, "last_connection recorded: \(connectedAt)")
             await MainActor.run {
                 // Login confirms the device is reachable and authenticated again — clear the
                 // "reconnecting" state right away; the history backfill below will correct the

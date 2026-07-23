@@ -508,6 +508,28 @@ final class AppDataStore: IntegrationEventCursorStore {
         loadSettingJSON(name: "db_type")?["type"] as? String ?? "production"
     }
 
+    /// Local date-time formatter for `last_connection`, matching the `db-type`/`debug`
+    /// convention of local time with no UTC offset (see `DeveloperMode.debugPrint`), and the
+    /// seed's own `strftime('%Y-%m-%dT%H:%M:%S','now','localtime')` in `011_setting.sql`.
+    private static let lastConnectionFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        formatter.timeZone = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    /// Stamps the `last_connection` setting with the current local date-time. Called as part of
+    /// every successful device login (a new pairing, and each app-start/reconnect login) -- see
+    /// `ApplicationDelegate.startDeviceEvents` and `011_setting.sql`. Returns the string written,
+    /// so the caller can log it.
+    @discardableResult
+    func recordLastConnection(now: Date = Date()) -> String {
+        let stamp = Self.lastConnectionFormatter.string(from: now)
+        saveSettingJSON(name: "last_connection", merging: ["connected_at": stamp])
+        return stamp
+    }
+
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
     /// seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default if the
     /// row is missing or malformed.
