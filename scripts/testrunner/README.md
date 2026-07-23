@@ -178,8 +178,17 @@ timeout_seconds = 10
 ```
 
 A value captured by one step (`capture = "some_name"`) is available to every later step
-in the same run via `{some_name}` inside `query`/`command`/`script`/`expect`/`expect_contains`
-(Python `str.format`).
+in the same run via `$some_name` inside `query`/`command`/`script`/`expect`/`expect_contains`
+(Python `string.Template`, so literal JSON braces in a query don't clash).
+
+**Conditional steps/actions (`when`).** A `when = "$var <op> N"` guard (e.g.
+`when = "$start_event_id < 10"`) runs the step -- or an individual action inside an
+`[[actions]]` block -- only if the comparison holds. Operators: `<`, `<=`, `>`, `>=`, `==`,
+`!=`; numeric if both sides are numbers, else a string compare. If the guard isn't met, a
+whole step is ticked and skipped without running or asking, and an action inside a sequence
+is a no-op. Use `$var` (a captured value); a guard that can't be parsed is treated as met, so
+a typo never silently skips a step. See `01b`'s Setup: the flip prompt/monitor/stop steps are
+each `when = "$start_event_id < 10"`, so a device that already has enough history skips them.
 
 ## Action vocabulary (`actions.py`)
 
@@ -189,7 +198,7 @@ in the same run via `{some_name}` inside `query`/`command`/`script`/`expect`/`ex
 | `applescript` | run an AppleScript (`script`), optionally assert its output (`expect`/`expect_contains`) or `capture` it |
 | `sql_query` | run a `SELECT` (`query`), optionally assert (`expect`/`expect_contains`) or `capture` the result |
 | `sql_exec` | run an `INSERT`/`UPDATE` (`query`), no assertion |
-| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s) |
+| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s). Optional `prompt` is printed as an "ACTION NEEDED" nudge only if the condition isn't already met when polling starts |
 | `cgevent_click` | a real synthetic click/double-click/held-press at a named `target` (see `locators.py`), via `CGEventPost` with `kCGMouseEventClickState` set -- see "Simulate a real click..." in `../../Tests/Methods.md` for why this works where AppleScript's `click` doesn't |
 | `click_menu_item` | open the status-item menu and click `item` by name |
 | `ensure_unlocked_unpaused` | idempotent precondition resolver: clicks Unlock/Resume only if the menu currently shows them |

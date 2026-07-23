@@ -41,7 +41,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
-from actions import run_step, capture_names  # noqa: E402
+from actions import run_step, capture_names, condition_met  # noqa: E402
 from session_setup import (  # noqa: E402
     confirm_warning,
     ensure_not_timing_on_production,
@@ -61,6 +61,8 @@ def _checklist_name(path):
     """The checklist's spoken name, from its filename -- e.g.
     "01b-history-refresh-checklist.md" -> "01b history refresh checklist"."""
     return os.path.basename(path).removesuffix(".md").replace("-", " ")
+
+
 
 
 def _section_code(section):
@@ -308,6 +310,17 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
             print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
             log_lines.append(f"STOPPED {path} after failed step above.")
             break
+
+        # Optional `when` guard: a step only applies under some condition on a captured var
+        # (e.g. "flip to build history" only `when $start_event_id < 10`). If the guard isn't
+        # met the step isn't needed -- tick it and move on without running or asking.
+        cond = step.spec.get("when")
+        if cond is not None and not condition_met(cond, ctx):
+            print(f"  -> SKIP: not needed (when {cond})")
+            log_lines.append(f"SKIP (when {cond} not met): {step.prose}")
+            checklist.mark(step, True)
+            checklist.save()
+            continue
 
         result = run_step(step.spec, ctx)
         status = "PASS" if result.success else "FAIL"

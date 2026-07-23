@@ -33,25 +33,38 @@ which the supervisor always runs first -- it's not repeated here. These steps on
 extra precondition Scenario A/B need: that the fresh test DB pulled in enough real device
 history to observe.
 
-- [ ] Step 1: Take the device off lock/pause, then make sure Scenario A/B have enough real history (latest `event_number` >= 10). If there are already 10 events this passes straight away; if not, it prints an "ACTION NEEDED: start flipping" prompt and triggers the moment your flips push the count to 10 (a device sitting still won't accumulate events on its own). Polls up to 4 minutes.
+- [ ] Step 1: Record the current event count as `start_event_id` -- decides whether the flip steps below are needed (Scenario A/B want at least 10). `COALESCE`d so an empty DB reads 0, not "no rows".
 ```toml step
-[[actions]]
+action = "sql_query"
+query = "SELECT COALESCE((SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1), 0);"
+capture = "start_event_id"
+```
+- [ ] Step 2: Take the device off lock/pause (unlocking first if needed -- you can't unpause a locked device) so it's actively timing and any flips register. Idempotent: a no-op if it's already unlocked and running.
+```toml step
 action = "ensure_unlocked_unpaused"
-
-[[actions]]
+```
+- [ ] Step 3: (only if there aren't already 10 events) Ask you to start flipping the device to build up history.
+```toml step
+action = "ask_user"
+when = "$start_event_id < 10"
+prompt = "Start flipping the device between the Break and Meeting faces to build up history -- keep going until told to stop."
+```
+- [ ] Step 4: (only if there aren't already 10 events) Monitor the event count and trigger the moment your flips push the latest `event_number` to at least 10. Polls up to 4 minutes.
+```toml step
 action = "wait_for_sql"
+when = "$start_event_id < 10"
 query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'keep_flipping=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "ok"
-prompt = "Start flipping the device between the Break and Meeting faces until at least 10 events have accumulated."
 timeout_seconds = 240
 poll_interval = 3
 ```
-- [ ] Step 2: **Stop moving the device** and leave it resting on one face, so the scenarios below run against a stable, actively-open segment. Confirm you've stopped.
+- [ ] Step 5: (only if you were flipping) Ask you to stop moving the device and leave it on one face, so the scenarios run against a stable, actively-open segment.
 ```toml step
 action = "ask_user"
-prompt = "Stop moving the device and leave it on one face. Have you stopped? (y once it's resting)"
+when = "$start_event_id < 10"
+prompt = "Stop flipping and leave the device resting on one face. Have you stopped? (y once it's resting)"
 ```
-- [ ] Step 3: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
+- [ ] Step 6: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
 ```toml step
 action = "sql_query"
 query = "SELECT finalised FROM device_event ORDER BY device_event_id DESC LIMIT 1;"

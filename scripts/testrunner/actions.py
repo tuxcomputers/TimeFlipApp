@@ -9,6 +9,7 @@ routinely contains literal JSON like `{"enabled":false}`, which `.format()` misp
 a field placeholder and crashes on. `$name` doesn't collide with `{`/`}` at all.
 """
 
+import re
 import subprocess
 import sqlite3
 import time
@@ -17,6 +18,35 @@ from string import Template
 from typing import Any, Optional
 
 from locators import LOCATORS
+
+
+_CONDITION_RE = re.compile(r"\s*(<=|>=|==|!=|<|>)\s*")
+
+
+def condition_met(cond, ctx):
+    """Evaluate a `when` guard against captured vars, e.g. "$start_event_id < 10". One
+    comparison (< <= > >= == !=); numeric if both sides parse as numbers, else a string
+    compare. A blank/unparseable guard counts as met so the step runs (fail open, never
+    silently skip). Usable both on a whole step (see supervisor.run_checklist) and on an
+    individual action inside an `[[actions]]` block (see run_step)."""
+    text = Template(cond).safe_substitute(ctx["vars"]).strip()
+    m = _CONDITION_RE.search(text)
+    if not m:
+        return True
+    op = m.group(1)
+    lhs, rhs = text[: m.start()].strip(), text[m.end():].strip()
+    try:
+        left, right = float(lhs), float(rhs)
+    except ValueError:
+        left, right = lhs, rhs
+    return {
+        "<": lambda: left < right,
+        "<=": lambda: left <= right,
+        ">": lambda: left > right,
+        ">=": lambda: left >= right,
+        "==": lambda: left == right,
+        "!=": lambda: left != right,
+    }[op]()
 
 
 @dataclass
@@ -379,6 +409,10 @@ def run_step(spec, ctx):
         details = []
         last_captured = None
         for sub in spec["actions"]:
+            cond = sub.get("when")
+            if cond is not None and not condition_met(cond, ctx):
+                details.append(f"skipped (when {cond})")
+                continue
             r = _run_single(sub, ctx)
             details.append(r.detail)
             last_captured = r.captured
