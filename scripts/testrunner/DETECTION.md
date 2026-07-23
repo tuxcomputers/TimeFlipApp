@@ -3,100 +3,121 @@
 Reference for anyone (human or Claude) extending the runner. The runner never asks the
 app over any API -- it reads the same SQLite database the app writes to, at
 `~/Library/Application Support/TimeFlip/appdata.sqlite`. Everything below is a plain
-`sqlite3` query against that file (or the concrete file it resolves to -- see the symlink
-note). All the helpers live in [`session_setup.py`](session_setup.py); step-level checks
-(`sql_query` / `wait_for_sql`) live in [`actions.py`](actions.py).
+`sqlite3` query against that file (or the concrete file it resolves to -- see
+[Pitfalls](#pitfalls-read-before-adding-a-debug_log-wait)). Helpers live in
+[`session_setup.py`](session_setup.py); step-level checks (`sql_query` / `wait_for_sql`)
+live in [`actions.py`](actions.py).
 
-## The two channels
+State comes from two places: **durable tables** (`setting`, `device_event`, ...) for
+*current state*, and the **`debug_log`** table for *events that just happened*. Every
+dev-only `DeveloperMode.debugPrint(tag, message)` is persisted to `debug_log` (with an
+autoincrement `debug_log_id`) via `logSink` wired in `ApplicationDelegate` -- so to detect
+that a physical/UI action took effect, poll for the line the app logs on that path.
 
-The app exposes state to us two ways:
+---
 
-1. **Settings and domain tables** -- durable rows the app maintains (`setting`,
-   `device_event`, `time_entry`, ...). Query these for *current state* (which database,
-   is the device paused).
-2. **`debug_log`** -- every dev-only `DeveloperMode.debugPrint(tag, message)` is also
-   persisted here (tag, message, autoincrement `debug_log_id`), via `logSink` wired in
-   `ApplicationDelegate`. Query this for *events that just happened* (a reconnect, a
-   history fetch finishing, a factory reset confirming). This is our side-effect channel:
-   to detect that a physical/UI action took effect, find the debug line the app logs on
-   that path rather than waiting on a chat confirmation.
+## Detecting which DB is being used (Prod or Test)
 
-## Which database is active -- `setting.db_type`
-
-Stored as JSON in the `setting` table, e.g. `{"type":"test"}`. The app stamps it into
-each file when the file is first created and never changes it; the value tracks which
-physical file `appdata.sqlite` is symlinked to (`production.sqlite` / `test.sqlite`).
+`setting.db_type` is JSON, e.g. `{"type":"test"}`. Stamped into each file when it is first
+created and never changed; tracks which physical file `appdata.sqlite` links to
+(`production.sqlite` / `test.sqlite`).
 
 ```sql
-SELECT setting_value FROM setting WHERE setting_name='db_type';   -- -> {"type":"..."}
+SELECT setting_value FROM setting WHERE setting_name = 'db_type';   -- -> {"type":"..."}
 ```
 
-Helper: `_read_db_type(db_path)`. (Same value the app now shows as the TEST/PROD tag in
-the menu bar under developer mode.)
+Helper: `_read_db_type(db_path)`. (Same value the app shows as the TEST/PROD tag in the
+menu bar under developer mode.)
 
-## Is the device paused or timing -- `device_event.is_paused`
+---
 
-`device_event` holds one row per device-reported timing segment (a facet flip or a
-pause); see [`../../database/003_device_event.sql`](../../database/003_device_event.sql).
-The **most recent** segment's `is_paused` flag tells you the current state.
+## Detecting if the device is paused (vs timing an activity)
 
-Order by `start_epoch` (indexed Unix seconds), **not** `event_number` -- the device's
-event counter resets on factory reset and isn't safe for wall-clock ordering (see
-[`../../database/CLAUDE.md`](../../database/CLAUDE.md)).
+`device_event` has one row per timing segment (a facet flip or a pause), with an
+`is_paused` flag; see [`../../database/003_device_event.sql`](../../database/003_device_event.sql).
+The **most recent** segment's flag is the current state. Order by `start_epoch` (indexed
+Unix seconds), **not** `event_number` -- the device's counter resets on factory reset and
+isn't safe for wall-clock ordering (see [`../../database/CLAUDE.md`](../../database/CLAUDE.md)).
 
 ```sql
 SELECT is_paused FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;
+-- 1 = paused, 0 = timing, no rows = no events yet
 ```
 
-Helper: `_last_event_is_paused(db_path)` -> `True` (paused) / `False` (timing) / `None`
-(no events yet). Used by `ensure_not_timing_on_production()`, the pre-flight gate that
-refuses to start a run while we're on production and the device is mid-timing -- because
-the run switches to the test DB and factory-resets the device at the end, which would
-interrupt a real, in-progress timing event.
+Helper: `_last_event_is_paused(db_path)` -> `True` / `False` / `None`. Used by
+`ensure_not_timing_on_production()`, the pre-flight gate that refuses to start a run while
+on production with the device mid-timing (the run switches to test and factory-resets the
+device at the end, which would interrupt a real timing event).
 
-Caveat: this reflects the last state the app **synced** to the DB, not necessarily the
-literal instant. Right after a flip there can be a short sync lag; the production branch
-of `ensure_known_state()` forces a fresh history fetch (by restarting the app) precisely
-so real history is captured before any switch.
+Caveat: reflects the last state the app **synced**, not the literal instant -- right after
+a flip there can be a short sync lag.
 
-## Device connected / reconnected -- `debug_log` login row
+---
 
-The app logs `Login accepted, code=0x02` (tag `TimeFlip`) on every successful device
-login.
+## Detecting if the device is connected / reconnected
+
+The app logs `Login accepted, code=0x02` (tag `TimeFlip`) on every successful login.
 
 ```sql
 SELECT debug_log_id FROM debug_log
- WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > :since
+ WHERE tag = 'TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > :since
  ORDER BY debug_log_id DESC LIMIT 1;
 ```
 
 Helper: `_wait_for_reconnect(...)`. Match on `debug_log_id` (unique, monotonic), never on
-the message text -- the login line repeats verbatim, so text comparison never detects a
-*new* login.
+message text -- the login line repeats verbatim, so text comparison never sees a *new* one.
+`:since` matters: see [Pitfalls](#pitfalls-read-before-adding-a-debug_log-wait).
 
-## History fetch finished -- `debug_log` completion marker
+---
+
+## Detecting that a history fetch finished
 
 `HistoryIngestor.refreshHistory()` logs `history fetch complete: trigger=<trigger>` (tag
-`history`) on every exit path -- unlike the older "DB refreshed" text, which only
-appeared on the nothing-changed branch. Helper: `_wait_for_history_fetch_complete(...)`.
+`history`) on **every** exit path -- so a fetch that pulls in a real backlog is detected,
+not just the nothing-changed case.
 
-## Factory reset confirmed -- `debug_log`
+```sql
+SELECT debug_log_id FROM debug_log
+ WHERE tag = 'history' AND message = 'history fetch complete: trigger=startup'
+   AND debug_log_id > :since
+ ORDER BY debug_log_id DESC LIMIT 1;
+```
 
-`Factory reset confirmed...` (tag `TimeFlip`) marks the cleanup reset landing; see
-`reset_device_for_cleanup()`.
+Helper: `_wait_for_history_fetch_complete(...)`.
 
-## The `since_id` / per-file gotcha (read this before adding a `debug_log` wait)
+---
+
+## Detecting that a factory reset confirmed
+
+The app logs `Factory reset confirmed...` (tag `TimeFlip`) when the reset lands.
+
+```sql
+SELECT message FROM debug_log
+ WHERE tag = 'TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > :since
+ ORDER BY debug_log_id DESC LIMIT 1;
+```
+
+Used by `reset_device_for_cleanup()`.
+
+---
+
+## Pitfalls (read before adding a `debug_log` wait)
 
 `debug_log` **persists across app restarts**, and `debug_log_id` is **per file, not
-global**. Two consequences:
+global**. So:
 
 - Capture a baseline `MAX(debug_log_id)` (`_latest_debug_log_id`) **before** the action
   you're waiting on, and scope the wait to `debug_log_id > since_id`. An unscoped query
   matches a stale pre-action row and returns instantly.
+
+  ```sql
+  SELECT MAX(debug_log_id) FROM debug_log;   -- capture as :since BEFORE the action
+  ```
+
 - Read that baseline from the **concrete file the switch will land on**, not through the
-  `appdata.sqlite` symlink. On a prod->test switch, `test.sqlite`'s id sequence restarts
-  at 1, so a `since_id` carried over from production's much larger sequence would never be
-  exceeded (guaranteeing a false timeout). After a switch, pin the concrete path with
-  `os.path.realpath(db_path)` and use `since_id=0`. `_sibling_db_path()` resolves a named
-  sibling file directly. This is why `ensure_known_state()` returns the resolved concrete
-  path and the whole run queries *that*, not the symlink.
+  `appdata.sqlite` symlink. On a prod->test switch, `test.sqlite`'s id sequence restarts at
+  1, so a `since_id` from production's much larger sequence would never be exceeded (a false
+  timeout). After a switch, pin the concrete path with `os.path.realpath(db_path)` and use
+  `since_id=0`. `_sibling_db_path()` resolves a named sibling file directly. This is why
+  `ensure_known_state()` returns the resolved concrete path and the whole run queries *that*,
+  not the symlink.
