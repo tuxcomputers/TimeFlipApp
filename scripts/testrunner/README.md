@@ -119,6 +119,30 @@ before comparison in both, so any casing works:
   Anything else (a stray keystroke, a blank Enter) re-prompts instead of being silently
   counted as an answer, so an accidental key can't flip the result either way.
 
+## Per-step confirmation (on by default; `--no-confirm-steps` to turn off)
+
+By default (any interactive run) the runner pauses after **every** step, prints its result,
+and asks you to confirm it did what it should -- every question is phrased so **`y` = good,
+keep going**:
+
+```
+[01b] Step 6: Query db_type and confirm it reads test...
+  -> PASS: query result: {"type":"test"}
+  result: query result: {"type":"test"}
+  Confirm this step is correct [T01b-Setup-St6]? [y/n]:
+```
+
+Answer `y` and it moves on (logging `CONFIRMED: <id>`). Answer `n` -- or if a step outright
+fails -- the failure is logged and left unticked, then a follow-up asks **"Failure is logged,
+did you want to continue the tests?"**. `y` skips that step and carries on; `n` ends the whole
+run (cleanup is skipped so you can inspect the state) for you to work out what went wrong. Your
+answer to that follow-up is logged too. This is the guard against a run sailing through steps
+that didn't really happen (e.g. against a disconnected device).
+
+`--no-confirm-steps` turns the per-step pausing off (fast, hands-off within a checklist; a
+failing step then just stops that checklist as before). `--yes` implies `--no-confirm-steps`
+-- with no human present there's nobody to confirm.
+
 ## How a checklist step becomes runnable
 
 A step is a normal `- [ ]`/`- [x]` checklist line, same as any other -- the human-readable

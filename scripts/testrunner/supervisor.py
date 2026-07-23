@@ -104,6 +104,41 @@ class _TeeLog(list):
             self.append(line)
 
 
+class _RunHalted(Exception):
+    """Raised to end the whole run immediately (not just the current checklist) -- used by the
+    per-step confirmation gate when the developer answers 'n', or when a step fails while that
+    gate is on, so a mis-run can be investigated before it cascades into later steps/checklists.
+    Carries a short reason for the log/console."""
+
+
+def _confirm_step(path, step, detail, log_lines):
+    """Primary per-step question, phrased so Y = good/continue: shows the step's result and asks
+    the developer to confirm it did what it should. Returns True if confirmed, False otherwise
+    (the caller then runs _failure_continue_or_halt)."""
+    note = _note_id(path, step)
+    print(f"  result: {detail}")
+    if prompt_yn(f"  Confirm this step is correct [{note}]?"):
+        log_lines.append(f"CONFIRMED: {note}")
+        return True
+    return False
+
+
+def _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, reason):
+    """Follow-up after a No / an outright failure, in confirm-steps mode. The failure is always
+    logged and the step left unticked (and skipped so it isn't re-selected); then asks whether to
+    keep going. The developer's answer is logged too. Yes continues to the next step; No raises
+    _RunHalted to stop the whole run for investigation."""
+    checklist.mark(step, False)
+    checklist.save()
+    skipped_prose.add(step.prose)
+    note = _note_id(path, step)
+    log_lines.append(f"FAILURE LOGGED: {note} -- {reason}")
+    cont = prompt_yn("  Failure is logged, did you want to continue the tests?")
+    log_lines.append(f"Continue after failure [{note}]? -> {'y' if cont else 'n'}")
+    if not cont:
+        raise _RunHalted(f"{note}: {reason}")
+
+
 def discover_checklists(repo_root, folder=None, search=None):
     """Auto-discovery for when no explicit file paths are given: Bench (sorted) then
     Interactive (sorted), optionally narrowed to one folder and/or filtered by a
@@ -225,7 +260,7 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     return True
 
 
-def run_checklist(path, db_path, log_lines, auto_yes=False):
+def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False):
     checklist = Checklist(path)
     log_lines.append(f"\n=== {path} ===")
 
@@ -255,6 +290,10 @@ def run_checklist(path, db_path, log_lines, auto_yes=False):
                 # the scenarios depend on.
                 print("  -> OK (setup already established by session_setup): ticking.")
                 log_lines.append(f"OK (setup via session_setup): {step.prose}")
+                if confirm_steps and not _confirm_step(path, step, "setup established by session_setup", log_lines):
+                    all_ok = False
+                    _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "setup step not confirmed")
+                    continue
                 checklist.mark(step, True)
                 checklist.save()
                 continue
@@ -267,18 +306,25 @@ def run_checklist(path, db_path, log_lines, auto_yes=False):
                 skipped_prose.add(step.prose)
                 continue
             # No toml to automate this and it isn't Setup, so a human has to look (e.g. a
-            # screenshot / visual confirmation). Ask -- never silently skip.
+            # screenshot / visual confirmation). Ask -- never silently skip. The question is
+            # phrased so Y = passed/continue.
             print("  -> NEEDS YOU: verify this step against the app/device.")
             passed = prompt_yn("  Did this check pass?")
-            checklist.mark(step, passed)
+            if passed:
+                checklist.mark(step, True)
+                checklist.save()
+                log_lines.append(f"PASS (human-verified): {step.prose}")
+                continue
+            log_lines.append(f"FAIL (human-verified): {step.prose}")
+            all_ok = False
+            if confirm_steps:
+                _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "human-verified step did not pass")
+                continue
+            checklist.mark(step, False)
             checklist.save()
-            log_lines.append(f"{'PASS' if passed else 'FAIL'} (human-verified): {step.prose}")
-            if not passed:
-                all_ok = False
-                print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
-                log_lines.append(f"STOPPED {path} after failed step above.")
-                break
-            continue
+            print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
+            log_lines.append(f"STOPPED {path} after failed step above.")
+            break
 
         result = run_step(step.spec, ctx)
         status = "PASS" if result.success else "FAIL"
@@ -294,14 +340,27 @@ def run_checklist(path, db_path, log_lines, auto_yes=False):
                 pairs = ", ".join(f"{name}={value}" for name, value in captured)
                 log_lines.append(f"*****NOTE****** {_note_id(path, step)}: {pairs}")
 
-        checklist.mark(step, result.success)
-        checklist.save()
+        if result.success:
+            # In confirm-steps mode the developer still gets the final say on whether the
+            # (auto-passing) result is actually right; a No drops to the log-and-continue gate.
+            if confirm_steps and not _confirm_step(path, step, result.detail, log_lines):
+                all_ok = False
+                _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, f"result not confirmed: {result.detail}")
+                continue
+            checklist.mark(step, True)
+            checklist.save()
+            continue
 
-        if not result.success:
-            all_ok = False
-            print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
-            log_lines.append(f"STOPPED {path} after failed step above.")
-            break
+        # Failed step.
+        all_ok = False
+        if confirm_steps:
+            _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, f"step failed: {result.detail}")
+            continue
+        checklist.mark(step, False)
+        checklist.save()
+        print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
+        log_lines.append(f"STOPPED {path} after failed step above.")
+        break
 
     if not ran_any:
         print(f"\n{path}: already fully checked, nothing to run.")
@@ -336,7 +395,18 @@ def main():
         action="store_true",
         help="Skip the interactive confirmation prompt (still prints the warning) -- for CI/non-interactive runs only.",
     )
+    parser.add_argument(
+        "--no-confirm-steps",
+        dest="confirm_steps",
+        action="store_false",
+        help="Don't pause after each step. By default (interactive runs) the runner shows every "
+        "step's result and waits for a y/n that it did what it should; answering 'n' -- or any step "
+        "failing -- ends the whole run so a mis-run can be investigated before it cascades. --yes "
+        "implies this flag (no human to confirm).",
+    )
     args = parser.parse_args()
+    # No human to answer per-step prompts under --yes, so confirmation is off there.
+    confirm_steps = args.confirm_steps and not args.yes
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -402,9 +472,20 @@ def main():
     # -- not args.db_path (the appdata.sqlite symlink, which the app itself keeps using)
     # -- so nothing here can be affected by a later, unrelated change to the symlink.
     overall_ok = True
-    for path in checklist_paths:
-        ok = run_checklist(path, resolved_db_path, log_lines, args.yes)
-        overall_ok = overall_ok and ok
+    try:
+        for path in checklist_paths:
+            ok = run_checklist(path, resolved_db_path, log_lines, args.yes, confirm_steps)
+            overall_ok = overall_ok and ok
+    except _RunHalted as halt:
+        banner = "!" * 70
+        print(f"\n{banner}")
+        print(f"RUN HALTED for investigation: {halt}")
+        print("End-of-run cleanup (device factory reset / production restore) was SKIPPED so you")
+        print("can inspect the current state. You are most likely still on the TEST database --")
+        print("quit the app and run scripts/use-production-database.sh when you're done.")
+        print(banner)
+        log_lines.append(f"\nRUN HALTED: {halt} (end-of-run cleanup skipped)")
+        sys.exit(2)
 
     cleanup_ok = reset_device_for_cleanup(resolved_db_path)
     log_lines.append(f"\nEnd-of-run device cleanup: {'OK' if cleanup_ok else 'FAILED -- reset/pair the device manually'}")
