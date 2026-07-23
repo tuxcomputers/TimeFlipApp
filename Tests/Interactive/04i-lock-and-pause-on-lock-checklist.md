@@ -19,7 +19,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected, unpaired state not applicable here; check the menu bar (lock
 badge) before continuing.
 
-- [x] **(Claude)** If the device isn't already locked, click the "Lock" menu item and confirm
+- [ ] **(Claude)** Step 1: If the device isn't already locked, click the "Lock" menu item and confirm
       `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`. (Confirmed.)
 ```toml step
 [[actions]]
@@ -32,7 +32,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_i
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 10
 ```
-- [x] **(You)** Try flipping to the **Meeting** face while locked (name the exact facet, per
+- [ ] **(You)** Step 2: Try flipping to the **Meeting** face while locked (name the exact facet, per
       `../CLAUDE.md`); confirm nothing happens (the device itself refuses the flip while locked).
       (Confirmed: flipped to the Meeting side, `device_event` stayed at `event_number=25`, facet 8
       -- no new row.)
@@ -46,14 +46,14 @@ capture = "event_id_before_locked_flip"
 action = "ask_user"
 prompt = "Flip the cube to the Meeting face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
-- [x] **(Claude)** Confirm no new `device_event` row appeared for the attempted flip (query
+- [ ] **(Claude)** Step 3: Confirm no new `device_event` row appeared for the attempted flip (query
       `device_event_id DESC`, latest row unchanged before/after). (Confirmed.)
 ```toml step
 action = "sql_query"
 query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "$event_id_before_locked_flip"
 ```
-- [x] **(Claude)** Click "Unlock" from the menu and confirm `debug_log` shows `"Lock OFF triggered"`
+- [ ] **(Claude)** Step 4: Click "Unlock" from the menu and confirm `debug_log` shows `"Lock OFF triggered"`
       / `"...confirmed: requested=OFF actual=OFF"`, returning to a clean unlocked state. (Confirmed.)
 ```toml step
 [[actions]]

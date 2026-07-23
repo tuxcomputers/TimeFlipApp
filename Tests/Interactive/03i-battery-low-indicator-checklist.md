@@ -34,7 +34,7 @@ low-battery state -- the clean state the Bench run's own restore leaves behind. 
 query below; if it shows a non-default threshold or `isLowBattery=true` left over from an
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
-- [x] **(Claude)** Query the current threshold and the most recent `battery` `level`, and note both
+- [ ] **(Claude)** Step 1: Query the current threshold and the most recent `battery` `level`, and note both
       as the original values to restore later. (Original threshold: 5%. Live level: 22%.)
 ```toml step
 [[actions]]
@@ -53,7 +53,7 @@ action = "sql_query"
 query = "SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "battery_level_a"
 ```
-- [x] **(Claude)** Quit the app. Method: Quit the app (`../Methods.md`).
+- [ ] **(Claude)** Step 2: Quit the app. Method: Quit the app (`../Methods.md`).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -64,7 +64,7 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] **(Claude)** Update `low_battery_level` to at/above the live level noted above, so the fresh
+- [ ] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above, so the fresh
       connection registers as low immediately: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite
       "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name =
       'low_battery_level';"`. (Set to 25%.)
@@ -72,7 +72,7 @@ command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_a}' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] **(Claude)** Start the app and confirm it reconnects to the device (fresh `debug_log`
+- [ ] **(Claude)** Step 4: Start the app and confirm it reconnects to the device (fresh `debug_log`
       `"Login accepted, code=0x02"` row). (Confirmed.)
 ```toml step
 [[actions]]
@@ -85,7 +85,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] **(Claude)** Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] **(Claude)** Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`, so the visual checks below are being made while the app really is in the
       low state. (Confirmed: `level=22 threshold=25 recoveryAt=30 isLowBattery=true`.)
 ```toml step
@@ -101,12 +101,12 @@ timeout_seconds = 15
 (`isLowBattery=true`) -- confirmed by that section's own final query above; re-check it directly
 if running this section standalone rather than straight after.
 
-- [x] **(You)** Confirm the activity name (left side of the menu bar item) is blinking red/white.
+- [ ] **(You)** Step 1: Confirm the activity name (left side of the menu bar item) is blinking red/white.
       (Confirmed via two spaced screenshots showing the activity text alternate red/default.)
-- [x] **(You)** Click the **left side** of the status item (the icon + activity name, not the
+- [ ] **(You)** Step 2: Click the **left side** of the status item (the icon + activity name, not the
       duration/timer side) and confirm it opens Settings **directly on the Device tab** -- not the
       dropdown menu. (Confirmed: "The settings opened".)
-- [x] **(Claude)** Confirm via accessibility that the Device tab is selected (radio button 1 of the
+- [ ] **(Claude)** Step 3: Confirm via accessibility that the Device tab is selected (radio button 1 of the
       tab picker reads `value = 1`). (Confirmed: `value = 1`.)
 ```toml step
 action = "applescript"
@@ -118,7 +118,7 @@ tell application "System Events"
 end tell'''
 expect = "1"
 ```
-- [x] **(You)** Confirm the "Battery" line on the Device tab -- both the **label** and the
+- [ ] **(You)** Step 4: Confirm the "Battery" line on the Device tab -- both the **label** and the
       percentage value -- is flashing red/default in sync with the menu bar blink. (Confirmed.)
 
 ### Bugs found and fixed - branch 'feature/projects'
@@ -133,7 +133,7 @@ Settings directly on the Device tab instead of showing the menu at all.
 **Preconditions:** still in the low-battery state, both elements still flashing (the previous
 section's own state, unchanged) -- so there's something real to restore and confirm stops.
 
-- [x] **(Claude)** Quit the app.
+- [ ] **(Claude)** Step 1: Quit the app.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -144,12 +144,12 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] **(Claude)** Restore `low_battery_level` to its original value noted above. (Restored to 5%.)
+- [ ] **(Claude)** Step 2: Restore `low_battery_level` to its original value noted above. (Restored to 5%.)
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] **(Claude)** Start the app and confirm it reconnects to the device (fresh `debug_log`
+- [ ] **(Claude)** Step 3: Start the app and confirm it reconnects to the device (fresh `debug_log`
       `"Login accepted, code=0x02"` row). (Confirmed.)
 ```toml step
 [[actions]]
@@ -162,7 +162,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] **(Claude)** Query `debug_log` and confirm a `battery` row now shows `isLowBattery=false`.
+- [ ] **(Claude)** Step 4: Query `debug_log` and confirm a `battery` row now shows `isLowBattery=false`.
       (Confirmed: `level=22 threshold=5 recoveryAt=10 isLowBattery=false`.)
 ```toml step
 action = "wait_for_sql"
@@ -170,8 +170,8 @@ query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $b
 expect_contains = "isLowBattery=false"
 timeout_seconds = 15
 ```
-- [x] **(You)** Confirm the activity name is no longer flashing, and that the Battery line on the
+- [ ] **(You)** Step 5: Confirm the activity name is no longer flashing, and that the Battery line on the
       Device tab is no longer flashing. (Confirmed.)
-- [x] **(You)** Click the **left side** of the status item again and confirm it now opens the
+- [ ] **(You)** Step 6: Click the **left side** of the status item again and confirm it now opens the
       normal dropdown menu (not Settings directly) -- the low-battery left-click skip only applies
       while the warning is active. (Confirmed.)

@@ -39,7 +39,7 @@ low-battery state -- check via the query below; if it shows `isLowBattery=true` 
 threshold left over from an interrupted prior run, restore the threshold to 5% and restart the app
 before continuing.
 
-- [x] Query `debug_log` for the most recent `battery` row for the current actual `level`.
+- [ ] Step 1: Query `debug_log` for the most recent `battery` row for the current actual `level`.
       (Confirmed: level 22%, threshold 5%, not low.)
 ```toml step
 [[actions]]
@@ -53,7 +53,7 @@ action = "sql_query"
 query = "SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "battery_level_a"
 ```
-- [x] Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
+- [ ] Step 2: Quit the app (`osascript -e 'tell application "TimeFlip" to quit'`).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -64,20 +64,20 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Query the current threshold and note it as the original value to restore later. (Original:
+- [ ] Step 3: Query the current threshold and note it as the original value to restore later. (Original:
       5%.)
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='low_battery_level';"
 capture = "threshold_original"
 ```
-- [x] Update the threshold to at/above the level noted above, so the fresh connection registers as
+- [ ] Step 4: Update the threshold to at/above the level noted above, so the fresh connection registers as
       low immediately. (Set to 30% -- battery was at 22%.)
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_a}' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
+- [ ] Step 5: Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
       code=0x02"` row).
 ```toml step
 [[actions]]
@@ -90,7 +90,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] Step 6: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`. (Confirmed: `level=23 threshold=30 recoveryAt=35 isLowBattery=true`.)
 ```toml step
 action = "wait_for_sql"
@@ -106,7 +106,7 @@ timeout_seconds = 15
 restoring; if it already reads `false`, the previous section's trigger didn't hold and needs
 re-running first.
 
-- [x] Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true` before
+- [ ] Step 1: Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true` before
       proceeding (state left by the previous section). (Confirmed: `level=23 threshold=30
       recoveryAt=35 isLowBattery=true`.)
 ```toml step
@@ -114,7 +114,7 @@ action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='battery' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "isLowBattery=true"
 ```
-- [x] Quit the app.
+- [ ] Step 2: Quit the app.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -125,13 +125,13 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Restore the threshold to its original value via the same `UPDATE setting ...` command.
+- [ ] Step 3: Restore the threshold to its original value via the same `UPDATE setting ...` command.
       (Restored to 5%.)
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] Start the app and confirm it reconnects to the device. (Confirmed: fresh `"Login accepted,
+- [ ] Step 4: Start the app and confirm it reconnects to the device. (Confirmed: fresh `"Login accepted,
       code=0x02"` row.)
 ```toml step
 [[actions]]
@@ -144,7 +144,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`, with `level` above `recoveryAt` (threshold + 5), not just above the
       bare threshold. (Confirmed: `level=19 threshold=5 recoveryAt=10 isLowBattery=false`.)
 ```toml step
@@ -169,7 +169,7 @@ the fresh connection is immediately low, then confirms a small flap upward -- st
 threshold to a value (5%) far enough below the live level that `recoveryAt` was trivially
 satisfied.
 
-- [x] Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
+- [ ] Step 1: Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
       range. (Confirmed: flapped 17-23% over the session, settling around 22-23%. Two thresholds
       were tried first -- 21% and 23% -- but the live level happened to sit exactly at each on
       relaunch, so the initial post-connect reading wasn't reliably low; 22% was the value that
@@ -186,7 +186,7 @@ action = "sql_query"
 query = "SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "battery_level_c"
 ```
-- [x] Quit the app.
+- [ ] Step 2: Quit the app.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -197,13 +197,13 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Update the threshold to a value at/near the live reading via the same `UPDATE setting ...`
+- [ ] Step 3: Update the threshold to a value at/near the live reading via the same `UPDATE setting ...`
       command. (Set to 22%; recoveryAt = 27%.)
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_c}' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] Start the app and confirm it reconnects to the device.
+- [ ] Step 4: Start the app and confirm it reconnects to the device.
 ```toml step
 [[actions]]
 action = "shell"
@@ -215,7 +215,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`. (Confirmed: `level=20 threshold=22 recoveryAt=27 isLowBattery=true`.)
 ```toml step
 action = "wait_for_sql"
@@ -223,7 +223,7 @@ query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $b
 expect_contains = "isLowBattery=true"
 timeout_seconds = 15
 ```
-- [x] Poll `debug_log` until a `battery` row shows a higher reading than the threshold, and confirm
+- [ ] Step 6: Poll `debug_log` until a `battery` row shows a higher reading than the threshold, and confirm
       `isLowBattery` is still `true` on that row (since it remains below `recoveryAt`). (Confirmed:
       `level=23 threshold=22 recoveryAt=27 isLowBattery=true` -- the flap up to 23% did not clear
       the latch, as expected since 23 < recoveryAt 27.)
@@ -234,7 +234,7 @@ expect = "flapped_up_still_low"
 timeout_seconds = 300
 poll_interval = 5
 ```
-- [x] Quit the app.
+- [ ] Step 7: Quit the app.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -245,12 +245,12 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Restore the threshold to its original value (5%) via the same `UPDATE setting ...` command.
+- [ ] Step 8: Restore the threshold to its original value (5%) via the same `UPDATE setting ...` command.
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] Start the app and confirm it reconnects to the device.
+- [ ] Step 9: Start the app and confirm it reconnects to the device.
 ```toml step
 [[actions]]
 action = "shell"
@@ -262,7 +262,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] Step 10: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
 ```toml step
 action = "wait_for_sql"
@@ -283,13 +283,13 @@ selected. This is accessibility-readable (the selected tab), so it stays here; t
 Battery line, and confirming the left side of the status item now opens Settings directly (skipping
 the dropdown) while low, are the Interactive counterpart.
 
-- [x] Query `db_type` to confirm which database is active. (Confirmed: `{"type":"test"}`.)
+- [ ] Step 1: Query `db_type` to confirm which database is active. (Confirmed: `{"type":"test"}`.)
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
-- [x] Query the current threshold and the live battery level and note them as the original values
+- [ ] Step 2: Query the current threshold and the live battery level and note them as the original values
       to restore later. (Original threshold: 5%. Live level: 22%.)
 ```toml step
 [[actions]]
@@ -308,7 +308,7 @@ action = "sql_query"
 query = "SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "battery_level_d"
 ```
-- [x] Quit the app.
+- [ ] Step 3: Quit the app.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -319,13 +319,13 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Update the threshold to at/above the live level noted above, so the fresh connection
+- [ ] Step 4: Update the threshold to at/above the live level noted above, so the fresh connection
       registers as low immediately. (Set to 25%.)
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_d}' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] Start the app and confirm it reconnects to the device.
+- [ ] Step 5: Start the app and confirm it reconnects to the device.
 ```toml step
 [[actions]]
 action = "shell"
@@ -337,7 +337,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] Step 6: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`. (Confirmed: `level=22 threshold=25 recoveryAt=30 isLowBattery=true`.)
 ```toml step
 action = "wait_for_sql"
@@ -345,7 +345,7 @@ query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $b
 expect_contains = "isLowBattery=true"
 timeout_seconds = 15
 ```
-- [x] With some non-Device tab last selected, open Preferences and confirm via the accessibility
+- [ ] Step 7: With some non-Device tab last selected, open Preferences and confirm via the accessibility
       tree (Method: Read a label or value via accessibility, `../Methods.md`) that the **Device**
       tab is the selected one (the `pendingSettingsTab` hint forced it),
       not whatever was last open. (Confirmed: switched to Facets (radio button 2, value=1), closed,
@@ -389,10 +389,10 @@ tell application "System Events"
 end tell'''
 expect = "1"
 ```
-- [x] Switch to a different tab (e.g. Facets), close Preferences, then reopen it while still low on
+- [ ] Step 8: Switch to a different tab (e.g. Facets), close Preferences, then reopen it while still low on
       battery, and confirm it jumped back to the Device tab again, not the Facets tab. (Covered by
       the same confirmation above -- this was a reopen after Facets was last selected.)
-- [x] Quit the app.
+- [ ] Step 9: Quit the app.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -403,12 +403,12 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Restore the threshold to its original value. (Restored to 5%.)
+- [ ] Step 10: Restore the threshold to its original value. (Restored to 5%.)
 ```toml step
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
 ```
-- [x] Start the app and confirm it reconnects to the device.
+- [ ] Step 11: Start the app and confirm it reconnects to the device.
 ```toml step
 [[actions]]
 action = "shell"
@@ -420,7 +420,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` and confirm a `battery` row logged after the restart shows
+- [ ] Step 12: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
 ```toml step
 action = "wait_for_sql"
@@ -428,7 +428,7 @@ query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $b
 expect_contains = "isLowBattery=false"
 timeout_seconds = 15
 ```
-- [x] Open Preferences and confirm that, no longer low, opening it no longer force-selects the
+- [ ] Step 13: Open Preferences and confirm that, no longer low, opening it no longer force-selects the
       Device tab -- whatever tab was open previously stays selected. (Confirmed: switched to
       Facets, closed, reopened -- Facets radio button read `value = 1`, Device `value = 0`, i.e.
       stayed on Facets.)

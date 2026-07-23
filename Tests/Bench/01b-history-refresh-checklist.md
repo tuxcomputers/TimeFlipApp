@@ -27,25 +27,25 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [x] Confirm `db_type` currently reads `{"type":"production"}` and the device is connected.
+- [ ] Step 1: Confirm `db_type` currently reads `{"type":"production"}` and the device is connected.
       (Confirmed: `db_type` setting = `{"type":"production"}`; `history` debug_log rows show
       periodic fetches succeeding against a connected device.)
-- [x] Query `device_event` (`ORDER BY device_event_id DESC LIMIT 1`) and confirm the largest
+- [ ] Step 2: Query `device_event` (`ORDER BY device_event_id DESC LIMIT 1`) and confirm the largest
       `event_number` is at least 10 -- enough real history for Scenario A/B below to have something
       substantial to observe, not just a couple of events. If it's lower, let the device accumulate
       more real use first rather than proceeding on thin history. (Confirmed: latest
       `event_number`=13, row open with `finalised=0`, `duration_seconds=4776.0`.)
-- [x] Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: `osascript ... quit`, no
+- [ ] Step 3: Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: `osascript ... quit`, no
       `TimeFlip.app` process remained.)
-- [x] Run `scripts/use-test-database.sh`. Method: Switch to the test database (`../Methods.md`) --
+- [ ] Step 4: Run `scripts/use-test-database.sh`. Method: Switch to the test database (`../Methods.md`) --
       this creates a fresh, empty `test.sqlite`, with no persisted cursor. (Confirmed: script
       created a fresh `test.sqlite` and repointed the `appdata.sqlite` symlink at it.)
-- [x] Start the app and confirm it reconnects to the device. Method: Launch the app for a
+- [ ] Step 5: Start the app and confirm it reconnects to the device. Method: Launch the app for a
       Claude-driven step, Confirm device reconnect (`../Methods.md`). (Confirmed: fresh `"Login
       accepted, code=0x02"` row.)
-- [x] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding. (Confirmed:
+- [ ] Step 6: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding. (Confirmed:
       `{"type":"test"}`.)
-- [x] Confirm the fresh test DB actually read the device's real history on this first fetch: query
+- [ ] Step 7: Confirm the fresh test DB actually read the device's real history on this first fetch: query
       `debug_log` for the `history`-tagged startup fetch and confirm it pulled in events (not
       `known_max=0` with nothing following), then query `device_event` and confirm the baseline
       noted above is now reflected locally, with the latest row open/growing:
@@ -59,7 +59,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** an already-open, actively-growing `device_event` row -- established by Setup
 immediately above, which this scenario runs straight on from.
 
-- [x] Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
+- [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
       latter D0). (event_number=13, D0=4878.0.)
 ```toml step
 [[actions]]
@@ -72,7 +72,7 @@ action = "sql_query"
 query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "duration_d0"
 ```
-- [x] Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
+- [ ] Step 2: Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
       setting_name = 'fetch_history_interval_seconds';`) without touching the device. (Interval is
       10s; waited 12s.)
 ```toml step
@@ -85,7 +85,7 @@ capture = "refresh_interval"
 action = "shell"
 command = "sleep 15"
 ```
-- [x] Query `debug_log` and confirm a `history` row logged `"history fetch: device
+- [ ] Step 3: Query `debug_log` and confirm a `history` row logged `"history fetch: device
       max_event_number=<event_number> unchanged; DB refreshed"` -- the cheap-check skip path was
       taken, not a full stream fetch. (Confirmed: `"history fetch: device max_event_number=13
       unchanged; DB refreshed"`.)
@@ -95,7 +95,7 @@ query = "SELECT message FROM debug_log WHERE tag='history' ORDER BY debug_log_id
 expect_contains = "history fetch: device max_event_number=$event_number_d0 unchanged; DB refreshed"
 timeout_seconds = 15
 ```
-- [x] Re-query the same `device_event` row: confirm `event_number` is unchanged but
+- [ ] Step 4: Re-query the same `device_event` row: confirm `event_number` is unchanged but
       `duration_seconds` increased beyond D0 -- the skip path still refreshes the open row's
       duration. (Confirmed: event_number still 13, duration_seconds 4878.0 -> 4898.0.)
 ```toml step
@@ -123,7 +123,7 @@ identifier = 'device-history';` before starting (the row's actual columns are `t
 somehow still empty, this scenario isn't verifiable this run -- note that plainly and move on rather
 than forcing it.
 
-- [x] Query `integration_event_cursors` for the `device-history` row's persisted event number (call
+- [ ] Step 1: Query `integration_event_cursors` for the `device-history` row's persisted event number (call
       it C). (Confirmed: row `local|device-history|last_sent_ev=12|attempts=0|last_success_ev=12`;
       C=12.)
 ```toml step
@@ -131,7 +131,7 @@ action = "sql_query"
 query = "SELECT last_success_ev FROM integration_event_cursors WHERE target='local' AND identifier='device-history';"
 capture = "cursor_c"
 ```
-- [x] Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: no `TimeFlip.app` process
+- [ ] Step 2: Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: no `TimeFlip.app` process
       remained.)
 ```toml step
 [[actions]]
@@ -143,7 +143,7 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Start the app again and confirm reconnect. Method: Launch the app for a Claude-driven step,
+- [ ] Step 3: Start the app again and confirm reconnect. Method: Launch the app for a Claude-driven step,
       Confirm device reconnect (`../Methods.md`). (Confirmed: fresh `"Login accepted, code=0x02"`
       row.)
 ```toml step
@@ -157,7 +157,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Query `debug_log` for the startup fetch's `"history fetch triggered: trigger=startup
+- [ ] Step 4: Query `debug_log` for the startup fetch's `"history fetch triggered: trigger=startup
       known_max=<N>"` line and confirm `known_max` equals C -- it resumed from the persisted
       cursor rather than re-fetching from scratch (which would show `known_max=0`). (Confirmed:
       `"history fetch triggered: trigger=startup known_max=12"` -- equals C.)

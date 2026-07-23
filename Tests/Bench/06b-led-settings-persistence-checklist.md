@@ -17,11 +17,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [x] Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
-- [x] Run `scripts/use-test-database.sh`.
-- [x] Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
+- [ ] Step 1: Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
+- [ ] Step 2: Run `scripts/use-test-database.sh`.
+- [ ] Step 3: Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
       code=0x02"` row).
-- [x] Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
+- [ ] Step 4: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
       setting WHERE setting_name = 'db_type';"`. (Confirmed: `{"type":"test"}`.)
 ```toml step
@@ -29,7 +29,7 @@ action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
-- [x] Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
+- [ ] Step 5: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
       button 1 of the tab picker), then expand the **LED** disclosure under Settings. Method: Click
       a status-item menu item, Switch Settings-window tabs, Expand or collapse a disclosure group
       (`../Methods.md`). (Confirmed: Brightness/Blink Interval fields visible.)
@@ -77,7 +77,7 @@ expect = "true"
 disclosure expanded -- established in Setup immediately above, which this scenario runs straight
 on from.
 
-- [x] Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
+- [ ] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
       Method: Edit a text field (`../Methods.md`).
 ```toml step
 action = "applescript"
@@ -100,14 +100,14 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [x] Query `led_settings` and confirm it reads `{"brightness":77,"blink_interval":42}`. (Confirmed.)
+- [ ] Step 2: Query `led_settings` and confirm it reads `{"brightness":77,"blink_interval":42}`. (Confirmed.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT CASE WHEN setting_value LIKE '%\"brightness\":77%' AND setting_value LIKE '%\"blink_interval\":42%' THEN 'matches' ELSE setting_value END FROM setting WHERE setting_name='led_settings';"
 expect = "matches"
 timeout_seconds = 5
 ```
-- [x] Quit the app and start it again; confirm reconnect via a fresh `debug_log` `"Login accepted,
+- [ ] Step 3: Quit the app and start it again; confirm reconnect via a fresh `debug_log` `"Login accepted,
       code=0x02"` row. (Confirmed.)
 ```toml step
 [[actions]]
@@ -129,7 +129,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Reopen Preferences, Device tab, expand **LED**, and confirm Brightness still shows `77` and
+- [ ] Step 4: Reopen Preferences, Device tab, expand **LED**, and confirm Brightness still shows `77` and
       Blink Interval still shows `42` -- read both fields' values directly via accessibility, no
       screenshot needed. (Confirmed.)
 ```toml step
@@ -159,7 +159,7 @@ tell application "System Events"
 end tell'''
 expect = "77|42"
 ```
-- [x] Query `led_settings` again and confirm it's unchanged (the restart's startup sync re-applies
+- [ ] Step 5: Query `led_settings` again and confirm it's unchanged (the restart's startup sync re-applies
       the stored value to the device but doesn't alter the stored row). (Confirmed.)
 ```toml step
 action = "sql_query"
@@ -179,7 +179,7 @@ these log that the write happened with no verification, rather than a fabricated
 disclosure expanded, Brightness/Blink Interval at `77`/`42` -- the clean state the previous
 scenario leaves behind (check `led_settings` directly if running this scenario standalone).
 
-- [x] Note the latest `debug_log_id`. In the Brightness field, type three distinct values in quick
+- [ ] Step 1: Note the latest `debug_log_id`. In the Brightness field, type three distinct values in quick
       succession without tabbing away between them: `10`, then immediately `50`, then immediately
       `95`. (Confirmed: typing landed as select-all -> `1` -> `10` -> `5` -> `50` -> `9` -> `95`,
       7 distinct intermediate values in total.)
@@ -208,7 +208,7 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [x] Query `debug_log` (tag `led`) for rows newer than the noted ID and confirm a `"Brightness
+- [ ] Step 2: Query `debug_log` (tag `led`) for rows newer than the noted ID and confirm a `"Brightness
       value changed to X%"` + `"Brightness saved to DB: X%"` pair for **each** intermediate value,
       in order. (Confirmed: 7 pairs, `debug_log_id` 115-126.)
 ```toml step
@@ -217,14 +217,14 @@ query = "SELECT message FROM debug_log WHERE tag='led' AND message LIKE 'Brightn
 expect_contains = "Brightness value changed to 95"
 timeout_seconds = 10
 ```
-- [x] Confirm `led_settings` already reads `"brightness":95` immediately (before the 1s debounce
+- [ ] Step 3: Confirm `led_settings` already reads `"brightness":95` immediately (before the 1s debounce
       elapses). (Confirmed.)
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='led_settings';"
 expect_contains = "\"brightness\":95"
 ```
-- [x] Wait about 1.5s, then query `debug_log` again and confirm exactly **one** `"Brightness set to
+- [ ] Step 4: Wait about 1.5s, then query `debug_log` again and confirm exactly **one** `"Brightness set to
       95% triggered"` line (not one per intermediate value), followed immediately by `"Brightness
       written to 95% (no device read-back available)"` -- no confirmed/MISMATCH line, since the
       protocol has no brightness read-back. (Confirmed: `debug_log_id` 127-128, ~1s after the
@@ -235,7 +235,7 @@ query = "SELECT message FROM debug_log WHERE tag='led' AND debug_log_id > $befor
 expect_contains = "Brightness written to 95% (no device read-back available)"
 timeout_seconds = 10
 ```
-- [x] Repeat the same rapid-sequence test on the Blink Interval field (`8`, then `25`, then `55`)
+- [ ] Step 5: Repeat the same rapid-sequence test on the Blink Interval field (`8`, then `25`, then `55`)
       and confirm the identical pattern: every intermediate value printed+DB-saved immediately, one
       debounced `"Blink interval set to 55s triggered"` + `"Blink interval written to 55s (no
       device read-back available)"` pair about 1s later. (Confirmed: `debug_log_id` 138-149.)
@@ -270,7 +270,7 @@ query = "SELECT message FROM debug_log WHERE tag='led' AND debug_log_id > $befor
 expect_contains = "Blink interval written to 55s (no device read-back available)"
 timeout_seconds = 10
 ```
-- [x] Restore Brightness to `77` and Blink Interval to `42` (the values from the persistence
+- [ ] Step 6: Restore Brightness to `77` and Blink Interval to `42` (the values from the persistence
       scenario above), and confirm `led_settings` reads `{"brightness":77,"blink_interval":42}`
       again, so the session doesn't leave a real setting changed. (Confirmed.)
 ```toml step
