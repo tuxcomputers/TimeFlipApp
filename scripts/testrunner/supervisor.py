@@ -57,11 +57,10 @@ def _checklist_id(path):
     return os.path.basename(path).split("-", 1)[0]
 
 
-def _file_label(path):
-    """Human label for a checklist, e.g. "Bench test 01" / "Interactive test 01"."""
-    suite = "Interactive" if os.sep + "Interactive" + os.sep in path else "Bench"
-    digits = "".join(c for c in _checklist_id(path) if c.isdigit())
-    return f"{suite} test {digits}" if digits else f"{suite} {os.path.basename(path)}"
+def _checklist_name(path):
+    """The checklist's spoken name, from its filename -- e.g.
+    "01b-history-refresh-checklist.md" -> "01b history refresh checklist"."""
+    return os.path.basename(path).removesuffix(".md").replace("-", " ")
 
 
 def _section_code(section):
@@ -116,7 +115,7 @@ def _confirm_step(path, step, detail, log_lines):
     (the caller then runs _failure_continue_or_halt)."""
     note = _note_id(path, step)
     print(f"  result: {detail}")
-    if prompt_yn(f"  Confirm this step is correct [{note}]?"):
+    if prompt_yn(f"{note}: Continue?"):
         log_lines.append(f"CONFIRMED: {note}")
         return True
     return False
@@ -132,7 +131,7 @@ def _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, r
     skipped_prose.add(step.prose)
     note = _note_id(path, step)
     log_lines.append(f"FAILURE LOGGED: {note} -- {reason}")
-    cont = prompt_yn("  Failure is logged, did you want to continue the tests?")
+    cont = prompt_yn(f"{note}: Failure is logged, did you want to continue the tests?")
     log_lines.append(f"Continue after failure [{note}]? -> {'y' if cont else 'n'}")
     if not cont:
         raise _RunHalted(f"{note}: {reason}")
@@ -199,23 +198,22 @@ def _resume_point(checklist_paths):
 
 
 def _print_resume_location(checklist_paths, log_lines):
-    """Concise 'where we left off + what's next' for a mid-run batch -- replaces dumping
-    every requested checklist and its counts."""
+    """Names where a mid-run batch is up to -- the checklist, the section+step, and the full
+    step text -- instead of dumping every requested checklist and its counts."""
     last, nxt = _resume_point(checklist_paths)
     if nxt is None:
         return
-    if last is not None:
-        lp, ls = last
-        loc = f"{_file_label(lp)} · {ls.section} · Step {ls.number}"
-        print(f"\nResuming — last completed:\n  {loc}")
-        log_lines.append(f"Resume; last completed: {loc}")
-    else:
-        print("\nResuming — nothing completed yet, starting from the top.")
-        log_lines.append("Resume; nothing completed yet.")
     np, ns = nxt
+    name = _checklist_name(np)
+    pos = f"{ns.section} Step {ns.number}"
     desc = ns.description()
-    print(f"\nNext step: {desc}")
-    log_lines.append(f"Next step: {_file_label(np)} · {ns.section} · Step {ns.number}: {desc}")
+    if last is None:
+        # Nothing ticked yet -- a fresh batch, not an interrupted one.
+        print(f"\nStarting '{name}' from the top: '{pos}' which is '{desc}'")
+        log_lines.append(f"Resume; fresh start at {name} / {pos}: {desc}")
+    else:
+        print(f"\nThe test run did not complete, '{name}' the test is up to '{pos}' which is '{desc}'")
+        log_lines.append(f"Resume; did not complete: {name} / {pos}: {desc}")
 
 
 def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
@@ -308,7 +306,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
             # screenshot / visual confirmation). Ask -- never silently skip. The question is
             # phrased so Y = passed/continue.
             print("  -> NEEDS YOU: verify this step against the app/device.")
-            passed = prompt_yn("  Did this check pass?")
+            passed = prompt_yn(f"{_note_id(path, step)}: Did this check pass?")
             if passed:
                 checklist.mark(step, True)
                 checklist.save()

@@ -128,15 +128,16 @@ keep going**:
 [01b] Step 6: Query db_type and confirm it reads test...
   -> PASS: query result: {"type":"test"}
   result: query result: {"type":"test"}
-  Confirm this step is correct [T01b-Setup-St6]? [y/n]:
+T01b-Setup-St6: Continue? [y/n]:
 ```
 
-Answer `y` and it moves on (logging `CONFIRMED: <id>`). Answer `n` -- or if a step outright
-fails -- the failure is logged and left unticked, then a follow-up asks **"Failure is logged,
-did you want to continue the tests?"**. `y` skips that step and carries on; `n` ends the whole
-run (cleanup is skipped so you can inspect the state) for you to work out what went wrong. Your
-answer to that follow-up is logged too. This is the guard against a run sailing through steps
-that didn't really happen (e.g. against a disconnected device).
+Every continue prompt is prefixed with the step's id (`T01b-Setup-St6`). Answer `y` and it
+moves on (logging `CONFIRMED: <id>`). Answer `n` -- or if a step outright fails -- the failure
+is logged and left unticked, then a follow-up asks **`<id>: Failure is logged, did you want to
+continue the tests?`**. `y` skips that step and carries on; `n` ends the whole run (cleanup is
+skipped so you can inspect the state) for you to work out what went wrong. Your answer to that
+follow-up is logged too. This is the guard against a run sailing through steps that didn't
+really happen (e.g. against a disconnected device).
 
 `--no-confirm-steps` turns the per-step pausing off (fast, hands-off within a checklist; a
 failing step then just stops that checklist as before). `--yes` implies `--no-confirm-steps`
@@ -223,10 +224,11 @@ progress of every checklist about to run, as one whole-batch decision -- not per
 - **All of them already fully checked** -- prints one line saying so, then asks `y/n`:
   clear their results and run again? `n` exits with nothing run.
 - **Any of them not fully checked** (partially or entirely unticked) -- prints only where
-  we left off, not the whole list: the last completed step (`Bench test 01 · Scenario B ·
-  Step 2`) and the next step's description, then asks `Continue from here?` `y` resumes each
-  checklist from its first unchecked step. `n` clears every requested checklist's results
-  and starts the whole batch over from the top.
+  the batch is up to, not the whole list, e.g. `The test run did not complete, '01b history
+  refresh checklist' the test is up to 'Scenario B Step 4' which is '<full step text>'`, then
+  asks `Continue from here? ('n' restarts the whole batch from the top)`. `y` resumes each
+  checklist from its first unchecked step; `n` clears every requested checklist's results and
+  starts the whole batch over from the top.
 
 `--yes` answers both automatically (clear-and-rerun, and resume, respectively) without
 blocking, for CI/non-interactive use.

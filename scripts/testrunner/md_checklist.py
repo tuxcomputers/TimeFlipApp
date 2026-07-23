@@ -27,6 +27,7 @@ NOTE_RE = re.compile(r"^\s*\((?:Automated|AUTOMATED FAILURE): .*\)\s*$")
 _ACTOR_RE = re.compile(r"^\*\*\((?:You|Claude)\)\*\*\s*")
 _STEP_NUM_RE = re.compile(r"^Step\s+\d+:\s*")
 _METHOD_RE = re.compile(r"\s*(?:--\s*)?Method:\s", re.IGNORECASE)
+_ASIDE_RE = re.compile(r"\s+(?:--|—)\s")  # " -- "/" — " introduces rationale/an aside
 
 
 def _clean_section(text):
@@ -75,11 +76,13 @@ class Step:
         ellipsis (callers generally don't; the terminal can take the whole line)."""
         t = _ACTOR_RE.sub("", self.full_text.strip())
         t = _STEP_NUM_RE.sub("", t)
-        m = _METHOD_RE.search(t)
-        if m:
-            t = t[: m.start()]
-        else:
-            t = _strip_trailing_paren(t)
+        # Drop a trailing evidence parenthetical first (so a " -- " inside that note can't be
+        # mistaken for an aside), then cut at the first Method note or " -- "/" — " aside --
+        # both introduce rationale rather than instruction.
+        t = _strip_trailing_paren(t)
+        cuts = [m.start() for m in (_METHOD_RE.search(t), _ASIDE_RE.search(t)) if m]
+        if cuts:
+            t = t[: min(cuts)]
         t = " ".join(t.split()).rstrip(" .")
         if maxlen is not None and len(t) > maxlen:
             t = t[: maxlen - 1].rstrip() + "…"
