@@ -27,32 +27,24 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Confirm `db_type` currently reads `{"type":"production"}` and the device is connected.
-      (Confirmed: `db_type` setting = `{"type":"production"}`; `history` debug_log rows show
-      periodic fetches succeeding against a connected device.)
-- [ ] Step 2: Query `device_event` (`ORDER BY device_event_id DESC LIMIT 1`) and confirm the largest
-      `event_number` is at least 10 -- enough real history for Scenario A/B below to have something
-      substantial to observe, not just a couple of events. If it's lower, let the device accumulate
-      more real use first rather than proceeding on thin history. (Confirmed: latest
-      `event_number`=13, row open with `finalised=0`, `duration_seconds=4776.0`.)
-- [ ] Step 3: Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: `osascript ... quit`, no
-      `TimeFlip.app` process remained.)
-- [ ] Step 4: Run `scripts/use-test-database.sh`. Method: Switch to the test database (`../Methods.md`) --
-      this creates a fresh, empty `test.sqlite`, with no persisted cursor. (Confirmed: script
-      created a fresh `test.sqlite` and repointed the `appdata.sqlite` symlink at it.)
-- [ ] Step 5: Start the app and confirm it reconnects to the device. Method: Launch the app for a
-      Claude-driven step, Confirm device reconnect (`../Methods.md`). (Confirmed: fresh `"Login
-      accepted, code=0x02"` row.)
-- [ ] Step 6: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding. (Confirmed:
-      `{"type":"test"}`.)
-- [ ] Step 7: Confirm the fresh test DB actually read the device's real history on this first fetch: query
-      `debug_log` for the `history`-tagged startup fetch and confirm it pulled in events (not
-      `known_max=0` with nothing following), then query `device_event` and confirm the baseline
-      noted above is now reflected locally, with the latest row open/growing:
-      `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT event_number, device_face, duration_seconds, finalised FROM device_event ORDER BY event_number DESC LIMIT 3;"`
-      (Confirmed: startup fetch logged `known_max=0` then recovered gaps up through `ev=3`+; latest
-      local row is `event_number=13, duration_seconds=4837.0, finalised=0` -- baseline reflected and
-      still open/growing.)
+The switch to the test database (quit, `use-test-database.sh`, relaunch against a fresh
+`test.sqlite`, confirm reconnect and `db_type=test`) is done once by `Tests/00-test-setup.md`,
+which the supervisor always runs first -- it's not repeated here. These steps only check the
+extra precondition Scenario A/B need: that the fresh test DB pulled in enough real device
+history to observe.
+
+- [ ] Step 1: Confirm the fresh test DB read enough real device history on its first fetch -- the largest `event_number` is at least 10, so Scenario A/B have something substantial to observe, not a couple of events. If it's lower, let the device accumulate more real use first. (Confirmed: latest `event_number`=13.)
+```toml step
+action = "sql_query"
+query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'too_few=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "ok"
+```
+- [ ] Step 2: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
+```toml step
+action = "sql_query"
+query = "SELECT finalised FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+expect = "0"
+```
 
 ## Scenario A -- nothing changes (skip path + duration refresh)
 

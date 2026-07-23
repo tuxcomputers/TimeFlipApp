@@ -27,11 +27,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Quit the app if it's running (`osascript -e 'tell application "TimeFlip" to quit'`).
-- [ ] Step 2: Run `scripts/use-test-database.sh`.
-- [ ] Step 3: Start the app and confirm it reconnects to the device (fresh `debug_log` `"Login accepted,
-      code=0x02"` row).
-- [ ] Step 4: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
+The switch to the test database (quit, `use-test-database.sh`, relaunch, confirm reconnect)
+is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
+repeated here.
+
+- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
       setting WHERE setting_name = 'db_type';"`. (Confirmed: `{"type":"test"}`.)
 ```toml step
@@ -39,7 +39,7 @@ action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 5: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
+- [ ] Step 2: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
       button 1 of the tab picker). Method: Click a status-item menu item, Switch Settings-window
       tabs (`../Methods.md`). Confirm **Auto-pause** sits at the top of the **Settings**
       section, above the collapsed **LED** disclosure (not inside a separate **Advanced** section,

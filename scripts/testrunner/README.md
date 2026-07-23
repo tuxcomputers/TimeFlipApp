@@ -62,15 +62,14 @@ confirm `db_type` is now `test`. If any setup step fails the whole run aborts be
 feature checklist. (`session_setup.py` no longer switches; it just holds the warning and
 mid-timing gates and the end-of-run reset/restore.)
 
-Because `00-test-setup.md` has already performed the quit/switch-to-test/relaunch procedure,
-the `## Setup` steps that *narrate* it (in `01b`/`05b`/`06b`/`07b`) carry no `toml` block. The
-runner treats a **Setup** step with no `toml` as already done -- it ticks it rather than
-skipping or re-running it (re-running `use-test-database.sh` mid-checklist would rebuild
-`test.sqlite` and wipe the history `00-test-setup` just synced).
+Because `00-test-setup.md` performs the switch, the feature checklists no longer repeat it:
+their `## Setup` sections hold only their own preconditions (e.g. `01b` checks the test DB
+pulled in enough real history; `05b`/`06b`/`07b` verify `db_type=test` and open the right
+Settings tab), all as real `toml`. There are no auto-ticked "setup was done elsewhere" steps.
 
-A step with no `toml` **outside** the Setup section (e.g. a screenshot/visual confirmation
-in `03b`/`04b`/`03i`) is one the script can't automate, so it **asks you** -- prints the
-step and waits for a `y/n` -- and ticks or fails on your answer. It is never silently
+A step with no `toml` (e.g. a screenshot/visual confirmation in `03b`/`04b`/`03i`) is one the
+script can't automate, so it **asks you** -- prints the step and waits for a `y/n` -- and
+ticks or fails on your answer. It is never silently
 skipped, regardless of whether it's a Bench or Interactive checklist. The one exception is
 `--yes`/non-interactive mode: with no human to ask, such a step is recorded as a skip (and
 the run ends non-zero). Contrast the AI-driven path (see `../../Tests/CLAUDE.md`): when

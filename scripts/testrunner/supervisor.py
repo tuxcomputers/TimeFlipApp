@@ -279,21 +279,6 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
         print(f"\n[{os.path.basename(path)}] {actor_tag}{step.prose}")
 
         if step.spec is None:
-            if step.section == "Setup":
-                # A Setup step with no toml describes the switch-to-test procedure that the
-                # shared Tests/00-test-setup.md already performed once at the start of the run
-                # (see 01b/05b/06b/07b, whose Setup narrates it) -- so record it done rather
-                # than skip. Re-running it here would rebuild test.sqlite and wipe the history
-                # 00-test-setup just synced.
-                print("  -> OK (setup already done by 00-test-setup.md): ticking.")
-                log_lines.append(f"OK (setup via 00-test-setup.md): {step.prose}")
-                if confirm_steps and not _confirm_step(path, step, "setup established by session_setup", log_lines):
-                    all_ok = False
-                    _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "setup step not confirmed")
-                    continue
-                checklist.mark(step, True)
-                checklist.save()
-                continue
             if auto_yes:
                 # --yes/non-interactive: there's no human to ask, and this step needs one
                 # (no toml to automate it) -- record it as a skip rather than block on input.
@@ -302,9 +287,10 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
                 all_ok = False
                 skipped_prose.add(step.prose)
                 continue
-            # No toml to automate this and it isn't Setup, so a human has to look (e.g. a
-            # screenshot / visual confirmation). Ask -- never silently skip. The question is
-            # phrased so Y = passed/continue.
+            # No toml to automate this, so a human has to look (e.g. a screenshot / visual
+            # confirmation). Ask -- never silently skip. The question is phrased so Y =
+            # passed/continue. (The switch-to-test setup is done by Tests/00-test-setup.md, so
+            # there are no auto-ticked Setup steps here any more.)
             print("  -> NEEDS YOU: verify this step against the app/device.")
             passed = prompt_yn(f"{_note_id(path, step)}: Did this check pass?")
             if passed:
