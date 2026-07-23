@@ -226,6 +226,17 @@ def run_checklist(path, db_path, log_lines):
         print(f"\n[{os.path.basename(path)}] {actor_tag}{step.prose}")
 
         if step.spec is None:
+            if step.section == "Setup":
+                # A Setup step with no toml is the quit/switch-to-test/relaunch procedure
+                # that session_setup.ensure_known_state() already performed once, before any
+                # checklist ran (see 01b/05b/06b/07b) -- so record it done rather than skip.
+                # Re-running it here would rebuild test.sqlite and wipe the synced history
+                # the scenarios depend on.
+                print("  -> OK (setup already established by session_setup): ticking.")
+                log_lines.append(f"OK (setup via session_setup): {step.prose}")
+                checklist.mark(step, True)
+                checklist.save()
+                continue
             print("  -> SKIP: no automated spec for this step (documentation-only or not yet converted).")
             log_lines.append(f"SKIP (no spec): {step.prose}")
             all_ok = False

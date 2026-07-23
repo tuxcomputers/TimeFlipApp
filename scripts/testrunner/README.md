@@ -63,6 +63,14 @@ database (quitting, running `use-test-database.sh`, relaunching, and waiting for
 persists across restarts). If already on the test database, it just confirms the device
 is connected. This runs once per invocation, not once per checklist file.
 
+Because `session_setup` already performs the quit/switch-to-test/relaunch procedure, the
+`## Setup` steps that describe it (in `01b`/`05b`/`06b`/`07b`) carry no `toml` block. The
+runner treats a **Setup** step with no `toml` as already done -- it ticks it rather than
+skipping or re-running it (re-running `use-test-database.sh` mid-checklist would rebuild
+`test.sqlite` and wipe the synced history the scenarios depend on). A step with no `toml`
+outside the Setup section (e.g. a screenshot/visual confirmation in `03b`/`04b`/`03i`) is
+still a genuine SKIP -- it needs a human check and isn't silently ticked.
+
 From here on, every checklist step and the end-of-run cleanup queries `test.sqlite`
 directly by its resolved, concrete path -- not the `appdata.sqlite` symlink the app
 itself keeps using. `debug_log_id` is per-file, not global, so a check needs to stay
