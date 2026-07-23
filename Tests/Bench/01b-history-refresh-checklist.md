@@ -33,19 +33,24 @@ which the supervisor always runs first -- it's not repeated here. These steps on
 extra precondition Scenario A/B need: that the fresh test DB pulled in enough real device
 history to observe.
 
-- [ ] Step 1: Make sure Scenario A/B have enough real history (latest `event_number` >= 10). This first takes the device off lock/pause so flips are recorded; then, if the count is under 10, **flip the device between the Break and Meeting faces** until it reaches 10 -- a device sitting still won't accumulate events on its own. Polls up to 4 minutes for the count to reach 10.
+- [ ] Step 1: Take the device off lock/pause, then **start flipping it between the Break and Meeting faces** -- Scenario A/B need enough real history (latest `event_number` >= 10). This monitors the event count: if there are already 10 it moves straight on, otherwise it triggers the moment your flips push it to 10. A device sitting still won't accumulate events on its own. Polls up to 4 minutes.
 ```toml step
 [[actions]]
 action = "ensure_unlocked_unpaused"
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'need_more_flips=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'keep_flipping=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "ok"
 timeout_seconds = 240
 poll_interval = 3
 ```
-- [ ] Step 2: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
+- [ ] Step 2: **Stop moving the device** and leave it resting on one face, so the scenarios below run against a stable, actively-open segment. Confirm you've stopped.
+```toml step
+action = "ask_user"
+prompt = "Stop moving the device and leave it on one face. Have you stopped? (y once it's resting)"
+```
+- [ ] Step 3: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
 ```toml step
 action = "sql_query"
 query = "SELECT finalised FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
