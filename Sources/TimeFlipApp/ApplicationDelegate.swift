@@ -364,6 +364,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         _ = notification
+        // Record the intentional quit and clear connection_lost, so the disconnect that
+        // stopDeviceEvents() is about to cause isn't later read as a dropped connection.
+        dataStore.recordQuitRequest()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         stopDeviceEvents()
         logger.info("Application will terminate")
@@ -509,9 +512,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             // A genuine device connection (a new pairing, or an app-start/reconnect login --
             // the factory-reset-confirmation login returned above and is deliberately excluded).
-            // Stamp last_connection so an observer/test can confirm the device really connected.
-            let connectedAt = dataStore.recordLastConnection()
-            DeveloperMode.debugPrint(.timeFlip, "last_connection recorded: \(connectedAt)")
+            // Stamp connection.last_connection so an observer/test can confirm the device connected.
+            let connectedAt = dataStore.recordConnection()
+            DeveloperMode.debugPrint(.timeFlip, "connection.last_connection recorded: \(connectedAt)")
             await MainActor.run {
                 // Login confirms the device is reachable and authenticated again — clear the
                 // "reconnecting" state right away; the history backfill below will correct the
@@ -603,6 +606,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     private func handleDeviceDisconnect() {
         logger.warning("Device disconnected; attempting auto-reconnect")
+        let lostAt = dataStore.recordConnectionLost()
+        DeveloperMode.debugPrint(.timeFlip, "connection.connection_lost recorded: \(lostAt)")
         lastSentFacetColors.removeAll()
         facetColorInitialized = false
         awaitingInitialStatus = false

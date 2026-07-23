@@ -508,10 +508,11 @@ final class AppDataStore: IntegrationEventCursorStore {
         loadSettingJSON(name: "db_type")?["type"] as? String ?? "production"
     }
 
-    /// Local date-time formatter for `last_connection`, matching the `db-type`/`debug`
-    /// convention of local time with no UTC offset (see `DeveloperMode.debugPrint`), and the
-    /// seed's own `strftime('%Y-%m-%dT%H:%M:%S','now','localtime')` in `011_setting.sql`.
-    private static let lastConnectionFormatter: DateFormatter = {
+    /// Local date-time formatter for the `connection` setting's timestamps, matching the
+    /// `db-type`/`debug` convention of local time with no UTC offset (see
+    /// `DeveloperMode.debugPrint`) and the seed's own
+    /// `strftime('%Y-%m-%dT%H:%M:%S','now','localtime')` in `011_setting.sql`.
+    private static let connectionTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         formatter.timeZone = .current
@@ -519,15 +520,33 @@ final class AppDataStore: IntegrationEventCursorStore {
         return formatter
     }()
 
-    /// Stamps the `last_connection` setting with the current local date-time. Called as part of
+    /// Stamps `connection.last_connection` with the current local date-time. Called as part of
     /// every successful device login (a new pairing, and each app-start/reconnect login) -- see
     /// `ApplicationDelegate.startDeviceEvents` and `011_setting.sql`. Returns the string written,
     /// so the caller can log it.
     @discardableResult
-    func recordLastConnection(now: Date = Date()) -> String {
-        let stamp = Self.lastConnectionFormatter.string(from: now)
-        saveSettingJSON(name: "last_connection", merging: ["connected_at": stamp])
+    func recordConnection(now: Date = Date()) -> String {
+        let stamp = Self.connectionTimestampFormatter.string(from: now)
+        saveSettingJSON(name: "connection", merging: ["last_connection": stamp])
         return stamp
+    }
+
+    /// Stamps `connection.connection_lost` with the current local date-time, when the app detects
+    /// a lost device connection (see `ApplicationDelegate.handleDeviceDisconnect`). Cleared again
+    /// by `recordQuitRequest()` so a deliberate quit isn't misread as a drop.
+    @discardableResult
+    func recordConnectionLost(now: Date = Date()) -> String {
+        let stamp = Self.connectionTimestampFormatter.string(from: now)
+        saveSettingJSON(name: "connection", merging: ["connection_lost": stamp])
+        return stamp
+    }
+
+    /// Stamps `connection.quit_request` with the current local date-time and clears
+    /// `connection_lost` -- the imminent disconnect is an intentional shutdown, not a drop.
+    /// Called from `ApplicationDelegate.applicationWillTerminate`.
+    func recordQuitRequest(now: Date = Date()) {
+        let stamp = Self.connectionTimestampFormatter.string(from: now)
+        saveSettingJSON(name: "connection", merging: ["quit_request": stamp, "connection_lost": ""])
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
