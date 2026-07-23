@@ -33,23 +33,23 @@ which the supervisor always runs first -- it's not repeated here. These steps on
 extra precondition Scenario A/B need: that the fresh test DB pulled in enough real device
 history to observe.
 
-- [x] Step 1: Record the current event count as `start_event_id` -- decides whether the flip steps below are needed (Scenario A/B want at least 10). `COALESCE`d so an empty DB reads 0, not "no rows".
+- [ ] Step 1: Record the current event count as `start_event_id` -- decides whether the flip steps below are needed (Scenario A/B want at least 10). `COALESCE`d so an empty DB reads 0, not "no rows".
 ```toml step
 action = "sql_query"
 query = "SELECT COALESCE((SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1), 0);"
 capture = "start_event_id"
 ```
-- [x] Step 2: Take the device off lock/pause (unlocking first if needed -- you can't unpause a locked device) so it's actively timing and any flips register. Idempotent: a no-op if it's already unlocked and running.
+- [ ] Step 2: Take the device off lock/pause (unlocking first if needed -- you can't unpause a locked device) so it's actively timing and any flips register. Idempotent: a no-op if it's already unlocked and running.
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [x] Step 3: (only if there aren't already 10 events) Ask you to start flipping the device to build up history.
+- [ ] Step 3: (only if there aren't already 10 events) Ask you to start flipping the device to build up history.
 ```toml step
 action = "ask_user"
 when = "$start_event_id < 10"
 prompt = "Start flipping the device between the Break and Meeting faces to build up history -- keep going until told to stop."
 ```
-- [x] Step 4: (only if there aren't already 10 events) Monitor the event count and trigger the moment your flips push the latest `event_number` to at least 10. Polls up to 4 minutes.
+- [ ] Step 4: (only if there aren't already 10 events) Monitor the event count and trigger the moment your flips push the latest `event_number` to at least 10. Polls up to 4 minutes.
 ```toml step
 action = "wait_for_sql"
 when = "$start_event_id < 10"
@@ -58,13 +58,13 @@ expect = "ok"
 timeout_seconds = 240
 poll_interval = 3
 ```
-- [x] Step 5: (only if you were flipping) Ask you to stop moving the device and leave it on one face, so the scenarios run against a stable, actively-open segment.
+- [ ] Step 5: (only if you were flipping) Ask you to stop moving the device and leave it on one face, so the scenarios run against a stable, actively-open segment.
 ```toml step
 action = "ask_user"
 when = "$start_event_id < 10"
 prompt = "Stop flipping and leave the device resting on one face. Have you stopped? (y once it's resting)"
 ```
-- [x] Step 6: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
+- [ ] Step 6: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
 ```toml step
 action = "sql_query"
 query = "SELECT finalised FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -76,7 +76,7 @@ expect = "0"
 **Preconditions:** an already-open, actively-growing `device_event` row -- established by Setup
 immediately above, which this scenario runs straight on from.
 
-- [x] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
+- [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
       latter D0). (event_number=13, D0=4878.0.)
 ```toml step
 [[actions]]
@@ -89,7 +89,7 @@ action = "sql_query"
 query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "duration_d0"
 ```
-- [x] Step 2: Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
+- [ ] Step 2: Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
       setting_name = 'fetch_history_interval_seconds';`) without touching the device. (Interval is
       10s; waited 12s.)
 ```toml step

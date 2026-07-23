@@ -127,6 +127,11 @@ action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Factory reset confirmed: device is back on the default password; returning to never-paired state"
 timeout_seconds = 60
+
+[[actions]]
+action = "sql_query"
+query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
+capture = "confirmed_id"
 ```
 - [ ] Step 4: Confirm the UI reaches the pristine never-paired state. During the confirm window the
       `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting
@@ -148,13 +153,16 @@ expect_contains = "Not paired"
 ```
 - [ ] Step 5: Confirm no auto-reconnect follows the forget: no further `TimeFlip` `"Login accepted"` /
       reconnect rows after the `"returning to never-paired state"` row, until the manual re-pair
-      below. (Confirmed: zero `"Login accepted"` rows between the confirmation and the manual
-      re-pair. Unlike the old flow, the app also **stops** its periodic `history` fetches once
-      forgotten, so no `device_last_event` rows appear in this gap either -- the wipe evidence
-      instead comes from the re-pair's startup fetch below.)
+      below. (Scope this on `debug_log_id > $confirmed_id` -- the id of that row, captured in Step 3 --
+      **not** `before_reset_id`: the confirm sequence itself relogins to test the password and logs
+      one or two `"Login accepted, code=0x02"` rows before it settles, which a pre-reset baseline
+      would wrongly flag as an auto-reconnect.) (Confirmed: zero `"Login accepted"` rows between the
+      confirmation and the manual re-pair. Unlike the old flow, the app also **stops** its periodic
+      `history` fetches once forgotten, so no `device_last_event` rows appear in this gap either --
+      the wipe evidence instead comes from the re-pair's startup fetch below.)
 ```toml step
 action = "sql_query"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $confirmed_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect = "(no rows)"
 ```
 - [ ] Step 6: Confirm the device's own event counter was wiped by the reset: the first `history` fetch after
