@@ -278,14 +278,17 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
             break
         ran_any = True
         actor_tag = "(You) " if step.actor == "you" else ""
-        print(f"\n[{os.path.basename(path)}] {actor_tag}{step.prose}")
+        # Full single-line step text for display/log. step.prose is only the checkbox's first
+        # physical line, so a wrapped step would otherwise print cut off at the source line break.
+        label = f"{step.section} Step {step.number}: {step.description()}"
+        print(f"\n[{os.path.basename(path)}] {actor_tag}{label}")
 
         if step.spec is None:
             if auto_yes:
                 # --yes/non-interactive: there's no human to ask, and this step needs one
                 # (no toml to automate it) -- record it as a skip rather than block on input.
                 print("  -> SKIP: needs human verification; --yes/non-interactive can't ask.")
-                log_lines.append(f"SKIP (needs human; --yes): {step.prose}")
+                log_lines.append(f"SKIP (needs human; --yes): {label}")
                 all_ok = False
                 skipped_prose.add(step.prose)
                 continue
@@ -298,9 +301,9 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
             if passed:
                 checklist.mark(step, True)
                 checklist.save()
-                log_lines.append(f"PASS (human-verified): {step.prose}")
+                log_lines.append(f"PASS (human-verified): {label}")
                 continue
-            log_lines.append(f"FAIL (human-verified): {step.prose}")
+            log_lines.append(f"FAIL (human-verified): {label}")
             all_ok = False
             if confirm_steps:
                 _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "human-verified step did not pass")
@@ -317,7 +320,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
         cond = step.spec.get("when")
         if cond is not None and not condition_met(cond, ctx):
             print(f"  -> SKIP: not needed (when {cond})")
-            log_lines.append(f"SKIP (when {cond} not met): {step.prose}")
+            log_lines.append(f"SKIP (when {cond} not met): {label}")
             checklist.mark(step, True)
             checklist.save()
             continue
@@ -325,7 +328,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False)
         result = run_step(step.spec, ctx)
         status = "PASS" if result.success else "FAIL"
         print(f"  -> {status}: {result.detail}")
-        log_lines.append(f"{status}: {step.prose} :: {result.detail}")
+        log_lines.append(f"{status}: {label} :: {result.detail}")
 
         # Any values this step captured go to the log as a NOTE line keyed by the step's
         # broad-to-narrow id -- not back into the .md (a tick is its only in-file record).
