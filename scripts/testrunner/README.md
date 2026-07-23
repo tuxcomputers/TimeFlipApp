@@ -67,9 +67,16 @@ Because `session_setup` already performs the quit/switch-to-test/relaunch proced
 `## Setup` steps that describe it (in `01b`/`05b`/`06b`/`07b`) carry no `toml` block. The
 runner treats a **Setup** step with no `toml` as already done -- it ticks it rather than
 skipping or re-running it (re-running `use-test-database.sh` mid-checklist would rebuild
-`test.sqlite` and wipe the synced history the scenarios depend on). A step with no `toml`
-outside the Setup section (e.g. a screenshot/visual confirmation in `03b`/`04b`/`03i`) is
-still a genuine SKIP -- it needs a human check and isn't silently ticked.
+`test.sqlite` and wipe the synced history the scenarios depend on).
+
+A step with no `toml` **outside** the Setup section (e.g. a screenshot/visual confirmation
+in `03b`/`04b`/`03i`) is one the script can't automate, so it **asks you** -- prints the
+step and waits for a `y/n` -- and ticks or fails on your answer. It is never silently
+skipped, regardless of whether it's a Bench or Interactive checklist. The one exception is
+`--yes`/non-interactive mode: with no human to ask, such a step is recorded as a skip (and
+the run ends non-zero). Contrast the AI-driven path (see `../../Tests/CLAUDE.md`): when
+Claude runs the Bench suite it automates these itself (doing the screenshot/visual check
+via its own tooling) rather than asking.
 
 From here on, every checklist step and the end-of-run cleanup queries `test.sqlite`
 directly by its resolved, concrete path -- not the `appdata.sqlite` symlink the app

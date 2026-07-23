@@ -25,6 +25,10 @@ Each folder's own `README.md` describes just that suite.
 
 ## Rules
 
+- When **you** (an AI) run it, fully automate every Bench step -- including visual/screenshot
+  confirmations, done yourself via `Methods.md`'s screenshot method; never defer a Bench step to
+  the user. (The standalone script runner has no vision, so it instead asks the human for any step
+  it can't automate -- see `scripts/testrunner/README.md`. That's the script's behavior, not yours.)
 - Finish the entire Bench phase (every checklist) before starting any Interactive checklist.
 - Each numbered checklist has a file in both folders; a side with no work is a stub (`Nothing
   needed`).

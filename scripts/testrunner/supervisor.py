@@ -204,7 +204,7 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     return True
 
 
-def run_checklist(path, db_path, log_lines):
+def run_checklist(path, db_path, log_lines, auto_yes=False):
     checklist = Checklist(path)
     log_lines.append(f"\n=== {path} ===")
 
@@ -237,10 +237,26 @@ def run_checklist(path, db_path, log_lines):
                 checklist.mark(step, True)
                 checklist.save()
                 continue
-            print("  -> SKIP: no automated spec for this step (documentation-only or not yet converted).")
-            log_lines.append(f"SKIP (no spec): {step.prose}")
-            all_ok = False
-            skipped_prose.add(step.prose)
+            if auto_yes:
+                # --yes/non-interactive: there's no human to ask, and this step needs one
+                # (no toml to automate it) -- record it as a skip rather than block on input.
+                print("  -> SKIP: needs human verification; --yes/non-interactive can't ask.")
+                log_lines.append(f"SKIP (needs human; --yes): {step.prose}")
+                all_ok = False
+                skipped_prose.add(step.prose)
+                continue
+            # No toml to automate this and it isn't Setup, so a human has to look (e.g. a
+            # screenshot / visual confirmation). Ask -- never silently skip.
+            print("  -> NEEDS YOU: verify this step against the app/device.")
+            passed = prompt_yn("  Did this check pass?")
+            checklist.mark(step, passed)
+            checklist.save()
+            log_lines.append(f"{'PASS' if passed else 'FAIL'} (human-verified): {step.prose}")
+            if not passed:
+                all_ok = False
+                print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
+                log_lines.append(f"STOPPED {path} after failed step above.")
+                break
             continue
 
         result = run_step(step.spec, ctx)
@@ -368,7 +384,7 @@ def main():
     # -- so nothing here can be affected by a later, unrelated change to the symlink.
     overall_ok = True
     for path in checklist_paths:
-        ok = run_checklist(path, resolved_db_path, log_lines)
+        ok = run_checklist(path, resolved_db_path, log_lines, args.yes)
         overall_ok = overall_ok and ok
 
     cleanup_ok = reset_device_for_cleanup(resolved_db_path)
