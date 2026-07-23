@@ -96,6 +96,10 @@ def ensure_not_timing_on_production(db_path):
     proceed, False (with an explanatory print) if the developer must pause the device
     first. Reflects the last state the app synced to the DB; if you just flipped the
     device, give it a moment to sync before re-running."""
+    # Runs first, before any prompt -- so don't let sqlite3.connect() create an empty file
+    # if it's missing; leave that error for ensure_known_state()'s own existence check.
+    if not os.path.exists(db_path):
+        return True
     if _read_db_type(db_path) != "production":
         return True
     # Read the concrete production.sqlite directly (the symlink points at it right now),

@@ -241,6 +241,17 @@ def main():
     log_lines = [f"TimeFlip device-test run started {timestamp}", "Checklists:"]
     log_lines.extend(f"  {p}" for p in checklist_paths)
 
+    # First thing, before we ask the developer anything: if we're still on production and
+    # the device is mid-timing a real activity, bail immediately rather than after they've
+    # answered the rerun/resume and confirmation prompts. This run switches to test and
+    # factory-resets the device at the end, which would interrupt that real timing event.
+    if not ensure_not_timing_on_production(args.db_path):
+        print("\nAborted -- pause the device, then re-run.")
+        log_lines.append("ABORTED: on production and device is mid-timing; developer must pause first.")
+        with open(log_path, "w") as f:
+            f.write("\n".join(log_lines) + "\n")
+        sys.exit(1)
+
     if not resolve_rerun_state(checklist_paths, log_lines, args.yes):
         print("\nNothing to run.")
         log_lines.append("Nothing to run.")
@@ -260,15 +271,6 @@ def main():
         print("Aborted -- confirmation not given.")
         sys.exit(1)
     log_lines.append("Developer confirmed the device-manipulation warning.")
-
-    # Safety gate before we touch anything: if we're still on production and the device is
-    # mid-timing a real activity, refuse to switch/reset out from under it.
-    if not ensure_not_timing_on_production(args.db_path):
-        print("\nAborted -- pause the device, then re-run.")
-        log_lines.append("ABORTED: on production and device is mid-timing; developer must pause first.")
-        with open(log_path, "w") as f:
-            f.write("\n".join(log_lines) + "\n")
-        sys.exit(1)
 
     resolved_db_path = ensure_known_state(args.db_path, repo_root)
     if not resolved_db_path:

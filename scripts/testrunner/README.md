@@ -29,7 +29,15 @@ Requires `pyobjc` (`pip3 install pyobjc-framework-Quartz`) for `cgevent_click` s
 
 ## Before anything runs
 
-Every invocation prints a warning that this manipulates the real, physical device (and
+**First, before any prompt**, a safety gate (`ensure_not_timing_on_production`) checks
+whether we're still on the production database with the device **mid-timing** a real
+activity -- i.e. the most recent `device_event` isn't a pause. If so it aborts right away
+and tells you to pause the device first, rather than making you answer the rerun/resume and
+confirmation prompts below only to bail afterward. The run switches to the test database
+and factory-resets the device at the end, so it would otherwise interrupt that live timing
+event. On the test database (nothing real to protect) it's a no-op.
+
+Every invocation then prints a warning that this manipulates the real, physical device (and
 specifically calls out that `02b`/`02i` itself also does a mid-run reset, on top of the
 end-of-run cleanup reset described below), and blocks on typed input -- type `I
 understand` to proceed or `Not yet` to abort; anything else re-prompts instead of being
@@ -41,13 +49,6 @@ The warning's own wording is deliberately reassuring about production history: t
 test-database switch only happens once a completed history fetch against production is
 confirmed, so nothing real is ever at risk, regardless of what the test session does to
 the device afterward.
-
-Immediately after confirmation, a safety gate (`ensure_not_timing_on_production`) checks
-whether we're still on the production database with the device **mid-timing** a real
-activity -- i.e. the most recent `device_event` isn't a pause. If so it aborts and tells
-you to pause the device first, since the run switches to the test database and
-factory-resets the device at the end and would otherwise interrupt that live timing event.
-On the test database (nothing real to protect) it's a no-op.
 
 Once confirmed, `session_setup.py` establishes the known state every checklist assumes,
 mirroring "Switch to the test database" in `../../Tests/Methods.md`. If currently on
