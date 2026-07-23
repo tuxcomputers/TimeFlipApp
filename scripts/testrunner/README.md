@@ -182,16 +182,31 @@ step can legitimately need re-running, same as the original human-driven checkli
 Before anything else (even the device-manipulation warning), the supervisor checks the
 progress of every checklist about to run, as one whole-batch decision -- not per file:
 
-- **All of them already fully checked** -- asks `y/n`: clear their results and run again?
-  `n` exits with nothing run.
-- **Any of them not fully checked** (partially or entirely unticked) -- asks `y/n`: resume
-  from where things left off? `y` continues each checklist from its first unchecked step,
-  same as always. `n` clears every requested checklist's results (checkboxes and any
-  `(Automated: ...)`/`(AUTOMATED FAILURE: ...)` notes from the previous run) and starts
-  the whole batch over from the top.
+- **All of them already fully checked** -- prints one line saying so, then asks `y/n`:
+  clear their results and run again? `n` exits with nothing run.
+- **Any of them not fully checked** (partially or entirely unticked) -- prints only where
+  we left off, not the whole list: the last completed step (`Bench test 01 · Scenario B ·
+  Step 2`) and the next step's description, then asks `Continue from here?` `y` resumes each
+  checklist from its first unchecked step. `n` clears every requested checklist's results
+  and starts the whole batch over from the top.
 
 `--yes` answers both automatically (clear-and-rerun, and resume, respectively) without
 blocking, for CI/non-interactive use.
+
+### What's recorded where
+
+A checklist step's only in-file record is its **checkbox tick** -- the runner no longer
+writes `(Automated: ...)` notes back into the `.md`. Everything else goes to the run log:
+pass/fail detail per step, and, when a step captures values, a NOTE line keyed by a
+broad-to-narrow step id:
+
+```
+*****NOTE****** T01b-ScA-St4: event_number_d0=13, duration_d0=4878.0
+```
+
+The id is `T<checklist>-<section>-St<n>` -- section is `Setup`, `ScA`/`ScB`/..., and step
+numbers restart per section (matching the `Step N:` prefix now carried in the checklist
+files themselves). A scenario precondition noted by hand uses `-Pre` in place of `-St<n>`.
 
 ## Failure handling and logs
 

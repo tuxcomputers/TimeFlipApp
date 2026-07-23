@@ -45,6 +45,9 @@ Each folder's own `README.md` describes just that suite.
 - `Tests/Bench/`: no actor label, one plain instruction per line.
 - `Tests/Interactive/`: `**(Claude)**` or `**(You)**` prefix per item, single ordered sequence
   (order matters).
+- Each step is prefixed `Step N: ` (after any actor label), numbered from 1 and restarting at
+  each `## ` section. The runner keys log NOTE lines off these (e.g. `T01b-ScA-St4`); renumber a
+  section if you insert/remove a step.
 
 ## Scenario preconditions
 

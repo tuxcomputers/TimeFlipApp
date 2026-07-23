@@ -346,6 +346,15 @@ def _run_single(spec, ctx):
         return StepResult(False, f"exception: {e}")
 
 
+def capture_names(spec):
+    """The `capture` var names a step declares -- a single action's `capture`, or every
+    `capture` across an `[[actions]]` sequence -- so the runner can log the values left
+    under them in ctx["vars"] after the step runs."""
+    if "actions" in spec:
+        return [s["capture"] for s in spec["actions"] if "capture" in s]
+    return [spec["capture"]] if "capture" in spec else []
+
+
 def run_step(spec, ctx):
     """A checklist item can be one action, or `[[actions]]` -- a sequence run in order,
     stopping at the first failure (e.g. "click, then confirm via debug_log" is one

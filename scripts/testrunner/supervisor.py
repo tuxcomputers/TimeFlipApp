@@ -41,7 +41,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
-from actions import run_step  # noqa: E402
+from actions import run_step, capture_names  # noqa: E402
 from session_setup import (  # noqa: E402
     confirm_warning,
     ensure_known_state,
@@ -51,6 +51,36 @@ from session_setup import (  # noqa: E402
 )
 
 DEFAULT_DB_PATH = os.path.expanduser("~/Library/Application Support/TimeFlip/appdata.sqlite")
+
+
+def _checklist_id(path):
+    """The leading token of the filename, e.g. "01b" from "01b-history-refresh-checklist.md"."""
+    return os.path.basename(path).split("-", 1)[0]
+
+
+def _file_label(path):
+    """Human label for a checklist, e.g. "Bench test 01" / "Interactive test 01"."""
+    suite = "Interactive" if os.sep + "Interactive" + os.sep in path else "Bench"
+    digits = "".join(c for c in _checklist_id(path) if c.isdigit())
+    return f"{suite} test {digits}" if digits else f"{suite} {os.path.basename(path)}"
+
+
+def _section_code(section):
+    """Compact section code for a NOTE id: "Setup" -> "Setup", "Scenario A" -> "ScA",
+    anything else -> spaces stripped, capped."""
+    s = (section or "").strip()
+    if s.lower().startswith("scenario "):
+        return "Sc" + s[len("scenario "):].strip()
+    if s.lower() == "setup":
+        return "Setup"
+    return "".join(s.split())[:8] or "Sec"
+
+
+def _note_id(path, step):
+    """Broad-to-narrow step id for a logged NOTE line, e.g. "T01b-ScA-St4" /
+    "T02i-Setup-St3". (A scenario precondition, recorded by hand rather than by an
+    automated step, uses "-Pre" in place of "-St<n>".)"""
+    return f"T{_checklist_id(path)}-{_section_code(step.section)}-St{step.number}"
 
 
 def discover_checklists(repo_root, folder=None, search=None):
@@ -98,25 +128,58 @@ def summarize_progress(checklist_paths):
     return infos
 
 
+def _resume_point(checklist_paths):
+    """Across the ordered batch, find the step to resume at: `next` = the first unchecked
+    runnable step (falling back to the first unchecked step of any kind), and `last` = the
+    last checked step before it. Each is a (path, Step) pair, or None. Returns (last, next);
+    next is None only if every step is already checked."""
+    flat = [(p, s) for p in checklist_paths for s in Checklist(p).steps]
+    next_i = next((i for i, (_, s) in enumerate(flat) if not s.checked and s.spec is not None), None)
+    if next_i is None:
+        next_i = next((i for i, (_, s) in enumerate(flat) if not s.checked), None)
+    if next_i is None:
+        return None, None
+    last = next(((flat[i]) for i in range(next_i - 1, -1, -1) if flat[i][1].checked), None)
+    return last, flat[next_i]
+
+
+def _print_resume_location(checklist_paths, log_lines):
+    """Concise 'where we left off + what's next' for a mid-run batch -- replaces dumping
+    every requested checklist and its counts."""
+    last, nxt = _resume_point(checklist_paths)
+    if nxt is None:
+        return
+    if last is not None:
+        lp, ls = last
+        loc = f"{_file_label(lp)} · {ls.section} · Step {ls.number}"
+        print(f"\nResuming — last completed:\n  {loc}")
+        log_lines.append(f"Resume; last completed: {loc}")
+    else:
+        print("\nResuming — nothing completed yet, starting from the top.")
+        log_lines.append("Resume; nothing completed yet.")
+    np, ns = nxt
+    desc = ns.description()
+    print(f"\nNext step: {desc}")
+    log_lines.append(f"Next step: {_file_label(np)} · {ns.section} · Step {ns.number}: {desc}")
+
+
 def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
-    """Whole-batch, up-front check replacing the old per-checklist continue/restart
-    prompt: if every requested checklist is already fully ticked, offer to clear them
-    all and run again; otherwise (any checklist partially or entirely unticked) offer
-    to resume from where things left off, clearing the whole batch and starting over
-    if the developer declines the resume. Returns False if there's nothing to run."""
+    """Whole-batch, up-front check: if every requested checklist is already fully ticked,
+    offer to clear them all and run again; otherwise (any checklist partially or entirely
+    unticked) show where we left off and what's next, and offer to resume -- clearing the
+    whole batch and starting over if the developer declines. Returns False if there's
+    nothing to run."""
     infos = summarize_progress(checklist_paths)
     all_complete = all(done == total for _, done, total in infos)
-
-    print("\nRequested checklists:")
-    for p, done, total in infos:
-        print(f"  {os.path.relpath(p)}: {done}/{total} steps checked")
+    n = len(infos)
 
     if all_complete:
+        print(f"\nAll {n} requested checklist{'s' if n != 1 else ''} are already fully completed.")
         if auto_yes:
             print("(--yes passed: clearing results and running again)")
             clear_again = True
         else:
-            clear_again = prompt_yn("\nAll requested checklists are already fully completed. Clear their results and run again?")
+            clear_again = prompt_yn("Clear their results and run again?")
         log_lines.append(f"All requested checklists already complete; clear-and-rerun: {clear_again}")
         if not clear_again:
             return False
@@ -126,11 +189,12 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
             c.save()
         return True
 
+    _print_resume_location(checklist_paths, log_lines)
     if auto_yes:
         print("(--yes passed: resuming from where things left off)")
         resume = True
     else:
-        resume = prompt_yn("\nSome requested checklists are not fully completed. Resume from where they left off?")
+        resume = prompt_yn("Continue from here? ('n' restarts the whole batch from the top)")
     log_lines.append(f"Requested checklists mid-run; resume: {resume}")
     if not resume:
         for p, _, _ in infos:
@@ -173,7 +237,16 @@ def run_checklist(path, db_path, log_lines):
         print(f"  -> {status}: {result.detail}")
         log_lines.append(f"{status}: {step.prose} :: {result.detail}")
 
-        checklist.mark(step, result.success, result.detail)
+        # Any values this step captured go to the log as a NOTE line keyed by the step's
+        # broad-to-narrow id -- not back into the .md (a tick is its only in-file record).
+        if result.success:
+            captured = [(name, ctx["vars"].get(name)) for name in capture_names(step.spec)]
+            captured = [(name, value) for name, value in captured if value is not None]
+            if captured:
+                pairs = ", ".join(f"{name}={value}" for name, value in captured)
+                log_lines.append(f"*****NOTE****** {_note_id(path, step)}: {pairs}")
+
+        checklist.mark(step, result.success)
         checklist.save()
 
         if not result.success:
@@ -230,9 +303,7 @@ def main():
         if not checklist_paths:
             print("No checklists matched -f/-s -- nothing to run.")
             sys.exit(1)
-        print("Auto-discovered checklists, in run order:")
-        for p in checklist_paths:
-            print(f"  {os.path.relpath(p, repo_root)}")
+        print(f"Auto-discovered {len(checklist_paths)} checklist(s) to run (Bench then Interactive).")
 
     log_dir = os.path.join(repo_root, "logs")
     os.makedirs(log_dir, exist_ok=True)
