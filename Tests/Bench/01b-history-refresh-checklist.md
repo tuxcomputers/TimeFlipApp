@@ -33,11 +33,17 @@ which the supervisor always runs first -- it's not repeated here. These steps on
 extra precondition Scenario A/B need: that the fresh test DB pulled in enough real device
 history to observe.
 
-- [ ] Step 1: Confirm the fresh test DB read enough real device history on its first fetch -- the largest `event_number` is at least 10, so Scenario A/B have something substantial to observe, not a couple of events. If it's lower, let the device accumulate more real use first. (Confirmed: latest `event_number`=13.)
+- [ ] Step 1: Make sure Scenario A/B have enough real history (latest `event_number` >= 10). This first takes the device off lock/pause so flips are recorded; then, if the count is under 10, **flip the device between the Break and Meeting faces** until it reaches 10 -- a device sitting still won't accumulate events on its own. Polls up to 4 minutes for the count to reach 10.
 ```toml step
-action = "sql_query"
-query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'too_few=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+[[actions]]
+action = "ensure_unlocked_unpaused"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'need_more_flips=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "ok"
+timeout_seconds = 240
+poll_interval = 3
 ```
 - [ ] Step 2: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on.
 ```toml step
