@@ -245,6 +245,12 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
         return True
 
     _print_resume_location(checklist_paths, log_lines)
+    # A completely fresh batch (nothing ticked anywhere) has nothing to resume from and
+    # nothing to restart -- "continue from here" and "restart from the top" both just mean
+    # "run from Setup Step 1". Skip the prompt entirely; only ask it when there's genuine
+    # partial progress to either continue or discard.
+    if all(done == 0 for _, done, _ in infos):
+        return True
     if auto_yes:
         print("(--yes passed: resuming from where things left off)")
         resume = True
