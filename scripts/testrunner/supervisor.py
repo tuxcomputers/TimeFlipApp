@@ -83,6 +83,27 @@ def _note_id(path, step):
     return f"T{_checklist_id(path)}-{_section_code(step.section)}-St{step.number}"
 
 
+class _TeeLog(list):
+    """A log that streams to disk as it grows: every append/extend also writes the line to
+    the log file and flushes it. So the log on disk stays complete even if the run is
+    killed, hangs on a prompt, or crashes mid-way -- not only when it reaches a clean exit
+    (the old behaviour, which wrote the whole buffered log in one go at the end and lost
+    everything on an interruption). Still a plain list, so `"\\n".join(...)` etc. work."""
+
+    def __init__(self, path):
+        super().__init__()
+        self._f = open(path, "w", buffering=1)  # line-buffered
+
+    def append(self, line):
+        super().append(line)
+        self._f.write(line + "\n")
+        self._f.flush()
+
+    def extend(self, lines):
+        for line in lines:
+            self.append(line)
+
+
 def discover_checklists(repo_root, folder=None, search=None):
     """Auto-discovery for when no explicit file paths are given: Bench (sorted) then
     Interactive (sorted), optionally narrowed to one folder and/or filtered by a
@@ -336,7 +357,11 @@ def main():
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"{timestamp}.txt")
 
-    log_lines = [f"TimeFlip device-test run started {timestamp}", "Checklists:"]
+    # Streams to disk on every append (see _TeeLog), so an interrupted/hung/killed run
+    # still leaves a complete-so-far log rather than nothing.
+    log_lines = _TeeLog(log_path)
+    log_lines.append(f"TimeFlip device-test run started {timestamp}")
+    log_lines.append("Checklists:")
     log_lines.extend(f"  {p}" for p in checklist_paths)
 
     # First thing, before we ask the developer anything: if we're still on production and
@@ -346,15 +371,11 @@ def main():
     if not ensure_not_timing_on_production(args.db_path):
         print("\nAborted -- pause the device, then re-run.")
         log_lines.append("ABORTED: on production and device is mid-timing; developer must pause first.")
-        with open(log_path, "w") as f:
-            f.write("\n".join(log_lines) + "\n")
         sys.exit(1)
 
     if not resolve_rerun_state(checklist_paths, log_lines, args.yes):
         print("\nNothing to run.")
         log_lines.append("Nothing to run.")
-        with open(log_path, "w") as f:
-            f.write("\n".join(log_lines) + "\n")
         sys.exit(0)
 
     if args.yes:
@@ -374,8 +395,6 @@ def main():
     if not resolved_db_path:
         print("Aborted -- could not establish a known device/database state.")
         log_lines.append("ABORTED: could not establish known device/database state.")
-        with open(log_path, "w") as f:
-            f.write("\n".join(log_lines) + "\n")
         sys.exit(1)
     log_lines.append(f"Known device/database state established (db file: {resolved_db_path}).")
 
@@ -423,8 +442,6 @@ def main():
         log_lines.append("Developer chose to stay on the test database for now.")
 
     log_lines.append(f"\nOverall result: {'PASS' if overall_ok else 'FAIL'}")
-    with open(log_path, "w") as f:
-        f.write("\n".join(log_lines) + "\n")
 
     print(f"\n{'=' * 60}")
     print(f"Overall result: {'PASS' if overall_ok else 'FAIL'}")
