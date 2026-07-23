@@ -213,7 +213,7 @@ end tell'''
       in order. (Confirmed: 7 pairs, `debug_log_id` 115-126.)
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='led' AND message LIKE 'Brightness value changed to 95%' AND debug_log_id > $before_brightness_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='led-bright' AND message LIKE 'Brightness value changed to 95%' AND debug_log_id > $before_brightness_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Brightness value changed to 95"
 timeout_seconds = 10
 ```
@@ -231,7 +231,7 @@ expect_contains = "\"brightness\":95"
       last value-changed line.)
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='led' AND debug_log_id > $before_brightness_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='led-bright' AND debug_log_id > $before_brightness_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Brightness written to 95% (no device read-back available)"
 timeout_seconds = 10
 ```
@@ -266,7 +266,7 @@ end tell'''
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='led' AND debug_log_id > $before_blink_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='led-blink' AND debug_log_id > $before_blink_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Blink interval written to 55s (no device read-back available)"
 timeout_seconds = 10
 ```

@@ -836,18 +836,18 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         for candidate in start...lastEventNumber where !received.contains(candidate) {
             guard let recovered = await readLastEventLocked(candidate) else {
                 logger.error("History gap NOT recovered ev=\(candidate, privacy: .public)")
-                DeveloperMode.debugPrint(.history, "history gap NOT recovered ev=\(candidate)")
+                DeveloperMode.debugPrint(.histGap, "history gap NOT recovered ev=\(candidate)")
                 continue
             }
             guard recovered.duration >= Self.minimumStreamedIntervalSeconds else {
                 logger.notice("History gap explained ev=\(candidate, privacy: .public) dur=\(recovered.duration, privacy: .public) (under 5s, device's own filter)")
-                DeveloperMode.debugPrint(.history, "history gap explained: ev=\(candidate) dur=\(recovered.duration)s under 5s, device's own filter")
+                DeveloperMode.debugPrint(.histGap, "history gap explained: ev=\(candidate) dur=\(recovered.duration)s under 5s, device's own filter")
                 continue
             }
             filled.append(recovered)
             recoveredAny = true
             logger.notice("History gap recovered ev=\(candidate, privacy: .public)")
-            DeveloperMode.debugPrint(.history, "history gap recovered ev=\(candidate)")
+            DeveloperMode.debugPrint(.histGap, "history gap recovered ev=\(candidate)")
         }
 
         if recoveredAny {
@@ -1237,17 +1237,17 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let payload = Data([0x09, clamped])
         do {
             logger.debug("Setting LED brightness to \(clamped, privacy: .public)%")
-            DeveloperMode.debugPrint(.led, "Brightness set to \(clamped)% triggered")
+            DeveloperMode.debugPrint(.ledBright, "Brightness set to \(clamped)% triggered")
             _ = try await performCommand(payload)
             // No verification here -- unlike auto-pause/lock/double-tap, the protocol has no read
             // command for LED brightness (only the "sync required" flag, which just means
             // "re-push your stored value", not an actual device readback), so there's nothing to
             // read back and compare against. See docs/TimeFlip2 BLE Protocol v4.3.md's command
             // table (0x09) and system-state notify flags.
-            DeveloperMode.debugPrint(.led, "Brightness written to \(clamped)% (no device read-back available)")
+            DeveloperMode.debugPrint(.ledBright, "Brightness written to \(clamped)% (no device read-back available)")
         } catch {
             logger.error("Failed to set LED brightness: \(error.localizedDescription, privacy: .public)")
-            DeveloperMode.debugPrint(.led, "Brightness command failed: \(error.localizedDescription)")
+            DeveloperMode.debugPrint(.ledBright, "Brightness command failed: \(error.localizedDescription)")
         }
     }
 
@@ -1256,13 +1256,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let payload = Data([0x0A, clamped])
         do {
             logger.debug("Setting LED blink interval to \(clamped, privacy: .public)s")
-            DeveloperMode.debugPrint(.led, "Blink interval set to \(clamped)s triggered")
+            DeveloperMode.debugPrint(.ledBlink, "Blink interval set to \(clamped)s triggered")
             _ = try await performCommand(payload)
             // Same lack of a read-back command as brightness above (0x0A has no counterpart read).
-            DeveloperMode.debugPrint(.led, "Blink interval written to \(clamped)s (no device read-back available)")
+            DeveloperMode.debugPrint(.ledBlink, "Blink interval written to \(clamped)s (no device read-back available)")
         } catch {
             logger.error("Failed to set LED blink interval: \(error.localizedDescription, privacy: .public)")
-            DeveloperMode.debugPrint(.led, "Blink interval command failed: \(error.localizedDescription)")
+            DeveloperMode.debugPrint(.ledBlink, "Blink interval command failed: \(error.localizedDescription)")
         }
     }
 

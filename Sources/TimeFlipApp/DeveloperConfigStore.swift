@@ -37,14 +37,29 @@ enum DeveloperMode {
     enum DebugTag: String, CaseIterable {
         case timeFlip = "TimeFlip"
         case devCheck = "dev-check"
-        case history = "history"
+        // History-fetch lifecycle, split by phase so a test can query one phase's rows without
+        // the others (esp. the trailing "complete" marker) clobbering a newest-row check:
+        // start (triggered) -> check (cheap read) -> result (outcome) -> done (complete);
+        // gap covers the out-of-range backlog recovery in TimeFlipBLEDevice.
+        case histStart = "hist-start"
+        case histCheck = "hist-check"
+        case histResult = "hist-result"
+        case histDone = "hist-done"
+        case histGap = "hist-gap"
         case battery = "battery"
         case dbType = "db-type"
         case doubleTap = "double-tap"
-        case deviceSync = "device-sync"
+        // Startup device-sync checks, split by which device property they reconcile, so each
+        // domain's rows can be read without the others sharing one "device-sync" tag.
+        case syncAuto = "sync-auto"
+        case syncDtap = "sync-dtap"
+        case syncLed = "sync-led"
         case autoPause = "auto-pause"
         case dailyReset = "daily-reset"
-        case led = "led"
+        // LED debug split by the two device properties (brightness vs blink interval) so a
+        // brightness-log check can't be clobbered by an interleaved blink-interval message.
+        case ledBright = "led-bright"
+        case ledBlink = "led-blink"
         case click = "click"
         case menu = "menu"
         case tab = "tab"

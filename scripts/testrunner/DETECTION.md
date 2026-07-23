@@ -70,20 +70,34 @@ message text -- the login line repeats verbatim, so text comparison never sees a
 
 ---
 
-## Detecting that a history fetch finished
+## Detecting history-fetch state (split tags)
 
-`HistoryIngestor.refreshHistory()` logs `history fetch complete: trigger=<trigger>` (tag
-`history`) on **every** exit path -- so a fetch that pulls in a real backlog is detected,
-not just the nothing-changed case.
+`HistoryIngestor.refreshHistory()` logs one row per phase of a fetch, each under its **own**
+tag so a check for one phase isn't clobbered by a later phase's row sharing a tag (a real bug
+-- the trailing "complete" marker used to hide the "unchanged; DB refreshed" row under a single
+`history` tag). The phases:
+
+| tag | message | phase |
+|---|---|---|
+| `hist-start` | `history fetch triggered: trigger=… known_max=…` | fetch begins |
+| `hist-check` | `history fetch: cheap check device_last_event=… known_max=…` | cheap single-frame read |
+| `hist-result` | `…max_event_number=… unchanged; DB refreshed` / `…live entry ambiguous…` | outcome |
+| `hist-done` | `history fetch complete: trigger=…` | logged on **every** exit path |
+| `hist-gap` | `history gap recovered/explained/NOT recovered ev=…` | out-of-range backfill |
+
+So each phase is a clean `tag='hist-…' ORDER BY debug_log_id DESC LIMIT 1` -- e.g. the forced
+startup fetch completing (used by `00-test-setup.md`):
 
 ```sql
 SELECT debug_log_id FROM debug_log
- WHERE tag = 'history' AND message = 'history fetch complete: trigger=startup'
+ WHERE tag = 'hist-done' AND message = 'history fetch complete: trigger=startup'
    AND debug_log_id > :since
  ORDER BY debug_log_id DESC LIMIT 1;
 ```
 
-Helper: `_wait_for_history_fetch_complete(...)`.
+Other multi-domain tags are split the same way: `led-bright`/`led-blink`, and
+`sync-auto`/`sync-dtap`/`sync-led` (startup device-sync checks). Single-domain tags
+(`auto-pause`, `double-tap`, `battery`, …) are not split -- their rows can't clobber each other.
 
 ---
 

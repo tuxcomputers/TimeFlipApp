@@ -167,7 +167,7 @@ expect = "(no rows)"
       where N was `13` pre-reset -- the device's own counter was wiped.)
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='history' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "device_last_event=nil"
 timeout_seconds = 30
 ```
