@@ -127,8 +127,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         // Surfaced so an interactive testing session can confirm from debug_log alone (no need to
         // separately inspect the appdata.sqlite symlink target) which physical database this
-        // launch actually opened -- see Tests/CLAUDE.md's database-switching workflow.
-        DeveloperMode.debugPrint(.dbType, "Database type: \(dataStore.loadDbType())")
+        // launch actually opened -- see Tests/CLAUDE.md's database-switching workflow. Also pushed
+        // onto appState so the menu bar can display it (dev mode only) as a guard against logging
+        // real timings into a test database.
+        let dbType = dataStore.loadDbType()
+        appState.dbType = dbType
+        DeveloperMode.debugPrint(.dbType, "Database type: \(dbType)")
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in

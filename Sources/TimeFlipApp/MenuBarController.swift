@@ -267,10 +267,16 @@ final class MenuBarController: NSObject {
 
         let iconSize = statusBarIconSize()
         let icon = resolvedIcon(named: iconName, pointSize: iconSize)
-        let titleKey = "\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
-        button.imagePosition = .imageLeft
-        if button.image !== icon {
-            button.image = icon
+        // Dev mode only: a "TEST"/"PROD" tag pinned at the far left of the menu bar. When present the
+        // activity icon is drawn as a leading attachment inside the title (so the order reads
+        // DB, icon, category, pause/play, time) rather than as the button's own image; when absent
+        // the shipping layout (icon as button.image) is untouched.
+        let dbBadge = developerDatabaseBadge()
+        let titleKey = "\(dbBadge?.text ?? "")|\(iconName ?? "")|\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
+        let buttonImage = dbBadge == nil ? icon : nil
+        button.imagePosition = buttonImage == nil ? .noImage : .imageLeft
+        if button.image !== buttonImage {
+            button.image = buttonImage
         }
         let tooltip = pairingStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
         if button.toolTip != tooltip {
@@ -278,6 +284,8 @@ final class MenuBarController: NSObject {
         }
         if lastRenderedTitle != titleKey {
             button.attributedTitle = makeStatusTitle(
+                databaseBadge: dbBadge,
+                leadingIcon: dbBadge == nil ? nil : icon,
                 activityLabel: activityLabel,
                 duration: duration,
                 isPaused: isPaused,
@@ -633,7 +641,33 @@ final class MenuBarController: NSObject {
         }
     }
 
+    /// Dev-only leading tag naming which database this launch opened -- red "TEST" (attention) vs a
+    /// plain white "PROD" -- so a developer can't mistake a test database for the real one and record
+    /// real timings into it. `nil` when developer mode is off, so the shipping menu bar is unchanged.
+    private func developerDatabaseBadge() -> (text: String, color: NSColor)? {
+        guard DeveloperMode.isEnabled else { return nil }
+        let isTest = appState.dbType.lowercased() == "test"
+        return isTest ? ("TEST", .systemRed) : ("PROD", .white)
+    }
+
+    /// A copy of a template icon filled with `color`, for use as a text attachment inside the status
+    /// title -- attachments draw the image's literal pixels (a template's black), so unlike a button
+    /// image they don't pick up the button's white content tint on their own.
+    private func tintedIcon(_ image: NSImage, color: NSColor) -> NSImage {
+        let tinted = NSImage(size: image.size)
+        tinted.lockFocus()
+        let rect = NSRect(origin: .zero, size: image.size)
+        image.draw(in: rect)
+        color.set()
+        rect.fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        tinted.isTemplate = false
+        return tinted
+    }
+
     private func makeStatusTitle(
+        databaseBadge: (text: String, color: NSColor)? = nil,
+        leadingIcon: NSImage? = nil,
         activityLabel: String,
         duration: String,
         isPaused: Bool,
@@ -656,9 +690,27 @@ final class MenuBarController: NSObject {
         let categoryColor = style.categoryColor
         let categoryAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: categoryColor]
         let steadyAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: steadyColor]
-        let text = NSMutableAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes)
+        let text = NSMutableAttributedString()
 
         let indicatorSize = max(Constants.minIndicatorAttachmentSize, font.capHeight * Constants.indicatorScale)
+
+        // Dev-mode DB tag, then (since it displaces the button's own image) the activity icon,
+        // both ahead of the category label -- see updateStatusView. The icon rides at the same
+        // height as the pause/play glyph so it can't outgrow the menu bar and clip.
+        if let databaseBadge {
+            let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
+            let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
+            text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
+            if let leadingIcon {
+                let attachment = NSTextAttachment()
+                attachment.image = tintedIcon(leadingIcon, color: .white)
+                attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
+                text.append(NSAttributedString(attachment: attachment))
+                text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
+            }
+        }
+
+        text.append(NSAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes))
 
         // Lock badge sits to the left of the pause/play indicator, not in place of it, so whether
         // the device is still timing or paused stays visible even while locked.
