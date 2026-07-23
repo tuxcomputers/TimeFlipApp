@@ -136,16 +136,32 @@ def act_wait_for_sql(spec, ctx):
     expect, expect_contains = _resolve_expect(spec, ctx)
     timeout = spec.get("timeout_seconds", 30)
     interval = spec.get("poll_interval", 2)
+    # Optional prompt: printed ONLY if the condition isn't already met, right before we start
+    # polling -- i.e. an "action needed" nudge the developer sees exactly when their input is
+    # required (e.g. "start flipping the device"), and never when it's already satisfied.
+    prompt = spec.get("prompt")
+    prompt = _sub(prompt, ctx) if prompt else None
+
+    def matched(text):
+        if expect is not None:
+            return text == str(expect)
+        if expect_contains is not None:
+            return expect_contains in text
+        return False
+
+    rows, cols = _run_sql(ctx["db_path"], query)
+    last_text = _format_rows(rows, cols)
+    if matched(last_text):
+        return StepResult(True, f"already satisfied: {last_text}")
+    if prompt:
+        print(f"\n>>> ACTION NEEDED: {prompt}")
     deadline = time.time() + timeout
-    last_text = "(no rows)"
     while time.time() < deadline:
+        time.sleep(interval)
         rows, cols = _run_sql(ctx["db_path"], query)
         last_text = _format_rows(rows, cols)
-        if expect is not None and last_text == str(expect):
+        if matched(last_text):
             return StepResult(True, f"matched after poll: {last_text}")
-        if expect_contains is not None and expect_contains in last_text:
-            return StepResult(True, f"matched after poll: {last_text}")
-        time.sleep(interval)
     expected_desc = expect if expect is not None else expect_contains
     return StepResult(False, f"timed out after {timeout}s waiting for {expected_desc!r}, last saw: {last_text}")
 

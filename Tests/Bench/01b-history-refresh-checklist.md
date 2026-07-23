@@ -33,7 +33,7 @@ which the supervisor always runs first -- it's not repeated here. These steps on
 extra precondition Scenario A/B need: that the fresh test DB pulled in enough real device
 history to observe.
 
-- [ ] Step 1: Take the device off lock/pause, then **start flipping it between the Break and Meeting faces** -- Scenario A/B need enough real history (latest `event_number` >= 10). This monitors the event count: if there are already 10 it moves straight on, otherwise it triggers the moment your flips push it to 10. A device sitting still won't accumulate events on its own. Polls up to 4 minutes.
+- [ ] Step 1: Take the device off lock/pause, then make sure Scenario A/B have enough real history (latest `event_number` >= 10). If there are already 10 events this passes straight away; if not, it prints an "ACTION NEEDED: start flipping" prompt and triggers the moment your flips push the count to 10 (a device sitting still won't accumulate events on its own). Polls up to 4 minutes.
 ```toml step
 [[actions]]
 action = "ensure_unlocked_unpaused"
@@ -42,6 +42,7 @@ action = "ensure_unlocked_unpaused"
 action = "wait_for_sql"
 query = "SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'keep_flipping=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "ok"
+prompt = "Start flipping the device between the Break and Meeting faces until at least 10 events have accumulated."
 timeout_seconds = 240
 poll_interval = 3
 ```
