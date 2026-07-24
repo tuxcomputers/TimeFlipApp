@@ -35,7 +35,7 @@ capture = "record_history"
 [[actions]]
 action = "ask_user"
 when = '$db_at_start != {"type":"production"}'
-prompt = "The app is NOT on the production database. Switch to production and record its device history before testing? (y = switch to prod, record history, then go to the test DB; n = skip recording and go straight to the test DB)"
+prompt = "The app is NOT on the production database. Switch to production and record its device history before testing?\ny = switch to prod, record history, then go to the test DB\nn = skip recording and go straight to the test DB"
 capture = "want_switch"
 
 [[actions]]
