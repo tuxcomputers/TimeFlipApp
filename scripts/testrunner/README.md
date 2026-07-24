@@ -219,7 +219,7 @@ each `when = "$start_event_id < 10"`, so a device that already has enough histor
 | `cgevent_click` | a real synthetic click/double-click/held-press at a named `target` (see `locators.py`), via `CGEventPost` with `kCGMouseEventClickState` set -- see "Simulate a real click..." in `../../Tests/Methods.md` for why this works where AppleScript's `click` doesn't |
 | `cgevent_click_element` | same real CGEvent click, but at the live centre of an accessibility `element` (reads its `position`+`size` first) rather than a fixed `locators.py` target -- for dynamic controls like the discovered-device pairing row (a `Text`+`.onTapGesture` an AX press won't actuate) |
 | `click_menu_item` | open the status-item menu and click `item` by name |
-| `ensure_unlocked_unpaused` | idempotent precondition resolver: clicks Unlock/Resume only if the menu currently shows them |
+| `ensure_unlocked_unpaused` | idempotent precondition resolver: **polls** the menu over a settle window, clicking Unlock/Resume whenever they appear (the device's lock/pause state can land a couple seconds after login, so a single read would miss it) -- declares clean only after the menu stays clear for `clean_confirm_seconds` |
 | `ask_user` | print `prompt`, block for a y/n -- a gate by default (`n` fails the step); with `capture`, a *branch* instead (stores `y`/`n` in that var, always succeeds, for a later `when` to read -- see `00-test-setup.md`'s record-history choice) |
 | `ask_user_or_detect` | print `prompt`, then poll `detect_query` for a change instead of waiting on Enter -- see "Detect a physical action instead of asking" in `Methods.md` |
 
@@ -262,17 +262,28 @@ blocking, for CI/non-interactive use.
 ### What's recorded where
 
 A checklist step's only in-file record is its **checkbox tick** -- the runner no longer
-writes `(Automated: ...)` notes back into the `.md`. Everything else goes to the run log:
-pass/fail detail per step, and, when a step captures values, a NOTE line keyed by a
-broad-to-narrow step id:
+writes `(Automated: ...)` notes back into the `.md`. The run log is written to be scannable:
+a `=== <folder>/<file> ===` heading (path relative to `Tests/`, not the full path), each
+section name as a sub-heading, then one line per step:
 
 ```
-*****NOTE****** T01b-ScA-St4: event_number_d0=13, duration_d0=4878.0
+=== Bench/01b-history-refresh-checklist.md ===
+
+Setup
+Step 1: PASS - confirm the latest device_event row is open
+
+Scenario A
+Step 1: PASS - note the open row's event_number and duration
+Step 2: SKIP - build history (when $needs_history == y not met)
+Step 3: FAIL - query debug_log for the unchanged marker
+  - Result: query result: ... (expected '...')
 ```
 
-The id is `T<checklist>-<section>-St<n>` -- section is `Setup`, `ScA`/`ScB`/..., and step
-numbers restart per section (matching the `Step N:` prefix now carried in the checklist
-files themselves). A scenario precondition noted by hand uses `-Pre` in place of `-St<n>`.
+A **PASS** that got what it expected records no detail -- the tick is enough. A **FAIL**
+adds a `  - Result:` line so the reason is visible. A **SKIP** shows why (an unmet `when`
+guard, or a human step under `--yes`). Captured values are **not** logged here -- they go to
+`logs/00-remembered.json` (see `remember`/`restores` above). (Per-step confirmation mode still
+adds its `CONFIRMED` / `FAILURE LOGGED` lines, keyed by the `T<checklist>-<section>-St<n>` id.)
 
 ## Failure handling and logs
 

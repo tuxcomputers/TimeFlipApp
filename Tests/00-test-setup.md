@@ -27,7 +27,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Check which database is active and decide whether to record production history. On production, record it. Otherwise ask whether to switch to production and record first, or skip straight to the test DB. Sets `record_history` (`y`/`n`) that steps 2--7 read, and `want_switch` (`y` only in the not-on-production + chose-to-switch case).
+- [x] Step 1: Check which database is active and decide whether to record production history. On production, record it. Otherwise ask whether to switch to production and record first, or skip straight to the test DB. Sets `record_history` (`y`/`n`) that steps 2--7 read, and `want_switch` (`y` only in the not-on-production + chose-to-switch case).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -52,20 +52,20 @@ when = '$db_at_start != {"type":"production"}'
 query = "SELECT '$want_switch';"
 capture = "record_history"
 ```
-- [ ] Step 2: Switch to the production database so the history fetch below runs against it. Only when Step 1 chose to switch (`want_switch = y`); relinks the `appdata.sqlite` symlink at `production.sqlite` (the running app keeps the old file open until the restart in Step 4 picks this up).
+- [x] Step 2: Switch to the production database so the history fetch below runs against it. Only when Step 1 chose to switch (`want_switch = y`); relinks the `appdata.sqlite` symlink at `production.sqlite` (the running app keeps the old file open until the restart in Step 4 picks this up).
 ```toml step
 when = '$want_switch == y'
 action = "shell"
 command = "scripts/use-production-database.sh"
 ```
-- [ ] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below. Skipped (and ticked) when Step 1 chose not to record history.
+- [x] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below. Skipped (and ticked) when Step 1 chose not to record history.
 ```toml step
 when = '$record_history == y'
 action = "sql_query"
 query = "SELECT MAX(debug_log_id) FROM debug_log;"
 capture = "prod_before_id"
 ```
-- [ ] Step 4: Restart the app so it does a fresh history fetch against production -- this makes sure all real device history is recorded to production.sqlite before we switch away from it (the end-of-run factory reset later wipes the device's own counter). The quit only fires if the app is actually running, so this also just *starts* it when it was shut down. Skipped when not recording history.
+- [x] Step 4: Restart the app so it does a fresh history fetch against production -- this makes sure all real device history is recorded to production.sqlite before we switch away from it (the end-of-run factory reset later wipes the device's own counter). The quit only fires if the app is actually running, so this also just *starts* it when it was shut down. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
 
@@ -77,7 +77,7 @@ command = "pgrep -f 'TimeFlip.app/Contents/MacOS/TimeFlip' > /dev/null 2>&1 && o
 action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 ```
-- [ ] Step 5: Confirm the app reconnected to the device against production (a fresh `Login accepted` after the restart above). If it doesn't reconnect, the device is likely not paired / off / out of range -- the prompt says how to fix it, then this keeps waiting. Skipped when not recording history.
+- [x] Step 5: Confirm the app reconnected to the device against production (a fresh `Login accepted` after the restart above). If it doesn't reconnect, the device is likely not paired / off / out of range -- the prompt says how to fix it, then this keeps waiting. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
 action = "wait_for_sql"
@@ -86,7 +86,7 @@ expect_contains = "Login accepted"
 prompt = "The device hasn't reconnected. Pair it (Device tab -> Scan for Devices -> click the device), or power it on / bring it in range."
 timeout_seconds = 120
 ```
-- [ ] Step 6: Confirm that forced production history fetch actually completed (`history fetch complete: trigger=startup`), so real history is fully synced before the switch. Skipped when not recording history.
+- [x] Step 6: Confirm that forced production history fetch actually completed (`history fetch complete: trigger=startup`), so real history is fully synced before the switch. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
 action = "wait_for_sql"
@@ -94,14 +94,14 @@ query = "SELECT message FROM debug_log WHERE tag='hist-done' AND message = 'hist
 expect_contains = "history fetch complete: trigger=startup"
 timeout_seconds = 60
 ```
-- [ ] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity** before the destructive switch/reset -- the latest event must be a pause (or there are no events yet), never an open timing segment. This gate runs whenever we're recording production history, so it also catches the case where Step 2 just switched onto production. Fails (aborting the run) if the device is timing -- pause it and re-run. Skipped when not recording history.
+- [x] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity** before the destructive switch/reset -- the latest event must be a pause (or there are no events yet), never an open timing segment. This gate runs whenever we're recording production history, so it also catches the case where Step 2 just switched onto production. Fails (aborting the run) if the device is timing -- pause it and re-run. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
 action = "sql_query"
 query = "SELECT COALESCE((SELECT CASE WHEN is_paused = 0 THEN 'TIMING' ELSE 'ok' END FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), 'ok');"
 expect = "ok"
 ```
-- [ ] Step 8: Switch to the test database -- quit the app (if running), run `scripts/use-test-database.sh` (creates a fresh empty `test.sqlite` and repoints the `appdata.sqlite` symlink at it), relaunch.
+- [x] Step 8: Switch to the test database -- quit the app (if running), run `scripts/use-test-database.sh` (creates a fresh empty `test.sqlite` and repoints the `appdata.sqlite` symlink at it), relaunch.
 ```toml step
 [[actions]]
 action = "shell"
@@ -115,7 +115,7 @@ command = "scripts/use-test-database.sh"
 action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 ```
-- [ ] Step 9: Confirm the app reconnected against the fresh test database (`Login accepted` -- test.sqlite starts its own `debug_log_id` sequence, so any login row here is post-switch). Same not-paired prompt as Step 5 if it doesn't come back.
+- [x] Step 9: Confirm the app reconnected against the fresh test database (`Login accepted` -- test.sqlite starts its own `debug_log_id` sequence, so any login row here is post-switch). Same not-paired prompt as Step 5 if it doesn't come back.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
@@ -123,11 +123,11 @@ expect_contains = "Login accepted"
 prompt = "The device hasn't reconnected on the test database. Pair it (Device tab -> Scan for Devices -> click the device), or power it on / bring it in range."
 timeout_seconds = 120
 ```
-- [ ] Step 10: Leave the device unlocked and unpaused so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean).
+- [ ] Step 10: Leave the device unlocked and unpaused so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect (Step 9), and until it does the menu looks clean, so a single read would miss a locked/paused device and leave Step 12's flips dead (a lock freezes facet switching).
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [ ] Step 11: Confirm `db_type` now reads **test** before any feature checklist runs.
+- [x] Step 11: Confirm `db_type` now reads **test** before any feature checklist runs.
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"

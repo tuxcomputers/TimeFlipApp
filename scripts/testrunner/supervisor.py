@@ -41,7 +41,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
-from actions import run_step, capture_names, condition_met  # noqa: E402
+from actions import run_step, condition_met  # noqa: E402
 from remembered import Remembered  # noqa: E402
 from session_setup import (  # noqa: E402
     confirm_warning,
@@ -62,6 +62,14 @@ def _checklist_name(path):
     """The checklist's spoken name, from its filename -- e.g.
     "01b-history-refresh-checklist.md" -> "01b history refresh checklist"."""
     return os.path.basename(path).removesuffix(".md").replace("-", " ")
+
+
+def _log_path(path):
+    """Path shown in a log heading: relative to the `Tests/` dir (folder + filename), not the
+    full absolute path -- e.g. "00-test-setup.md", "Bench/01b-history-refresh-checklist.md"."""
+    norm = path.replace(os.sep, "/")
+    parts = norm.split("/Tests/")
+    return parts[-1] if len(parts) > 1 else os.path.basename(path)
 
 
 
@@ -269,11 +277,12 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
 def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None,
                   initial_vars=None):
     checklist = Checklist(path)
-    log_lines.append(f"\n=== {path} ===")
+    log_lines.append(f"\n=== {_log_path(path)} ===")
 
     ctx = {"db_path": db_path, "vars": dict(initial_vars or {}), "remembered": remembered}
     all_ok = True
     ran_any = False
+    last_section = None  # so each section's name is logged once, as a sub-heading above its steps
     skipped_prose = set()  # prose of steps already SKIPped -- stable across reparses, unlike line numbers
     while True:
         # Re-fetch fresh every iteration: mark() re-parses and shifts every later step's
@@ -285,10 +294,17 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
         if step is None:
             break
         ran_any = True
+        # Log the section name once, as a sub-heading, when it changes -- so step lines below can
+        # stay short ("Step N: ...") and still be unambiguous.
+        if step.section != last_section:
+            log_lines.append(f"\n{step.section}")
+            last_section = step.section
         actor_tag = "(You) " if step.actor == "you" else ""
-        # Full single-line step text for display/log. step.prose is only the checkbox's first
-        # physical line, so a wrapped step would otherwise print cut off at the source line break.
+        # Full single-line step text for the console; the log uses the shorter "Step N: STATUS ..."
+        # form (section is the sub-heading above). step.prose is only the checkbox's first physical
+        # line, so a wrapped step would otherwise print cut off at the source line break.
         label = f"{step.section} Step {step.number}: {step.description()}"
+        desc = step.description()
         print(f"\n[{os.path.basename(path)}] {actor_tag}{label}")
 
         if step.spec is None:
@@ -296,7 +312,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
                 # --yes/non-interactive: there's no human to ask, and this step needs one
                 # (no toml to automate it) -- record it as a skip rather than block on input.
                 print("  -> SKIP: needs human verification; --yes/non-interactive can't ask.")
-                log_lines.append(f"SKIP (needs human; --yes): {label}")
+                log_lines.append(f"Step {step.number}: SKIP - {desc} (needs human; --yes)")
                 all_ok = False
                 skipped_prose.add(step.prose)
                 continue
@@ -309,9 +325,9 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             if passed:
                 checklist.mark(step, True)
                 checklist.save()
-                log_lines.append(f"PASS (human-verified): {label}")
+                log_lines.append(f"Step {step.number}: PASS - {desc} (human-verified)")
                 continue
-            log_lines.append(f"FAIL (human-verified): {label}")
+            log_lines.append(f"Step {step.number}: FAIL - {desc} (human-verified)")
             all_ok = False
             if confirm_steps:
                 _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "human-verified step did not pass")
@@ -319,7 +335,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             checklist.mark(step, False)
             checklist.save()
             print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
-            log_lines.append(f"STOPPED {path} after failed step above.")
+            log_lines.append(f"STOPPED {_log_path(path)} after failed step above.")
             break
 
         # Optional `when` guard: a step only applies under some condition on a captured var
@@ -328,7 +344,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
         cond = step.spec.get("when")
         if cond is not None and not condition_met(cond, ctx):
             print(f"  -> SKIP: not needed (when {cond})")
-            log_lines.append(f"SKIP (when {cond} not met): {label}")
+            log_lines.append(f"Step {step.number}: SKIP - {desc} (when {cond} not met)")
             checklist.mark(step, True)
             checklist.save()
             continue
@@ -336,16 +352,14 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
         result = run_step(step.spec, ctx)
         status = "PASS" if result.success else "FAIL"
         print(f"  -> {status}: {result.detail}")
-        log_lines.append(f"{status}: {label} :: {result.detail}")
-
-        # Any values this step captured go to the log as a NOTE line keyed by the step's
-        # broad-to-narrow id -- not back into the .md (a tick is its only in-file record).
+        # A pass that got what was expected needs no detail -- the tick + PASS is enough. A fail
+        # gets a following "- Result:" line so we can see why. (Captured values aren't logged here
+        # any more; they're recorded in logs/00-remembered.json.)
         if result.success:
-            captured = [(name, ctx["vars"].get(name)) for name in capture_names(step.spec)]
-            captured = [(name, value) for name, value in captured if value is not None]
-            if captured:
-                pairs = ", ".join(f"{name}={value}" for name, value in captured)
-                log_lines.append(f"*****NOTE****** {_note_id(path, step)}: {pairs}")
+            log_lines.append(f"Step {step.number}: PASS - {desc}")
+        else:
+            log_lines.append(f"Step {step.number}: FAIL - {desc}")
+            log_lines.append(f"  - Result: {result.detail}")
 
         if result.success:
             # In confirm-steps mode the developer still gets the final say on whether the
@@ -366,7 +380,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
         checklist.mark(step, False)
         checklist.save()
         print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
-        log_lines.append(f"STOPPED {path} after failed step above.")
+        log_lines.append(f"STOPPED {_log_path(path)} after failed step above.")
         break
 
     if not ran_any:
@@ -439,7 +453,7 @@ def main():
     log_lines = _TeeLog(log_path)
     log_lines.append(f"TimeFlip device-test run started {timestamp}")
     log_lines.append("Checklists:")
-    log_lines.extend(f"  {p}" for p in checklist_paths)
+    log_lines.extend(f"  {_log_path(p)}" for p in checklist_paths)
 
     # Side-record of values read (recorded) and settings changed (changed, with live current)
     # this run, keyed by the same timestamp as the .txt log. Populated live as steps capture.

@@ -321,24 +321,48 @@ def act_click_menu_item(spec, ctx):
 
 
 def act_ensure_unlocked_unpaused(spec, ctx):
-    """Precondition resolver: Lock/Unlock and Pause/Resume are mutually-exclusive menu
-    item labels reflecting live state, so idempotently clicking Unlock (if present) then
-    Resume (if present) reaches a clean unlocked+unpaused state from any starting point."""
+    """Precondition resolver: click Unlock (if present) then Resume (if present) to reach a clean
+    unlocked+unpaused state. Lock/Unlock and Pause/Resume are mutually-exclusive menu labels
+    reflecting live state.
+
+    Crucially, DON'T read the menu just once: the device's lock/pause state can arrive a couple of
+    seconds AFTER `Login accepted` (confirmed live -- `lockChanged` landed ~2.5s after login), and
+    until it does the menu shows the default "Lock"/"Pause", indistinguishable from a genuinely
+    clean device. A single early read therefore misses a locked/paused device and leaves it that
+    way (then flips don't register -- a lock freezes facet switching). So poll over a settle
+    window: click Unlock/Resume whenever they surface, and only conclude "already clean" once the
+    menu has stayed free of both for `clean_confirm_seconds` (or `timeout_seconds` elapses).
+    `poll_interval`/`clean_confirm_seconds`/`timeout_seconds` are overridable."""
+    timeout = spec.get("timeout_seconds", 20)
+    interval = spec.get("poll_interval", 1.5)
+    clean_confirm = spec.get("clean_confirm_seconds", 6)
     actions_taken = []
-    names = _menu_item_names()
-    if "Unlock" in names:
-        ok, detail = _click_menu_item("Unlock")
-        if not ok:
-            return StepResult(False, f"failed clicking Unlock: {detail}")
-        actions_taken.append("Unlock")
-        time.sleep(1)
+    clean_since = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         names = _menu_item_names()
-    if "Resume" in names:
-        ok, detail = _click_menu_item("Resume")
-        if not ok:
-            return StepResult(False, f"failed clicking Resume: {detail}")
-        actions_taken.append("Resume")
-        time.sleep(1)
+        acted = False
+        if "Unlock" in names:
+            ok, detail = _click_menu_item("Unlock")
+            if not ok:
+                return StepResult(False, f"failed clicking Unlock: {detail}")
+            actions_taken.append("Unlock")
+            acted = True
+            time.sleep(1)
+            names = _menu_item_names()
+        if "Resume" in names:
+            ok, detail = _click_menu_item("Resume")
+            if not ok:
+                return StepResult(False, f"failed clicking Resume: {detail}")
+            actions_taken.append("Resume")
+            acted = True
+        if acted:
+            clean_since = None  # state just changed -- restart the stable-clean clock
+        elif clean_since is None:
+            clean_since = time.time()
+        elif time.time() - clean_since >= clean_confirm:
+            break
+        time.sleep(interval)
     detail = "already clean" if not actions_taken else f"clicked: {', '.join(actions_taken)}"
     return StepResult(True, detail)
 
