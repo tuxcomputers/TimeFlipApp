@@ -179,17 +179,28 @@ end tell'''
 expect_contains = "TimeFlip"
 ```
 - [ ] Step 7: Click the discovered device's row to select and pair (it is on the factory default PIN
-      `000000` now). Method: Discovered-device row click -- not automatable (`../Methods.md`); ask
-      the user ad hoc (a large `## Action needed` heading, per "Running a checklist" rule 3 in
-      `../CLAUDE.md`). Confirm a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row (Method:
-      Confirm device reconnect) -- detected by polling `debug_log`, not waiting on chat confirmation
-      (Method: Detect a physical action instead of asking, `../Methods.md`).
+      `000000` now). Method: Discovered-device row click (`../Methods.md`) -- a coordinate CGEvent
+      click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture`
+      an AX press won't actuate. Confirm a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row
+      (`> before_pair_id`); the pairing flow then rotates the password to `123456` and re-confirms,
+      followed by the usual device-sync of auto-pause/LED/double-tap. If the automated click doesn't
+      land, the prompt asks you to click the row yourself.
 ```toml step
-action = "ask_user_or_detect"
-prompt = "Click the discovered device's row in the Device tab to pair it (this can't be scripted -- it's a plain Text+onTapGesture, not a Button)."
-detect_query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
-timeout_seconds = 120
-poll_interval = 2
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_pair_id"
+
+[[actions]]
+action = "cgevent_click_element"
+element = 'first static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose name contains "TimeFlip"'
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_pair_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+prompt = "Pairing the device automatically -- if it doesn't connect within a few seconds, click its row in the discovered list yourself."
+timeout_seconds = 60
 ```
 - [ ] Step 8: Confirm the Device tab shows the device paired and connected again: read the `Connection` row
       (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no

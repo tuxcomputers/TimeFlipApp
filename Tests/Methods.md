@@ -143,14 +143,14 @@ side=left/right clickCount=N"`), useful to confirm a click (synthetic or real) a
 ## Discovered-device row click
 
 The discovered-device row in the pairing list (Device tab -> TimeFlip section) is a plain
-`Text`+`.onTapGesture`, not a `Button` -- neither an AX `click` nor `click at {x, y}` triggers it
-(confirmed live, zero effect either way). Same capability class as the status-item gesture above, so
-the CGEventPost technique likely also drives it, though not yet re-confirmed live with this specific
-control. Where this can't be deferred to an Interactive checklist (e.g.
-`Bench/02b-reset-device-checklist.md` must end with the device paired for `03b`-`07b` to run), ask
-the user ad hoc instead of a formal `(You)` step -- see "Running a checklist" rule 3 in `CLAUDE.md`
--- unless the CGEventPost technique is confirmed for it too, in which case it becomes a normal
-`(Claude)` step.
+`Text`+`.onTapGesture`, not a `Button` -- neither an AX `click` nor an AX `click at {x, y}` triggers
+it. A raw **CGEventPost mouse click at the row's centre** *does* actuate it (confirmed live
+2026-07-25: paired a freshly factory-reset device start to finish this way). The runner's
+`cgevent_click_element` action does exactly that -- it reads the element's `position`+`size` via
+accessibility, then CGEvent-clicks the middle -- so this is a normal script/`(Claude)` step now, not
+an ad-hoc "ask the user to click" one. Locate the row with `first static text ... whose name
+contains "TimeFlip"` (skips the "Click a device below to pair with it." header); see
+`Bench/02b-reset-device-checklist.md` Step 7.
 
 ## Switch Settings-window tabs
 

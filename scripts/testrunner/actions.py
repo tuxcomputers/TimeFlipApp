@@ -388,6 +388,44 @@ def act_ask_user_or_detect(spec, ctx):
     return StepResult(False, f"timed out after {timeout}s waiting for a change from {baseline}")
 
 
+def act_cgevent_click_element(spec, ctx):
+    """Coordinate-click the CENTER of an accessibility element -- for SwiftUI controls that respond
+    only to a real mouse click, e.g. a `Text` + `.onTapGesture` row that an AX `click`/AXPress
+    doesn't actuate (the discovered-device pairing row). Reads the element's `position`+`size` via
+    System Events, then CGEvent-clicks the middle. `element` is a System Events element reference
+    relative to the target `process` (default TimeFlip), e.g.
+    `first static text of group 3 of ... whose name contains "TimeFlip"`."""
+    import Quartz
+
+    element = _sub(spec["element"], ctx)
+    process = spec.get("process", "TimeFlip")
+    frame_script = f'''tell application "System Events"
+    tell process "{process}"
+        set el to {element}
+        set p to position of el
+        set s to size of el
+        return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text) & "," & (item 2 of s as text)
+    end tell
+end tell'''
+    r = _run_osascript_with_retry(frame_script)
+    if r.returncode != 0:
+        return StepResult(False, f"couldn't locate element {element!r}: {r.stderr.strip()}")
+    try:
+        x, y, w, h = (float(v) for v in r.stdout.strip().split(","))
+    except ValueError:
+        return StepResult(False, f"unexpected element frame: {r.stdout.strip()!r}")
+    cx, cy = x + w / 2, y + h / 2
+
+    def post(kind):
+        e = Quartz.CGEventCreateMouseEvent(None, kind, (cx, cy), Quartz.kCGMouseButtonLeft)
+        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, 1)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+
+    post(Quartz.kCGEventLeftMouseDown)
+    post(Quartz.kCGEventLeftMouseUp)
+    return StepResult(True, f"cgevent-clicked element center ({cx:.0f},{cy:.0f})")
+
+
 ACTIONS = {
     "shell": act_shell,
     "applescript": act_applescript,
@@ -395,6 +433,7 @@ ACTIONS = {
     "sql_exec": act_sql_exec,
     "wait_for_sql": act_wait_for_sql,
     "cgevent_click": act_cgevent_click,
+    "cgevent_click_element": act_cgevent_click_element,
     "cgevent_hold_interrupted_by_key": act_cgevent_hold_interrupted_by_key,
     "click_menu_item": act_click_menu_item,
     "ensure_unlocked_unpaused": act_ensure_unlocked_unpaused,
