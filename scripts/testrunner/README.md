@@ -213,7 +213,7 @@ each `when = "$start_event_id < 10"`, so a device that already has enough histor
 | `cgevent_click` | a real synthetic click/double-click/held-press at a named `target` (see `locators.py`), via `CGEventPost` with `kCGMouseEventClickState` set -- see "Simulate a real click..." in `../../Tests/Methods.md` for why this works where AppleScript's `click` doesn't |
 | `click_menu_item` | open the status-item menu and click `item` by name |
 | `ensure_unlocked_unpaused` | idempotent precondition resolver: clicks Unlock/Resume only if the menu currently shows them |
-| `ask_user` | print `prompt`, block on Enter -- for a step that genuinely needs a human (a physical flip) |
+| `ask_user` | print `prompt`, block for a y/n -- a gate by default (`n` fails the step); with `capture`, a *branch* instead (stores `y`/`n` in that var, always succeeds, for a later `when` to read -- see `00-test-setup.md`'s record-history choice) |
 | `ask_user_or_detect` | print `prompt`, then poll `detect_query` for a change instead of waiting on Enter -- see "Detect a physical action instead of asking" in `Methods.md` |
 
 `locators.py` resolves named on-screen targets (currently `status_item_left`/`status_item_right`)

@@ -349,15 +349,21 @@ def act_ask_user(spec, ctx):
     as either answer, so an accidental key can't flip the result. Input is lowercased
     before comparison, so 'Y'/'N' work too. See ask_user_or_detect for the polling
     variant, and confirm_warning() in session_setup.py for the same loop-until-valid
-    pattern applied to the initial acknowledgment gate."""
+    pattern applied to the initial acknowledgment gate.
+
+    With `capture`, the question is a *branch*, not a gate: the 'y'/'n' is stored in that
+    var (for a later `when` guard to read) and the step always succeeds -- 'n' is a valid
+    choice, not a failure. Without `capture`, 'n' fails the step as before."""
     prompt = _sub(spec["prompt"], ctx)
     print(f"\n>>> ACTION NEEDED: {prompt}")
     while True:
         answer = input(">>> y/n: ").strip().lower()
-        if answer == "y":
-            return StepResult(True, "user answered y")
-        if answer == "n":
-            return StepResult(False, "user answered n")
+        if answer in ("y", "n"):
+            if "capture" in spec:
+                ctx["vars"][spec["capture"]] = answer
+                _remember_capture(spec, ctx, answer)
+                return StepResult(True, f"user answered {answer}")
+            return StepResult(answer == "y", f"user answered {answer}")
         print(f"Not recognized: {answer!r} -- please answer 'y' or 'n'.")
 
 
