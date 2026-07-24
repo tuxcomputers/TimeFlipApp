@@ -165,21 +165,7 @@ action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $confirmed_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect = "(no rows)"
 ```
-- [ ] Step 6: Confirm the device's own event counter was wiped by the reset: the first `history` fetch after
-      re-pairing reads `device_last_event=nil` (a wiped counter with no events yet), not resuming
-      from the pre-reset baseline **N**. (`MAX(event_number)` in the local `device_event` table
-      still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by
-      `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence.
-      Seeing a *real* post-reset event with the device's own low numbering needs a physical flip --
-      that's the Interactive counterpart.) (Confirmed: post-re-pair fetch read `device_last_event=nil`
-      where N was `13` pre-reset -- the device's own counter was wiped.)
-```toml step
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "device_last_event=nil"
-timeout_seconds = 30
-```
-- [ ] Step 7: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
+- [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
       (`static text` matching the device name, e.g. `"TimeFlip v2.0"`, under "Click a device below to
       pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`). (Confirmed:
       `"TimeFlip v2.0"` appeared in the list within a few seconds.)
@@ -204,7 +190,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "TimeFlip"
 ```
-- [ ] Step 8: Click the discovered device's row to select and pair (it is on the factory default PIN
+- [ ] Step 7: Click the discovered device's row to select and pair (it is on the factory default PIN
       `000000` now). Method: Discovered-device row click -- not automatable (`../Methods.md`); ask
       the user ad hoc (a large `## Action needed` heading, per "Running a checklist" rule 3 in
       `../CLAUDE.md`). Confirm a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row (Method:
@@ -220,7 +206,7 @@ detect_query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND mess
 timeout_seconds = 120
 poll_interval = 2
 ```
-- [ ] Step 9: Confirm the Device tab shows the device paired and connected again: read the `Connection` row
+- [ ] Step 8: Confirm the Device tab shows the device paired and connected again: read the `Connection` row
       (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no
       longer "Not paired"). (Confirmed: `Name`=`TimeFlip`, `Connection`=`Connected`, `Battery`=`23%`.)
 ```toml step
@@ -232,4 +218,20 @@ tell application "System Events"
     end tell
 end tell'''
 expect = "Connected"
+```
+- [ ] Step 9: Confirm the device's own event counter was wiped by the reset: the first `history` fetch after
+      re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet),
+      not resuming from the pre-reset baseline **N**. (`MAX(event_number)` in the local `device_event`
+      table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by
+      `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence.
+      This must run **after** the re-pair, not before: the app stops history fetches while forgotten
+      (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a
+      *real* post-reset event with the device's own low numbering needs a physical flip -- that's the
+      Interactive counterpart.) (Confirmed: post-re-pair fetch read `device_last_event=nil` where N
+      was `13` pre-reset -- the device's own counter was wiped.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "device_last_event=nil"
+timeout_seconds = 30
 ```
