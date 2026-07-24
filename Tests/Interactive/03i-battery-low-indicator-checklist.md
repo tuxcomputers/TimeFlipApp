@@ -35,12 +35,14 @@ query below; if it shows a non-default threshold or `isLowBattery=true` left ove
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
 - [ ] **(Claude)** Step 1: Query the current threshold and the most recent `battery` `level`, and note both
-      as the original values to restore later. (Original threshold: 5%. Live level: 22%.)
+      in the logs/00-remembered.json file.
 ```toml step
 [[actions]]
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='low_battery_level';"
 capture = "threshold_original"
+remember = "changed"
+restores = "low_battery_level"
 
 [[actions]]
 action = "wait_for_sql"
@@ -73,7 +75,7 @@ action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_a}' WHERE setting_name = 'low_battery_level';"
 ```
 - [ ] **(Claude)** Step 4: Start the app and confirm it reconnects to the device (fresh `debug_log`
-      `"Login accepted, code=0x02"` row). (Confirmed.)
+      `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
 action = "shell"
@@ -87,7 +89,7 @@ timeout_seconds = 30
 ```
 - [ ] **(Claude)** Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=true`, so the visual checks below are being made while the app really is in the
-      low state. (Confirmed: `level=22 threshold=25 recoveryAt=30 isLowBattery=true`.)
+      low state.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -102,12 +104,11 @@ timeout_seconds = 15
 if running this section standalone rather than straight after.
 
 - [ ] **(You)** Step 1: Confirm the activity name (left side of the menu bar item) is blinking red/white.
-      (Confirmed via two spaced screenshots showing the activity text alternate red/default.)
 - [ ] **(You)** Step 2: Click the **left side** of the status item (the icon + activity name, not the
       duration/timer side) and confirm it opens Settings **directly on the Device tab** -- not the
-      dropdown menu. (Confirmed: "The settings opened".)
+      dropdown menu.
 - [ ] **(Claude)** Step 3: Confirm via accessibility that the Device tab is selected (radio button 1 of the
-      tab picker reads `value = 1`). (Confirmed: `value = 1`.)
+      tab picker reads `value = 1`).
 ```toml step
 action = "applescript"
 script = '''
@@ -119,7 +120,7 @@ end tell'''
 expect = "1"
 ```
 - [ ] **(You)** Step 4: Confirm the "Battery" line on the Device tab -- both the **label** and the
-      percentage value -- is flashing red/default in sync with the menu bar blink. (Confirmed.)
+      percentage value -- is flashing red/default in sync with the menu bar blink.
 
 ### Bugs found and fixed - branch 'feature/projects'
 2026-07-22 - The "Settings..." dropdown menu item's blink would freeze permanently after hovering
@@ -150,7 +151,7 @@ action = "sql_exec"
 query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
 ```
 - [ ] **(Claude)** Step 3: Start the app and confirm it reconnects to the device (fresh `debug_log`
-      `"Login accepted, code=0x02"` row). (Confirmed.)
+      `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
 action = "shell"
@@ -163,7 +164,6 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] **(Claude)** Step 4: Query `debug_log` and confirm a `battery` row now shows `isLowBattery=false`.
-      (Confirmed: `level=22 threshold=5 recoveryAt=10 isLowBattery=false`.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -171,7 +171,7 @@ expect_contains = "isLowBattery=false"
 timeout_seconds = 15
 ```
 - [ ] **(You)** Step 5: Confirm the activity name is no longer flashing, and that the Battery line on the
-      Device tab is no longer flashing. (Confirmed.)
+      Device tab is no longer flashing.
 - [ ] **(You)** Step 6: Click the **left side** of the status item again and confirm it now opens the
       normal dropdown menu (not Settings directly) -- the low-battery left-click skip only applies
-      while the warning is active. (Confirmed.)
+      while the warning is active.

@@ -60,6 +60,15 @@ def _sub(text, ctx):
     return Template(text).safe_substitute(ctx["vars"])
 
 
+def _remember_capture(spec, ctx, value):
+    """Mirror a just-captured value into logs/00-remembered.json, if a recorder is wired in.
+    `remember = "changed"` (with `restores = "<setting>"`) routes it to the changed bucket;
+    any other capture goes to recorded. No-op when no recorder is attached (e.g. unit tests)."""
+    rec = ctx.get("remembered")
+    if rec is not None:
+        rec.record_capture(spec, value, ctx.get("db_path"))
+
+
 def _run_sql(db_path, query):
     conn = sqlite3.connect(db_path)
     try:
@@ -115,6 +124,7 @@ def act_applescript(spec, ctx):
             ok = expect_contains in text
         if ok and "capture" in spec:
             ctx["vars"][spec["capture"]] = text
+            _remember_capture(spec, ctx, text)
         if not ok:
             expected_desc = expect if expect is not None else expect_contains
             text = f"{text} (expected {expected_desc!r})"
@@ -144,6 +154,7 @@ def act_sql_query(spec, ctx):
     captured = rows[0][0] if rows and len(rows[0]) == 1 else text
     if "capture" in spec:
         ctx["vars"][spec["capture"]] = captured
+        _remember_capture(spec, ctx, captured)
     expected_desc = expect if expect is not None else expect_contains
     detail = f"query result: {text}" + ("" if ok else f" (expected {expected_desc!r})")
     return StepResult(ok, detail, captured)
@@ -156,6 +167,11 @@ def act_sql_exec(spec, ctx):
     try:
         cur = conn.execute(query)
         conn.commit()
+        # A mutating statement may have changed a setting we're tracking in `changed`; refresh
+        # its live `current` now rather than waiting for the next capture.
+        rec = ctx.get("remembered")
+        if rec is not None:
+            rec.flush(ctx.get("db_path"))
         return StepResult(True, f"executed, rowcount={cur.rowcount}")
     finally:
         conn.close()

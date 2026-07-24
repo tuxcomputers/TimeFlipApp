@@ -102,13 +102,11 @@ What's below is background behavior/facts, not technique:
 5. When a feature has more than one trigger (a menu item vs. a gesture), give each its own
    scenario/steps -- don't fold both into one step, so a bug in one path can't hide behind the
    other having been exercised instead.
-6. A checkbox tick is the record a step happened -- don't add a note just to say so (e.g. bare
-   "Confirmed."). Only add one when it carries real evidence the tick alone doesn't (a queried
-   value, an exact log line), in parentheses at the end of the same item:
-   ```markdown
-   - [x] Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
-         range. (Confirmed: flaps between 26% (lower) and 27% (higher).)
-   ```
+6. **The ticked box is the confirmation.** Never add a note restating that a step passed or what
+   it produced this run -- no bare "Confirmed.", no "(Confirmed: ...)". Per-run values/log lines
+   belong in the run log (the standalone runner captures them as `*****NOTE******` lines), not
+   baked into the step text, where they go stale and misdescribe the next run. The one allowed
+   parenthetical is a **durable** caveat true on every run (a schema/UI quirk), written `(Note: ...)`.
 7. Match the action-needed format to the step count: a single action is a plain sentence; multiple
    actions are a numbered list, one per line.
 8. Announce finishing a scenario/section with a heading as big as `## Action needed` (e.g. `##

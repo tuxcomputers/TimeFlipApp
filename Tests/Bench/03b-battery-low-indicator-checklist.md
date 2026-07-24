@@ -40,7 +40,6 @@ threshold left over from an interrupted prior run, restore the threshold to 5% a
 before continuing.
 
 - [ ] Step 1: Query `debug_log` for the most recent `battery` row for the current actual `level`.
-      (Confirmed: level 22%, threshold 5%, not low.)
 ```toml step
 [[actions]]
 action = "wait_for_sql"
@@ -64,12 +63,13 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [ ] Step 3: Query the current threshold and note it as the original value to restore later. (Original:
-      5%.)
+- [ ] Step 3: Query the current threshold and note it in the logs/00-remembered.json file.
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='low_battery_level';"
 capture = "threshold_original"
+remember = "changed"
+restores = "low_battery_level"
 ```
 - [ ] Step 4: Update the threshold to at/above the level noted above, so the fresh connection registers as
       low immediately. (Set to 30% -- battery was at 22%.)
@@ -91,7 +91,7 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] Step 6: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`. (Confirmed: `level=23 threshold=30 recoveryAt=35 isLowBattery=true`.)
+      `isLowBattery=true`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -107,8 +107,7 @@ restoring; if it already reads `false`, the previous section's trigger didn't ho
 re-running first.
 
 - [ ] Step 1: Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true` before
-      proceeding (state left by the previous section). (Confirmed: `level=23 threshold=30
-      recoveryAt=35 isLowBattery=true`.)
+      proceeding (state left by the previous section).
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='battery' ORDER BY debug_log_id DESC LIMIT 1;"
@@ -131,8 +130,7 @@ command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
 ```
-- [ ] Step 4: Start the app and confirm it reconnects to the device. (Confirmed: fresh `"Login accepted,
-      code=0x02"` row.)
+- [ ] Step 4: Start the app and confirm it reconnects to the device.
 ```toml step
 [[actions]]
 action = "shell"
@@ -146,7 +144,7 @@ timeout_seconds = 30
 ```
 - [ ] Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
       `isLowBattery=false`, with `level` above `recoveryAt` (threshold + 5), not just above the
-      bare threshold. (Confirmed: `level=19 threshold=5 recoveryAt=10 isLowBattery=false`.)
+      bare threshold.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -170,10 +168,7 @@ threshold to a value (5%) far enough below the live level that `recoveryAt` was 
 satisfied.
 
 - [ ] Step 1: Query `debug_log` for recent `battery` rows and note the live level's natural fluctuation
-      range. (Confirmed: flapped 17-23% over the session, settling around 22-23%. Two thresholds
-      were tried first -- 21% and 23% -- but the live level happened to sit exactly at each on
-      relaunch, so the initial post-connect reading wasn't reliably low; 22% was the value that
-      actually landed inside the flap range on relaunch.)
+      range.
 ```toml step
 [[actions]]
 action = "wait_for_sql"
@@ -216,7 +211,7 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`. (Confirmed: `level=20 threshold=22 recoveryAt=27 isLowBattery=true`.)
+      `isLowBattery=true`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -224,9 +219,7 @@ expect_contains = "isLowBattery=true"
 timeout_seconds = 15
 ```
 - [ ] Step 6: Poll `debug_log` until a `battery` row shows a higher reading than the threshold, and confirm
-      `isLowBattery` is still `true` on that row (since it remains below `recoveryAt`). (Confirmed:
-      `level=23 threshold=22 recoveryAt=27 isLowBattery=true` -- the flap up to 23% did not clear
-      the latch, as expected since 23 < recoveryAt 27.)
+      `isLowBattery` is still `true` on that row (since it remains below `recoveryAt`).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT CASE WHEN CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) > $battery_level_c AND message LIKE '%isLowBattery=true%' THEN 'flapped_up_still_low' ELSE message END FROM debug_log WHERE tag='battery' ORDER BY debug_log_id DESC LIMIT 1;"
@@ -263,7 +256,7 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] Step 10: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
+      `isLowBattery=false`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -283,19 +276,20 @@ selected. This is accessibility-readable (the selected tab), so it stays here; t
 Battery line, and confirming the left side of the status item now opens Settings directly (skipping
 the dropdown) while low, are the Interactive counterpart.
 
-- [ ] Step 1: Query `db_type` to confirm which database is active. (Confirmed: `{"type":"test"}`.)
+- [ ] Step 1: Query `db_type` to confirm which database is active.
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Query the current threshold and the live battery level and note them as the original values
-      to restore later. (Original threshold: 5%. Live level: 22%.)
+- [ ] Step 2: Query the current threshold and the live battery level and note them in the logs/00-remembered.json file.
 ```toml step
 [[actions]]
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='low_battery_level';"
 capture = "threshold_original"
+remember = "changed"
+restores = "low_battery_level"
 
 [[actions]]
 action = "wait_for_sql"
@@ -338,7 +332,7 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] Step 6: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`. (Confirmed: `level=22 threshold=25 recoveryAt=30 isLowBattery=true`.)
+      `isLowBattery=true`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -348,9 +342,7 @@ timeout_seconds = 15
 - [ ] Step 7: With some non-Device tab last selected, open Preferences and confirm via the accessibility
       tree (Method: Read a label or value via accessibility, `../Methods.md`) that the **Device**
       tab is the selected one (the `pendingSettingsTab` hint forced it),
-      not whatever was last open. (Confirmed: switched to Facets (radio button 2, value=1), closed,
-      reopened -- Device radio button read `value = 1` (selected), and its content --
-      `Connection`/`Connected`, `Battery`/`23%` -- was genuinely showing, not just the radio state.)
+      not whatever was last open.
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -421,7 +413,7 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] Step 12: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=false`. (Confirmed: `level=23 threshold=5 recoveryAt=10 isLowBattery=false`.)
+      `isLowBattery=false`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -429,9 +421,7 @@ expect_contains = "isLowBattery=false"
 timeout_seconds = 15
 ```
 - [ ] Step 13: Open Preferences and confirm that, no longer low, opening it no longer force-selects the
-      Device tab -- whatever tab was open previously stays selected. (Confirmed: switched to
-      Facets, closed, reopened -- Facets radio button read `value = 1`, Device `value = 0`, i.e.
-      stayed on Facets.)
+      Device tab -- whatever tab was open previously stays selected.
 ```toml step
 [[actions]]
 action = "click_menu_item"

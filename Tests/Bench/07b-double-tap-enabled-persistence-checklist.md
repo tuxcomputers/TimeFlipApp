@@ -24,7 +24,7 @@ repeated here.
 
 - [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
       `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
-      setting WHERE setting_name = 'db_type';"`. (Confirmed: `{"type":"test"}`.)
+      setting WHERE setting_name = 'db_type';"`.
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
@@ -33,8 +33,7 @@ expect = "{\"type\":\"test\"}"
 - [ ] Step 2: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
       button 1 of the tab picker), then expand the **Double tap** disclosure under Settings. Method:
       Click a status-item menu item, Switch Settings-window tabs, Expand or collapse a disclosure
-      group (`../Methods.md`). (Confirmed: Disable checkbox + Threshold/Limit/Latency/Window fields
-      visible.)
+      group (`../Methods.md`).
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -95,7 +94,7 @@ runs straight on from.
 
 - [ ] Step 1: Read whether **Disable** is currently checked or not (accessibility `value` of the checkbox),
       then toggle it to the opposite state. Method: Click a button, checkbox, or slider
-      (`../Methods.md`). (Confirmed: was unchecked (`value=0`), toggled to checked.)
+      (`../Methods.md`).
 ```toml step
 [[actions]]
 action = "applescript"
@@ -123,7 +122,7 @@ end tell'''
 capture = "checkbox_after_toggle"
 ```
 - [ ] Step 2: Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if
-      Disable is now checked, `true` if not). (Confirmed: `enabled=false`.)
+      Disable is now checked, `true` if not).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT json_extract(setting_value, '$.enabled') FROM setting WHERE setting_name='double_tap_settings';"
@@ -131,7 +130,7 @@ expect = "$checkbox_before"
 timeout_seconds = 5
 ```
 - [ ] Step 3: Quit the app and start it again; confirm reconnect via a fresh `debug_log` `"Login accepted,
-      code=0x02"` row. (Confirmed.)
+      code=0x02"` row.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -154,7 +153,7 @@ timeout_seconds = 30
 ```
 - [ ] Step 4: Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable** still shows the
       state set above -- read the checkbox's value directly via accessibility, no screenshot
-      needed. (Confirmed: `value=1`, still checked.)
+      needed.
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -197,7 +196,7 @@ end tell'''
 expect = "$checkbox_after_toggle"
 ```
 - [ ] Step 5: Toggle **Disable** back to its original state from the first step, so the session doesn't
-      leave a real setting changed. (Confirmed: `double_tap_settings.enabled` back to `true`.)
+      leave a real setting changed.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -264,9 +263,7 @@ end tell'''
 ```
 - [ ] Step 3: Query `debug_log` (tag `double-tap`) for rows newer than the noted ID and confirm a `"Params
       changed: ths=Xm ..."` + `"Params saved to DB: enabled=..."` pair for every intermediate
-      value, ending at `ths=200`. (Confirmed: many intermediate pairs -- `numericField`'s
-      get/set binding chain fires more than once per keystroke, an existing quirk unrelated to the
-      debounce -- but the DB and final value are correct throughout.)
+      value, ending at `ths=200`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='double-tap' AND message LIKE 'Params changed: ths=200%' AND debug_log_id > $before_ths_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -274,7 +271,7 @@ expect_contains = "Params changed: ths=200"
 timeout_seconds = 10
 ```
 - [ ] Step 4: Confirm `double_tap_settings` already reads `"clickThreshold":200` immediately (before the 1s
-      debounce elapses). (Confirmed.)
+      debounce elapses).
 ```toml step
 action = "sql_query"
 query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"
@@ -283,7 +280,7 @@ expect = "200"
 - [ ] Step 5: Wait about 1.5s, then query `debug_log` again and confirm exactly **one** `"Writing ths=200
       lim=20 lat=50 win=50"` line (not one per intermediate value), followed by `"Read ths=200
       lim=20 lat=50 win=50"` and `"Verification confirmed: requested ths=200 ...; actual ths=200
-      ..."`. (Confirmed: `debug_log_id` 184-186.)
+      ..."`.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='double-tap' AND debug_log_id > $before_ths_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -291,7 +288,7 @@ expect_contains = "Verification confirmed: requested ths=200"
 timeout_seconds = 10
 ```
 - [ ] Step 6: Restore Threshold to the original value noted in the snapshot (`90`) and confirm
-      `double_tap_settings` reads `"clickThreshold":90` again. (Confirmed.)
+      `double_tap_settings` reads `"clickThreshold":90` again.
 ```toml step
 [[actions]]
 action = "applescript"

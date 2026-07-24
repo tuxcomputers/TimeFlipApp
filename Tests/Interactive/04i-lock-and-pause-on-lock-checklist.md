@@ -20,7 +20,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 badge) before continuing.
 
 - [ ] **(Claude)** Step 1: If the device isn't already locked, click the "Lock" menu item and confirm
-      `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`. (Confirmed.)
+      `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`.
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -34,8 +34,6 @@ timeout_seconds = 10
 ```
 - [ ] **(You)** Step 2: Try flipping to the **Meeting** face while locked (name the exact facet, per
       `../CLAUDE.md`); confirm nothing happens (the device itself refuses the flip while locked).
-      (Confirmed: flipped to the Meeting side, `device_event` stayed at `event_number=25`, facet 8
-      -- no new row.)
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -47,14 +45,14 @@ action = "ask_user"
 prompt = "Flip the cube to the Meeting face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
 - [ ] **(Claude)** Step 3: Confirm no new `device_event` row appeared for the attempted flip (query
-      `device_event_id DESC`, latest row unchanged before/after). (Confirmed.)
+      `device_event_id DESC`, latest row unchanged before/after).
 ```toml step
 action = "sql_query"
 query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "$event_id_before_locked_flip"
 ```
 - [ ] **(Claude)** Step 4: Click "Unlock" from the menu and confirm `debug_log` shows `"Lock OFF triggered"`
-      / `"...confirmed: requested=OFF actual=OFF"`, returning to a clean unlocked state. (Confirmed.)
+      / `"...confirmed: requested=OFF actual=OFF"`, returning to a clean unlocked state.
 ```toml step
 [[actions]]
 action = "click_menu_item"

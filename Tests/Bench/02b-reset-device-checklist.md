@@ -36,7 +36,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 - [ ] Step 1: Confirm `db_type` still reads `{"type":"test"}` (left active by `01b-history-refresh-checklist.md`)
       and the device is connected. If it reads `production`, `01b`'s Setup needs (re-)running first
-      rather than switching databases from here. (Confirmed: `{"type":"test"}`, device connected.)
+      rather than switching databases from here.
 ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
@@ -47,7 +47,7 @@ expect = "{\"type\":\"test\"}"
       `history` fetch's `device_last_event=`. **N** must be > 0 -- `01b`'s Setup backfill should
       already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` --
       use `start_epoch`/`start_time` if a time is needed, or omit entirely and just order by
-      `device_event_id DESC`.) (Confirmed: N=13.)
+      `device_event_id DESC`.)
 ```toml step
 action = "sql_query"
 query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -63,8 +63,7 @@ noted -- all established immediately above in Setup, which this scenario runs st
       button 1 of the tab picker). Method: Click a status-item menu item, Switch Settings-window
       tabs (`../Methods.md`). (Note: on this branch the menu item is "Settings..." and the other
       tabs are "Faces"/"App" -- it is based on `main`, which includes the settings-rename merge;
-      the Device tab is still radio button 1.) (Confirmed via screenshot: Device tab open, Name
-      `TimeFlip`, Connection `Connected`, Battery `23%`.)
+      the Device tab is still radio button 1.)
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -87,8 +86,7 @@ end tell'''
       Device**) and confirm the destructive-action dialog. Method: Confirm a confirmation-dialog
       sheet (`../Methods.md`) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
       is button 2. **Both fully Claude-driven** this run, contradicting the previous run's note that
-      System Events driving hung. (Confirmed: sheet detected via `count of sheets of win = 1`,
-      description read `Cancel`/`Reset Device`, click succeeded with no hang.)
+      System Events driving hung.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -110,11 +108,6 @@ end tell'''
       `"Factory reset (0xFF) sent; ... awaiting device reboot to confirm via default-password login"`
       row, then reconnect/login attempts, then
       `"Factory reset confirmed: device is back on the default password; returning to never-paired state"`.
-      (Confirmed, including the expected transient: `0xFF` sent with stale read-back
-      `17 3A 5A 3B 14 3C 32 3D 32 00 ...`; reconnect #1 accepted the OLD password `123456` -> logged
-      `"Factory reset not yet confirmed: device still accepts the old password; retrying"`; reconnect
-      #2 rejected `123456` (`0x01`), accepted `000000` (`0x02`) -> `"Factory reset confirmed ...
-      returning to never-paired state"`.)
 ```toml step
 [[actions]]
 action = "wait_for_sql"
@@ -137,8 +130,7 @@ capture = "confirmed_id"
       `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting
       device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not
       paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...`
-      or `Connected`. (Confirmed via accessibility `value` reads of the three rows -- `Not paired` /
-      `Not paired` / `Not paired`.)
+      or `Connected`.
 ```toml step
 action = "applescript"
 script = '''
@@ -156,10 +148,7 @@ expect_contains = "Not paired"
       below. (Scope this on `debug_log_id > $confirmed_id` -- the id of that row, captured in Step 3 --
       **not** `before_reset_id`: the confirm sequence itself relogins to test the password and logs
       one or two `"Login accepted, code=0x02"` rows before it settles, which a pre-reset baseline
-      would wrongly flag as an auto-reconnect.) (Confirmed: zero `"Login accepted"` rows between the
-      confirmation and the manual re-pair. Unlike the old flow, the app also **stops** its periodic
-      `history` fetches once forgotten, so no `device_last_event` rows appear in this gap either --
-      the wipe evidence instead comes from the re-pair's startup fetch below.)
+      would wrongly flag as an auto-reconnect.)
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $confirmed_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -167,8 +156,7 @@ expect = "(no rows)"
 ```
 - [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
       (`static text` matching the device name, e.g. `"TimeFlip v2.0"`, under "Click a device below to
-      pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`). (Confirmed:
-      `"TimeFlip v2.0"` appeared in the list within a few seconds.)
+      pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`).
 ```toml step
 [[actions]]
 action = "applescript"
@@ -195,10 +183,7 @@ expect_contains = "TimeFlip"
       the user ad hoc (a large `## Action needed` heading, per "Running a checklist" rule 3 in
       `../CLAUDE.md`). Confirm a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row (Method:
       Confirm device reconnect) -- detected by polling `debug_log`, not waiting on chat confirmation
-      (Method: Detect a physical action instead of asking, `../Methods.md`). (Confirmed: user clicked
-      the row; paired with `000000` (`Login accepted 0x02`), then the pairing flow rotated the
-      password to `123456` and re-confirmed, followed by the usual device-sync of
-      auto-pause/LED/double-tap.)
+      (Method: Detect a physical action instead of asking, `../Methods.md`).
 ```toml step
 action = "ask_user_or_detect"
 prompt = "Click the discovered device's row in the Device tab to pair it (this can't be scripted -- it's a plain Text+onTapGesture, not a Button)."
@@ -208,7 +193,7 @@ poll_interval = 2
 ```
 - [ ] Step 8: Confirm the Device tab shows the device paired and connected again: read the `Connection` row
       (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no
-      longer "Not paired"). (Confirmed: `Name`=`TimeFlip`, `Connection`=`Connected`, `Battery`=`23%`.)
+      longer "Not paired").
 ```toml step
 action = "applescript"
 script = '''
@@ -227,8 +212,7 @@ expect = "Connected"
       This must run **after** the re-pair, not before: the app stops history fetches while forgotten
       (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a
       *real* post-reset event with the device's own low numbering needs a physical flip -- that's the
-      Interactive counterpart.) (Confirmed: post-re-pair fetch read `device_last_event=nil` where N
-      was `13` pre-reset -- the device's own counter was wiped.)
+      Interactive counterpart.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"

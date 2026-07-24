@@ -181,6 +181,17 @@ A value captured by one step (`capture = "some_name"`) is available to every lat
 in the same run via `$some_name` inside `query`/`command`/`script`/`expect`/`expect_contains`
 (Python `string.Template`, so literal JSON braces in a query don't clash).
 
+**Remembering reads and changes (`logs/00-remembered.json`).** Every capture is also mirrored
+into `logs/00-remembered.json`, keyed by the run's log-file stamp (the same
+`YYYY-MM-DD_hh.mm.ss` as the `.txt` transcript). By default a capture lands in that run's
+`recorded` array (`{key, value}`) -- a value the run read for verification. Mark the capture
+`remember = "changed"` with `restores = "<setting_name>"` and it instead lands in `changed`
+(`{key, original, current}`): `original` is the value captured before the run touched it, and
+`current` is re-read live from the `setting` table after every capture and every mutating
+`sql_exec`, so it follows the setting as the run changes and later restores it. Use this on the
+"note the original value to restore later" captures (e.g. `pause_on_lock`, `low_battery_level`).
+The file is rewritten live and accumulates runs (each run adds its own top-level key).
+
 **Conditional steps/actions (`when`).** A `when = "$var <op> N"` guard (e.g.
 `when = "$start_event_id < 10"`) runs the step -- or an individual action inside an
 `[[actions]]` block -- only if the comparison holds. Operators: `<`, `<=`, `>`, `>=`, `==`,
@@ -263,3 +274,5 @@ left the state they need) -- other checklists passed on the command line still r
 Every run writes `logs/YYYY-MM-DD_hh.mm.ss.txt` (gitignored -- these are run artifacts,
 not source) with a full transcript, and the process exits non-zero if anything failed or
 was skipped. Attach that file when filing an issue, or point CI at it as a build artifact.
+Alongside it, `logs/00-remembered.json` records the values each run read and changed (see
+`remember`/`restores` above) under that same timestamp key.

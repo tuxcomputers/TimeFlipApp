@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
 from actions import run_step, capture_names, condition_met  # noqa: E402
+from remembered import Remembered  # noqa: E402
 from session_setup import (  # noqa: E402
     confirm_warning,
     ensure_not_timing_on_production,
@@ -265,11 +266,11 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     return True
 
 
-def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False):
+def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None):
     checklist = Checklist(path)
     log_lines.append(f"\n=== {path} ===")
 
-    ctx = {"db_path": db_path, "vars": {}}
+    ctx = {"db_path": db_path, "vars": {}, "remembered": remembered}
     all_ok = True
     ran_any = False
     skipped_prose = set()  # prose of steps already SKIPped -- stable across reparses, unlike line numbers
@@ -439,6 +440,10 @@ def main():
     log_lines.append("Checklists:")
     log_lines.extend(f"  {p}" for p in checklist_paths)
 
+    # Side-record of values read (recorded) and settings changed (changed, with live current)
+    # this run, keyed by the same timestamp as the .txt log. Populated live as steps capture.
+    remembered = Remembered(os.path.join(log_dir, "00-remembered.json"), timestamp)
+
     # First thing, before we ask the developer anything: if we're still on production and
     # the device is mid-timing a real activity, bail immediately rather than after they've
     # answered the rerun/resume and confirmation prompts. This run switches to test and
@@ -482,13 +487,13 @@ def main():
         setup.clear_checkboxes()
         setup.save()
         log_lines.append("\n--- Test setup (00-test-setup.md), always run first ---")
-        if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps):
+        if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps, remembered):
             print("\nAborted -- test setup failed; not running any checklists.")
             log_lines.append("ABORTED: test setup failed.")
             sys.exit(1)
 
         for path in checklist_paths:
-            ok = run_checklist(path, db_path, log_lines, args.yes, confirm_steps)
+            ok = run_checklist(path, db_path, log_lines, args.yes, confirm_steps, remembered)
             overall_ok = overall_ok and ok
     except _RunHalted as halt:
         banner = "!" * 70

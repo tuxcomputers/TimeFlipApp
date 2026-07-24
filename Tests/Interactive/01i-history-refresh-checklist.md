@@ -24,8 +24,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected and paired, test DB active -- left by the Bench run above,
 which this scenario runs straight on from. Check device connection before asking for the flip.
 
-- [ ] **(Claude)** Step 1: Confirm the device shows connected before asking for the flip below. (Confirmed:
-      fresh `"Login accepted, code=0x02"`.)
+- [ ] **(Claude)** Step 1: Confirm the device shows connected before asking for the flip below.
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
@@ -54,8 +53,7 @@ action = "ensure_unlocked_unpaused"
 - [ ] **(You)** Step 4: Flip to the **Break** face (name the exact facet, per `../CLAUDE.md` -- only
       Break/Meeting have stickers on this cube). (Detected automatically by polling
       `device_event` every couple of seconds -- no need to ask for confirmation. Method: Detect a
-      physical action instead of asking, `../Methods.md`.) (Confirmed: new row `event_number=10`,
-      facet 8 "Break".)
+      physical action instead of asking, `../Methods.md`.)
 ```toml step
 action = "ask_user_or_detect"
 prompt = "Flip the cube to the Break face."
@@ -65,7 +63,6 @@ poll_interval = 2
 ```
 - [ ] **(Claude)** Step 5: Confirm a new `device_event` row exists with `event_number` > N, and that
       event N's row is now `finalised = 1` with a `duration_seconds` that stopped growing.
-      (Confirmed: N=9's row `finalised=1`, `duration_seconds=62.0`.)
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -78,7 +75,7 @@ query = "SELECT finalised FROM device_event WHERE event_number = $n_before_flip 
 expect = "1"
 ```
 - [ ] **(Claude)** Step 6: Screenshot the menu bar; confirm the activity name/icon updated to the new
-      facet. (Confirmed: activity name reads "Break".)
+      facet.
 ```toml step
 action = "sql_query"
 query = "SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -91,7 +88,7 @@ expect = "8"
 starting point to disconnect from below. Check device connection first; if it's not connected,
 reconnect before proceeding rather than starting this scenario already disconnected.
 
-- [ ] **(Claude)** Step 1: Confirm the device shows connected before disconnecting it below. (Confirmed.)
+- [ ] **(Claude)** Step 1: Confirm the device shows connected before disconnecting it below.
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
@@ -119,8 +116,7 @@ capture = "n_before_disconnect"
       back on). (Detect the disconnect via `debug_log` -- the status item's own title text doesn't
       reflect connection color/state, so poll `debug_log` for a `history` fetch repeatedly returning
       `device_last_event=nil` against an unchanged `known_max`, or check the Preferences window's
-      `Connection` field directly, rather than the status item's name/title.) (Confirmed:
-      `device_last_event=nil` against `known_max=9` at 23:15:15 and 23:15:25 while disconnected.)
+      `Connection` field directly, rather than the status item's name/title.)
 ```toml step
 action = "ask_user"
 prompt = "Turn off Bluetooth on the Mac (menu bar icon or System Settings, not sudo/system-wide). Wait for the status item to show disconnected, flip the cube 2-3 times while still disconnected, then turn Bluetooth back on. Did you complete all of that? (y/n)"
@@ -129,7 +125,7 @@ prompt = "Turn off Bluetooth on the Mac (menu bar icon or System Settings, not s
       `../Methods.md`): query `debug_log` for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"`
       row logged after the reconnect. Flips while disconnected can't be polled in real time -- no
       connection means no data flows -- so this is the point to resume automatic detection, once
-      reconnected. (Confirmed: fresh row at 23:15:30.)
+      reconnected.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_disconnect_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -142,6 +138,4 @@ timeout_seconds = 30
       sub-`blip_time` quick pass-over gets merged into the surrounding segment rather than recorded
       as its own row, logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s,
       device's own filter"` -- confirm any gap is explained this way before treating it as missing
-      data.) (Confirmed: events 11 (facet 2), 12 (facet 8), then 13 explained as a sub-5s pass-over
-      merged by the device's own filter, then 14 (facet 2, still open) -- ascending, no unexplained
-      gaps. Final open row (event 14, facet 2 "Meeting") matches the live menu bar.)
+      data.)

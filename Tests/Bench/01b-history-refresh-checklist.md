@@ -77,7 +77,7 @@ expect = "0"
 immediately above, which this scenario runs straight on from.
 
 - [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
-      latter D0). (event_number=13, D0=4878.0.)
+      latter D0).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -90,8 +90,7 @@ query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC
 capture = "duration_d0"
 ```
 - [ ] Step 2: Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
-      setting_name = 'fetch_history_interval_seconds';`) without touching the device. (Interval is
-      10s; waited 12s.)
+      setting_name = 'fetch_history_interval_seconds';`) without touching the device.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -104,8 +103,7 @@ command = "sleep 15"
 ```
 - [ ] Step 3: Query `debug_log` and confirm a `history` row logged `"history fetch: device
       max_event_number=<event_number> unchanged; DB refreshed"` -- the cheap-check skip path was
-      taken, not a full stream fetch. (Confirmed: `"history fetch: device max_event_number=13
-      unchanged; DB refreshed"`.)
+      taken, not a full stream fetch.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-result' ORDER BY debug_log_id DESC LIMIT 1;"
@@ -114,7 +112,7 @@ timeout_seconds = 15
 ```
 - [ ] Step 4: Re-query the same `device_event` row: confirm `event_number` is unchanged but
       `duration_seconds` increased beyond D0 -- the skip path still refreshes the open row's
-      duration. (Confirmed: event_number still 13, duration_seconds 4878.0 -> 4898.0.)
+      duration.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -141,15 +139,13 @@ somehow still empty, this scenario isn't verifiable this run -- note that plainl
 than forcing it.
 
 - [ ] Step 1: Query `integration_event_cursors` for the `device-history` row's persisted event number (call
-      it C). (Confirmed: row `local|device-history|last_sent_ev=12|attempts=0|last_success_ev=12`;
-      C=12.)
+      it C).
 ```toml step
 action = "sql_query"
 query = "SELECT last_success_ev FROM integration_event_cursors WHERE target='local' AND identifier='device-history';"
 capture = "cursor_c"
 ```
-- [ ] Step 2: Quit the app. Method: Quit the app (`../Methods.md`). (Confirmed: no `TimeFlip.app` process
-      remained.)
+- [ ] Step 2: Quit the app. Method: Quit the app (`../Methods.md`).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -161,8 +157,7 @@ action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
 - [ ] Step 3: Start the app again and confirm reconnect. Method: Launch the app for a Claude-driven step,
-      Confirm device reconnect (`../Methods.md`). (Confirmed: fresh `"Login accepted, code=0x02"`
-      row.)
+      Confirm device reconnect (`../Methods.md`).
 ```toml step
 [[actions]]
 action = "shell"
@@ -176,8 +171,7 @@ timeout_seconds = 30
 ```
 - [ ] Step 4: Query `debug_log` for the startup fetch's `"history fetch triggered: trigger=startup
       known_max=<N>"` line and confirm `known_max` equals C -- it resumed from the persisted
-      cursor rather than re-fetching from scratch (which would show `known_max=0`). (Confirmed:
-      `"history fetch triggered: trigger=startup known_max=12"` -- equals C.)
+      cursor rather than re-fetching from scratch (which would show `known_max=0`).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-start' AND message LIKE 'history fetch triggered: trigger=startup%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"
