@@ -102,6 +102,12 @@ def ensure_not_timing_on_production(db_path):
         return True
     if _read_db_type(db_path) != "production":
         return True
+    # With the app shut down, the last device_event on disk is stale -- the dev could have
+    # double-tapped to pause or changed faces since it last synced. Don't trust it for this
+    # early gate; 00-test-setup.md starts the app, waits for a fresh sync, and re-checks the
+    # timing gate on live data (guarded on record_history) before any destructive step.
+    if not _app_running():
+        return True
     # Read the concrete production.sqlite directly (the symlink points at it right now),
     # consistent with the rest of this module's post-switch queries.
     if _last_event_is_paused(os.path.realpath(db_path)) is False:

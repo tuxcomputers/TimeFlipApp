@@ -16,6 +16,15 @@ that a physical/UI action took effect, poll for the line the app logs on that pa
 
 ---
 
+## Start conditions and reaching them
+
+The **start test conditions** (the state every run must reach before the first checklist) and the
+per-current-state paths that funnel to them live in [START-STATES.md](START-STATES.md). This file
+covers only *how* each thing is detected; that file covers *what* state a run needs and the steps
+to get there.
+
+---
+
 ## Detecting which DB is being used (Prod or Test)
 
 `setting.db_type` is JSON, e.g. `{"type":"test"}`. Stamped into each file when it is first

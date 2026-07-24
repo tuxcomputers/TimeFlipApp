@@ -53,14 +53,20 @@ the device afterward.
 Once confirmed, the supervisor **always runs `Tests/00-test-setup.md` first** -- a shared
 setup checklist (common to Bench and Interactive), run fresh (its boxes are cleared) no
 matter which subset was requested, even an Interactive-only or single-file run. It is the
-**one and only** place the test database is switched/rebuilt. Its `toml` steps: confirm the
-app is on production; capture production's max `debug_log_id`; restart the app to force a
-fresh history fetch against production and confirm `"history fetch complete: trigger=startup"`
-(so all real history is recorded before switching -- the end-of-run factory reset later wipes
-the device's own counter); then `use-test-database.sh`, relaunch, confirm reconnect, and
-confirm `db_type` is now `test`. If any setup step fails the whole run aborts before any
-feature checklist. (`session_setup.py` no longer switches; it just holds the warning and
-mid-timing gates and the end-of-run reset/restore.)
+**one and only** place the test database is switched/rebuilt. Its `toml` steps: check which DB
+is active and decide whether to record production history (on production it records; otherwise
+it asks whether to switch to production and record first, or skip straight to test -- so a run
+started off-production doesn't hard-fail); when recording, capture production's max
+`debug_log_id`, restart the app to force a fresh history fetch and confirm
+`"history fetch complete: trigger=startup"` (so all real history is recorded before switching --
+the end-of-run factory reset later wipes the device's own counter); then `use-test-database.sh`,
+relaunch, confirm reconnect, and confirm `db_type` is now `test`. If any setup step fails the
+whole run aborts before any feature checklist. (`session_setup.py` no longer switches; it just
+holds the warning and mid-timing gates and the end-of-run reset/restore.)
+
+The full set of start test conditions, and the path from any current state (which DB, app
+up/down, device paired/timing/paused) to them, is documented in
+[`START-STATES.md`](START-STATES.md).
 
 Because `00-test-setup.md` performs the switch, the feature checklists no longer repeat it:
 their `## Setup` sections hold only their own preconditions (e.g. `01b` checks the test DB

@@ -266,11 +266,12 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     return True
 
 
-def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None):
+def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None,
+                  initial_vars=None):
     checklist = Checklist(path)
     log_lines.append(f"\n=== {path} ===")
 
-    ctx = {"db_path": db_path, "vars": {}, "remembered": remembered}
+    ctx = {"db_path": db_path, "vars": dict(initial_vars or {}), "remembered": remembered}
     all_ok = True
     ran_any = False
     skipped_prose = set()  # prose of steps already SKIPped -- stable across reparses, unlike line numbers
@@ -487,7 +488,14 @@ def main():
         setup.clear_checkboxes()
         setup.save()
         log_lines.append("\n--- Test setup (00-test-setup.md), always run first ---")
-        if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps, remembered):
+        # The setup builds up >=10 device events only when a history-refresh checklist (01b/01i)
+        # is in this run -- other features (LED, battery, ...) don't need the history, so they
+        # aren't forced to flip. The setup reads this via a `when` guard on that build step.
+        needs_history = "y" if any(
+            os.path.basename(p).startswith(("01b", "01i")) for p in checklist_paths
+        ) else "n"
+        if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps, remembered,
+                             initial_vars={"needs_history": needs_history}):
             print("\nAborted -- test setup failed; not running any checklists.")
             log_lines.append("ABORTED: test setup failed.")
             sys.exit(1)
