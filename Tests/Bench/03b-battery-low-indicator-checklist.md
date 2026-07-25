@@ -386,9 +386,49 @@ tell application "System Events"
 end tell'''
 expect = "1"
 ```
-- [ ] Step 8: Switch to a different tab (e.g. Facets), close Preferences, then reopen it while still low on
-      battery, and confirm it jumped back to the Device tab again, not the Facets tab. (Covered by
-      the same confirmation above -- this was a reopen after Facets was last selected.)
+- [ ] Step 8: Confirm the force-to-Device holds from a *different* last tab too: select the **Report** tab
+      (radio button 3, vs Facets in Step 7), close Preferences, then reopen it while still low, and confirm
+      via the accessibility tree that the **Device** tab (radio button 1) is the selected one again. Method:
+      Read a label or value via accessibility (`../Methods.md`) -- reading `radio button 1`'s `value`, so no
+      human check needed.
+```toml step
+[[actions]]
+action = "click_menu_item"
+item = "Settings..."
+
+[[actions]]
+action = "shell"
+command = "sleep 1"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        click radio button 3 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        delay 0.5
+        click button 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+
+[[actions]]
+action = "click_menu_item"
+item = "Settings..."
+
+[[actions]]
+action = "shell"
+command = "sleep 1"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        return value of radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+expect = "1"
+```
 - [ ] Step 9: Quit the app.
 ```toml step
 [[actions]]
