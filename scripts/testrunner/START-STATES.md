@@ -56,8 +56,9 @@ A current state is a combination of:
 
 - **DB:** `production` | `test` -- readable from the DB file at any time, app up or down.
 - **App:** `running` | `not running` -- `pgrep`.
-- **Device paired:** `paired` | `not paired` -- only knowable *after* launching and seeing a
-  `Login accepted` (or its absence within the timeout).
+- **Device paired:** `paired` | `not paired` -- the app writes its own `paired` setting (on startup
+  and every pair / reconnect / factory-reset / disconnect), so this is directly queryable, not
+  inferred. Distinct from *connected*: a paired device can be off / out of range.
 - **Pause:** `timing` | `paused` -- only *trustworthy* after the app has connected and synced
   history; a DB left by a shut-down app may not reflect a since-shutdown double-tap or face change.
 - **Locked:** `locked` | `unlocked` -- resolved by the final unlock/unpause step, not a branch.
@@ -160,11 +161,21 @@ The shared terminal path -- every non-aborting branch ends here.
 
 1. Quit the app, run `use-test-database.sh` (creates a fresh empty `test.sqlite` and repoints the
    `appdata.sqlite` symlink at it), relaunch.
-2. Wait for the reconnect against the fresh test database (`Login accepted`).
-3. Unlock, then unpause the device (`ensure_unlocked_unpaused`) so scenarios start from a clean
+2. Read the app's `paired` setting. If it isn't paired -- the **"test DB + not paired"** start
+   state that a prior run's end-of-run cleanup reset leaves behind (pairing is device-level, and the
+   reset forgets the device) -- **script the pair**: Scan for Devices, coordinate-click the
+   discovered row (`cgevent_click_element`), wait for the pairing-complete marker. Skipped when
+   already paired (it auto-reconnects, since pairing lives in UserDefaults and survives the switch).
+3. Confirm the device is connected against the fresh test database (`Login accepted`).
+4. Unlock, then unpause the device (`ensure_unlocked_unpaused`) so scenarios start from a clean
    unlocked, unpaused state.
-4. Confirm `db_type` now reads `{"type":"test"}`.
-5. If this run includes a history-refresh checklist (01b/01i), ensure **≥ 10** device events:
+5. Confirm `db_type` now reads `{"type":"test"}`.
+6. If this run includes a history-refresh checklist (01b/01i), ensure **≥ 10** device events:
    already-≥10 passes instantly, otherwise prompt the dev to flip the device and wait until the
    count reaches 10 (leaving it resting on one face). Skipped for runs that don't need history.
-6. **Start test conditions reached.**
+7. **Start test conditions reached.**
+
+> The `paired` read in step 2 is the app's own `paired` setting (written on startup and on every
+> pair / reconnect / factory-reset / disconnect), not a heuristic -- so "is it paired" is a
+> definitive gate, and the connectivity confirm (step 3) only runs once paired. See
+> `00-test-setup.md` and DETECTION.md.

@@ -91,6 +91,25 @@ SELECT MAX(logged_at) FROM debug_log WHERE tag IN ('battery','hist-done','hist-s
 
 ---
 
+## Detecting whether the device is paired
+
+The app writes its own `paired` setting -- `true` on startup when it already knows it's paired and
+on every pair/reconnect, `false` on factory-reset (forget) or a lost connection
+(`AppDataStore.recordPaired`, wired in `ApplicationDelegate`). So *paired-ness* is a definitive,
+directly-queryable fact, not something to infer from login rows:
+
+```sql
+SELECT COALESCE((SELECT json_extract(setting_value, '$.paired') FROM setting WHERE setting_name='paired'), 0);
+-- -> 1 = paired, 0 = not paired (or the setting is absent)
+```
+
+Distinct from *connected* (above): a paired device can be off / out of range. `00-test-setup.md`
+gates on this -- if it reads `0` after switching to the test DB (the "test DB + not paired" state a
+prior run's cleanup reset leaves), it scripts a re-pair; only when paired does it confirm the live
+connection.
+
+---
+
 ## Detecting history-fetch state (split tags)
 
 `HistoryIngestor.refreshHistory()` logs one row per phase of a fetch, each under its **own**

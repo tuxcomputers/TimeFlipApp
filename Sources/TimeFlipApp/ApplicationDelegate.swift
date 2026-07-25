@@ -137,6 +137,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
             guard let self else { return }
+            // Reflect pairing state into the `paired` setting: true on pair/reconnect, false on
+            // forget/factory-reset/pairing-failure. A test/observer gates its connectivity check
+            // on this.
+            self.dataStore.recordPaired(paired)
             if let controller = self.device as? TimeFlipMockControlling {
                 if paired {
                     controller.pair()
@@ -325,6 +329,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         menuBarController.start()
+        // "The app starts and knows whether it is paired" -> reflect that into the `paired`
+        // setting up front, every launch, before any connection attempt (a subsequent
+        // reconnect/forget/disconnect keeps it in step via the hooks above/below).
+        dataStore.recordPaired(appState.isPaired || appState.wantsPairing)
         if appState.isPaired {
             startDeviceEvents()
         } else if appState.wantsPairing {
@@ -512,8 +520,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             // A genuine device connection (a new pairing, or an app-start/reconnect login --
             // the factory-reset-confirmation login returned above and is deliberately excluded).
-            // Stamp connection.last_connection so an observer/test can confirm the device connected.
+            // Stamp connection.last_connection so an observer/test can confirm the device connected,
+            // and mark paired=true -- this is the one hook that also catches a bare reconnect (which
+            // sets pairingStatus=.paired directly, without firing onPairingChange).
             let connectedAt = dataStore.recordConnection()
+            dataStore.recordPaired(true)
             DeveloperMode.debugPrint(.timeFlip, "connection.last_connection recorded: \(connectedAt)")
             await MainActor.run {
                 // Login confirms the device is reachable and authenticated again — clear the
@@ -607,6 +618,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private func handleDeviceDisconnect() {
         logger.warning("Device disconnected; attempting auto-reconnect")
         let lostAt = dataStore.recordConnectionLost()
+        dataStore.recordPaired(false)
         DeveloperMode.debugPrint(.timeFlip, "connection.connection_lost recorded: \(lostAt)")
         lastSentFacetColors.removeAll()
         facetColorInitialized = false

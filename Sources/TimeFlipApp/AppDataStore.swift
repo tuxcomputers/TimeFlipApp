@@ -549,6 +549,15 @@ final class AppDataStore: IntegrationEventCursorStore {
         saveSettingJSON(name: "connection", merging: ["quit_request": stamp, "connection_lost": ""])
     }
 
+    /// Records whether the app currently considers a device paired, into the `paired` setting.
+    /// Set `true` at startup when the app already knows it is paired and whenever pairing
+    /// completes/reconnects; set `false` when the device is factory-reset (forgotten) or the
+    /// connection is lost. A test/observer reads this to gate its "is the device connected now?"
+    /// check -- if it's false, the device needs (re)pairing. See `011_setting.sql`.
+    func recordPaired(_ paired: Bool) {
+        saveSettingJSON(name: "paired", merging: ["paired": paired])
+    }
+
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
     /// seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default if the
     /// row is missing or malformed.
@@ -732,7 +741,14 @@ final class AppDataStore: IntegrationEventCursorStore {
             logger.error("saveSettingJSON encode failed name=\(name, privacy: .public)")
             return
         }
-        let sql = "UPDATE setting SET setting_value = ? WHERE setting_name = ?;"
+        // Upsert, not a bare UPDATE: create the row if it's absent so a write self-heals a setting
+        // this build added to the seed but an existing database predates (e.g. `paired` on a DB
+        // created before that seed row existed). `setting_name` has a unique index (UN1_setting);
+        // on conflict we touch only setting_value, preserving any seeded setting_description.
+        let sql = """
+            INSERT INTO setting (setting_name, setting_value) VALUES (?, ?)
+            ON CONFLICT(setting_name) DO UPDATE SET setting_value = excluded.setting_value;
+            """
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -740,8 +756,8 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_finalize(stmt)
                 return
             }
-            sqlite3_bind_text(stmt, 1, json, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, json, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) != SQLITE_DONE {
                 logger.error("saveSettingJSON exec failed name=\(name, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
