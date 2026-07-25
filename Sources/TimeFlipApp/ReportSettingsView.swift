@@ -67,10 +67,12 @@ struct ReportSettingsView: View {
             presenting: existingCalendar
         ) { calendar in
             Button("Use it") {
+                DeveloperMode.debugPrint(.click, "Button clicked: Use it (existing-calendar alert)")
                 selectCalendar(calendar)
                 finishCreatingCalendar()
             }
             Button("Cancel", role: .cancel) {
+                DeveloperMode.debugPrint(.click, "Button clicked: Cancel (existing-calendar alert)")
                 // Leave the name field open so a different name can be entered.
                 existingCalendar = nil
             }
@@ -143,8 +145,10 @@ struct ReportSettingsView: View {
         var hour12 = current.hour + delta
         if hour12 > 12 { hour12 = 1 }
         if hour12 < 1 { hour12 = 12 }
+        let newHour = Self.to24Hour(hour12: hour12, meridiem: current.meridiem)
+        DeveloperMode.debugPrint(.field, "Field changed: Daily reset hour: \(appState.dailyResetHour) -> \(newHour) (24h)")
         appState.setDailyResetTime(
-            hour: Self.to24Hour(hour12: hour12, meridiem: current.meridiem),
+            hour: newHour,
             minute: appState.dailyResetMinute
         )
     }
@@ -153,8 +157,10 @@ struct ReportSettingsView: View {
     private func toggleMeridiem() {
         let current = Self.to12Hour(appState.dailyResetHour)
         let flipped: Meridiem = current.meridiem == .am ? .pm : .am
+        let newHour = Self.to24Hour(hour12: current.hour, meridiem: flipped)
+        DeveloperMode.debugPrint(.field, "Field changed: Daily reset meridiem: \(current.meridiem == .am ? "AM" : "PM") -> \(flipped == .am ? "AM" : "PM") (hour \(appState.dailyResetHour) -> \(newHour) 24h)")
         appState.setDailyResetTime(
-            hour: Self.to24Hour(hour12: current.hour, meridiem: flipped),
+            hour: newHour,
             minute: appState.dailyResetMinute
         )
     }
@@ -196,7 +202,10 @@ struct ReportSettingsView: View {
                 "Paste OAuth client ID",
                 text: Binding(
                     get: { appState.googleClientID },
-                    set: { appState.googleClientID = $0 }
+                    set: {
+                        DeveloperMode.debugPrint(.field, "Field changed: Google Client ID: \(appState.googleClientID.count)ch -> \($0.count)ch")
+                        appState.googleClientID = $0
+                    }
                 )
             )
             .textFieldStyle(.roundedBorder)
@@ -208,7 +217,11 @@ struct ReportSettingsView: View {
                 "Paste OAuth client secret",
                 text: Binding(
                     get: { appState.googleClientSecret },
-                    set: { appState.googleClientSecret = $0 }
+                    set: {
+                        // Never log the secret's value -- only that (and by how much) it changed.
+                        DeveloperMode.debugPrint(.field, "Field changed: Google Client Secret: \(appState.googleClientSecret.count)ch -> \($0.count)ch (value hidden)")
+                        appState.googleClientSecret = $0
+                    }
                 )
             )
             .textFieldStyle(.roundedBorder)
@@ -238,11 +251,13 @@ struct ReportSettingsView: View {
             // Signing out flips isAuthenticated to false, restarting the .task(id:) above, which
             // clears the cached account and resets the section back to the credential fields.
             Button("Sign out") {
+                DeveloperMode.debugPrint(.click, "Button clicked: Sign out")
                 authManager.signOut()
             }
         } else {
             HStack {
                 Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Google Auth")
                     Task { @MainActor in
                         await authManager.authenticate()
                     }
@@ -270,6 +285,7 @@ struct ReportSettingsView: View {
                 }
             } else if calendars.isEmpty {
                 Button("Load calendars") {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Load calendars")
                     Task { @MainActor in
                         await loadCalendars()
                     }
@@ -294,11 +310,16 @@ struct ReportSettingsView: View {
                         .textFieldStyle(.roundedBorder)
                         .disableAutocorrection(true)
                         .onSubmit { attemptCreateCalendar() }
+                        .onChange(of: newCalendarName) { oldValue, newValue in
+                            DeveloperMode.debugPrint(.field, "Field changed: New calendar name: \"\(oldValue)\" -> \"\(newValue)\"")
+                        }
                     Button("Create") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Create (calendar \"\(trimmedNewCalendarName)\")")
                         attemptCreateCalendar()
                     }
                     .disabled(isSavingCalendar || trimmedNewCalendarName.isEmpty)
                     Button("Cancel") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Cancel (new-calendar flow)")
                         cancelCreatingCalendar()
                     }
                     .disabled(isSavingCalendar)
@@ -306,10 +327,12 @@ struct ReportSettingsView: View {
             } else {
                 HStack {
                     Button("New calendar") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: New calendar")
                         beginCreatingCalendar()
                     }
                     .disabled(isLoadingCalendars)
                     Button("Refresh calendars") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Refresh calendars")
                         Task { @MainActor in
                             await loadCalendars()
                         }
@@ -328,8 +351,10 @@ struct ReportSettingsView: View {
             get: { appState.googleCalendarID ?? "" },
             set: { newValue in
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = calendars.first { $0.id == trimmed }?.summary
+                DeveloperMode.debugPrint(.field, "Field changed: Calendar selection: \(appState.googleCalendarName ?? "None") -> \(name ?? "None")")
                 appState.googleCalendarID = trimmed.isEmpty ? nil : trimmed
-                appState.googleCalendarName = calendars.first { $0.id == trimmed }?.summary
+                appState.googleCalendarName = name
             }
         )
     }

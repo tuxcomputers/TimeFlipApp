@@ -61,6 +61,7 @@ enum DeveloperMode {
         case ledBright = "led-bright"
         case ledBlink = "led-blink"
         case click = "click"
+        case field = "field"
         case menu = "menu"
         case tab = "tab"
 

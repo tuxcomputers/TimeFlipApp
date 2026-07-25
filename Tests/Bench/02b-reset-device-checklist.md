@@ -85,9 +85,32 @@ end tell'''
 - [ ] Step 2: Click **Reset Device** (`AXButton` in the pairing section's `AXGroup`, right of **Forget
       Device**) and confirm the destructive-action dialog. Method: Confirm a confirmation-dialog
       sheet (`../Methods.md`) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
-      is button 2. **Both fully Claude-driven** this run, contradicting the previous run's note that
-      System Events driving hung.
+      is button 2. (Note: the pairing section only shows **Forget/Reset** once the app is *confirmed*
+      paired -- `isPaired` flips true via `confirmPaired`, which waits for the startup history
+      backfill; until then it shows a single **Scan for Devices** button, so clicking `button 2`
+      blindly fails with `-1719 Invalid index` if the backfill is still running (e.g. right after
+      01b's Scenario B restart). The first action below waits for the Reset button to actually exist
+      before clicking, rather than assuming it's there.)
 ```toml step
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        set deadline to (current date) + 60
+        repeat
+            if (exists button 2 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings") then
+                return "ready"
+            end if
+            if (current date) > deadline then
+                return "timeout: pairing section still shows no Reset Device button (device not confirmed-paired)"
+            end if
+            delay 1
+        end repeat
+    end tell
+end tell'''
+expect = "ready"
+
 [[actions]]
 action = "sql_query"
 query = "SELECT MAX(debug_log_id) FROM debug_log;"
