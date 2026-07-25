@@ -34,8 +34,9 @@ low-battery state -- the clean state the Bench run's own restore leaves behind. 
 query below; if it shows a non-default threshold or `isLowBattery=true` left over from an
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
-- [ ] **(Claude)** Step 1: Query the current threshold and the most recent `battery` `level`, and note both
-      in the logs/00-remembered.json file.
+- [ ] **(Claude)** Step 1: Query the current threshold and the live `battery` `level` (the **higher of the
+      two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device
+      read low), and note both in the logs/00-remembered.json file.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -52,7 +53,7 @@ timeout_seconds = 15
 
 [[actions]]
 action = "sql_query"
-query = "SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT bl FROM (SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) AS bl, COUNT(*) AS n FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' GROUP BY bl ORDER BY n DESC LIMIT 2) ORDER BY bl DESC LIMIT 1;"
 capture = "battery_level_a"
 ```
 - [ ] **(Claude)** Step 2: Quit the app. Method: Quit the app (`../Methods.md`).
