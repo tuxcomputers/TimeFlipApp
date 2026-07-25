@@ -143,3 +143,9 @@ prompt = "The history-refresh checklist needs at least 10 device events. Flip th
 timeout_seconds = 240
 poll_interval = 3
 ```
+- [ ] Step 13: Confirm you've **stopped flipping** and the device is resting on one face before any checklist runs -- the ≥10 monitor above returns the instant the count hits 10, which can be mid-flip, so `01b`'s "event count unchanged" scenario would otherwise race a still-climbing counter. Only when history was being built (`needs_history = y`).
+```toml step
+when = '$needs_history == y'
+action = "ask_user"
+prompt = "Stop flipping and leave the device resting on one face. Is it resting and settled now? (y once it's stopped)"
+```

@@ -37,6 +37,7 @@ import argparse
 import datetime
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -44,13 +45,18 @@ from md_checklist import Checklist  # noqa: E402
 from actions import run_step, condition_met  # noqa: E402
 from remembered import Remembered  # noqa: E402
 from session_setup import (  # noqa: E402
+    _latest_debug_log_id,
     confirm_warning,
+    device_appears_connected,
     ensure_not_timing_on_production,
     reset_device_for_cleanup,
     restore_production_database,
 )
 
 DEFAULT_DB_PATH = os.path.expanduser("~/Library/Application Support/TimeFlip/appdata.sqlite")
+
+# A fixed pause before each step, so the app/device settles between steps (see run_checklist).
+STEP_PAUSE_SECONDS = 2.0
 
 
 def _checklist_id(path):
@@ -275,7 +281,7 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
 
 
 def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None,
-                  initial_vars=None):
+                  initial_vars=None, stop_on_failure=False):
     checklist = Checklist(path)
     log_lines.append(f"\n=== {_log_path(path)} ===")
 
@@ -293,6 +299,9 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
         )
         if step is None:
             break
+        # A fixed beat before every step (even after a step that already waited on the DB), so the
+        # app/device has a moment to settle before the next one runs.
+        time.sleep(STEP_PAUSE_SECONDS)
         ran_any = True
         # Log the section name once, as a sub-heading, when it changes -- so step lines below can
         # stay short ("Step N: ...") and still be unambiguous.
@@ -334,6 +343,8 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
                 continue
             checklist.mark(step, False)
             checklist.save()
+            if stop_on_failure:
+                raise _RunHalted(f"{_note_id(path, step)}: human-verified step did not pass")
             print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
             log_lines.append(f"STOPPED {_log_path(path)} after failed step above.")
             break
@@ -349,6 +360,14 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             checklist.save()
             continue
 
+        # `current_log_id` is a run-wide high-water mark, refreshed to the live MAX(debug_log_id)
+        # right before every step. A step scopes detection on `debug_log_id > $current_log_id` to
+        # mean "a row THIS step produced", and because it always tracks the newest id it carries
+        # forward -- a later step/scenario/checklist can't match a stale row from earlier in the
+        # run. Read from the concrete current DB, so a mid-run switch to a fresh file (whose ids
+        # restart at 1) is handled without a stale baseline. Cross-step baselines that must point
+        # further back (e.g. `before_reset_id`) still capture their own value explicitly.
+        ctx["vars"]["current_log_id"] = _latest_debug_log_id(os.path.realpath(ctx["db_path"]))
         result = run_step(step.spec, ctx)
         status = "PASS" if result.success else "FAIL"
         print(f"  -> {status}: {result.detail}")
@@ -379,6 +398,8 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             continue
         checklist.mark(step, False)
         checklist.save()
+        if stop_on_failure:
+            raise _RunHalted(f"{_note_id(path, step)}: step failed -- {result.detail}")
         print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
         log_lines.append(f"STOPPED {_log_path(path)} after failed step above.")
         break
@@ -425,9 +446,17 @@ def main():
         "failing -- ends the whole run so a mis-run can be investigated before it cascades. --yes "
         "implies this flag (no human to confirm).",
     )
+    parser.add_argument(
+        "-sf", "--stop-on-failure",
+        action="store_true",
+        help="Stop the whole run on the first failed step, instead of the default (stop that one "
+        "checklist and carry on with the rest). The run halts for investigation and end-of-run "
+        "cleanup is skipped, same as answering 'n' to the per-step confirmation gate.",
+    )
     args = parser.parse_args()
     # No human to answer per-step prompts under --yes, so confirmation is off there.
     confirm_steps = args.confirm_steps and not args.yes
+    stop_on_failure = args.stop_on_failure
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -515,7 +544,18 @@ def main():
             sys.exit(1)
 
         for path in checklist_paths:
-            ok = run_checklist(path, db_path, log_lines, args.yes, confirm_steps, remembered)
+            # Every feature checklist needs a live, connected device. If it isn't (e.g. a failed
+            # re-pair in 02b left it forgotten), stop rather than churn through the remaining
+            # checklists' device-independent steps against a device that isn't there.
+            if not device_appears_connected(db_path):
+                msg = (f"device not connected before {_log_path(path)} -- aborting the remaining "
+                       "checklists (they all need a live device)")
+                print(f"\n!!! {msg}")
+                log_lines.append(f"ABORTED: {msg}")
+                overall_ok = False
+                break
+            ok = run_checklist(path, db_path, log_lines, args.yes, confirm_steps, remembered,
+                               stop_on_failure=stop_on_failure)
             overall_ok = overall_ok and ok
     except _RunHalted as halt:
         banner = "!" * 70

@@ -4,6 +4,7 @@ assumes (test database active, device connected) -- see "Switch to the test data
 ../../Tests/Methods.md for the underlying pre-flight rules this mirrors.
 """
 
+import datetime
 import json
 import os
 import sqlite3
@@ -125,6 +126,51 @@ def ensure_not_timing_on_production(db_path):
 def _app_running():
     r = subprocess.run(["pgrep", "-f", "TimeFlip.app/Contents/MacOS/TimeFlip"], capture_output=True, text=True)
     return r.returncode == 0
+
+
+# Tags the app logs on a ~10s cadence while a device is connected (battery push + periodic history
+# fetch). They fall silent when the device is forgotten/dropped, so their recency is a liveness
+# signal -- see device_appears_connected. logged_at is only second-precision, which is fine here:
+# we're checking recency ("within N seconds of now"), not ordering rows within a second.
+_HEARTBEAT_TAGS = ("battery", "hist-done", "hist-start", "hist-check", "hist-result")
+
+
+def _heartbeat_age_seconds(db_path):
+    """Seconds since the app last logged a connected-heartbeat row, or None if there is none / it
+    can't be parsed."""
+    conn = sqlite3.connect(db_path)
+    try:
+        placeholders = ",".join("?" for _ in _HEARTBEAT_TAGS)
+        row = conn.execute(
+            f"SELECT MAX(logged_at) FROM debug_log WHERE tag IN ({placeholders})", _HEARTBEAT_TAGS
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not row[0]:
+        return None
+    try:
+        stamp = datetime.datetime.fromisoformat(row[0])
+    except ValueError:
+        return None
+    return (datetime.datetime.now() - stamp).total_seconds()
+
+
+def device_appears_connected(db_path, within_seconds=30, poll_seconds=12, interval=2):
+    """Is the device actively connected right now? A connected device logs a heartbeat every ~10s
+    (see _HEARTBEAT_TAGS); a forgotten/dropped one goes silent. Returns True as soon as the newest
+    heartbeat is within `within_seconds` of now, else False after polling for `poll_seconds` (the
+    poll lets a between-beats gap resolve rather than reading it as a disconnect). Used by the
+    runner as a pre-checklist gate: every feature checklist needs a live device, so if this is
+    False the run stops rather than churning through steps against a device that isn't there."""
+    concrete = os.path.realpath(db_path)
+    deadline = time.time() + poll_seconds
+    while True:
+        age = _heartbeat_age_seconds(concrete)
+        if age is not None and age <= within_seconds:
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(interval)
 
 
 def _quit_app(timeout=10):

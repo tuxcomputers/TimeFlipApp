@@ -181,25 +181,22 @@ expect_contains = "TimeFlip"
 - [ ] Step 7: Click the discovered device's row to select and pair (it is on the factory default PIN
       `000000` now). Method: Discovered-device row click (`../Methods.md`) -- a coordinate CGEvent
       click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture`
-      an AX press won't actuate. Confirm a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row
-      (`> before_pair_id`); the pairing flow then rotates the password to `123456` and re-confirms,
-      followed by the usual device-sync of auto-pause/LED/double-tap. If the automated click doesn't
-      land, the prompt asks you to click the row yourself.
+      an AX press won't actuate. Wait for the pairing to **complete**, not merely for the first
+      login: a fresh pair logs in with the default PIN, then rotates the device password and logs
+      `"Device password confirmed set to: <pw>"` (`> current_log_id`) about a second later. Waiting
+      for *that* marker (not the earlier `"Login accepted"`, which fires mid-rotation) is what keeps
+      Step 8's `Connected` check from racing the rotation. If the automated click doesn't land, the
+      prompt asks you to click the row yourself.
 ```toml step
-[[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
-capture = "before_pair_id"
-
 [[actions]]
 action = "cgevent_click_element"
 element = 'first static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose name contains "TimeFlip"'
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_pair_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Login accepted"
-prompt = "Pairing the device automatically -- if it doesn't connect within a few seconds, click its row in the discovered list yourself."
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Device password confirmed set to:%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Device password confirmed set to:"
+prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 ```
 - [ ] Step 8: Confirm the Device tab shows the device paired and connected again: read the `Connection` row

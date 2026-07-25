@@ -209,11 +209,6 @@ timeout_seconds = 10
       next run.
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
-capture = "before_zero_id"
-
-[[actions]]
 action = "applescript"
 script = '''
 tell application "TimeFlip" to activate
@@ -228,7 +223,7 @@ end tell'''
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='auto-pause' AND debug_log_id > $before_zero_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='auto-pause' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Auto-pause verification confirmed: requested=0m actual=0m"
 timeout_seconds = 10
 ```

@@ -133,11 +133,6 @@ timeout_seconds = 5
       code=0x02"` row.
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
-capture = "before_quit_id"
-
-[[actions]]
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 
@@ -147,7 +142,7 @@ command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/Time
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```

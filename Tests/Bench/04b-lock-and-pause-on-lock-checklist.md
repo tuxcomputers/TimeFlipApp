@@ -318,17 +318,12 @@ query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_n
       value.
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
-capture = "before_launch_3_id"
-
-[[actions]]
 action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_launch_3_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 

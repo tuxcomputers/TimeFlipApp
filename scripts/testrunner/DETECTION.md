@@ -77,6 +77,18 @@ Helper: `_wait_for_reconnect(...)`. Match on `debug_log_id` (unique, monotonic),
 message text -- the login line repeats verbatim, so text comparison never sees a *new* one.
 `:since` matters: see [Pitfalls](#pitfalls-read-before-adding-a-debug_log-wait).
 
+**Still connected right now? (liveness).** `Login accepted` proves a connection *happened*, not
+that it's *still up*. For "is the device connected at this instant" the runner uses a **heartbeat**
+instead: while connected the app logs a `battery`/`hist-*` row every ~10s, and those go silent when
+the device is forgotten or drops. So the newest such row being recent (`logged_at` within ~30s of
+now) means live. This is the one place `logged_at` beats `debug_log_id` -- it's a *recency* test,
+not row ordering, so second-precision is fine. Helper: `device_appears_connected(db_path)`, used as
+the runner's pre-checklist gate.
+
+```sql
+SELECT MAX(logged_at) FROM debug_log WHERE tag IN ('battery','hist-done','hist-start','hist-check','hist-result');
+```
+
 ---
 
 ## Detecting history-fetch state (split tags)
@@ -136,6 +148,12 @@ global**. So:
   ```sql
   SELECT MAX(debug_log_id) FROM debug_log;   -- capture as :since BEFORE the action
   ```
+
+  **In a checklist step you don't do this by hand:** the supervisor refreshes
+  `$current_log_id` to the live `MAX(debug_log_id)` before every step, so `debug_log_id >
+  $current_log_id` already means "a row this step produced". It's same-step only, though --
+  it advances each step. For a wait that must reach back across several steps, capture your own
+  named baseline (`before_reset_id`, ...) at that earlier point. See README "current_log_id".
 
 - Read that baseline from the **concrete file the switch will land on**, not through the
   `appdata.sqlite` symlink. On a prod->test switch, `test.sqlite`'s id sequence restarts at

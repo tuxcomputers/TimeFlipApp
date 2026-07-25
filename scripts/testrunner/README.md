@@ -148,6 +148,15 @@ really happen (e.g. against a disconnected device).
 checklist; a failing step then just stops that checklist as before). `--yes` implies
 `--no-confirm-steps` -- with no human present there's nobody to confirm.
 
+`--stop-on-failure` (short: `-sf`) changes what a failed step does: instead of the default
+(stop that one checklist and carry on with the rest), the whole run halts for investigation
+and end-of-run cleanup is skipped -- the same outcome as answering `n` to the confirmation
+gate, but automatic.
+
+Between every step (whatever the mode) the runner pauses `STEP_PAUSE_SECONDS` (2s) -- a beat
+for the app/device to settle before the next step, even after a step that already waited on
+the DB.
+
 ## How a checklist step becomes runnable
 
 A step is a normal `- [ ]`/`- [x]` checklist line, same as any other -- the human-readable
@@ -186,6 +195,20 @@ timeout_seconds = 10
 A value captured by one step (`capture = "some_name"`) is available to every later step
 in the same run via `$some_name` inside `query`/`command`/`script`/`expect`/`expect_contains`
 (Python `string.Template`, so literal JSON braces in a query don't clash).
+
+**`current_log_id` (runner-maintained).** The runner refreshes `current_log_id` to the live
+`MAX(debug_log_id)` **before every step** -- you don't capture it, you just read `$current_log_id`.
+Scope a step's detection on `debug_log_id > $current_log_id` to mean "a row **this step** produced".
+Because it advances every step and carries forward across steps, scenarios, and checklists (and is
+re-read from the current DB, so a mid-run switch to a fresh file is handled), a later step can never
+match a stale row from earlier in the run -- and no per-step `SELECT MAX(debug_log_id)` capture is
+needed.
+
+It's only good for *same-step* detection, though. If a scenario needs a baseline that spans
+**several** steps -- detect, a few steps later, a row relative to a point further back -- capture
+your **own** descriptively-named var at that point (`before_reset_id`, `confirmed_id`,
+`prod_before_id`, ...); it coexists with `current_log_id`, which keeps advancing underneath it. Rule
+of thumb: same-step → `$current_log_id`; spans steps → give it a name.
 
 **Remembering reads and changes (`logs/00-remembered.json`).** Every capture is also mirrored
 into `logs/00-remembered.json`, keyed by the run's log-file stamp (the same
@@ -288,7 +311,15 @@ adds its `CONFIRMED` / `FAILURE LOGGED` lines, keyed by the `T<checklist>-<secti
 ## Failure handling and logs
 
 On a step's failure, that checklist stops immediately (later steps assume earlier ones
-left the state they need) -- other checklists passed on the command line still run.
+left the state they need) -- other checklists passed on the command line still run (unless
+`-sf`/`--stop-on-failure` is set, which halts the whole run there).
+
+Before each feature checklist the runner also checks the device is actually connected (a
+recent heartbeat -- `battery`/`hist-*` rows land every ~10s while connected; see
+`device_appears_connected`). If it isn't -- e.g. a failed re-pair in 02b left it forgotten --
+the run stops rather than churning the remaining checklists' device-independent steps against
+a device that isn't there.
+
 Every run writes `logs/YYYY-MM-DD_hh.mm.ss.txt` (gitignored -- these are run artifacts,
 not source) with a full transcript, and the process exits non-zero if anything failed or
 was skipped. Attach that file when filing an issue, or point CI at it as a build artifact.
