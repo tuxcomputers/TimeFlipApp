@@ -360,14 +360,19 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             checklist.save()
             continue
 
-        # `current_log_id` is a run-wide high-water mark, refreshed to the live MAX(debug_log_id)
-        # right before every step. A step scopes detection on `debug_log_id > $current_log_id` to
-        # mean "a row THIS step produced", and because it always tracks the newest id it carries
-        # forward -- a later step/scenario/checklist can't match a stale row from earlier in the
-        # run. Read from the concrete current DB, so a mid-run switch to a fresh file (whose ids
-        # restart at 1) is handled without a stale baseline. Cross-step baselines that must point
-        # further back (e.g. `before_reset_id`) still capture their own value explicitly.
-        ctx["vars"]["current_log_id"] = _latest_debug_log_id(os.path.realpath(ctx["db_path"]))
+        # `current_log_id` is refreshed to the live MAX(debug_log_id) of the CURRENT db right
+        # before every step. A step scopes detection on `debug_log_id > $current_log_id` to mean
+        # "a row THIS step produced"; re-reading it each step means a later step can't match a
+        # stale row from earlier in the run. Crucially it is RE-READ, not carried: a mid-run
+        # switch to a fresh file (whose ids restart at 1) resets it to that file's small max,
+        # rather than keeping the old file's large id (e.g. prod's ~34k, which the tiny test
+        # sequence would take ages to exceed). It's same-step only; a wait that must reach back
+        # across several steps captures its own named baseline instead (e.g. `before_reset_id`).
+        # A just-created db may not have the table yet -> treat as 0 (matches everything, safe).
+        try:
+            ctx["vars"]["current_log_id"] = _latest_debug_log_id(os.path.realpath(ctx["db_path"]))
+        except Exception:  # noqa: BLE001 -- a transient read must not crash the run
+            ctx["vars"]["current_log_id"] = 0
         result = run_step(step.spec, ctx)
         status = "PASS" if result.success else "FAIL"
         print(f"  -> {status}: {result.detail}")

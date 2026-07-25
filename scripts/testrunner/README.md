@@ -199,10 +199,11 @@ in the same run via `$some_name` inside `query`/`command`/`script`/`expect`/`exp
 **`current_log_id` (runner-maintained).** The runner refreshes `current_log_id` to the live
 `MAX(debug_log_id)` **before every step** -- you don't capture it, you just read `$current_log_id`.
 Scope a step's detection on `debug_log_id > $current_log_id` to mean "a row **this step** produced".
-Because it advances every step and carries forward across steps, scenarios, and checklists (and is
-re-read from the current DB, so a mid-run switch to a fresh file is handled), a later step can never
-match a stale row from earlier in the run -- and no per-step `SELECT MAX(debug_log_id)` capture is
-needed.
+Because it's re-read every step, a later step can never match a stale row from earlier in the run,
+and no per-step `SELECT MAX(debug_log_id)` capture is needed. It's re-read, **not** carried across a
+database switch: `debug_log_id` is per-file, so when a run switches to a fresh `test.sqlite` (ids
+restart at 1) `current_log_id` resets to that file's small max -- it does not keep the old file's
+large id (e.g. production's ~34k), which the new sequence would take ages to exceed.
 
 It's only good for *same-step* detection, though. If a scenario needs a baseline that spans
 **several** steps -- detect, a few steps later, a row relative to a point further back -- capture
