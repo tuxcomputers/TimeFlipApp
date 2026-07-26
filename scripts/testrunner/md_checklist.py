@@ -83,7 +83,13 @@ class Step:
         cuts = [m.start() for m in (_METHOD_RE.search(t), _ASIDE_RE.search(t)) if m]
         if cuts:
             t = t[: min(cuts)]
-        t = " ".join(t.split()).rstrip(" .")
+        t = " ".join(t.split())
+        # Cutting just before a "([Method ...])" / "[Method ...]" reference can strand the
+        # link/paren opener that introduced it (e.g. "...reconnects ([" or "...open. ["); drop
+        # a trailing run of "(" / "[" and the punctuation leading into it. No-op when the text
+        # doesn't end in a stray opener.
+        t = re.sub(r"[\s.,;:]*[([]+$", "", t)
+        t = t.rstrip(" .")
         if maxlen is not None and len(t) > maxlen:
             t = t[: maxlen - 1].rstrip() + "…"
         return t

@@ -294,6 +294,13 @@ progress of every checklist about to run, as one whole-batch decision -- not per
   (A completely fresh batch -- nothing ticked anywhere -- skips this prompt; there's nothing to
   keep.)
 
+  On **`s`** the shared setup runs in *keep* mode: it does **not** wipe the test DB
+  (`use-test-database.sh keep` preserves the existing `test.sqlite`) and skips the
+  production-history round-trip, so the state the kept-ticked earlier scenarios built survives
+  into the resumed one. It still quits and relaunches the app, so a rebuilt binary is picked up.
+  A **`t`** / fresh run rebuilds `test.sqlite` from scratch as before. (`main()` derives this from
+  the rerun decision and passes `resume`/`db_mode` into the setup run's `initial_vars`.)
+
 `--yes` answers both automatically (clear-and-rerun; and, mid-run, restart from the top) without
 blocking, for CI/non-interactive use.
 

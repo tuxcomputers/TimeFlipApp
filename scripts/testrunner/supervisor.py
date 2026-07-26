@@ -299,8 +299,10 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     """Whole-batch, up-front check: if every requested checklist is already fully ticked,
     offer to clear them all and run again; otherwise (any checklist partially or entirely
     unticked) show where we left off and what's next, and offer to resume -- clearing the
-    whole batch and starting over if the developer declines. Returns False if there's
-    nothing to run."""
+    whole batch and starting over if the developer declines. Returns one of: None (nothing
+    to run), "fresh" (run from a clean, freshly-wiped test DB), or "resume" (a `s` restart of
+    the current scenario -- the existing test DB must be preserved so earlier scenarios' state
+    survives)."""
     infos = summarize_progress(checklist_paths)
     all_complete = all(done == total for _, done, total in infos)
     n = len(infos)
@@ -314,19 +316,19 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
             clear_again = prompt_yn("Clear their results and run again?")
         log_lines.append(f"All requested checklists already complete; clear-and-rerun: {clear_again}")
         if not clear_again:
-            return False
+            return None
         for p, _, _ in infos:
             c = Checklist(p)
             c.clear_checkboxes()
             c.save()
-        return True
+        return "fresh"
 
     _print_resume_location(checklist_paths, log_lines)
     # A completely fresh batch (nothing ticked anywhere) has nothing to restart -- "top" and
     # "current scenario" both just mean "run from the first step". Skip the prompt entirely;
     # only ask when there's genuine partial progress to either keep or discard.
     if all(done == 0 for _, done, _ in infos):
-        return True
+        return "fresh"
     if auto_yes:
         print("(--yes passed: restarting from the top)")
         choice = "t"
@@ -343,9 +345,11 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
             c = Checklist(p)
             c.clear_checkboxes()
             c.save()
-    else:  # "s" -- restart the current scenario, keep everything before it
-        _clear_from_current_scenario(checklist_paths, log_lines)
-    return True
+        return "fresh"
+    # "s" -- restart the current scenario, keep everything before it AND keep the test DB, so the
+    # state those earlier scenarios established isn't wiped out from under the resumed scenario.
+    _clear_from_current_scenario(checklist_paths, log_lines)
+    return "resume"
 
 
 def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None,
@@ -569,7 +573,8 @@ def main():
         log_lines.append("ABORTED: on production and device is mid-timing; developer must pause first.")
         sys.exit(1)
 
-    if not resolve_rerun_state(checklist_paths, log_lines, args.yes):
+    run_mode = resolve_rerun_state(checklist_paths, log_lines, args.yes)
+    if run_mode is None:
         print("\nNothing to run.")
         log_lines.append("Nothing to run.")
         sys.exit(0)
@@ -595,10 +600,10 @@ def main():
 
     overall_ok = True
     try:
-        # Always run the shared setup first, fresh, whatever subset was requested (Bench,
-        # Interactive, a single file) -- it switches to the test database once and confirms the
-        # device is connected. Its boxes are cleared so it re-runs every time; a failure here
-        # aborts before any feature checklist.
+        # Always run the shared setup first, whatever subset was requested (Bench, Interactive, a
+        # single file) -- it switches to the test database and confirms the device is connected.
+        # Its boxes are cleared so it re-runs every time; a failure here aborts before any feature
+        # checklist. On a "resume" it runs in keep mode (see below) so it doesn't wipe the test DB.
         setup = Checklist(setup_path)
         setup.clear_checkboxes()
         setup.save()
@@ -609,8 +614,15 @@ def main():
         needs_history = "y" if any(
             os.path.basename(p).startswith(("01b", "01i")) for p in checklist_paths
         ) else "n"
+        # On a "resume" (`s`), keep the existing test DB and skip the production-history recording:
+        # earlier scenarios' state must survive, and we're already on test. On a fresh run, wipe and
+        # rebuild it. `db_mode` is passed straight to use-test-database.sh; `resume` gates the
+        # production round-trip prompt in Step 1.
+        resume = "y" if run_mode == "resume" else "n"
+        db_mode = "keep" if run_mode == "resume" else "fresh"
         if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps, remembered,
-                             initial_vars={"needs_history": needs_history}):
+                             initial_vars={"needs_history": needs_history,
+                                           "resume": resume, "db_mode": db_mode}):
             print("\nAborted -- test setup failed; not running any checklists.")
             log_lines.append("ABORTED: test setup failed.")
             sys.exit(1)

@@ -27,7 +27,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Check which database is active and decide whether to record production history. On production, record it. Otherwise ask whether to switch to production and record first, or skip straight to the test DB. Sets `record_history` (`y`/`n`) that steps 2--7 read, and `want_switch` (`y` only in the not-on-production + chose-to-switch case).
+- [ ] Step 1: Check which database is active and decide whether to record production history. On production, record it. Otherwise ask whether to switch to production and record first, or skip straight to the test DB. On a resume (`resume = y`) skip this decision entirely -- we're continuing on the existing test DB and must not round-trip to production. Sets `record_history` (`y`/`n`) that steps 2--7 read, and `want_switch` (`y` only in the not-on-production + chose-to-switch case).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -40,15 +40,30 @@ when = '$db_at_start == {"type":"production"}'
 query = "SELECT 'y';"
 capture = "record_history"
 
+# want_prompt gates the production-switch question: only when off production AND this isn't a
+# resume. (`when` takes a single comparison, so it's built in two steps: default y off-production,
+# then forced n on a resume.)
+[[actions]]
+action = "sql_query"
+when = '$db_at_start != {"type":"production"}'
+query = "SELECT 'y';"
+capture = "want_prompt"
+
+[[actions]]
+action = "sql_query"
+when = '$resume == y'
+query = "SELECT 'n';"
+capture = "want_prompt"
+
 [[actions]]
 action = "ask_user"
-when = '$db_at_start != {"type":"production"}'
+when = '$want_prompt == y'
 prompt = "The app is NOT on the production database. Switch to production and record its device history before testing?\ny = switch to prod, record history, then go to the test DB\nn = skip recording and go straight to the test DB"
 capture = "want_switch"
 
 [[actions]]
 action = "sql_query"
-when = '$db_at_start != {"type":"production"}'
+when = '$want_prompt == y'
 query = "SELECT '$want_switch';"
 capture = "record_history"
 ```
@@ -101,7 +116,7 @@ action = "sql_query"
 query = "SELECT COALESCE((SELECT CASE WHEN is_paused = 0 THEN 'TIMING' ELSE 'ok' END FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), 'ok');"
 expect = "ok"
 ```
-- [ ] Step 8: Switch to the test database -- quit the app (if running), run `scripts/use-test-database.sh` (creates a fresh empty `test.sqlite` and repoints the `appdata.sqlite` symlink at it), relaunch.
+- [ ] Step 8: Switch to the test database -- quit the app (if running), run `scripts/use-test-database.sh $db_mode`, relaunch. On a fresh run (`db_mode = fresh`) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume).
 ```toml step
 [[actions]]
 action = "shell"
@@ -109,7 +124,7 @@ command = "pgrep -f 'TimeFlip.app/Contents/MacOS/TimeFlip' > /dev/null 2>&1 && o
 
 [[actions]]
 action = "shell"
-command = "scripts/use-test-database.sh"
+command = "scripts/use-test-database.sh $db_mode"
 
 [[actions]]
 action = "shell"

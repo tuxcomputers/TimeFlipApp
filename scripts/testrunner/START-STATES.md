@@ -29,7 +29,8 @@ How each thing is detected (the exact `sqlite3` queries / helpers) lives in
 
 Every path below ends here:
 
-- **DB:** on **test** -- `db_type = {"type":"test"}`, freshly rebuilt this run.
+- **DB:** on **test** -- `db_type = {"type":"test"}`, freshly rebuilt this run (except on a
+  restart-from-scenario resume, which preserves the existing `test.sqlite` -- see below).
 - **App:** **running**; device **paired + connected** (a recent `Login accepted`); history **synced**.
 - **Device:** **unlocked** and **unpaused**.
 - **Production history:** **recorded** to `production.sqlite` before the switch to test -- unless the
@@ -159,8 +160,10 @@ The shared terminal path -- every non-aborting branch ends here.
 
 - App running, device paired + connected; production history recorded (or the dev opted out)
 
-1. Quit the app, run `use-test-database.sh` (creates a fresh empty `test.sqlite` and repoints the
-   `appdata.sqlite` symlink at it), relaunch.
+1. Quit the app, run `use-test-database.sh $db_mode` (fresh run: creates a fresh empty
+   `test.sqlite`; restart-from-scenario resume passes `keep`, preserving the existing `test.sqlite`
+   so state earlier scenarios built survives), repoint the `appdata.sqlite` symlink at it, relaunch.
+   On a resume the production-history recording above is also skipped (we stay on test throughout).
 2. Read the app's `paired` setting. If it isn't paired -- the **"test DB + not paired"** start
    state that a prior run's end-of-run cleanup reset leaves behind (pairing is device-level, and the
    reset forgets the device) -- **script the pair**: Scan for Devices, coordinate-click the
