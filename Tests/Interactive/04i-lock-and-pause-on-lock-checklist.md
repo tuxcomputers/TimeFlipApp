@@ -32,8 +32,10 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_i
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 10
 ```
-- [ ] **(You)** Step 2: Try flipping to the **Meeting** face while locked (name the exact facet, per
-      `../CLAUDE.md`); confirm nothing happens (the device itself refuses the flip while locked).
+- [ ] **(You)** Step 2: Try flipping to whichever of **Break**/**Meeting** the device is *not* already on,
+      while locked (the step reads the current face and names the target below, so it's a real
+      attempted transition); confirm nothing happens (the device itself refuses the flip while
+      locked).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -41,8 +43,13 @@ query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC 
 capture = "event_id_before_locked_flip"
 
 [[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 'Meeting' ELSE 'Break' END;"
+capture = "flip_target_name"
+
+[[actions]]
 action = "ask_user"
-prompt = "Flip the cube to the Meeting face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
+prompt = "Flip the cube to the $flip_target_name face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
 - [ ] **(Claude)** Step 3: Confirm no new `device_event` row appeared for the attempted flip (query
       `device_event_id DESC`, latest row unchanged before/after).

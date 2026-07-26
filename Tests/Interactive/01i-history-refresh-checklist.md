@@ -31,12 +31,23 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 ```
 - [ ] **(Claude)** Step 2: Note the current max `event_number` (call it N), by `device_event_id DESC`, not
-      `MAX(event_number)` -- Method: Read debug output, `../Methods.md`. (Re-noted after an
+      `MAX(event_number)` -- [Method: Number 20](../Methods.md#method-20). (Re-noted after an
       unrelated cleanup below: N=9, facet 2 "Meeting", running/unpaused.)
 ```toml step
+[[actions]]
 action = "sql_query"
 query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "n_before_flip"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 'Meeting' ELSE 'Break' END;"
+capture = "flip_target_name"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 2 ELSE 8 END;"
+capture = "flip_target_face"
 ```
 - [ ] **(Claude)** Step 3: Confirm the device isn't locked (no lock badge on the menu bar) before asking for
       the flip below -- the device silently refuses flips while locked, which would otherwise leave
@@ -50,13 +61,14 @@ capture = "n_before_flip"
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [ ] **(You)** Step 4: Flip to the **Break** face (name the exact facet, per `../CLAUDE.md` -- only
-      Break/Meeting have stickers on this cube). (Detected automatically by polling
-      `device_event` every couple of seconds -- no need to ask for confirmation. Method: Detect a
-      physical action instead of asking, `../Methods.md`.)
+- [ ] **(You)** Step 4: Flip to whichever of **Break**/**Meeting** the device is *not* already on -- Step 2
+      read the current face and named the target in the prompt, so a real flip happens; asking for the
+      face it's already resting on would leave the poll with nothing to detect. (Detected
+      automatically by polling `device_event` every couple of seconds -- no need to ask for
+      confirmation. [Method: Number 19](../Methods.md#method-19).)
 ```toml step
 action = "ask_user_or_detect"
-prompt = "Flip the cube to the Break face."
+prompt = "Flip the cube to the $flip_target_name face."
 detect_query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 timeout_seconds = 120
 poll_interval = 2
@@ -74,12 +86,12 @@ action = "sql_query"
 query = "SELECT finalised FROM device_event WHERE event_number = $n_before_flip ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
-- [ ] **(Claude)** Step 6: Screenshot the menu bar; confirm the activity name/icon updated to the new
-      facet.
+- [ ] **(Claude)** Step 6: Confirm the menu bar updated to the new facet -- its `device_face` is now the
+      target face flipped to in Step 4.
 ```toml step
 action = "sql_query"
 query = "SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
-expect = "8"
+expect = "$flip_target_face"
 ```
 
 ## Scenario B -- backlog after being out of range

@@ -37,21 +37,27 @@ expect = "{\"type\":\"test\"}"
 action = "sql_query"
 query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "event_number_before_flip"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 'Meeting' ELSE 'Break' END;"
+capture = "flip_target_name"
 ```
 
 ### Action needed
-Flip to the **Break** face (name the exact facet, per `../CLAUDE.md` -- only Break/Meeting have
-stickers on this cube).
+Flip to whichever of **Break**/**Meeting** the device is *not* already on (Step 1 read the current
+face and names the target below) -- so a real post-reset flip happens; asking for the face it's
+already resting on would give the poll nothing to detect.
 
 - [ ] **(You)** Step 2: Confirm you flipped the device to a different facet.
 ```toml step
 action = "ask_user_or_detect"
-prompt = "Flip the cube to the Break face."
+prompt = "Flip the cube to the $flip_target_name face."
 detect_query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 timeout_seconds = 120
 poll_interval = 2
 ```
-- [ ] **(Claude)** Step 3: Query `device_event` (Method: Read debug output, `../Methods.md` -- by
+- [ ] **(Claude)** Step 3: Query `device_event` ([Method: Number 20](../Methods.md#method-20) -- by
       `device_event_id DESC`, not `MAX(event_number)`, since old pre-reset rows aren't deleted and
       the device's own counter isn't unique across a reset) for the new event's `event_number` and
       confirm it is a small number close to the device's own reset baseline -- **1** is expected, but
