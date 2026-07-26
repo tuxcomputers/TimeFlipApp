@@ -207,17 +207,18 @@ def prompt_yn(prompt):
         print(f"Not recognized: {answer!r} -- please answer 'y' or 'n'.")
 
 
-def prompt_ts(prompt):
+def prompt_ts(options_text):
     """Loop-until-valid t/s question for the mid-run restart decision: `t` = restart from the
-    top (clear everything), `s` = restart from the current scenario (keep completed scenarios,
-    re-run the current one from its first step). Same case-insensitive shape as prompt_yn."""
+    top, `s` = restart from the current scenario. `options_text` is the two labelled `[t]`/`[s]`
+    lines (printed once); then it loops on `>>> t/s:` until a valid answer."""
+    print(options_text)
     while True:
-        answer = input(f"{prompt} [t/s]: ").strip().lower()
+        answer = input(">>> t/s: ").strip().lower()
         if answer == "t":
             return "t"
         if answer == "s":
             return "s"
-        print(f"Not recognized: {answer!r} -- please answer 't' (top) or 's' (scenario).")
+        print("Not recognized -- please answer 't' or 's'.")
 
 
 def summarize_progress(checklist_paths):
@@ -330,10 +331,11 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
         print("(--yes passed: restarting from the top)")
         choice = "t"
     else:
+        _, nxt = _resume_point(checklist_paths)
+        where = f"{_checklist_id(nxt[0])} {nxt[1].section}" if nxt else "the current scenario"
         choice = prompt_ts(
-            "Restart from the [t]op (clear everything and run the whole batch again), or from "
-            "the current [s]cenario (keep completed scenarios ticked, re-run the current scenario "
-            "from its first step)?"
+            "\n[t] Restart from the top and run all tests"
+            f"\n[s] Restart from test {where}"
         )
     log_lines.append(f"Requested checklists mid-run; restart choice: {choice!r}")
     if choice == "t":
