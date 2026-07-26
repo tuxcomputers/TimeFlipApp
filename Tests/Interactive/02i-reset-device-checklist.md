@@ -54,7 +54,7 @@ already resting on would give the poll nothing to detect.
 action = "ask_user_or_detect"
 prompt = "Flip the cube to the $flip_target_name face."
 detect_query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
-timeout_seconds = 120
+timeout_seconds = 0
 poll_interval = 2
 ```
 - [ ] **(Claude)** Step 3: Query `device_event` ([Method: Number 20](../Methods.md#method-20) -- by

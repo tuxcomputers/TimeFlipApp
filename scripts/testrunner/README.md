@@ -250,14 +250,14 @@ each `when = "$start_event_id < 10"`, so a device that already has enough histor
 | `applescript` | run an AppleScript (`script`), optionally assert its output (`expect`/`expect_contains`) or `capture` it |
 | `sql_query` | run a `SELECT` (`query`), optionally assert (`expect`/`expect_contains`) or `capture` the result |
 | `sql_exec` | run an `INSERT`/`UPDATE` (`query`), no assertion |
-| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s). Optional `prompt` is printed as an "ACTION NEEDED" nudge only if the condition isn't already met when polling starts |
+| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s). `timeout_seconds = 0` waits **indefinitely** -- for a step gated on a human action (toggle Bluetooth, flip the cube) where a distraction shouldn't fail the run; it re-shows the nudge each minute. Optional `prompt` is printed as an "ACTION NEEDED" nudge only if the condition isn't already met when polling starts |
 | `cgevent_click` | a real synthetic click/double-click/held-press at a named `target` (see `locators.py`), via `CGEventPost` with `kCGMouseEventClickState` set -- see "Simulate a real click..." in `../../Tests/Methods.md` for why this works where AppleScript's `click` doesn't |
 | `cgevent_click_element` | same real CGEvent click, but at the live centre of an accessibility `element` (reads its `position`+`size` first) rather than a fixed `locators.py` target -- for dynamic controls like the discovered-device pairing row (a `Text`+`.onTapGesture` an AX press won't actuate) |
 | `cgevent_key` | post a raw keydown/keyup for `keycode` (default `53` = Escape) via `CGEventPost` -- e.g. to dismiss a modal status-item dropdown a synthetic click opened, without an osascript call that would collide with the open menu (see Method 6) |
 | `click_menu_item` | open the status-item menu and click `item` by name |
 | `ensure_unlocked_unpaused` | idempotent precondition resolver: **polls** the menu over a settle window, clicking Unlock/Resume whenever they appear (the device's lock/pause state can land a couple seconds after login, so a single read would miss it) -- declares clean only after the menu stays clear for `clean_confirm_seconds` |
 | `ask_user` | print `prompt`, block for a y/n -- a gate by default (`n` fails the step); with `capture`, a *branch* instead (stores `y`/`n` in that var, always succeeds, for a later `when` to read -- see `00-test-setup.md`'s record-history choice) |
-| `ask_user_or_detect` | print `prompt`, then poll `detect_query` for a change instead of waiting on Enter -- see "Detect a physical action instead of asking" in `Methods.md` |
+| `ask_user_or_detect` | print `prompt`, then poll `detect_query` for a change instead of waiting on Enter -- see "Detect a physical action instead of asking" in `Methods.md`. `timeout_seconds = 0` waits indefinitely (same rationale as `wait_for_sql`), re-nudging each minute |
 
 `locators.py` resolves named on-screen targets (currently `status_item_left`/`status_item_right`)
 fresh via accessibility on every call, since the status item's width shifts with its

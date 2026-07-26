@@ -200,6 +200,11 @@ def act_wait_for_sql(spec, ctx):
     expect, expect_contains = _resolve_expect(spec, ctx)
     timeout = spec.get("timeout_seconds", 30)
     interval = spec.get("poll_interval", 2)
+    # timeout_seconds = 0 (or negative) means wait *indefinitely* -- for a step gated on a human
+    # action (turn Bluetooth off/on, flip the cube) the developer might wander off, and a
+    # distraction shouldn't fail the run. It just keeps polling (and re-nudging) until the side
+    # effect the step waits on actually shows up. A positive timeout still fails on expiry as before.
+    wait_forever = timeout is not None and timeout <= 0
     # Optional prompt: printed ONLY if the condition isn't already met, right before we start
     # polling -- i.e. an "action needed" nudge the developer sees exactly when their input is
     # required (e.g. "start flipping the device"), and never when it's already satisfied.
@@ -219,13 +224,19 @@ def act_wait_for_sql(spec, ctx):
         return StepResult(True, f"already satisfied: {last_text}")
     if prompt:
         print(f"\n>>> ACTION NEEDED: {prompt}")
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = None if wait_forever else time.time() + timeout
+    last_nudge = time.time()
+    while wait_forever or time.time() < deadline:
         time.sleep(interval)
         rows, cols = _run_sql(ctx["db_path"], query)
         last_text = _format_rows(rows, cols)
         if matched(last_text):
             return StepResult(True, f"matched after poll: {last_text}")
+        # On an indefinite wait, re-show the nudge every minute so a developer who stepped away
+        # sees it again on return, rather than a lone prompt scrolled off the top.
+        if prompt and wait_forever and time.time() - last_nudge >= 60:
+            print(f">>> STILL WAITING: {prompt}")
+            last_nudge = time.time()
     expected_desc = expect if expect is not None else expect_contains
     return StepResult(False, f"timed out after {timeout}s waiting for {expected_desc!r}, last saw: {last_text}")
 
@@ -429,17 +440,26 @@ def act_ask_user_or_detect(spec, ctx):
     query = _sub(spec["detect_query"], ctx)
     timeout = spec.get("timeout_seconds", 120)
     interval = spec.get("poll_interval", 2)
+    # timeout_seconds = 0 (or negative) waits indefinitely -- for a physical action (flip the cube)
+    # the developer can take as long as they like; a distraction shouldn't fail the run. See the
+    # matching note in act_wait_for_sql.
+    wait_forever = timeout is not None and timeout <= 0
     rows, cols = _run_sql(ctx["db_path"], query)
     baseline = _format_rows(rows, cols)
     print(f"\n>>> ACTION NEEDED: {prompt}")
     print(">>> (auto-detecting via the database -- no need to press Enter)")
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = None if wait_forever else time.time() + timeout
+    last_nudge = time.time()
+    while wait_forever or time.time() < deadline:
         rows, cols = _run_sql(ctx["db_path"], query)
         current = _format_rows(rows, cols)
         if current != baseline:
             return StepResult(True, f"detected change: {baseline} -> {current}")
         time.sleep(interval)
+        # Re-nudge an indefinite wait each minute so a developer who stepped away sees it on return.
+        if wait_forever and time.time() - last_nudge >= 60:
+            print(f">>> STILL WAITING: {prompt}")
+            last_nudge = time.time()
     return StepResult(False, f"timed out after {timeout}s waiting for a change from {baseline}")
 
 

@@ -213,14 +213,14 @@ action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 14: Build up device history to **≥ 10 events** -- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it prompts you to flip and waits (up to 4 min). Confirmed on the test DB (Step 13 above) so real flips record to `test.sqlite`.
+- [ ] Step 14: Build up device history to **≥ 10 events** -- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it prompts you to flip and polls with **no timeout** -- take as long as you need, it won't fail the run. Confirmed on the test DB (Step 13 above) so real flips record to `test.sqlite`.
 ```toml step
 when = '$needs_history == y'
 action = "wait_for_sql"
 query = "SELECT COALESCE((SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'building=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1), 'building=0');"
 expect = "ok"
 prompt = "The history-refresh checklist needs at least 10 device events. Flip the device between faces (e.g. Break and Meeting) until this proceeds, then leave it resting on one face."
-timeout_seconds = 240
+timeout_seconds = 0
 poll_interval = 3
 ```
 - [ ] Step 15: Confirm you've **stopped flipping** and the device is resting on one face before any checklist runs -- the ≥10 monitor above returns the instant the count hits 10, which can be mid-flip, so `01b`'s "event count unchanged" scenario would otherwise race a still-climbing counter. Only when history was being built (`needs_history = y`).
