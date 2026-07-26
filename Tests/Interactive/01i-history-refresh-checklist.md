@@ -107,35 +107,57 @@ action = "sql_query"
 query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "n_before_disconnect"
 ```
-- [ ] **(You)** Step 3: Disconnect the device from the app -- either move it out of Bluetooth range, or (the
-      practical equivalent used for this run, since the device's real range is long enough to make
-      physically walking away impractical) turn off Bluetooth on the Mac itself, via the menu bar
-      icon or System Settings, NOT `sudo`/system-wide toggling, which also disconnects any other
-      Bluetooth peripherals -- wait for the menu bar to turn yellow (disconnected), then flip it
-      2-3 times while still disconnected, then reconnect (bring it back in range, or turn Bluetooth
-      back on). (Detect the disconnect via `debug_log` -- the status item's own title text doesn't
-      reflect connection color/state, so poll `debug_log` for a `history` fetch repeatedly returning
-      `device_last_event=nil` against an unchanged `known_max`, or check the Preferences window's
-      `Connection` field directly, rather than the status item's name/title.)
+- [ ] **(You)** Step 3: Turn **off** Bluetooth on the Mac (menu bar icon or System Settings -- **not**
+      `sudo`/system-wide toggling, which also drops every other Bluetooth peripheral), so the app
+      loses the device. Don't flip the cube yet -- that comes once the disconnect is confirmed.
 ```toml step
 action = "ask_user"
-prompt = "Turn off Bluetooth on the Mac (menu bar icon or System Settings, not sudo/system-wide). Wait for the status item to show disconnected, flip the cube 2-3 times while still disconnected, then turn Bluetooth back on. Did you complete all of that? (y/n)"
+prompt = "Turn OFF Bluetooth on the Mac (menu bar icon or System Settings, NOT sudo/system-wide). Don't flip the cube yet. Have you turned Bluetooth off? (y/n)"
 ```
-- [ ] **(Claude)** Step 4: Confirm the app reconnects automatically (Method: Confirm device reconnect,
-      `../Methods.md`): query `debug_log` for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"`
-      row logged after the reconnect. Flips while disconnected can't be polled in real time -- no
-      connection means no data flows -- so this is the point to resume automatic detection, once
-      reconnected.
+- [ ] **(Claude)** Step 4: Detect the disconnection -- wait for a fresh `connection.connection_lost recorded`
+      row in `debug_log` (`TimeFlip` tag) after Step 2's baseline, confirming the app actually saw the
+      device drop before any flips happen. (The status item's title text doesn't reflect connection
+      state, so this reads the app's own disconnect marker, not the menu bar.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'connection.connection_lost recorded%' AND debug_log_id > $before_disconnect_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "connection.connection_lost recorded"
+prompt = "Still looks connected -- make sure Bluetooth is actually off (the status item should show disconnected)."
+timeout_seconds = 30
+```
+- [ ] **(You)** Step 5: With the device **still disconnected**, flip the cube back and forth between the
+      **Break** and **Meeting** faces 2-3 times, so it accumulates a backlog of events the app can't
+      see yet.
+```toml step
+action = "ask_user"
+prompt = "While the device is STILL disconnected, flip the cube back and forth between the Break and Meeting faces 2-3 times. Have you done that? (y/n)"
+```
+- [ ] **(You)** Step 6: Turn Bluetooth back **on** so the app can reconnect and sync the backlog.
+```toml step
+action = "ask_user"
+prompt = "Turn Bluetooth back ON so the app can reconnect. Have you turned it back on? (y/n)"
+```
+- [ ] **(Claude)** Step 7: Detect that the device reconnects (Method: Confirm device reconnect,
+      `../Methods.md`): wait for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row logged
+      after the disconnect. Flips while disconnected can't be polled in real time -- no connection
+      means no data flows -- so this is the point automatic detection resumes.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_disconnect_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [ ] **(Claude)** Step 5: Confirm every intermediate flip shows up as its own finalised `device_event`
-      row in ascending `event_number` order with no gaps, and the final row (still open) matches
-      the device's actual current facet. (A gap can be legitimate rather than a bug -- a genuine
-      sub-`blip_time` quick pass-over gets merged into the surrounding segment rather than recorded
-      as its own row, logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s,
-      device's own filter"` -- confirm any gap is explained this way before treating it as missing
-      data.)
+- [ ] **(Claude)** Step 8: Confirm the disconnected-flip backlog synced on reconnect: poll until at least
+      **2** new `device_event` rows exist with `event_number` greater than N (the pre-disconnect
+      baseline), i.e. the intermediate flips arrived as their own segments once the connection came
+      back. (No-gap ordering and the final open row matching the resting facet are visual/interpretive
+      -- a gap can be legitimate: a sub-`blip_time` quick pass-over gets merged into the surrounding
+      segment and logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's
+      own filter"`, so confirm any gap is explained that way before treating it as missing data.)
+```toml step
+action = "wait_for_sql"
+query = "SELECT CASE WHEN (SELECT COUNT(DISTINCT event_number) FROM device_event WHERE event_number > $n_before_disconnect) >= 2 THEN 'synced' ELSE 'waiting' END;"
+expect = "synced"
+timeout_seconds = 60
+poll_interval = 3
+```

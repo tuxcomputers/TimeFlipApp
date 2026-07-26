@@ -255,9 +255,9 @@ capture = "dt_window_original"
 action = "ask_user"
 prompt = '''Current Double-tap params, now recorded to logs/00-remembered.json -- these should match the app's Double tap section, top to bottom:
 Threshold: $dt_threshold_original
-Limit: $dt_limit_original
-Latency: $dt_latency_original
-Window: $dt_window_original
+Limit:     $dt_limit_original
+Latency:   $dt_latency_original
+Window:    $dt_window_original
 
 Do all four match what the app shows?'''
 ```
