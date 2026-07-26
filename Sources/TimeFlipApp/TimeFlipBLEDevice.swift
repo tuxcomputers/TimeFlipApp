@@ -559,10 +559,14 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     private func attemptLogin(with password: String) async throws -> Bool {
         let passwordData = Data(password.utf8)
-        logger.debug("Writing password to device (pwd=\(password, privacy: .private))")
-        DeveloperMode.debugPrint(.timeFlip, "Writing password to device: \(passwordData.hexString())")
+        logger.debug("Logging in using password (pwd=\(password, privacy: .private))")
+        // This is the per-session LOGIN write, not a password change: the device wipes its Password
+        // characteristic on every disconnect and demands it again on reconnect (BLE spec v4.3), so
+        // this fires on every connect. Changing the PIN is the separate 0x30 command in
+        // rotateDevicePassword ("Rotating device password to:" / "Device password confirmed set to:").
+        DeveloperMode.debugPrint(.timeFlip, "Logging in using password: \(passwordData.hexString())")
         try await write(passwordData, to: TimeFlipUUIDs.password, type: .withResponse)
-        DeveloperMode.debugPrint(.timeFlip, "Password write acknowledged; reading commandResult…")
+        DeveloperMode.debugPrint(.timeFlip, "Password sent; reading commandResult…")
         guard let response = try await read(TimeFlipUUIDs.commandResult) else {
             logger.error("TimeFlip login had no commandResult response")
             DeveloperMode.debugPrint(.timeFlip, "Login: no commandResult response (nil)")
