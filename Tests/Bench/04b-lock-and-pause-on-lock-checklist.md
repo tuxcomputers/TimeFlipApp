@@ -6,19 +6,17 @@ Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actio
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for
 the scenarios that use only menu clicks and DB-verifiable state -- no status-item gesture
 (single/double-click on the right half) and no physical device flip, so all three are fully
-Claude-drivable via the verified status-item-menu mechanic (Method: Click a status-item menu item,
-`../Methods.md`). Scenario A and B were originally Scenario C and D of a single combined checklist;
+Claude-drivable via the verified status-item-menu mechanic ([Method: Number 6](../Methods.md#method-6)). Scenario A and B were originally Scenario C and D of a single combined checklist;
 Scenario C was originally Scenario E, with "is the time increasing?" converted from a `(You)`
 menu-bar observation to a DB check (the same still-open event's `duration_seconds` growing) --
 proving the same fact without needing eyes on the screen. Scenarios D and E below cover the status-item's own click gesture (single-click pause/resume,
-double-click lock), now Claude-drivable via CGEventPost (Method: Simulate a real click,
-double-click, or held press via CGEventPost, `../Methods.md`) -- previously believed unscriptable
+double-click lock), now Claude-drivable via CGEventPost ([Method: Number 7](../Methods.md#method-7)) -- previously believed unscriptable
 (a raw screen-position hit-test, not a menu/AX action), until `kCGMouseEventClickState` was found to
 be the missing piece. Only the physical facet-flip-while-locked check in
 `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md` still needs a person.
 
-Methods used throughout this file: Click a status-item menu item, Screenshot-based visual
-confirmation, Simulate a real click, double-click, or held press via CGEventPost (`../Methods.md`).
+Methods used throughout this file: [Number 6](../Methods.md#method-6),
+[Number 17](../Methods.md#method-17), [Number 7](../Methods.md#method-7).
 
 Despite the setting's name, `pause_on_lock` has **nothing to do with the Mac's screen locking or
 sleeping** -- it only controls whether *this app's own* Lock action (menu item, or the
@@ -66,8 +64,7 @@ resolved in Setup immediately above, which this scenario runs straight on from.
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_name = 'pause_on_lock';"
 ```
-- [ ] Step 2: Screenshot the menu bar; confirm the status item shows the play icon (▶) -- device not
-      already paused.
+- [ ] Step 2: Check the menu bar shows the play icon (▶) -- device not already paused.
 ```toml step
 action = "sql_query"
 query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -92,8 +89,8 @@ action = "sql_query"
 query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
-- [ ] Step 5: Screenshot the menu bar; confirm the lock badge is now shown and the icon switched to pause
-      (⏸).
+- [ ] Step 5: Check the menu bar shows the lock badge and the icon has switched to the pause icon (⏸).
+      [Method: Number 17](../Methods.md#method-17).
 - [ ] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 ```toml step
 action = "applescript"
@@ -130,7 +127,8 @@ action = "sql_query"
 query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
-- [ ] Step 9: Screenshot the menu bar; confirm the lock badge is gone but the icon still shows pause (⏸).
+- [ ] Step 9: Check the menu bar: the lock badge is gone but the icon still shows the pause icon (⏸).
+      [Method: Number 17](../Methods.md#method-17).
 - [ ] Step 10: Open the menu; confirm the item reads "Lock" again, and the Pause item is now enabled and
       reads "Resume".
 ```toml step
@@ -166,12 +164,12 @@ poll_interval = 1
 ## Scenario B -- Quit pauses and locks the device when pause_on_lock is enabled; disabled it does nothing extra
 
 **Preconditions:** `pause_on_lock=true`, device connected, unlocked, unpaused -- the clean state
-Scenario A's own last two steps (Unlock, Resume) leave behind. Check via the query/screenshot
+Scenario A's own last two steps (Unlock, Resume) leave behind. Check via the query/menu bar
 below; if it doesn't match (a locked/paused leftover from an interrupted prior run, e.g.), resolve
 it the same way Setup does above (Unlock/Resume via the menu, set `pause_on_lock=true`) before
 continuing.
 
-- [ ] Step 1: Confirm `pause_on_lock` is still `true`. Screenshot: no lock badge, play icon.
+- [ ] Step 1: Confirm `pause_on_lock` is still `true`. Check the menu bar: no lock badge, play icon (▶).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -202,7 +200,7 @@ query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_1_id OR
 expect_contains = "Pause+lock on quit complete, terminating now"
 timeout_seconds = 10
 ```
-- [ ] Step 4: Start the app; confirm reconnect and via screenshot that the status icon is green.
+- [ ] Step 4: Start the app; confirm reconnect and check the status icon is green.
 ```toml step
 [[actions]]
 action = "shell"
@@ -223,7 +221,8 @@ expect = "1"
 timeout_seconds = 20
 poll_interval = 2
 ```
-- [ ] Step 6: Screenshot the menu bar; confirm the lock badge is shown and the icon shows pause (⏸).
+- [ ] Step 6: Check the menu bar shows the lock badge and the icon shows the pause icon (⏸).
+      [Method: Number 17](../Methods.md#method-17).
 - [ ] Step 7: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 ```toml step
 action = "applescript"
@@ -313,9 +312,8 @@ expect = "$event_id_before_disabled_quit"
 action = "sql_exec"
 query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_name = 'pause_on_lock';"
 ```
-- [ ] Step 14: Start the app; confirm reconnect and via screenshot that the status icon is green with no
-      lock badge -- a clean, unlocked, unpaused state, `pause_on_lock` back to its real original
-      value.
+- [ ] Step 14: Start the app; confirm reconnect and check the status icon is green with no lock badge --
+      a clean, unlocked, unpaused state, `pause_on_lock` back to its real original value.
 ```toml step
 [[actions]]
 action = "shell"
@@ -347,10 +345,10 @@ expect_contains = "Lock"
 ## Scenario C -- time genuinely passes in this clean, running state
 
 **Preconditions:** device connected, unlocked, unpaused, `pause_on_lock` back to its real original
-value -- the clean state Scenario B's own last step leaves behind. Check via the screenshot below;
+value -- the clean state Scenario B's own last step leaves behind. Check via the step below;
 if it doesn't match, resolve the same way as Scenario B's own precondition above before continuing.
 
-- [ ] Step 1: Screenshot the menu bar; confirm no lock badge is shown and the icon shows play (▶).
+- [ ] Step 1: Check the menu bar: no lock badge, and the icon shows the play icon (▶).
 ```toml step
 action = "sql_query"
 query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"

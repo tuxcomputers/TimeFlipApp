@@ -175,55 +175,72 @@ before every sequence and confirm with `name of first process whose frontmost is
 confirm it reads `true`, all in one `osascript` call (a stale element reference doesn't survive
 across calls).
 
-## Click a button, checkbox, or slider
+<a id="method-13"></a>
+## Method 13: Click a button, checkbox, or slider
 
 `click button "..."` / `set value of checkbox ... to true` -- confirm each via `debug_log`/DB the
 first time it's actually used.
 
-## Auto-pause stepper arrows
+<a id="method-14"></a>
+## Method 14: Auto-pause stepper arrows
 
 The auto-pause field's up/down stepper arrows are custom `Image`+`onLongPressGesture` views, not
 real controls -- AX/coordinate clicks via AppleScript don't move them, but the CGEventPost technique
 above (see the coordinate caveat there) does: confirmed live for a plain click, a held press (both
 directions, full deceleration curve), and the hold-interrupted-by-window-close compound gesture.
 
-## Expand or collapse a disclosure group
+<a id="method-15"></a>
+## Method 15: Expand or collapse a disclosure group
 
 A `DisclosureGroup` shows as role `AXDisclosureTriangle` ("UI element", no readable label) --
 identify it by position among siblings, `click` to expand/collapse.
 
-## Confirm a confirmation-dialog sheet
+<a id="method-16"></a>
+## Method 16: Confirm a confirmation-dialog sheet
 
 A `.confirmationDialog` opens as `sheet 1 of window ...`, not a button on the window itself --
 address it that way; its buttons' `title` is also `missing value`, use `description` to tell them
 apart (e.g. `Cancel` vs. the destructive confirm).
 
-## Screenshot-based visual confirmation
+<a id="method-17"></a>
+## Method 17: Screenshot-based visual confirmation
 
-For a **static**, non-accessibility-readable state, a `(Claude)` screenshot-and-inspect step
-replaces asking the user:
-```markdown
-- [ ] **(You)** Click the "Lock" menu item.
-- [ ] **(Claude)** Screenshot the menu bar status item; confirm the red lock badge is visible.
+For a **static** state that isn't accessibility-readable -- the status item is a custom-drawn
+`NSStatusItem`, so its lock badge and pause/play icon can't be read via `static text`/control
+`value` -- capture the screen and look, rather than asking a human (when *you*, an AI, are running
+the tests). How:
+```bash
+screencapture -x /tmp/tf-menubar.png    # -x = silent (no shutter sound); whole screen
 ```
-The triggering action stays `(You)` if it needs a human's hands.
+Then Read `/tmp/tf-menubar.png` and inspect the **top-right menu bar**: the red lock badge sits to
+the left of the activity indicator, which is itself a pause icon (⏸) or a play icon (▶). Capturing
+the whole screen and looking at the top-right is simpler and more robust than guessing the status
+item's shifting x-position; crop to a region (`-R x,y,w,h`) only if you need the detail.
+
+A step that needs this reads e.g. `Check the menu bar shows the pause icon (⏸)` and cites `Method:
+Screenshot-based visual confirmation (../Methods.md)`. The standalone script runner has no vision,
+so for the same step it instead asks the human to look and answer y/n -- same check, different
+observer.
 
 **Time-based checks aren't automatically `(You)`** -- a single frame can't show change over time,
-but two-plus spaced screenshots (or accessibility reads) often can:
+but two-plus spaced captures (or accessibility reads) often can:
 - A value that should be increasing: prefer a DB-based check if one exists -- more direct than
   reading rendered text.
-- A single element blinking: two screenshots roughly half a blink-interval apart proves animation.
+- A single element blinking: two captures roughly half a blink-interval apart proves animation.
 - **Multiple elements blinking in lockstep** is a stronger claim -- needs several closely-spaced
-  screenshots comparing all elements at each sample, not just two.
+  captures comparing all elements at each sample, not just two.
 
-Launching the app for any of this still needs the root `CLAUDE.md`'s heads-up/wait/all-clear ritual.
+Capturing the already-running app needs no special ritual; only *launching* the app for this needs
+the root `CLAUDE.md`'s heads-up/wait/all-clear ritual.
 
-## Presenting durations
+<a id="method-18"></a>
+## Method 18: Presenting durations
 
 Convert `duration_seconds` to `mm:ss` for on-screen comparisons. Keep `display_seconds` on during
 testing. Ask "is the time increasing?", not "is it paused?".
 
-## Detect a physical action instead of asking "are you done?"
+<a id="method-19"></a>
+## Method 19: Detect a physical action instead of asking "are you done?"
 
 For a `(You)` action with a verifiable DB/`debug_log` side effect, poll for that change instead of
 asking for confirmation -- e.g. loop a `device_event` query every couple of seconds after asking for

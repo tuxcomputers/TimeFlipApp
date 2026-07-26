@@ -5,7 +5,7 @@ physical action on the cube (facet flip, double-tap), a sustained press-and-hold
 (System Events can click a control but not hold a mouse button down over time), a status-item
 gesture unverified via script (see "Status-item click gesture" in `../Methods.md`), or multiple
 elements that must be confirmed changing in lockstep with each other -- a claim two screenshots
-can't establish on their own (see "Screenshot-based visual confirmation" in `../Methods.md`).
+can't establish on their own (see [Method: Number 17](../Methods.md#method-17)).
 **This suite runs after** `Tests/Bench/`, which drives everything Claude can do unattended against
 a connected device -- including, now, most menu/button clicks, text entry, and single-value
 time-based checks (a DB value increasing, or two time-spaced screenshots/reads), so this folder is
