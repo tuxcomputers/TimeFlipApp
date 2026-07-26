@@ -14,6 +14,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Mirror everything this run prints to the terminal into logs/screen.txt as well -- the raw stream
+# (build output, prompts, ACTION NEEDED nudges, the supervisor's own output), freshly overwritten
+# each run. Complements the timestamped structured transcript the supervisor writes separately.
+# `tee` truncates the file, so it always holds just the latest run. (supervisor runs with `-u`
+# below so this streams live rather than block-buffering into the pipe.)
+mkdir -p logs
+exec > >(tee logs/screen.txt) 2>&1
+
 if ! python3 -c "import Quartz" >/dev/null 2>&1; then
   echo "error: python3's Quartz module (pyobjc) is required for cgevent_click steps." >&2
   echo "Install with: pip3 install pyobjc-framework-Quartz" >&2
@@ -39,4 +47,4 @@ fi
 echo "Built binary the run will launch:"
 ls -l "$APP_BINARY" | awk '{print "  "$5" bytes, built "$6" "$7" "$8"  ->  '"$APP_BINARY"'"}'
 
-python3 "$SCRIPT_DIR/supervisor.py" "$@"
+python3 -u "$SCRIPT_DIR/supervisor.py" "$@"
