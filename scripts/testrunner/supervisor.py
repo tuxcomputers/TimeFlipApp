@@ -42,7 +42,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
-from actions import run_step, condition_met  # noqa: E402
+from actions import run_step, condition_met, resolve_missing_vars_from_remembered  # noqa: E402
 from remembered import Remembered  # noqa: E402
 from session_setup import (  # noqa: E402
     _latest_debug_log_id,
@@ -129,7 +129,7 @@ class _RunHalted(Exception):
 def _confirm_step(path, step, detail, log_lines):
     """Primary per-step question, phrased so Y = good/continue: shows the step's result and asks
     the developer to confirm it did what it should. Returns True if confirmed, False otherwise
-    (the caller then runs _failure_continue_or_halt)."""
+    (the caller then runs _handle_failure)."""
     note = _note_id(path, step)
     print(f"  result: {detail}")
     if prompt_yn(f"{note}: Continue?"):
@@ -138,20 +138,40 @@ def _confirm_step(path, step, detail, log_lines):
     return False
 
 
-def _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, reason):
-    """Follow-up after a No / an outright failure, in confirm-steps mode. The failure is always
-    logged and the step left unticked (and skipped so it isn't re-selected); then asks whether to
-    keep going. The developer's answer is logged too. Yes continues to the next step; No raises
-    _RunHalted to stop the whole run for investigation."""
+def _skip_rest_of_scenario(failed_step, checklist, log_lines, skipped_prose):
+    """Skip (don't run, leave unticked) every remaining step in the failed step's scenario. Later
+    steps in a scenario assume the earlier ones passed -- step 1 relies on the scenario's
+    preconditions, step 25 on steps 1-24 -- so once one fails the rest can't be trusted. They're
+    logged as SKIP and left unticked, so a resume restarts the whole scenario from its first step."""
+    for s in checklist.steps:
+        if s.section == failed_step.section and not s.checked and s.prose not in skipped_prose:
+            skipped_prose.add(s.prose)
+            log_lines.append(
+                f"Step {s.number}: SKIP - {s.description()} "
+                f"(scenario '{s.section}' halted by an earlier failure)"
+            )
+
+
+def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason,
+                    confirm_steps, stop_on_failure):
+    """Unified failure path. The step is logged as failed and left unticked, then the REST of its
+    scenario is skipped (see _skip_rest_of_scenario) and the run carries on with the NEXT scenario.
+    Exceptions: -sf halts the whole run immediately; in confirm-steps mode the developer is asked
+    whether to keep going (a No halts). Either halt raises _RunHalted so a mis-run can be
+    investigated before end-of-run cleanup."""
     checklist.mark(step, False)
     checklist.save()
     skipped_prose.add(step.prose)
     note = _note_id(path, step)
     log_lines.append(f"FAILURE LOGGED: {note} -- {reason}")
-    cont = prompt_yn(f"{note}: Failure is logged, did you want to continue the tests?")
-    log_lines.append(f"Continue after failure [{note}]? -> {'y' if cont else 'n'}")
-    if not cont:
+    if stop_on_failure:
         raise _RunHalted(f"{note}: {reason}")
+    if confirm_steps:
+        cont = prompt_yn(f"{note}: Failure is logged, did you want to continue the tests?")
+        log_lines.append(f"Continue after failure [{note}]? -> {'y' if cont else 'n'}")
+        if not cont:
+            raise _RunHalted(f"{note}: {reason}")
+    _skip_rest_of_scenario(step, checklist, log_lines, skipped_prose)
 
 
 def discover_checklists(repo_root, folder=None, search=None):
@@ -185,6 +205,19 @@ def prompt_yn(prompt):
         if answer == "n":
             return False
         print(f"Not recognized: {answer!r} -- please answer 'y' or 'n'.")
+
+
+def prompt_ts(prompt):
+    """Loop-until-valid t/s question for the mid-run restart decision: `t` = restart from the
+    top (clear everything), `s` = restart from the current scenario (keep completed scenarios,
+    re-run the current one from its first step). Same case-insensitive shape as prompt_yn."""
+    while True:
+        answer = input(f"{prompt} [t/s]: ").strip().lower()
+        if answer == "t":
+            return "t"
+        if answer == "s":
+            return "s"
+        print(f"Not recognized: {answer!r} -- please answer 't' (top) or 's' (scenario).")
 
 
 def summarize_progress(checklist_paths):
@@ -233,6 +266,34 @@ def _print_resume_location(checklist_paths, log_lines):
         log_lines.append(f"Resume; did not complete: {name} / {pos}: {desc}")
 
 
+def _clear_from_current_scenario(checklist_paths, log_lines):
+    """Restart the CURRENT scenario: keep every completed scenario (and every earlier checklist)
+    ticked, but clear the current scenario's steps and everything after them, so the run re-enters
+    at that scenario's Step 1. A scenario is the atomic resume unit -- its steps assume state its
+    preconditions + earlier steps established, so you re-run the whole scenario, never a mid-point."""
+    _, nxt = _resume_point(checklist_paths)
+    if nxt is None:
+        return
+    np, ns = nxt
+    idx = checklist_paths.index(np)
+    # In the checklist we're up to: clear from the first step of the current scenario onward.
+    c = Checklist(np)
+    first = next((s for s in c.steps if s.section == ns.section), None)
+    if first is not None:
+        c.clear_from(first.checkbox_line)
+        c.save()
+    # Every later checklist hasn't run under a clean resume, but clear defensively so a stray tick
+    # can't make one look already-done.
+    for p in checklist_paths[idx + 1:]:
+        later = Checklist(p)
+        later.clear_checkboxes()
+        later.save()
+    log_lines.append(
+        f"Resume: restart from scenario '{ns.section}' in {_checklist_name(np)} "
+        "(earlier scenarios kept ticked)"
+    )
+
+
 def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     """Whole-batch, up-front check: if every requested checklist is already fully ticked,
     offer to clear them all and run again; otherwise (any checklist partially or entirely
@@ -260,23 +321,28 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
         return True
 
     _print_resume_location(checklist_paths, log_lines)
-    # A completely fresh batch (nothing ticked anywhere) has nothing to resume from and
-    # nothing to restart -- "continue from here" and "restart from the top" both just mean
-    # "run from Setup Step 1". Skip the prompt entirely; only ask it when there's genuine
-    # partial progress to either continue or discard.
+    # A completely fresh batch (nothing ticked anywhere) has nothing to restart -- "top" and
+    # "current scenario" both just mean "run from the first step". Skip the prompt entirely;
+    # only ask when there's genuine partial progress to either keep or discard.
     if all(done == 0 for _, done, _ in infos):
         return True
     if auto_yes:
-        print("(--yes passed: resuming from where things left off)")
-        resume = True
+        print("(--yes passed: restarting from the top)")
+        choice = "t"
     else:
-        resume = prompt_yn("Continue from here? ('n' restarts the whole batch from the top)")
-    log_lines.append(f"Requested checklists mid-run; resume: {resume}")
-    if not resume:
+        choice = prompt_ts(
+            "Restart from the [t]op (clear everything and run the whole batch again), or from "
+            "the current [s]cenario (keep completed scenarios ticked, re-run the current scenario "
+            "from its first step)?"
+        )
+    log_lines.append(f"Requested checklists mid-run; restart choice: {choice!r}")
+    if choice == "t":
         for p, _, _ in infos:
             c = Checklist(p)
             c.clear_checkboxes()
             c.save()
+    else:  # "s" -- restart the current scenario, keep everything before it
+        _clear_from_current_scenario(checklist_paths, log_lines)
     return True
 
 
@@ -285,7 +351,11 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
     checklist = Checklist(path)
     log_lines.append(f"\n=== {_log_path(path)} ===")
 
-    ctx = {"db_path": db_path, "vars": dict(initial_vars or {}), "remembered": remembered}
+    # `test` names this checklist for the remembered-values tree (run -> test -> scenario ->
+    # values); `section` is set per step below. Together they let a capture be recorded under its
+    # scenario, and a resumed later scenario look a previous scenario's value back up.
+    ctx = {"db_path": db_path, "vars": dict(initial_vars or {}), "remembered": remembered,
+           "test": os.path.basename(path)}
     all_ok = True
     ran_any = False
     last_section = None  # so each section's name is logged once, as a sub-heading above its steps
@@ -316,6 +386,12 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
         desc = step.description()
         print(f"\n[{os.path.basename(path)}] {actor_tag}{label}")
 
+        # Which scenario this step is in (for recording captures under it), and -- for a resume
+        # that skipped earlier scenarios -- fill any $var this step needs that an earlier scenario
+        # captured, from logs/00-remembered.json. Both no-op for a spec-less (human) step.
+        ctx["section"] = step.section
+        resolve_missing_vars_from_remembered(step.spec, ctx)
+
         if step.spec is None:
             if auto_yes:
                 # --yes/non-interactive: there's no human to ask, and this step needs one
@@ -338,16 +414,9 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
                 continue
             log_lines.append(f"Step {step.number}: FAIL - {desc} (human-verified)")
             all_ok = False
-            if confirm_steps:
-                _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, "human-verified step did not pass")
-                continue
-            checklist.mark(step, False)
-            checklist.save()
-            if stop_on_failure:
-                raise _RunHalted(f"{_note_id(path, step)}: human-verified step did not pass")
-            print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
-            log_lines.append(f"STOPPED {_log_path(path)} after failed step above.")
-            break
+            _handle_failure(path, step, checklist, log_lines, skipped_prose,
+                            "human-verified step did not pass", confirm_steps, stop_on_failure)
+            continue
 
         # Optional `when` guard: a step only applies under some condition on a captured var
         # (e.g. "flip to build history" only `when $start_event_id < 10`). If the guard isn't
@@ -390,24 +459,19 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             # (auto-passing) result is actually right; a No drops to the log-and-continue gate.
             if confirm_steps and not _confirm_step(path, step, result.detail, log_lines):
                 all_ok = False
-                _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, f"result not confirmed: {result.detail}")
+                _handle_failure(path, step, checklist, log_lines, skipped_prose,
+                                f"result not confirmed: {result.detail}", confirm_steps, stop_on_failure)
                 continue
             checklist.mark(step, True)
             checklist.save()
             continue
 
-        # Failed step.
+        # Failed step: log it, skip the rest of its scenario, carry on with the next scenario
+        # (or halt, under -sf / a No in confirm-steps mode).
         all_ok = False
-        if confirm_steps:
-            _failure_continue_or_halt(path, step, checklist, log_lines, skipped_prose, f"step failed: {result.detail}")
-            continue
-        checklist.mark(step, False)
-        checklist.save()
-        if stop_on_failure:
-            raise _RunHalted(f"{_note_id(path, step)}: step failed -- {result.detail}")
-        print(f"\n!!! Stopping {path} -- later steps assume this one succeeded.")
-        log_lines.append(f"STOPPED {_log_path(path)} after failed step above.")
-        break
+        _handle_failure(path, step, checklist, log_lines, skipped_prose,
+                        f"step failed: {result.detail}", confirm_steps, stop_on_failure)
+        continue
 
     if not ran_any:
         print(f"\n{path}: already fully checked, nothing to run.")
@@ -454,9 +518,10 @@ def main():
     parser.add_argument(
         "-sf", "--stop-on-failure",
         action="store_true",
-        help="Stop the whole run on the first failed step, instead of the default (stop that one "
-        "checklist and carry on with the rest). The run halts for investigation and end-of-run "
-        "cleanup is skipped, same as answering 'n' to the per-step confirmation gate.",
+        help="Stop the whole run on the first failed step. The default instead skips the rest of "
+        "that step's scenario (later steps in a scenario assume the earlier ones passed) and "
+        "carries on with the next scenario. With -sf the run halts for investigation and "
+        "end-of-run cleanup is skipped, same as answering 'n' to the per-step confirmation gate.",
     )
     args = parser.parse_args()
     # No human to answer per-step prompts under --yes, so confirmation is off there.

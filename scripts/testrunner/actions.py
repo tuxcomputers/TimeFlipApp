@@ -9,6 +9,7 @@ routinely contains literal JSON like `{"enabled":false}`, which `.format()` misp
 a field placeholder and crashes on. `$name` doesn't collide with `{`/`}` at all.
 """
 
+import json
 import re
 import subprocess
 import sqlite3
@@ -61,12 +62,34 @@ def _sub(text, ctx):
 
 
 def _remember_capture(spec, ctx, value):
-    """Mirror a just-captured value into logs/00-remembered.json, if a recorder is wired in.
-    `remember = "changed"` (with `restores = "<setting>"`) routes it to the changed bucket;
-    any other capture goes to recorded. No-op when no recorder is attached (e.g. unit tests)."""
+    """Mirror a just-captured value into logs/00-remembered.json under
+    run -> test -> scenario -> {capture: value}, so a later resume can recover it (see
+    remembered.py). `test`/`section` are put on ctx by the supervisor per step. No-op when no
+    recorder is attached (e.g. unit tests) or the step captures nothing."""
     rec = ctx.get("remembered")
-    if rec is not None:
-        rec.record_capture(spec, value, ctx.get("db_path"))
+    if rec is not None and spec.get("capture"):
+        rec.record(ctx.get("test", "?"), ctx.get("section", "?"), spec["capture"], value)
+
+
+_REMEMBERED_VAR_RE = re.compile(r"\$\{(\w+)\}|\$(\w+)")
+
+
+def resolve_missing_vars_from_remembered(spec, ctx):
+    """Before a step runs, fill any `$var` it references that isn't already in ctx['vars'] from
+    the remembered file -- a value a *previous* scenario captured, needed when a resume skipped
+    that scenario so it never ran this session. Already-set vars are left untouched; a var that
+    nothing ever recorded stays unresolved, exactly as before. No-op without a recorder/spec."""
+    rec = ctx.get("remembered")
+    if rec is None or not spec:
+        return
+    test = ctx.get("test", "")
+    for m in _REMEMBERED_VAR_RE.finditer(json.dumps(spec)):
+        name = m.group(1) or m.group(2)
+        if name in ctx["vars"]:
+            continue
+        val = rec.lookup(test, name)
+        if val is not None:
+            ctx["vars"][name] = val
 
 
 def _run_sql(db_path, query):
@@ -167,11 +190,6 @@ def act_sql_exec(spec, ctx):
     try:
         cur = conn.execute(query)
         conn.commit()
-        # A mutating statement may have changed a setting we're tracking in `changed`; refresh
-        # its live `current` now rather than waiting for the next capture.
-        rec = ctx.get("remembered")
-        if rec is not None:
-            rec.flush(ctx.get("db_path"))
         return StepResult(True, f"executed, rowcount={cur.rowcount}")
     finally:
         conn.close()

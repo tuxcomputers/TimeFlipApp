@@ -177,6 +177,24 @@ class Checklist:
         self.lines[step.checkbox_line] = f"{indent}- [{new_mark}]{rest}"
         self.steps = self._parse()
 
+    def clear_from(self, checkbox_line):
+        """Uncheck every checkbox at or after line `checkbox_line` (dropping any legacy
+        auto-notes from there on), leaving earlier boxes exactly as they are. Used by a
+        resume that restarts only the current scenario onward while keeping already-completed
+        scenarios ticked. Call save() afterward to persist."""
+        new_lines = []
+        for idx, line in enumerate(self.lines):
+            if idx >= checkbox_line:
+                if NOTE_RE.match(line):
+                    continue
+                m = CHECKBOX_RE.match(line)
+                if m:
+                    indent, _, rest = m.groups()
+                    line = f"{indent}- [ ]{rest}"
+            new_lines.append(line)
+        self.lines = new_lines
+        self.steps = self._parse()
+
     def clear_checkboxes(self):
         """Reset every checkbox back to unchecked and drop any legacy auto-generated
         (Automated: ...)/(AUTOMATED FAILURE: ...) notes a previous run may have left --

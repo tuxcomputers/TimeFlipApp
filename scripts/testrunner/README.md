@@ -145,13 +145,13 @@ follow-up is logged too. This is the guard against a run sailing through steps t
 really happen (e.g. against a disconnected device).
 
 `--no-confirm-steps` (short: `-nc`) turns the per-step pausing off (fast, hands-off within a
-checklist; a failing step then just stops that checklist as before). `--yes` implies
-`--no-confirm-steps` -- with no human present there's nobody to confirm.
+checklist). `--yes` implies `--no-confirm-steps` -- with no human present there's nobody to
+confirm.
 
 `--stop-on-failure` (short: `-sf`) changes what a failed step does: instead of the default
-(stop that one checklist and carry on with the rest), the whole run halts for investigation
-and end-of-run cleanup is skipped -- the same outcome as answering `n` to the confirmation
-gate, but automatic.
+(skip the rest of that step's **scenario** and carry on with the next scenario -- see
+"Scenarios are the atomic unit" below), the whole run halts for investigation and end-of-run
+cleanup is skipped -- the same outcome as answering `n` to the confirmation gate, but automatic.
 
 Between every step (whatever the mode) the runner pauses `STEP_PAUSE_SECONDS` (2s) -- a beat
 for the app/device to settle before the next step, even after a step that already waited on
@@ -211,16 +211,22 @@ your **own** descriptively-named var at that point (`before_reset_id`, `confirme
 `prod_before_id`, ...); it coexists with `current_log_id`, which keeps advancing underneath it. Rule
 of thumb: same-step → `$current_log_id`; spans steps → give it a name.
 
-**Remembering reads and changes (`logs/00-remembered.json`).** Every capture is also mirrored
-into `logs/00-remembered.json`, keyed by the run's log-file stamp (the same
-`YYYY-MM-DD_hh.mm.ss` as the `.txt` transcript). By default a capture lands in that run's
-`recorded` array (`{key, value}`) -- a value the run read for verification. Mark the capture
-`remember = "changed"` with `restores = "<setting_name>"` and it instead lands in `changed`
-(`{key, original, current}`): `original` is the value captured before the run touched it, and
-`current` is re-read live from the `setting` table after every capture and every mutating
-`sql_exec`, so it follows the setting as the run changes and later restores it. Use this on the
-"note the original value to restore later" captures (e.g. `pause_on_lock`, `low_battery_level`).
-The file is rewritten live and accumulates runs (each run adds its own top-level key).
+**Remembering captured values (`logs/00-remembered.json`).** Every `capture =` value is also
+mirrored into `logs/00-remembered.json`, as a tree **run -> test -> scenario -> {capture:
+value}**: the top key is the run's log-file stamp (the same `YYYY-MM-DD_hh.mm.ss` as the `.txt`
+transcript), then the checklist filename, then the `##` scenario, then that scenario's captures
+by name. The file is rewritten after every capture and accumulates runs (each new run adds its
+own top-level key).
+
+Its main job is **cross-scenario resume**: a value a scenario captures (e.g. `03b` Scenario A's
+`threshold_original`) is needed by a later scenario (Scenario C restores it). On a
+restart-from-scenario resume the earlier scenario is skipped, so its `$var` isn't in the live
+context -- before each step the runner looks up any missing `$var` it references in this tree
+(newest run first, then that test's scenarios) and supplies the previous scenario's value. A var
+nothing ever recorded stays unresolved, exactly as before. (JSON-path `$.field` tokens in SQL
+aren't treated as vars.) So a checklist can restore a setting in a later scenario without
+re-running the scenario that first noted it; keep such captures under a scenario that actually
+runs, or resume from the top.
 
 **Conditional steps/actions (`when`).** A `when = "$var <op> N"` guard (e.g.
 `when = "$start_event_id < 10"`) runs the step -- or an individual action inside an
@@ -276,12 +282,24 @@ progress of every checklist about to run, as one whole-batch decision -- not per
 - **Any of them not fully checked** (partially or entirely unticked) -- prints only where
   the batch is up to, not the whole list, e.g. `The test run did not complete, '01b history
   refresh checklist' the test is up to 'Scenario B Step 4' which is '<full step text>'`, then
-  asks `Continue from here? ('n' restarts the whole batch from the top)`. `y` resumes each
-  checklist from its first unchecked step; `n` clears every requested checklist's results and
-  starts the whole batch over from the top.
+  asks `[t/s]`: restart from the **[t]op** or from the current **[s]cenario**?
+  - **`t`** clears every requested checklist and runs the whole batch again from the top.
+  - **`s`** keeps every completed scenario (and every earlier checklist) ticked, clears the
+    current scenario's steps and everything after them, and re-enters at that scenario's first
+    step. A scenario is the atomic resume unit: you never resume *mid*-scenario, because a
+    scenario's steps assume state its preconditions + earlier steps established (Step 1 relies
+    on the preconditions; Step 25 relies on Steps 1-24), so the whole scenario is re-run.
 
-`--yes` answers both automatically (clear-and-rerun, and resume, respectively) without
+  (A completely fresh batch -- nothing ticked anywhere -- skips this prompt; there's nothing to
+  keep.)
+
+`--yes` answers both automatically (clear-and-rerun; and, mid-run, restart from the top) without
 blocking, for CI/non-interactive use.
+
+Restart-from-scenario keeps earlier scenarios' checkboxes but not their live `$vars` (each
+checklist run starts with a fresh var context). That's fine: a value a *previous* scenario
+captured is recovered from `logs/00-remembered.json` when a later scenario references it -- see
+"Remembering captured values" below.
 
 ### What's recorded where
 
@@ -311,9 +329,14 @@ adds its `CONFIRMED` / `FAILURE LOGGED` lines, keyed by the `T<checklist>-<secti
 
 ## Failure handling and logs
 
-On a step's failure, that checklist stops immediately (later steps assume earlier ones
-left the state they need) -- other checklists passed on the command line still run (unless
-`-sf`/`--stop-on-failure` is set, which halts the whole run there).
+**Scenarios are the atomic unit.** On a step's failure, the rest of that step's **scenario** is
+skipped -- later steps in a scenario assume the earlier ones passed, so once one fails the rest
+can't be trusted. Each skipped step is logged `SKIP - ... (scenario '<name>' halted by an earlier
+failure)` and left unticked, so a later `s` resume restarts the whole scenario. The run then
+carries on with the **next scenario** (whose own preconditions step re-establishes what it needs),
+and with the other checklists passed on the command line. `-sf`/`--stop-on-failure` overrides this
+and halts the whole run at the first failure instead; in per-step-confirmation mode a `n` at the
+failure gate does the same.
 
 Before each feature checklist the runner also checks the device is actually connected (a
 recent heartbeat -- `battery`/`hist-*` rows land every ~10s while connected; see
