@@ -215,8 +215,9 @@ timeout_seconds = 5
 
 Covers `ApplicationDelegate`'s `onDoubleTapParametersChange` (prints + immediate DB write on every
 change, device write debounced through `DeviceWriteDebouncer`) and
-`TimeFlipBLEDevice.setDoubleTapParameters`'s existing read-back verification (`0x17`). Snapshot the
-current Threshold/Limit/Latency/Window values in `device_register_snapshot.json` first. Method:
+`TimeFlipBLEDevice.setDoubleTapParameters`'s existing read-back verification (`0x17`). Step 1
+records the current Threshold/Limit/Latency/Window values to `logs/00-remembered.json` first (so
+the original params are recoverable), and Step 6 restores Threshold from that record. Method:
 Suppress incidental double-taps during a session (`../Methods.md`), since this changes a real
 physical accelerometer register, not just app state.
 
@@ -225,9 +226,41 @@ Double tap disclosure expanded, **Disable** back to its original state -- the cl
 previous scenario leaves behind (check `double_tap_settings.enabled` directly if running this
 scenario standalone).
 
-- [ ] Step 1: Snapshot the current values (`clickThreshold`/`limit`/`latency`/`window`) into
-      `Tests/Bench/device_register_snapshot.json` under a timestamp-keyed
-      `double_tap_params_as_at` object. (Snapshotted `ths=90 lim=20 lat=50 win=50`.)
+- [ ] Step 1: Record the current double-tap params (`clickThreshold`/`limit`/`latency`/`window`) from
+      `double_tap_settings` -- captured, so they land in `logs/00-remembered.json` under this
+      scenario and Step 6 (and a later resume) can read the originals back -- then show them to the
+      dev to confirm they match the app's **Double tap** section before the scenario changes them.
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"
+capture = "dt_threshold_original"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT json_extract(setting_value, '$.limit') FROM setting WHERE setting_name='double_tap_settings';"
+capture = "dt_limit_original"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT json_extract(setting_value, '$.latency') FROM setting WHERE setting_name='double_tap_settings';"
+capture = "dt_latency_original"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT json_extract(setting_value, '$.window') FROM setting WHERE setting_name='double_tap_settings';"
+capture = "dt_window_original"
+
+[[actions]]
+action = "ask_user"
+prompt = '''Current Double-tap params, now recorded to logs/00-remembered.json -- these should match the app's Double tap section, top to bottom:
+Threshold: $dt_threshold_original
+Limit: $dt_limit_original
+Latency: $dt_latency_original
+Window: $dt_window_original
+
+Do all four match what the app shows?'''
+```
 - [ ] Step 2: Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick
       succession without tabbing away between them: `30`, then immediately `150`, then immediately
       `200`.
@@ -282,8 +315,8 @@ query = "SELECT message FROM debug_log WHERE tag='double-tap' AND debug_log_id >
 expect_contains = "Verification confirmed: requested ths=200"
 timeout_seconds = 10
 ```
-- [ ] Step 6: Restore Threshold to the original value noted in the snapshot (`90`) and confirm
-      `double_tap_settings` reads `"clickThreshold":90` again.
+- [ ] Step 6: Restore Threshold to the original value recorded in Step 1 (`$dt_threshold_original`) and
+      confirm `double_tap_settings` reads that `clickThreshold` again.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -296,13 +329,13 @@ tell application "System Events"
             set focused of e to true
         end tell
         keystroke "a" using command down
-        keystroke "90"
+        keystroke "$dt_threshold_original"
     end tell
 end tell'''
 
 [[actions]]
 action = "wait_for_sql"
 query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"
-expect = "90"
+expect = "$dt_threshold_original"
 timeout_seconds = 5
 ```
