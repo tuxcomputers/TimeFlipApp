@@ -216,12 +216,17 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [ ] Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`.
+      `isLowBattery=true`. (Note: the threshold is set to the *lower* of the flap pair -- so the
+      latch trips only when the device flaps **down** to that value, not on the first post-restart
+      reading, which is often the higher value and reads `isLowBattery=false` until then. Post-restart
+      battery reports are sparse (a ~2-minute gap between flaps was seen live), so this waits well
+      past the first reading -- a short timeout would give up before the flap-down that latches it.)
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id AND message LIKE '%isLowBattery=true%' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "isLowBattery=true"
-timeout_seconds = 15
+timeout_seconds = 180
+poll_interval = 5
 ```
 - [ ] Step 6: Poll `debug_log` until a `battery` row shows a higher reading than the threshold, and confirm
       `isLowBattery` is still `true` on that row (since it remains below `recoveryAt`).

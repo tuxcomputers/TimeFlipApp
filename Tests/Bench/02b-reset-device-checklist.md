@@ -179,7 +179,10 @@ expect = "(no rows)"
 ```
 - [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
       (`static text` matching the device name, e.g. `"TimeFlip v2.0"`, under "Click a device below to
-      pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`).
+      pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`). (Note: the
+      device can take a few seconds to show up in the scan, so the read below polls once a second for
+      up to 6s and returns as soon as a `TimeFlip` row appears, rather than reading the list once
+      after a fixed delay.)
 ```toml step
 [[actions]]
 action = "applescript"
@@ -195,8 +198,15 @@ action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
-        delay 2
-        return name of every static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
+        set deadline to (current date) + 6
+        repeat
+            set names to name of every static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
+            repeat with n in names
+                if (n as string) contains "TimeFlip" then return (n as string)
+            end repeat
+            if (current date) > deadline then return (names as string)
+            delay 1
+        end repeat
     end tell
 end tell'''
 expect_contains = "TimeFlip"
