@@ -27,6 +27,11 @@ entirely. Both flags accept the `--folder=Bench`/`--search=reset` equals-style f
 Requires `pyobjc` (`pip3 install pyobjc-framework-Quartz`) for `cgevent_click` steps --
 `run_tests.sh` checks for it up front. Everything else is Python 3.11+ stdlib.
 
+`run_tests.sh` also **rebuilds the app** before every run (`swift-bundler bundle TimeFlip`, via
+mint, matching `scripts/run.sh`) and aborts if the build fails -- so the checklists never launch a
+stale binary. The build is incremental (near-instant when nothing changed); it prints the built
+binary's size/mtime so the run's output shows exactly which build ran.
+
 ## Before anything runs
 
 **First, before any prompt**, a safety gate (`ensure_not_timing_on_production`) checks

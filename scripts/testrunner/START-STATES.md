@@ -44,7 +44,8 @@ Environment prerequisites -- not gates the runner queries, but a run can't succe
 
 - **Developer Mode enabled** and the `debug` setting's `enabled = true` -- else nothing is written
   to `debug_log`, which is the entire detection channel.
-- **App built** at `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
+- **App built** at `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip` -- `run_tests.sh`
+  rebuilds it before every run (aborting on failure), so this is enforced, not merely assumed.
 - **`production.sqlite` exists** -- `use-production-database.sh` refuses to relink to a missing file.
 - **Device-manipulation warning acknowledged** (unless `--yes`).
 - **Run order:** the whole Bench suite before any Interactive checklist.
