@@ -338,3 +338,22 @@ active, so snapshot/restore it separately:
 
 If a scenario specifically tests double-tap-to-pause, temporarily restore real sensitivity for just
 that scenario, then re-suppress.
+
+<a id="method-23"></a>
+## Method 23: Close the Settings window
+
+`click button 1 of window "TimeFlip Settings"` (button 1 is the window's red close button). Guard it
+with `if exists window "TimeFlip Settings"` so it's a no-op when the window isn't open -- clicking a
+non-existent element errors otherwise:
+
+```applescript
+tell application "System Events"
+    tell process "TimeFlip"
+        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
+    end tell
+end tell
+```
+
+A checklist that opens the Settings window closes it again at the end (or whenever the following
+steps no longer need it) so the next checklist starts with no stray window open -- the window
+otherwise persists for the whole run, since each reopen just re-shows the already-open window.

@@ -257,3 +257,14 @@ query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id >
 expect_contains = "device_last_event=nil"
 timeout_seconds = 30
 ```
+- [ ] Step 10: Close the Settings window (opened in Scenario A Step 1) so the next checklist starts with
+      no stray window open. [Method: Number 23](../Methods.md#method-23).
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+```

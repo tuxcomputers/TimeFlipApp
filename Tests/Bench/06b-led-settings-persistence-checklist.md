@@ -287,3 +287,14 @@ query = "SELECT CASE WHEN setting_value LIKE '%\"brightness\":77%' AND setting_v
 expect = "matches"
 timeout_seconds = 5
 ```
+- [ ] Step 7: Close the Settings window (opened in Setup) so the next checklist starts with no stray
+      window open. [Method: Number 23](../Methods.md#method-23).
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+```

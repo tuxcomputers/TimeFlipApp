@@ -126,7 +126,7 @@ action = "sql_query"
 query = "SELECT COALESCE((SELECT json_extract(setting_value, '$.paired') FROM setting WHERE setting_name='paired'), 0);"
 capture = "paired_state"
 ```
-- [ ] Step 10: Pair the device by script -- only when it isn't paired (`paired_state != 1`; e.g. a prior run's cleanup reset left it never-paired). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](../Methods.md#method-9) / `cgevent_click_element`), and wait for the pairing-complete marker (`"Device password confirmed set to:"`, `> current_log_id`). Skipped (and ticked) when already paired. If the automated click doesn't land, the prompt asks you to click the row yourself.
+- [ ] Step 10: Pair the device by script -- only when it isn't paired (`paired_state != 1`; e.g. a prior run's cleanup reset left it never-paired). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](../Methods.md#method-9) / `cgevent_click_element`), and wait for the pairing-complete marker (`"Device password confirmed set to:"`, `> current_log_id`). Skipped (and ticked) when already paired. If the automated click doesn't land, the prompt asks you to click the row yourself. Closes the Settings window afterwards ([Method: Number 23](../Methods.md#method-23)) so setup leaves no stray window open.
 ```toml step
 when = '$paired_state != 1'
 
@@ -170,6 +170,15 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'De
 expect_contains = "Device password confirmed set to:"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
 ```
 - [ ] Step 11: Confirm the device is connected against the fresh test database -- a `Login accepted` (an auto-reconnect if it was already paired, or the pairing login from Step 10). `test.sqlite` starts its own `debug_log_id` sequence, so any login here is post-switch. If it never connects -- paired but off / out of range -- the prompt says how to fix it.
 ```toml step
