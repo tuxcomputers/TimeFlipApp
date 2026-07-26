@@ -350,7 +350,7 @@ expect_contains = "isLowBattery=true"
 timeout_seconds = 15
 ```
 - [ ] Step 7: With some non-Device tab last selected, open Preferences and confirm via the accessibility
-      tree (Method: Read a label or value via accessibility, `../Methods.md`) that the **Device**
+      tree ([Method: Number 11](../Methods.md#method-11)) that the **Device**
       tab is the selected one (the `pendingSettingsTab` hint forced it),
       not whatever was last open.
 ```toml step
@@ -393,8 +393,7 @@ expect = "1"
 ```
 - [ ] Step 8: Confirm the force-to-Device holds from a *different* last tab too: select the **Report** tab
       (radio button 3, vs Facets in Step 7), close Preferences, then reopen it while still low, and confirm
-      via the accessibility tree that the **Device** tab (radio button 1) is the selected one again. Method:
-      Read a label or value via accessibility (`../Methods.md`) -- reading `radio button 1`'s `value`, so no
+      via the accessibility tree that the **Device** tab (radio button 1) is the selected one again. [Method: Number 11](../Methods.md#method-11) -- reading `radio button 1`'s `value`, so no
       human check needed.
 ```toml step
 [[actions]]

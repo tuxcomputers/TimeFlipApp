@@ -31,9 +31,7 @@ query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
 - [ ] Step 2: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
-      button 1 of the tab picker), then expand the **Double tap** disclosure under Settings. Method:
-      Click a status-item menu item, Switch Settings-window tabs, Expand or collapse a disclosure
-      group (`../Methods.md`).
+      button 1 of the tab picker), then expand the **Double tap** disclosure under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -93,8 +91,7 @@ Double tap disclosure expanded -- established in Setup immediately above, which 
 runs straight on from.
 
 - [ ] Step 1: Read whether **Disable** is currently checked or not (accessibility `value` of the checkbox),
-      then toggle it to the opposite state. Method: Click a button, checkbox, or slider
-      (`../Methods.md`).
+      then toggle it to the opposite state. [Method: Number 13](../Methods.md#method-13).
 ```toml step
 [[actions]]
 action = "applescript"
@@ -217,8 +214,7 @@ Covers `ApplicationDelegate`'s `onDoubleTapParametersChange` (prints + immediate
 change, device write debounced through `DeviceWriteDebouncer`) and
 `TimeFlipBLEDevice.setDoubleTapParameters`'s existing read-back verification (`0x17`). Step 1
 records the current Threshold/Limit/Latency/Window values to `logs/00-remembered.json` first (so
-the original params are recoverable), and Step 6 restores Threshold from that record. Method:
-Suppress incidental double-taps during a session (`../Methods.md`), since this changes a real
+the original params are recoverable), and Step 6 restores Threshold from that record. [Method: Number 22](../Methods.md#method-22), since this changes a real
 physical accelerometer register, not just app state.
 
 **Preconditions:** device connected and paired, Preferences open on the Device tab with the

@@ -30,9 +30,7 @@ query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
 - [ ] Step 2: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
-      button 1 of the tab picker), then expand the **LED** disclosure under Settings. Method: Click
-      a status-item menu item, Switch Settings-window tabs, Expand or collapse a disclosure group
-      (`../Methods.md`).
+      button 1 of the tab picker), then expand the **LED** disclosure under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -78,7 +76,7 @@ disclosure expanded -- established in Setup immediately above, which this scenar
 on from.
 
 - [ ] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
-      Method: Edit a text field (`../Methods.md`).
+      [Method: Number 12](../Methods.md#method-12).
 ```toml step
 action = "applescript"
 script = '''

@@ -56,7 +56,7 @@ action = "sql_query"
 query = "SELECT bl FROM (SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) AS bl, COUNT(*) AS n FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' GROUP BY bl ORDER BY n DESC LIMIT 2) ORDER BY bl DESC LIMIT 1;"
 capture = "battery_level_a"
 ```
-- [ ] **(Claude)** Step 2: Quit the app. Method: Quit the app (`../Methods.md`).
+- [ ] **(Claude)** Step 2: Quit the app. [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
 action = "sql_query"

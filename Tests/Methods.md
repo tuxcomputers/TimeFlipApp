@@ -2,33 +2,42 @@
 
 The concrete, verified "how" behind every automated step in `Tests/Bench/`/`Tests/Interactive/`.
 Each method below is self-contained and independently linkable -- a checklist step that needs one
-says so explicitly (`Method: <name>`) instead of re-describing the mechanics inline. Two steps
-needing the same technique both point here rather than duplicating text; a step needing a different
-technique updates its own reference. Discovering a new technique means adding a new method here and
-linking it from the step that needed it -- same "verified against a real, live run" bar as
-`CLAUDE.md`.
+says so explicitly by **number**, as a link that jumps straight to it:
+`[Method: Number 6](../Methods.md#method-6)`. Two steps needing the same technique both point here
+rather than duplicating text; a step needing a different technique updates its own reference.
+
+Each method has a permanent number in its heading (`## Method <N>: <name>`) and a matching stable
+anchor (`<a id="method-<N>"></a>`) just above it, so `../Methods.md#method-<N>` lands on it directly
+rather than the top of the page. **The numbers are stable IDs, not positions -- never renumber.** Discovering a new technique means appending it here
+with the next unused number and linking it from the step that needed it (same "verified against a
+real, live run" bar as `CLAUDE.md`); reordering or removing a method leaves every other number
+untouched so existing `Method: Number <N>` references never silently point at the wrong thing.
 
 `CLAUDE.md` still holds the rules, process, and background facts about app/device behavior; this
 file holds only reusable step-execution techniques.
 
-## Build the app
+<a id="method-1"></a>
+## Method 1: Build the app
 
 `scripts/run.sh` builds+launches in one step, blocking -- background it, poll the log for
 `"Build of product"`/`"error:"`. Bundle:
 `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
 
-## Launch the app for a Claude-driven step
+<a id="method-2"></a>
+## Method 2: Launch the app for a Claude-driven step
 
 Invoke the built binary directly (inherits the shell's env vars, needed for debug hooks) --
 `scripts/run.sh` doesn't reliably pass them through.
 
-## Quit the app
+<a id="method-3"></a>
+## Method 3: Quit the app
 
 `osascript -e 'tell application "TimeFlip" to quit'`. Never `pkill`/`kill` for a real test step --
 skips `applicationWillTerminate` (e.g. `pause_on_lock`-on-quit never fires). `pkill` is fine only as
 last-resort cleanup.
 
-## Confirm device reconnect
+<a id="method-4"></a>
+## Method 4: Confirm device reconnect
 
 Query `debug_log` for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row -- don't ask the
 user.
@@ -37,7 +46,8 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
   "SELECT logged_at, message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
 ```
 
-## Grant/verify Accessibility permission
+<a id="method-5"></a>
+## Method 5: Grant/verify Accessibility permission
 
 Accessibility (separate from Screen Recording) must be granted to the calling app -- trace it via
 `ps -o ppid=,comm= -p <pid>` up from the current shell, under System Settings -> Privacy & Security
@@ -47,7 +57,8 @@ confirms it works):
 osascript -e 'tell application "System Events" to tell process "Finder" to get name of every menu bar item of menu bar 1'
 ```
 
-## Click a status-item menu item
+<a id="method-6"></a>
+## Method 6: Click a status-item menu item
 
 Open and click the target item in the *same* `tell` block:
 ```applescript
@@ -66,7 +77,8 @@ dismisses (Escape), same block. **Never split read and click across two `osascri
 menu stays open and the next call collides and hangs (~2 min stall, easily misread as an
 Accessibility problem; a real permission denial errors instantly with `-1719`, it doesn't hang).
 
-## Simulate a real click, double-click, or held press via CGEventPost
+<a id="method-7"></a>
+## Method 7: Simulate a real click, double-click, or held press via CGEventPost
 
 AppleScript's `click`/`click at {x, y}` (System Events) never reaches genuine screen-position-based
 gestures -- confirmed dead ends for the status item's click-right-half toggle and the auto-pause
@@ -130,7 +142,8 @@ their own) -- so for that control, derive the coordinates instead from the adjac
 reliable `position`/`size` (real `AXTextField`) plus a `screencapture -R` crop to visually place the
 arrows relative to it (pixel-based, 2x retina -- halve to convert back to point space).
 
-## Status-item click gesture
+<a id="method-8"></a>
+## Method 8: Status-item click gesture
 
 The status item's own click-right-half gesture (single-click pause/resume toggle, double-click lock
 toggle) is a raw screen-position hit-test (`MenuBarController.swift`), not a menu action. Drive it
@@ -140,7 +153,8 @@ both the single-click pause/resume toggle and the double-click lock toggle. `han
 also logs every real click it receives (`debug_log` tag `click`, `"Status item clicked:
 side=left/right clickCount=N"`), useful to confirm a click (synthetic or real) actually landed.
 
-## Discovered-device row click
+<a id="method-9"></a>
+## Method 9: Discovered-device row click
 
 The discovered-device row in the pairing list (Device tab -> TimeFlip section) is a plain
 `Text`+`.onTapGesture`, not a `Button` -- neither an AX `click` nor an AX `click at {x, y}` triggers
@@ -152,19 +166,22 @@ an ad-hoc "ask the user to click" one. Locate the row with `first static text ..
 contains "TimeFlip"` (skips the "Click a device below to pair with it." header); see
 `Bench/02b-reset-device-checklist.md` Step 7.
 
-## Switch Settings-window tabs
+<a id="method-10"></a>
+## Method 10: Switch Settings-window tabs
 
 `click radio button <N> of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"`
 (1/2/3 = Device/Facets/Report). A radio button's `title` is always `missing value` -- use
 `description`.
 
-## Read a label or value via accessibility
+<a id="method-11"></a>
+## Method 11: Read a label or value via accessibility
 
 Read any label/value via accessibility (`static text`/control `value`) -- no screenshot needed. Dump
 `entire contents` of the window to find an element's path; re-derive each time, since indices shift
 with which disclosures are expanded.
 
-## Edit a text field
+<a id="method-12"></a>
+## Method 12: Edit a text field
 
 Focus it, `cmd+A`, type the value -- it commits live on every keystroke; `keystroke tab` is optional
 and only moves focus (a `tab` between rapid edits on the same field misdirects the next value
@@ -252,7 +269,8 @@ menu bar) -- the device silently refuses flips while locked (no error, just no f
 so polling `device_event` afterward would hang forever with nothing to detect. Unlock first if
 locked, unless the scenario is deliberately testing the locked-refusal behavior itself.
 
-## Read debug output
+<a id="method-20"></a>
+## Method 20: Read debug output
 
 Use `debug_log`, not a live terminal transcript:
 ```
@@ -266,7 +284,8 @@ The device's own counter restarts from 1 and isn't unique across a reset, while 
 deleted, so `MAX(event_number)` can return either era. `device_event_id` (the local PK) is always
 strictly increasing.
 
-## Switch to the test database
+<a id="method-21"></a>
+## Method 21: Switch to the test database
 
 `appdata.sqlite` symlinks to `production.sqlite` or `test.sqlite`, re-read only at launch:
 ```
@@ -295,7 +314,8 @@ mandatory re-wipe when it's one of several checklists run back-to-back in the sa
 `db_type` already reads `{"type":"test"}` from an earlier checklist this session, skip straight to
 confirming that, rather than deleting and recreating `test.sqlite` again.
 
-## Suppress incidental double-taps during a session
+<a id="method-22"></a>
+## Method 22: Suppress incidental double-taps during a session
 
 The device pauses itself on any physical double-tap -- unconditional firmware behavior, no BLE
 command disables it. The only lever is accelerometer sensitivity
@@ -305,8 +325,11 @@ Expanding it shows the four fields already at the live device values (auto-synce
 `debug_log` tag `device-sync`). This is a physical device register, independent of which DB is
 active, so snapshot/restore it separately:
 
-1. Record the four field values in `Tests/Bench/device_register_snapshot.json` (gitignored) under a
-   timestamp-keyed `double_tap_params_as_at` object -- once per session, before the first change.
+1. Record the four field values before the first change -- **capture** them from
+   `double_tap_settings` so they're saved to `logs/00-remembered.json` under the running scenario
+   (see `scripts/testrunner/README.md`), and restore from there at the end. (`07b` Scenario B
+   Step 1 does exactly this: four `sql_query` captures of `clickThreshold`/`limit`/`latency`/
+   `window`.)
 2. Set **Window** to `0` (stronger than raising `clickThreshold`, which only needs more force) --
    confirm via `debug_log` tag `double-tap`, `"Params changed: ... win=0"`. This does land in the DB
    (`setting_name='double_tap_settings'` in `setting`).

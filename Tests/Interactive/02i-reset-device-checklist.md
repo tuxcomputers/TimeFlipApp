@@ -6,7 +6,7 @@ The physical-flip part of the reset test. Run **after the whole Bench phase**
 (`Tests/Bench/02b-reset-device-checklist.md` included) -- by this point the device is already reset
 *and* re-paired: `02b`'s own last steps click **Scan for Devices** and then the discovered-device
 row itself (an ad hoc user click, since that row doesn't respond to any Claude-driven click --
-Method: Discovered-device row click, `../Methods.md` -- and Bench must end with the device paired
+[Method: Number 9](../Methods.md#method-9) -- and Bench must end with the device paired
 for `03b`-`07b` to run, which can't wait for the Interactive phase). So there's no separate
 re-pairing step here anymore -- what's left is flipping the device once so a *real* post-reset event
 is generated, the strongest evidence that the device's own event numbering restarted from the

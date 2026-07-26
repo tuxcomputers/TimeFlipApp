@@ -115,7 +115,7 @@ action = "sql_query"
 query = "SELECT last_success_ev FROM integration_event_cursors WHERE target='local' AND identifier='device-history';"
 capture = "cursor_c"
 ```
-- [ ] Step 2: Quit the app. Method: Quit the app (`../Methods.md`).
+- [ ] Step 2: Quit the app. [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -126,8 +126,7 @@ capture = "before_quit_id"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [ ] Step 3: Start the app again and confirm reconnect. Method: Launch the app for a Claude-driven step,
-      Confirm device reconnect (`../Methods.md`).
+- [ ] Step 3: Start the app again and confirm reconnect. Methods: [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
 ```toml step
 [[actions]]
 action = "shell"

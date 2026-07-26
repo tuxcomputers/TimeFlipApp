@@ -24,8 +24,7 @@ setup. Requires Developer Mode enabled, the `debug` setting's `enabled` field `t
 it, going into Setup below.
 
 **Runs after `01b-history-refresh-checklist.md`, deliberately** -- that checklist's own Setup is
-what does the production-history-sync-then-switch-to-test-database pre-flight (Method: Switch to
-the test database, `../Methods.md`); this file just confirms the test DB is still active rather
+what does the production-history-sync-then-switch-to-test-database pre-flight ([Method: Number 21](../Methods.md#method-21)); this file just confirms the test DB is still active rather
 than repeating that pre-flight. The reset step below is irreversible on real hardware, but doesn't
 need a live pause-and-confirm before it -- `01b`'s pre-flight already synced real device history to
 `production.sqlite` first, so nothing real is at risk.
@@ -60,8 +59,7 @@ capture = "n_pre_reset"
 noted -- all established immediately above in Setup, which this scenario runs straight on from.
 
 - [ ] Step 1: Open Settings (status-item menu -> "Settings...") and switch to the Device tab (radio
-      button 1 of the tab picker). Method: Click a status-item menu item, Switch Settings-window
-      tabs (`../Methods.md`). (Note: on this branch the menu item is "Settings..." and the other
+      button 1 of the tab picker). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). (Note: on this branch the menu item is "Settings..." and the other
       tabs are "Faces"/"App" -- it is based on `main`, which includes the settings-rename merge;
       the Device tab is still radio button 1.)
 ```toml step
@@ -83,8 +81,7 @@ tell application "System Events"
 end tell'''
 ```
 - [ ] Step 2: Click **Reset Device** (`AXButton` in the pairing section's `AXGroup`, right of **Forget
-      Device**) and confirm the destructive-action dialog. Method: Confirm a confirmation-dialog
-      sheet (`../Methods.md`) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
+      Device**) and confirm the destructive-action dialog. [Method: Number 16](../Methods.md#method-16) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
       is button 2. (Note: the pairing section only shows **Forget/Reset** once the app is *confirmed*
       paired -- `isPaired` flips true via `confirmPaired`, which waits for the startup history
       backfill; until then it shows a single **Scan for Devices** button, so clicking `button 2`
@@ -179,7 +176,7 @@ expect = "(no rows)"
 ```
 - [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
       (`static text` matching the device name, e.g. `"TimeFlip v2.0"`, under "Click a device below to
-      pair with it."). Method: Click a button, checkbox, or slider (`../Methods.md`). (Note: the
+      pair with it."). [Method: Number 13](../Methods.md#method-13). (Note: the
       device can take a few seconds to show up in the scan, so the read below polls once a second for
       up to 6s and returns as soon as a `TimeFlip` row appears, rather than reading the list once
       after a fixed delay.)
@@ -212,7 +209,7 @@ end tell'''
 expect_contains = "TimeFlip"
 ```
 - [ ] Step 7: Click the discovered device's row to select and pair (it is on the factory default PIN
-      `000000` now). Method: Discovered-device row click (`../Methods.md`) -- a coordinate CGEvent
+      `000000` now). [Method: Number 9](../Methods.md#method-9) -- a coordinate CGEvent
       click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture`
       an AX press won't actuate. Wait for the pairing to **complete**, not merely for the first
       login: a fresh pair logs in with the default PIN, then rotates the device password and logs

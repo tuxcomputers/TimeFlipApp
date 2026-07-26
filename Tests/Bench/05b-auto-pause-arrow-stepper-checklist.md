@@ -19,8 +19,7 @@ This bench file also now covers the press-and-hold acceleration gesture and the
 window-closed-mid-hold case (Scenarios C-E below) -- previously believed to need a person actually
 holding the mouse button down, since AppleScript's `click`/`click at {x, y}` never reaches this
 custom `Image`+`onLongPressGesture` control. A raw `CGEventPost` `mouseDown`/wait/`mouseUp` does
-reach it, confirmed live in both directions plus the compound window-close case (Method: Simulate a
-real click, double-click, or held press via CGEventPost, `../Methods.md`) -- so
+reach it, confirmed live in both directions plus the compound window-close case ([Method: Number 7](../Methods.md#method-7)) -- so
 `Tests/Interactive/05i-auto-pause-arrow-stepper-checklist.md` is now a stub.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
@@ -40,11 +39,10 @@ query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
 - [ ] Step 2: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
-      button 1 of the tab picker). Method: Click a status-item menu item, Switch Settings-window
-      tabs (`../Methods.md`). Confirm **Auto-pause** sits at the top of the **Settings**
+      button 1 of the tab picker). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). Confirm **Auto-pause** sits at the top of the **Settings**
       section, above the collapsed **LED** disclosure (not inside a separate **Advanced** section,
       which no longer exists) -- read the ordering of static text/control elements in that section
-      via accessibility (Method: Read a label or value via accessibility, `../Methods.md`).
+      via accessibility ([Method: Number 11](../Methods.md#method-11)).
 ```toml step
 [[actions]]
 action = "click_menu_item"
@@ -71,7 +69,7 @@ expect_contains = "Auto-pause"
 
 **Preconditions:** device connected and paired, Preferences open on the Device tab with Auto-pause
 visible -- established in Setup immediately above, which this scenario runs straight on from.
-Method: Edit a text field (`../Methods.md`).
+[Method: Number 12](../Methods.md#method-12).
 
 - [ ] Step 1: Type `4` directly into the auto-pause text field and confirm the DB row updated:
       `SELECT setting_value FROM setting WHERE setting_name = 'auto_pause_minutes';` should read
@@ -231,8 +229,7 @@ timeout_seconds = 10
 ## Scenario C -- press-and-hold acceleration, up arrow
 
 **Preconditions:** device connected and paired, Preferences open on the Device tab with the
-auto-pause field focusable, TimeFlip frontmost before typing (Method: Edit a text field,
-`../Methods.md`). Get the arrow's coordinates via the adjacent text field's `position`/`size` (the
+auto-pause field focusable, TimeFlip frontmost before typing ([Method: Number 12](../Methods.md#method-12)). Get the arrow's coordinates via the adjacent text field's `position`/`size` (the
 two stepper `image` elements themselves report identical, unreliable geometry -- see the coordinate
 caveat in the CGEventPost method, `../Methods.md`) plus a targeted `screencapture -R` crop to place
 them relative to it.
@@ -259,8 +256,7 @@ expect = "{\"minutes\":1}"
 timeout_seconds = 5
 ```
 - [ ] Step 2: Click and hold the **up** arrow (CGEventPost `mouseDown`, wait ~4s, `mouseUp`) until the value
-      passes 30, then release. Method: Simulate a real click, double-click, or held press via
-      CGEventPost (`../Methods.md`).
+      passes 30, then release. [Method: Number 7](../Methods.md#method-7).
 ```toml step
 action = "cgevent_click"
 target = "autopause_up_arrow"

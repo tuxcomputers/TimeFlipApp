@@ -149,8 +149,7 @@ prompt = "While the device is STILL disconnected, flip the cube back and forth b
 action = "ask_user"
 prompt = "Turn Bluetooth back ON so the app can reconnect. Have you turned it back on? (y/n)"
 ```
-- [ ] **(Claude)** Step 7: Detect that the device reconnects (Method: Confirm device reconnect,
-      `../Methods.md`): wait for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row logged
+- [ ] **(Claude)** Step 7: Detect that the device reconnects ([Method: Number 4](../Methods.md#method-4)): wait for a fresh `TimeFlip`-tagged `"Login accepted, code=0x02"` row logged
       after the disconnect. Flips while disconnected can't be polled in real time -- no connection
       means no data flows -- so this is the point automatic detection resumes.
 ```toml step

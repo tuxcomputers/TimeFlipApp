@@ -15,8 +15,7 @@ A step belongs here when it needs a human for one of the reasons above. Where a 
 has no interactive-side work, its file here is a stub containing just `Nothing needed` (e.g.
 `06`/`07`, which are fully Claude-drivable). `04`'s menu-only and DB-verifiable scenarios moved to
 `Tests/Bench/` once menu clicks were verified working and "is the time increasing?" was converted
-to a DB check; its status-item-gesture scenarios moved there too once CGEventPost (Method: Simulate
-a real click, double-click, or held press via CGEventPost, `../Methods.md`) was confirmed to drive
+to a DB check; its status-item-gesture scenarios moved there too once CGEventPost ([Method: Number 7](../Methods.md#method-7)) was confirmed to drive
 that gesture -- what's left here is only what still needs a physical flip; see that file's intro
 for the split. `05`'s press-and-hold scenarios moved to `Tests/Bench/` for the same CGEventPost
 reason -- what's left there is only the two-hands-at-once framing of the original gesture, now

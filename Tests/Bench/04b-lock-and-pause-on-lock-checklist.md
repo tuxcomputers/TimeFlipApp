@@ -393,8 +393,7 @@ expect_contains = "Pause"
 
 Confirms the double-click gesture (`MenuBarController.handleStatusItemClick`) is a genuine
 equivalent to the "Lock"/"Unlock" menu item, not just wired to open the menu -- and that the
-single-click pause/resume gesture is a no-op while locked. Method: Simulate a real click,
-double-click, or held press via CGEventPost (`../Methods.md`), at the status item's right-half
+single-click pause/resume gesture is a no-op while locked. [Method: Number 7](../Methods.md#method-7), at the status item's right-half
 point (`x = position.x + size.width * 0.75`, `y = position.y + size.height / 2`); re-read
 `position`/`size` fresh each time, since the status item's width shifts with its content.
 
