@@ -508,8 +508,10 @@ final class MenuBarController: NSObject {
         DeveloperMode.debugPrint(.click, "Status item clicked: side=\(side) clickCount=\(event.clickCount)")
         guard location.x > button.bounds.width / 2 else {
             if lowBatteryBlinkTimer != nil {
+                DeveloperMode.debugPrint(.click, "Left-click while low battery: opening Settings on the Device tab")
                 openPreferences()
             } else {
+                DeveloperMode.debugPrint(.click, "Left-click: opening the dropdown menu")
                 showMenu()
             }
             return

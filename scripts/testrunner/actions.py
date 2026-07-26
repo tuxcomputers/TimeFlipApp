@@ -298,6 +298,19 @@ def act_cgevent_hold_interrupted_by_key(spec, ctx):
     return StepResult(True, f"held at ({x:.1f}, {y:.1f}), keycode {keycode} interjected, released")
 
 
+def act_cgevent_key(spec, ctx):
+    """Post a raw keydown/keyup for a key code via CGEvent (default 53 = Escape). Used to dismiss a
+    modal status-item dropdown menu a synthetic click opened, without an osascript call that would
+    collide with the open menu and hang (see Method 6's warning)."""
+    import Quartz
+    keycode = spec.get("keycode", 53)
+    down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
+    up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+    return StepResult(True, f"posted key code {keycode}")
+
+
 def _menu_item_names(process="TimeFlip"):
     script = f"""
 tell application "System Events"
@@ -477,6 +490,7 @@ ACTIONS = {
     "cgevent_click": act_cgevent_click,
     "cgevent_click_element": act_cgevent_click_element,
     "cgevent_hold_interrupted_by_key": act_cgevent_hold_interrupted_by_key,
+    "cgevent_key": act_cgevent_key,
     "click_menu_item": act_click_menu_item,
     "ensure_unlocked_unpaused": act_ensure_unlocked_unpaused,
     "ask_user": act_ask_user,

@@ -3,14 +3,14 @@
 ### Last run - 2026-07-22 on the branch 'feature/projects'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
-on the Device tab actually *flash* in lockstep, and that clicking the left side of the status item
-while low jumps straight to Settings (Device tab) instead of opening the dropdown menu. None of this
-is machine-readable (the menu-bar item is a custom-drawn status item; the flash is a color animation,
-not text/state; the left-side click depends on real click-position data a synthetic click doesn't
-carry -- same limitation as the status-item gestures in `../Methods.md`), so a person has to watch
-and click. The `isLowBattery` latch logic, hysteresis, and forced-Device-tab selection are all
-covered by `Tests/Bench/03b-battery-low-indicator-checklist.md` and its unit tests; this file only
-adds eyes on the rendering and the left-click behavior.
+on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a
+custom-drawn status item, so a person has to watch those (Steps 1 and 4). The left-click-jumps-to-
+Settings behavior, once believed to need a real click (the belief noted here before), is now driven
+directly via CGEventPost ([Method: Number 7](../Methods.md#method-7), target `status_item_left`) and
+verified from `debug_log` + accessibility -- so Step 2/3 are Claude-driven. The `isLowBattery` latch
+logic, hysteresis, and forced-Device-tab selection are all covered by
+`Tests/Bench/03b-battery-low-indicator-checklist.md` and its unit tests; this file only adds eyes on
+the flash rendering.
 
 **Design changed live during this checklist's run** (see Bugs found and fixed below): the
 "Settings..." dropdown menu item no longer flashes red/white -- it was originally meant to, but
@@ -105,12 +105,38 @@ timeout_seconds = 15
 if running this section standalone rather than straight after.
 
 - [ ] **(You)** Step 1: Confirm the activity name (left side of the menu bar item) is blinking red/white.
-- [ ] **(You)** Step 2: Click the **left side** of the status item (the icon + activity name, not the
-      duration/timer side) and confirm it opens Settings **directly on the Device tab** -- not the
-      dropdown menu.
-- [ ] **(Claude)** Step 3: Confirm via accessibility that the Device tab is selected (radio button 1 of the
-      tab picker reads `value = 1`).
+- [ ] **(Claude)** Step 2: Click the **left side** of the status item (the icon + activity name, not the
+      duration/timer side) via CGEventPost and confirm the low-battery shortcut fired: `debug_log`
+      (`click` tag) logs `Left-click while low battery: opening Settings on the Device tab` (the app
+      opens Settings directly instead of the dropdown menu while the warning is active). Step 3 then
+      confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target
+      `status_item_left`).
 ```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_left_click_id"
+
+[[actions]]
+action = "cgevent_click"
+target = "status_item_left"
+mode = "single"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click while low battery: opening Settings%' AND debug_log_id > $before_left_click_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "opening Settings on the Device tab"
+timeout_seconds = 10
+```
+- [ ] **(Claude)** Step 3: Confirm via accessibility that Settings opened on the Device tab (radio button 1
+      of the tab picker reads `value = 1`) -- the window only exists if the left-click opened Settings, so
+      this doubles as proof it wasn't the dropdown menu.
+```toml step
+[[actions]]
+action = "shell"
+command = "sleep 1"
+
+[[actions]]
 action = "applescript"
 script = '''
 tell application "System Events"
@@ -173,6 +199,33 @@ timeout_seconds = 15
 ```
 - [ ] **(You)** Step 5: Confirm the activity name is no longer flashing, and that the Battery line on the
       Device tab is no longer flashing.
-- [ ] **(You)** Step 6: Click the **left side** of the status item again and confirm it now opens the
-      normal dropdown menu (not Settings directly) -- the low-battery left-click skip only applies
-      while the warning is active.
+- [ ] **(Claude)** Step 6: Click the **left side** of the status item again via CGEventPost and confirm it
+      now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only
+      applies while the warning is active. `debug_log` (`click` tag) logs `Left-click: opening the
+      dropdown menu` (the non-low branch); an Escape then dismisses the menu it opened so it doesn't
+      block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+capture = "before_menu_click_id"
+
+[[actions]]
+action = "cgevent_click"
+target = "status_item_left"
+mode = "single"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click: opening the dropdown menu%' AND debug_log_id > $before_menu_click_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "opening the dropdown menu"
+timeout_seconds = 10
+
+[[actions]]
+action = "shell"
+command = "sleep 1"
+
+[[actions]]
+action = "cgevent_key"
+keycode = 53
+```
