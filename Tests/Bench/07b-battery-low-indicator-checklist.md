@@ -23,12 +23,22 @@ This bench file drives the state transitions and asserts them from `debug_log` (
 latch flipping true/false with the right hysteresis) plus the accessibility-readable forced-Device-tab
 behavior. Confirming the actual *flash rendering* -- the menu-bar text and the Battery line visibly
 blinking over time -- is a genuinely time-based visual check and lives in
-`Tests/Interactive/03i-battery-low-indicator-checklist.md`, run after this one. The "Settings..."
+`Tests/Interactive/07i-battery-low-indicator-checklist.md`, run after this one. The "Settings..."
 dropdown menu item no longer flashes (design changed live during a test run -- `NSMenuItem` doesn't
 reliably repaint an already-open menu row after a highlight change, so continuously animating it
 raced AppKit's own redraw during hover); clicking the left side of the status item while low now
 opens Settings on the Device tab directly instead, which -- needing real click-position data a
-synthetic click doesn't carry -- is also `03i`'s to confirm, not this file's.
+synthetic click doesn't carry -- is also `07i`'s to confirm, not this file's.
+
+**Why this is the last feature checklist (07, not 03):** Scenario A's first step derives the live
+battery level from the *most-frequent* `battery`-tagged `debug_log` readings (flap-robust), then
+sets `threshold = level` to force the low state. That query is only as good as the number of
+readings accumulated this run -- and the test DB starts empty each run. Running battery **last**
+means every earlier checklist's connected time has already logged plenty of `battery` rows, so the
+mode is far more reliable than it would be right after setup. Order among the feature checklists
+(03-07) doesn't otherwise matter -- each resolves its own preconditions and restores its own setting
+-- so battery was moved here purely for that accuracy. Only `01` (history, before the reset wipes
+the counter) and `02` (the reset itself) are order-critical.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 

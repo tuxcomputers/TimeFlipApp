@@ -273,7 +273,7 @@ here), and when there truly isn't one (confirming the *rendering itself*, not ju
 data), two or more screenshots taken more than a second apart can serve the same purpose a human
 would. For a single element, two screenshots showing different states is enough to prove it's
 changing. For *multiple* elements that must change in lockstep with each other (the actual
-remaining case in `Interactive/03i-battery-low-indicator-checklist.md`), two screenshots aren't enough --
+remaining case in `Interactive/07i-battery-low-indicator-checklist.md`), two screenshots aren't enough --
 both could show "changed" despite having flipped at different moments within the gap -- that needs
 several samples spaced closely relative to the blink interval, comparing all elements at each one.
 This hasn't actually been done yet for `03` -- doing so is a real, separate task (verify the

@@ -327,7 +327,7 @@ active, so snapshot/restore it separately:
 
 1. Record the four field values before the first change -- **capture** them from
    `double_tap_settings` so they're saved to `logs/00-remembered.json` under the running scenario
-   (see `scripts/testrunner/README.md`), and restore from there at the end. (`07b` Scenario B
+   (see `scripts/testrunner/README.md`), and restore from there at the end. (`03b` Scenario B
    Step 1 does exactly this: four `sql_query` captures of `clickThreshold`/`limit`/`latency`/
    `window`.)
 2. Set **Window** to `0` (stronger than raising `clickThreshold`, which only needs more force) --

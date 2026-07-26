@@ -9,7 +9,7 @@ Settings behavior, once believed to need a real click (the belief noted here bef
 directly via CGEventPost ([Method: Number 7](../Methods.md#method-7), target `status_item_left`) and
 verified from `debug_log` + accessibility -- so Step 2/3 are Claude-driven. The `isLowBattery` latch
 logic, hysteresis, and forced-Device-tab selection are all covered by
-`Tests/Bench/03b-battery-low-indicator-checklist.md` and its unit tests; this file only adds eyes on
+`Tests/Bench/07b-battery-low-indicator-checklist.md` and its unit tests; this file only adds eyes on
 the flash rendering.
 
 **Design changed live during this checklist's run** (see Bugs found and fixed below): the

@@ -5,7 +5,7 @@ The tree is **run -> test -> scenario -> {capture: value}**:
 ```json
 {
   "2026-07-26_10.30.00": {
-    "03b-battery-low-indicator-checklist.md": {
+    "07b-battery-low-indicator-checklist.md": {
       "Scenario A": { "threshold_original": "{\"percent\":5}" },
       "Scenario C": { "battery_level_c": 14 }
     }

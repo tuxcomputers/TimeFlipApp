@@ -75,10 +75,10 @@ up/down, device paired/timing/paused) to them, is documented in
 
 Because `00-test-setup.md` performs the switch, the feature checklists no longer repeat it:
 their `## Setup` sections hold only their own preconditions (e.g. `01b` checks the test DB
-pulled in enough real history; `05b`/`06b`/`07b` verify `db_type=test` and open the right
+pulled in enough real history; `03b`/`05b`/`06b` verify `db_type=test` and open the right
 Settings tab), all as real `toml`. There are no auto-ticked "setup was done elsewhere" steps.
 
-A step with no `toml` (e.g. a screenshot/visual confirmation in `03b`/`04b`/`03i`) is one the
+A step with no `toml` (e.g. a screenshot/visual confirmation in `04b`/`07b`/`07i`) is one the
 script can't automate, so it **asks you** -- prints the step and waits for a `y/n` -- and
 ticks or fails on your answer. It is never silently
 skipped, regardless of whether it's a Bench or Interactive checklist. The one exception is
@@ -223,7 +223,7 @@ transcript), then the checklist filename, then the `##` scenario, then that scen
 by name. The file is rewritten after every capture and accumulates runs (each new run adds its
 own top-level key).
 
-Its main job is **cross-scenario resume**: a value a scenario captures (e.g. `03b` Scenario A's
+Its main job is **cross-scenario resume**: a value a scenario captures (e.g. `07b` Scenario A's
 `threshold_original`) is needed by a later scenario (Scenario C restores it). On a
 restart-from-scenario resume the earlier scenario is skipped, so its `$var` isn't in the live
 context -- before each step the runner looks up any missing `$var` it references in this tree
@@ -272,7 +272,7 @@ than faked. A future action type could sample specific pixels/crops via `screenc
 simple color/template checks; not implemented here.
 
 A `wait_for_sql` step is only as reliable as the real-world event it's waiting for. Most
-waits here are deterministic (a device round-trip, a debounce timer), but `03b`'s hysteresis
+waits here are deterministic (a device round-trip, a debounce timer), but `07b`'s hysteresis
 check (waiting for the live battery reading to naturally flap up 1-2%) depends on genuine,
 unpredictable analog battery behavior -- confirmed live to sometimes not happen within 5
 minutes at all. A long timeout doesn't fix non-determinism it just papers over it; that
