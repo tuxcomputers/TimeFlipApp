@@ -19,8 +19,7 @@ Foreign keys (referencing → referenced):
 - `time_entry.end_timezone_id` → `timezone`
 - `debug_log.timezone_id` → `timezone`
 
-Standalone tables with no foreign keys — `logbook`, `integration_event_cursors`, `setting` — are
-shown but unconnected.
+Standalone tables with no foreign keys — `logbook`, `setting` — are shown but unconnected.
 
 ```mermaid
 erDiagram
@@ -113,16 +112,6 @@ erDiagram
         INTEGER is_paused
         TEXT    activity_name
         REAL    created_at
-    }
-
-    integration_event_cursors {
-        TEXT    target PK
-        TEXT    identifier PK
-        INTEGER last_sent_ev
-        INTEGER attempts
-        TEXT    last_error
-        INTEGER last_success_ev
-        REAL    updated_at
     }
 
     setting {

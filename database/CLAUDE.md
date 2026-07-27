@@ -2,9 +2,10 @@
 
 ## Legacy tables (`000_*`)
 
-- The `000_`-numbered files (`000_logbook.sql`, `000_integration_event_cursors.sql`) are **legacy**
-  pre-redesign tables, kept only until the code that still reads them is migrated onto the
-  `device_event`/`time_entry` schema. They will eventually be deleted from the repo.
+- The `000_`-numbered file (`000_logbook.sql`) is a **legacy** pre-redesign table, kept only
+  until the code that still reads it is migrated onto the `device_event`/`time_entry` schema.
+  It will eventually be deleted from the repo, as `000_integration_event_cursors.sql` already
+  has been — the history resume position is now derived from `device_event` instead.
 - Treat them as **out of scope for these conventions** — don't reformat them, renumber them, or
   bring them into line with the rules below (naming, primary keys, seeds, etc.), and don't count
   them when reasoning about the schema. Leave them exactly as they are until they're removed.
@@ -94,3 +95,23 @@
   then grep for and fix **every** reference to the old filenames — DDL files, `docs/`, code comments
   (`Sources/`), and the test checklists (`Tests/`) all cite them by name. This mirrors the checklist
   renumber rule in [`../Tests/CLAUDE.md`](../Tests/CLAUDE.md).
+
+## Adding a column to an existing table
+
+- Add the column to the table's `CREATE TABLE IF NOT EXISTS` statement (so a **fresh** database
+  gets it at creation) **and** add a guarded `ALTER TABLE <table> ADD COLUMN <column> ...;`
+  statement in the same file, right after the `CREATE TABLE` (so an **existing** database that
+  predates the column also gets it). See `is_active` in `007_category.sql` for the pattern.
+- The `ALTER TABLE` must be a single line ending in `;` — `AppDataStore.runDatabaseDDL` matches it
+  with a regex (`skipSatisfiedColumnAdditions`) that only understands that shape, not an arbitrary
+  multi-line statement.
+- Don't guard it with SQL itself — sqlite has no conditional DDL (no `ADD COLUMN IF NOT EXISTS`),
+  and `sqlite3_exec` aborts every remaining statement in a file the moment one fails, so an
+  unconditional `ALTER TABLE` would break that file's seed inserts the instant the column already
+  exists (i.e. on every fresh database, since the `CREATE TABLE` above already added it). Instead,
+  `runDatabaseDDL` checks each such statement against `pragma_table_info` before running the file,
+  and comments out the ones whose column is already present — the file executes the same either
+  way, the guard is just invisible until you look at what actually ran.
+- This repo's databases aren't migrated on a version number yet (see the planned `099`-script +
+  `database_version`-setting feature) — this pattern is the interim way an existing database
+  picks up a schema change without that machinery.

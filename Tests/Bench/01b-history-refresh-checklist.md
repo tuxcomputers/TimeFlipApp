@@ -97,22 +97,24 @@ timeout_seconds = 15
 poll_interval = 3
 ```
 
-## Scenario B -- quit and relaunch resumes from the persisted cursor
+## Scenario B -- quit and relaunch resumes from the position derived from `device_event`
 
-**Preconditions:** an existing `identifier='device-history'` row in `integration_event_cursors` --
-`HistoryIngestor.persistDeviceCursor()` writes this once a committed event number is non-nil, which
-Setup's own backfill above (multiple real, already-closed historical events) should already have
-triggered. Confirm via `SELECT * FROM integration_event_cursors WHERE target = 'local' AND
-identifier = 'device-history';` before starting (the row's actual columns are `target`/`identifier`/
-`last_success_ev`, not `cursor_name`/a `lastCommittedEventNumber` field -- corrected here); if it's
-somehow still empty, this scenario isn't verifiable this run -- note that plainly and move on rather
-than forcing it.
+**Preconditions:** at least one `device_event` row for the device's current counter generation --
+Setup's own backfill above (multiple real historical events) should already have produced plenty.
+There is no cursor table: the resume position is derived from `device_event` on each startup, so
+nothing separate has to have been written first. If `device_event` is somehow empty, this scenario
+isn't verifiable this run -- note that plainly and move on rather than forcing it.
 
-- [x] Step 1: Query `integration_event_cursors` for the `device-history` row's persisted event number (call
-      it C).
+(Note: event numbers repeat across factory resets, so the position is **not** a plain
+`MAX(event_number)` over the whole table. The query below first finds the current generation --
+the rows after the last point where the counter went *backwards* -- and takes the maximum within
+it. On a database spanning resets the two answers differ.)
+
+- [x] Step 1: Query `device_event` for the current generation's highest `event_number` (call it C) --
+      the value the app derives its resume position from.
 ```toml step
 action = "sql_query"
-query = "SELECT last_success_ev FROM integration_event_cursors WHERE target='local' AND identifier='device-history';"
+query = "WITH ordered AS (SELECT device_event_id, event_number, LAG(event_number) OVER (ORDER BY start_epoch, device_event_id) AS prev FROM device_event) SELECT MAX(event_number) FROM ordered WHERE device_event_id >= COALESCE((SELECT MAX(device_event_id) FROM ordered WHERE prev IS NOT NULL AND event_number < prev), 0);"
 capture = "cursor_c"
 ```
 - [x] Step 2: Quit the app. [Method: Number 3](../Methods.md#method-3).
@@ -139,8 +141,8 @@ expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
 - [x] Step 4: Query `debug_log` for the startup fetch's `"history fetch triggered: trigger=startup
-      known_max=<N>"` line and confirm `known_max` equals C -- it resumed from the persisted
-      cursor rather than re-fetching from scratch (which would show `known_max=0`).
+      known_max=<N>"` line and confirm `known_max` equals C -- it resumed from the position derived
+      from `device_event` rather than re-fetching from scratch (which would show `known_max=0`).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-start' AND message LIKE 'history fetch triggered: trigger=startup%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"

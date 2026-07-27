@@ -25,8 +25,6 @@ final class HistoryIngestor {
     private let debounceInterval: UInt64 = 250_000_000 // 250ms
     private var periodicFetchTimer: Timer?
 
-    private let deviceCursorIdentifier = "device-history"
-
     init(
         device: TimeFlipSessionManaging,
         dataStore: AppDataStore,
@@ -161,7 +159,6 @@ final class HistoryIngestor {
                 if let maxEv = await writeToLogbook(newEntries) {
                     lastQueuedEventNumber = max(lastQueuedEventNumber ?? 0, maxEv)
                     lastCommittedEventNumber = max(lastCommittedEventNumber ?? 0, maxEv)
-                    persistDeviceCursor()
                     logger.notice("history_ingest logbook advanced_event_to=\(maxEv, privacy: .public)")
                     allDeliverableCommitted = maxEv == newEntries.last?.eventNumber
                 } else {
@@ -288,36 +285,36 @@ final class HistoryIngestor {
         // no-op: delivery cursors are managed by integrations using logbook rowids
     }
 
-    private func persistDeviceCursor() {
-        if let committed = lastCommittedEventNumber {
-            dataStore.saveEventCursor(
-                target: .local,
-                identifier: deviceCursorIdentifier,
-                lastSentEventID: Int64(committed)
-            )
-        }
-    }
-
     func resetCursors(reason: String) {
         lastQueuedEventNumber = nil
         lastCommittedEventNumber = nil
         lastObservedEventNumber = nil
-        dataStore.clearEventCursors()
         dataStore.purgeAllEvents()
         logger.notice("history_ingest cursors reset reason=\(reason, privacy: .public)")
     }
 
-    /// Hydrates lastCommittedEventNumber/lastQueuedEventNumber from the persisted cursor exactly
-    /// once per instance lifetime (a no-op once either is already set, whether from a prior
-    /// commit this session or a previous call to this method) -- must run before anything reads
-    /// lastCommittedEventNumber, or a fresh session would see it as nil despite a real persisted
-    /// value existing on disk.
+    /// Hydrates lastCommittedEventNumber/lastQueuedEventNumber from `device_event` exactly once
+    /// per instance lifetime (a no-op once either is already set, whether from a prior commit
+    /// this session or a previous call to this method) -- must run before anything reads
+    /// lastCommittedEventNumber, or a fresh session would see it as nil despite real history
+    /// existing on disk.
+    ///
+    /// `device_event` is the source of truth for where the fetch resumes; there is no separate
+    /// stored cursor. See `AppDataStore.latestCommittedDeviceEventNumber()` for why -- in short,
+    /// a stored value cannot follow the device's counter back down through a factory reset.
     private func ensureCursorLoaded() {
         guard lastCommittedEventNumber == nil else { return }
-        if let persisted = dataStore.loadEventCursor(target: .local, identifier: deviceCursorIdentifier) {
-            let asUInt32 = UInt32(clamping: persisted)
+        if let committed = dataStore.latestCommittedDeviceEventNumber() {
+            let asUInt32 = UInt32(clamping: committed)
             lastCommittedEventNumber = asUInt32
             lastQueuedEventNumber = asUInt32
+        }
+        // Hydrate the observed maximum separately: it includes the still-open row, which the
+        // committed position deliberately excludes. Without this, a fresh session's cheap check
+        // compares the device's max against the *committed* number, sees the open segment as
+        // unseen, and streams the whole history on every launch.
+        if lastObservedEventNumber == nil, let observed = dataStore.latestDeviceEventNumber() {
+            lastObservedEventNumber = UInt32(clamping: observed)
         }
     }
 

@@ -101,8 +101,8 @@ A background process periodically selects `time_entry` rows where
 `synced_to_google_calendar = 0`, creates the corresponding Google Calendar event (using the
 entry's `category` name, `started_at`, `ended_at`), and on success sets
 `synced_to_google_calendar = 1`. A failed delivery leaves the flag at `0` so the row is retried
-on the next pass — there's no separate retry-count/backoff column, unlike the old
-`integration_event_cursors` design, since idempotent re-delivery is cheap enough not to need one.
+on the next pass — there's no separate retry-count/backoff column, unlike the removed
+cursor-table design that preceded it, since idempotent re-delivery is cheap enough not to need one.
 
 ## 6. Displaying a category's elapsed time
 
