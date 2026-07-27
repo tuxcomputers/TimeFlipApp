@@ -358,7 +358,8 @@ private struct CategoryRow: View {
     }
 
     /// Read-only until Edit is chosen from its right-click menu, then an inline field. Enter
-    /// raises the confirmation; the name only changes once that is accepted.
+    /// raises the confirmation and the name only changes once that is accepted; Escape abandons
+    /// the edit outright.
     @ViewBuilder
     private var nameField: some View {
         if isEditingName {
@@ -372,6 +373,10 @@ private struct CategoryRow: View {
                     DispatchQueue.main.async { isNameFieldFocused = true }
                 }
                 .onSubmit(requestRename)
+                // Escape backs out without confirming anything. Without it the only way out of
+                // edit mode is Enter and then Cancel, so opening Edit by mistake costs a round
+                // trip through a dialog.
+                .onExitCommand(perform: cancelRename)
                 .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
         } else {
             Text(category.name)
