@@ -79,6 +79,7 @@ enum SettingsLayoutConstants {
         // 6 wide lays the 42 seeded icons out as an even 6x7 with no partial last row and no
         // scrolling -- see database/004_icon.sql.
         static let iconGridColumns = 6
+        static let createFieldSpacing: CGFloat = 8
     }
 
     /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the

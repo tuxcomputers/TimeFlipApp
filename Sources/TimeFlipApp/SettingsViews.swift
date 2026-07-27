@@ -6,6 +6,8 @@ struct SettingsRootView: View {
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
     let loadCategories: () -> [CategoryRecord]
+    let createCategory: (String) -> Void
+    let findCategory: (String) -> CategoryRecord?
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
     let updateCategoryActive: (Int, Bool) -> Void
@@ -19,6 +21,8 @@ struct SettingsRootView: View {
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
         loadCategories: @escaping () -> [CategoryRecord],
+        createCategory: @escaping (String) -> Void,
+        findCategory: @escaping (String) -> CategoryRecord?,
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
         updateCategoryActive: @escaping (Int, Bool) -> Void,
@@ -30,6 +34,8 @@ struct SettingsRootView: View {
         self.authManager = authManager
         self.integrationCoordinator = integrationCoordinator
         self.loadCategories = loadCategories
+        self.createCategory = createCategory
+        self.findCategory = findCategory
         self.updateCategoryColour = updateCategoryColour
         self.updateCategoryDailyLimit = updateCategoryDailyLimit
         self.updateCategoryActive = updateCategoryActive
@@ -49,6 +55,8 @@ struct SettingsRootView: View {
                 CategoriesSettingsView(
                     appState: appState,
                     loadCategories: loadCategories,
+                    createCategory: createCategory,
+                    findCategory: findCategory,
                     updateCategoryColour: updateCategoryColour,
                     updateCategoryDailyLimit: updateCategoryDailyLimit,
                     updateCategoryActive: updateCategoryActive,

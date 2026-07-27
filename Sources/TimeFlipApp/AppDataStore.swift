@@ -614,6 +614,75 @@ final class AppDataStore {
         }
     }
 
+    /// The category carrying this name, if any. Matched `COLLATE NOCASE`: someone typing
+    /// "meeting" when "Meeting" exists has made exactly the mistake this lookup is meant to catch,
+    /// so case is not what should distinguish them.
+    ///
+    /// Unlike `loadCategories` this does not exclude `category_id` 0 -- typing "Unassigned" is a
+    /// collision with the sentinel and needs reporting rather than silently failing to insert.
+    func findCategory(named name: String) -> CategoryRecord? {
+        guard let db, !name.isEmpty else { return nil }
+        var result: CategoryRecord?
+        let sql = """
+        SELECT category_id, category_name, icon_id, colour_id, is_active, daily_limit
+        FROM category
+        WHERE category_name = ? COLLATE NOCASE
+        LIMIT 1;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category find prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                result = CategoryRecord(
+                    id: Int(sqlite3_column_int64(stmt, 0)),
+                    name: sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "",
+                    iconID: Int(sqlite3_column_int64(stmt, 2)),
+                    colourID: Int(sqlite3_column_int64(stmt, 3)),
+                    isActive: sqlite3_column_int64(stmt, 4) != 0,
+                    dailyLimitMinutes: Int(sqlite3_column_int64(stmt, 5))
+                )
+            }
+            sqlite3_finalize(stmt)
+        }
+        return result
+    }
+
+    /// Inserts a category, active, with the `None` icon and colour and no daily limit. The caller
+    /// is expected to have trimmed the name; an empty one is rejected here rather than stored.
+    ///
+    /// A plain insert: whether the name is already taken is settled by the caller via
+    /// `findCategory(named:)` before getting here, and a duplicate name is a legitimate outcome
+    /// once the user has been told and chosen it. The `WHERE NOT EXISTS` guard on the seed inserts
+    /// in `database/007_category.sql` is there to make re-running the DDL idempotent -- it is not
+    /// an operational pattern to copy into runtime writes.
+    @discardableResult
+    func createCategory(name: String) -> Bool {
+        guard let db, !name.isEmpty else { return false }
+        var inserted = false
+        let sql = "INSERT INTO category (category_name, icon_id, colour_id) VALUES (?, 0, 0);"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category create prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                inserted = sqlite3_changes(db) > 0
+            } else {
+                logger.error("category create exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+        return inserted
+    }
+
     /// Sets `icon_id` on a category -- the Categories tab's own icon grid. Same
     /// `category_id >= 1` guard as the other category writers, so the `Unassigned` sentinel keeps
     /// the `None` icon. See `database/007_category.sql`.
