@@ -8,8 +8,11 @@ This lists everything that was persisted outside those two at the branch's fork 
 against it is measurable. A box is ticked only when the legacy copy is **gone**, not when the
 database merely has somewhere to put it.
 
-Nothing is ticked yet. Several items already have a database home and a live reader, but the
-legacy copy is still written alongside, which is the thing this list is about.
+Nothing is ticked yet, and no item can be ticked by deleting code alone — every legacy field
+still has at least one live production reader. Several already have a database home and a live
+reader too, but the legacy copy is written alongside, which is the thing this list is about.
+Two dead paths *can* go independently of any migration: see
+[Legacy paths that can go now](#legacy-paths-that-can-go-now).
 
 ## UserDefaults — the `timeflip.preferences` blob
 
@@ -22,17 +25,19 @@ have moved.
 
 - [ ] **Facet name** — free text per facet, `""` meaning unassigned.
       *DB home:* `face.category_id` → `category.category_name`, which already exists and is what
-      the menu bar displays. Still written to the blob and still editable on the Faces tab, where
-      it now displays nowhere. Removing it needs the Faces tab's category-assignment UI (see
+      the menu bar displays. Two readers keep the blob field alive: the Faces tab, which still
+      shows and edits it, and `HistoryIngestor`, which writes it to `logbook.activity_name` (a
+      write-only column — see [Legacy paths that can go now](#legacy-paths-that-can-go-now)).
+      Removing the first needs the Faces tab's category-assignment UI (see
       [TODO-features-under-development.md](TODO-features-under-development.md) § Faces).
 - [ ] **Facet icon** — asset name (`ic_meeting`), `""` for none.
       *DB home:* `category.icon_id`, already live for the menu bar and editable on the Categories
-      tab. Same blocker as the name.
+      tab. Only the Faces tab still reads the blob field, so the same blocker as the name.
 - [ ] **Facet colour** — `ColorComponents` (r/g/b/a).
       *DB home:* `category.colour_id`, which exists and is editable, but the **device's own LED
       colour is still driven from the blob** (`ApplicationDelegate` → `setFacetColor`, BLE `0x11`).
-      This is the only one of the four with a real remaining reader, so it needs the device write
-      repointed at the category's colour, not just the UI moved.
+      The only one of the four whose remaining reader is outside the UI entirely, so it needs the
+      device write repointed at the category's colour, not just a tab reworked.
 - [ ] **Facet daily limit** (`limitMinutes`) — whole minutes, `0` = none.
       *DB home:* `category.daily_limit`, which exists and is editable but has no reader. The menu
       bar's over-limit indicator still takes its value from the blob.
@@ -49,11 +54,14 @@ have moved.
 
 ### Pairing state
 
-- [ ] **`isPaired`** — whether a device is currently paired.
-      A `paired` setting row already exists and is written by `AppDataStore.recordPaired(_:)`, but
-      it is a **mirror for tests and observers, not the source of truth** — `AppState` still loads
-      the real value from the blob. Finishing this means reading from the DB and deleting the
-      blob field, not adding storage.
+- [ ] **`isPaired`** — whether a device is currently paired. **The cheapest item on this list.**
+      Neither copy is really in use. The `paired` setting row is written by
+      `AppDataStore.recordPaired(_:)` but **never read back** — nothing in `Sources/` loads it, so
+      it is a mirror for tests and observers rather than a source of truth. And the blob field is
+      only read as a backward-compatibility fallback: `wantsPairing = payload.wantsPairing ??
+      payload.isPaired`, immediately followed by an unconditional `isPaired = false`. The stored
+      value therefore only matters for payloads written before `wantsPairing` existed. Accept
+      dropping those and the blob field can go today, with no database work at all.
 - [ ] **`wantsPairing`** — whether the user has asked to be paired, distinct from currently being
       paired. Loaded from the blob, falling back to `isPaired` for payloads written before the
       field existed.
@@ -79,6 +87,24 @@ Both live in `~/Library/Application Support/TimeFlip/`, alongside the database.
       It exists because an ad-hoc `swift build` binary's signature changes on every rebuild, so
       the login Keychain re-prompts for access each time. Same note as above: an intentional
       developer-mode substitute for `KeychainAuthStateStore`, not stray state.
+
+## Legacy paths that can go now
+
+Neither of these ticks a box on its own — the fields they touch still have other readers — but
+both are dead weight that can be removed independently of any migration, and removing them
+shrinks what the ticks above have to untangle later.
+
+- [ ] **`logbook.activity_name` is written on every event and never read.**
+      `AppState.activity(for:)` — the blob-backed one, as distinct from `categoryActivity(for:)` —
+      has exactly one production caller, `HistoryIngestor`, which uses only its `name` to fill this
+      column. `logbook` itself is still live: `DailyFacetTotals` reads it via
+      `loadEvents(overlappingSince:)`. But that reader touches only `paused`, `startedAt`,
+      `duration` and `facetID`, never `activityName`.
+      Dropping it retires `AppState.activity(for:)` and leaves the Faces tab as the sole reader of
+      the blob's facet name. `logbook` is the legacy `000_` table and frozen, so the column stays
+      until the table goes — the write can pass `""` in the meantime.
+- [ ] **`AppDataStore.loadEvents(after:limit:)` has no production callers**, only tests. Dead code
+      kept alive by its own coverage.
 
 ## Already in the right place — not in scope
 
