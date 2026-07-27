@@ -18,7 +18,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected, unpaired state not applicable here; check the menu bar (lock
 badge) before continuing.
 
-- [ ] **(Claude)** Step 1: If the device isn't already locked, click the "Lock" menu item and confirm
+- [x] **(Claude)** Step 1: If the device isn't already locked, click the "Lock" menu item and confirm
       `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`.
 ```toml step
 [[actions]]
@@ -31,7 +31,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_i
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 10
 ```
-- [ ] **(You)** Step 2: Try flipping to whichever of **Break**/**Meeting** the device is *not* already on,
+- [x] **(You)** Step 2: Try flipping to whichever of **Break**/**Meeting** the device is *not* already on,
       while locked (the step reads the current face and names the target below, so it's a real
       attempted transition); confirm nothing happens (the device itself refuses the flip while
       locked).
@@ -50,14 +50,14 @@ capture = "flip_target_name"
 action = "ask_user"
 prompt = "Flip the cube to the $flip_target_name face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
-- [ ] **(Claude)** Step 3: Confirm no new `device_event` row appeared for the attempted flip (query
+- [x] **(Claude)** Step 3: Confirm no new `device_event` row appeared for the attempted flip (query
       `device_event_id DESC`, latest row unchanged before/after).
 ```toml step
 action = "sql_query"
 query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "$event_id_before_locked_flip"
 ```
-- [ ] **(Claude)** Step 4: Click "Unlock" from the menu and confirm `debug_log` shows `"Lock OFF triggered"`
+- [x] **(Claude)** Step 4: Click "Unlock" from the menu and confirm `debug_log` shows `"Lock OFF triggered"`
       / `"...confirmed: requested=OFF actual=OFF"`, returning to a clean unlocked state.
 ```toml step
 [[actions]]

@@ -24,13 +24,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected and paired, test DB active -- left by the Bench run above,
 which this scenario runs straight on from. Check device connection before asking for the flip.
 
-- [ ] **(Claude)** Step 1: Confirm the device shows connected before asking for the flip below.
+- [x] **(Claude)** Step 1: Confirm the device shows connected before asking for the flip below.
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Login accepted"
 ```
-- [ ] **(Claude)** Step 2: Note the current max `event_number` (call it N), by `device_event_id DESC`, not
+- [x] **(Claude)** Step 2: Note the current max `event_number` (call it N), by `device_event_id DESC`, not
       `MAX(event_number)` -- [Method: Number 20](../Methods.md#method-20). (Re-noted after an
       unrelated cleanup below: N=9, facet 2 "Meeting", running/unpaused.)
 ```toml step
@@ -49,7 +49,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 2 ELSE 8 END;"
 capture = "flip_target_face"
 ```
-- [ ] **(Claude)** Step 3: Confirm the device isn't locked (no lock badge on the menu bar) before asking for
+- [x] **(Claude)** Step 3: Confirm the device isn't locked (no lock badge on the menu bar) before asking for
       the flip below -- the device silently refuses flips while locked, which would otherwise leave
       the poll below waiting forever with nothing to detect. Unlock first if locked. (Found the
       device locked+paused -- leftover from `05b`-`07b`'s Setup sections quitting with
@@ -61,7 +61,7 @@ capture = "flip_target_face"
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [ ] **(You)** Step 4: Flip to whichever of **Break**/**Meeting** the device is *not* already on -- Step 2
+- [x] **(You)** Step 4: Flip to whichever of **Break**/**Meeting** the device is *not* already on -- Step 2
       read the current face and named the target in the prompt, so a real flip happens; asking for the
       face it's already resting on would leave the poll with nothing to detect. (Detected
       automatically by polling `device_event` every couple of seconds -- no need to ask for
@@ -74,7 +74,7 @@ detect_query = "SELECT event_number FROM device_event ORDER BY device_event_id D
 timeout_seconds = 0
 poll_interval = 2
 ```
-- [ ] **(Claude)** Step 5: Confirm a new `device_event` row exists with `event_number` > N, and that
+- [x] **(Claude)** Step 5: Confirm a new `device_event` row exists with `event_number` > N, and that
       event N's row is now `finalised = 1` with a `duration_seconds` that stopped growing.
 ```toml step
 [[actions]]
@@ -87,7 +87,7 @@ action = "sql_query"
 query = "SELECT finalised FROM device_event WHERE event_number = $n_before_flip ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
-- [ ] **(Claude)** Step 6: Confirm the menu bar updated to the new facet -- its `device_face` is now the
+- [x] **(Claude)** Step 6: Confirm the menu bar updated to the new facet -- its `device_face` is now the
       target face flipped to in Step 4.
 ```toml step
 action = "sql_query"
@@ -101,13 +101,13 @@ expect = "$flip_target_face"
 starting point to disconnect from below. Check device connection first; if it's not connected,
 reconnect before proceeding rather than starting this scenario already disconnected.
 
-- [ ] **(Claude)** Step 1: Confirm the device shows connected before disconnecting it below.
+- [x] **(Claude)** Step 1: Confirm the device shows connected before disconnecting it below.
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Login accepted"
 ```
-- [ ] **(Claude)** Step 2: Note the current max `event_number` (call it N). (N=10, facet 8 "Break", still
+- [x] **(Claude)** Step 2: Note the current max `event_number` (call it N). (N=10, facet 8 "Break", still
       open.)
 ```toml step
 [[actions]]
@@ -120,7 +120,7 @@ action = "sql_query"
 query = "SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "n_before_disconnect"
 ```
-- [ ] **(You)** Step 3: Turn **off** Bluetooth on the Mac (menu bar icon or System Settings -- **not**
+- [x] **(You)** Step 3: Turn **off** Bluetooth on the Mac (menu bar icon or System Settings -- **not**
       `sudo`/system-wide toggling, which also drops every other Bluetooth peripheral), so the app
       loses the device. Don't flip the cube yet -- that comes once the disconnect is detected. No y/n
       to answer: the script waits for the app's own `connection.connection_lost recorded` marker
@@ -138,7 +138,7 @@ prompt = "Turn OFF Bluetooth on the Mac (menu bar icon or System Settings, NOT s
 timeout_seconds = 0
 poll_interval = 5
 ```
-- [ ] **(You)** Step 4: With the device **still disconnected**, flip the cube back and forth between the
+- [x] **(You)** Step 4: With the device **still disconnected**, flip the cube back and forth between the
       **Break** and **Meeting** faces 2-3 times, so it accumulates a backlog of events the app can't
       see yet. (This one keeps a y/n confirm: nothing is logged while disconnected -- no data flows --
       so there's no side effect to detect until the reconnect below.)
@@ -146,7 +146,7 @@ poll_interval = 5
 action = "ask_user"
 prompt = "While the device is STILL disconnected, flip the cube back and forth between the Break and Meeting faces 2-3 times. Have you done that? (y/n)"
 ```
-- [ ] **(You)** Step 5: Turn Bluetooth back **on** so the app can reconnect and sync the backlog. No y/n
+- [x] **(You)** Step 5: Turn Bluetooth back **on** so the app can reconnect and sync the backlog. No y/n
       to answer and **no timeout**: the script keeps polling for a fresh `TimeFlip`-tagged `"Login
       accepted, code=0x02"` row after the disconnect and continues on its own -- the point automatic
       detection resumes (flips while disconnected can't be polled in real time, no connection means
@@ -159,7 +159,7 @@ prompt = "Turn Bluetooth back ON so the app can reconnect and sync the backlog -
 timeout_seconds = 0
 poll_interval = 3
 ```
-- [ ] **(Claude)** Step 6: Confirm the disconnected-flip backlog synced on reconnect: poll until at least
+- [x] **(Claude)** Step 6: Confirm the disconnected-flip backlog synced on reconnect: poll until at least
       **2** new `device_event` rows exist with `event_number` greater than N (the pre-disconnect
       baseline), i.e. the intermediate flips arrived as their own segments once the connection came
       back. (No-gap ordering and the final open row matching the resting facet are visual/interpretive

@@ -33,7 +33,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Confirm `db_type` still reads `{"type":"test"}` (left active by `01b-history-refresh-checklist.md`)
+- [x] Step 1: Confirm `db_type` still reads `{"type":"test"}` (left active by `01b-history-refresh-checklist.md`)
       and the device is connected. If it reads `production`, `01b`'s Setup needs (re-)running first
       rather than switching databases from here.
 ```toml step
@@ -41,7 +41,7 @@ action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Note the device's current event counter as **N** (the pre-reset baseline): query
+- [x] Step 2: Note the device's current event counter as **N** (the pre-reset baseline): query
       `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a
       `history` fetch's `device_last_event=`. **N** must be > 0 -- `01b`'s Setup backfill should
       already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` --
@@ -58,7 +58,7 @@ capture = "n_pre_reset"
 **Preconditions:** test DB active, device paired and connected, pre-reset baseline **N** (> 0)
 noted -- all established immediately above in Setup, which this scenario runs straight on from.
 
-- [ ] Step 1: Open Settings (status-item menu -> "Settings...") and switch to the Device tab (radio
+- [x] Step 1: Open Settings (status-item menu -> "Settings...") and switch to the Device tab (radio
       button 1 of the tab picker). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). (Note: on this branch the menu item is "Settings..." and the other
       tabs are "Faces"/"App" -- it is based on `main`, which includes the settings-rename merge;
       the Device tab is still radio button 1.)
@@ -80,7 +80,7 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [ ] Step 2: Click **Reset Device** (`AXButton` in the pairing section's `AXGroup`, right of **Forget
+- [x] Step 2: Click **Reset Device** (`AXButton` in the pairing section's `AXGroup`, right of **Forget
       Device**) and confirm the destructive-action dialog. [Method: Number 16](../Methods.md#method-16) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
       is button 2. (Note: the pairing section only shows **Forget/Reset** once the app is *confirmed*
       paired -- `isPaired` flips true via `confirmPaired`, which waits for the startup history
@@ -124,7 +124,7 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [ ] Step 3: Confirm the reset sequence via `debug_log` (`TimeFlip` tag): a
+- [x] Step 3: Confirm the reset sequence via `debug_log` (`TimeFlip` tag): a
       `"Factory reset (0xFF) sent; ... awaiting device reboot to confirm via default-password login"`
       row, then reconnect/login attempts, then
       `"Factory reset confirmed: device is back on the default password; returning to never-paired state"`.
@@ -146,7 +146,7 @@ action = "sql_query"
 query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "confirmed_id"
 ```
-- [ ] Step 4: Confirm the UI reaches the pristine never-paired state. During the confirm window the
+- [x] Step 4: Confirm the UI reaches the pristine never-paired state. During the confirm window the
       `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting
       device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not
       paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...`
@@ -163,7 +163,7 @@ end tell
 return n & "|" & c'''
 expect_contains = "Not paired"
 ```
-- [ ] Step 5: Confirm no auto-reconnect follows the forget: no further `TimeFlip` `"Login accepted"` /
+- [x] Step 5: Confirm no auto-reconnect follows the forget: no further `TimeFlip` `"Login accepted"` /
       reconnect rows after the `"returning to never-paired state"` row, until the manual re-pair
       below. (Scope this on `debug_log_id > $confirmed_id` -- the id of that row, captured in Step 3 --
       **not** `before_reset_id`: the confirm sequence itself relogins to test the password and logs
@@ -174,7 +174,7 @@ action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $confirmed_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect = "(no rows)"
 ```
-- [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
+- [x] Step 6: Click **Scan for Devices** and wait for the device to appear in the discovered-devices list
       (`static text` matching the device name, e.g. `"TimeFlip v2.0"`, under "Click a device below to
       pair with it."). [Method: Number 13](../Methods.md#method-13). (Note: the
       device can take a few seconds to show up in the scan, so the read below polls once a second for
@@ -208,7 +208,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "TimeFlip"
 ```
-- [ ] Step 7: Click the discovered device's row to select and pair (it is on the factory default PIN
+- [x] Step 7: Click the discovered device's row to select and pair (it is on the factory default PIN
       `000000` now). [Method: Number 9](../Methods.md#method-9) -- a coordinate CGEvent
       click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture`
       an AX press won't actuate. Wait for the pairing to **complete**, not merely for the first
@@ -229,7 +229,7 @@ expect_contains = "Device password confirmed set to:"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 ```
-- [ ] Step 8: Confirm the Device tab shows the device paired and connected again: read the `Connection` row
+- [x] Step 8: Confirm the Device tab shows the device paired and connected again: read the `Connection` row
       (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no
       longer "Not paired").
 ```toml step
@@ -242,7 +242,7 @@ tell application "System Events"
 end tell'''
 expect = "Connected"
 ```
-- [ ] Step 9: Confirm the device's own event counter was wiped by the reset: the first `history` fetch after
+- [x] Step 9: Confirm the device's own event counter was wiped by the reset: the first `history` fetch after
       re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet),
       not resuming from the pre-reset baseline **N**. (`MAX(event_number)` in the local `device_event`
       table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by
@@ -257,7 +257,7 @@ query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id >
 expect_contains = "device_last_event=nil"
 timeout_seconds = 30
 ```
-- [ ] Step 10: Close the Settings window (opened in Scenario A Step 1) so the next checklist starts with
+- [x] Step 10: Close the Settings window (opened in Scenario A Step 1) so the next checklist starts with
       no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
 action = "applescript"
