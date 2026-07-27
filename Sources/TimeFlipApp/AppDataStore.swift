@@ -27,13 +27,24 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     /// The `icon` table's `icon_name` (e.g. `ic_meeting`) -- see `ActivityIconLoader`.
     let iconName: String
     let colourID: Int
-    /// The `colour` table's `device_hex` ("#rrggbb"), `nil` for the `None` colour.
-    let colourHex: String?
     /// `false` once the category has been retired -- it stays in the table so historical
     /// `time_entry` rows keep resolving, but drops out of the assignment lists.
-    let isActive: Bool
+    var isActive: Bool
     /// Tracked time allowed against this category per day, in whole minutes (`0` = no limit).
-    let dailyLimitMinutes: Int
+    var dailyLimitMinutes: Int
+
+    /// A copy with one field replaced, so a view holding a loaded list can reflect an edit it just
+    /// wrote to the database without re-reading the table.
+    func with(colourID: Int? = nil, isActive: Bool? = nil, dailyLimitMinutes: Int? = nil) -> CategoryRecord {
+        CategoryRecord(
+            id: id,
+            name: name,
+            iconName: iconName,
+            colourID: colourID ?? self.colourID,
+            isActive: isActive ?? self.isActive,
+            dailyLimitMinutes: dailyLimitMinutes ?? self.dailyLimitMinutes
+        )
+    }
 }
 
 // SQLite-backed application data.
@@ -452,10 +463,9 @@ final class AppDataStore {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
         let sql = """
-        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, co.device_hex, c.is_active, c.daily_limit
+        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, c.is_active, c.daily_limit
         FROM category c
         JOIN icon i ON i.icon_id = c.icon_id
-        JOIN colour co ON co.colour_id = c.colour_id
         WHERE c.category_id >= 1
         ORDER BY c.category_name;
         """
@@ -471,15 +481,13 @@ final class AppDataStore {
                 let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
                 let iconName = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
                 let colourID = Int(sqlite3_column_int64(stmt, 3))
-                let colourHex = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-                let isActive = sqlite3_column_int64(stmt, 5) != 0
-                let dailyLimitMinutes = Int(sqlite3_column_int64(stmt, 6))
+                let isActive = sqlite3_column_int64(stmt, 4) != 0
+                let dailyLimitMinutes = Int(sqlite3_column_int64(stmt, 5))
                 results.append(CategoryRecord(
                     id: id,
                     name: name,
                     iconName: iconName,
                     colourID: colourID,
-                    colourHex: colourHex,
                     isActive: isActive,
                     dailyLimitMinutes: dailyLimitMinutes
                 ))
@@ -531,6 +539,28 @@ final class AppDataStore {
             sqlite3_bind_int64(stmt, 2, Int64(categoryID))
             if sqlite3_step(stmt) != SQLITE_DONE {
                 logger.error("category daily limit update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// Sets `is_active` on a category -- the Categories tab's own Active checkbox. Same
+    /// `category_id >= 1` guard as the other category writers: the `Unassigned` sentinel is
+    /// always active and must never be retired. See `database/007_category.sql`.
+    func updateCategoryActive(categoryID: Int, isActive: Bool) {
+        guard let db else { return }
+        let sql = "UPDATE category SET is_active = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category active update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, isActive ? 1 : 0)
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category active update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }

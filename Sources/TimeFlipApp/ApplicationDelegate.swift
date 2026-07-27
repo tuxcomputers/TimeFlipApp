@@ -56,6 +56,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         },
         updateCategoryDailyLimit: { [dataStore] categoryID, minutes in
             dataStore.updateCategoryDailyLimit(categoryID: categoryID, minutes: minutes)
+        },
+        updateCategoryActive: { [dataStore] categoryID, isActive in
+            dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
         }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)

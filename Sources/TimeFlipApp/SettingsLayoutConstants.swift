@@ -70,6 +70,10 @@ enum SettingsLayoutConstants {
         // Wide enough for the "Colour" caption above it, so the daily-limit column that follows
         // starts at the same x in both the header row and the category rows.
         static let colourColumnWidth: CGFloat = 46
+        // Sized to the "Daily limit (0 = disabled)" caption rather than to the field itself: the
+        // caption is the widest thing in the column, and the Active column after it has to start
+        // clear of it in both rows.
+        static let limitColumnWidth: CGFloat = 140
         static let limitFieldWidth: CGFloat = 50
         static let limitFieldSpacing: CGFloat = 4
     }

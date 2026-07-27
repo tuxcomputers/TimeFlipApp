@@ -5,6 +5,7 @@ struct CategoriesSettingsView: View {
     let loadCategories: () -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
+    let updateCategoryActive: (Int, Bool) -> Void
     @State private var categories: [CategoryRecord] = []
     // Active is the section you actually work in, so it starts open; Inactive is the archive you
     // only occasionally go looking in, so it starts folded away.
@@ -19,8 +20,7 @@ struct CategoriesSettingsView: View {
                 categories: categories.filter(\.isActive),
                 emptyMessage: "No active categories.",
                 appState: appState,
-                updateCategoryColour: updateCategoryColour,
-                updateCategoryDailyLimit: updateCategoryDailyLimit
+                actions: actions
             )
             CategorySection(
                 title: "Inactive",
@@ -28,8 +28,7 @@ struct CategoriesSettingsView: View {
                 categories: categories.filter { !$0.isActive },
                 emptyMessage: "No inactive categories.",
                 appState: appState,
-                updateCategoryColour: updateCategoryColour,
-                updateCategoryDailyLimit: updateCategoryDailyLimit
+                actions: actions
             )
         }
         .formStyle(.grouped)
@@ -37,6 +36,40 @@ struct CategoriesSettingsView: View {
             categories = loadCategories()
         }
     }
+
+    /// Every edit writes to the database and then patches the loaded record in place. Keeping the
+    /// list the single source of truth is what lets a row move between the two sections the moment
+    /// its Active checkbox changes -- and it is also why the rows hold no edit state of their own:
+    /// moving a row between sections rebuilds it, and any @State it carried would reset to
+    /// whatever the row was loaded with, silently reverting edits made since.
+    private var actions: CategoryRowActions {
+        CategoryRowActions(
+            setColour: { categoryID, colourID in
+                updateCategoryColour(categoryID, colourID)
+                patch(categoryID) { $0.with(colourID: colourID) }
+            },
+            setDailyLimit: { categoryID, minutes in
+                updateCategoryDailyLimit(categoryID, minutes)
+                patch(categoryID) { $0.with(dailyLimitMinutes: minutes) }
+            },
+            setActive: { categoryID, isActive in
+                updateCategoryActive(categoryID, isActive)
+                patch(categoryID) { $0.with(isActive: isActive) }
+            }
+        )
+    }
+
+    private func patch(_ categoryID: Int, _ transform: (CategoryRecord) -> CategoryRecord) {
+        guard let index = categories.firstIndex(where: { $0.id == categoryID }) else { return }
+        categories[index] = transform(categories[index])
+    }
+}
+
+/// The three edits a category row can make, bundled so they travel together down to the row.
+struct CategoryRowActions {
+    let setColour: (Int, Int) -> Void
+    let setDailyLimit: (Int, Int) -> Void
+    let setActive: (Int, Bool) -> Void
 }
 
 /// One collapsible group of categories, built like the Device tab's LED/More groups: the label is
@@ -48,8 +81,7 @@ private struct CategorySection: View {
     let categories: [CategoryRecord]
     let emptyMessage: String
     @ObservedObject var appState: AppState
-    let updateCategoryColour: (Int, Int) -> Void
-    let updateCategoryDailyLimit: (Int, Int) -> Void
+    let actions: CategoryRowActions
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -64,8 +96,7 @@ private struct CategorySection: View {
                             category: category,
                             colourOptions: appState.colourOptions,
                             noColourName: appState.noColourName,
-                            onColourPicked: updateCategoryColour,
-                            onDailyLimitChanged: updateCategoryDailyLimit
+                            actions: actions
                         )
                     }
                 }
@@ -96,6 +127,8 @@ private struct CategoryColumnHeaderRow: View {
             Text("Colour")
                 .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
             Text("Daily limit (0 = disabled)")
+                .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
+            Text("Active")
             Spacer()
         }
         .font(.caption)
@@ -107,33 +140,15 @@ private struct CategoryRow: View {
     let category: CategoryRecord
     let colourOptions: [ActivityColorOption]
     let noColourName: String
-    let onColourPicked: (Int, Int) -> Void
-    let onDailyLimitChanged: (Int, Int) -> Void
-    @State private var selectedColor: Color
-    @State private var selectedColourID: Int
+    let actions: CategoryRowActions
     @State private var isColorPickerPresented = false
-    @State private var dailyLimitMinutes: Int
 
-    init(
-        category: CategoryRecord,
-        colourOptions: [ActivityColorOption],
-        noColourName: String,
-        onColourPicked: @escaping (Int, Int) -> Void,
-        onDailyLimitChanged: @escaping (Int, Int) -> Void
-    ) {
-        self.category = category
-        self.colourOptions = colourOptions
-        self.noColourName = noColourName
-        self.onColourPicked = onColourPicked
-        self.onDailyLimitChanged = onDailyLimitChanged
-        _selectedColor = State(initialValue: category.colourHex.flatMap { ColorComponents(hex: $0)?.color } ?? .black)
-        _selectedColourID = State(initialValue: category.colourID)
-        _dailyLimitMinutes = State(initialValue: category.dailyLimitMinutes)
+    /// `nil` for the None colour (colour_id 0), which has no hex and so never appears in
+    /// `colourOptions` -- drawn as a hollow black square rather than a solid fill, so it reads as
+    /// "no colour set" instead of an actual colour choice.
+    private var swatchColor: Color? {
+        colourOptions.first { $0.colourId == category.colourID }?.color
     }
-
-    /// The None colour (colour_id 0) has no real hex value -- rendered as a hollow black square
-    /// rather than a solid fill, so it reads as "no colour set" instead of an actual colour choice.
-    private var isBlank: Bool { selectedColourID == 0 }
 
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
@@ -146,46 +161,53 @@ private struct CategoryRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
-            Button {
-                DeveloperMode.debugPrint(.click, "Button clicked: Category color swatch \"\(category.name)\" (\(isColorPickerPresented ? "close" : "open") picker)")
-                isColorPickerPresented.toggle()
-            } label: {
-                RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                    .fill(isBlank ? Color.clear : selectedColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                            .stroke(isBlank ? Color.black : Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity))
-                    )
-                    .frame(
-                        width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
-                        height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
-                    )
-                    // A Color.clear fill (the hollow None-colour case) has no hit-testable area of its
-                    // own -- without this, only the 1pt stroke line would register a click.
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $isColorPickerPresented) {
-                ColorOptionList(
-                    selection: $selectedColor,
-                    colourOptions: colourOptions,
-                    onPick: { option in
-                        selectedColourID = option.colourId
-                        onColourPicked(category.id, option.colourId)
-                    },
-                    onSelect: { isColorPickerPresented = false },
-                    noneOptionName: noColourName
-                )
-            }
-            .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
+            colourSwatch
+                .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
             dailyLimitField
+                .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
+                // An inactive category is retired, kept only so historical time_entry rows still
+                // resolve, so its colour and limit are a record of what it was rather than
+                // settings worth carrying on tuning. The Active tick box stays live, since
+                // reinstating the category is the one edit an inactive row must still allow.
+                .disabled(!category.isActive)
+            activeCheckbox
             Spacer()
         }
-        // An inactive category is read-only: it is retired, kept only so historical time_entry
-        // rows still resolve, so its colour and limit are a record of what it was rather than
-        // something to keep tuning. Driven off the record itself, not off which section drew the
-        // row, so it holds wherever the row is rendered.
+    }
+
+    private var colourSwatch: some View {
+        Button {
+            DeveloperMode.debugPrint(.click, "Button clicked: Category color swatch \"\(category.name)\" (\(isColorPickerPresented ? "close" : "open") picker)")
+            isColorPickerPresented.toggle()
+        } label: {
+            RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                .fill(swatchColor ?? Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                        .stroke(swatchColor == nil ? Color.black : Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity))
+                )
+                .frame(
+                    width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
+                    height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
+                )
+                // A Color.clear fill (the hollow None-colour case) has no hit-testable area of its
+                // own -- without this, only the 1pt stroke line would register a click.
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
         .disabled(!category.isActive)
+        .popover(isPresented: $isColorPickerPresented) {
+            ColorOptionList(
+                // The list writes the picked Color straight back through this binding, but the
+                // record needs the colour_id that comes with onPick -- so onPick is the path that
+                // actually applies the change, and this only feeds the list's own checkmark.
+                selection: Binding(get: { swatchColor ?? .clear }, set: { _ in }),
+                colourOptions: colourOptions,
+                onPick: { option in actions.setColour(category.id, option.colourId) },
+                onSelect: { isColorPickerPresented = false },
+                noneOptionName: noColourName
+            )
+        }
     }
 
     /// Whole minutes per day, 0 = disabled. Deliberately uncapped, unlike the Device tab's
@@ -196,7 +218,7 @@ private struct CategoryRow: View {
             TextField(
                 "",
                 value: Binding(
-                    get: { dailyLimitMinutes },
+                    get: { category.dailyLimitMinutes },
                     set: { applyDailyLimit(newValue: $0) }
                 ),
                 format: .number
@@ -209,11 +231,25 @@ private struct CategoryRow: View {
         }
     }
 
+    /// Unticking moves the row straight to the Inactive group, and ticking it there moves it back
+    /// -- the list this row was built from is re-partitioned by the same edit that writes the
+    /// change, so the row lands in the matching group on the next render.
+    private var activeCheckbox: some View {
+        Toggle("", isOn: Binding(
+            get: { category.isActive },
+            set: { newValue in
+                DeveloperMode.debugPrint(.click, "Button clicked: Category \"\(category.name)\" active -> \(newValue)")
+                actions.setActive(category.id, newValue)
+            }
+        ))
+        .toggleStyle(.checkbox)
+        .labelsHidden()
+    }
+
     private func applyDailyLimit(newValue: Int) {
         let clamped = max(0, newValue)
-        guard clamped != dailyLimitMinutes else { return }
-        DeveloperMode.debugPrint(.field, "Field changed: Category \"\(category.name)\" daily limit: \(dailyLimitMinutes)m -> \(clamped)m")
-        dailyLimitMinutes = clamped
-        onDailyLimitChanged(category.id, clamped)
+        guard clamped != category.dailyLimitMinutes else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: Category \"\(category.name)\" daily limit: \(category.dailyLimitMinutes)m -> \(clamped)m")
+        actions.setDailyLimit(category.id, clamped)
     }
 }

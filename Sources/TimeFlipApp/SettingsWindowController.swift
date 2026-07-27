@@ -14,7 +14,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         integrationCoordinator: GoogleIntegrationCoordinator,
         loadCategories: @escaping () -> [CategoryRecord],
         updateCategoryColour: @escaping (Int, Int) -> Void,
-        updateCategoryDailyLimit: @escaping (Int, Int) -> Void
+        updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
+        updateCategoryActive: @escaping (Int, Bool) -> Void
     ) {
         let window = NSWindow(
             contentRect: NSRect(
@@ -45,6 +46,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             loadCategories: loadCategories,
             updateCategoryColour: updateCategoryColour,
             updateCategoryDailyLimit: updateCategoryDailyLimit,
+            updateCategoryActive: updateCategoryActive,
             onClose: { [weak window] in
                 window?.close()
             }
