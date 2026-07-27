@@ -91,7 +91,7 @@ final class HistoryIngestor {
         ensureCursorLoaded()
         let knownMax = lastObservedEventNumber ?? lastCommittedEventNumber
         logger.debug("history_ingest trigger=\(trigger, privacy: .public) known_max=\(knownMax ?? 0)")
-        DeveloperMode.debugPrint(.history, "history fetch triggered: trigger=\(trigger) known_max=\(knownMax ?? 0)")
+        DeveloperMode.debugPrint(.histStart, "history fetch triggered: trigger=\(trigger) known_max=\(knownMax ?? 0)")
 
         // Step 2: cheap single-frame read of the device's actual current record. Per the vendor
         // spec this comes back as a complete History block (facet/start time/duration included,
@@ -102,7 +102,7 @@ final class HistoryIngestor {
         let deviceEntry = await device.readLastEvent()
         let deviceLastEventNumber = deviceEntry?.eventNumber
         DeveloperMode.debugPrint(
-            .history,
+            .histCheck,
             "history fetch: cheap check device_last_event=\(deviceLastEventNumber.map(String.init) ?? "nil") known_max=\(knownMax.map(String.init) ?? "nil")"
         )
 
@@ -117,7 +117,8 @@ final class HistoryIngestor {
             )
             onLatestEntry?(deviceEntry)
             logger.debug("history_ingest device_max=\(deviceLastEventNumber, privacy: .public) unchanged; DB refreshed, stream skipped")
-            DeveloperMode.debugPrint(.history, "history fetch: device max_event_number=\(deviceLastEventNumber) unchanged; DB refreshed")
+            DeveloperMode.debugPrint(.histResult, "history fetch: device max_event_number=\(deviceLastEventNumber) unchanged; DB refreshed")
+            DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
             await finishFetch()
             return
         }
@@ -132,6 +133,7 @@ final class HistoryIngestor {
             .sorted { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
         guard let latestEntry = rawEntries.last else {
             logger.debug("history_ingest no new entries")
+            DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
             await finishFetch()
             return
         }
@@ -140,7 +142,7 @@ final class HistoryIngestor {
         // is handled separately below (step 4) since it's the live/current one, not a closed one.
         // Must run BEFORE the live-entry recordDeviceEvent call below: AppDataStore.recordDeviceEvent
         // tracks the highest start_epoch it's seen so it can pick UPDATE vs INSERT without an
-        // ON CONFLICT round-trip, so device_events rows have to be written in ascending
+        // ON CONFLICT round-trip, so device_event rows have to be written in ascending
         // start_epoch (i.e. chronological) order. Recording the live (latest) entry first would
         // make every one of these earlier entries look "already superseded", taking the UPDATE
         // branch against a row that was never inserted -- a silent no-op that drops the entire
@@ -194,12 +196,13 @@ final class HistoryIngestor {
             logger.debug(
                 "history_ingest live entry withheld: confirmed_current=\(latestIsConfirmedCurrent, privacy: .public) all_committed=\(allDeliverableCommitted, privacy: .public)"
             )
-            DeveloperMode.debugPrint(.history, "history fetch: live entry ambiguous or backlog incomplete, deferring to next trigger")
+            DeveloperMode.debugPrint(.histResult, "history fetch: live entry ambiguous or backlog incomplete, deferring to next trigger")
+            DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
             await finishFetch()
             return
         }
 
-        // Record the confirmed-current segment as not-yet-finalised so device_events reflects the
+        // Record the confirmed-current segment as not-yet-finalised so device_event reflects the
         // live segment, growing in duration on each refresh until a later event closes it out.
         if let latestEventNumber {
             dataStore.recordDeviceEvent(
@@ -219,6 +222,7 @@ final class HistoryIngestor {
         // doesn't spam the console with one line per record.
         dataStore.verifyMaxKnownStartEpochConsistency()
 
+        DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
         await finishFetch()
     }
 

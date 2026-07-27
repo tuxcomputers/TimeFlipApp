@@ -51,6 +51,9 @@ struct SettingsRootView: View {
                 selectedTab = newValue
                 appState.pendingSettingsTab = nil
             }
+            .onChange(of: selectedTab) { _, newValue in
+                DeveloperMode.debugPrint(.tab, "Tab switched to: \(newValue.debugName)")
+            }
             .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }
                 onMinimumContentHeightChange(height)
@@ -58,6 +61,7 @@ struct SettingsRootView: View {
             HStack {
                 Spacer()
                 Button("Close") {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Close (Settings window)")
                     onClose()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -73,6 +77,15 @@ enum SettingsTab: Hashable {
     case timeflip
     case facets
     case report
+
+    /// Matches the tab's visible title, for the `tab` debug log (see SettingsRootView).
+    var debugName: String {
+        switch self {
+        case .timeflip: return "Device"
+        case .facets: return "Faces"
+        case .report: return "App"
+        }
+    }
 }
 
 private struct PaneSetupView: View {
@@ -146,11 +159,19 @@ private struct TopFacetEditor: View {
     var body: some View {
         let nameBinding = Binding(
             get: { mapping.name },
-            set: { mapping.name = ActivityLibrary.sanitizeActivityName($0) }
+            set: {
+                let sanitized = ActivityLibrary.sanitizeActivityName($0)
+                DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) name: \"\(mapping.name)\" -> \"\(sanitized)\"")
+                mapping.name = sanitized
+            }
         )
         let iconBinding = Binding(
             get: { mapping.iconName },
-            set: { mapping.iconName = ActivityLibrary.sanitizeIconName($0) }
+            set: {
+                let sanitized = ActivityLibrary.sanitizeIconName($0)
+                DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) icon: \"\(mapping.iconName)\" -> \"\(sanitized)\"")
+                mapping.iconName = sanitized
+            }
         )
 
         VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
@@ -176,6 +197,9 @@ private struct TopFacetEditor: View {
                         .frame(minWidth: 80, alignment: .leading)
                 }
                 .help("0 = no limit; resets daily at 3am; max 480 minutes; steps of 5 minutes.")
+                .onChange(of: mapping.limitMinutes) { oldValue, newValue in
+                    DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) daily limit: \(oldValue)m -> \(newValue)m")
+                }
             }
 
             IconGridPicker(selection: iconBinding, tint: mapping.color)
@@ -226,6 +250,7 @@ private struct IconGridPicker: View {
                     isSelected: selection.isEmpty,
                     tint: tint
                 ) {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Icon grid cell (none)")
                     selection = ""
                 }
 
@@ -235,6 +260,7 @@ private struct IconGridPicker: View {
                         isSelected: selection == option.iconName,
                         tint: tint
                     ) {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Icon grid cell (\(option.iconName))")
                         selection = option.iconName
                     }
                 }
@@ -318,6 +344,7 @@ private struct FacetColorPicker: View {
 
     var body: some View {
         Button {
+            DeveloperMode.debugPrint(.click, "Button clicked: Facet color swatch (\(isPresented ? "close" : "open") picker)")
             isPresented.toggle()
         } label: {
             Circle()
@@ -352,6 +379,7 @@ private struct ColorOptionList: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(colourOptions) { option in
                 Button {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(option.name)\"")
                     selection = option.color
                     onPick(option)
                     onSelect()

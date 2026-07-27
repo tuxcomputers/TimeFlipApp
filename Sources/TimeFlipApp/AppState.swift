@@ -58,6 +58,11 @@ final class AppState: ObservableObject {
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
+    // Which physical database this launch opened -- "production" or "test" (see
+    // AppDataStore.loadDbType()). Fixed for the session; set once at launch by ApplicationDelegate.
+    // Surfaced at the far left of the menu bar in developer mode only, so a developer can't mistake
+    // a test database for the real one and record real timings into it. Remove with dev mode.
+    @Published var dbType: String = "production"
     @Published var discoveredDevices: [DiscoveredBLEDevice] = []
     @Published var isScanningForDevices: Bool = false
     @Published var invalidDeviceIDs: Set<UUID> = []

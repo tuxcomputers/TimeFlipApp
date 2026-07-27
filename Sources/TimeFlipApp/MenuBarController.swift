@@ -40,7 +40,6 @@ final class MenuBarController: NSObject {
     private var lowBatteryBlinkTimer: Timer?
     private var lowBatteryBlinkPhaseOn = false
     private var isLowBatteryLatched = false
-    private var preferencesMenuItem: NSMenuItem?
     private var lastSnapshot: StatusSnapshot?
     private var cachedIcon: NSImage?
     private var cachedIconName: String?
@@ -172,21 +171,23 @@ final class MenuBarController: NSObject {
         let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
         let isLocked = appState.isLocked
 
+        // Menu items point at thin logging wrappers (menuSettings/menuPauseResume/...) rather
+        // than the shared handlers directly, so a dropdown selection is logged as a menu click
+        // (tag `menu`) distinctly from the status-item click gesture, which already logs `click`.
         let settingsItem = NSMenuItem(
             title: "Settings...",
-            action: #selector(openPreferences),
+            action: #selector(menuSettings),
             keyEquivalent: ""
         )
         settingsItem.target = self
         newMenu.addItem(settingsItem)
-        preferencesMenuItem = settingsItem
 
         newMenu.addItem(.separator())
 
         let pauseTitle = isPaired ? (isPaused ? "Resume" : "Pause") : "Pause"
         let pauseItem = NSMenuItem(
             title: pauseTitle,
-            action: #selector(togglePause),
+            action: #selector(menuPauseResume),
             keyEquivalent: ""
         )
         pauseItem.target = self
@@ -197,7 +198,7 @@ final class MenuBarController: NSObject {
 
         let lockItem = NSMenuItem(
             title: isLocked ? "Unlock" : "Lock",
-            action: #selector(toggleLock),
+            action: #selector(menuLockUnlock),
             keyEquivalent: ""
         )
         lockItem.target = self
@@ -206,14 +207,13 @@ final class MenuBarController: NSObject {
 
         let quitItem = NSMenuItem(
             title: "Quit",
-            action: #selector(quitApp),
+            action: #selector(menuQuit),
             keyEquivalent: ""
         )
         quitItem.target = self
         newMenu.addItem(quitItem)
 
         statusMenu = newMenu
-        updatePreferencesMenuItemAppearance()
         updateStatusView()
     }
 
@@ -270,10 +270,16 @@ final class MenuBarController: NSObject {
 
         let iconSize = statusBarIconSize()
         let icon = resolvedIcon(named: iconName, pointSize: iconSize)
-        let titleKey = "\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
-        button.imagePosition = .imageLeft
-        if button.image !== icon {
-            button.image = icon
+        // Dev mode only: a "TEST"/"PROD" tag pinned at the far left of the menu bar. When present the
+        // activity icon is drawn as a leading attachment inside the title (so the order reads
+        // DB, icon, category, pause/play, time) rather than as the button's own image; when absent
+        // the shipping layout (icon as button.image) is untouched.
+        let dbBadge = developerDatabaseBadge()
+        let titleKey = "\(dbBadge?.text ?? "")|\(iconName ?? "")|\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
+        let buttonImage = dbBadge == nil ? icon : nil
+        button.imagePosition = buttonImage == nil ? .noImage : .imageLeft
+        if button.image !== buttonImage {
+            button.image = buttonImage
         }
         let tooltip = pairingStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
         if button.toolTip != tooltip {
@@ -281,6 +287,8 @@ final class MenuBarController: NSObject {
         }
         if lastRenderedTitle != titleKey {
             button.attributedTitle = makeStatusTitle(
+                databaseBadge: dbBadge,
+                leadingIcon: dbBadge == nil ? nil : icon,
                 activityLabel: activityLabel,
                 duration: duration,
                 isPaused: isPaused,
@@ -305,40 +313,21 @@ final class MenuBarController: NSObject {
             lowBatteryBlinkTimer = nil
             lowBatteryBlinkPhaseOn = false
             appState.setLowBatteryBlinkState(isLowBattery: false, blinkPhaseOn: false)
-            updatePreferencesMenuItemAppearance()
             return
         }
         guard lowBatteryBlinkTimer == nil else { return }
         appState.setLowBatteryBlinkState(isLowBattery: true, blinkPhaseOn: lowBatteryBlinkPhaseOn)
-        updatePreferencesMenuItemAppearance()
         let timer = Timer(timeInterval: Constants.lowBatteryBlinkInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.lowBatteryBlinkPhaseOn.toggle()
                 self.appState.setLowBatteryBlinkState(isLowBattery: true, blinkPhaseOn: self.lowBatteryBlinkPhaseOn)
-                self.updatePreferencesMenuItemAppearance()
                 self.updateStatusView(force: true)
             }
         }
         timer.tolerance = 0
         RunLoop.main.add(timer, forMode: .common)
         lowBatteryBlinkTimer = timer
-    }
-
-    /// Alternates the "Preferences..." menu item between its plain title and a red variant in
-    /// sync with the same blink timer that flashes the status bar text and the Settings window's
-    /// Battery line, so the low-battery warning is visible before the dropdown is even opened.
-    private func updatePreferencesMenuItemAppearance() {
-        guard let item = preferencesMenuItem else { return }
-        guard lowBatteryBlinkTimer != nil else {
-            item.attributedTitle = nil
-            return
-        }
-        let color: NSColor = lowBatteryBlinkPhaseOn ? .systemRed : .labelColor
-        item.attributedTitle = NSAttributedString(
-            string: "Settings...",
-            attributes: [.foregroundColor: color, .font: NSFont.menuFont(ofSize: 0)]
-        )
     }
 
     /// Hysteresis (Schmitt trigger) around `lowBatteryThresholdPercent`: latches into the
@@ -454,6 +443,32 @@ final class MenuBarController: NSObject {
         updateStatusView()
     }
 
+    // Dropdown menu-item wrappers: log the click (tag `menu`), then run the shared handler. The
+    // handlers stay reachable from the status-item gesture without logging a menu click there.
+    @objc
+    private func menuSettings() {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: Settings...")
+        openPreferences()
+    }
+
+    @objc
+    private func menuPauseResume(_ sender: NSMenuItem) {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: \(sender.title)")
+        togglePause()
+    }
+
+    @objc
+    private func menuLockUnlock(_ sender: NSMenuItem) {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: \(sender.title)")
+        toggleLock()
+    }
+
+    @objc
+    private func menuQuit() {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: Quit")
+        quitApp()
+    }
+
     @objc
     private func togglePause() {
         // While locked, the only valid action is double-clicking to unlock — pause/resume must
@@ -472,7 +487,9 @@ final class MenuBarController: NSObject {
     }
 
     /// Splits the status item into two click zones, but only once the device is actually
-    /// paired: the left side (icon + activity name) opens the dropdown menu as before; the right
+    /// paired: the left side (icon + activity name) opens the dropdown menu as before -- unless
+    /// the low-battery warning is active, in which case it jumps straight to Settings (Device
+    /// tab, where the blinking Battery line lives) instead, skipping the menu entirely. The right
     /// side (duration/indicator) toggles pause/resume on a single click, or requests a device lock
     /// on a double-click, without opening anything. If the device has never connected (or can't
     /// connect), there's no pause/resume state to toggle, so any click just pops the menu. While
@@ -487,8 +504,16 @@ final class MenuBarController: NSObject {
             return
         }
         let location = button.convert(event.locationInWindow, from: nil)
+        let side = location.x > button.bounds.width / 2 ? "right" : "left"
+        DeveloperMode.debugPrint(.click, "Status item clicked: side=\(side) clickCount=\(event.clickCount)")
         guard location.x > button.bounds.width / 2 else {
-            showMenu()
+            if lowBatteryBlinkTimer != nil {
+                DeveloperMode.debugPrint(.click, "Left-click while low battery: opening Settings on the Device tab")
+                openPreferences()
+            } else {
+                DeveloperMode.debugPrint(.click, "Left-click: opening the dropdown menu")
+                showMenu()
+            }
             return
         }
         if event.clickCount >= 2 {
@@ -647,7 +672,33 @@ final class MenuBarController: NSObject {
         }
     }
 
+    /// Dev-only leading tag naming which database this launch opened -- red "TEST" (attention) vs a
+    /// plain white "PROD" -- so a developer can't mistake a test database for the real one and record
+    /// real timings into it. `nil` when developer mode is off, so the shipping menu bar is unchanged.
+    private func developerDatabaseBadge() -> (text: String, color: NSColor)? {
+        guard DeveloperMode.isEnabled else { return nil }
+        let isTest = appState.dbType.lowercased() == "test"
+        return isTest ? ("TEST", .systemRed) : ("PROD", .white)
+    }
+
+    /// A copy of a template icon filled with `color`, for use as a text attachment inside the status
+    /// title -- attachments draw the image's literal pixels (a template's black), so unlike a button
+    /// image they don't pick up the button's white content tint on their own.
+    private func tintedIcon(_ image: NSImage, color: NSColor) -> NSImage {
+        let tinted = NSImage(size: image.size)
+        tinted.lockFocus()
+        let rect = NSRect(origin: .zero, size: image.size)
+        image.draw(in: rect)
+        color.set()
+        rect.fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        tinted.isTemplate = false
+        return tinted
+    }
+
     private func makeStatusTitle(
+        databaseBadge: (text: String, color: NSColor)? = nil,
+        leadingIcon: NSImage? = nil,
         activityLabel: String,
         duration: String,
         isPaused: Bool,
@@ -670,9 +721,27 @@ final class MenuBarController: NSObject {
         let categoryColor = style.categoryColor
         let categoryAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: categoryColor]
         let steadyAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: steadyColor]
-        let text = NSMutableAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes)
+        let text = NSMutableAttributedString()
 
         let indicatorSize = max(Constants.minIndicatorAttachmentSize, font.capHeight * Constants.indicatorScale)
+
+        // Dev-mode DB tag, then (since it displaces the button's own image) the activity icon,
+        // both ahead of the category label -- see updateStatusView. The icon rides at the same
+        // height as the pause/play glyph so it can't outgrow the menu bar and clip.
+        if let databaseBadge {
+            let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
+            let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
+            text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
+            if let leadingIcon {
+                let attachment = NSTextAttachment()
+                attachment.image = tintedIcon(leadingIcon, color: .white)
+                attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
+                text.append(NSAttributedString(attachment: attachment))
+                text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
+            }
+        }
+
+        text.append(NSAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes))
 
         // Lock badge sits to the left of the pause/play indicator, not in place of it, so whether
         // the device is still timing or paused stays visible even while locked.

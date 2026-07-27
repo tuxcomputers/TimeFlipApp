@@ -2,10 +2,10 @@
 -- Generic key/value store for device/app settings. One row per setting.
 
 CREATE TABLE IF NOT EXISTS setting (
-    setting_id INTEGER CONSTRAINT PK_setting PRIMARY KEY AUTOINCREMENT,
-    setting_name TEXT NOT NULL,
-    setting_value TEXT NOT NULL,
-    setting_description TEXT
+  setting_id            INTEGER CONSTRAINT PK_setting PRIMARY KEY AUTOINCREMENT
+  , setting_name        TEXT NOT NULL
+  , setting_value       TEXT NOT NULL
+  , setting_description TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_setting ON setting(setting_name);
@@ -29,7 +29,7 @@ SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the de
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'auto_pause_minutes');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'blip_time', '{"seconds":5}', 'seconds: while picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_events segment shorter than this is merged into the following segment instead of becoming its own time_entry.'
+SELECT 'blip_time', '{"seconds":5}', 'seconds: while picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_event segment shorter than this is merged into the following segment instead of becoming its own time_entry.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'blip_time');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
@@ -63,3 +63,11 @@ WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'debug');
 INSERT INTO setting (setting_name, setting_value, setting_description)
 SELECT 'daily_reset_time', '{"hour":3,"minute":0}', 'NOT YET IMPLEMENTED -- placeholder for a planned feature. hour (0-23) and minute (0-59), local time, at which each category''s tracked-time-vs-category.daily_limit accounting rolls over to a new day (default 3 AM, not midnight, so a session spanning midnight isn''t split). A future Preferences UI will let the user override this.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'daily_reset_time');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'connection', '{"last_connection":"' || strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime') || '","connection_lost":"","quit_request":""}', 'Device-connection state, all local date-times (YYYY-MM-DDTHH:MM:SS) or empty. last_connection: the most recent successful device login -- written by AppDataStore.recordConnection() as part of every successful login (a new pairing, and each app-start/reconnect login; see ApplicationDelegate.startDeviceEvents), seeded to when this row was created. connection_lost: when the app last detected a lost connection (recordConnectionLost, from handleDeviceDisconnect); cleared to "" on a clean quit so an intentional shutdown is not mistaken for a drop. quit_request: when the app was last asked to quit (recordQuitRequest, from applicationWillTerminate). Together these let a test or observer tell "connected now" from "lost the device" from "quit deliberately" rather than assuming.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'connection');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'paired', '{"paired":false}', 'Whether the app currently considers a device paired, written by AppDataStore.recordPaired(_:). Set true when the app starts already knowing it is paired and whenever pairing completes/reconnects; set false when the device is factory-reset (forgotten) or the connection is lost (see ApplicationDelegate onPairingChange / startup / handleDeviceDisconnect). Seeded false; the app corrects it on launch. A test/observer gates its "is the device connected now?" check on this reading true -- if it is false the device needs (re)pairing (see Tests/00-test-setup.md).'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'paired');

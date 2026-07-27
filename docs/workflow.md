@@ -23,10 +23,10 @@ a "short-lived" one, only a difference in how long a given category stays in use
 
 A `category` can have more than one `face` pointing at it — e.g. if `face 3` and `face 6` are
 both mapped to `category 5` ("Meetings"), then flipping to *either* face 3 or face 6 records a
-timing segment against the same category. Concretely: a `device_events` row for `face = 3` and a
-`device_events` row for `face = 6` both resolve to `category_id = 5` when their `time_entry` rows
+timing segment against the same category. Concretely: a `device_event` row for `face = 3` and a
+`device_event` row for `face = 6` both resolve to `category_id = 5` when their `time_entry` rows
 are created — the resulting `time_entry` rows are indistinguishable by category, only the
-underlying `device_events.face` value (and, transitively, which physical face was flipped) tells
+underlying `device_event.face` value (and, transitively, which physical face was flipped) tells
 them apart.
 
 ## Editing a face's category

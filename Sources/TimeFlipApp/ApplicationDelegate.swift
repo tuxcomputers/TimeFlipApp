@@ -95,7 +95,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var awaitingInitialStatus = false
     // Guards handleDeviceEvent against acting on live BLE notifications until the initial history
     // backfill (recordDeviceEvent's ascending-order requirement -- see HistoryIngestor.refreshHistory)
-    // has finished, so a live notification can't race a fresh device_events table.
+    // has finished, so a live notification can't race a fresh device_event table.
     private var isHistoryBackfillComplete = false
     private var historyIngestor: HistoryIngestor?
     private let useHistoryPipeline = true
@@ -127,12 +127,20 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         // Surfaced so an interactive testing session can confirm from debug_log alone (no need to
         // separately inspect the appdata.sqlite symlink target) which physical database this
-        // launch actually opened -- see Tests/CLAUDE.md's database-switching workflow.
-        DeveloperMode.debugPrint(.dbType, "Database type: \(dataStore.loadDbType())")
+        // launch actually opened -- see Tests/CLAUDE.md's database-switching workflow. Also pushed
+        // onto appState so the menu bar can display it (dev mode only) as a guard against logging
+        // real timings into a test database.
+        let dbType = dataStore.loadDbType()
+        appState.dbType = dbType
+        DeveloperMode.debugPrint(.dbType, "Database type: \(dbType)")
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
             guard let self else { return }
+            // Reflect pairing state into the `paired` setting: true on pair/reconnect, false on
+            // forget/factory-reset/pairing-failure. A test/observer gates its connectivity check
+            // on this.
+            self.dataStore.recordPaired(paired)
             if let controller = self.device as? TimeFlipMockControlling {
                 if paired {
                     controller.pair()
@@ -265,18 +273,18 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onLEDBrightnessChange = { [weak self] percent in
             guard let self else { return }
-            DeveloperMode.debugPrint(.led, "Brightness value changed to \(percent)%")
+            DeveloperMode.debugPrint(.ledBright, "Brightness value changed to \(percent)%")
             self.dataStore.saveLEDBrightnessPercent(percent)
-            DeveloperMode.debugPrint(.led, "Brightness saved to DB: \(percent)%")
+            DeveloperMode.debugPrint(.ledBright, "Brightness saved to DB: \(percent)%")
             self.ledBrightnessWriteDebouncer.schedule { [weak self] in
                 await self?.device?.setLEDBrightness(percent: percent)
             }
         }
         appState.onBlinkIntervalChange = { [weak self] seconds in
             guard let self else { return }
-            DeveloperMode.debugPrint(.led, "Blink interval value changed to \(seconds)s")
+            DeveloperMode.debugPrint(.ledBlink, "Blink interval value changed to \(seconds)s")
             self.dataStore.saveLEDBlinkIntervalSeconds(seconds)
-            DeveloperMode.debugPrint(.led, "Blink interval saved to DB: \(seconds)s")
+            DeveloperMode.debugPrint(.ledBlink, "Blink interval saved to DB: \(seconds)s")
             self.blinkIntervalWriteDebouncer.schedule { [weak self] in
                 await self?.device?.setBlinkInterval(seconds: seconds)
             }
@@ -321,6 +329,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         menuBarController.start()
+        // "The app starts and knows whether it is paired" -> reflect that into the `paired`
+        // setting up front, every launch, before any connection attempt (a subsequent
+        // reconnect/forget/disconnect keeps it in step via the hooks above/below).
+        dataStore.recordPaired(appState.isPaired || appState.wantsPairing)
         if appState.isPaired {
             startDeviceEvents()
         } else if appState.wantsPairing {
@@ -360,6 +372,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         _ = notification
+        // Record the intentional quit and clear connection_lost, so the disconnect that
+        // stopDeviceEvents() is about to cause isn't later read as a dropped connection.
+        dataStore.recordQuitRequest()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         stopDeviceEvents()
         logger.info("Application will terminate")
@@ -503,6 +518,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             guard !Task.isCancelled else { return }
+            // A genuine device connection (a new pairing, or an app-start/reconnect login --
+            // the factory-reset-confirmation login returned above and is deliberately excluded).
+            // Stamp connection.last_connection so an observer/test can confirm the device connected,
+            // and mark paired=true -- this is the one hook that also catches a bare reconnect (which
+            // sets pairingStatus=.paired directly, without firing onPairingChange).
+            let connectedAt = dataStore.recordConnection()
+            dataStore.recordPaired(true)
+            DeveloperMode.debugPrint(.timeFlip, "connection.last_connection recorded: \(connectedAt)")
             await MainActor.run {
                 // Login confirms the device is reachable and authenticated again — clear the
                 // "reconnecting" state right away; the history backfill below will correct the
@@ -547,9 +570,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // LED brightness/blink have no device read-back (vendor spec defines none for 0x09/
             // 0x0A -- see docs/timeflip.md), so unlike auto-pause and double-tap below, these two
             // can't be checked against the device first; they're always (re-)applied.
-            DeveloperMode.debugPrint(.deviceSync, "LED brightness: no device read-back available; applying \(appState.ledBrightnessPercent)%")
+            DeveloperMode.debugPrint(.syncLed, "LED brightness: no device read-back available; applying \(appState.ledBrightnessPercent)%")
             await device.setLEDBrightness(percent: appState.ledBrightnessPercent)
-            DeveloperMode.debugPrint(.deviceSync, "LED blink interval: no device read-back available; applying \(appState.blinkIntervalSeconds)s")
+            DeveloperMode.debugPrint(.syncLed, "LED blink interval: no device read-back available; applying \(appState.blinkIntervalSeconds)s")
             await device.setBlinkInterval(seconds: appState.blinkIntervalSeconds)
             await syncDoubleTapParameters(expected: appState.effectiveDoubleTapParameters, device: device)
             guard !Task.isCancelled else { return }
@@ -594,6 +617,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     private func handleDeviceDisconnect() {
         logger.warning("Device disconnected; attempting auto-reconnect")
+        let lostAt = dataStore.recordConnectionLost()
+        dataStore.recordPaired(false)
+        DeveloperMode.debugPrint(.timeFlip, "connection.connection_lost recorded: \(lostAt)")
         lastSentFacetColors.removeAll()
         facetColorInitialized = false
         awaitingInitialStatus = false
@@ -664,17 +690,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private func syncDoubleTapParameters(expected: DoubleTapParameters, device: TimeFlipSessionManaging) async {
         let expectedSummary = "ths=\(expected.clickThreshold) lim=\(expected.limit) lat=\(expected.latency) win=\(expected.window)"
         guard let current = await device.readDoubleTapParameters() else {
-            DeveloperMode.debugPrint(.deviceSync, "Double-tap: could not read current value; applying \(expectedSummary)")
+            DeveloperMode.debugPrint(.syncDtap, "Double-tap: could not read current value; applying \(expectedSummary)")
             await device.setDoubleTapParameters(expected)
             return
         }
         guard current == expected else {
             let currentSummary = "ths=\(current.clickThreshold) lim=\(current.limit) lat=\(current.latency) win=\(current.window)"
-            DeveloperMode.debugPrint(.deviceSync, "Double-tap MISMATCH: device=\(currentSummary) expected=\(expectedSummary); applying")
+            DeveloperMode.debugPrint(.syncDtap, "Double-tap MISMATCH: device=\(currentSummary) expected=\(expectedSummary); applying")
             await device.setDoubleTapParameters(expected)
             return
         }
-        DeveloperMode.debugPrint(.deviceSync, "Double-tap OK: device matches expected \(expectedSummary)")
+        DeveloperMode.debugPrint(.syncDtap, "Double-tap OK: device matches expected \(expectedSummary)")
     }
 
     private func sendFacetColors(_ mappings: [FacetMapping], force: Bool = false) async {

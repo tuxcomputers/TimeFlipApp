@@ -5,12 +5,12 @@
 -- schema.)
 
 CREATE TABLE IF NOT EXISTS integration_event_cursors (
-    target TEXT NOT NULL,
-    identifier TEXT NOT NULL,
-    last_sent_ev INTEGER,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
-    last_success_ev INTEGER,
-    updated_at REAL,
-    CONSTRAINT PK_integration_event_cursors PRIMARY KEY (target, identifier)
+  target            TEXT NOT NULL
+  , identifier      TEXT NOT NULL
+  , last_sent_ev    INTEGER
+  , attempts        INTEGER NOT NULL DEFAULT 0
+  , last_error      TEXT
+  , last_success_ev INTEGER
+  , updated_at      REAL
+  , CONSTRAINT PK1_integration_event_cursors PRIMARY KEY (target, identifier)
 );

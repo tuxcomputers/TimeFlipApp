@@ -2,7 +2,7 @@
 
 The entirely-Claude half of the device tests: checklists run end-to-end against a connected device
 -- launch/quit the app, edit the DB, drive Preferences-window and status-item-menu controls via
-System Events, wait on timers, and assert from `debug_log`/`device_events`. No human hands or eyes
+System Events, wait on timers, and assert from `debug_log`/`device_event`. No human hands or eyes
 required beyond a powered, in-range cube. **This suite runs first**, before `Tests/Interactive/`.
 Since every step here is Claude's, items carry no actor label (see `../CLAUDE.md`'s Format section).
 
@@ -14,4 +14,5 @@ numbered checklist has no bench-side work, its file here is a stub containing ju
 For how to run these -- the two-phase order, the `(Claude)`/`(You)` step tags used in
 `Tests/Interactive/`, the test-database switch, reading `debug_log`, the file-numbering convention,
 recording bugs, and CI enforcement -- see [`../CLAUDE.md`](../CLAUDE.md), which holds everything
-common to both suites.
+common to both suites. For the concrete mechanics behind a step (clicking a menu item, editing a
+field, switching tabs, etc.), see [`../Methods.md`](../Methods.md).

@@ -11,13 +11,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS UN1_event_type ON event_type(event_name);
 -- IDs are grouped by which table the event lands in (see docs/operation-spec.md §1) -- keep new
 -- event types appended within the matching group below rather than interleaved.
 
--- -> device_events (timing segments, carry a duration)
+-- -> device_event (timing segments, carry a duration)
 INSERT INTO event_type (event_type_id, event_name)
 SELECT 1, 'facet_flip' WHERE NOT EXISTS (SELECT 1 FROM event_type WHERE event_type_id = 1);
 INSERT INTO event_type (event_type_id, event_name)
 SELECT 2, 'pause' WHERE NOT EXISTS (SELECT 1 FROM event_type WHERE event_type_id = 2);
 
--- -> device_notifications (point-in-time, no duration)
+-- -> device_notification (point-in-time, no duration)
 INSERT INTO event_type (event_type_id, event_name)
 SELECT 3, 'double_tap' WHERE NOT EXISTS (SELECT 1 FROM event_type WHERE event_type_id = 3);
 INSERT INTO event_type (event_type_id, event_name)

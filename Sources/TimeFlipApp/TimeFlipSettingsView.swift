@@ -76,6 +76,7 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
+                    DeveloperMode.debugPrint(.click, "Button clicked: More (\(appState.isMoreExpanded ? "collapse" : "expand"))")
                     appState.isMoreExpanded.toggle()
                 } label: {
                     Text("More")
@@ -105,6 +106,7 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
+                    DeveloperMode.debugPrint(.click, "Button clicked: LED (\(appState.isLEDExpanded ? "collapse" : "expand"))")
                     appState.isLEDExpanded.toggle()
                 } label: {
                     Text("LED")
@@ -125,6 +127,7 @@ struct TimeFlipSettingsView: View {
                 .padding(.vertical, 4)
             } label: {
                 Button {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Double tap (\(appState.isDoubleTapExpanded ? "collapse" : "expand"))")
                     appState.isDoubleTapExpanded.toggle()
                 } label: {
                     Text("Double tap")
@@ -146,11 +149,13 @@ struct TimeFlipSettingsView: View {
                         .foregroundStyle(.secondary)
                 } else if appState.isPaired {
                     Button("Forget Device") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
                         Task { await appState.resetAndForgetDevice() }
                     }
                     .disabled(appState.pairingStatus == .pairing)
 
                     Button("Reset Device") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
                     .disabled(appState.pairingStatus == .pairing)
@@ -160,9 +165,12 @@ struct TimeFlipSettingsView: View {
                         titleVisibility: .visible
                     ) {
                         Button("Reset Device", role: .destructive) {
+                            DeveloperMode.debugPrint(.click, "Button clicked: Reset Device (confirm factory reset)")
                             Task { await appState.factoryResetAndForgetDevice() }
                         }
-                        Button("Cancel", role: .cancel) {}
+                        Button("Cancel", role: .cancel) {
+                            DeveloperMode.debugPrint(.click, "Button clicked: Cancel (factory-reset dialog)")
+                        }
                     } message: {
                         Text("""
                         This erases everything stored on the device -- facet colors, task \
@@ -173,14 +181,19 @@ struct TimeFlipSettingsView: View {
                 } else {
                     Button(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices") {
                         if appState.isScanningForDevices {
+                            DeveloperMode.debugPrint(.click, "Button clicked: Stop Scan")
                             appState.stopDeviceScan()
                         } else {
+                            DeveloperMode.debugPrint(.click, "Button clicked: Scan for Devices (allDevices=\(scanAllDevices))")
                             appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
                         }
                     }
                     Toggle("All Devices", isOn: $scanAllDevices)
                         .toggleStyle(.checkbox)
                         .disabled(appState.isScanningForDevices)
+                        .onChange(of: scanAllDevices) { oldValue, newValue in
+                            DeveloperMode.debugPrint(.field, "Field changed: All Devices toggle: \(oldValue) -> \(newValue)")
+                        }
                     if appState.isScanningForDevices {
                         ProgressView()
                             .controlSize(.small)
@@ -210,6 +223,7 @@ struct TimeFlipSettingsView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
+                            DeveloperMode.debugPrint(.click, "Discovered-device row tapped: \(device.name)\(isInvalid ? " (invalid, ignored)" : "")")
                             guard !isInvalid else { return }
                             let wasThisDevicePending = appState.pairingStatus == .pairing
                                 && appState.pendingPairingDeviceID == device.id
@@ -313,6 +327,7 @@ struct TimeFlipSettingsView: View {
             .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
                 if isPressing {
                     guard appState.isPaired, appState.autoPauseHoldDirection != direction else { return }
+                    DeveloperMode.debugPrint(.click, "Button clicked: Auto-pause \(direction > 0 ? "up" : "down") arrow")
                     appState.autoPauseHoldDirection = direction
                     let startValue = autoPauseValue
                     applyAutoPause(newValue: startValue + direction)
@@ -418,6 +433,7 @@ struct TimeFlipSettingsView: View {
         autoPauseValue = clamped
         let minutes = UInt16(clamped)
         guard minutes != lastAppliedAutoPause else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: Auto-pause: \(lastAppliedAutoPause)m -> \(minutes)m")
         lastAppliedAutoPause = minutes
         appState.autoPauseMinutes = minutes
         appState.onAutoPauseChange?(minutes)
@@ -454,6 +470,7 @@ struct TimeFlipSettingsView: View {
         ledBrightnessValue = clamped
         let percent = UInt8(clamped)
         guard percent != lastAppliedLEDBrightness else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: LED brightness: \(lastAppliedLEDBrightness)% -> \(percent)%")
         lastAppliedLEDBrightness = percent
         appState.ledBrightnessPercent = percent
         appState.onLEDBrightnessChange?(percent)
@@ -465,6 +482,7 @@ struct TimeFlipSettingsView: View {
         blinkIntervalValue = clamped
         let seconds = UInt8(clamped)
         guard seconds != lastAppliedBlinkInterval else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: LED blink interval: \(lastAppliedBlinkInterval)s -> \(seconds)s")
         lastAppliedBlinkInterval = seconds
         appState.blinkIntervalSeconds = seconds
         appState.onBlinkIntervalChange?(seconds)
@@ -472,6 +490,7 @@ struct TimeFlipSettingsView: View {
 
     private func applyDoubleTapParameters(_ params: DoubleTapParameters) {
         guard appState.isPaired else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: Double-tap params: ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
         doubleTapParams = params
         appState.doubleTapParameters = params
         appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params))
@@ -480,6 +499,7 @@ struct TimeFlipSettingsView: View {
 
     private func setDoubleTapEnabled(_ enabled: Bool) {
         guard appState.isPaired else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: Double-tap enabled: \(appState.isDoubleTapEnabled) -> \(enabled)")
         appState.isDoubleTapEnabled = enabled
         appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
         appState.onDoubleTapSettingsPersist?(doubleTapParams, enabled)

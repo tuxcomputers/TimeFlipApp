@@ -6,8 +6,8 @@ Google Calendar integration.
 ## Provenance
 
 This is AI-generated code all the way down, and it's worth being honest about that. The original
-author, [growler](https://github.com/growler), vibecoded the base project — including the core
-Bluetooth Low Energy layer that talks to the TimeFlip2 — mostly with OpenAI Codex. They've said
+author, [growler](https://github.com/growler), vibecoded the base project - including the core
+Bluetooth Low Energy layer that talks to the TimeFlip2 - mostly with OpenAI Codex. They've said
 themselves they'd never written for macOS before. Everything I've built on top of that fork is the
 same story. I don't know Swift either, and the actual code was written by Claude Sonnet 5 via the
 VS Code plugin. The design decisions are mine (Harry Phillips), for better or worse.
@@ -33,14 +33,14 @@ VS Code plugin. The design decisions are mine (Harry Phillips), for better or wo
 
 ## Getting Started
 
-- **[Installation](docs/installation.md)** — system requirements and building the app from source
-- **[Configuration](docs/configuration.md)** — Google account setup, pairing your TimeFlip device,
+- **[Installation](docs/installation.md)** - system requirements and building the app from source
+- **[Configuration](docs/configuration.md)** - Google account setup, pairing your TimeFlip device,
   configuring activities, everyday usage, and troubleshooting
-- **[Contributing](CONTRIBUTING.md)** — code style, security guidelines, and how to submit a PR
-- **[Workflow](docs/workflow.md)** — how the device owner organizes activities and faces
-- **[Operation Spec](docs/operation-spec.md)** — how a device event becomes a calendar entry
-- **[Database Design](docs/database-design.md)** — the local SQLite schema
-- **[Developer Mode Removal TODO](docs/TODO-devmode.md)** — everything to remove/decide on before
+- **[Contributing](CONTRIBUTING.md)** - code style, security guidelines, and how to submit a PR
+- **[Workflow](docs/workflow.md)** - how the device owner organizes activities and faces
+- **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
+- **[Database Design](docs/database-design.md)** - the local SQLite schema
+- **[Developer Mode Removal TODO](docs/TODO-devmode.md)** - everything to remove/decide on before
   shipping without dev-only config/logging
 
 ## Architecture
@@ -83,18 +83,18 @@ This project is released into the public domain under [The Unlicense](https://un
 ### Important Note About Icons
 
 The activity icons are TimeFlip's copyrighted icon set. I now have permission from TimeFlip
-(the copyright holder) to use them in this application, so the real icons — the ones that match
-the stickers on your device — are included here rather than the generic placeholder clock.
+(the copyright holder) to use them in this application, so the real icons - the ones that match
+the stickers on your device - are included here rather than the generic placeholder clock.
 
 That permission was granted to me, for this project specifically, and **does not transfer with
-the code**. This project's licence (The Unlicense, above) covers my code — it does **not** cover
+the code**. This project's licence (The Unlicense, above) covers my code - it does **not** cover
 TimeFlip's icons. If you fork or copy this repository and want to distribute it, or otherwise make
 it available to others, with these icons included, you must obtain your own permission from
 TimeFlip first. Without that permission, remove or replace the icons before sharing it on.
 
 ## Acknowledgments
 
-- Original creator [growler](https://github.com/growler) — this project is forked from their
+- Original creator [growler](https://github.com/growler) - this project is forked from their
   [TimeFlipApp](https://github.com/growler/TimeFlipApp) repository
 - Special thanks to [TimeFlip](https://timeflip.io/) for the hardware device and for graciously 
   permitting the use of their icon set in this application

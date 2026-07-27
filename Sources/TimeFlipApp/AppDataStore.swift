@@ -12,7 +12,7 @@ struct DeviceEventRecord {
     let activityName: String
 }
 
-/// A row from the `colour` reference table (`database/004_colour.sql`). `deviceHex` is the
+/// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
 /// "#rrggbb" LED value, `nil` for the `blank` colour.
 struct ColourRecord: Equatable, Sendable {
     let id: Int
@@ -54,10 +54,10 @@ final class AppDataStore: IntegrationEventCursorStore {
     private let queue = DispatchQueue(label: "com.timeflip.appdatastore")
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "app-data-store")
 
-    // The highest device_events.start_epoch seen so far, loaded once at startup with a single
+    // The highest device_event.start_epoch seen so far, loaded once at startup with a single
     // MAX() query and kept up to date in memory from then on. recordDeviceEvent uses it to choose
     // UPDATE vs INSERT itself instead of relying on ON CONFLICT DO UPDATE -- that path still
-    // consumes an AUTOINCREMENT id on every update, leaving permanent gaps in device_events_id.
+    // consumes an AUTOINCREMENT id on every update, leaving permanent gaps in device_event_id.
     // start_epoch (not event_number) is the ordering source of truth: event_number is a counter
     // maintained on the device itself, and a device-side reset can make it restart from a low
     // number while this table already holds higher event_number values from before the reset --
@@ -66,6 +66,12 @@ final class AppDataStore: IntegrationEventCursorStore {
     // table) -- every real epoch value compares greater than -1, so the empty-table case always
     // takes the insert path without needing Optional handling at every comparison site.
     private var maxKnownStartEpoch: Int64 = -1
+
+    // The `timezone.timezone_id` of the device's current IANA time zone, resolved once at startup
+    // (get-or-create, see `resolveTimezoneID`) and bound into every date/time row's
+    // `<name>_timezone_id` foreign key. Cached because the zone identifier changes only if the OS's
+    // zone changes mid-session (a physical move, not DST — DST stays within the same IANA id).
+    private var currentTimezoneID: Int64 = 0
 
     init(databaseURL: URL? = nil) {
         let url = databaseURL ?? AppDataStore.defaultDatabaseURL()
@@ -87,18 +93,29 @@ final class AppDataStore: IntegrationEventCursorStore {
             return
         }
         db = handle
+        // Enforce foreign keys. SQLite defaults this OFF and it's per-connection (not stored in the
+        // file), so the schema's REFERENCES clauses are otherwise inert. Enabling it keeps local
+        // behaviour aligned with the eventual remote server (which enforces FKs) and catches orphans
+        // early. Set before runDatabaseDDL() so seed inserts are validated -- which requires the DDL
+        // files to be ordered parent-before-child (e.g. 006_project precedes 007_category).
+        sqlite3_exec(handle, "PRAGMA foreign_keys = ON;", nil, nil, nil)
         runDatabaseDDL()
+        // Resolve the current time zone's id now (after the DDL has created/seeded nothing for it --
+        // it's get-or-create), so every date/time insert below can bind a valid FK. Must run before
+        // any recordDeviceEvent/recordDeviceNotification/recordDebugLog call (all of which happen
+        // after init completes).
+        currentTimezoneID = resolveTimezoneID(TimeZone.current.identifier)
         loadMaxKnownStartEpoch()
     }
 
-    /// Seeds `maxKnownStartEpoch` from whatever `device_events` rows already exist on disk, so
+    /// Seeds `maxKnownStartEpoch` from whatever `device_event` rows already exist on disk, so
     /// the update-vs-insert and finalised logic in `recordDeviceEvent` is correct across app
     /// restarts, not just within this process's lifetime. Leaves it at -1 (see property comment)
     /// when the table is empty and `MAX(start_epoch)` comes back NULL.
     private func loadMaxKnownStartEpoch() {
         guard let db else { return }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_event;", -1, &stmt, nil) == SQLITE_OK else {
             logger.error("loadMaxKnownStartEpoch prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return
@@ -109,6 +126,38 @@ final class AppDataStore: IntegrationEventCursorStore {
             maxKnownStartEpoch = -1
         }
         sqlite3_finalize(stmt)
+    }
+
+    /// Get-or-create the `timezone` row for an IANA identifier and return its `timezone_id`.
+    /// Called once at startup (from `init`, before any concurrent access) for the current zone; the
+    /// date/time tables reference the result via their `<name>_timezone_id` foreign key instead of
+    /// storing the identifier text on every row. Returns `0` on failure — no real row has id `0`
+    /// (the table is unseeded and autoincrements from 1), so a write binding `0` fails its FK check
+    /// rather than silently pointing at a wrong zone.
+    private func resolveTimezoneID(_ identifier: String) -> Int64 {
+        guard let db else { return 0 }
+        var sel: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT timezone_id FROM timezone WHERE timezone_name = ?;", -1, &sel, nil) == SQLITE_OK {
+            sqlite3_bind_text(sel, 1, identifier, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(sel) == SQLITE_ROW {
+                let id = sqlite3_column_int64(sel, 0)
+                sqlite3_finalize(sel)
+                return id
+            }
+        }
+        sqlite3_finalize(sel)
+        var ins: OpaquePointer?
+        defer { sqlite3_finalize(ins) }
+        guard sqlite3_prepare_v2(db, "INSERT INTO timezone (timezone_name) VALUES (?);", -1, &ins, nil) == SQLITE_OK else {
+            logger.error("resolveTimezoneID prepare failed for \(identifier, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            return 0
+        }
+        sqlite3_bind_text(ins, 1, identifier, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(ins) == SQLITE_DONE else {
+            logger.error("resolveTimezoneID insert failed for \(identifier, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            return 0
+        }
+        return sqlite3_last_insert_rowid(db)
     }
 
     deinit {
@@ -153,19 +202,19 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Device events (new schema; timing segments -- facet flips and pauses)
 
-    /// Looks up an existing `device_events` row by the exact `(event_number, start_epoch)` pair --
+    /// Looks up an existing `device_event` row by the exact `(event_number, start_epoch)` pair --
     /// the composite key `recordDeviceEvent` uses to recognize "I've already recorded this exact
     /// segment" (see that function's doc comment for why neither column alone is safe to use).
-    /// Returns the row's `device_events_id`, or `nil` if no row matches both columns.
+    /// Returns the row's `device_event_id`, or `nil` if no row matches both columns.
     private func selectDeviceEventsRowID(eventNumber: UInt32, startEpoch: Int64) -> Int64? {
         guard let db else { return nil }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(
             db,
-            "SELECT device_events_id FROM device_events WHERE event_number = ? AND start_epoch = ?;",
+            "SELECT device_event_id FROM device_event WHERE event_number = ? AND start_epoch = ?;",
             -1, &stmt, nil
         ) == SQLITE_OK else {
-            logger.error("device_events rowid lookup prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            logger.error("device_event rowid lookup prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return nil
         }
@@ -176,7 +225,7 @@ final class AppDataStore: IntegrationEventCursorStore {
         return sqlite3_column_int64(stmt, 0)
     }
 
-    /// Records a `device_events` row for a timing segment from the device's history stream.
+    /// Records a `device_event` row for a timing segment from the device's history stream.
     /// Matching -- "have I already recorded this exact segment?" -- is done on the composite
     /// `(event_number, start_epoch)` pair (via `selectDeviceEventsRowID`), not on either column
     /// alone:
@@ -194,7 +243,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// The combination of both is what's actually unique: the only way two different real segments
     /// collide on `(event_number, start_epoch)` is an exact coincidence of both a device reset AND
     /// the reused event_number landing in the same wall-clock second as the old segment it
-    /// collides with -- vanishingly unlikely in practice. `UN1_device_events` enforces this as a
+    /// collides with -- vanishingly unlikely in practice. `UN1_device_event` enforces this as a
     /// composite unique index (not a lone `UNIQUE` on `event_number`), so a genuinely new segment
     /// can always be inserted even when its `event_number` has been reused after a reset.
     ///
@@ -203,7 +252,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// `maxKnownStartEpoch` (an in-memory scalar loaded once at startup via
     /// `SELECT MAX(start_epoch)`) -- never `event_number`, for the same device-reset reason above.
     /// This is also not done via `ON CONFLICT DO UPDATE`, because that path still burns an
-    /// AUTOINCREMENT id on every update and leaves permanent gaps in `device_events_id`.
+    /// AUTOINCREMENT id on every update and leaves permanent gaps in `device_event_id`.
     ///
     /// - A row already exists for `(event_number, start_epoch)`: this is a re-ingestion of a
     ///   segment already recorded -- either the still-open live frame growing in duration, or an
@@ -236,55 +285,55 @@ final class AppDataStore: IntegrationEventCursorStore {
             if let existingRowID = selectDeviceEventsRowID(eventNumber: eventNumber, startEpoch: startEpoch) {
                 let finalised = startEpoch == maxKnownStartEpoch ? false : true
                 let sql = """
-                UPDATE device_events SET
+                UPDATE device_event SET
                     event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
                     device_face = ?,
                     start_time = ?,
-                    start_time_timezone = ?,
+                    timezone_id = ?,
                     duration_seconds = ?,
                     is_paused = ?,
                     finalised = ?
-                WHERE device_events_id = ?;
+                WHERE device_event_id = ?;
                 """
                 var stmt: OpaquePointer?
                 guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                    logger.error("device_events update prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    logger.error("device_event update prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                     sqlite3_finalize(stmt)
                     return
                 }
                 sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
                 sqlite3_bind_int(stmt, 2, Int32(deviceFace))
                 sqlite3_bind_text(stmt, 3, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 4, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int64(stmt, 4, currentTimezoneID)
                 sqlite3_bind_double(stmt, 5, durationSeconds)
                 sqlite3_bind_int(stmt, 6, isPaused ? 1 : 0)
                 sqlite3_bind_int(stmt, 7, finalised ? 1 : 0)
                 sqlite3_bind_int64(stmt, 8, existingRowID)
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     success = true
-                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(finalised, privacy: .public) inserted=false")
+                    logger.debug("device_event ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(finalised, privacy: .public) inserted=false")
                 } else {
-                    logger.error("device_events update failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    logger.error("device_event update failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                 }
                 sqlite3_finalize(stmt)
             } else {
                 let isNewMax = startEpoch > maxKnownStartEpoch
                 if isNewMax {
-                    if sqlite3_exec(db, "UPDATE device_events SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
-                        logger.error("device_events close-out failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    if sqlite3_exec(db, "UPDATE device_event SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
+                        logger.error("device_event close-out failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                     }
                 }
 
                 let sql = """
-                INSERT INTO device_events (
-                    event_number, event_type_id, device_face, start_time, start_time_timezone, start_epoch, duration_seconds, is_paused, finalised
+                INSERT INTO device_event (
+                    event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, is_paused, finalised
                 ) VALUES (
                     ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, ?
                 );
                 """
                 var stmt: OpaquePointer?
                 guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                    logger.error("device_events insert prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    logger.error("device_event insert prepare failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                     sqlite3_finalize(stmt)
                     return
                 }
@@ -292,7 +341,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_bind_text(stmt, 2, eventType, -1, SQLITE_TRANSIENT)
                 sqlite3_bind_int(stmt, 3, Int32(deviceFace))
                 sqlite3_bind_text(stmt, 4, AppDataStore.localTimeFormatter.string(from: startedAt), -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 5, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int64(stmt, 5, currentTimezoneID)
                 sqlite3_bind_int64(stmt, 6, startEpoch)
                 sqlite3_bind_double(stmt, 7, durationSeconds)
                 sqlite3_bind_int(stmt, 8, isPaused ? 1 : 0)
@@ -300,9 +349,9 @@ final class AppDataStore: IntegrationEventCursorStore {
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     success = true
                     if isNewMax { maxKnownStartEpoch = startEpoch }
-                    logger.debug("device_events ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(!isNewMax, privacy: .public) inserted=true")
+                    logger.debug("device_event ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(!isNewMax, privacy: .public) inserted=true")
                 } else {
-                    logger.error("device_events insert failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                    logger.error("device_event insert failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                 }
                 sqlite3_finalize(stmt)
             }
@@ -324,7 +373,7 @@ final class AppDataStore: IntegrationEventCursorStore {
         guard DeveloperMode.isEnabled else { return }
         guard let db else { return }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_events;", -1, &stmt, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_event;", -1, &stmt, nil) == SQLITE_OK else {
             logger.error("verifyMaxKnownStartEpochConsistency prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return
@@ -336,16 +385,16 @@ final class AppDataStore: IntegrationEventCursorStore {
         sqlite3_finalize(stmt)
 
         if dbMax == maxKnownStartEpoch {
-            DeveloperMode.debugPrint(.devCheck, "device_events max_start_epoch OK: in_memory=\(maxKnownStartEpoch) db=\(dbMax)")
+            DeveloperMode.debugPrint(.devCheck, "device_event max_start_epoch OK: in_memory=\(maxKnownStartEpoch) db=\(dbMax)")
         } else {
             DeveloperMode.debugPrint(.devCheck, """
             ############################################################
-            MISMATCH: device_events max(start_epoch) drifted from the in-memory tracker!
+            MISMATCH: device_event max(start_epoch) drifted from the in-memory tracker!
             in-memory maxKnownStartEpoch = \(maxKnownStartEpoch)
-            SELECT MAX(start_epoch) FROM device_events = \(dbMax)
+            SELECT MAX(start_epoch) FROM device_event = \(dbMax)
             ############################################################
             """)
-            logger.fault("device_events max_start_epoch MISMATCH in_memory=\(self.maxKnownStartEpoch, privacy: .public) db=\(dbMax, privacy: .public)")
+            logger.fault("device_event max_start_epoch MISMATCH in_memory=\(self.maxKnownStartEpoch, privacy: .public) db=\(dbMax, privacy: .public)")
         }
     }
 
@@ -353,7 +402,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Reads and JSON-decodes a `setting` row's value, or `nil` if the row is missing or its
     /// value isn't a JSON object -- every `setting_value` is a JSON object by convention, see
-    /// `database/009_setting.sql`.
+    /// `database/011_setting.sql`.
     private func loadSettingJSON(name: String) -> [String: Any]? {
         guard let db else { return nil }
         var result: [String: Any]?
@@ -380,7 +429,7 @@ final class AppDataStore: IntegrationEventCursorStore {
         return result
     }
 
-    /// All rows of the `colour` reference table (`database/004_colour.sql`), ordered by
+    /// All rows of the `colour` reference table (`database/005_colour.sql`), ordered by
     /// `colour_id`. Drives the facet colour picker; see `ActivityLibrary.colorOptions(from:)`.
     func loadColours() -> [ColourRecord] {
         guard let db else { return [] }
@@ -407,7 +456,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// Sets the `colour_id` of the category currently assigned to `faceID` (1-12, via the `face`
     /// table) to `colourID`. The `category_id >= 1` guard means the `Unassigned` category
     /// (`category_id 0`) is never given a colour — if the face maps to it, this is a no-op. See
-    /// `database/005_category.sql` / `database/006_face.sql`.
+    /// `database/007_category.sql` / `database/008_face.sql`.
     func updateCategoryColour(faceID: Int, colourID: Int) {
         guard let db else { return }
         let sql = """
@@ -432,7 +481,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the
-    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/009_setting.sql`).
+    /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
     func loadFetchHistoryIntervalSeconds() -> TimeInterval {
         guard let seconds = loadSettingJSON(name: "fetch_history_interval_seconds")?["seconds"] as? Int else {
@@ -442,7 +491,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether locking the device via the app should also pause it first if it isn't already
-    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/009_setting.sql`).
+    /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
     func loadPauseOnLockEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "pause_on_lock")?["enabled"] as? Bool else {
@@ -452,15 +501,65 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Which physical database file this is -- `"production"` or `"test"` (the `db_type` setting;
-    /// see `database/009_setting.sql`). Set once when a database file is first created and never
+    /// see `database/011_setting.sql`). Set once when a database file is first created and never
     /// changed afterward; see `Tests/CLAUDE.md` for the test-database-switching
     /// workflow this backs. Falls back to `"production"` if the row is missing or malformed.
     func loadDbType() -> String {
         loadSettingJSON(name: "db_type")?["type"] as? String ?? "production"
     }
 
+    /// Local date-time formatter for the `connection` setting's timestamps, matching the
+    /// `db-type`/`debug` convention of local time with no UTC offset (see
+    /// `DeveloperMode.debugPrint`) and the seed's own
+    /// `strftime('%Y-%m-%dT%H:%M:%S','now','localtime')` in `011_setting.sql`.
+    private static let connectionTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        formatter.timeZone = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    /// Stamps `connection.last_connection` with the current local date-time. Called as part of
+    /// every successful device login (a new pairing, and each app-start/reconnect login) -- see
+    /// `ApplicationDelegate.startDeviceEvents` and `011_setting.sql`. Returns the string written,
+    /// so the caller can log it.
+    @discardableResult
+    func recordConnection(now: Date = Date()) -> String {
+        let stamp = Self.connectionTimestampFormatter.string(from: now)
+        saveSettingJSON(name: "connection", merging: ["last_connection": stamp])
+        return stamp
+    }
+
+    /// Stamps `connection.connection_lost` with the current local date-time, when the app detects
+    /// a lost device connection (see `ApplicationDelegate.handleDeviceDisconnect`). Cleared again
+    /// by `recordQuitRequest()` so a deliberate quit isn't misread as a drop.
+    @discardableResult
+    func recordConnectionLost(now: Date = Date()) -> String {
+        let stamp = Self.connectionTimestampFormatter.string(from: now)
+        saveSettingJSON(name: "connection", merging: ["connection_lost": stamp])
+        return stamp
+    }
+
+    /// Stamps `connection.quit_request` with the current local date-time and clears
+    /// `connection_lost` -- the imminent disconnect is an intentional shutdown, not a drop.
+    /// Called from `ApplicationDelegate.applicationWillTerminate`.
+    func recordQuitRequest(now: Date = Date()) {
+        let stamp = Self.connectionTimestampFormatter.string(from: now)
+        saveSettingJSON(name: "connection", merging: ["quit_request": stamp, "connection_lost": ""])
+    }
+
+    /// Records whether the app currently considers a device paired, into the `paired` setting.
+    /// Set `true` at startup when the app already knows it is paired and whenever pairing
+    /// completes/reconnects; set `false` when the device is factory-reset (forgotten) or the
+    /// connection is lost. A test/observer reads this to gate its "is the device connected now?"
+    /// check -- if it's false, the device needs (re)pairing. See `011_setting.sql`.
+    func recordPaired(_ paired: Bool) {
+        saveSettingJSON(name: "paired", merging: ["paired": paired])
+    }
+
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
-    /// seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default if the
+    /// seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default if the
     /// row is missing or malformed.
     func loadDisplaySecondsEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "display_seconds")?["enabled"] as? Bool else {
@@ -470,7 +569,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Battery percentage at or below which the device is considered low on battery (the
-    /// `low_battery_level` setting, seeded to `5`; see `database/009_setting.sql`). Falls back to
+    /// `low_battery_level` setting, seeded to `5`; see `database/011_setting.sql`). Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadLowBatteryLevelPercent() -> Int {
         guard let percent = loadSettingJSON(name: "low_battery_level")?["percent"] as? Int else {
@@ -481,7 +580,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Whether dev-only debug messages (`DeveloperMode.debugPrint`) are actually emitted to the
     /// terminal (the `debug` setting's `enabled` field, seeded to `true`; see
-    /// `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed. Lets a user turn terminal logging off (or back on) by editing this setting
     /// directly, without needing a rebuild -- see docs/TODO-devmode.md.
     func loadDebugEnabled() -> Bool {
@@ -492,7 +591,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// LED brightness percent (the `led_settings` setting's `brightness` field, seeded to `50`;
-    /// see `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// see `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed.
     func loadLEDBrightnessPercent() -> UInt8 {
         guard let percent = loadSettingJSON(name: "led_settings")?["brightness"] as? Int else {
@@ -502,7 +601,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// LED blink interval in seconds (the `led_settings` setting's `blink_interval` field, seeded
-    /// to `15`; see `database/009_setting.sql`). Falls back to the seeded default if the row is
+    /// to `15`; see `database/011_setting.sql`). Falls back to the seeded default if the row is
     /// missing or malformed.
     func loadLEDBlinkIntervalSeconds() -> UInt8 {
         guard let seconds = loadSettingJSON(name: "led_settings")?["blink_interval"] as? Int else {
@@ -524,7 +623,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Auto-pause delay in minutes (the `auto_pause_minutes` setting's `minutes` field, seeded to
-    /// `0`; see `database/009_setting.sql`) -- the device itself only supports whole-minute
+    /// `0`; see `database/011_setting.sql`) -- the device itself only supports whole-minute
     /// granularity for this (device cmd 0x05), so there's no finer unit to store. Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadAutoPauseMinutes() -> UInt16 {
@@ -540,7 +639,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Double-tap accelerometer register values (the `double_tap_settings` setting's
-    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/009_setting.sql`). Falls
+    /// `clickThreshold`/`limit`/`latency`/`window` fields; see `database/011_setting.sql`). Falls
     /// back to `DoubleTapParameters.default` -- itself, and per-field, if the row or an individual
     /// field is missing or malformed.
     func loadDoubleTapParameters() -> DoubleTapParameters {
@@ -559,7 +658,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Whether double-tap detection is enabled (the `double_tap_settings` setting's `enabled`
-    /// field, seeded to `true`; see `database/009_setting.sql`). Falls back to the seeded default
+    /// field, seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default
     /// if the row is missing or malformed.
     func loadDoubleTapEnabled() -> Bool {
         guard let enabled = loadSettingJSON(name: "double_tap_settings")?["enabled"] as? Bool else {
@@ -587,7 +686,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// The cached identity of the connected Google account -- name/email from the OpenID Connect
     /// userinfo endpoint (the `google_account` setting, seeded empty; see
-    /// `database/009_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
+    /// `database/011_setting.sql`). Returns `nil` when nothing has been cached yet (both fields
     /// empty/absent), which is the signal to fetch it from Google once and cache it.
     func loadGoogleAccount() -> GoogleAccountInfo? {
         guard let json = loadSettingJSON(name: "google_account") else { return nil }
@@ -613,7 +712,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Local hour (0-23) and minute (0-59) at which each category's tracked-time-vs-`daily_limit`
     /// accounting rolls over to a new day (the `daily_reset_time` setting, seeded to 3:00 AM; see
-    /// `database/009_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
     /// malformed.
     func loadDailyResetTime() -> (hour: Int, minute: Int) {
         let json = loadSettingJSON(name: "daily_reset_time")
@@ -631,7 +730,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
-    /// result back -- the row always already exists (seeded by `009_setting.sql`), so this is a
+    /// result back -- the row always already exists (seeded by `011_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.
     private func saveSettingJSON(name: String, merging updates: [String: Any]) {
         guard let db else { return }
@@ -642,7 +741,14 @@ final class AppDataStore: IntegrationEventCursorStore {
             logger.error("saveSettingJSON encode failed name=\(name, privacy: .public)")
             return
         }
-        let sql = "UPDATE setting SET setting_value = ? WHERE setting_name = ?;"
+        // Upsert, not a bare UPDATE: create the row if it's absent so a write self-heals a setting
+        // this build added to the seed but an existing database predates (e.g. `paired` on a DB
+        // created before that seed row existed). `setting_name` has a unique index (UN1_setting);
+        // on conflict we touch only setting_value, preserving any seeded setting_description.
+        let sql = """
+            INSERT INTO setting (setting_name, setting_value) VALUES (?, ?)
+            ON CONFLICT(setting_name) DO UPDATE SET setting_value = excluded.setting_value;
+            """
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -650,8 +756,8 @@ final class AppDataStore: IntegrationEventCursorStore {
                 sqlite3_finalize(stmt)
                 return
             }
-            sqlite3_bind_text(stmt, 1, json, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, json, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) != SQLITE_DONE {
                 logger.error("saveSettingJSON exec failed name=\(name, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
@@ -661,8 +767,9 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     // MARK: - Device notifications (point-in-time, non-timing device events)
 
-    /// Local-time-without-offset formatter matching the `<name>`/`<name>_timezone` column
-    /// convention in `database/CLAUDE.md` (e.g. `2026-07-16T09:30:00`).
+    /// Local-time-without-offset formatter for the `<name>` timestamp columns (e.g.
+    /// `2026-07-16T09:30:00`); the zone that local time was captured in is recorded separately via
+    /// the `<name>_timezone_id` foreign key to `timezone` (see `database/CLAUDE.md`).
     private static let localTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
@@ -674,25 +781,25 @@ final class AppDataStore: IntegrationEventCursorStore {
 
     /// Records a point-in-time device notification (double tap, battery level, system state,
     /// device info, event log — see `TimeFlipEvent.deviceNotification`) so what the device sends
-    /// and how often can be inspected later in `device_notifications`.
+    /// and how often can be inspected later in `device_notification`.
     @discardableResult
     func recordDeviceNotification(eventType: String, payload: String?, occurredAt: Date = Date()) -> Bool {
         guard let db else { return false }
         let sql = """
-        INSERT INTO device_notifications (event_type_id, start_time, start_time_timezone, start_epoch, payload)
+        INSERT INTO device_notification (event_type_id, start_time, timezone_id, start_epoch, payload)
         VALUES ((SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?);
         """
         var success = false
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                logger.error("device_notifications prepare failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                logger.error("device_notification prepare failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
                 sqlite3_finalize(stmt)
                 return
             }
             sqlite3_bind_text(stmt, 1, eventType, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 2, AppDataStore.localTimeFormatter.string(from: occurredAt), -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 3, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 3, currentTimezoneID)
             sqlite3_bind_int64(stmt, 4, Int64(occurredAt.timeIntervalSince1970))
             if let payload {
                 sqlite3_bind_text(stmt, 5, payload, -1, SQLITE_TRANSIENT)
@@ -701,9 +808,9 @@ final class AppDataStore: IntegrationEventCursorStore {
             }
             if sqlite3_step(stmt) == SQLITE_DONE {
                 success = true
-                logger.debug("device_notifications event_type=\(eventType, privacy: .public) payload=\(payload ?? "nil", privacy: .public)")
+                logger.debug("device_notification event_type=\(eventType, privacy: .public) payload=\(payload ?? "nil", privacy: .public)")
             } else {
-                logger.error("device_notifications insert failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                logger.error("device_notification insert failed event_type=\(eventType, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }
@@ -717,7 +824,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     func recordDebugLog(tag: String, message: String, loggedAt: Date = Date()) -> Bool {
         guard let db else { return false }
         let sql = """
-        INSERT INTO debug_log (logged_at, logged_at_timezone, tag, message)
+        INSERT INTO debug_log (logged_at, timezone_id, tag, message)
         VALUES (?, ?, ?, ?);
         """
         var success = false
@@ -729,7 +836,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                 return
             }
             sqlite3_bind_text(stmt, 1, AppDataStore.localTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, TimeZone.current.identifier, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 2, currentTimezoneID)
             sqlite3_bind_text(stmt, 3, tag, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 4, message, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) == SQLITE_DONE {
@@ -1056,7 +1163,7 @@ final class AppDataStore: IntegrationEventCursorStore {
     // MARK: - Helpers
 
     /// Runs every `.sql` file bundled under the `Database` resource directory, in filename order
-    /// (hence the numeric prefixes on each file, e.g. `001_device_events.sql`). Adding, removing,
+    /// (hence the numeric prefixes on each file, e.g. `001_device_event.sql`). Adding, removing,
     /// or editing a `.sql` file in `database/` at the repo root is all that's needed to change the
     /// schema — this method never needs to change.
     private func runDatabaseDDL() {
@@ -1065,9 +1172,8 @@ final class AppDataStore: IntegrationEventCursorStore {
     }
 
     /// Runs every `.sql` file bundled under the `Database` resource directory, in filename order,
-    /// against an arbitrary open handle -- shared by the instance's own `runDatabaseDDL()` above
-    /// and by `ensureTestDatabaseExists(alongside:)`, which seeds a fresh `test.sqlite` without an
-    /// `AppDataStore` instance of its own to seed it through.
+    /// against an arbitrary open handle -- factored out from the instance's own `runDatabaseDDL()`
+    /// so the same seeding can run against any open connection.
     private static func runDatabaseDDL(on db: OpaquePointer, logger: Logger?) {
         guard let directory = resolveDatabaseDirectory() else {
             logger?.error("Could not locate bundled Database DDL directory")
@@ -1119,13 +1225,13 @@ final class AppDataStore: IntegrationEventCursorStore {
     /// `test.sqlite` for a testing session without touching real data (see
     /// `Tests/CLAUDE.md`). A no-op if it's already a symlink, whatever it currently
     /// points at -- this only ever runs the one-time migration for a plain file (an install from
-    /// before this symlink scheme existed, or a fresh install with no database yet). Also ensures
-    /// `test.sqlite` exists and is already seeded with `db_type: "test"`, every time this runs --
-    /// so both database files are present together from the moment the symlink scheme is set up
-    /// (or re-set-up after `run.sh --clean`), rather than `test.sqlite` only coming into being the
-    /// first time a testing session actually switches to it. Internal (not private) so
-    /// `AppDataStoreTests` can exercise it directly against a temp directory, independent of the
-    /// `DeveloperMode.isEnabled` gate at its one production call site (`init`).
+    /// before this symlink scheme existed, or a fresh install with no database yet). Only
+    /// `production.sqlite` is ever brought into being through this scheme (by `sqlite3_open` on the
+    /// symlink target at the app's next launch); `test.sqlite` is **not** created at startup -- it
+    /// is created fresh only when a testing session is started (`scripts/use-test-database.sh`,
+    /// which deletes any existing one first). Internal (not private) so `AppDataStoreTests` can
+    /// exercise it directly against a temp directory, independent of the `DeveloperMode.isEnabled`
+    /// gate at its one production call site (`init`).
     static func ensureDatabaseSymlink(at url: URL) {
         let fileManager = FileManager.default
         let productionURL = url.deletingLastPathComponent().appendingPathComponent("production.sqlite")
@@ -1149,20 +1255,6 @@ final class AppDataStore: IntegrationEventCursorStore {
                 )
             }
         }
-        ensureTestDatabaseExists(alongside: productionURL)
-    }
-
-    /// Creates and fully seeds `test.sqlite` next to `production.sqlite`, with its `db_type`
-    /// overridden to `"test"`, if it doesn't already exist. A no-op otherwise -- an existing
-    /// `test.sqlite`'s accumulated state is never reset just because this runs again.
-    private static func ensureTestDatabaseExists(alongside productionURL: URL) {
-        let testURL = productionURL.deletingLastPathComponent().appendingPathComponent("test.sqlite")
-        guard !FileManager.default.fileExists(atPath: testURL.path) else { return }
-        var handle: OpaquePointer?
-        guard sqlite3_open(testURL.path, &handle) == SQLITE_OK, let handle else { return }
-        defer { sqlite3_close(handle) }
-        runDatabaseDDL(on: handle, logger: nil)
-        sqlite3_exec(handle, "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';", nil, nil, nil)
     }
 
     /// Test-only helper to reset the persisted database.

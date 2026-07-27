@@ -1,0 +1,7 @@
+# Auto-Pause Arrow Stepper Checklist (Interactive)
+
+Nothing needed. The press-and-hold acceleration gesture (both directions) and the
+hold-interrupted-by-window-close case all moved to
+`Tests/Bench/05b-auto-pause-arrow-stepper-checklist.md` once CGEventPost ([Method: Number 7](../Methods.md#method-7)) was confirmed to drive this
+control's `mouseDown`/`mouseUp` directly, including the two-independent-event-streams version of the
+"hold with one hand, press a key with the other" gesture.

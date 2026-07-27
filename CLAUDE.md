@@ -36,6 +36,22 @@
   again. The "all clear" matters as much as the initial warning -- don't let it shrink to a small
   aside in a longer message.
 
+## Working with the git remote (push, PR, etc.)
+
+- Before any operation that touches the GitHub remote (`git push`, `gh pr create`, deleting/renaming
+  a remote branch, etc.), the **active** `gh` account must have enough privileges on the remote
+  you're targeting. `git`'s own credential helper delegates to `gh auth git-credential`, so an
+  operation run under an account without access fails with `403 Permission denied` (confirmed live:
+  the `harryphillips-byte` account has no push access to this repo).
+- Don't hardcode a username -- which account is the right one depends on who's working. Run `gh auth
+  status` to list the logged-in accounts, and if the active one lacks access, `gh auth switch --user
+  <name>` to another and retry, working through the available accounts until one has the privileges
+  the operation needs. (For this repo's owner that account happens to be `tuxcomputers`, matching the
+  org `tuxcomputers/TimeFlipApp`.)
+- Contribution model: an outside contributor **forks** this repo and opens a PR to it from their
+  fork -- so they push to their own fork with their own account and never need push rights on
+  `tuxcomputers/TimeFlipApp` directly. Only the repo owner pushes branches here directly.
+
 ## TimeFlip2 BLE protocol documentation
 
 - `docs/TimeFlip2 BLE Protocol v4.3.md` is the official vendor protocol spec and takes priority
@@ -49,7 +65,7 @@
   a zero-padded 24-hour local time, followed by the `[Tag]` naming the action/source, e.g.:
   ```
   13:25:38 [TimeFlip ] Login accepted, code=0x02
-  13:25:39 [dev-check] device_events max_event_number OK: in_memory=112 db=112
+  13:25:39 [dev-check] device_event max_event_number OK: in_memory=112 db=112
   ```
 - Use `DeveloperMode.debugPrint(_ tag: DebugTag, _:)` (in `DeveloperConfigStore.swift`) rather than
   a bare `print(...)` call — it prepends the timestamp and gates on `isEnabled` itself, so call

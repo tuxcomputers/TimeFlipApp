@@ -10,6 +10,11 @@ APPDATA="$DB_DIR/appdata.sqlite"
 PRODUCTION="$DB_DIR/production.sqlite"
 TEST_DB="$DB_DIR/test.sqlite"
 
+# Optional first arg "keep" preserves an existing test.sqlite instead of wiping it -- used when
+# resuming a mid-run test batch, so state earlier scenarios built survives. Anything else (or no
+# arg) starts fresh, the default for a normal run.
+MODE="${1:-fresh}"
+
 if [ ! -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
   echo "error: $APPDATA does not exist yet -- launch the app at least once first," \
     "so it can create the symlink and production.sqlite." >&2
@@ -28,16 +33,26 @@ if pgrep -x TimeFlipApp > /dev/null 2>&1; then
     "and won't see this change until you quit and relaunch it." >&2
 fi
 
-if [ ! -e "$TEST_DB" ]; then
+# A fresh testing session starts from an empty test database. Delete any existing test.sqlite
+# (and its WAL/SHM sidecars) and recreate + seed it from scratch, so no state ever carries over
+# between sessions. This only ever touches test.sqlite -- production.sqlite is never affected.
+# In "keep" mode (resuming a mid-run batch) an existing test.sqlite is left untouched so the
+# accumulated state survives; only the symlink below is (re)pointed at it.
+if [ "$MODE" = "keep" ] && [ -e "$TEST_DB" ]; then
+  echo "Keeping existing $TEST_DB (resume -- accumulated test state preserved)."
+else
+  if [ -e "$TEST_DB" ]; then
+    echo "Deleting existing $TEST_DB (a fresh one is created for every testing session)..."
+    rm -f "$TEST_DB" "$TEST_DB-wal" "$TEST_DB-shm"
+  fi
   echo "Creating $TEST_DB..."
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  # Same DDL files, same filename-sorted order AppDataStore.runDatabaseDDL() runs at every launch.
+  # Same DDL files, same filename-sorted order AppDataStore.runDatabaseDDL() runs at every launch,
+  # with foreign keys enforced during seeding to match the app's own connection.
   for sql_file in "$SCRIPT_DIR"/database/*.sql; do
-    sqlite3 "$TEST_DB" < "$sql_file"
+    { echo "PRAGMA foreign_keys = ON;"; cat "$sql_file"; } | sqlite3 "$TEST_DB"
   done
   sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
-else
-  echo "$TEST_DB already exists -- reusing it as-is (not re-seeded/reset)."
 fi
 
 rm -f "$APPDATA"
