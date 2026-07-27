@@ -50,7 +50,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState: appState,
         authManager: authManager,
         integrationCoordinator: integrationCoordinator,
-        loadCategories: { [dataStore] in dataStore.loadActiveCategories() },
+        loadCategories: { [dataStore] in dataStore.loadCategories() },
         updateCategoryColour: { [dataStore] categoryID, colourID in
             dataStore.updateCategoryColour(categoryID: categoryID, colourID: colourID)
         }

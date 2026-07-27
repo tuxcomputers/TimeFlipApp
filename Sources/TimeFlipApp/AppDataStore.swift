@@ -29,6 +29,9 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     let colourID: Int
     /// The `colour` table's `device_hex` ("#rrggbb"), `nil` for the `None` colour.
     let colourHex: String?
+    /// `false` once the category has been retired -- it stays in the table so historical
+    /// `time_entry` rows keep resolving, but drops out of the assignment lists.
+    let isActive: Bool
 }
 
 // SQLite-backed application data.
@@ -439,18 +442,19 @@ final class AppDataStore {
         return results
     }
 
-    /// All active, real (`category_id >= 1`, excluding the `Unassigned` sentinel at id 0) rows of
-    /// the `category` table (`database/007_category.sql`), ordered by name. Excludes any category
-    /// with `is_active = 0` -- see the `active` column note there.
-    func loadActiveCategories() -> [CategoryRecord] {
+    /// All real (`category_id >= 1`, excluding the `Unassigned` sentinel at id 0) rows of the
+    /// `category` table (`database/007_category.sql`), ordered by name. Both active and inactive
+    /// ones -- the Categories tab lists each in its own section, so splitting this into two
+    /// queries would just mean reading the same small table twice.
+    func loadCategories() -> [CategoryRecord] {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
         let sql = """
-        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, co.device_hex
+        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, co.device_hex, c.is_active
         FROM category c
         JOIN icon i ON i.icon_id = c.icon_id
         JOIN colour co ON co.colour_id = c.colour_id
-        WHERE c.category_id >= 1 AND c.is_active = 1
+        WHERE c.category_id >= 1
         ORDER BY c.category_name;
         """
         queue.sync {
@@ -466,7 +470,8 @@ final class AppDataStore {
                 let iconName = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
                 let colourID = Int(sqlite3_column_int64(stmt, 3))
                 let colourHex = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-                results.append(CategoryRecord(id: id, name: name, iconName: iconName, colourID: colourID, colourHex: colourHex))
+                let isActive = sqlite3_column_int64(stmt, 5) != 0
+                results.append(CategoryRecord(id: id, name: name, iconName: iconName, colourID: colourID, colourHex: colourHex, isActive: isActive))
             }
             sqlite3_finalize(stmt)
         }

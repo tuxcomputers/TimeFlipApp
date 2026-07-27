@@ -63,6 +63,10 @@ enum SettingsLayoutConstants {
         // long that row's category name is -- a plain Text(name) with no width sizes to its own
         // content, so the square right after it would otherwise drift per row.
         static let nameColumnWidth: CGFloat = 160
+        // Matches the Device tab's disclosure groups, so the Active/Inactive groups sit at the
+        // same rhythm as the LED/More ones they're modelled on.
+        static let rowSpacing: CGFloat = 8
+        static let sectionVerticalPadding: CGFloat = 4
     }
 
     /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the

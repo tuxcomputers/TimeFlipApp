@@ -5,27 +5,75 @@ struct CategoriesSettingsView: View {
     let loadCategories: () -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
     @State private var categories: [CategoryRecord] = []
+    // Active is the section you actually work in, so it starts open; Inactive is the archive you
+    // only occasionally go looking in, so it starts folded away.
+    @State private var isActiveExpanded = true
+    @State private var isInactiveExpanded = false
 
     var body: some View {
         Form {
-            if categories.isEmpty {
-                Text("No active categories.")
-                    .foregroundStyle(.secondary)
-            } else {
-                CategoryColumnHeaderRow()
-                ForEach(categories) { category in
-                    CategoryRow(
-                        category: category,
-                        colourOptions: appState.colourOptions,
-                        noColourName: appState.noColourName,
-                        onColourPicked: updateCategoryColour
-                    )
-                }
-            }
+            CategorySection(
+                title: "Active",
+                isExpanded: $isActiveExpanded,
+                categories: categories.filter(\.isActive),
+                emptyMessage: "No active categories.",
+                appState: appState,
+                updateCategoryColour: updateCategoryColour
+            )
+            CategorySection(
+                title: "Inactive",
+                isExpanded: $isInactiveExpanded,
+                categories: categories.filter { !$0.isActive },
+                emptyMessage: "No inactive categories.",
+                appState: appState,
+                updateCategoryColour: updateCategoryColour
+            )
         }
         .formStyle(.grouped)
         .onAppear {
             categories = loadCategories()
+        }
+    }
+}
+
+/// One collapsible group of categories, built like the Device tab's LED/More groups: the label is
+/// a plain-styled Button that drives the same `isExpanded` binding, so clicking the text toggles
+/// the group rather than only the disclosure chevron doing it.
+private struct CategorySection: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    let categories: [CategoryRecord]
+    let emptyMessage: String
+    @ObservedObject var appState: AppState
+    let updateCategoryColour: (Int, Int) -> Void
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: SettingsLayoutConstants.CategoryList.rowSpacing) {
+                if categories.isEmpty {
+                    Text(emptyMessage)
+                        .foregroundStyle(.secondary)
+                } else {
+                    CategoryColumnHeaderRow()
+                    ForEach(categories) { category in
+                        CategoryRow(
+                            category: category,
+                            colourOptions: appState.colourOptions,
+                            noColourName: appState.noColourName,
+                            onColourPicked: updateCategoryColour
+                        )
+                    }
+                }
+            }
+            .padding(.vertical, SettingsLayoutConstants.CategoryList.sectionVerticalPadding)
+        } label: {
+            Button {
+                DeveloperMode.debugPrint(.click, "Button clicked: \(title) categories (\(isExpanded ? "collapse" : "expand"))")
+                isExpanded.toggle()
+            } label: {
+                Text(title)
+            }
+            .buttonStyle(.plain)
         }
     }
 }
