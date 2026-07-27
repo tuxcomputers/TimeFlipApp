@@ -153,7 +153,10 @@ private struct PaneSetupView: View {
                             get: { appState.facetMappings[index] },
                             set: { appState.updateMapping($0) }
                         )
-                        TopFacetEditor(mapping: binding)
+                        TopFacetEditor(
+                            mapping: binding,
+                            tint: appState.faceCategoryColour(for: appState.currentFacetID)
+                        )
                     } else {
                         Text("Flip the device to pick a facet.")
                             .foregroundStyle(.secondary)
@@ -169,7 +172,8 @@ private struct PaneSetupView: View {
 
                     FacetMappingList(
                         mappings: appState.facetMappings,
-                        currentFacetID: appState.currentFacetID
+                        currentFacetID: appState.currentFacetID,
+                        tint: { appState.faceCategoryColour(for: $0) }
                     )
                 }
                 .frame(width: rightWidth, alignment: .leading)
@@ -192,6 +196,10 @@ private struct PaneSetupView: View {
 
 private struct TopFacetEditor: View {
     @Binding var mapping: FacetMapping
+    /// The face's category colour, or `.primary` when it has none. The tint is all that's left of
+    /// the facet colour on this tab -- the value itself lives on the category now, so this reads it
+    /// from there rather than carrying a second copy per facet.
+    let tint: Color
 
     var body: some View {
         let nameBinding = Binding(
@@ -217,7 +225,7 @@ private struct TopFacetEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
 
-            IconGridPicker(selection: iconBinding, tint: mapping.color)
+            IconGridPicker(selection: iconBinding, tint: tint)
         }
     }
 }
@@ -410,11 +418,16 @@ private struct ColorOptionRow: View {
 private struct FacetMappingList: View {
     let mappings: [FacetMapping]
     let currentFacetID: UInt8
+    let tint: (UInt8) -> Color
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(mappings) { mapping in
-                FacetMappingRow(mapping: mapping, isSelected: mapping.facetID == currentFacetID)
+                FacetMappingRow(
+                    mapping: mapping,
+                    tint: tint(mapping.facetID),
+                    isSelected: mapping.facetID == currentFacetID
+                )
                 if mapping.id != mappings.last?.id {
                     Divider()
                 }
@@ -429,13 +442,14 @@ private struct FacetMappingList: View {
 
 private struct FacetMappingRow: View {
     let mapping: FacetMapping
+    let tint: Color
     let isSelected: Bool
 
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
             ActivityIconView(
                 iconName: mapping.iconName,
-                tint: mapping.color,
+                tint: tint,
                 size: SettingsLayoutConstants.FacetList.iconSize
             )
 

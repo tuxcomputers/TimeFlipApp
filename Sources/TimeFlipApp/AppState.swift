@@ -327,6 +327,36 @@ final class AppState: ObservableObject {
         categoryActivity(for: facetID, in: faceCategories)
     }
 
+    /// The colour of the category assigned to a face, for tinting it on screen. `.primary` when the
+    /// category has no colour or the face has none — on screen that means "draw it in the ordinary
+    /// foreground colour", which is not the same answer as the LED's (see `facetLEDColours`, where
+    /// no colour means dark): an icon drawn black-on-black would just vanish.
+    func faceCategoryColour(for facetID: UInt8) -> Color {
+        let colourID = faceCategories[facetID]?.colourID
+        return colourOptions.first { $0.colourId == colourID }?.color ?? .primary
+    }
+
+    /// What the device's LED should show for each facet: the `device_hex` of the colour assigned to
+    /// the face's category, resolved through `colourOptions`.
+    ///
+    /// A face whose category has no colour — `colour_id` 0 (`None`), which has no `device_hex` and
+    /// so isn't in `colourOptions` at all — goes **dark** rather than keeping whatever the LED was
+    /// last set to. Clearing a colour is an instruction, and leaving the old one lit would make
+    /// "None" mean "unchanged", which is invisible on the device and impossible to undo from the
+    /// UI. Black is how the protocol expresses off: `0x11` takes an RGB triple with no separate
+    /// enable, so all-zero is the only way to say it. Faces with no category resolve the same way.
+    ///
+    /// `categories` is passed in for the same reason as `categoryActivity`: a Combine sink has to
+    /// use the value it was handed, not read the property back.
+    func facetLEDColours(in categories: [UInt8: CategoryRecord]) -> [UInt8: ColorComponents] {
+        var resolved: [UInt8: ColorComponents] = [:]
+        for facetID in TimeFlipConstants.facetIDs {
+            let colourID = categories[facetID]?.colourID
+            resolved[facetID] = colourOptions.first { $0.colourId == colourID }?.components ?? .off
+        }
+        return resolved
+    }
+
     func mappingIndex(for facetID: UInt8) -> Int? {
         facetMappings.firstIndex { $0.facetID == facetID }
     }
@@ -488,8 +518,7 @@ final class AppState: ObservableObject {
             FacetMapping(
                 facetID: record.facetID,
                 name: ActivityLibrary.sanitizeActivityName(record.name),
-                iconName: ActivityLibrary.sanitizeIconName(record.iconName),
-                color: record.color.color
+                iconName: ActivityLibrary.sanitizeIconName(record.iconName)
             )
         }
         if !mappings.isEmpty {
@@ -568,8 +597,7 @@ final class AppState: ObservableObject {
             let sanitized = FacetMapping(
                 facetID: mapping.facetID,
                 name: sanitizedName,
-                iconName: sanitizedIcon,
-                color: mapping.color
+                iconName: sanitizedIcon
             )
             return FacetMappingRecord(mapping: sanitized)
         }

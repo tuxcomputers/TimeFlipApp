@@ -4,7 +4,6 @@ struct FacetMapping: Identifiable {
     let facetID: UInt8
     var name: String
     var iconName: String
-    var color: Color
 
     var id: UInt8 { facetID }
 
@@ -39,6 +38,10 @@ struct ActivityColorOption: Identifiable {
     let colourId: Int
     let name: String
     let color: Color
+    /// The same colour as `color`, kept in the form the device wants. Held rather than re-derived
+    /// from `color` because that round trip goes through `NSColor` and a colour-space conversion,
+    /// which can drift a channel -- and this is the value written to the LED (BLE `0x11`).
+    let components: ColorComponents
 
     var id: String { name }
 }
@@ -116,7 +119,12 @@ enum ActivityLibrary {
             guard let hex = record.deviceHex, let components = ColorComponents(hex: hex) else {
                 return nil
             }
-            return ActivityColorOption(colourId: record.id, name: record.name, color: components.color)
+            return ActivityColorOption(
+                colourId: record.id,
+                name: record.name,
+                color: components.color,
+                components: components
+            )
         }
     }
 
@@ -158,8 +166,7 @@ enum ActivityLibrary {
             FacetMapping(
                 facetID: facetID,
                 name: "",
-                iconName: "",
-                color: .gray
+                iconName: ""
             )
         }
     }

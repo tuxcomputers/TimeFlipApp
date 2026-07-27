@@ -8,9 +8,9 @@ This lists everything that was persisted outside those two at the branch's fork 
 against it is measurable. A box is ticked only when the legacy copy is **gone**, not when the
 database merely has somewhere to put it.
 
-**8 of 13 done.** All four pairing fields, all three Google fields and the per-facet daily limit
-have moved. What remains is three of the four per-facet mappings — each still with a live
-production reader — and the two developer-mode files, which are intentional escape hatches rather
+**9 of 13 done.** All four pairing fields, all three Google fields and both the per-facet daily
+limit and colour have moved. What remains is the facet name and icon — blocked on the same missing
+UI as each other — and the two developer-mode files, which are intentional escape hatches rather
 than oversights. `PreferencesPayload` is now nothing but `facetMappings` — the
 `timeflip.preferences` key disappears with them. Two dead paths that needed no migration have also
 been cleared: see [Legacy paths already removed](#legacy-paths-already-removed).
@@ -34,11 +34,16 @@ have moved.
 - [ ] **Facet icon** — asset name (`ic_meeting`), `""` for none.
       *DB home:* `category.icon_id`, already live for the menu bar and editable on the Categories
       tab. Only the Faces tab still reads the blob field, so the same blocker as the name.
-- [ ] **Facet colour** — `ColorComponents` (r/g/b/a).
-      *DB home:* `category.colour_id`, which exists and is editable, but the **device's own LED
-      colour is still driven from the blob** (`ApplicationDelegate` → `setFacetColor`, BLE `0x11`).
-      The only one of the four whose remaining reader is outside the UI entirely, so it needs the
-      device write repointed at the category's colour, not just a tab reworked.
+- [x] **Facet colour** — `ColorComponents` (r/g/b/a). *Done — `category.colour_id` →
+      `colour.device_hex`, which now drives the device LED (BLE `0x11`) and the Faces tab's icon
+      tints.* The write follows `$faceCategories` instead of `$facetMappings`, so recolouring a
+      category or reassigning a face is what changes the light.
+
+      **A category with no colour now sends black, i.e. the LED off.** Previously an unset colour
+      left whatever the facet was last lit with, which made "None" mean "unchanged" — invisible on
+      the device and impossible to undo from the UI. `0x11` takes an RGB triple with no separate
+      enable, so all-zero is how the protocol says off. On screen the same "no colour" resolves to
+      `.primary` instead, since a black-on-black icon would just disappear.
 - [x] **Facet daily limit** (`limitMinutes`) — whole minutes, `0` = none. *Done —
       `category.daily_limit`, already editable on the Categories tab and now what the menu bar's
       over-limit indicator reads.* The only one of the four that needed no new plumbing:

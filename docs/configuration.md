@@ -163,12 +163,17 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
 2. Each TimeFlip facet (1-12) can be assigned:
    - **Activity Name**: Custom label for the activity
    - **Icon**: Native TimeFlip icon (matching the stickers included with your device)
-   - **Color**: RGB LED color shown on the device
 
-**Daily Limit** is set per *category*, on the Categories tab, not per facet — a limit describes the
-activity being measured, so two facets assigned the same category share one. Optional, in whole
-minutes; the menu bar text turns red once the limit is reached, resetting daily at the time set by
-`daily_reset_time` (3am by default) — see Status Indicators below.
+**Color** and **Daily Limit** belong to the *category*, not the facet, and are set on the
+Categories tab — both describe the activity being measured, so two facets assigned the same
+category share them.
+
+- **Color**: the RGB LED colour the device lights that facet up in. A category with **no** colour
+  leaves the facet's LED **dark** — clearing a colour turns the light off rather than leaving the
+  previous one lit.
+- **Daily Limit**: optional, in whole minutes. The menu bar text turns red once the limit is
+  reached, resetting daily at the time set by `daily_reset_time` (3am by default) — see Status
+  Indicators below.
 
 ![Preferences - Facets](../image/preferences-facets.png)
 

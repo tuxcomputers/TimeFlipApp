@@ -344,18 +344,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self.dataStore.saveDoubleTapEnabled(enabled)
             DeveloperMode.debugPrint(.doubleTap, "Params saved to DB: enabled=\(enabled)")
         }
-        appState.$facetMappings
-            .sink { [weak self] mappings in
+        // The LED colours follow the faces' categories: assigning a face a different category, or
+        // recolouring a category on the Categories tab, is what changes what the device lights up.
+        appState.$faceCategories
+            .sink { [weak self] categories in
                 Task { @MainActor in
                     guard let self else { return }
+                    let colours = self.appState.facetLEDColours(in: categories)
                     if !self.facetColorInitialized {
-                        self.lastSentFacetColors = Dictionary(uniqueKeysWithValues: mappings.map {
-                            ($0.facetID, ColorComponents(color: $0.color))
-                        })
+                        // First emission is the state as loaded, not an edit -- record what the
+                        // device is assumed to already show without writing all 12 facets at launch.
+                        self.lastSentFacetColors = colours
                         self.facetColorInitialized = true
                         return
                     }
-                    await self.sendFacetColors(mappings)
+                    await self.sendFacetColors(colours)
                 }
             }
             .store(in: &cancellables)
@@ -782,16 +785,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         DeveloperMode.debugPrint(.syncDtap, "Double-tap OK: device matches expected \(expectedSummary)")
     }
 
-    private func sendFacetColors(_ mappings: [FacetMapping], force: Bool = false) async {
+    /// Writes each facet's LED colour (BLE `0x11`), skipping any that already show the right one.
+    /// `colours` covers all 12 facets -- see `AppState.facetLEDColours`, including why a category
+    /// with no colour resolves to black rather than being left alone.
+    private func sendFacetColors(_ colours: [UInt8: ColorComponents]) async {
         guard let device else { return }
-        if force {
-            lastSentFacetColors.removeAll()
-        }
-        for mapping in mappings {
-            let components = ColorComponents(color: mapping.color)
-            if force || lastSentFacetColors[mapping.facetID] != components {
-                lastSentFacetColors[mapping.facetID] = components
-                await device.setFacetColor(facetID: mapping.facetID, components: components)
+        for facetID in TimeFlipConstants.facetIDs {
+            guard let components = colours[facetID] else { continue }
+            if lastSentFacetColors[facetID] != components {
+                lastSentFacetColors[facetID] = components
+                await device.setFacetColor(facetID: facetID, components: components)
             }
         }
     }
