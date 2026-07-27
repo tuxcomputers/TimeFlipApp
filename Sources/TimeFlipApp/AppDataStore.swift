@@ -20,6 +20,16 @@ struct ColourRecord: Equatable, Sendable {
     let deviceHex: String?
 }
 
+/// A row from the `category` table (`database/007_category.sql`).
+struct CategoryRecord: Equatable, Sendable, Identifiable {
+    let id: Int
+    let name: String
+    /// The `icon` table's `icon_name` (e.g. `ic_meeting`) -- see `ActivityIconLoader`.
+    let iconName: String
+    /// The `colour` table's `device_hex` ("#rrggbb"), `nil` for the `blank` colour.
+    let colourHex: String?
+}
+
 // SQLite-backed application data.
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -422,6 +432,39 @@ final class AppDataStore {
                 let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
                 let hex = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
                 results.append(ColourRecord(id: id, name: name, deviceHex: hex))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
+    /// All active, real (`category_id >= 1`, excluding the `Unassigned` sentinel at id 0) rows of
+    /// the `category` table (`database/007_category.sql`), ordered by name. Excludes any category
+    /// with `is_active = 0` -- see the `active` column note there.
+    func loadActiveCategories() -> [CategoryRecord] {
+        guard let db else { return [] }
+        var results: [CategoryRecord] = []
+        let sql = """
+        SELECT c.category_id, c.category_name, i.icon_name, co.device_hex
+        FROM category c
+        JOIN icon i ON i.icon_id = c.icon_id
+        JOIN colour co ON co.colour_id = c.colour_id
+        WHERE c.category_id >= 1 AND c.is_active = 1
+        ORDER BY c.category_name;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = Int(sqlite3_column_int64(stmt, 0))
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                let iconName = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+                let colourHex = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
+                results.append(CategoryRecord(id: id, name: name, iconName: iconName, colourHex: colourHex))
             }
             sqlite3_finalize(stmt)
         }

@@ -225,7 +225,7 @@ private struct TopFacetEditor: View {
     }
 }
 
-private struct ActivityIconView: View {
+struct ActivityIconView: View {
     let iconName: String
     let tint: Color
     let size: CGFloat
