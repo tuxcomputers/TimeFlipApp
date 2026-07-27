@@ -181,6 +181,11 @@ private struct CategoryRow: View {
             dailyLimitField
             Spacer()
         }
+        // An inactive category is read-only: it is retired, kept only so historical time_entry
+        // rows still resolve, so its colour and limit are a record of what it was rather than
+        // something to keep tuning. Driven off the record itself, not off which section drew the
+        // row, so it holds wherever the row is rendered.
+        .disabled(!category.isActive)
     }
 
     /// Whole minutes per day, 0 = disabled. Deliberately uncapped, unlike the Device tab's
