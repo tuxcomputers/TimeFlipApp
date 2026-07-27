@@ -26,6 +26,7 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     let name: String
     /// The `icon` table's `icon_name` (e.g. `ic_meeting`) -- see `ActivityIconLoader`.
     let iconName: String
+    let colourID: Int
     /// The `colour` table's `device_hex` ("#rrggbb"), `nil` for the `blank` colour.
     let colourHex: String?
 }
@@ -445,7 +446,7 @@ final class AppDataStore {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
         let sql = """
-        SELECT c.category_id, c.category_name, i.icon_name, co.device_hex
+        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, co.device_hex
         FROM category c
         JOIN icon i ON i.icon_id = c.icon_id
         JOIN colour co ON co.colour_id = c.colour_id
@@ -463,8 +464,9 @@ final class AppDataStore {
                 let id = Int(sqlite3_column_int64(stmt, 0))
                 let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
                 let iconName = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
-                let colourHex = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
-                results.append(CategoryRecord(id: id, name: name, iconName: iconName, colourHex: colourHex))
+                let colourID = Int(sqlite3_column_int64(stmt, 3))
+                let colourHex = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
+                results.append(CategoryRecord(id: id, name: name, iconName: iconName, colourID: colourID, colourHex: colourHex))
             }
             sqlite3_finalize(stmt)
         }
@@ -491,6 +493,27 @@ final class AppDataStore {
             }
             sqlite3_bind_int64(stmt, 1, Int64(colourID))
             sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category colour update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// Sets `colour_id` directly on a category (the Categories tab's own colour picker, not the
+    /// Faces tab's per-face one above). Same `category_id >= 1` guard, for the same reason.
+    func updateCategoryColour(categoryID: Int, colourID: Int) {
+        guard let db else { return }
+        let sql = "UPDATE category SET colour_id = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category colour update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(colourID))
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
             if sqlite3_step(stmt) != SQLITE_DONE {
                 logger.error("category colour update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }

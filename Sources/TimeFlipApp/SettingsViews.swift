@@ -6,6 +6,7 @@ struct SettingsRootView: View {
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
     let loadCategories: () -> [CategoryRecord]
+    let updateCategoryColour: (Int, Int) -> Void
     @State private var selectedTab: SettingsTab = .facets
     // Bumped whenever the Categories tab is selected; CategoriesSettingsView is `.id()`-tagged
     // with it so SwiftUI treats each visit as a fresh view instance and its `onAppear` -- where
@@ -19,6 +20,7 @@ struct SettingsRootView: View {
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
         loadCategories: @escaping () -> [CategoryRecord],
+        updateCategoryColour: @escaping (Int, Int) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
@@ -26,6 +28,7 @@ struct SettingsRootView: View {
         self.authManager = authManager
         self.integrationCoordinator = integrationCoordinator
         self.loadCategories = loadCategories
+        self.updateCategoryColour = updateCategoryColour
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -38,7 +41,11 @@ struct SettingsRootView: View {
                         Text("Device")
                     }
                     .tag(SettingsTab.timeflip)
-                CategoriesSettingsView(appState: appState, loadCategories: loadCategories)
+                CategoriesSettingsView(
+                    appState: appState,
+                    loadCategories: loadCategories,
+                    updateCategoryColour: updateCategoryColour
+                )
                     .id(categoriesReloadTick)
                     .tabItem {
                         Text("Categories")
@@ -387,7 +394,7 @@ private struct FacetColorPicker: View {
     }
 }
 
-private struct ColorOptionList: View {
+struct ColorOptionList: View {
     @Binding var selection: Color
     let colourOptions: [ActivityColorOption]
     let onPick: (ActivityColorOption) -> Void

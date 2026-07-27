@@ -3,6 +3,7 @@ import SwiftUI
 struct CategoriesSettingsView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
+    let updateCategoryColour: (Int, Int) -> Void
     @State private var categories: [CategoryRecord] = []
 
     var body: some View {
@@ -12,7 +13,11 @@ struct CategoriesSettingsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(categories) { category in
-                    CategoryRow(category: category)
+                    CategoryRow(
+                        category: category,
+                        colourOptions: appState.colourOptions,
+                        onColourPicked: updateCategoryColour
+                    )
                 }
             }
         }
@@ -25,6 +30,17 @@ struct CategoriesSettingsView: View {
 
 private struct CategoryRow: View {
     let category: CategoryRecord
+    let colourOptions: [ActivityColorOption]
+    let onColourPicked: (Int, Int) -> Void
+    @State private var selectedColor: Color
+    @State private var isColorPickerPresented = false
+
+    init(category: CategoryRecord, colourOptions: [ActivityColorOption], onColourPicked: @escaping (Int, Int) -> Void) {
+        self.category = category
+        self.colourOptions = colourOptions
+        self.onColourPicked = onColourPicked
+        _selectedColor = State(initialValue: category.colourHex.flatMap { ColorComponents(hex: $0)?.color } ?? .black)
+    }
 
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
@@ -34,23 +50,32 @@ private struct CategoryRow: View {
                 size: SettingsLayoutConstants.FacetList.iconSize
             )
             Text(category.name)
+            Button {
+                DeveloperMode.debugPrint(.click, "Button clicked: Category color swatch \"\(category.name)\" (\(isColorPickerPresented ? "close" : "open") picker)")
+                isColorPickerPresented.toggle()
+            } label: {
+                RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                    .fill(selectedColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                            .stroke(Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity))
+                    )
+                    .frame(
+                        width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
+                        height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
+                    )
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isColorPickerPresented) {
+                ColorOptionList(
+                    selection: $selectedColor,
+                    colourOptions: colourOptions,
+                    onPick: { option in onColourPicked(category.id, option.colourId) }
+                ) {
+                    isColorPickerPresented = false
+                }
+            }
             Spacer()
-            RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                .fill(colour)
-                .overlay(
-                    RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                        .stroke(Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity))
-                )
-                .frame(
-                    width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
-                    height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
-                )
         }
-    }
-
-    /// `.clear` for the `blank` colour (`colourHex == nil`) -- the stroke above still outlines the
-    /// square so it reads as "no colour set" rather than an invisible gap.
-    private var colour: Color {
-        category.colourHex.flatMap { ColorComponents(hex: $0)?.color } ?? .clear
     }
 }

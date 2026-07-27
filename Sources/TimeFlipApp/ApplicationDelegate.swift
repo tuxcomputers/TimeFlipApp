@@ -49,7 +49,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState: appState,
         authManager: authManager,
         integrationCoordinator: integrationCoordinator,
-        loadCategories: { [dataStore] in dataStore.loadActiveCategories() }
+        loadCategories: { [dataStore] in dataStore.loadActiveCategories() },
+        updateCategoryColour: { [dataStore] categoryID, colourID in
+            dataStore.updateCategoryColour(categoryID: categoryID, colourID: colourID)
+        }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(
