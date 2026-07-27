@@ -474,10 +474,6 @@ final class AppState: ObservableObject {
         dailyFacetDurations[facetID, default: 0] += delta
     }
 
-    func resetDailyTotals() {
-        dailyFacetDurations = [:]
-    }
-
     private func observePreferences() {
         // Coalesce all preference changes into a single debounced sink
         // to avoid cascading persistence calls and reduce disk I/O

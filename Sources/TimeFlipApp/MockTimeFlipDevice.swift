@@ -59,14 +59,11 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     private var deviceTimeOffset: TimeInterval = 0
     private var activeSession: ActiveSession?
     private(set) var history: [TimeFlipHistoryEntry] = []
-    private var historyNotificationsEnabled: Bool = false
     private var brightnessPercent: UInt8 = 100
     private var blinkIntervalSeconds: UInt8 = 5
     private var doubleTapParameters: DoubleTapParameters = .default
-    private var facetConfigurations: [UInt8: (mode: UInt8, pomodoroSeconds: UInt32)] = [:]
     private var devicePassword: String = TimeFlipConstants.defaultPassword
     private var facetColors: [UInt8: ColorComponents] = [:]
-    private var deviceName: String = "TimeFlip"
     // Real firmware uses a monotonic counter; timestamp-derived numbers collide
     // when two sessions start within the same second.
     private var nextEventNumber: UInt32 = 0
@@ -263,57 +260,6 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
     func setBlinkInterval(seconds: UInt8) {
         applyBlinkInterval(seconds: seconds)
-    }
-
-    func setFacetConfiguration(facetID: UInt8, mode: UInt8, pomodoroSeconds: UInt32) {
-        guard TimeFlipConstants.isValidFacetID(facetID) else {
-            appendEventLog("facet_config_ignored_invalid facet=\(facetID)")
-            return
-        }
-        facetConfigurations[facetID] = (mode: mode, pomodoroSeconds: pomodoroSeconds)
-        appendEventLog("facet_config facet=\(facetID) mode=\(mode) pomo=\(pomodoroSeconds)")
-    }
-
-    func setDeviceName(_ name: String) {
-        deviceName = name
-        appendEventLog("device_name=\(name)")
-    }
-
-    func setPassword(_ password: String) {
-        guard password.count == 6 else {
-            appendEventLog("password_ignored_invalid length=\(password.count)")
-            return
-        }
-        devicePassword = password
-        appendEventLog("password_updated")
-    }
-
-    /// Enable history notifications so new history frames can be pulled or emitted in tests.
-    func enableHistoryNotifications() {
-        historyNotificationsEnabled = true
-        appendEventLog("history_notify_on")
-    }
-
-    /// Encode history entries into 20-byte frames that mirror v4 history_data characteristic.
-    func historyFrames(startingFrom eventNumber: UInt32?) -> [Data] {
-        let filtered = fetchHistorySync(startingFrom: eventNumber)
-        let frames: [Data] = filtered.map { entry in
-            var data = Data(repeating: 0, count: 20)
-            let eventNum = entry.eventNumber ?? UInt32(entry.startedAt.timeIntervalSince1970)
-            data.replaceSubrange(0..<4, with: withUnsafeBytes(of: eventNum.bigEndian, Array.init))
-            data[4] = entry.facetID
-            let timestamp = UInt64(entry.startedAt.timeIntervalSince1970)
-            data.replaceSubrange(5..<13, with: withUnsafeBytes(of: timestamp.bigEndian, Array.init))
-            let duration = UInt32(max(0, entry.duration))
-            var durationBytes = withUnsafeBytes(of: duration.littleEndian, Array.init)
-            if durationBytes.count < 5 {
-                durationBytes.append(contentsOf: repeatElement(0, count: 5 - durationBytes.count))
-            }
-            data.replaceSubrange(13..<18, with: durationBytes.prefix(5))
-            return data
-        }
-        // Append sentinel of zeros to mark end of history (per v4 spec)
-        return frames + [Data(repeating: 0, count: 20)]
     }
 
     private func fetchHistorySync(startingFrom eventNumber: UInt32?) -> [TimeFlipHistoryEntry] {

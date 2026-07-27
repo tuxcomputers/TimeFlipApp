@@ -281,10 +281,6 @@ final class HistoryIngestor {
         return maxCommitted
     }
 
-    private func persistLogbookCursor() {
-        // no-op: delivery cursors are managed by integrations using logbook rowids
-    }
-
     func resetCursors(reason: String) {
         lastQueuedEventNumber = nil
         lastCommittedEventNumber = nil
