@@ -8,12 +8,12 @@ This lists everything that was persisted outside those two at the branch's fork 
 against it is measurable. A box is ticked only when the legacy copy is **gone**, not when the
 database merely has somewhere to put it.
 
-**7 of 13 done.** All four pairing fields and all three Google fields have moved. What remains is
-the four per-facet mappings, each still with a live production reader, and the two developer-mode
-files, which are intentional escape hatches rather than oversights. `PreferencesPayload` is now
-nothing but `facetMappings` — the `timeflip.preferences` key disappears with them. Two dead paths
-that needed no migration have also been cleared: see
-[Legacy paths already removed](#legacy-paths-already-removed).
+**8 of 13 done.** All four pairing fields, all three Google fields and the per-facet daily limit
+have moved. What remains is three of the four per-facet mappings — each still with a live
+production reader — and the two developer-mode files, which are intentional escape hatches rather
+than oversights. `PreferencesPayload` is now nothing but `facetMappings` — the
+`timeflip.preferences` key disappears with them. Two dead paths that needed no migration have also
+been cleared: see [Legacy paths already removed](#legacy-paths-already-removed).
 
 ## UserDefaults — the `timeflip.preferences` blob
 
@@ -39,9 +39,17 @@ have moved.
       colour is still driven from the blob** (`ApplicationDelegate` → `setFacetColor`, BLE `0x11`).
       The only one of the four whose remaining reader is outside the UI entirely, so it needs the
       device write repointed at the category's colour, not just a tab reworked.
-- [ ] **Facet daily limit** (`limitMinutes`) — whole minutes, `0` = none.
-      *DB home:* `category.daily_limit`, which exists and is editable but has no reader. The menu
-      bar's over-limit indicator still takes its value from the blob.
+- [x] **Facet daily limit** (`limitMinutes`) — whole minutes, `0` = none. *Done —
+      `category.daily_limit`, already editable on the Categories tab and now what the menu bar's
+      over-limit indicator reads.* The only one of the four that needed no new plumbing:
+      `categoryActivity` already resolved the face's `CategoryRecord`, which carries
+      `dailyLimitMinutes`, so the value was in hand.
+
+      **The limit is now per category, not per facet** — two facets assigned the same category
+      share one, where the blob gave each its own and let the pair drift. The Faces tab's Daily
+      Limit stepper is gone with the field, leaving the Categories tab as the only place a limit is
+      set. Existing per-facet limits in the blob are discarded rather than migrated. The old
+      `0...480` cap went with the stepper; `category.daily_limit` is deliberately uncapped.
 
 ### Google integration
 

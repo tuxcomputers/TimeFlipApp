@@ -217,22 +217,6 @@ private struct TopFacetEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
 
-            HStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                Text("Daily Limit:")
-                Stepper(
-                    value: $mapping.limitMinutes,
-                    in: 0...480,
-                    step: 5
-                ) {
-                    Text(mapping.limitMinutes == 0 ? "No limit" : "\(mapping.limitMinutes) min/day")
-                        .frame(minWidth: 80, alignment: .leading)
-                }
-                .help("0 = no limit; resets daily at 3am; max 480 minutes; steps of 5 minutes.")
-                .onChange(of: mapping.limitMinutes) { oldValue, newValue in
-                    DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) daily limit: \(oldValue)m -> \(newValue)m")
-                }
-            }
-
             IconGridPicker(selection: iconBinding, tint: mapping.color)
         }
     }
@@ -459,12 +443,6 @@ private struct FacetMappingRow: View {
                 .foregroundStyle(mapping.isAssigned ? .primary : .secondary)
 
             Spacer()
-
-            if mapping.limitMinutes > 0 {
-                Text("\(mapping.limitMinutes) min/day")
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 70, alignment: .trailing)
-            }
         }
         .frame(height: SettingsLayoutConstants.facetRowHeight)
         .padding(.horizontal, SettingsLayoutConstants.FacetList.horizontalPadding)

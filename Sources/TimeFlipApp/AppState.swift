@@ -299,32 +299,32 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// What the menu bar shows for a face: the name and icon of the category the `face` table
-    /// assigns it, rather than the facet's own `FacetMapping` (whose name and icon live in the
-    /// UserDefaults preferences blob and describe the facet, not a category).
+    /// What the menu bar shows for a face: the name, icon and daily limit of the category the
+    /// `face` table assigns it, rather than the facet's own `FacetMapping` (whose fields live in
+    /// the UserDefaults preferences blob and describe the facet, not a category).
     ///
-    /// The limit still comes from the mapping. `category.daily_limit` exists and is editable on
-    /// the Categories tab, but nothing consumes it yet, so repointing the over-limit indicator at
-    /// it would change behaviour this change isn't meant to touch.
-    /// `categories` and `mappings` are passed in rather than read off `self` so a Combine sink can
-    /// supply the value it was handed: `@Published` publishes in `willSet`, so the property itself
-    /// is still the old value while a subscriber runs.
+    /// All three come from the one `CategoryRecord`, which is the point: a limit belongs to the
+    /// thing being measured. Two faces assigned the same category share its limit, where the blob
+    /// gave each facet its own and let the pair drift apart.
+    ///
+    /// `categories` is passed in rather than read off `self` so a Combine sink can supply the value
+    /// it was handed: `@Published` publishes in `willSet`, so the property itself is still the old
+    /// value while a subscriber runs.
     func categoryActivity(
         for facetID: UInt8,
-        in categories: [UInt8: CategoryRecord],
-        mappings: [FacetMapping]
+        in categories: [UInt8: CategoryRecord]
     ) -> Activity? {
         guard let category = categories[facetID] else { return nil }
         let iconName = iconOptions.first { $0.iconId == category.iconID }?.iconName
         return Activity(
             name: category.name,
             iconName: iconName,
-            limitMinutes: limitMinutes(for: facetID, in: mappings)
+            limitMinutes: max(0, category.dailyLimitMinutes)
         )
     }
 
     func categoryActivity(for facetID: UInt8) -> Activity? {
-        categoryActivity(for: facetID, in: faceCategories, mappings: facetMappings)
+        categoryActivity(for: facetID, in: faceCategories)
     }
 
     func mappingIndex(for facetID: UInt8) -> Int? {
@@ -489,8 +489,7 @@ final class AppState: ObservableObject {
                 facetID: record.facetID,
                 name: ActivityLibrary.sanitizeActivityName(record.name),
                 iconName: ActivityLibrary.sanitizeIconName(record.iconName),
-                color: record.color.color,
-                limitMinutes: clampLimit(record.limitMinutes ?? 0)
+                color: record.color.color
             )
         }
         if !mappings.isEmpty {
@@ -570,8 +569,7 @@ final class AppState: ObservableObject {
                 facetID: mapping.facetID,
                 name: sanitizedName,
                 iconName: sanitizedIcon,
-                color: mapping.color,
-                limitMinutes: clampLimit(mapping.limitMinutes)
+                color: mapping.color
             )
             return FacetMappingRecord(mapping: sanitized)
         }
@@ -621,18 +619,6 @@ final class AppState: ObservableObject {
             params.window = 0
         }
         return params
-    }
-
-    func limitMinutes(for facetID: UInt8) -> Int {
-        limitMinutes(for: facetID, in: facetMappings)
-    }
-
-    func limitMinutes(for facetID: UInt8, in mappings: [FacetMapping]) -> Int {
-        mappings.first { $0.facetID == facetID }.map { clampLimit($0.limitMinutes) } ?? 0
-    }
-
-    private func clampLimit(_ value: Int) -> Int {
-        return max(0, min(480, value))
     }
 
     private func clampAutoPauseMinutes(_ value: UInt16) -> UInt16 {

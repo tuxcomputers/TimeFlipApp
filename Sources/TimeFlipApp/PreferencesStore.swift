@@ -20,7 +20,6 @@ struct FacetMappingRecord: Codable {
     var name: String
     var iconName: String
     var color: ColorComponents
-    var limitMinutes: Int?
 }
 
 struct ColorComponents: Codable, Equatable {
@@ -102,6 +101,5 @@ extension FacetMappingRecord {
         self.name = mapping.name
         self.iconName = mapping.iconName
         self.color = ColorComponents(color: mapping.color)
-        self.limitMinutes = mapping.limitMinutes
     }
 }

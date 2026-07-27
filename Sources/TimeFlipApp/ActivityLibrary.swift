@@ -5,7 +5,6 @@ struct FacetMapping: Identifiable {
     var name: String
     var iconName: String
     var color: Color
-    var limitMinutes: Int
 
     var id: UInt8 { facetID }
 
@@ -160,14 +159,9 @@ enum ActivityLibrary {
                 facetID: facetID,
                 name: "",
                 iconName: "",
-                color: .gray,
-                limitMinutes: 0
+                color: .gray
             )
         }
-    }
-
-    static var defaultActivities: [Activity] {
-        iconOptions.map { Activity(name: $0.name, iconName: $0.iconName, limitMinutes: 0) }
     }
 
     /// Tidies a typed category name: leading and trailing whitespace removed, and any internal run

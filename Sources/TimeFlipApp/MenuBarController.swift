@@ -114,13 +114,8 @@ final class MenuBarController: NSObject {
             object: nil
         )
         syncActivityFromState(resetDuration: false)
-        appState.$facetMappings
-            .sink { [weak self] mappings in
-                self?.syncActivityFromState(facetMappingsOverride: mappings)
-            }
-            .store(in: &cancellables)
         // @Published publishes in willSet, so the new value has to be passed through rather than
-        // read back off appState -- see facetMappingsOverride above.
+        // read back off appState -- hence the override parameter.
         appState.$faceCategories
             .sink { [weak self] categories in
                 self?.syncActivityFromState(faceCategoriesOverride: categories)
@@ -268,7 +263,9 @@ final class MenuBarController: NSObject {
             dailyWindowStartOverride: dailyWindowStartOverride
         )
         let iconName = currentActivity?.iconName
-        let limitMinutes = appState.limitMinutes(for: appState.currentFacetID)
+        // The limit rides along on the activity, which is resolved from the face's category --
+        // so it can't disagree with the name and icon drawn beside it.
+        let limitMinutes = currentActivity?.limitMinutes ?? 0
         let overLimit = limitMinutes > 0 && currentDuration(
             dailyFacetDurationsOverride: dailyFacetDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
@@ -646,16 +643,12 @@ final class MenuBarController: NSObject {
     private func syncActivityFromState(
         resetDuration: Bool = false,
         force: Bool = false,
-        facetMappingsOverride: [FacetMapping]? = nil,
         faceCategoriesOverride: [UInt8: CategoryRecord]? = nil
     ) {
         let facetID = appState.currentFacetID
         guard TimeFlipConstants.isValidFacetID(facetID) else { return }
-        // The name and icon no longer come from the mappings, but the limit behind the over-limit
-        // indicator still does -- so both overrides are threaded through.
         let categories = faceCategoriesOverride ?? appState.faceCategories
-        let mappings = facetMappingsOverride ?? appState.facetMappings
-        guard let activity = appState.categoryActivity(for: facetID, in: categories, mappings: mappings) else {
+        guard let activity = appState.categoryActivity(for: facetID, in: categories) else {
             return
         }
         if !force, currentActivity == activity, !resetDuration {
