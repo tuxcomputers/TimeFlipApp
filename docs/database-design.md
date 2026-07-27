@@ -6,6 +6,18 @@ This document describes the schema used to persist TimeFlip data locally. DDL fi
 table live in [`database/`](../database), numbered in the order they should be applied. See
 [`database/CLAUDE.md`](../database/CLAUDE.md) for the storage conventions referenced below.
 
+## Rule: sections follow the DDL numbering
+
+The `## Tables` sections below appear in the **same order as the tables are created** — `001`,
+then `002`, and so on — not grouped by topic or importance. When a table is added or renumbered,
+its section moves to match.
+
+This isn't housekeeping. Foreign keys are enforced, so the numbering already guarantees a table is
+created after everything it references (see the design principle below). Mirroring that order here
+means **every foreign key a section mentions points at a table already described above it** — the
+document reads top to bottom without forward references, and each `Foreign keys` list can say
+"described above" and be reliably true.
+
 ## Design principle: decoded, not raw
 
 The TimeFlip device reports events over Bluetooth as raw hex payloads (e.g. a facet byte, a
@@ -75,6 +87,33 @@ Constraints:
   given event actually lands in is decided by the classification step in
   [Operation Spec § 1](operation-spec.md).
 
+### `timezone` (`database/002_timezone.sql`)
+
+Reference table of IANA time zones. Every date/time table references it by id (see the
+"local time + timezone" design principle) instead of repeating the identifier string on every row.
+The app resolves the current zone's id at startup via get-or-create (`AppDataStore.resolveTimezoneID`).
+It is numbered `002` so it precedes every table that references it (foreign keys are enforced).
+
+| Column          | Type    | Description                                                        |
+|-----------------|---------|--------------------------------------------------------------------|
+| `timezone_id`   | INTEGER | Row identifier, primary key, autoincrementing.                     |
+| `timezone_name` | TEXT    | IANA time zone identifier (e.g. `Australia/Sydney`). `NOT NULL`, `UNIQUE`. |
+| `display_name`  | TEXT    | Optional human-friendly label for a picker (e.g. `Sydney`). Nullable. |
+| `active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
+
+Constraints:
+- `timezone_name` is `NOT NULL` and `UNIQUE` (`UN1_timezone`), so get-or-create can look a zone up
+  by identifier and never store it twice.
+- `active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
+
+Seeded with a single sentinel row — `timezone_id 0`, `timezone_name`/`display_name` `Unknown` —
+which is the value every referencing `timezone_id` column defaults to, so a row can satisfy its
+foreign key before a real zone has been resolved (and `resolveTimezoneID` falls back to `0` on a
+lookup failure). Real zones are otherwise populated at runtime from the OS's known identifiers
+(`TimeZone.knownTimeZoneIdentifiers` / the current zone), not hand-written. Deliberately has **no**
+UTC-offset column: an offset varies with DST within the same zone, so storing a fixed one would be
+misleading — the offset is derived from the IANA identifier at read time instead.
+
 ### `device_event` (`database/003_device_event.sql`)
 
 One row per device-reported timing segment — created whenever the device is flipped to a new
@@ -94,11 +133,15 @@ facet or paused/resumed, marking the end of the previous segment.
 | `finalised`         | INTEGER | `1` once the segment is closed out, `0` while it's still the device's in-progress interval. |
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
+Foreign keys:
+- The `event_type_id` column references the PK of the table `event_type` described above.
+  `NOT NULL`. Always `facet_flip` or `pause` for rows in this table.
+- The `timezone_id` column references the PK of the table `timezone` described above.
+  `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
+
 Constraints:
 - `(event_number, start_epoch)` has a composite `UNIQUE` index (`UN1_device_event`) — see below
   for why it's the pair, not `event_number` alone, that's unique.
-- `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
-- `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 - `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
 - `paused` is constrained to `0`/`1` (SQLite has no native boolean type).
@@ -211,14 +254,16 @@ Named activity category, linked to the icon and colour assigned to it.
 | `daily_limit`| INTEGER | Whole minutes of tracked time allowed against this category per day (`0` = no limit). Minutes rather than the seconds convention used by `duration_seconds` elsewhere (e.g. `time_entry`): a limit is a coarse user-set budget, and nobody sets one to the nearest 30 seconds. The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
 | `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
 
+Foreign keys — all three parents are seeded with an id-`0` sentinel row, which is what lets these
+columns be `NOT NULL` and still allow "nothing assigned":
+- The `icon_id` column references the PK of the table `icon` described above.
+  `NOT NULL DEFAULT 0` (the `None` icon), so a new category can be inserted without specifying one.
+- The `colour_id` column references the PK of the table `colour` described above.
+  `NOT NULL DEFAULT 0` (the `None` colour), for the same reason.
+- The `project_id` column references the PK of the table `project` described above.
+  `NOT NULL DEFAULT 0` (the `None` project), for the same reason.
+
 Constraints:
-- `icon_id` is a foreign key referencing `icon(icon_id)`, `NOT NULL`, defaulting to `0` (`None`)
-  so a new category can be inserted without specifying one.
-- `colour_id` is a foreign key referencing `colour(colour_id)`, `NOT NULL`, defaulting to `0`
-  (`None`) for the same reason.
-- `project_id` is a foreign key referencing `project(project_id)`, `NOT NULL`, defaulting to `0`
-  (the `None` project) for the same reason. `project` (`006`) is created and seeded before
-  `category` (`007`), so the reference resolves under enforced foreign keys.
 - Seeded with an `Unassigned` row (linked to the `None` icon and the `None` colour), a `Break`
   row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
   both seeded with the `None` colour, since none was specified.
@@ -233,8 +278,10 @@ it.
 | `face_id`     | INTEGER | Primary key, `1`-`12` (matches the device's facet numbering).         |
 | `category_id` | INTEGER | References `category.category_id` — the category currently assigned to this facet. |
 
+Foreign keys:
+- The `category_id` column references the PK of the table `category` described above. `NOT NULL`.
+
 Constraints:
-- `category_id` is a foreign key referencing `category(category_id)`, `NOT NULL`.
 - Seeded with all 12 faces pointing at the `Unassigned` category, except face `2` (`Meeting`) and
   face `8` (`Break`).
 
@@ -255,11 +302,16 @@ A single tracked time span, linked to the category it was logged against.
 | `total_cost`                 | INTEGER | Total cost of this entry, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing computes it yet — groundwork alongside `category.cost` for a planned cost/billing feature. |
 | `synced_to_google_calendar`  | INTEGER | `1` if this entry has been synced to Google Calendar, `0` otherwise.  |
 
+Foreign keys:
+- The `category_id` column references the PK of the table `category` described above. `NOT NULL`.
+- The `device_event_id` column references the PK of the table `device_event` described above.
+  `NOT NULL`.
+- The `start_timezone_id` and `end_timezone_id` columns both reference the PK of the table
+  `timezone` described above — two separate FKs because `started_at` and `ended_at` are each
+  stamped in whatever zone was current at the time, and a span can cross a zone change. Both
+  `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
+
 Constraints:
-- `category_id` is a foreign key referencing `category(category_id)`, `NOT NULL`.
-- `device_event_id` is a foreign key referencing `device_event(device_event_id)`, `NOT NULL`.
-- `start_timezone_id` and `end_timezone_id` are foreign keys referencing
-  `timezone(timezone_id)`, both `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 - `duration_seconds` is constrained to be non-negative.
 - `synced_to_google_calendar` is constrained to `0`/`1` (SQLite has no native boolean type) and
   defaults to `0`.
@@ -279,9 +331,13 @@ have a duration or a facet; each row is a single moment with a decoded value.
 | `start_epoch`            | INTEGER | The same moment as `start_time`, as Unix epoch seconds. Indexed.            |
 | `payload`                | TEXT    | The decoded value this event type carries (e.g. a battery percentage, a system state name), not the device's raw encoding. |
 
+Foreign keys:
+- The `event_type_id` column references the PK of the table `event_type` described above.
+  `NOT NULL`. Always one of the point-in-time types for rows in this table.
+- The `timezone_id` column references the PK of the table `timezone` described above.
+  `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
+
 Constraints:
-- `event_type_id` is a foreign key referencing `event_type(event_type_id)`, `NOT NULL`.
-- `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 - `start_epoch` has a non-unique index (`IN1_device_notification`).
 
 ### `setting` (`database/011_setting.sql`)
@@ -438,36 +494,12 @@ transcript that was never captured.
 | `tag`                  | TEXT    | The `DeveloperMode.DebugTag` raw value (e.g. `TimeFlip`, `history`) identifying which subsystem logged this message — matches the bracketed tag in the terminal output. |
 | `message`              | TEXT    | The debug message text, exactly as printed (without the timestamp/tag prefix, which are separate columns here). |
 
+Foreign keys:
+- The `timezone_id` column references the PK of the table `timezone` described above.
+  `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
+
 Constraints:
 - `logged_at`, `timezone_id`, `tag`, `message` are all `NOT NULL`.
-- `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 
 No retention/cleanup is implemented yet — this table grows for as long as `debug.enabled` stays
 `true`.
-
-### `timezone` (`database/002_timezone.sql`)
-
-Reference table of IANA time zones. Every date/time table references it by id (see the
-"local time + timezone" design principle) instead of repeating the identifier string on every row.
-The app resolves the current zone's id at startup via get-or-create (`AppDataStore.resolveTimezoneID`).
-It is numbered `002` so it precedes every table that references it (foreign keys are enforced).
-
-| Column          | Type    | Description                                                        |
-|-----------------|---------|--------------------------------------------------------------------|
-| `timezone_id`   | INTEGER | Row identifier, primary key, autoincrementing.                     |
-| `timezone_name` | TEXT    | IANA time zone identifier (e.g. `Australia/Sydney`). `NOT NULL`, `UNIQUE`. |
-| `display_name`  | TEXT    | Optional human-friendly label for a picker (e.g. `Sydney`). Nullable. |
-| `active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
-
-Constraints:
-- `timezone_name` is `NOT NULL` and `UNIQUE` (`UN1_timezone`), so get-or-create can look a zone up
-  by identifier and never store it twice.
-- `active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
-
-Seeded with a single sentinel row — `timezone_id 0`, `timezone_name`/`display_name` `Unknown` —
-which is the value every referencing `timezone_id` column defaults to, so a row can satisfy its
-foreign key before a real zone has been resolved (and `resolveTimezoneID` falls back to `0` on a
-lookup failure). Real zones are otherwise populated at runtime from the OS's known identifiers
-(`TimeZone.knownTimeZoneIdentifiers` / the current zone), not hand-written. Deliberately has **no**
-UTC-offset column: an offset varies with DST within the same zone, so storing a fixed one would be
-misleading — the offset is derived from the IANA identifier at read time instead.
