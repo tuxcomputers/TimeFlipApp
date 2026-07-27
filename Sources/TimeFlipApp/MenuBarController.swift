@@ -69,7 +69,7 @@ final class MenuBarController: NSObject {
 
     /// Drive the timer from device-reported elapsed seconds (cmd 0x14).
     func applyElapsed(facetID: UInt8, elapsedSeconds: TimeInterval, isPaused: Bool) {
-        guard let activity = appState.activity(for: facetID) else { return }
+        guard let activity = appState.categoryActivity(for: facetID) else { return }
         currentActivity = activity
         appState.currentFacetID = facetID
         appState.isPaused = isPaused
@@ -111,6 +111,13 @@ final class MenuBarController: NSObject {
         appState.$facetMappings
             .sink { [weak self] mappings in
                 self?.syncActivityFromState(facetMappingsOverride: mappings)
+            }
+            .store(in: &cancellables)
+        // @Published publishes in willSet, so the new value has to be passed through rather than
+        // read back off appState -- see facetMappingsOverride above.
+        appState.$faceCategories
+            .sink { [weak self] categories in
+                self?.syncActivityFromState(faceCategoriesOverride: categories)
             }
             .store(in: &cancellables)
         appState.$isPaired
@@ -612,12 +619,18 @@ final class MenuBarController: NSObject {
     private func syncActivityFromState(
         resetDuration: Bool = false,
         force: Bool = false,
-        facetMappingsOverride: [FacetMapping]? = nil
+        facetMappingsOverride: [FacetMapping]? = nil,
+        faceCategoriesOverride: [UInt8: CategoryRecord]? = nil
     ) {
         let facetID = appState.currentFacetID
         guard TimeFlipConstants.isValidFacetID(facetID) else { return }
+        // The name and icon no longer come from the mappings, but the limit behind the over-limit
+        // indicator still does -- so both overrides are threaded through.
+        let categories = faceCategoriesOverride ?? appState.faceCategories
         let mappings = facetMappingsOverride ?? appState.facetMappings
-        guard let activity = AppState.activity(for: facetID, in: mappings) else { return }
+        guard let activity = appState.categoryActivity(for: facetID, in: categories, mappings: mappings) else {
+            return
+        }
         if !force, currentActivity == activity, !resetDuration {
             return
         }

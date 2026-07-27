@@ -14,6 +14,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
         noColourName: dataStore.loadColours().first(where: { $0.id == 0 })?.name ?? "None",
         iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
+        faceCategories: dataStore.loadFaceCategories(),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -52,17 +53,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         authManager: authManager,
         integrationCoordinator: integrationCoordinator,
         loadCategories: { [dataStore] in dataStore.loadCategories() },
-        updateCategoryColour: { [dataStore] categoryID, colourID in
+        updateCategoryColour: { [weak self, dataStore] categoryID, colourID in
             dataStore.updateCategoryColour(categoryID: categoryID, colourID: colourID)
+            self?.refreshFaceCategories()
         },
-        updateCategoryDailyLimit: { [dataStore] categoryID, minutes in
+        updateCategoryDailyLimit: { [weak self, dataStore] categoryID, minutes in
             dataStore.updateCategoryDailyLimit(categoryID: categoryID, minutes: minutes)
+            self?.refreshFaceCategories()
         },
-        updateCategoryActive: { [dataStore] categoryID, isActive in
+        updateCategoryActive: { [weak self, dataStore] categoryID, isActive in
             dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
+            self?.refreshFaceCategories()
         },
-        updateCategoryIcon: { [dataStore] categoryID, iconID in
+        updateCategoryIcon: { [weak self, dataStore] categoryID, iconID in
             dataStore.updateCategoryIcon(categoryID: categoryID, iconID: iconID)
+            self?.refreshFaceCategories()
         }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)
@@ -771,6 +776,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         logger.debug("live_event \(event.description, privacy: .public)")
+    }
+
+    /// Re-reads `face` joined to `category` after a Categories tab edit, so a renamed, recoloured
+    /// or re-iconed category reaches the menu bar straight away instead of at the next launch.
+    /// Both tables are tiny and this only runs on an explicit user edit.
+    private func refreshFaceCategories() {
+        appState.faceCategories = dataStore.loadFaceCategories()
     }
 
     /// Triggered by a double-click on the right-hand side of the status item. If `pause_on_lock`

@@ -467,6 +467,42 @@ final class AppDataStore {
         return results
     }
 
+    /// Each physical face paired with the category it is assigned to, keyed by `face_id`
+    /// (`database/008_face.sql`). Unlike `loadCategories`, this keeps `category_id` 0: a face
+    /// assigned to the `Unassigned` sentinel still has to resolve to something to display.
+    func loadFaceCategories() -> [UInt8: CategoryRecord] {
+        guard let db else { return [:] }
+        var results: [UInt8: CategoryRecord] = [:]
+        let sql = """
+        SELECT f.face_id, c.category_id, c.category_name, c.icon_id, c.colour_id, c.is_active, c.daily_limit
+        FROM face f
+        JOIN category c ON c.category_id = f.category_id
+        ORDER BY f.face_id;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face category load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let faceID = UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0))
+                let name = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+                results[faceID] = CategoryRecord(
+                    id: Int(sqlite3_column_int64(stmt, 1)),
+                    name: name,
+                    iconID: Int(sqlite3_column_int64(stmt, 3)),
+                    colourID: Int(sqlite3_column_int64(stmt, 4)),
+                    isActive: sqlite3_column_int64(stmt, 5) != 0,
+                    dailyLimitMinutes: Int(sqlite3_column_int64(stmt, 6))
+                )
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
     /// All rows of the `icon` reference table (`database/004_icon.sql`), ordered by `icon_id`.
     /// Drives the Categories tab's icon grid, which skips the `None` sentinel at id 0.
     func loadIcons() -> [IconRecord] {
