@@ -7,20 +7,13 @@ CREATE TABLE IF NOT EXISTS category (
   , icon_id       INTEGER NOT NULL DEFAULT 0 REFERENCES icon(icon_id)
   , colour_id     INTEGER NOT NULL DEFAULT 0 REFERENCES colour(colour_id)
   , project_id    INTEGER NOT NULL DEFAULT 0 REFERENCES project(project_id)
-  -- Whole minutes per day, 0 = no limit. Minutes, not seconds: it is a coarse user-set
-  -- budget. See docs/database-design.md.
   , daily_limit   INTEGER NOT NULL DEFAULT 0
   , cost          INTEGER NOT NULL DEFAULT 0
   , active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))
 );
 
--- Adds active to a database created before this column existed. On a fresh database (the
--- CREATE TABLE above already includes it) this is a no-op -- see AppDataStore.runDatabaseDDL's
--- skipSatisfiedColumnAdditions, which comments this line out when the column is already present.
 ALTER TABLE category ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1));
 
--- Unassigned is pinned to category_id 0 (a fixed sentinel, like the None colour) so the
--- colour-update path can skip it with `category_id >= 1` -- it must never be given a colour.
 INSERT INTO category (category_id, category_name, icon_id, colour_id)
 SELECT 0, 'Unassigned', 0, 0
 WHERE NOT EXISTS (SELECT 1 FROM category WHERE category_name = 'Unassigned');

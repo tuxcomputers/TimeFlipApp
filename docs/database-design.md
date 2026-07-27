@@ -60,8 +60,20 @@ populates `device_event` (see `Sources/TimeFlipApp/TimeFlipEvent.swift` and
 
 Constraints:
 - `event_name` is `UNIQUE` — each event type is only represented by one row.
-- Seeded with all known device event types: `facet_flip`, `pause`, `double_tap`,
-  `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`, `event_log`.
+- Seeded with all known device event types, with the ids **grouped by which table an event of that
+  type lands in** and a blank line between the groups in the DDL:
+
+  | IDs   | Group                                                | Types                                                                            |
+  |-------|------------------------------------------------------|----------------------------------------------------------------------------------|
+  | `1`-`2` | → `device_event` — timing segments, carry a duration | `facet_flip`, `pause`                                                            |
+  | `3`-`8` | → `device_notification` — point-in-time, no duration | `double_tap`, `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`, `event_log` |
+
+  The grouping is a convention of the seed order, not something the schema enforces — nothing stops
+  a row in either table referencing an id from the other group. It exists so the id alone tells you
+  where an event of that type belongs, which is why a **new event type is appended within its
+  matching group rather than interleaved** (see `database/CLAUDE.md` § Seed inserts). Which table a
+  given event actually lands in is decided by the classification step in
+  [Operation Spec § 1](operation-spec.md).
 
 ### `device_event` (`database/003_device_event.sql`)
 

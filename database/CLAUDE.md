@@ -81,6 +81,10 @@
   `004_icon.sql`, `005_colour.sql`, `011_setting.sql`) — do not combine multiple rows into one
   statement with `UNION ALL`. This keeps each row's existence check self-contained, so a DDL file
   that adds a new seed row to an otherwise-already-seeded table still inserts just the new row.
+- `001_event_type.sql`'s seeded ids are grouped by which table an event of that type lands in
+  (`device_event` for timing segments, `device_notification` for point-in-time ones — see
+  `docs/operation-spec.md` § 1), with a blank line between the groups. Append a new event type
+  within its matching group rather than interleaving.
 
 ## File numbering and dependency order
 
