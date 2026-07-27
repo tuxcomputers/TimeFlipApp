@@ -248,9 +248,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
-        appState.onFacetColourPicked = { [weak self] facetID, colourID in
-            self?.dataStore.updateCategoryColour(faceID: Int(facetID), colourID: colourID)
-        }
         appState.onDailyResetTimeChange = { [weak self] hour, minute in
             guard let self else { return }
             DeveloperMode.debugPrint(.dailyReset, String(format: "Daily reset time changed to %02d:%02d", hour, minute))

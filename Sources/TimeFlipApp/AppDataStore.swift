@@ -473,35 +473,9 @@ final class AppDataStore {
         return results
     }
 
-    /// Sets the `colour_id` of the category currently assigned to `faceID` (1-12, via the `face`
-    /// table) to `colourID`. The `category_id >= 1` guard means the `Unassigned` category
-    /// (`category_id 0`) is never given a colour — if the face maps to it, this is a no-op. See
-    /// `database/007_category.sql` / `database/008_face.sql`.
-    func updateCategoryColour(faceID: Int, colourID: Int) {
-        guard let db else { return }
-        let sql = """
-        UPDATE category SET colour_id = ?
-        WHERE category_id = (SELECT category_id FROM face WHERE face_id = ?)
-          AND category_id >= 1;
-        """
-        queue.sync {
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                logger.error("category colour update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-                sqlite3_finalize(stmt)
-                return
-            }
-            sqlite3_bind_int64(stmt, 1, Int64(colourID))
-            sqlite3_bind_int64(stmt, 2, Int64(faceID))
-            if sqlite3_step(stmt) != SQLITE_DONE {
-                logger.error("category colour update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-            }
-            sqlite3_finalize(stmt)
-        }
-    }
-
-    /// Sets `colour_id` directly on a category (the Categories tab's own colour picker, not the
-    /// Faces tab's per-face one above). Same `category_id >= 1` guard, for the same reason.
+    /// Sets `colour_id` directly on a category -- the Categories tab's own colour picker. The
+    /// `category_id >= 1` guard means the `Unassigned` category (`category_id 0`) is never given
+    /// a colour. See `database/007_category.sql`.
     func updateCategoryColour(categoryID: Int, colourID: Int) {
         guard let db else { return }
         let sql = "UPDATE category SET colour_id = ? WHERE category_id = ? AND category_id >= 1;"

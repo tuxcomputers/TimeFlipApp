@@ -41,8 +41,6 @@ enum SettingsLayoutConstants {
     }
 
     enum ColorPicker {
-        static let swatchButtonSize: CGFloat = 20
-        static let swatchStrokeWidth: CGFloat = 1
         static let swatchStrokeOpacity: CGFloat = 0.2
         static let rowSwatchSize: CGFloat = 14
         static let rowSwatchCornerRadius: CGFloat = 3

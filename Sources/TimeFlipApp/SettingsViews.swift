@@ -129,9 +129,7 @@ private struct PaneSetupView: View {
                             get: { appState.facetMappings[index] },
                             set: { appState.updateMapping($0) }
                         )
-                        TopFacetEditor(mapping: binding, colourOptions: appState.colourOptions) { facetID, colourID in
-                            appState.assignFacetColour(facetID: facetID, colourID: colourID)
-                        }
+                        TopFacetEditor(mapping: binding)
                     } else {
                         Text("Flip the device to pick a facet.")
                             .foregroundStyle(.secondary)
@@ -170,8 +168,6 @@ private struct PaneSetupView: View {
 
 private struct TopFacetEditor: View {
     @Binding var mapping: FacetMapping
-    let colourOptions: [ActivityColorOption]
-    let onColourPicked: (UInt8, Int) -> Void
 
     var body: some View {
         let nameBinding = Binding(
@@ -192,16 +188,10 @@ private struct TopFacetEditor: View {
         )
 
         VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-            HStack(alignment: .center, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                TextField("", text: nameBinding, prompt: Text("Unassigned"))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
-                FacetColorPicker(selection: $mapping.color, colourOptions: colourOptions) { option in
-                    onColourPicked(mapping.facetID, option.colourId)
-                }
-            }
+            TextField("", text: nameBinding, prompt: Text("Unassigned"))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
 
             HStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
                 Text("Daily Limit:")
@@ -347,42 +337,6 @@ private struct IconGridCell: View {
         isSelected
             ? SettingsLayoutConstants.IconGrid.selectionStrokeWidth
             : SettingsLayoutConstants.IconGrid.unselectedStrokeWidth
-    }
-}
-
-/// Custom color picker restricted to the `colour` reference table's palette (passed in as
-/// `colourOptions`, sourced from `AppDataStore.loadColours`) instead of AppKit's full color
-/// wheel/sliders.
-private struct FacetColorPicker: View {
-    @Binding var selection: Color
-    let colourOptions: [ActivityColorOption]
-    let onPick: (ActivityColorOption) -> Void
-    @State private var isPresented = false
-
-    var body: some View {
-        Button {
-            DeveloperMode.debugPrint(.click, "Button clicked: Facet color swatch (\(isPresented ? "close" : "open") picker)")
-            isPresented.toggle()
-        } label: {
-            Circle()
-                .fill(selection)
-                .overlay(
-                    Circle().stroke(
-                        Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity),
-                        lineWidth: SettingsLayoutConstants.ColorPicker.swatchStrokeWidth
-                    )
-                )
-                .frame(
-                    width: SettingsLayoutConstants.ColorPicker.swatchButtonSize,
-                    height: SettingsLayoutConstants.ColorPicker.swatchButtonSize
-                )
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isPresented) {
-            ColorOptionList(selection: $selection, colourOptions: colourOptions, onPick: onPick) {
-                isPresented = false
-            }
-        }
     }
 }
 
