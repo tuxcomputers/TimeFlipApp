@@ -144,7 +144,7 @@ struct CategoriesSettingsView: View {
                     }
                     .onSubmit(save)
                 Button("Save", action: save)
-                    .disabled(trimmedNewCategoryName.isEmpty)
+                    .disabled(normalizedNewCategoryName.isEmpty)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
@@ -158,15 +158,15 @@ struct CategoriesSettingsView: View {
         }
     }
 
-    private var trimmedNewCategoryName: String {
-        newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var normalizedNewCategoryName: String {
+        ActivityLibrary.normalizeCategoryName(newCategoryName)
     }
 
     /// Checks the name against the whole `category` table -- not just the loaded list, which omits
     /// the `Unassigned` sentinel -- before inserting anything. The insert itself is unguarded, so
     /// this is the only thing standing between a typo and a second identically named category.
     private func save() {
-        let name = trimmedNewCategoryName
+        let name = normalizedNewCategoryName
         guard !name.isEmpty else { return }
         DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(name)\"")
         if let existing = findCategory(name) {

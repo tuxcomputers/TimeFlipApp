@@ -170,6 +170,18 @@ enum ActivityLibrary {
         iconOptions.map { Activity(name: $0.name, iconName: $0.iconName, limitMinutes: 0) }
     }
 
+    /// Tidies a typed category name: leading and trailing whitespace removed, and any internal run
+    /// of whitespace collapsed to a single space. Deliberately not `sanitizeActivityName` -- that
+    /// one strips everything outside letters, digits, spaces, `?` and `!`, which would turn a
+    /// ticket-style name like `ACME-123` into `ACME123`.
+    ///
+    /// Collapsing matters beyond tidiness: it happens before the already-exists check, so
+    /// `"Client  work"` is recognised as the `"Client work"` that already exists rather than
+    /// quietly becoming a second category that looks identical in a list.
+    static func normalizeCategoryName(_ value: String) -> String {
+        value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
     static func sanitizeActivityName(_ value: String) -> String {
         let filteredScalars = value.unicodeScalars.filter { allowedNameCharacters.contains($0) }
         return String(String.UnicodeScalarView(filteredScalars))
