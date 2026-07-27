@@ -8,11 +8,10 @@ This lists everything that was persisted outside those two at the branch's fork 
 against it is measurable. A box is ticked only when the legacy copy is **gone**, not when the
 database merely has somewhere to put it.
 
-Nothing is ticked yet, and no item can be ticked by deleting code alone — every legacy field
-still has at least one live production reader. Several already have a database home and a live
-reader too, but the legacy copy is written alongside, which is the thing this list is about.
-Two dead paths that needed no migration have already been cleared: see
-[Legacy paths already removed](#legacy-paths-already-removed).
+**4 of 13 done.** All four pairing fields have moved; what remains is the four per-facet mappings,
+the three Google fields and the two developer-mode files. None of those can be ticked by deleting
+code alone — each still has a live production reader. Two dead paths that needed no migration have
+also been cleared: see [Legacy paths already removed](#legacy-paths-already-removed).
 
 ## UserDefaults — the `timeflip.preferences` blob
 
@@ -54,23 +53,25 @@ have moved.
 
 ### Pairing state
 
-- [ ] **`isPaired`** — whether a device is currently paired. **The cheapest item on this list.**
-      Neither copy is really in use. The `paired` setting row is written by
-      `AppDataStore.recordPaired(_:)` but **never read back** — nothing in `Sources/` loads it, so
-      it is a mirror for tests and observers rather than a source of truth. And the blob field is
-      only read as a backward-compatibility fallback: `wantsPairing = payload.wantsPairing ??
-      payload.isPaired`, immediately followed by an unconditional `isPaired = false`. The stored
-      value therefore only matters for payloads written before `wantsPairing` existed. Accept
-      dropping those and the blob field can go today, with no database work at all.
-- [ ] **`wantsPairing`** — whether the user has asked to be paired, distinct from currently being
-      paired. Loaded from the blob, falling back to `isPaired` for payloads written before the
-      field existed.
-      *No DB home yet.*
-- [ ] **`pairedDeviceName`** — remembered device name, shown while disconnected.
-      *No DB home yet.*
-- [ ] **`pairedDeviceUUID`** — CoreBluetooth peripheral identifier, used to reconnect to the same
-      device rather than rediscovering.
-      *No DB home yet.*
+- [x] **`isPaired`** — whether a device is currently paired. *Done.* The field only ever existed
+      as a backward-compatibility fallback for `wantsPairing` (and `persistPreferences` wrote it
+      *from* `wantsPairing`, so the two always held the same value). Removed along with
+      `wantsPairing` below; the runtime `isPaired` always starts `false` and is established by
+      actually connecting.
+- [x] **`wantsPairing`** — whether the user has asked to be paired, distinct from currently being
+      paired. *Done — the `wants` key on the new `paired_device` setting row.* Deliberately not
+      folded into `paired`: that flag is cleared on every transient disconnect, so the two
+      together would lose the intent across a quit while the device is out of range, and the app
+      would come back up never attempting to reconnect.
+- [x] **`pairedDeviceName`** — remembered device name, shown while disconnected. *Done — the
+      `name` key on `paired_device`.* The "Not paired" placeholder is a display default and is
+      stored as absent rather than as that string.
+- [x] **`pairedDeviceUUID`** — CoreBluetooth peripheral identifier, used to reconnect to the same
+      device rather than rediscovering. *Done — the `uuid` key on `paired_device`.*
+
+  All three share a row because they share a lifetime: they change only when the user pairs or
+  forgets a device. `AppState` takes them through its initialiser at launch and
+  `ApplicationDelegate` writes every change back.
 
 ## Application Support files
 

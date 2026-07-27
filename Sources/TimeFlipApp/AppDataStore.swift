@@ -865,6 +865,38 @@ final class AppDataStore {
         saveSettingJSON(name: "paired", merging: ["paired": paired])
     }
 
+    /// Whether the user wants to be paired, as distinct from currently being paired. Lives on
+    /// `paired_device` rather than `paired`: that flag is volatile, cleared on every transient
+    /// disconnect (see `handleDeviceDisconnect`), so it cannot carry the intent across a quit
+    /// that happens while the device is out of range -- the app would come back up believing the
+    /// user never asked to be paired, and never reconnect.
+    func recordWantsPairing(_ wantsPairing: Bool) {
+        saveSettingJSON(name: "paired_device", merging: ["wants": wantsPairing])
+    }
+
+    /// The remembered device: the name shown while disconnected, and the CoreBluetooth peripheral
+    /// identifier used to reconnect to the same device rather than rediscovering. Both change only
+    /// on pairing or forgetting, which is why they share a row with the intent.
+    /// `nil` is written as JSON null rather than skipped, so forgetting a device actually clears
+    /// the stored value instead of leaving the previous one in place.
+    func recordPairedDevice(name: String?, uuid: String?) {
+        saveSettingJSON(name: "paired_device", merging: [
+            "name": name.map { $0 as Any } ?? NSNull(),
+            "uuid": uuid.map { $0 as Any } ?? NSNull()
+        ])
+    }
+
+    /// Restores the pairing intent and remembered device at launch. All three default to absent,
+    /// matching a database that has never seen a pairing.
+    func loadPairedDevice() -> (wantsPairing: Bool, name: String?, uuid: String?) {
+        let json = loadSettingJSON(name: "paired_device")
+        return (
+            wantsPairing: json?["wants"] as? Bool ?? false,
+            name: json?["name"] as? String,
+            uuid: json?["uuid"] as? String
+        )
+    }
+
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
     /// seeded to `true`; see `database/011_setting.sql`). Falls back to the seeded default if the
     /// row is missing or malformed.

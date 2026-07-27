@@ -16,12 +16,6 @@ struct PreferencesPayload: Codable {
     var googleCalendarID: String?
     var googleCalendarName: String?
     var googleClientID: String?
-    var isPaired: Bool = false
-    // optional for backward compatibility
-    // swiftlint:disable:next discouraged_optional_boolean
-    var wantsPairing: Bool?
-    var pairedDeviceName: String?
-    var pairedDeviceUUID: String?
 }
 
 struct FacetMappingRecord: Codable {

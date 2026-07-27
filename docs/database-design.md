@@ -368,6 +368,19 @@ Seeded rows:
     until then.
   - See `docs/TODO-devmode.md` for the full design of the `to_file` half (log filename format,
     restart-required behavior).
+- `paired` = `{"paired":false}` and `paired_device` = `{"wants":false}` — pairing, split across two
+  rows by how long the values live:
+  - `paired` is **volatile connection state**: true on connect or reconnect, false on forget,
+    factory reset, pairing failure *and every transient disconnect*. It answers "is the device
+    reachable right now", which is what a test or observer gates its connectivity check on.
+  - `paired_device` is **durable**, changing only when the user pairs or forgets: `wants` is the
+    pairing intent restored at launch to decide whether to attempt a connection at all, `name` is
+    the remembered device name shown while disconnected, and `uuid` is the CoreBluetooth
+    peripheral identifier used to reconnect to that same device rather than rediscovering.
+    `name` and `uuid` are absent until a first pairing.
+  - Keeping `wants` out of `paired` is the point of the split: a quit while the device is out of
+    range would otherwise leave `paired` false with no record that the user ever asked to be
+    paired, and the app would come back up and never reconnect.
 
 ### `debug_log` (`database/012_debug_log.sql`)
 

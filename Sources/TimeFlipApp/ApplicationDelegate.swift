@@ -14,6 +14,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
         iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
         faceCategories: dataStore.loadFaceCategories(),
+        wantsPairing: dataStore.loadPairedDevice().wantsPairing,
+        pairedDeviceName: dataStore.loadPairedDevice().name,
+        pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -352,6 +355,22 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     }
                     await self.sendFacetColors(mappings)
                 }
+            }
+            .store(in: &cancellables)
+        // The pairing intent now lives in the database rather than the preferences blob, so every
+        // change to it has to be written back. Fires once on subscribe with the current value,
+        // which is the value just restored from the same setting -- a harmless no-op write.
+        appState.$wantsPairing
+            .sink { [weak self] wantsPairing in
+                self?.dataStore.recordWantsPairing(wantsPairing)
+            }
+            .store(in: &cancellables)
+        Publishers.CombineLatest(appState.$pairedDeviceName, appState.$pairedDeviceUUID)
+            .sink { [weak self] name, uuid in
+                guard let self else { return }
+                // The placeholder is a display default, not a remembered device -- storing it
+                // would make a never-paired app look like it remembers one called "Not paired".
+                self.dataStore.recordPairedDevice(name: name == "Not paired" ? nil : name, uuid: uuid)
             }
             .store(in: &cancellables)
         seedDailyTotals()

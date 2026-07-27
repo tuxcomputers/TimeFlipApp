@@ -137,6 +137,9 @@ final class AppState: ObservableObject {
         colourOptions: [ActivityColorOption] = [],
         iconOptions: [CategoryIconOption] = [],
         faceCategories: [UInt8: CategoryRecord] = [:],
+        wantsPairing: Bool = false,
+        pairedDeviceName: String? = nil,
+        pairedDeviceUUID: String? = nil,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -155,7 +158,9 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         isPaired = false
-        pairedDeviceName = "Not paired"
+        // "Not paired" is the placeholder the Device tab shows when no device is remembered;
+        // the stored value is absent rather than that string.
+        self.pairedDeviceName = pairedDeviceName ?? "Not paired"
         facetMappings = ActivityLibrary.defaultMappings()
         googleCalendarID = nil
         googleCalendarName = nil
@@ -166,9 +171,9 @@ final class AppState: ObservableObject {
         // rather than chase that, dev builds just start on a fixed, easy-to-type password instead
         // of the real factory default, independent of whether config.json actually loads.
         devicePassword = DeveloperMode.isEnabled ? DeveloperMode.devicePassword : TimeFlipConstants.defaultPassword
-        pairedDeviceUUID = nil
-        pairingStatus = .notPaired
-        wantsPairing = false
+        self.pairedDeviceUUID = pairedDeviceUUID
+        self.wantsPairing = wantsPairing
+        pairingStatus = wantsPairing ? .pairing : .notPaired
         self.autoPauseMinutes = autoPauseMinutes
         deviceInfo = nil
         self.ledBrightnessPercent = ledBrightnessPercent
@@ -455,11 +460,6 @@ final class AppState: ObservableObject {
         googleCalendarID = payload.googleCalendarID
         googleCalendarName = payload.googleCalendarName
         googleClientID = payload.googleClientID ?? ""
-        wantsPairing = payload.wantsPairing ?? payload.isPaired
-        isPaired = false
-        pairingStatus = wantsPairing ? .pairing : .notPaired
-        pairedDeviceName = payload.pairedDeviceName ?? pairedDeviceName
-        pairedDeviceUUID = payload.pairedDeviceUUID
         isApplyingPreferences = false
     }
 
@@ -549,11 +549,7 @@ final class AppState: ObservableObject {
             facetMappings: records,
             googleCalendarID: googleCalendarID,
             googleCalendarName: googleCalendarName,
-            googleClientID: sanitizedClientID(),
-            isPaired: wantsPairing,
-            wantsPairing: wantsPairing,
-            pairedDeviceName: pairedDeviceName,
-            pairedDeviceUUID: pairedDeviceUUID
+            googleClientID: sanitizedClientID()
         )
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
