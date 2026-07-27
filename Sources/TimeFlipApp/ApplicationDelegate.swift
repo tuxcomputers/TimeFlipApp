@@ -480,13 +480,20 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             var passwordUsed = appState.devicePassword
             var loggedIn = await device.login(password: passwordUsed)
-            if !loggedIn, (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
+            // The factory default is a PAIRING password, not a connection fallback. Connecting is
+            // gated on already being paired, which means the app is supposed to know this device's
+            // password -- if the stored one is rejected, the honest answer is that the pairing is
+            // no longer valid and the user has to Forget and re-pair. Silently retrying 000000
+            // hides that: it re-logs-in to a device whose password the app has actually lost track
+            // of, so an out-of-band reset looks like nothing happened.
+            //
+            // The one exception is a factory reset this app itself just issued, where coming back
+            // on the default is the defined proof the 0xFF wipe took effect. That window is opened
+            // by us, bounded by factoryResetConfirmDeadline, and ends by dropping the device into
+            // the never-paired state below -- so it is confirming a reset, not connecting.
+            if !loggedIn, pendingFactoryResetConfirm,
+               (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
                passwordUsed != TimeFlipConstants.defaultPassword {
-                // The stored password goes stale after a reset (the device reverts to the factory
-                // default) -- both during a reset we initiated (pendingFactoryResetConfirm) and for
-                // an out-of-band reset -- so retry with the default before giving up, same reasoning
-                // already used for a freshly-selected device in onDeviceSelectedForPairing. During
-                // our own reset this default-password login is what confirms the wipe (below).
                 passwordUsed = TimeFlipConstants.defaultPassword
                 loggedIn = await device.login(password: passwordUsed)
             }
