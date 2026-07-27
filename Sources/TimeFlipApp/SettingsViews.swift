@@ -31,6 +31,11 @@ struct SettingsRootView: View {
                         Text("Device")
                     }
                     .tag(SettingsTab.timeflip)
+                CategoriesSettingsView(appState: appState)
+                    .tabItem {
+                        Text("Categories")
+                    }
+                    .tag(SettingsTab.categories)
                 PaneSetupView(appState: appState)
                     .tabItem {
                         Text("Faces")
@@ -75,6 +80,7 @@ struct SettingsRootView: View {
 
 enum SettingsTab: Hashable {
     case timeflip
+    case categories
     case facets
     case report
 
@@ -82,6 +88,7 @@ enum SettingsTab: Hashable {
     var debugName: String {
         switch self {
         case .timeflip: return "Device"
+        case .categories: return "Categories"
         case .facets: return "Faces"
         case .report: return "App"
         }
