@@ -243,16 +243,13 @@ final class HistoryIngestor {
         var maxCommitted: UInt32?
         for entry in entries {
             guard let eventNumber = entry.eventNumber else { continue }
-            let activity = appState.activity(for: entry.facetID)
-                ?? Activity(name: "Unassigned", iconName: nil, limitMinutes: 0)
             let record = DeviceEventRecord(
                 id: nil,
                 eventNumber: eventNumber,
                 facetID: entry.facetID,
                 startedAt: entry.startedAt,
                 duration: entry.duration,
-                isPaused: entry.isPaused,
-                activityName: activity.name
+                isPaused: entry.isPaused
             )
             guard dataStore.append(record) else {
                 logger.error("logbook_commit_failed ev=\(eventNumber, privacy: .public); halting batch")

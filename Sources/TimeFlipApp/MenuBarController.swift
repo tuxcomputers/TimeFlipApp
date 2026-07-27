@@ -46,7 +46,13 @@ final class MenuBarController: NSObject {
     private var cachedIconSize: CGFloat = 0
     private var lastRenderedTitle: String = ""
     private var isPairedSnapshot: Bool
-    private var pairingStatusSnapshot: PairingStatus
+    private var connectionStatusSnapshot: ConnectionStatus
+    // Whether the device has actually been reached since launch. Distinct from being paired (which
+    // is remembered from a previous run) and from currentActivity being set (which
+    // syncActivityFromState populates from stored state before any device is contacted). Without
+    // it, a paired app that can't reach its device would show a plausible-looking "Idle 0:00" that
+    // never came from the device at all. Cleared again by tearDownToUnpaired().
+    private var hasReachedDeviceThisSession = false
 
     init(
         appState: AppState,
@@ -63,7 +69,7 @@ final class MenuBarController: NSObject {
         self.displaySecondsEnabled = displaySecondsEnabled
         self.lowBatteryThresholdPercent = lowBatteryThresholdPercent
         self.isPairedSnapshot = appState.isPaired
-        self.pairingStatusSnapshot = appState.pairingStatus
+        self.connectionStatusSnapshot = appState.connectionStatus
         super.init()
     }
 
@@ -108,26 +114,32 @@ final class MenuBarController: NSObject {
             object: nil
         )
         syncActivityFromState(resetDuration: false)
-        appState.$facetMappings
-            .sink { [weak self] mappings in
-                self?.syncActivityFromState(facetMappingsOverride: mappings)
-            }
-            .store(in: &cancellables)
         // @Published publishes in willSet, so the new value has to be passed through rather than
-        // read back off appState -- see facetMappingsOverride above.
+        // read back off appState -- hence the override parameter.
         appState.$faceCategories
             .sink { [weak self] categories in
                 self?.syncActivityFromState(faceCategoriesOverride: categories)
             }
             .store(in: &cancellables)
+        // Unpairing is the only pairing change the menu bar has to act on by itself: it clears the
+        // activity and drops to the unpaired look. Becoming paired shows nothing new on its own --
+        // there is no activity to display until the device is actually reached, which arrives as a
+        // `.connected` status below.
         appState.$isPaired
             .sink { [weak self] isPaired in
-                self?.handlePairingChange(isPaired)
+                guard let self else { return }
+                self.isPairedSnapshot = isPaired
+                self.logger.debug("pairing changed isPaired=\(isPaired)")
+                if isPaired {
+                    self.rebuildMenu()
+                } else {
+                    self.tearDownToUnpaired()
+                }
             }
             .store(in: &cancellables)
-        appState.$pairingStatus
+        appState.$connectionStatus
             .sink { [weak self] status in
-                self?.handlePairingStatusChange(status)
+                self?.handleConnectionStatusChange(status)
             }
             .store(in: &cancellables)
         appState.$dailyFacetDurations
@@ -175,7 +187,9 @@ final class MenuBarController: NSObject {
         // NSMenu auto-enables items with a target/action by default, which would silently
         // override pauseItem.isEnabled below — opt out so the Pause item actually disables.
         newMenu.autoenablesItems = false
-        let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
+        // Pause/Lock send commands to the device, so they need a live connection, not merely a
+        // remembered pairing.
+        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
         let isLocked = appState.isLocked
 
         // Menu items point at thin logging wrappers (menuSettings/menuPauseResume/...) rather
@@ -191,7 +205,7 @@ final class MenuBarController: NSObject {
 
         newMenu.addItem(.separator())
 
-        let pauseTitle = isPaired ? (isPaused ? "Resume" : "Pause") : "Pause"
+        let pauseTitle = isConnected ? (isPaused ? "Resume" : "Pause") : "Pause"
         let pauseItem = NSMenuItem(
             title: pauseTitle,
             action: #selector(menuPauseResume),
@@ -200,7 +214,7 @@ final class MenuBarController: NSObject {
         pauseItem.target = self
         // While locked, the only valid action is double-clicking the status item to unlock —
         // pause/resume must not be reachable via the menu either.
-        pauseItem.isEnabled = isPaired && !isLocked
+        pauseItem.isEnabled = isConnected && !isLocked
         newMenu.addItem(pauseItem)
 
         let lockItem = NSMenuItem(
@@ -209,7 +223,7 @@ final class MenuBarController: NSObject {
             keyEquivalent: ""
         )
         lockItem.target = self
-        lockItem.isEnabled = isPaired
+        lockItem.isEnabled = isConnected
         newMenu.addItem(lockItem)
 
         let quitItem = NSMenuItem(
@@ -229,12 +243,17 @@ final class MenuBarController: NSObject {
         dailyFacetDurationsOverride: [UInt8: TimeInterval]? = nil,
         dailyWindowStartOverride: Date? = nil
     ) {
-        if pairingStatusSnapshot == .pairing {
+        if connectionStatusSnapshot == .pairing {
             applyConnectingStatus()
             return
         }
-        if !isPairedSnapshot {
-            applyUnpairedStatus()
+        // Nothing live to show: either no device is paired, or one is but the app hasn't reached it
+        // yet this session. Both get the plain placeholder rather than an "Idle 0:00" that looks
+        // like a reading from a device. Once the device HAS been reached, a later drop keeps
+        // rendering the last known activity (that's the point of `.reconnecting`), so this only
+        // suppresses the never-connected case.
+        if !isPairedSnapshot || !hasReachedDeviceThisSession {
+            applyNoLiveDeviceStatus()
             return
         }
         guard let button = statusItem?.button else { return }
@@ -244,12 +263,14 @@ final class MenuBarController: NSObject {
             dailyWindowStartOverride: dailyWindowStartOverride
         )
         let iconName = currentActivity?.iconName
-        let limitMinutes = appState.limitMinutes(for: appState.currentFacetID)
+        // The limit rides along on the activity, which is resolved from the face's category --
+        // so it can't disagree with the name and icon drawn beside it.
+        let limitMinutes = currentActivity?.limitMinutes ?? 0
         let overLimit = limitMinutes > 0 && currentDuration(
             dailyFacetDurationsOverride: dailyFacetDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         ) >= Double(limitMinutes) * 60
-        let isConnected = isPairedSnapshot && pairingStatusSnapshot == .paired
+        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
         let isLowBattery = updatedLowBatteryLatch(currentLevel: appState.batteryLevel)
         // Must run before the early-return below so the blink timer starts/stops as soon as the
         // low-battery state changes, even on a call that isn't itself forced. Gated on isConnected
@@ -288,7 +309,7 @@ final class MenuBarController: NSObject {
         if button.image !== buttonImage {
             button.image = buttonImage
         }
-        let tooltip = pairingStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
+        let tooltip = connectionStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
         if button.toolTip != tooltip {
             button.toolTip = tooltip
         }
@@ -353,14 +374,17 @@ final class MenuBarController: NSObject {
         return isLowBatteryLatched
     }
 
-    private func applyUnpairedStatus() {
+    /// The plain no-activity look: just the app name, no icon, no duration. Shown whenever there
+    /// is no live device behind the numbers. The tooltip distinguishes the two ways that happens,
+    /// since the fix differs -- pair a device, versus bring the paired one back in range.
+    private func applyNoLiveDeviceStatus() {
         let title = AppIdentifiers.statusItemTitle
         guard let button = statusItem?.button else { return }
         button.image = nil
         button.imagePosition = .noImage
         button.title = title
         button.attributedTitle = NSAttributedString(string: title)
-        button.toolTip = "\(title) (Not paired)"
+        button.toolTip = "\(title) (\(isPairedSnapshot ? "Disconnected" : "Not paired"))"
         lastRenderedTitle = title
         lastSnapshot = nil
     }
@@ -480,7 +504,7 @@ final class MenuBarController: NSObject {
     private func togglePause() {
         // While locked, the only valid action is double-clicking to unlock — pause/resume must
         // not be reachable from the menu or a single click on the status item.
-        guard appState.isPaired, !appState.isLocked else { return }
+        guard appState.isConnected, !appState.isLocked else { return }
         onPauseToggle?(!isPaused)
     }
 
@@ -489,7 +513,7 @@ final class MenuBarController: NSObject {
         // Same read-then-flip request as the double-click gesture — see handleLockRequest() in
         // ApplicationDelegate, which reads the device's actual current lock state before deciding
         // whether to lock or unlock.
-        guard appState.isPaired else { return }
+        guard appState.isConnected else { return }
         onLockRequest?()
     }
 
@@ -505,8 +529,8 @@ final class MenuBarController: NSObject {
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        let isPaired = isPairedSnapshot && pairingStatusSnapshot == .paired
-        guard isPaired, let event = NSApp.currentEvent else {
+        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
+        guard isConnected, let event = NSApp.currentEvent else {
             showMenu()
             return
         }
@@ -619,16 +643,12 @@ final class MenuBarController: NSObject {
     private func syncActivityFromState(
         resetDuration: Bool = false,
         force: Bool = false,
-        facetMappingsOverride: [FacetMapping]? = nil,
         faceCategoriesOverride: [UInt8: CategoryRecord]? = nil
     ) {
         let facetID = appState.currentFacetID
         guard TimeFlipConstants.isValidFacetID(facetID) else { return }
-        // The name and icon no longer come from the mappings, but the limit behind the over-limit
-        // indicator still does -- so both overrides are threaded through.
         let categories = faceCategoriesOverride ?? appState.faceCategories
-        let mappings = facetMappingsOverride ?? appState.facetMappings
-        guard let activity = appState.categoryActivity(for: facetID, in: categories, mappings: mappings) else {
+        guard let activity = appState.categoryActivity(for: facetID, in: categories) else {
             return
         }
         if !force, currentActivity == activity, !resetDuration {
@@ -637,51 +657,55 @@ final class MenuBarController: NSObject {
         setCurrentActivity(activity, resetDuration: resetDuration && !isPaused)
     }
 
-    private func handlePairingChange(_ isPaired: Bool) {
-        isPairedSnapshot = isPaired
-        logger.debug("handlePairingChange isPaired=\(isPaired)")
-        if isPaired {
-            // If we already have a hydrated activity/start, keep it.
-            if currentActivity != nil, activityStartDate != nil {
-                rebuildMenu()
-                updateStatusView(force: true)
-                return
-            }
-            syncActivityFromState(resetDuration: false)
-            rebuildMenu()
-        } else {
-            currentActivity = nil
-            currentSegmentElapsed = 0
-            activityStartDate = nil
-            isPaused = true
-            appState.isPaused = true
-            refreshTimer?.invalidate()
-            refreshTimer = nil
-            applyUnpairedStatus()
+    /// The device is reachable: start showing what it's doing.
+    private func showLiveActivity() {
+        hasReachedDeviceThisSession = true
+        // If we already have a hydrated activity/start, keep it.
+        if currentActivity != nil, activityStartDate != nil {
             rebuildMenu()
             updateStatusView(force: true)
+            return
         }
+        syncActivityFromState(resetDuration: false)
+        rebuildMenu()
     }
 
-    private func handlePairingStatusChange(_ status: PairingStatus) {
-        pairingStatusSnapshot = status
+    /// Clears the displayed activity and drops the status item to its no-device look. Used both
+    /// when the pairing goes away and when the connection does in a way that isn't worth showing
+    /// stale data through (a failure, a reset) -- in either case there's nothing live behind the
+    /// numbers, so the timer stops rather than keeping a duration ticking up against no device.
+    private func tearDownToUnpaired() {
+        hasReachedDeviceThisSession = false
+        currentActivity = nil
+        currentSegmentElapsed = 0
+        activityStartDate = nil
+        isPaused = true
+        appState.isPaused = true
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        applyNoLiveDeviceStatus()
+        rebuildMenu()
+        updateStatusView(force: true)
+    }
+
+    private func handleConnectionStatusChange(_ status: ConnectionStatus) {
+        connectionStatusSnapshot = status
         switch status {
         case .pairing:
             applyConnectingStatus()
-        case .paired:
-            handlePairingChange(true)
+        case .connected:
+            showLiveActivity()
         case .reconnecting:
             // Transient disconnect on an already-paired device: leave currentActivity,
             // activityStartDate, and the refresh timer untouched so the last known activity/icon
-            // stays on screen and keeps ticking through the outage — do NOT treat this like
-            // handlePairingChange(false). Rebuild just to disable the Pause item (isPaired below
-            // requires pairingStatusSnapshot == .paired) and refresh the tooltip.
+            // stays on screen and keeps ticking through the outage — do NOT tear down. Rebuild just
+            // to disable the Pause item (isConnected below requires
+            // connectionStatusSnapshot == .connected) and refresh the tooltip.
             rebuildMenu()
             updateStatusView(force: true)
-        case .notPaired, .failed, .resetting:
-            // .resetting: a factory reset is underway and the device is going away -- tear the
-            // menu bar down to the unpaired look, same as .notPaired.
-            handlePairingChange(false)
+        case .disconnected, .failed, .resetting:
+            // .resetting: a factory reset is underway and the device is going away.
+            tearDownToUnpaired()
         }
     }
 

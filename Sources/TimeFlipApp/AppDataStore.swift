@@ -9,7 +9,6 @@ struct DeviceEventRecord {
     let startedAt: Date
     let duration: TimeInterval
     let isPaused: Bool
-    let activityName: String
 }
 
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
@@ -215,10 +214,13 @@ final class AppDataStore {
     @discardableResult
     func append(_ event: DeviceEventRecord) -> Bool {
         guard let db else { return false }
+        // activity_name is written empty: nothing reads it, and the only thing that used to fill
+        // it was the facet name out of the UserDefaults preferences blob. The column stays because
+        // logbook is the legacy 000_ table and frozen -- it goes when the table does.
         let sql = """
         INSERT OR REPLACE INTO logbook (
             event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%s','now')));
+        ) VALUES (?, ?, ?, ?, ?, '', COALESCE(?, strftime('%s','now')));
         """
         var success = false
         queue.sync {
@@ -233,8 +235,7 @@ final class AppDataStore {
             sqlite3_bind_double(stmt, 3, event.startedAt.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 4, event.duration)
             sqlite3_bind_int(stmt, 5, event.isPaused ? 1 : 0)
-            sqlite3_bind_text(stmt, 6, event.activityName, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_double(stmt, 7, Date().timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 6, Date().timeIntervalSince1970)
             if sqlite3_step(stmt) == SQLITE_DONE {
                 success = true
                 logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) facet=\(event.facetID, privacy: .public) dur=\(event.duration, privacy: .public)")
@@ -826,42 +827,79 @@ final class AppDataStore {
         return formatter
     }()
 
-    /// Stamps `connection.last_connection` with the current local date-time. Called as part of
-    /// every successful device login (a new pairing, and each app-start/reconnect login) -- see
-    /// `ApplicationDelegate.startDeviceEvents` and `011_setting.sql`. Returns the string written,
-    /// so the caller can log it.
+    /// Marks the connection up: sets `connection.connected` and stamps `last_connection` with the
+    /// current local date-time. Called as part of every successful device login (a new pairing, and
+    /// each app-start/reconnect login) -- see `ApplicationDelegate.startDeviceEvents` and
+    /// `011_setting.sql`. Returns the string written, so the caller can log it.
+    ///
+    /// Says nothing about pairing: that was settled before the attempt and is `recordPaired`'s job.
     @discardableResult
     func recordConnection(now: Date = Date()) -> String {
         let stamp = Self.connectionTimestampFormatter.string(from: now)
-        saveSettingJSON(name: "connection", merging: ["last_connection": stamp])
+        saveSettingJSON(name: "connection", merging: ["connected": true, "last_connection": stamp])
         return stamp
     }
 
-    /// Stamps `connection.connection_lost` with the current local date-time, when the app detects
-    /// a lost device connection (see `ApplicationDelegate.handleDeviceDisconnect`). Cleared again
-    /// by `recordQuitRequest()` so a deliberate quit isn't misread as a drop.
+    /// Marks the connection down: clears `connection.connected` and stamps `connection_lost` with
+    /// the current local date-time, when the app detects a lost device connection (see
+    /// `ApplicationDelegate.handleDeviceDisconnect`). `connection_lost` is cleared again by
+    /// `recordQuitRequest()` so a deliberate quit isn't misread as a drop. The device stays paired
+    /// throughout -- a drop is not an unpairing.
     @discardableResult
     func recordConnectionLost(now: Date = Date()) -> String {
         let stamp = Self.connectionTimestampFormatter.string(from: now)
-        saveSettingJSON(name: "connection", merging: ["connection_lost": stamp])
+        saveSettingJSON(name: "connection", merging: ["connected": false, "connection_lost": stamp])
         return stamp
     }
 
-    /// Stamps `connection.quit_request` with the current local date-time and clears
-    /// `connection_lost` -- the imminent disconnect is an intentional shutdown, not a drop.
-    /// Called from `ApplicationDelegate.applicationWillTerminate`.
+    /// Stamps `connection.quit_request` with the current local date-time, marks the connection
+    /// down, and clears `connection_lost` -- the imminent disconnect is an intentional shutdown,
+    /// not a drop. Called from `ApplicationDelegate.applicationWillTerminate`.
     func recordQuitRequest(now: Date = Date()) {
         let stamp = Self.connectionTimestampFormatter.string(from: now)
-        saveSettingJSON(name: "connection", merging: ["quit_request": stamp, "connection_lost": ""])
+        saveSettingJSON(name: "connection", merging: [
+            "connected": false,
+            "quit_request": stamp,
+            "connection_lost": ""
+        ])
     }
 
-    /// Records whether the app currently considers a device paired, into the `paired` setting.
-    /// Set `true` at startup when the app already knows it is paired and whenever pairing
-    /// completes/reconnects; set `false` when the device is factory-reset (forgotten) or the
-    /// connection is lost. A test/observer reads this to gate its "is the device connected now?"
-    /// check -- if it's false, the device needs (re)pairing. See `011_setting.sql`.
+    /// Records whether the app is paired to a device, into the `paired` setting. **Durable**: set
+    /// `true` when a first pairing succeeds and `false` only when the user forgets the device
+    /// (Forget Device, or the end of a confirmed factory reset). Connects and disconnects
+    /// deliberately don't write here -- going out of range doesn't unpair anything, and this row
+    /// is what the app reads at launch to decide it still has a device to reconnect to. For "is it
+    /// reachable right now", see `recordConnection`/`recordConnectionLost`. See `011_setting.sql`.
     func recordPaired(_ paired: Bool) {
         saveSettingJSON(name: "paired", merging: ["paired": paired])
+    }
+
+    /// Restores the pairing at launch. Defaults to not paired, matching a database that has never
+    /// seen a pairing.
+    func loadPaired() -> Bool {
+        loadSettingJSON(name: "paired")?["paired"] as? Bool ?? false
+    }
+
+    /// The remembered device: the name shown while disconnected, and the CoreBluetooth peripheral
+    /// identifier used to reconnect to the same device rather than rediscovering. Both are durable
+    /// alongside `paired` and change only on pairing or forgetting.
+    /// `nil` is written as JSON null rather than skipped, so forgetting a device actually clears
+    /// the stored value instead of leaving the previous one in place.
+    func recordPairedDevice(name: String?, uuid: String?) {
+        saveSettingJSON(name: "paired_device", merging: [
+            "name": name.map { $0 as Any } ?? NSNull(),
+            "uuid": uuid.map { $0 as Any } ?? NSNull()
+        ])
+    }
+
+    /// Restores the remembered device at launch. Both default to absent, matching a database that
+    /// has never seen a pairing.
+    func loadPairedDevice() -> (name: String?, uuid: String?) {
+        let json = loadSettingJSON(name: "paired_device")
+        return (
+            name: json?["name"] as? String,
+            uuid: json?["uuid"] as? String
+        )
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
@@ -1012,8 +1050,37 @@ final class AppDataStore {
     }
 
     /// Clears the cached account identity (e.g. on sign-out) so a later sign-in re-fetches fresh.
+    /// Only `name` and `email` are reset -- the configuration keys below share this row and are
+    /// not part of the identity being dropped.
     func clearGoogleAccount() {
         saveSettingJSON(name: "google_account", merging: ["name": "", "email": ""])
+    }
+
+    /// The calendar events sync into. Stored alongside the account identity rather than in its own
+    /// row, since it is meaningless without one.
+    func recordGoogleCalendar(id: String?, name: String?) {
+        saveSettingJSON(name: "google_account", merging: [
+            "calendar_id": id.map { $0 as Any } ?? NSNull(),
+            "calendar_name": name.map { $0 as Any } ?? NSNull()
+        ])
+    }
+
+    /// The OAuth client id. Not a secret -- it appears in every OAuth URL -- which is why it is
+    /// here rather than in the Keychain alongside the client secret.
+    func recordGoogleClientID(_ clientID: String?) {
+        saveSettingJSON(name: "google_account", merging: [
+            "client_id": clientID.map { $0 as Any } ?? NSNull()
+        ])
+    }
+
+    /// Restores the Google configuration at launch. All three default to absent.
+    func loadGoogleConfiguration() -> (calendarID: String?, calendarName: String?, clientID: String?) {
+        let json = loadSettingJSON(name: "google_account")
+        return (
+            calendarID: json?["calendar_id"] as? String,
+            calendarName: json?["calendar_name"] as? String,
+            clientID: json?["client_id"] as? String
+        )
     }
 
     /// Local hour (0-23) and minute (0-59) at which each category's tracked-time-vs-`daily_limit`
@@ -1155,55 +1222,11 @@ final class AppDataStore {
         return success
     }
 
-    func loadEvents(after logbookID: Int64?, limit: Int) -> [DeviceEventRecord] {
-        guard let db else { return [] }
-        var items: [DeviceEventRecord] = []
-        let sql = """
-        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name
-        FROM logbook
-        WHERE rowid > ?
-        ORDER BY rowid ASC
-        LIMIT ?;
-        """
-        let cutoff = logbookID ?? 0
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int64(stmt, 1, cutoff)
-                sqlite3_bind_int(stmt, 2, Int32(limit))
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let rowid = sqlite3_column_int64(stmt, 0)
-                    let eventNumber = UInt32(sqlite3_column_int64(stmt, 1))
-                    let facet = UInt8(sqlite3_column_int(stmt, 2))
-                    let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
-                    let duration = sqlite3_column_double(stmt, 4)
-                    let paused = sqlite3_column_int(stmt, 5) == 1
-                    guard let activityCString = sqlite3_column_text(stmt, 6) else { continue }
-                    let activity = String(cString: activityCString)
-                    items.append(
-                        DeviceEventRecord(
-                            id: rowid,
-                            eventNumber: eventNumber,
-                            facetID: facet,
-                            startedAt: started,
-                            duration: duration,
-                            isPaused: paused,
-                            activityName: activity
-                        )
-                    )
-                }
-            }
-            sqlite3_finalize(stmt)
-        }
-        return items
-    }
-
-    /// Fetch events whose interval overlaps the provided cutoff (started_at + duration > cutoff).
     func loadEvents(overlappingSince cutoff: Date) -> [DeviceEventRecord] {
         guard let db else { return [] }
         var items: [DeviceEventRecord] = []
         let sql = """
-        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name
+        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused
         FROM logbook
         WHERE (started_at_s + duration_s) > ?
         ORDER BY rowid ASC;
@@ -1220,8 +1243,6 @@ final class AppDataStore {
                     let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
                     let duration = sqlite3_column_double(stmt, 4)
                     let paused = sqlite3_column_int(stmt, 5) == 1
-                    guard let activityCString = sqlite3_column_text(stmt, 6) else { continue }
-                    let activity = String(cString: activityCString)
                     items.append(
                         DeviceEventRecord(
                             id: rowid,
@@ -1229,8 +1250,7 @@ final class AppDataStore {
                             facetID: facet,
                             startedAt: started,
                             duration: duration,
-                            isPaused: paused,
-                            activityName: activity
+                            isPaused: paused
                         )
                     )
                 }

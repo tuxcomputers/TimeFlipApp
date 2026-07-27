@@ -26,8 +26,7 @@ final class DailyFacetTotalsTests: XCTestCase {
                 facetID: 1,
                 startedAt: morningStart,
                 duration: 1_200,
-                isPaused: false,
-                activityName: "A"
+                isPaused: false
             )
         )
 
@@ -40,8 +39,7 @@ final class DailyFacetTotalsTests: XCTestCase {
                 facetID: 1,
                 startedAt: crossStart,
                 duration: 5_400,
-                isPaused: false,
-                activityName: "A"
+                isPaused: false
             )
         )
 

@@ -130,7 +130,7 @@ command = "scripts/use-test-database.sh $db_mode"
 action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 ```
-- [x] Step 9: Read whether the app considers the device paired -- the `paired` setting, which the app writes on startup (reflecting what it knows) and on every pair / reconnect / factory-reset / disconnect. Capture `paired_state` (`1` = paired, `0` = not). When it's `0` -- the "test DB + not paired" start state a prior run's end-of-run cleanup reset leaves behind -- Step 10 pairs the device; the connectivity confirm (Step 11) only matters once paired. The short wait lets the just-relaunched app write the setting before we read it.
+- [x] Step 9: Read whether the app is paired to a device -- the `paired` setting, written only when a pairing succeeds or the user forgets the device, so it survives the relaunch above and says nothing about whether the device is currently reachable (that's `connection.connected`). Capture `paired_state` (`1` = paired, `0` = not). When it's `0` -- the "test DB + not paired" start state a prior run's end-of-run cleanup reset leaves behind -- Step 10 pairs the device; the connectivity confirm (Step 11) only matters once paired. The short wait just lets the relaunched app settle before the read.
 ```toml step
 [[actions]]
 action = "shell"

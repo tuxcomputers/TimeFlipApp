@@ -13,23 +13,12 @@ protocol PreferencesStore {
 
 struct PreferencesPayload: Codable {
     var facetMappings: [FacetMappingRecord] = []
-    var googleCalendarID: String?
-    var googleCalendarName: String?
-    var googleClientID: String?
-    var isPaired: Bool = false
-    // optional for backward compatibility
-    // swiftlint:disable:next discouraged_optional_boolean
-    var wantsPairing: Bool?
-    var pairedDeviceName: String?
-    var pairedDeviceUUID: String?
 }
 
 struct FacetMappingRecord: Codable {
     var facetID: UInt8
     var name: String
     var iconName: String
-    var color: ColorComponents
-    var limitMinutes: Int?
 }
 
 struct ColorComponents: Codable, Equatable {
@@ -37,6 +26,10 @@ struct ColorComponents: Codable, Equatable {
     var green: Double
     var blue: Double
     var alpha: Double
+
+    /// The LED off. Command `0x11` takes an RGB triple with no separate enable, so all-zero is the
+    /// only way to say "don't light this facet" -- see `AppState.facetLEDColours`.
+    static let off = ColorComponents(red: 0, green: 0, blue: 0, alpha: 1)
 }
 
 final class UserDefaultsPreferencesStore: PreferencesStore {
@@ -110,7 +103,5 @@ extension FacetMappingRecord {
         self.facetID = mapping.facetID
         self.name = mapping.name
         self.iconName = mapping.iconName
-        self.color = ColorComponents(color: mapping.color)
-        self.limitMinutes = mapping.limitMinutes
     }
 }
