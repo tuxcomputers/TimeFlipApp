@@ -12,7 +12,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
         isDoubleTapEnabled: dataStore.loadDoubleTapEnabled(),
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
-        noColourName: dataStore.loadColours().first(where: { $0.id == 0 })?.name ?? "None",
         iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
         faceCategories: dataStore.loadFaceCategories(),
         dailyResetHour: dataStore.loadDailyResetTime().hour,

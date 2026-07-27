@@ -11,10 +11,6 @@ final class AppState: ObservableObject {
     /// The facet colour-picker palette, loaded once from the `colour` reference table at launch
     /// (see `ActivityLibrary.colorOptions(from:)`). Fixed for the session — no UI edits it.
     let colourOptions: [ActivityColorOption]
-    /// The `colour` table's own name for its `colour_id 0` seed row (see `005_colour.sql`) --
-    /// e.g. "None". Loaded once at launch alongside `colourOptions` rather than hardcoded, so a
-    /// renamed seed is picked up automatically.
-    let noColourName: String
     /// The Categories tab's icon-grid palette, loaded once from the `icon` reference table at
     /// launch (see `ActivityLibrary.iconOptions(from:)`). Fixed for the session -- no UI edits it.
     let iconOptions: [CategoryIconOption]
@@ -139,7 +135,6 @@ final class AppState: ObservableObject {
         doubleTapParameters: DoubleTapParameters,
         isDoubleTapEnabled: Bool,
         colourOptions: [ActivityColorOption] = [],
-        noColourName: String = "None",
         iconOptions: [CategoryIconOption] = [],
         faceCategories: [UInt8: CategoryRecord] = [:],
         dailyResetHour: Int = 3,
@@ -150,7 +145,6 @@ final class AppState: ObservableObject {
         self.devicePasswordStore = devicePasswordStore
         self.developerConfigStore = developerConfigStore
         self.colourOptions = colourOptions
-        self.noColourName = noColourName
         self.iconOptions = iconOptions
         self.faceCategories = faceCategories
         currentFacetID = TimeFlipConstants.minFacetID

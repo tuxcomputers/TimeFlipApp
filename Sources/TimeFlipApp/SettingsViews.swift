@@ -360,34 +360,25 @@ private struct IconGridCell: View {
     }
 }
 
+/// The colour picker, built like `CategoryIconGrid`: a list of the real colours with no "None"
+/// entry of its own. Clicking the selected colour clears it, picking `colour_id` 0 -- so the same
+/// click both sets and unsets, and a dedicated None row would be a second way to do the same
+/// thing.
 struct ColorOptionList: View {
-    @Binding var selection: Color
     let colourOptions: [ActivityColorOption]
-    let onPick: (ActivityColorOption) -> Void
-    let onSelect: () -> Void
-    /// Non-nil prepends a hollow "None" row (matching the None-colour swatch style), labelled
-    /// with this name, that picks `colour_id 0` -- the caller's job to supply the `colour` table's
-    /// own name for that row (see `AppState.noColourName`) rather than a hardcoded string. `nil`
-    /// omits the row entirely -- the Faces tab's picker, which has no such concept, passes nil.
-    var noneOptionName: String?
+    let selectedColourID: Int
+    /// Receives the chosen `colour_id`, or 0 when the selected colour was clicked to clear it.
+    let onPick: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let noneOptionName {
-                ColorOptionRow(name: noneOptionName, swatchColor: nil, isSelected: false) {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(noneOptionName)\"")
-                    let noneOption = ActivityColorOption(colourId: 0, name: noneOptionName, color: .clear)
-                    selection = noneOption.color
-                    onPick(noneOption)
-                    onSelect()
-                }
-            }
             ForEach(colourOptions) { option in
-                ColorOptionRow(name: option.name, swatchColor: option.color, isSelected: selection == option.color) {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(option.name)\"")
-                    selection = option.color
-                    onPick(option)
-                    onSelect()
+                let isSelected = option.colourId == selectedColourID
+                ColorOptionRow(name: option.name, swatchColor: option.color, isSelected: isSelected) {
+                    // Re-clicking the selected colour clears it; anything else selects it.
+                    let newColourID = isSelected ? 0 : option.colourId
+                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(option.name)\" -> colour_id \(newColourID)")
+                    onPick(newColourID)
                 }
             }
         }
@@ -400,9 +391,7 @@ struct ColorOptionList: View {
 
 private struct ColorOptionRow: View {
     let name: String
-    /// `nil` renders a hollow (unfilled, black-stroked) square instead of a colour fill -- used
-    /// for the "None" row.
-    let swatchColor: Color?
+    let swatchColor: Color
     let isSelected: Bool
     let action: () -> Void
 
@@ -410,13 +399,7 @@ private struct ColorOptionRow: View {
         Button(action: action) {
             HStack(spacing: SettingsLayoutConstants.ColorPicker.rowSpacing) {
                 RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                    .fill(swatchColor ?? .clear)
-                    .overlay {
-                        if swatchColor == nil {
-                            RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                                .stroke(Color.black)
-                        }
-                    }
+                    .fill(swatchColor)
                     .frame(
                         width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
                         height: SettingsLayoutConstants.ColorPicker.rowSwatchSize

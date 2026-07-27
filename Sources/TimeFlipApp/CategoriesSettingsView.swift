@@ -251,7 +251,6 @@ private struct CategorySection: View {
                         CategoryRow(
                             category: category,
                             colourOptions: appState.colourOptions,
-                            noColourName: appState.noColourName,
                             iconOptions: appState.iconOptions,
                             actions: actions
                         )
@@ -296,7 +295,6 @@ private struct CategoryColumnHeaderRow: View {
 private struct CategoryRow: View {
     let category: CategoryRecord
     let colourOptions: [ActivityColorOption]
-    let noColourName: String
     let iconOptions: [CategoryIconOption]
     let actions: CategoryRowActions
     @State private var isColorPickerPresented = false
@@ -399,15 +397,12 @@ private struct CategoryRow: View {
         .disabled(!category.isActive)
         .popover(isPresented: $isColorPickerPresented) {
             ColorOptionList(
-                // The list writes the picked Color straight back through this binding, but the
-                // record needs the colour_id that comes with onPick -- so onPick is the path that
-                // actually applies the change, and this only feeds the list's own checkmark.
-                selection: Binding(get: { swatchColor ?? .clear }, set: { _ in }),
                 colourOptions: colourOptions,
-                onPick: { option in actions.setColour(category.id, option.colourId) },
-                onSelect: { isColorPickerPresented = false },
-                noneOptionName: noColourName
-            )
+                selectedColourID: category.colourID
+            ) { colourID in
+                actions.setColour(category.id, colourID)
+                isColorPickerPresented = false
+            }
         }
     }
 
