@@ -5,6 +5,14 @@ struct SettingsRootView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
+    let loadCategories: () -> [CategoryRecord]
+    let createCategory: (String) -> Void
+    let findCategory: (String) -> CategoryRecord?
+    let updateCategoryColour: (Int, Int) -> Void
+    let updateCategoryDailyLimit: (Int, Int) -> Void
+    let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryName: (Int, String) -> Void
+    let updateCategoryIcon: (Int, Int) -> Void
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
@@ -13,12 +21,28 @@ struct SettingsRootView: View {
         appState: AppState,
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
+        loadCategories: @escaping () -> [CategoryRecord],
+        createCategory: @escaping (String) -> Void,
+        findCategory: @escaping (String) -> CategoryRecord?,
+        updateCategoryColour: @escaping (Int, Int) -> Void,
+        updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
+        updateCategoryActive: @escaping (Int, Bool) -> Void,
+        updateCategoryName: @escaping (Int, String) -> Void,
+        updateCategoryIcon: @escaping (Int, Int) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
         self.appState = appState
         self.authManager = authManager
         self.integrationCoordinator = integrationCoordinator
+        self.loadCategories = loadCategories
+        self.createCategory = createCategory
+        self.findCategory = findCategory
+        self.updateCategoryColour = updateCategoryColour
+        self.updateCategoryDailyLimit = updateCategoryDailyLimit
+        self.updateCategoryActive = updateCategoryActive
+        self.updateCategoryName = updateCategoryName
+        self.updateCategoryIcon = updateCategoryIcon
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -31,6 +55,21 @@ struct SettingsRootView: View {
                         Text("Device")
                     }
                     .tag(SettingsTab.timeflip)
+                CategoriesSettingsView(
+                    appState: appState,
+                    loadCategories: loadCategories,
+                    createCategory: createCategory,
+                    findCategory: findCategory,
+                    updateCategoryColour: updateCategoryColour,
+                    updateCategoryDailyLimit: updateCategoryDailyLimit,
+                    updateCategoryActive: updateCategoryActive,
+                    updateCategoryName: updateCategoryName,
+                    updateCategoryIcon: updateCategoryIcon
+                )
+                    .tabItem {
+                        Text("Categories")
+                    }
+                    .tag(SettingsTab.categories)
                 PaneSetupView(appState: appState)
                     .tabItem {
                         Text("Faces")
@@ -75,6 +114,7 @@ struct SettingsRootView: View {
 
 enum SettingsTab: Hashable {
     case timeflip
+    case categories
     case facets
     case report
 
@@ -82,6 +122,7 @@ enum SettingsTab: Hashable {
     var debugName: String {
         switch self {
         case .timeflip: return "Device"
+        case .categories: return "Categories"
         case .facets: return "Faces"
         case .report: return "App"
         }
@@ -112,9 +153,7 @@ private struct PaneSetupView: View {
                             get: { appState.facetMappings[index] },
                             set: { appState.updateMapping($0) }
                         )
-                        TopFacetEditor(mapping: binding, colourOptions: appState.colourOptions) { facetID, colourID in
-                            appState.assignFacetColour(facetID: facetID, colourID: colourID)
-                        }
+                        TopFacetEditor(mapping: binding)
                     } else {
                         Text("Flip the device to pick a facet.")
                             .foregroundStyle(.secondary)
@@ -153,8 +192,6 @@ private struct PaneSetupView: View {
 
 private struct TopFacetEditor: View {
     @Binding var mapping: FacetMapping
-    let colourOptions: [ActivityColorOption]
-    let onColourPicked: (UInt8, Int) -> Void
 
     var body: some View {
         let nameBinding = Binding(
@@ -175,16 +212,10 @@ private struct TopFacetEditor: View {
         )
 
         VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-            HStack(alignment: .center, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                TextField("", text: nameBinding, prompt: Text("Unassigned"))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
-                FacetColorPicker(selection: $mapping.color, colourOptions: colourOptions) { option in
-                    onColourPicked(mapping.facetID, option.colourId)
-                }
-            }
+            TextField("", text: nameBinding, prompt: Text("Unassigned"))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
 
             HStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
                 Text("Daily Limit:")
@@ -207,7 +238,7 @@ private struct TopFacetEditor: View {
     }
 }
 
-private struct ActivityIconView: View {
+struct ActivityIconView: View {
     let iconName: String
     let tint: Color
     let size: CGFloat
@@ -333,79 +364,62 @@ private struct IconGridCell: View {
     }
 }
 
-/// Custom color picker restricted to the `colour` reference table's palette (passed in as
-/// `colourOptions`, sourced from `AppDataStore.loadColours`) instead of AppKit's full color
-/// wheel/sliders.
-private struct FacetColorPicker: View {
-    @Binding var selection: Color
+/// The colour picker, built like `CategoryIconGrid`: a list of the real colours with no "None"
+/// entry of its own. Clicking the selected colour clears it, picking `colour_id` 0 -- so the same
+/// click both sets and unsets, and a dedicated None row would be a second way to do the same
+/// thing.
+struct ColorOptionList: View {
     let colourOptions: [ActivityColorOption]
-    let onPick: (ActivityColorOption) -> Void
-    @State private var isPresented = false
-
-    var body: some View {
-        Button {
-            DeveloperMode.debugPrint(.click, "Button clicked: Facet color swatch (\(isPresented ? "close" : "open") picker)")
-            isPresented.toggle()
-        } label: {
-            Circle()
-                .fill(selection)
-                .overlay(
-                    Circle().stroke(
-                        Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity),
-                        lineWidth: SettingsLayoutConstants.ColorPicker.swatchStrokeWidth
-                    )
-                )
-                .frame(
-                    width: SettingsLayoutConstants.ColorPicker.swatchButtonSize,
-                    height: SettingsLayoutConstants.ColorPicker.swatchButtonSize
-                )
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isPresented) {
-            ColorOptionList(selection: $selection, colourOptions: colourOptions, onPick: onPick) {
-                isPresented = false
-            }
-        }
-    }
-}
-
-private struct ColorOptionList: View {
-    @Binding var selection: Color
-    let colourOptions: [ActivityColorOption]
-    let onPick: (ActivityColorOption) -> Void
-    let onSelect: () -> Void
+    let selectedColourID: Int
+    /// Receives the chosen `colour_id`, or 0 when the selected colour was clicked to clear it.
+    let onPick: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(colourOptions) { option in
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(option.name)\"")
-                    selection = option.color
-                    onPick(option)
-                    onSelect()
-                } label: {
-                    HStack(spacing: SettingsLayoutConstants.ColorPicker.rowSpacing) {
-                        RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                            .fill(option.color)
-                            .frame(
-                                width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
-                                height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
-                            )
-                        Text(option.name)
-                        Spacer()
-                        if selection == option.color {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, SettingsLayoutConstants.ColorPicker.rowVerticalPadding)
-                    .padding(.horizontal, SettingsLayoutConstants.ColorPicker.rowHorizontalPadding)
-                    .contentShape(Rectangle())
+                let isSelected = option.colourId == selectedColourID
+                ColorOptionRow(name: option.name, swatchColor: option.color, isSelected: isSelected) {
+                    // Re-clicking the selected colour clears it; anything else selects it.
+                    let newColourID = isSelected ? 0 : option.colourId
+                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(option.name)\" -> colour_id \(newColourID)")
+                    onPick(newColourID)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(SettingsLayoutConstants.ColorPicker.listPadding)
+        // Same as the icon grid: the first row takes keyboard focus when the popover opens, and
+        // its focus ring reads as a selection. The checkmark is what marks the current colour.
+        .focusEffectDisabled()
+    }
+}
+
+private struct ColorOptionRow: View {
+    let name: String
+    let swatchColor: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: SettingsLayoutConstants.ColorPicker.rowSpacing) {
+                RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                    .fill(swatchColor)
+                    .frame(
+                        width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
+                        height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
+                    )
+                Text(name)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, SettingsLayoutConstants.ColorPicker.rowVerticalPadding)
+            .padding(.horizontal, SettingsLayoutConstants.ColorPicker.rowHorizontalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

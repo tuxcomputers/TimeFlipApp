@@ -124,7 +124,7 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 - Because of that reuse, the host **must not advance its cursor past the last frame**; otherwise refreshed durations for the in-progress interval would be missed.
 
 ### Host-side ingestion rules (macOS driver)
-- On startup: load the logbook cursor from `integration_event_cursors`, fetch history starting at `cursor+1`, **withhold the last frame**, write all prior frames to the logbook, and use the withheld frame to set menu/UI state.
+- On startup: derive the resume position from `device_event` (the highest finalised `event_number` in the device's current counter generation — see `AppDataStore.latestCommittedDeviceEventNumber()`), fetch history starting at that `+1`, **withhold the last frame**, write all prior frames to the logbook, and use the withheld frame to set menu/UI state. There is no stored cursor: a saved high-water mark can't follow the device's counter back down through a factory reset.
 - On live facet/pause events: re-fetch history from the cursor, write all but the last frame to the logbook, and use the last for UI so repeated refreshes pick up duration/paused updates on the same event number.
 - Cursor advancement:
   - Device cursor (identifier `device-history`) stays event-number based and advances only through the highest **written** (non-live) frame; keeps one interval behind the live record.

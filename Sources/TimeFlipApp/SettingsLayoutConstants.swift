@@ -41,8 +41,6 @@ enum SettingsLayoutConstants {
     }
 
     enum ColorPicker {
-        static let swatchButtonSize: CGFloat = 20
-        static let swatchStrokeWidth: CGFloat = 1
         static let swatchStrokeOpacity: CGFloat = 0.2
         static let rowSwatchSize: CGFloat = 14
         static let rowSwatchCornerRadius: CGFloat = 3
@@ -58,6 +56,30 @@ enum SettingsLayoutConstants {
         static let horizontalPadding: CGFloat = 8
         static let selectionOpacity: CGFloat = 0.12
         static let cornerRadius: CGFloat = 8
+    }
+
+    enum CategoryList {
+        // Fixed so every row's colour square lines up at the same x position regardless of how
+        // long that row's category name is -- a plain Text(name) with no width sizes to its own
+        // content, so the square right after it would otherwise drift per row.
+        static let nameColumnWidth: CGFloat = 160
+        // Matches the Device tab's disclosure groups, so the Active/Inactive groups sit at the
+        // same rhythm as the LED/More ones they're modelled on.
+        static let rowSpacing: CGFloat = 8
+        static let sectionVerticalPadding: CGFloat = 4
+        // Wide enough for the "Colour" caption above it, so the daily-limit column that follows
+        // starts at the same x in both the header row and the category rows.
+        static let colourColumnWidth: CGFloat = 46
+        // Sized to the "Daily limit (0 = disabled)" caption rather than to the field itself: the
+        // caption is the widest thing in the column, and the Active column after it has to start
+        // clear of it in both rows.
+        static let limitColumnWidth: CGFloat = 140
+        static let limitFieldWidth: CGFloat = 50
+        static let limitFieldSpacing: CGFloat = 4
+        // 6 wide lays the 42 seeded icons out as an even 6x7 with no partial last row and no
+        // scrolling -- see database/004_icon.sql.
+        static let iconGridColumns = 6
+        static let createFieldSpacing: CGFloat = 8
     }
 
     /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the

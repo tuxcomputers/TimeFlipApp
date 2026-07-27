@@ -13,42 +13,88 @@ struct DeviceEventRecord {
 }
 
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
-/// "#rrggbb" LED value, `nil` for the `blank` colour.
+/// "#rrggbb" LED value, `nil` for the `None` colour.
 struct ColourRecord: Equatable, Sendable {
     let id: Int
     let name: String
     let deviceHex: String?
 }
 
-enum IntegrationTarget: String {
-    case calendar
-    case local
+/// A row from the `icon` reference table (`database/004_icon.sql`).
+struct IconRecord: Equatable, Sendable, Identifiable {
+    let id: Int
+    /// The asset name (e.g. `ic_meeting`) -- see `ActivityIconLoader`. `icon_id` 0 is the `None`
+    /// sentinel, whose name is not an asset at all.
+    let name: String
 }
 
-// Cursor status for delivery targets.
-struct IntegrationEventCursorStatus {
-    let lastSentID: Int64?
-    let attempts: Int
-    let lastError: String?
-    let lastSuccessID: Int64?
-    let updatedAt: Date?
+/// A row from the `category` table (`database/007_category.sql`).
+struct CategoryRecord: Equatable, Sendable, Identifiable {
+    let id: Int
+    let name: String
+    let iconID: Int
+    let colourID: Int
+    /// `false` once the category has been retired -- it stays in the table so historical
+    /// `time_entry` rows keep resolving, but drops out of the assignment lists.
+    var isActive: Bool
+    /// Tracked time allowed against this category per day, in whole minutes (`0` = no limit).
+    var dailyLimitMinutes: Int
+
+    /// A copy with one field replaced, so a view holding a loaded list can reflect an edit it just
+    /// wrote to the database without re-reading the table.
+    func with(
+        name: String? = nil,
+        iconID: Int? = nil,
+        colourID: Int? = nil,
+        isActive: Bool? = nil,
+        dailyLimitMinutes: Int? = nil
+    ) -> CategoryRecord {
+        CategoryRecord(
+            id: id,
+            name: name ?? self.name,
+            iconID: iconID ?? self.iconID,
+            colourID: colourID ?? self.colourID,
+            isActive: isActive ?? self.isActive,
+            dailyLimitMinutes: dailyLimitMinutes ?? self.dailyLimitMinutes
+        )
+    }
+
+    /// Display order for the Categories tab: names that are entirely a number come first in
+    /// numeric order, then everything else as text. A plain text sort interleaves them by digit --
+    /// 1, 10, 11, 2, 20, 3 -- which reads as broken the moment categories are numbered.
+    ///
+    /// The text comparison is `localizedStandardCompare`, the same Finder-style ordering that sorts
+    /// "ABC-2" before "ABC-10", so names with a number buried in them come out sensibly too.
+    ///
+    /// A name too long to fit an `Int` falls back to being treated as text -- an overflowed number
+    /// is not a number this can order.
+    static func displayOrder(_ lhs: CategoryRecord, _ rhs: CategoryRecord) -> Bool {
+        switch (Int(lhs.name), Int(rhs.name)) {
+        case let (lhsValue?, rhsValue?) where lhsValue != rhsValue:
+            return lhsValue < rhsValue
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        default:
+            // Either both are text, or both are the same number written differently ("1" / "01").
+            // localizedStandardCompare compares digit runs numerically, so that second case comes
+            // back .orderedSame and drops through to the id tiebreak below.
+            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            if comparison != .orderedSame {
+                return comparison == .orderedAscending
+            }
+            // Duplicate names are a legitimate outcome of the create flow, so break the tie on id
+            // rather than leaving two equal elements to an unstable sort.
+            return lhs.id < rhs.id
+        }
+    }
 }
 
-protocol IntegrationEventCursorStore {
-    func loadEventCursor(target: IntegrationTarget, identifier: String) -> Int64?
-    func saveEventCursor(target: IntegrationTarget, identifier: String, lastSentEventID: Int64)
-    func recordEventFailure(target: IntegrationTarget, identifier: String, error: String)
-    func loadEventCursorStatus(target: IntegrationTarget, identifier: String) -> IntegrationEventCursorStatus?
-    /// True if some other identifier already has a cursor for this target — i.e. integrations
-    /// were previously delivering to a different calendar, and this one is a switch rather
-    /// than the very first setup (which should still see the existing backlog).
-    func hasCursor(target: IntegrationTarget, excludingIdentifier identifier: String) -> Bool
-}
-
-// SQLite-backed application data (cursor + integration queue).
+// SQLite-backed application data.
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-final class AppDataStore: IntegrationEventCursorStore {
+final class AppDataStore {
     private let db: OpaquePointer?
     private let dbURL: URL
     private let queue = DispatchQueue(label: "com.timeflip.appdatastore")
@@ -291,7 +337,7 @@ final class AppDataStore: IntegrationEventCursorStore {
                     start_time = ?,
                     timezone_id = ?,
                     duration_seconds = ?,
-                    is_paused = ?,
+                    paused = ?,
                     finalised = ?
                 WHERE device_event_id = ?;
                 """
@@ -326,7 +372,7 @@ final class AppDataStore: IntegrationEventCursorStore {
 
                 let sql = """
                 INSERT INTO device_event (
-                    event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, is_paused, finalised
+                    event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised
                 ) VALUES (
                     ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, ?
                 );
@@ -453,17 +499,115 @@ final class AppDataStore: IntegrationEventCursorStore {
         return results
     }
 
-    /// Sets the `colour_id` of the category currently assigned to `faceID` (1-12, via the `face`
-    /// table) to `colourID`. The `category_id >= 1` guard means the `Unassigned` category
-    /// (`category_id 0`) is never given a colour — if the face maps to it, this is a no-op. See
-    /// `database/007_category.sql` / `database/008_face.sql`.
-    func updateCategoryColour(faceID: Int, colourID: Int) {
-        guard let db else { return }
+    /// Each physical face paired with the category it is assigned to, keyed by `face_id`
+    /// (`database/008_face.sql`). Unlike `loadCategories`, this keeps `category_id` 0: a face
+    /// assigned to the `Unassigned` sentinel still has to resolve to something to display.
+    func loadFaceCategories() -> [UInt8: CategoryRecord] {
+        guard let db else { return [:] }
+        var results: [UInt8: CategoryRecord] = [:]
         let sql = """
-        UPDATE category SET colour_id = ?
-        WHERE category_id = (SELECT category_id FROM face WHERE face_id = ?)
-          AND category_id >= 1;
+        SELECT f.face_id, c.category_id, c.category_name, c.icon_id, c.colour_id, c.active, c.daily_limit
+        FROM face f
+        JOIN category c ON c.category_id = f.category_id
+        ORDER BY f.face_id;
         """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face category load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let faceID = UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0))
+                let name = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+                results[faceID] = CategoryRecord(
+                    id: Int(sqlite3_column_int64(stmt, 1)),
+                    name: name,
+                    iconID: Int(sqlite3_column_int64(stmt, 3)),
+                    colourID: Int(sqlite3_column_int64(stmt, 4)),
+                    isActive: sqlite3_column_int64(stmt, 5) != 0,
+                    dailyLimitMinutes: Int(sqlite3_column_int64(stmt, 6))
+                )
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
+    /// All rows of the `icon` reference table (`database/004_icon.sql`), ordered by `icon_id`.
+    /// Drives the Categories tab's icon grid, which skips the `None` sentinel at id 0.
+    func loadIcons() -> [IconRecord] {
+        guard let db else { return [] }
+        var results: [IconRecord] = []
+        let sql = "SELECT icon_id, icon_name FROM icon ORDER BY icon_id;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("icon load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = Int(sqlite3_column_int64(stmt, 0))
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                results.append(IconRecord(id: id, name: name))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
+    /// All real (`category_id >= 1`, excluding the `Unassigned` sentinel at id 0) rows of the
+    /// `category` table (`database/007_category.sql`). Both active and inactive ones -- the
+    /// Categories tab lists each in its own section, so splitting this into two queries would just
+    /// mean reading the same small table twice.
+    ///
+    /// Ordered by `CategoryRecord.displayOrder` rather than in SQL: the ordering needs a numeric
+    /// pass over names that are numbers, which SQLite can only express as a pile of CASE/GLOB
+    /// clauses that are harder to read and impossible to unit test.
+    func loadCategories() -> [CategoryRecord] {
+        guard let db else { return [] }
+        var results: [CategoryRecord] = []
+        let sql = """
+        SELECT c.category_id, c.category_name, c.icon_id, c.colour_id, c.active, c.daily_limit
+        FROM category c
+        WHERE c.category_id >= 1;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = Int(sqlite3_column_int64(stmt, 0))
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                let iconID = Int(sqlite3_column_int64(stmt, 2))
+                let colourID = Int(sqlite3_column_int64(stmt, 3))
+                let isActive = sqlite3_column_int64(stmt, 4) != 0
+                let dailyLimitMinutes = Int(sqlite3_column_int64(stmt, 5))
+                results.append(CategoryRecord(
+                    id: id,
+                    name: name,
+                    iconID: iconID,
+                    colourID: colourID,
+                    isActive: isActive,
+                    dailyLimitMinutes: dailyLimitMinutes
+                ))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results.sorted(by: CategoryRecord.displayOrder)
+    }
+
+    /// Sets `colour_id` directly on a category -- the Categories tab's own colour picker. The
+    /// `category_id >= 1` guard means the `Unassigned` category (`category_id 0`) is never given
+    /// a colour. See `database/007_category.sql`.
+    func updateCategoryColour(categoryID: Int, colourID: Int) {
+        guard let db else { return }
+        let sql = "UPDATE category SET colour_id = ? WHERE category_id = ? AND category_id >= 1;"
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -472,9 +616,171 @@ final class AppDataStore: IntegrationEventCursorStore {
                 return
             }
             sqlite3_bind_int64(stmt, 1, Int64(colourID))
-            sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
             if sqlite3_step(stmt) != SQLITE_DONE {
                 logger.error("category colour update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// Sets `daily_limit` (whole minutes, `0` = no limit) on a category -- the Categories tab's own
+    /// daily-limit field. Same `category_id >= 1` guard as `updateCategoryColour`: the
+    /// `Unassigned` sentinel never carries a limit. See `database/007_category.sql`.
+    ///
+    /// Nothing reads this value yet -- it is stored for a limit-tracking feature still to be
+    /// built (see `docs/TODO-features-under-development.md`).
+    func updateCategoryDailyLimit(categoryID: Int, minutes: Int) {
+        guard let db else { return }
+        let sql = "UPDATE category SET daily_limit = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category daily limit update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(max(0, minutes)))
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category daily limit update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// The category carrying this name, if any. Matched `COLLATE NOCASE`: someone typing
+    /// "meeting" when "Meeting" exists has made exactly the mistake this lookup is meant to catch,
+    /// so case is not what should distinguish them.
+    ///
+    /// Unlike `loadCategories` this does not exclude `category_id` 0 -- typing "Unassigned" is a
+    /// collision with the sentinel and needs reporting rather than silently failing to insert.
+    func findCategory(named name: String) -> CategoryRecord? {
+        guard let db, !name.isEmpty else { return nil }
+        var result: CategoryRecord?
+        let sql = """
+        SELECT category_id, category_name, icon_id, colour_id, active, daily_limit
+        FROM category
+        WHERE category_name = ? COLLATE NOCASE
+        LIMIT 1;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category find prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                result = CategoryRecord(
+                    id: Int(sqlite3_column_int64(stmt, 0)),
+                    name: sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "",
+                    iconID: Int(sqlite3_column_int64(stmt, 2)),
+                    colourID: Int(sqlite3_column_int64(stmt, 3)),
+                    isActive: sqlite3_column_int64(stmt, 4) != 0,
+                    dailyLimitMinutes: Int(sqlite3_column_int64(stmt, 5))
+                )
+            }
+            sqlite3_finalize(stmt)
+        }
+        return result
+    }
+
+    /// Inserts a category, active, with the `None` icon and colour and no daily limit. The caller
+    /// is expected to have trimmed the name; an empty one is rejected here rather than stored.
+    ///
+    /// A plain insert: whether the name is already taken is settled by the caller via
+    /// `findCategory(named:)` before getting here, and a duplicate name is a legitimate outcome
+    /// once the user has been told and chosen it. The `WHERE NOT EXISTS` guard on the seed inserts
+    /// in `database/007_category.sql` is there to make re-running the DDL idempotent -- it is not
+    /// an operational pattern to copy into runtime writes.
+    @discardableResult
+    func createCategory(name: String) -> Bool {
+        guard let db, !name.isEmpty else { return false }
+        var inserted = false
+        let sql = "INSERT INTO category (category_name, icon_id, colour_id) VALUES (?, 0, 0);"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category create prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                inserted = sqlite3_changes(db) > 0
+            } else {
+                logger.error("category create exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+        return inserted
+    }
+
+    /// Renames a category. Every table that references it does so by `category_id`, so the new
+    /// name shows up wherever that history is displayed with nothing to backfill -- including for
+    /// periods before the rename, which is what the confirmation on the Categories tab warns
+    /// about. Same `category_id >= 1` guard as the other category writers: the `Unassigned`
+    /// sentinel keeps its name. See `database/007_category.sql`.
+    func updateCategoryName(categoryID: Int, name: String) {
+        guard let db, !name.isEmpty else { return }
+        let sql = "UPDATE category SET category_name = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category rename prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category rename exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// Sets `icon_id` on a category -- the Categories tab's own icon grid. Same
+    /// `category_id >= 1` guard as the other category writers, so the `Unassigned` sentinel keeps
+    /// the `None` icon. See `database/007_category.sql`.
+    func updateCategoryIcon(categoryID: Int, iconID: Int) {
+        guard let db else { return }
+        let sql = "UPDATE category SET icon_id = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category icon update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(iconID))
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category icon update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// Sets `active` on a category -- the Categories tab's own Active checkbox. Same
+    /// `category_id >= 1` guard as the other category writers: the `Unassigned` sentinel is
+    /// always active and must never be retired. See `database/007_category.sql`.
+    func updateCategoryActive(categoryID: Int, isActive: Bool) {
+        guard let db else { return }
+        let sql = "UPDATE category SET active = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category active update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, isActive ? 1 : 0)
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category active update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }
@@ -934,91 +1240,62 @@ final class AppDataStore: IntegrationEventCursorStore {
         return items
     }
 
-    /// Fetch the most recent event with the given event_number from the logbook, if present.
-    func loadEvent(eventNumber: UInt32) -> DeviceEventRecord? {
+    // MARK: - Device history position
+
+    /// The highest **finalised** `device_event.event_number` in the device's *current* counter
+    /// generation -- the position the history fetch resumes from.
+    ///
+    /// Open (unfinalised) rows are excluded on purpose: the newest event is still growing, and
+    /// re-reading it on the next fetch is what keeps its duration current. Use
+    /// `latestDeviceEventNumber()` for the "has anything changed at all?" check, which does need
+    /// to count the open row.
+    func latestCommittedDeviceEventNumber() -> Int64? {
+        currentGenerationMaxEventNumber(finalisedOnly: true)
+    }
+
+    /// The highest `device_event.event_number` in the device's *current* counter generation,
+    /// including the still-open row. This is what the cheap "device max unchanged" check compares
+    /// against, so a device sitting on one face reads as "nothing new" rather than perpetually
+    /// looking unseen.
+    func latestDeviceEventNumber() -> Int64? {
+        currentGenerationMaxEventNumber(finalisedOnly: false)
+    }
+
+    /// Both positions above are derived from `device_event` rather than stored in a cursor table,
+    /// because a stored high-water mark cannot survive a factory reset: the device restarts its
+    /// counter at 1, so a saved value stays stranded above the live one and the fetch skips every
+    /// new event until the counter climbs back past it.
+    ///
+    /// A reset is therefore detected as the counter going *backwards*. `device_event` is walked in
+    /// chronological order (`start_epoch`, then insertion order) and the last position where
+    /// `event_number` dropped below its predecessor begins the current generation; only rows at or
+    /// after that boundary count. Event numbers repeat across generations, which is exactly why
+    /// this can't be a plain `MAX(event_number)` over the whole table.
+    private func currentGenerationMaxEventNumber(finalisedOnly: Bool) -> Int64? {
         guard let db else { return nil }
         let sql = """
-        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name
-        FROM logbook
-        WHERE event_number = ?
-        ORDER BY rowid DESC
-        LIMIT 1;
-        """
-        var record: DeviceEventRecord?
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int64(stmt, 1, sqlite3_int64(eventNumber))
-                if sqlite3_step(stmt) == SQLITE_ROW {
-                    let rowid = sqlite3_column_int64(stmt, 0)
-                    let eventNumber = UInt32(sqlite3_column_int64(stmt, 1))
-                    let facet = UInt8(sqlite3_column_int(stmt, 2))
-                    let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
-                    let duration = sqlite3_column_double(stmt, 4)
-                    let paused = sqlite3_column_int(stmt, 5) == 1
-                    guard let activityCString = sqlite3_column_text(stmt, 6) else { return }
-                    let activity = String(cString: activityCString)
-                    record = DeviceEventRecord(
-                        id: rowid,
-                        eventNumber: eventNumber,
-                        facetID: facet,
-                        startedAt: started,
-                        duration: duration,
-                        isPaused: paused,
-                        activityName: activity
-                    )
-                }
-            }
-            sqlite3_finalize(stmt)
-        }
-        return record
-    }
-
-    /// The highest logbook rowid currently stored, or nil if the logbook is empty.
-    func maxLogbookRowID() -> Int64? {
-        guard let db else { return nil }
-        var result: Int64?
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT MAX(rowid) FROM logbook;", -1, &stmt, nil) == SQLITE_OK {
-                if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
-                    result = sqlite3_column_int64(stmt, 0)
-                }
-            }
-            sqlite3_finalize(stmt)
-        }
-        return result
-    }
-
-    func purgeEvents(throughLogbookID logbookID: Int64) {
-        guard let db else { return }
-        let sql = "DELETE FROM logbook WHERE rowid <= ?;"
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int64(stmt, 1, logbookID)
-                _ = sqlite3_step(stmt)
-                logger.debug("logbook_purge through_rowid=\(logbookID, privacy: .public)")
-            }
-            sqlite3_finalize(stmt)
-        }
-    }
-    // MARK: - Event-number cursors
-
-    func loadEventCursor(target: IntegrationTarget, identifier: String) -> Int64? {
-        guard let db else { return nil }
-        let sql = """
-        SELECT last_sent_ev FROM integration_event_cursors
-        WHERE target = ? AND identifier = ?
-        LIMIT 1;
+        WITH ordered AS (
+            SELECT device_event_id,
+                   event_number,
+                   finalised,
+                   LAG(event_number) OVER (ORDER BY start_epoch, device_event_id) AS prev_event_number
+            FROM device_event
+        )
+        SELECT MAX(event_number) FROM ordered
+        WHERE (? = 0 OR finalised = 1)
+          AND device_event_id >= COALESCE(
+              (SELECT MAX(device_event_id) FROM ordered
+               WHERE prev_event_number IS NOT NULL AND event_number < prev_event_number),
+              0
+          );
         """
         var result: Int64?
         queue.sync {
             var stmt: OpaquePointer?
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, target.rawValue, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 2, identifier, -1, SQLITE_TRANSIENT)
-                if sqlite3_step(stmt) == SQLITE_ROW {
+                sqlite3_bind_int(stmt, 1, finalisedOnly ? 1 : 0)
+                if sqlite3_step(stmt) == SQLITE_ROW,
+                   sqlite3_column_type(stmt, 0) != SQLITE_NULL {
                     let ev = sqlite3_column_int64(stmt, 0)
                     if ev > 0 { result = ev }
                 }
@@ -1028,136 +1305,11 @@ final class AppDataStore: IntegrationEventCursorStore {
         return result
     }
 
-    func hasCursor(target: IntegrationTarget, excludingIdentifier identifier: String) -> Bool {
-        guard let db else { return false }
-        let sql = """
-        SELECT 1 FROM integration_event_cursors
-        WHERE target = ? AND identifier != ?
-        LIMIT 1;
-        """
-        var found = false
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, target.rawValue, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 2, identifier, -1, SQLITE_TRANSIENT)
-                found = sqlite3_step(stmt) == SQLITE_ROW
-            }
-            sqlite3_finalize(stmt)
-        }
-        return found
-    }
-
-    func saveEventCursor(target: IntegrationTarget, identifier: String, lastSentEventID: Int64) {
-        guard let db else { return }
-        let sql = """
-        INSERT INTO integration_event_cursors (
-            target,
-            identifier,
-            last_sent_ev,
-            last_success_ev,
-            attempts,
-            last_error,
-            updated_at
-        )
-        VALUES (?, ?, ?, ?, 0, NULL, ?)
-        ON CONFLICT(target, identifier)
-        DO UPDATE SET
-            last_sent_ev = MAX(integration_event_cursors.last_sent_ev, excluded.last_sent_ev),
-            last_success_ev = MAX(
-                COALESCE(integration_event_cursors.last_success_ev, 0),
-                excluded.last_success_ev
-            ),
-            attempts = 0,
-            last_error = NULL,
-            updated_at = excluded.updated_at;
-        """
-        let now = Date().timeIntervalSince1970
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, target.rawValue, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 2, identifier, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_int64(stmt, 3, sqlite3_int64(lastSentEventID))
-                sqlite3_bind_int64(stmt, 4, sqlite3_int64(lastSentEventID))
-                sqlite3_bind_double(stmt, 5, now)
-                _ = sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-        }
-    }
-
-    func recordEventFailure(target: IntegrationTarget, identifier: String, error: String) {
-        guard let db else { return }
-        let sql = """
-        INSERT INTO integration_event_cursors (target, identifier, attempts, last_error, updated_at)
-        VALUES (?, ?, 1, ?, ?)
-        ON CONFLICT(target, identifier)
-        DO UPDATE SET attempts = integration_event_cursors.attempts + 1,
-                      last_error = excluded.last_error,
-                      updated_at = excluded.updated_at;
-        """
-        let now = Date().timeIntervalSince1970
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, target.rawValue, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 2, identifier, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 3, error, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_double(stmt, 4, now)
-                _ = sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-        }
-    }
-
     func purgeAllEvents() {
         guard let db else { return }
         queue.sync {
             _ = sqlite3_exec(db, "DELETE FROM logbook;", nil, nil, nil)
         }
-    }
-
-    func clearEventCursors() {
-        guard let db else { return }
-        let sql = "DELETE FROM integration_event_cursors;"
-        queue.sync {
-            _ = sqlite3_exec(db, sql, nil, nil, nil)
-        }
-    }
-
-    func loadEventCursorStatus(target: IntegrationTarget, identifier: String) -> IntegrationEventCursorStatus? {
-        guard let db else { return nil }
-        let sql = """
-        SELECT last_sent_ev, attempts, last_error, last_success_ev, updated_at
-        FROM integration_event_cursors
-        WHERE target = ? AND identifier = ?
-        LIMIT 1;
-        """
-        var status: IntegrationEventCursorStatus?
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, target.rawValue, -1, SQLITE_TRANSIENT)
-                sqlite3_bind_text(stmt, 2, identifier, -1, SQLITE_TRANSIENT)
-                if sqlite3_step(stmt) == SQLITE_ROW {
-                    let lastSent = sqlite3_column_int64(stmt, 0)
-                    let attempts = Int(sqlite3_column_int(stmt, 1))
-                    let lastError = sqlite3_column_text(stmt, 2).flatMap { String(cString: $0) }
-                    let lastSuccess = sqlite3_column_int64(stmt, 3)
-                    let updated = sqlite3_column_double(stmt, 4)
-                    status = IntegrationEventCursorStatus(
-                        lastSentID: lastSent > 0 ? lastSent : nil,
-                        attempts: attempts,
-                        lastError: lastError,
-                        lastSuccessID: lastSuccess > 0 ? lastSuccess : nil,
-                        updatedAt: updated > 0 ? Date(timeIntervalSince1970: updated) : nil
-                    )
-                }
-            }
-            sqlite3_finalize(stmt)
-        }
-        return status
     }
 
     // MARK: - Helpers
@@ -1189,14 +1341,58 @@ final class AppDataStore: IntegrationEventCursorStore {
             return
         }
         for file in files {
-            guard let sql = try? String(contentsOf: file, encoding: .utf8) else {
+            guard let rawSQL = try? String(contentsOf: file, encoding: .utf8) else {
                 logger?.error("Could not read DDL file \(file.lastPathComponent, privacy: .public)")
                 continue
             }
+            let sql = skipSatisfiedColumnAdditions(rawSQL, db: db)
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
                 logger?.error("DDL file \(file.lastPathComponent, privacy: .public) failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
         }
+    }
+
+    /// Matches a single-line `ALTER TABLE <table> ADD COLUMN <column> ...;` statement -- the
+    /// pattern a DDL file uses to add a column to a table that predates it (see
+    /// `database/CLAUDE.md` § "Adding a column to an existing table"). Deliberately narrow: these
+    /// additive statements are always written on one line ending in `;`, so a regex over the raw
+    /// file text is enough without a full SQL tokenizer.
+    private static let addColumnPattern = try! NSRegularExpression(
+        pattern: #"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\b[^;]*;"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Comments out any `ALTER TABLE ... ADD COLUMN ...` statement in `sql` whose column already
+    /// exists on that table -- so a DDL file can unconditionally declare the ALTER for databases
+    /// that predate the column, while a database created fresh (which already got the column via
+    /// that same table's own `CREATE TABLE IF NOT EXISTS`) doesn't hit sqlite's "duplicate column
+    /// name" error. That error would otherwise abort every remaining statement in the same
+    /// `sqlite3_exec` call, since sqlite3_exec stops at the first statement that fails.
+    private static func skipSatisfiedColumnAdditions(_ sql: String, db: OpaquePointer) -> String {
+        let nsSQL = sql as NSString
+        var result = sql
+        let matches = addColumnPattern.matches(in: sql, range: NSRange(location: 0, length: nsSQL.length))
+        for match in matches.reversed() {
+            let table = nsSQL.substring(with: match.range(at: 1))
+            let column = nsSQL.substring(with: match.range(at: 2))
+            guard columnExists(db: db, table: table, column: column),
+                  let range = Range(match.range(at: 0), in: result)
+            else { continue }
+            result.replaceSubrange(range, with: "-- (skipped: \(table).\(column) already exists)")
+        }
+        return result
+    }
+
+    private static func columnExists(db: OpaquePointer, table: String, column: String) -> Bool {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?;", -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        sqlite3_bind_text(stmt, 1, table, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 2, column, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
+        return sqlite3_column_int(stmt, 0) > 0
     }
 
     /// Both SwiftPM's own resource bundling and Swift Bundler's packaging flatten the `Database`

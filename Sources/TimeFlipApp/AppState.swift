@@ -11,6 +11,13 @@ final class AppState: ObservableObject {
     /// The facet colour-picker palette, loaded once from the `colour` reference table at launch
     /// (see `ActivityLibrary.colorOptions(from:)`). Fixed for the session — no UI edits it.
     let colourOptions: [ActivityColorOption]
+    /// The Categories tab's icon-grid palette, loaded once from the `icon` reference table at
+    /// launch (see `ActivityLibrary.iconOptions(from:)`). Fixed for the session -- no UI edits it.
+    let iconOptions: [CategoryIconOption]
+    /// Each face's assigned category, keyed by face id, from the `face` table
+    /// (`database/008_face.sql`). This is what the menu bar shows -- see `categoryActivity(for:)`.
+    /// Published so an edit on the Categories tab reaches the menu bar without a relaunch.
+    @Published var faceCategories: [UInt8: CategoryRecord]
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -102,10 +109,6 @@ final class AppState: ObservableObject {
     var onResetDevicePasswordRequest: (() async -> Bool)?
     var onFactoryResetRequest: (() async -> Bool)?
     var onCurrentFacetMappingChange: (() -> Void)?
-    // Fired when a colour is chosen in the facet picker, with the facet's ID and the chosen
-    // colour's `colour_id`, so the assigned category's colour can be persisted (see
-    // ApplicationDelegate). Not fired for the `blank`/Unassigned no-op path.
-    var onFacetColourPicked: ((_ facetID: UInt8, _ colourID: Int) -> Void)?
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
@@ -132,6 +135,8 @@ final class AppState: ObservableObject {
         doubleTapParameters: DoubleTapParameters,
         isDoubleTapEnabled: Bool,
         colourOptions: [ActivityColorOption] = [],
+        iconOptions: [CategoryIconOption] = [],
+        faceCategories: [UInt8: CategoryRecord] = [:],
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -140,6 +145,8 @@ final class AppState: ObservableObject {
         self.devicePasswordStore = devicePasswordStore
         self.developerConfigStore = developerConfigStore
         self.colourOptions = colourOptions
+        self.iconOptions = iconOptions
+        self.faceCategories = faceCategories
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         isLocked = false
@@ -260,6 +267,34 @@ final class AppState: ObservableObject {
     /// Free-function form so callers holding a freshly emitted `$facetMappings` payload (e.g. a
     /// Combine sink) can resolve against it directly instead of the property, which under
     /// `@Published`'s willSet-based emission hasn't been updated yet at emission time.
+    /// What the menu bar shows for a face: the name and icon of the category the `face` table
+    /// assigns it, rather than the facet's own `FacetMapping` (whose name and icon live in the
+    /// UserDefaults preferences blob and describe the facet, not a category).
+    ///
+    /// The limit still comes from the mapping. `category.daily_limit` exists and is editable on
+    /// the Categories tab, but nothing consumes it yet, so repointing the over-limit indicator at
+    /// it would change behaviour this change isn't meant to touch.
+    /// `categories` and `mappings` are passed in rather than read off `self` so a Combine sink can
+    /// supply the value it was handed: `@Published` publishes in `willSet`, so the property itself
+    /// is still the old value while a subscriber runs.
+    func categoryActivity(
+        for facetID: UInt8,
+        in categories: [UInt8: CategoryRecord],
+        mappings: [FacetMapping]
+    ) -> Activity? {
+        guard let category = categories[facetID] else { return nil }
+        let iconName = iconOptions.first { $0.iconId == category.iconID }?.iconName
+        return Activity(
+            name: category.name,
+            iconName: iconName,
+            limitMinutes: limitMinutes(for: facetID, in: mappings)
+        )
+    }
+
+    func categoryActivity(for facetID: UInt8) -> Activity? {
+        categoryActivity(for: facetID, in: faceCategories, mappings: facetMappings)
+    }
+
     static func activity(for facetID: UInt8, in mappings: [FacetMapping]) -> Activity? {
         guard let mapping = mappings.first(where: { $0.facetID == facetID }) else {
             return nil
@@ -282,12 +317,6 @@ final class AppState: ObservableObject {
         if mapping.facetID == currentFacetID {
             onCurrentFacetMappingChange?()
         }
-    }
-
-    /// Called when a colour is chosen for `facetID` in the picker, forwarding the chosen colour's
-    /// `colour_id` so the facet's assigned category colour can be persisted.
-    func assignFacetColour(facetID: UInt8, colourID: Int) {
-        onFacetColourPicked?(facetID, colourID)
     }
 
     func startDeviceScan(filterToTimeFlip: Bool) {
@@ -474,10 +503,6 @@ final class AppState: ObservableObject {
         dailyFacetDurations[facetID, default: 0] += delta
     }
 
-    func resetDailyTotals() {
-        dailyFacetDurations = [:]
-    }
-
     private func observePreferences() {
         // Coalesce all preference changes into a single debounced sink
         // to avoid cascading persistence calls and reduce disk I/O
@@ -595,7 +620,11 @@ final class AppState: ObservableObject {
     }
 
     func limitMinutes(for facetID: UInt8) -> Int {
-        mappingIndex(for: facetID).map { clampLimit(facetMappings[$0].limitMinutes) } ?? 0
+        limitMinutes(for: facetID, in: facetMappings)
+    }
+
+    func limitMinutes(for facetID: UInt8, in mappings: [FacetMapping]) -> Int {
+        mappings.first { $0.facetID == facetID }.map { clampLimit($0.limitMinutes) } ?? 0
     }
 
     private func clampLimit(_ value: Int) -> Int {

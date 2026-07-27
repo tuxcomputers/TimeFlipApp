@@ -46,7 +46,7 @@ to an `event_type` row by name:
 3. The app inserts a `device_event` row: `event_number`, `event_type_id`, `face`, `started_at` /
    `started_at_timezone` (captured in the local timezone at the moment the segment started —
    see [Database Design § local time + timezone](database-design.md#design-principle-local-time--timezone)),
-   `duration_seconds`, `is_paused`.
+   `duration_seconds`, `paused`.
 4. `event_number` is `UNIQUE`, so re-ingesting a frame already seen (e.g. after a reconnect) is a
    no-op rather than a duplicate row — the device's history buffer can and does replay frames the
    app has already processed.
@@ -101,8 +101,8 @@ A background process periodically selects `time_entry` rows where
 `synced_to_google_calendar = 0`, creates the corresponding Google Calendar event (using the
 entry's `category` name, `started_at`, `ended_at`), and on success sets
 `synced_to_google_calendar = 1`. A failed delivery leaves the flag at `0` so the row is retried
-on the next pass — there's no separate retry-count/backoff column, unlike the old
-`integration_event_cursors` design, since idempotent re-delivery is cheap enough not to need one.
+on the next pass — there's no separate retry-count/backoff column, unlike the removed
+cursor-table design that preceded it, since idempotent re-delivery is cheap enough not to need one.
 
 ## 6. Displaying a category's elapsed time
 

@@ -8,7 +8,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var minimumContentHeight: CGFloat
     private let minimumContentWidth: CGFloat = SettingsLayoutConstants.minimumWindowWidth
 
-    init(appState: AppState, authManager: GoogleAuthManager, integrationCoordinator: GoogleIntegrationCoordinator) {
+    init(
+        appState: AppState,
+        authManager: GoogleAuthManager,
+        integrationCoordinator: GoogleIntegrationCoordinator,
+        loadCategories: @escaping () -> [CategoryRecord],
+        createCategory: @escaping (String) -> Void,
+        findCategory: @escaping (String) -> CategoryRecord?,
+        updateCategoryColour: @escaping (Int, Int) -> Void,
+        updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
+        updateCategoryActive: @escaping (Int, Bool) -> Void,
+        updateCategoryName: @escaping (Int, String) -> Void,
+        updateCategoryIcon: @escaping (Int, Int) -> Void
+    ) {
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -35,6 +47,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             appState: appState,
             authManager: authManager,
             integrationCoordinator: integrationCoordinator,
+            loadCategories: loadCategories,
+            createCategory: createCategory,
+            findCategory: findCategory,
+            updateCategoryColour: updateCategoryColour,
+            updateCategoryDailyLimit: updateCategoryDailyLimit,
+            updateCategoryActive: updateCategoryActive,
+            updateCategoryName: updateCategoryName,
+            updateCategoryIcon: updateCategoryIcon,
             onClose: { [weak window] in
                 window?.close()
             }

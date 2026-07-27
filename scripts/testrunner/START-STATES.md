@@ -83,7 +83,7 @@ an app that's down is started and synced first, *then* its device state is read 
    **Device not paired**.
 3. Wait for history to sync (`history fetch complete: trigger=startup`) -- only now does the latest
    `device_event` reflect the physical device.
-4. Read the latest event's `is_paused`:
+4. Read the latest event's `paused`:
    - timing → go to **Prod and device is timing**
    - paused → go to **Prod and device is paused**
 

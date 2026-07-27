@@ -43,17 +43,17 @@ menu bar under developer mode.)
 ## Detecting if the device is paused (vs timing an activity)
 
 `device_event` has one row per timing segment (a facet flip or a pause), with an
-`is_paused` flag; see [`../../database/003_device_event.sql`](../../database/003_device_event.sql).
+`paused` flag; see [`../../database/003_device_event.sql`](../../database/003_device_event.sql).
 The **most recent** segment's flag is the current state. Order by `start_epoch` (indexed
 Unix seconds), **not** `event_number` -- the device's counter resets on factory reset and
 isn't safe for wall-clock ordering (see [`../../database/CLAUDE.md`](../../database/CLAUDE.md)).
 
 ```sql
-SELECT is_paused FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;
+SELECT paused FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;
 -- 1 = paused, 0 = timing, no rows = no events yet
 ```
 
-Helper: `_last_event_is_paused(db_path)` -> `True` / `False` / `None`. Used by
+Helper: `_last_event_paused(db_path)` -> `True` / `False` / `None`. Used by
 `ensure_not_timing_on_production()`, the pre-flight gate that refuses to start a run while
 on production with the device mid-timing (the run switches to test and factory-resets the
 device at the end, which would interrupt a real timing event).

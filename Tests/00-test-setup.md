@@ -113,7 +113,7 @@ timeout_seconds = 60
 ```toml step
 when = '$record_history == y'
 action = "sql_query"
-query = "SELECT COALESCE((SELECT CASE WHEN is_paused = 0 THEN 'TIMING' ELSE 'ok' END FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), 'ok');"
+query = "SELECT COALESCE((SELECT CASE WHEN paused = 0 THEN 'TIMING' ELSE 'ok' END FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), 'ok');"
 expect = "ok"
 ```
 - [x] Step 8: Switch to the test database -- quit the app (if running), run `scripts/use-test-database.sh $db_mode`, relaunch. On a fresh run (`db_mode = fresh`) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume).

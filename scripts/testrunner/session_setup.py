@@ -71,15 +71,15 @@ def _read_db_type(db_path):
         conn.close()
 
 
-def _last_event_is_paused(db_path):
-    """The most recent device_event's is_paused flag, ordered by start_epoch (the schema's
+def _last_event_paused(db_path):
+    """The most recent device_event's paused flag, ordered by start_epoch (the schema's
     stable time ordering -- event_number can reset independently of wall-clock time, see
     database/CLAUDE.md). Returns True (paused), False (timing an activity), or None if the
     database has no events yet."""
     conn = sqlite3.connect(db_path)
     try:
         row = conn.execute(
-            "SELECT is_paused FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
+            "SELECT paused FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
         ).fetchone()
     finally:
         conn.close()
@@ -111,7 +111,7 @@ def ensure_not_timing_on_production(db_path):
         return True
     # Read the concrete production.sqlite directly (the symlink points at it right now),
     # consistent with the rest of this module's post-switch queries.
-    if _last_event_is_paused(os.path.realpath(db_path)) is False:
+    if _last_event_paused(os.path.realpath(db_path)) is False:
         print(
             "\n!!! The app is on the PRODUCTION database and the device is currently TIMING a\n"
             "    real activity (its last event isn't a pause). Pause the device first, then\n"

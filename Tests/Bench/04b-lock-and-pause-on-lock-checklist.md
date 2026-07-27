@@ -67,7 +67,7 @@ query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_n
 - [x] Step 2: Check the menu bar shows the play icon (▶) -- device not already paused.
 ```toml step
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 ```
 - [x] Step 3: Click the "Lock" menu item.
@@ -75,7 +75,7 @@ expect = "0"
 action = "click_menu_item"
 item = "Lock"
 ```
-- [x] Step 4: Confirm a new `is_paused = 1` device_event row was written, and that `debug_log` shows
+- [x] Step 4: Confirm a new `paused = 1` device_event row was written, and that `debug_log` shows
       `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`.
 ```toml step
 [[actions]]
@@ -86,7 +86,7 @@ timeout_seconds = 10
 
 [[actions]]
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
 - [x] Step 5: Check the menu bar shows the lock badge and the icon has switched to the pause icon (⏸).
@@ -121,10 +121,10 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_i
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
 timeout_seconds = 10
 ```
-- [x] Step 8: Confirm the device is still paused after unlocking -- no new `is_paused = 0` row appears.
+- [x] Step 8: Confirm the device is still paused after unlocking -- no new `paused = 0` row appears.
 ```toml step
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
 - [x] Step 9: Check the menu bar: the lock badge is gone but the icon still shows the pause icon (⏸).
@@ -152,10 +152,10 @@ expect_contains = "Resume"
 action = "click_menu_item"
 item = "Resume"
 ```
-- [x] Step 12: Confirm a new `is_paused = 0` row appears in `device_event` for the resume.
+- [x] Step 12: Confirm a new `paused = 0` row appears in `device_event` for the resume.
 ```toml step
 action = "wait_for_sql"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 timeout_seconds = 8
 poll_interval = 1
@@ -178,7 +178,7 @@ expect = "{\"enabled\":true}"
 
 [[actions]]
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 ```
 - [x] Step 2: Quit the app.
@@ -212,11 +212,11 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 5: Confirm a new `is_paused = 1` device_event row now appears (only after this relaunch's
+- [x] Step 5: Confirm a new `paused = 1` device_event row now appears (only after this relaunch's
       startup fetch, not immediately after quit).
 ```toml step
 action = "wait_for_sql"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 timeout_seconds = 20
 poll_interval = 2
@@ -258,7 +258,7 @@ item = "Resume"
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 timeout_seconds = 8
 poll_interval = 1
@@ -301,7 +301,7 @@ query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_2_id OR
 expect_contains = "Quit requested; pause_on_lock disabled or no paired device, exiting immediately"
 timeout_seconds = 10
 ```
-- [x] Step 12: Confirm no new `is_paused = 1` device_event row was added around the quit time.
+- [x] Step 12: Confirm no new `paused = 1` device_event row was added around the quit time.
 ```toml step
 action = "sql_query"
 query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -351,7 +351,7 @@ if it doesn't match, resolve the same way as Scenario B's own precondition above
 - [x] Step 1: Check the menu bar: no lock badge, and the icon shows the play icon (▶).
 ```toml step
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 ```
 - [x] Step 2: Note the current (still-open, non-finalised) `device_event` row's `device_event_id` and
@@ -439,11 +439,11 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_i
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 10
 ```
-- [x] Step 4: Confirm no new `is_paused = 1` row was added -- `pause_on_lock` disabled, so Lock alone must
+- [x] Step 4: Confirm no new `paused = 1` row was added -- `pause_on_lock` disabled, so Lock alone must
       not pause.
 ```toml step
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 ```
 - [x] Step 5: Single-click (not double) the right half of the status icon; confirm via `debug_log`
@@ -513,7 +513,7 @@ query = "UPDATE setting SET setting_value = '{\"enabled\":true}' WHERE setting_n
 
 [[actions]]
 action = "sql_query"
-query = "SELECT is_paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+query = "SELECT paused FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "0"
 ```
 

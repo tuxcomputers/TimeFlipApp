@@ -60,8 +60,20 @@ populates `device_event` (see `Sources/TimeFlipApp/TimeFlipEvent.swift` and
 
 Constraints:
 - `event_name` is `UNIQUE` — each event type is only represented by one row.
-- Seeded with all known device event types: `facet_flip`, `pause`, `double_tap`,
-  `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`, `event_log`.
+- Seeded with all known device event types, with the ids **grouped by which table an event of that
+  type lands in** and a blank line between the groups in the DDL:
+
+  | IDs   | Group                                                | Types                                                                            |
+  |-------|------------------------------------------------------|----------------------------------------------------------------------------------|
+  | `1`-`2` | → `device_event` — timing segments, carry a duration | `facet_flip`, `pause`                                                            |
+  | `3`-`8` | → `device_notification` — point-in-time, no duration | `double_tap`, `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`, `event_log` |
+
+  The grouping is a convention of the seed order, not something the schema enforces — nothing stops
+  a row in either table referencing an id from the other group. It exists so the id alone tells you
+  where an event of that type belongs, which is why a **new event type is appended within its
+  matching group rather than interleaved** (see `database/CLAUDE.md` § Seed inserts). Which table a
+  given event actually lands in is decided by the classification step in
+  [Operation Spec § 1](operation-spec.md).
 
 ### `device_event` (`database/003_device_event.sql`)
 
@@ -78,7 +90,7 @@ facet or paused/resumed, marking the end of the previous segment.
 | `timezone_id`       | INTEGER | References `timezone.timezone_id` — the IANA zone (e.g. `America/New_York`) `start_time` was recorded in. |
 | `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering and the `finalised` flag; also half of the composite matching key (see below). Indexed. |
 | `duration_seconds`  | REAL    | How long the segment lasted, in seconds.                                    |
-| `is_paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
+| `paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
 | `finalised`         | INTEGER | `1` once the segment is closed out, `0` while it's still the device's in-progress interval. |
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
@@ -89,7 +101,7 @@ Constraints:
 - `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 - `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
-- `is_paused` is constrained to `0`/`1` (SQLite has no native boolean type).
+- `paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `processed` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `start_epoch` also has its own non-unique index (`IN1_device_event`) for ordering queries that
@@ -141,7 +153,7 @@ Reference table of activity icons that can be assigned to a facet.
 
 Constraints:
 - `icon_name` is `UNIQUE` — each icon asset is only represented by one row.
-- Seeded with a `blank` row (`icon_id = 0`) representing "no icon assigned", alongside the real
+- Seeded with a `None` row (`icon_id = 0`) representing "no icon assigned", alongside the real
   icon assets (`icon_id` 1-42) — so `category.icon_id` can stay a `NOT NULL` foreign key instead
   of allowing `NULL`.
 
@@ -153,11 +165,11 @@ Reference table of the colours available to assign to a category.
 |--------------|---------|--------------------------------------------------------------|
 | `colour_id`   | INTEGER | Primary key. Not autoincrementing — seeded with fixed IDs.   |
 | `colour_name` | TEXT    | Colour name, e.g. `Red`, `Teal`, `Cyan`.                      |
-| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `blank`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
+| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `None`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
 
 Constraints:
 - `colour_name` is `UNIQUE` — each colour is only represented by one row.
-- Seeded with a `blank` row (`colour_id = 0`, `device_hex` `NULL`) representing "no colour
+- Seeded with a `None` row (`colour_id = 0`, `device_hex` `NULL`) representing "no colour
   assigned" — so `category.colour_id` can stay a `NOT NULL` foreign key instead of allowing `NULL` —
   alongside 20 named colours (`colour_id` 1-20).
 - The 20 named colours are the categories listed on [html-color.codes](https://html-color.codes),
@@ -182,7 +194,7 @@ matters now that foreign keys are enforced (see the design principle above).
 Constraints:
 - `project_name` is `NOT NULL`.
 - Seeded with a `None` row pinned to `project_id = 0` — a fixed sentinel for "no project assigned",
-  the same id-0 convention used by `category` (`Unassigned`) and `colour` (`blank`), so
+  the same id-0 convention used by `category` (`Unassigned`) and `colour` (`None`), so
   `category.project_id` can stay `NOT NULL` and default to `0` instead of allowing `NULL`.
 
 ### `category` (`database/007_category.sql`)
@@ -193,23 +205,23 @@ Named activity category, linked to the icon and colour assigned to it.
 |--------------|---------|------------------------------------------------------------|
 | `category_id`  | INTEGER | Row identifier, primary key, autoincrementing.             |
 | `category_name`| TEXT    | Category name (e.g. an activity mapped to a facet).        |
-| `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `blank` icon) if no real icon is assigned. |
-| `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `blank` colour) if no real colour is assigned. |
+| `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `None` icon) if no real icon is assigned. |
+| `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `None` colour) if no real colour is assigned. |
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
-| `daily_limit`| INTEGER | Seconds of tracked time allowed against this category per day (`0` = no limit), following the same seconds convention as `duration_seconds` elsewhere (e.g. `time_entry`). The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
+| `daily_limit`| INTEGER | Whole minutes of tracked time allowed against this category per day (`0` = no limit). Minutes rather than the seconds convention used by `duration_seconds` elsewhere (e.g. `time_entry`): a limit is a coarse user-set budget, and nobody sets one to the nearest 30 seconds. The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
 | `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
 
 Constraints:
-- `icon_id` is a foreign key referencing `icon(icon_id)`, `NOT NULL`, defaulting to `0` (`blank`)
+- `icon_id` is a foreign key referencing `icon(icon_id)`, `NOT NULL`, defaulting to `0` (`None`)
   so a new category can be inserted without specifying one.
 - `colour_id` is a foreign key referencing `colour(colour_id)`, `NOT NULL`, defaulting to `0`
-  (`blank`) for the same reason.
+  (`None`) for the same reason.
 - `project_id` is a foreign key referencing `project(project_id)`, `NOT NULL`, defaulting to `0`
   (the `None` project) for the same reason. `project` (`006`) is created and seeded before
   `category` (`007`), so the reference resolves under enforced foreign keys.
-- Seeded with an `Unassigned` row (linked to the `blank` icon and the `blank` colour), a `Break`
+- Seeded with an `Unassigned` row (linked to the `None` icon and the `None` colour), a `Break`
   row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
-  both seeded with the `blank` colour, since none was specified.
+  both seeded with the `None` colour, since none was specified.
 
 ### `face` (`database/008_face.sql`)
 
@@ -391,12 +403,12 @@ It is numbered `002` so it precedes every table that references it (foreign keys
 | `timezone_id`   | INTEGER | Row identifier, primary key, autoincrementing.                     |
 | `timezone_name` | TEXT    | IANA time zone identifier (e.g. `Australia/Sydney`). `NOT NULL`, `UNIQUE`. |
 | `display_name`  | TEXT    | Optional human-friendly label for a picker (e.g. `Sydney`). Nullable. |
-| `is_active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
+| `active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
 
 Constraints:
 - `timezone_name` is `NOT NULL` and `UNIQUE` (`UN1_timezone`), so get-or-create can look a zone up
   by identifier and never store it twice.
-- `is_active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
+- `active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
 
 Seeded with a single sentinel row — `timezone_id 0`, `timezone_name`/`display_name` `Unknown` —
 which is the value every referencing `timezone_id` column defaults to, so a row can satisfy its

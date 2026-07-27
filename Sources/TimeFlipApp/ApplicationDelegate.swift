@@ -12,6 +12,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         doubleTapParameters: dataStore.loadDoubleTapParameters(),
         isDoubleTapEnabled: dataStore.loadDoubleTapEnabled(),
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
+        iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
+        faceCategories: dataStore.loadFaceCategories(),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -48,7 +50,30 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private lazy var settingsWindowController = SettingsWindowController(
         appState: appState,
         authManager: authManager,
-        integrationCoordinator: integrationCoordinator
+        integrationCoordinator: integrationCoordinator,
+        loadCategories: { [dataStore] in dataStore.loadCategories() },
+        createCategory: { [dataStore] name in dataStore.createCategory(name: name) },
+        findCategory: { [dataStore] name in dataStore.findCategory(named: name) },
+        updateCategoryColour: { [weak self, dataStore] categoryID, colourID in
+            dataStore.updateCategoryColour(categoryID: categoryID, colourID: colourID)
+            self?.refreshFaceCategories()
+        },
+        updateCategoryDailyLimit: { [weak self, dataStore] categoryID, minutes in
+            dataStore.updateCategoryDailyLimit(categoryID: categoryID, minutes: minutes)
+            self?.refreshFaceCategories()
+        },
+        updateCategoryActive: { [weak self, dataStore] categoryID, isActive in
+            dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
+            self?.refreshFaceCategories()
+        },
+        updateCategoryName: { [weak self, dataStore] categoryID, name in
+            dataStore.updateCategoryName(categoryID: categoryID, name: name)
+            self?.refreshFaceCategories()
+        },
+        updateCategoryIcon: { [weak self, dataStore] categoryID, iconID in
+            dataStore.updateCategoryIcon(categoryID: categoryID, iconID: iconID)
+            self?.refreshFaceCategories()
+        }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(
@@ -242,9 +267,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
-        }
-        appState.onFacetColourPicked = { [weak self] facetID, colourID in
-            self?.dataStore.updateCategoryColour(faceID: Int(facetID), colourID: colourID)
         }
         appState.onDailyResetTimeChange = { [weak self] hour, minute in
             guard let self else { return }
@@ -759,6 +781,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         logger.debug("live_event \(event.description, privacy: .public)")
+    }
+
+    /// Re-reads `face` joined to `category` after a Categories tab edit, so a renamed, recoloured
+    /// or re-iconed category reaches the menu bar straight away instead of at the next launch.
+    /// Both tables are tiny and this only runs on an explicit user edit.
+    private func refreshFaceCategories() {
+        appState.faceCategories = dataStore.loadFaceCategories()
     }
 
     /// Triggered by a double-click on the right-hand side of the status item. If `pause_on_lock`

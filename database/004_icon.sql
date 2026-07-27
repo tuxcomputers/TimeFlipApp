@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS icon (
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_icon ON icon(icon_name);
 
 INSERT INTO icon (icon_id, icon_name)
-SELECT 0, 'blank' WHERE NOT EXISTS (SELECT 1 FROM icon WHERE icon_id = 0);
+SELECT 0, 'None' WHERE NOT EXISTS (SELECT 1 FROM icon WHERE icon_id = 0);
 INSERT INTO icon (icon_id, icon_name)
 SELECT 1, 'ic_admin' WHERE NOT EXISTS (SELECT 1 FROM icon WHERE icon_id = 1);
 INSERT INTO icon (icon_id, icon_name)

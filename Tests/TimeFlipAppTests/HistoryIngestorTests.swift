@@ -102,7 +102,7 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         // Verify cursor advanced only through completed events (excludes live last entry).
-        let cursor = dataStore.loadEventCursor(target: .local, identifier: "device-history")
+        let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertEqual(cursor, 10)
 
         // Verify only completed events stored
@@ -142,15 +142,19 @@ final class HistoryIngestorTests: XCTestCase {
             isDoubleTapEnabled: true
         )
 
-        // Seed cursor to 5 so only event 6 should be processed.
-        dataStore.saveEventCursor(target: .local, identifier: "device-history", lastSentEventID: 5)
+        // Seed device_event to mirror the device: 5 already closed out, 6 the open segment.
+        // The derived resume position is therefore 5, so only event 6 is still in play.
+        seedDeviceEvents(dataStore, [
+            (event: 5, at: now.addingTimeInterval(-300)),
+            (event: 6, at: now.addingTimeInterval(-100))
+        ])
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
         let stored = dataStore.loadEvents(after: nil, limit: 10)
         XCTAssertEqual(stored.count, 0, "Live last entry should not be stored yet.")
-        let cursor = dataStore.loadEventCursor(target: .local, identifier: "device-history")
+        let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertEqual(cursor, 5, "Cursor should remain at last committed event.")
     }
 
@@ -192,7 +196,7 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(latest?.eventNumber, 20, "Latest entry should be passed through for UI updates.")
         let stored = dataStore.loadEvents(after: nil, limit: 10)
         XCTAssertTrue(stored.isEmpty, "Live entry should not be stored in the logbook.")
-        let cursor = dataStore.loadEventCursor(target: .local, identifier: "device-history")
+        let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertNil(cursor, "Cursor should not advance when only a live entry is present.")
     }
 
@@ -214,10 +218,10 @@ final class HistoryIngestorTests: XCTestCase {
             isDoubleTapEnabled: true
         )
         // Simulates a fresh app launch reconnecting to a device it already has history for: the
-        // persisted cursor from a previous session already matches the device's current event,
+        // position derived from device_event already matches the device's current event,
         // with no in-memory state populated yet (lastCommittedEventNumber/lastObservedEventNumber
         // are both nil until something reads them).
-        dataStore.saveEventCursor(target: .local, identifier: "device-history", lastSentEventID: 20)
+        seedDeviceEvents(dataStore, [(event: 20, at: now.addingTimeInterval(-10))])
         let dailyTotals = DailyFacetTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
 
@@ -315,12 +319,38 @@ final class HistoryIngestorTests: XCTestCase {
         let stored = dataStore.loadEvents(after: nil, limit: 10)
         XCTAssertEqual(stored.count, 1)
         XCTAssertEqual(stored.first?.eventNumber, 10)
-        let cursor = dataStore.loadEventCursor(target: .local, identifier: "device-history")
-        XCTAssertEqual(cursor, 10, "Cursor should stop before the unconfirmed entry so it's re-requested next time.")
+        // Event 10 is committed to the logbook but is still the newest device_event row, because
+        // the ambiguous entry 11 was withheld and so never recorded to close it out. The derived
+        // position counts only finalised rows, so it reads nil here and the next fetch re-streams
+        // from the start rather than resuming -- redundant, but not lossy (re-ingest dedupes), and
+        // it resolves itself as soon as any later event closes 10 out.
+        XCTAssertNil(
+            dataStore.latestCommittedDeviceEventNumber(),
+            "Withheld live entry leaves the last committed event open, so there's no finalised position yet."
+        )
+        XCTAssertEqual(
+            dataStore.latestDeviceEventNumber(), 10,
+            "The open row is still observable, so the cheap check knows the device reached 10."
+        )
 
         // Event 11's status is ambiguous (stream didn't reach the device's real last event, 15),
         // so it must not be surfaced as "current" yet.
         XCTAssertNil(latest, "Ambiguous entry should not be surfaced as the current activity.")
+    }
+
+    /// Seeds `device_event` with the given rows, oldest first, exactly as the ingestor would.
+    ///
+    /// `recordDeviceEvent` closes out earlier rows when a newer `start_epoch` arrives, so every
+    /// row but the last ends up finalised and the last stays open -- mirroring a real device,
+    /// whose newest segment is always still growing. Pass rows matching what the fake device
+    /// reports, or the ingestor will insert a second row for the same event number.
+    private func seedDeviceEvents(_ dataStore: AppDataStore, _ rows: [(event: UInt32, at: Date)]) {
+        for row in rows {
+            _ = dataStore.recordDeviceEvent(
+                eventNumber: row.event, deviceFace: 1,
+                startedAt: row.at, durationSeconds: 10, isPaused: false
+            )
+        }
     }
 }
 // swiftlint:enable line_length
