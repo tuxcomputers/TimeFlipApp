@@ -53,6 +53,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         loadCategories: { [dataStore] in dataStore.loadCategories() },
         updateCategoryColour: { [dataStore] categoryID, colourID in
             dataStore.updateCategoryColour(categoryID: categoryID, colourID: colourID)
+        },
+        updateCategoryDailyLimit: { [dataStore] categoryID, minutes in
+            dataStore.updateCategoryDailyLimit(categoryID: categoryID, minutes: minutes)
         }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)

@@ -7,6 +7,7 @@ struct SettingsRootView: View {
     let integrationCoordinator: GoogleIntegrationCoordinator
     let loadCategories: () -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
+    let updateCategoryDailyLimit: (Int, Int) -> Void
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
@@ -17,6 +18,7 @@ struct SettingsRootView: View {
         integrationCoordinator: GoogleIntegrationCoordinator,
         loadCategories: @escaping () -> [CategoryRecord],
         updateCategoryColour: @escaping (Int, Int) -> Void,
+        updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
@@ -25,6 +27,7 @@ struct SettingsRootView: View {
         self.integrationCoordinator = integrationCoordinator
         self.loadCategories = loadCategories
         self.updateCategoryColour = updateCategoryColour
+        self.updateCategoryDailyLimit = updateCategoryDailyLimit
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -40,7 +43,8 @@ struct SettingsRootView: View {
                 CategoriesSettingsView(
                     appState: appState,
                     loadCategories: loadCategories,
-                    updateCategoryColour: updateCategoryColour
+                    updateCategoryColour: updateCategoryColour,
+                    updateCategoryDailyLimit: updateCategoryDailyLimit
                 )
                     .tabItem {
                         Text("Categories")

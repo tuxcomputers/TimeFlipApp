@@ -32,6 +32,8 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     /// `false` once the category has been retired -- it stays in the table so historical
     /// `time_entry` rows keep resolving, but drops out of the assignment lists.
     let isActive: Bool
+    /// Tracked time allowed against this category per day, in whole minutes (`0` = no limit).
+    let dailyLimitMinutes: Int
 }
 
 // SQLite-backed application data.
@@ -450,7 +452,7 @@ final class AppDataStore {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
         let sql = """
-        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, co.device_hex, c.is_active
+        SELECT c.category_id, c.category_name, i.icon_name, c.colour_id, co.device_hex, c.is_active, c.daily_limit
         FROM category c
         JOIN icon i ON i.icon_id = c.icon_id
         JOIN colour co ON co.colour_id = c.colour_id
@@ -471,7 +473,16 @@ final class AppDataStore {
                 let colourID = Int(sqlite3_column_int64(stmt, 3))
                 let colourHex = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
                 let isActive = sqlite3_column_int64(stmt, 5) != 0
-                results.append(CategoryRecord(id: id, name: name, iconName: iconName, colourID: colourID, colourHex: colourHex, isActive: isActive))
+                let dailyLimitMinutes = Int(sqlite3_column_int64(stmt, 6))
+                results.append(CategoryRecord(
+                    id: id,
+                    name: name,
+                    iconName: iconName,
+                    colourID: colourID,
+                    colourHex: colourHex,
+                    isActive: isActive,
+                    dailyLimitMinutes: dailyLimitMinutes
+                ))
             }
             sqlite3_finalize(stmt)
         }
@@ -495,6 +506,31 @@ final class AppDataStore {
             sqlite3_bind_int64(stmt, 2, Int64(categoryID))
             if sqlite3_step(stmt) != SQLITE_DONE {
                 logger.error("category colour update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    /// Sets `daily_limit` (whole minutes, `0` = no limit) on a category -- the Categories tab's own
+    /// daily-limit field. Same `category_id >= 1` guard as `updateCategoryColour`: the
+    /// `Unassigned` sentinel never carries a limit. See `database/007_category.sql`.
+    ///
+    /// Nothing reads this value yet -- it is stored for a limit-tracking feature still to be
+    /// built (see `docs/features-under-development.md`).
+    func updateCategoryDailyLimit(categoryID: Int, minutes: Int) {
+        guard let db else { return }
+        let sql = "UPDATE category SET daily_limit = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category daily limit update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(max(0, minutes)))
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category daily limit update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }

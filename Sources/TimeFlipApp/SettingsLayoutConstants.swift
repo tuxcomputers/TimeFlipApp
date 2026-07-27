@@ -67,6 +67,11 @@ enum SettingsLayoutConstants {
         // same rhythm as the LED/More ones they're modelled on.
         static let rowSpacing: CGFloat = 8
         static let sectionVerticalPadding: CGFloat = 4
+        // Wide enough for the "Colour" caption above it, so the daily-limit column that follows
+        // starts at the same x in both the header row and the category rows.
+        static let colourColumnWidth: CGFloat = 46
+        static let limitFieldWidth: CGFloat = 50
+        static let limitFieldSpacing: CGFloat = 4
     }
 
     /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the

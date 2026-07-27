@@ -4,6 +4,7 @@ struct CategoriesSettingsView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
+    let updateCategoryDailyLimit: (Int, Int) -> Void
     @State private var categories: [CategoryRecord] = []
     // Active is the section you actually work in, so it starts open; Inactive is the archive you
     // only occasionally go looking in, so it starts folded away.
@@ -18,7 +19,8 @@ struct CategoriesSettingsView: View {
                 categories: categories.filter(\.isActive),
                 emptyMessage: "No active categories.",
                 appState: appState,
-                updateCategoryColour: updateCategoryColour
+                updateCategoryColour: updateCategoryColour,
+                updateCategoryDailyLimit: updateCategoryDailyLimit
             )
             CategorySection(
                 title: "Inactive",
@@ -26,7 +28,8 @@ struct CategoriesSettingsView: View {
                 categories: categories.filter { !$0.isActive },
                 emptyMessage: "No inactive categories.",
                 appState: appState,
-                updateCategoryColour: updateCategoryColour
+                updateCategoryColour: updateCategoryColour,
+                updateCategoryDailyLimit: updateCategoryDailyLimit
             )
         }
         .formStyle(.grouped)
@@ -46,6 +49,7 @@ private struct CategorySection: View {
     let emptyMessage: String
     @ObservedObject var appState: AppState
     let updateCategoryColour: (Int, Int) -> Void
+    let updateCategoryDailyLimit: (Int, Int) -> Void
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -60,7 +64,8 @@ private struct CategorySection: View {
                             category: category,
                             colourOptions: appState.colourOptions,
                             noColourName: appState.noColourName,
-                            onColourPicked: updateCategoryColour
+                            onColourPicked: updateCategoryColour,
+                            onDailyLimitChanged: updateCategoryDailyLimit
                         )
                     }
                 }
@@ -89,6 +94,8 @@ private struct CategoryColumnHeaderRow: View {
             Text("Name")
                 .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
             Text("Colour")
+                .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
+            Text("Daily limit (0 = disabled)")
             Spacer()
         }
         .font(.caption)
@@ -101,22 +108,27 @@ private struct CategoryRow: View {
     let colourOptions: [ActivityColorOption]
     let noColourName: String
     let onColourPicked: (Int, Int) -> Void
+    let onDailyLimitChanged: (Int, Int) -> Void
     @State private var selectedColor: Color
     @State private var selectedColourID: Int
     @State private var isColorPickerPresented = false
+    @State private var dailyLimitMinutes: Int
 
     init(
         category: CategoryRecord,
         colourOptions: [ActivityColorOption],
         noColourName: String,
-        onColourPicked: @escaping (Int, Int) -> Void
+        onColourPicked: @escaping (Int, Int) -> Void,
+        onDailyLimitChanged: @escaping (Int, Int) -> Void
     ) {
         self.category = category
         self.colourOptions = colourOptions
         self.noColourName = noColourName
         self.onColourPicked = onColourPicked
+        self.onDailyLimitChanged = onDailyLimitChanged
         _selectedColor = State(initialValue: category.colourHex.flatMap { ColorComponents(hex: $0)?.color } ?? .black)
         _selectedColourID = State(initialValue: category.colourID)
+        _dailyLimitMinutes = State(initialValue: category.dailyLimitMinutes)
     }
 
     /// The None colour (colour_id 0) has no real hex value -- rendered as a hollow black square
@@ -165,7 +177,38 @@ private struct CategoryRow: View {
                     noneOptionName: noColourName
                 )
             }
+            .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
+            dailyLimitField
             Spacer()
         }
+    }
+
+    /// Whole minutes per day, 0 = disabled. Deliberately uncapped, unlike the Device tab's
+    /// auto-pause (the device's own protocol caps that at 240m) -- this is an app-side budget, so
+    /// there is no upper bound to enforce. Negative input is clamped to 0 on commit.
+    private var dailyLimitField: some View {
+        HStack(spacing: SettingsLayoutConstants.CategoryList.limitFieldSpacing) {
+            TextField(
+                "",
+                value: Binding(
+                    get: { dailyLimitMinutes },
+                    set: { applyDailyLimit(newValue: $0) }
+                ),
+                format: .number
+            )
+            .frame(width: SettingsLayoutConstants.CategoryList.limitFieldWidth)
+            .labelsHidden()
+            .multilineTextAlignment(.trailing)
+            Text("min")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func applyDailyLimit(newValue: Int) {
+        let clamped = max(0, newValue)
+        guard clamped != dailyLimitMinutes else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: Category \"\(category.name)\" daily limit: \(dailyLimitMinutes)m -> \(clamped)m")
+        dailyLimitMinutes = clamped
+        onDailyLimitChanged(category.id, clamped)
     }
 }
