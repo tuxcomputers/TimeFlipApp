@@ -496,6 +496,10 @@ private struct CategoryIconGrid: View {
             }
         }
         .padding(SettingsLayoutConstants.IconGrid.gridVerticalPadding)
+        // The first cell takes keyboard focus when the popover opens, and its focus ring reads as
+        // a second selection sitting next to the real one. Disabling the effect leaves the accent
+        // stroke as the only blue in the grid, while keeping the cells keyboard-reachable.
+        .focusEffectDisabled()
     }
 }
 

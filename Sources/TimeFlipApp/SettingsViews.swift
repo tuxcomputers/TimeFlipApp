@@ -392,6 +392,9 @@ struct ColorOptionList: View {
             }
         }
         .padding(SettingsLayoutConstants.ColorPicker.listPadding)
+        // Same as the icon grid: the first row takes keyboard focus when the popover opens, and
+        // its focus ring reads as a selection. The checkmark is what marks the current colour.
+        .focusEffectDisabled()
     }
 }
 
