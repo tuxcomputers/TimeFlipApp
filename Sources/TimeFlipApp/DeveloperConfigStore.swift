@@ -11,6 +11,10 @@ import OSLog
 enum DeveloperMode {
     static let isEnabled = true
 
+    /// The PIN dev devices are left on. Tried during pairing after the factory default, and used
+    /// as a dev build's starting `devicePassword`. Only ever reached when `isEnabled`.
+    static let devicePassword = "123456"
+
     /// Whether debug messages are actually emitted right now -- true only when `isEnabled` (the
     /// compile-time dev flag above) is also on. Set once at startup from the `debug` setting's
     /// `enabled` field (see `AppDataStore.loadDebugEnabled()`), so a user can turn terminal

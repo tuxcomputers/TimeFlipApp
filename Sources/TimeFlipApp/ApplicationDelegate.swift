@@ -201,13 +201,27 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.appState.wantsPairing = true
                 // A newly selected device is almost always still on the factory default —
                 // reusing whatever password a previous (different) device rotated to would
-                // just be wrong here. Try the default first; fall back to the password field
-                // (e.g. a known custom PIN typed in for recovery) only if that's rejected.
+                // just be wrong here. So: the default first, then in a dev build the PIN dev
+                // devices are left on, then the password field (e.g. a known custom PIN typed in
+                // for recovery). Each is only tried if the one before was rejected as wrong --
+                // any other outcome stops the sequence.
+                //
+                // Pairing is the only place a password is guessed. Connecting uses the stored one
+                // and fails if it is rejected, because being paired means the app is meant to
+                // already know it (see startDeviceEvents).
+                var candidates = [TimeFlipConstants.defaultPassword]
+                if DeveloperMode.isEnabled {
+                    candidates.append(DeveloperMode.devicePassword)
+                }
+                candidates.append(self.appState.devicePassword)
+                var tried: Set<String> = []
                 var attemptedPassword = TimeFlipConstants.defaultPassword
-                var outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: attemptedPassword)
-                if outcome == .wrongPassword, self.appState.devicePassword != TimeFlipConstants.defaultPassword {
-                    attemptedPassword = self.appState.devicePassword
-                    outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: attemptedPassword)
+                var outcome = DeviceConnectOutcome.wrongPassword
+                for candidate in candidates where !tried.contains(candidate) {
+                    tried.insert(candidate)
+                    attemptedPassword = candidate
+                    outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: candidate)
+                    guard outcome == .wrongPassword else { break }
                 }
                 switch outcome {
                 case .connected:

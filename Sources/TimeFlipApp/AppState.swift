@@ -165,7 +165,7 @@ final class AppState: ObservableObject {
         // but the symlink some dev setups point it at (a repo-tracked file) keeps getting lost --
         // rather than chase that, dev builds just start on a fixed, easy-to-type password instead
         // of the real factory default, independent of whether config.json actually loads.
-        devicePassword = DeveloperMode.isEnabled ? "123456" : TimeFlipConstants.defaultPassword
+        devicePassword = DeveloperMode.isEnabled ? DeveloperMode.devicePassword : TimeFlipConstants.defaultPassword
         pairedDeviceUUID = nil
         pairingStatus = .notPaired
         wantsPairing = false
