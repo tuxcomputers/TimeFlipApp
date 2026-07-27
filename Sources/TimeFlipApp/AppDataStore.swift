@@ -628,7 +628,7 @@ final class AppDataStore {
     /// `Unassigned` sentinel never carries a limit. See `database/007_category.sql`.
     ///
     /// Nothing reads this value yet -- it is stored for a limit-tracking feature still to be
-    /// built (see `docs/features-under-development.md`).
+    /// built (see `docs/TODO-features-under-development.md`).
     func updateCategoryDailyLimit(categoryID: Int, minutes: Int) {
         guard let db else { return }
         let sql = "UPDATE category SET daily_limit = ? WHERE category_id = ? AND category_id >= 1;"

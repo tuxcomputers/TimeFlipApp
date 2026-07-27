@@ -4,6 +4,7 @@
 - [ ] Faces
 - [ ] Time logs
 - [ ] Calendar sync
+- [ ] Sync to TimeFlip cloud
 - [ ] Projects
 
 ## Categories
@@ -84,6 +85,15 @@ nothing currently populates it that way), a read-back call (`GoogleCalendarClien
 list/get-single-event method yet, only `insertEvent`), and the property-comparison check. This
 feature depends on Time logs above actually writing `time_entry` rows before it has anything to
 sync.)
+
+## Sync to TimeFlip cloud
+
+- Design intent to be captured.
+
+(Note: nothing in `Sources/` talks to a TimeFlip cloud API today -- no HTTP client, endpoint,
+account or token for it exists; the only cloud integration currently built is Google Calendar.
+The vendor's API is documented in `docs/TimeFlip API Documentation 05.2025.pdf`, which is where
+the shape of this work will come from.)
 
 ## Projects
 
