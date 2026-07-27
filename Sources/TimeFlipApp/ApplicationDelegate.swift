@@ -17,7 +17,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         googleCalendarID: dataStore.loadGoogleConfiguration().calendarID,
         googleCalendarName: dataStore.loadGoogleConfiguration().calendarName,
         googleClientID: dataStore.loadGoogleConfiguration().clientID,
-        wantsPairing: dataStore.loadPairedDevice().wantsPairing,
+        // Pairing survives a quit: the app comes back up still paired to whatever it was paired to,
+        // and only Forget Device changes that.
+        isPaired: dataStore.loadPaired(),
         pairedDeviceName: dataStore.loadPairedDevice().name,
         pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
         dailyResetHour: dataStore.loadDailyResetTime().hour,
@@ -168,9 +170,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
             guard let self else { return }
-            // Reflect pairing state into the `paired` setting: true on pair/reconnect, false on
-            // forget/factory-reset/pairing-failure. A test/observer gates its connectivity check
-            // on this.
+            // Fires only when pairing itself changes -- true once a first pairing succeeds, false
+            // on forget/factory-reset/pairing-failure. Routine connects and drops don't reach here
+            // (see AppState.confirmConnected), so the `paired` setting stays put across them.
             self.dataStore.recordPaired(paired)
             if let controller = self.device as? TimeFlipMockControlling {
                 if paired {
@@ -203,8 +205,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.onDeviceSelectedForPairing = { [weak self] id in
             guard let self, let bleDevice = self.device as? TimeFlipBLEDevice else { return }
             Task { @MainActor in
-                self.appState.pairingStatus = .pairing
-                self.appState.wantsPairing = true
+                self.appState.connectionStatus = .pairing
                 // A newly selected device is almost always still on the factory default —
                 // reusing whatever password a previous (different) device rotated to would
                 // just be wrong here. So: the default first, then in a dev build the PIN dev
@@ -238,11 +239,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     self.startDeviceEvents(skipConnect: true)
                 case .notTimeFlip:
                     self.appState.markDeviceInvalid(id)
-                    self.appState.pairingStatus = .notPaired
-                    self.appState.wantsPairing = false
+                    self.appState.connectionStatus = .disconnected
                 case .wrongPassword:
                     self.appState.pairingFailed(message: "Wrong PIN")
-                    self.appState.wantsPairing = false
                 case .failed:
                     self.appState.pairingFailed(message: "Connect failed")
                 case .cancelled:
@@ -360,14 +359,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             .store(in: &cancellables)
-        // The pairing intent now lives in the database rather than the preferences blob, so every
-        // change to it has to be written back. Fires once on subscribe with the current value,
-        // which is the value just restored from the same setting -- a harmless no-op write.
-        appState.$wantsPairing
-            .sink { [weak self] wantsPairing in
-                self?.dataStore.recordWantsPairing(wantsPairing)
-            }
-            .store(in: &cancellables)
         Publishers.CombineLatest(appState.$googleCalendarID, appState.$googleCalendarName)
             .sink { [weak self] id, name in
                 self?.dataStore.recordGoogleCalendar(id: id, name: name)
@@ -398,13 +389,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         menuBarController.start()
-        // "The app starts and knows whether it is paired" -> reflect that into the `paired`
-        // setting up front, every launch, before any connection attempt (a subsequent
-        // reconnect/forget/disconnect keeps it in step via the hooks above/below).
-        dataStore.recordPaired(appState.isPaired || appState.wantsPairing)
+        // Being paired is what makes a connection attempt worth making at all -- an app that has
+        // never been paired, or has been told to forget, has no device to reach for and sits idle
+        // until the user pairs one.
         if appState.isPaired {
-            startDeviceEvents()
-        } else if appState.wantsPairing {
             startDeviceEvents()
         }
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -419,12 +407,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     /// If `pause_on_lock` is enabled, pause and lock the device before actually quitting -- same
     /// rationale as pausing via the app engaging lock mode (see `pause_on_lock`'s seed
     /// description): the device shouldn't keep running/trackable once nothing's left controlling
-    /// it. If the setting is disabled (or there's no paired device to command), quit immediately
-    /// with no device interaction. Delays termination (`.terminateLater`) rather than blocking
-    /// this call, since `setPause`/`setLock` are async BLE round trips.
+    /// it. If the setting is disabled (or the device isn't reachable to be commanded), quit
+    /// immediately with no device interaction -- being paired isn't enough here, since pause/lock
+    /// are BLE round trips that go nowhere without a live connection. Delays termination
+    /// (`.terminateLater`) rather than blocking this call, since they're async.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let device, appState.isPaired, dataStore.loadPauseOnLockEnabled() else {
-            DeveloperMode.debugPrint(.timeFlip, "Quit requested; pause_on_lock disabled or no paired device, exiting immediately")
+        guard let device, appState.isConnected, dataStore.loadPauseOnLockEnabled() else {
+            DeveloperMode.debugPrint(.timeFlip, "Quit requested; pause_on_lock disabled or device not connected, exiting immediately")
             return .terminateNow
         }
         DeveloperMode.debugPrint(.timeFlip, "Quit requested; pause_on_lock enabled, pausing and locking device before exit")
@@ -460,22 +449,22 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func handleSystemWake() {
         Task { @MainActor in
-            guard self.appState.pairingStatus != .paired else {
+            guard !self.appState.isConnected else {
                 self.logger.notice("System woke from sleep; device already connected")
                 return
             }
-            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            guard self.appState.shouldMaintainConnection else { return }
             self.logger.notice("System woke from sleep; forcing a fresh device reconnect attempt")
             self.stopDeviceEvents()
             self.reconnectAttempt = 0
-            self.appState.pairingStatus = .reconnecting
+            self.appState.connectionStatus = .reconnecting
             // Deliberate pause between showing the yellow "reconnecting" text and actually
             // attempting the connection. Without it, a fast reconnect makes it impossible to tell
             // whether this wake-triggered retry path ran at all versus the device just already
             // being in range by coincidence.
             DeveloperMode.debugPrint(.timeFlip, "System wake: reconnecting status shown, waiting 2s before connect attempt")
             try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
-            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            guard self.appState.shouldMaintainConnection else { return }
             DeveloperMode.debugPrint(.timeFlip, "System wake: 2s delay elapsed, attempting reconnect now")
             self.startDeviceEvents()
         }
@@ -560,7 +549,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 await device.disconnect()
                 if !wasCancelled {
                     await MainActor.run {
-                        self.appState.pairingFailed(message: "Wrong PIN")
+                        // An already-paired device rejecting the stored password is a connection
+                        // failure, not an unpairing: the app still knows which device this is, and
+                        // dropping the pairing on its behalf would throw away the remembered device
+                        // over what might be a one-off. Surface it and stop retrying -- Forget
+                        // Device is the user's move to make. A device that was never paired (the
+                        // pairing attempt itself) goes through pairingFailed instead.
+                        if self.appState.isPaired {
+                            self.appState.connectionFailed(message: "Wrong PIN")
+                        } else {
+                            self.appState.pairingFailed(message: "Wrong PIN")
+                        }
                     }
                 }
                 return
@@ -596,18 +595,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             // A genuine device connection (a new pairing, or an app-start/reconnect login --
             // the factory-reset-confirmation login returned above and is deliberately excluded).
-            // Stamp connection.last_connection so an observer/test can confirm the device connected,
-            // and mark paired=true -- this is the one hook that also catches a bare reconnect (which
-            // sets pairingStatus=.paired directly, without firing onPairingChange).
+            // This is purely a connection event: it stamps connection.last_connection and marks the
+            // link up, and deliberately does NOT touch `paired`. Whether the app is paired was
+            // settled before this attempt was made, and reaching the device doesn't change it.
             let connectedAt = dataStore.recordConnection()
-            dataStore.recordPaired(true)
             DeveloperMode.debugPrint(.timeFlip, "connection.last_connection recorded: \(connectedAt)")
             await MainActor.run {
                 // Login confirms the device is reachable and authenticated again — clear the
                 // "reconnecting" state right away; the history backfill below will correct the
                 // displayed facet/duration/pause state to whatever the device actually reports.
-                if self.appState.pairingStatus == .reconnecting {
-                    self.appState.pairingStatus = .paired
+                if self.appState.connectionStatus == .reconnecting {
+                    self.appState.connectionStatus = .connected
                 }
                 self.reconnectAttempt = 0
                 // Persist the password that actually worked if it differs from the stored one
@@ -691,10 +689,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         logger.notice("Device event stream stopped")
     }
 
+    /// The device went away on its own -- out of range, powered off, BLE dropped. Only the
+    /// connection is affected: the pairing is untouched, so the app keeps knowing which device it
+    /// is meant to be talking to and keeps trying to get back to it.
     private func handleDeviceDisconnect() {
         logger.warning("Device disconnected; attempting auto-reconnect")
         let lostAt = dataStore.recordConnectionLost()
-        dataStore.recordPaired(false)
         DeveloperMode.debugPrint(.timeFlip, "connection.connection_lost recorded: \(lostAt)")
         lastSentFacetColors.removeAll()
         facetColorInitialized = false
@@ -706,11 +706,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     /// Called whenever a connection to an already-paired device is lost or a reconnect attempt
     /// fails outright. This is almost always a transient BLE issue (out of range, laptop asleep)
-    /// rather than a deliberate unpair, so — unlike a genuine pairing failure — it must not wipe
-    /// `isPaired`/the on-screen activity. Instead it keeps retrying indefinitely with backoff
-    /// while marking the state `.reconnecting`, which MenuBarController renders by leaving the
-    /// last known icon/activity/timer on screen. History resync after a successful reconnect
-    /// corrects anything that drifted while offline.
+    /// rather than a deliberate unpair, so it must not touch `isPaired` or the on-screen activity.
+    /// Instead it keeps retrying indefinitely with backoff while marking the connection
+    /// `.reconnecting`, which MenuBarController renders by leaving the last known
+    /// icon/activity/timer on screen. History resync after a successful reconnect corrects anything
+    /// that drifted while offline.
     private func handleReconnectFailure(message: String) {
         // Mid factory-reset: the disconnect is the device rebooting after the 0xFF command. Keep the
         // "Resetting..." status (not a scary "Reconnecting/Failed") and keep retrying to catch the
@@ -719,14 +719,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             retryOrTimeOutFactoryResetConfirm()
             return
         }
-        // Retry on wantsPairing too: a drop between connect() and the first facet event happens
-        // before isPaired is ever set, so gating on isPaired alone would leave the UI stuck with
-        // no retry and no failure surfaced.
-        guard appState.isPaired || appState.wantsPairing else {
+        // Nothing to reconnect to: this drop happened during a pairing attempt that never got as
+        // far as pairing (a drop between connect() and the first facet event), so report it as the
+        // pairing failure it is rather than retrying forever against a device the app isn't
+        // actually paired to.
+        guard appState.shouldMaintainConnection else {
             appState.pairingFailed(message: message)
             return
         }
-        appState.pairingStatus = .reconnecting
+        appState.connectionStatus = .reconnecting
         scheduleReconnect()
     }
 
@@ -736,13 +737,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private func retryOrTimeOutFactoryResetConfirm() {
         guard pendingFactoryResetConfirm else { return }
         if let deadline = factoryResetConfirmDeadline, Date() < deadline {
-            appState.pairingStatus = .resetting
+            appState.connectionStatus = .resetting
             scheduleReconnect()
         } else {
             pendingFactoryResetConfirm = false
             factoryResetConfirmDeadline = nil
             DeveloperMode.debugPrint(.timeFlip, "Factory reset NOT confirmed within timeout; the device never came back on the default password")
-            appState.pairingStatus = .failed("Reset sent, but couldn't confirm — check the device")
+            appState.connectionStatus = .failed("Reset sent, but couldn't confirm — check the device")
         }
     }
 
@@ -754,7 +755,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds) * TimeConstants.nanosecondsPerSecond)
             guard let self else { return }
-            guard self.appState.isPaired || self.appState.wantsPairing else { return }
+            guard self.appState.shouldMaintainConnection else { return }
             self.startDeviceEvents()
         }
     }
@@ -805,7 +806,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.update(from: event)
         if awaitingInitialStatus, case .facetChanged = event {
             awaitingInitialStatus = false
-            appState.confirmPaired(name: "TimeFlip", uuid: nil)
+            appState.confirmConnected(name: "TimeFlip", uuid: nil)
         }
         if case .systemState(let state) = event {
             switch state.syncStatus {

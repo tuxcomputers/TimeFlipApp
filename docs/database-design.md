@@ -378,19 +378,47 @@ Seeded rows:
   - `client_id` — the OAuth client id. Not a secret (it appears in every OAuth URL), which is why
     it is not in the Keychain alongside the client secret. Developer mode's `config.json`
     overrides it at launch.
-- `paired` = `{"paired":false}` and `paired_device` = `{"wants":false}` — pairing, split across two
-  rows by how long the values live:
-  - `paired` is **volatile connection state**: true on connect or reconnect, false on forget,
-    factory reset, pairing failure *and every transient disconnect*. It answers "is the device
-    reachable right now", which is what a test or observer gates its connectivity check on.
-  - `paired_device` is **durable**, changing only when the user pairs or forgets: `wants` is the
-    pairing intent restored at launch to decide whether to attempt a connection at all, `name` is
-    the remembered device name shown while disconnected, and `uuid` is the CoreBluetooth
-    peripheral identifier used to reconnect to that same device rather than rediscovering.
-    `name` and `uuid` are absent until a first pairing.
-  - Keeping `wants` out of `paired` is the point of the split: a quit while the device is out of
-    range would otherwise leave `paired` false with no record that the user ever asked to be
-    paired, and the app would come back up and never reconnect.
+- `connection` = `{"connected":false,"last_connection":"…","connection_lost":"","quit_request":""}`
+  — **connection**: whether the app can reach its paired device right now, and when that last
+  changed. Every field is transient, moving on each connect and drop.
+  - `connected` — true between a successful login and the next drop or quit. This is the flag to
+    read for "is the device reachable now?".
+  - `last_connection` — the most recent successful login (a new pairing, or any
+    app-start/reconnect login). Seeded to when the row was created.
+  - `connection_lost` — when a drop was last detected. Cleared to `""` on a clean quit, so an
+    intentional shutdown isn't later misread as the device having gone away.
+  - `quit_request` — when the app was last asked to quit.
+  - The three timestamps exist so an observer can tell *connected now* from *lost the device* from
+    *quit deliberately*, rather than inferring it from a single boolean.
+- `paired` = `{"paired":false}` and `paired_device` = `{}` — **pairing**: whether the app knows
+  which device to talk to, and which one that is. Both are durable (see
+  [Pairing vs connection](#pairing-vs-connection) below).
+  - `paired` answers *whether*. True from a successful first pairing until the user forgets the
+    device — Forget Device, or the end of a confirmed factory reset. Nothing else clears it.
+    Restored at launch, where it decides whether a connection is worth attempting at all.
+  - `paired_device` answers *which*: `name` is the remembered device name shown while
+    disconnected, `uuid` the CoreBluetooth peripheral identifier used to reconnect to that same
+    device rather than rediscovering it. Both absent until a first pairing, and cleared on forget.
+  - Split across two rows only because a boolean and a device identity change for different
+    reasons; they always move together.
+
+#### Pairing vs connection
+
+Two distinct things, and the schema keeps them apart because conflating them is what made an
+out-of-band device reset look like nothing had happened:
+
+| | Row | Lifetime | Changed by |
+|---|---|---|---|
+| **Pairing** | `paired`, `paired_device` | Durable | Pairing a device; Forget Device |
+| **Connection** | `connection` | Transient | Every connect, drop, retry, quit |
+
+Connection is **gated by pairing**: an app that isn't paired has no device to be connected to, so
+`connection.connected` cannot meaningfully be true while `paired` is false. The reverse is
+routine — a paired device that is switched off, out of range or simply not reached yet is paired
+and disconnected, and the app keeps retrying because it still knows which device it wants.
+
+Practically, that means going out of range does **not** write to `paired`. To ask "does this need
+pairing?" read `paired`; to ask "can the app reach it right now?" read `connection.connected`.
 
 ### `debug_log` (`database/012_debug_log.sql`)
 

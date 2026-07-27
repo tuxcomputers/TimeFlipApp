@@ -91,17 +91,17 @@ struct TimeFlipSettingsView: View {
             LabeledContent("Auto-pause (0 disable, max 240m)") {
                 autoPauseControls
             }
-            .disabled(!appState.isPaired)
+            .disabled(!appState.isConnected)
             DisclosureGroup(isExpanded: $appState.isLEDExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Brightness") {
                         brightnessControls
                     }
-                    .disabled(!appState.isPaired)
+                    .disabled(!appState.isConnected)
                     LabeledContent("Blink Interval") {
                         blinkIntervalControls
                     }
-                    .disabled(!appState.isPaired)
+                    .disabled(!appState.isConnected)
                 }
                 .padding(.vertical, 4)
             } label: {
@@ -120,9 +120,9 @@ struct TimeFlipSettingsView: View {
                         set: { setDoubleTapEnabled(!$0) }
                     ))
                     .toggleStyle(.checkbox)
-                    .disabled(!appState.isPaired)
+                    .disabled(!appState.isConnected)
                     doubleTapControls
-                        .disabled(!appState.isPaired || !appState.isDoubleTapEnabled)
+                        .disabled(!appState.isConnected || !appState.isDoubleTapEnabled)
                 }
                 .padding(.vertical, 4)
             } label: {
@@ -140,7 +140,7 @@ struct TimeFlipSettingsView: View {
     private var pairingSection: some View {
         Section("TimeFlip") {
             HStack {
-                if appState.pairingStatus == .resetting {
+                if appState.connectionStatus == .resetting {
                     // Reset confirmed and in progress: show only a progress indicator -- no Forget/
                     // Reset buttons, so they can't be clicked mid-reset and disrupt the confirm cycle.
                     ProgressView()
@@ -152,13 +152,13 @@ struct TimeFlipSettingsView: View {
                         DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
                         Task { await appState.resetAndForgetDevice() }
                     }
-                    .disabled(appState.pairingStatus == .pairing)
+                    .disabled(appState.connectionStatus == .pairing)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
-                    .disabled(appState.pairingStatus == .pairing)
+                    .disabled(appState.connectionStatus == .pairing)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
                         isPresented: $showingFactoryResetConfirmation,
@@ -225,9 +225,9 @@ struct TimeFlipSettingsView: View {
                         .onTapGesture {
                             DeveloperMode.debugPrint(.click, "Discovered-device row tapped: \(device.name)\(isInvalid ? " (invalid, ignored)" : "")")
                             guard !isInvalid else { return }
-                            let wasThisDevicePending = appState.pairingStatus == .pairing
+                            let wasThisDevicePending = appState.connectionStatus == .pairing
                                 && appState.pendingPairingDeviceID == device.id
-                            if appState.pairingStatus == .pairing {
+                            if appState.connectionStatus == .pairing {
                                 appState.cancelPairingAttempt()
                             }
                             guard !wasThisDevicePending else { return }
@@ -326,7 +326,7 @@ struct TimeFlipSettingsView: View {
             .contentShape(Rectangle())
             .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
                 if isPressing {
-                    guard appState.isPaired, appState.autoPauseHoldDirection != direction else { return }
+                    guard appState.isConnected, appState.autoPauseHoldDirection != direction else { return }
                     DeveloperMode.debugPrint(.click, "Button clicked: Auto-pause \(direction > 0 ? "up" : "down") arrow")
                     appState.autoPauseHoldDirection = direction
                     let startValue = autoPauseValue
@@ -428,7 +428,7 @@ struct TimeFlipSettingsView: View {
     }
 
     private func applyAutoPause(newValue: Int) {
-        guard appState.isPaired else { return }
+        guard appState.isConnected else { return }
         let clamped = max(0, min(240, newValue))
         autoPauseValue = clamped
         let minutes = UInt16(clamped)
@@ -465,7 +465,7 @@ struct TimeFlipSettingsView: View {
     }
 
     private func applyLEDBrightness(newValue: Int) {
-        guard appState.isPaired else { return }
+        guard appState.isConnected else { return }
         let clamped = max(1, min(100, newValue))
         ledBrightnessValue = clamped
         let percent = UInt8(clamped)
@@ -477,7 +477,7 @@ struct TimeFlipSettingsView: View {
     }
 
     private func applyBlinkInterval(newValue: Int) {
-        guard appState.isPaired else { return }
+        guard appState.isConnected else { return }
         let clamped = max(5, min(60, newValue))
         blinkIntervalValue = clamped
         let seconds = UInt8(clamped)
@@ -489,7 +489,7 @@ struct TimeFlipSettingsView: View {
     }
 
     private func applyDoubleTapParameters(_ params: DoubleTapParameters) {
-        guard appState.isPaired else { return }
+        guard appState.isConnected else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Double-tap params: ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
         doubleTapParams = params
         appState.doubleTapParameters = params
@@ -498,7 +498,7 @@ struct TimeFlipSettingsView: View {
     }
 
     private func setDoubleTapEnabled(_ enabled: Bool) {
-        guard appState.isPaired else { return }
+        guard appState.isConnected else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Double-tap enabled: \(appState.isDoubleTapEnabled) -> \(enabled)")
         appState.isDoubleTapEnabled = enabled
         appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
@@ -517,38 +517,40 @@ struct TimeFlipSettingsView: View {
         return params
     }
 
-    /// Mirrors the Name row: it reads "Not paired" until a connection is actually confirmed
-    /// (`isPaired` flips true on pairing, false again on forget), and stays that way while a reset
-    /// is in progress. Battery follows the same rule so it holds at "Not paired" through the whole
-    /// pairing attempt instead of briefly flashing "Unknown" before the first battery reading
-    /// arrives. `isPaired` stays true through a `.reconnecting` blip, so the last value keeps
-    /// showing then, exactly as the Name keeps showing the device name.
-    private var isUnpairedForDisplay: Bool {
-        !appState.isPaired || appState.pairingStatus == .resetting
+    /// Whether the Info rows are showing values that mean something right now. True while
+    /// connected, and kept true through a `.reconnecting` blip so the last known name/battery stay
+    /// solid rather than flickering grey every time the device dips out of range. Everything else
+    /// -- never paired, paired but not reached yet, pairing, resetting, failed -- reads as stale.
+    ///
+    /// Note this is deliberately not `isPaired`: a paired app that hasn't reached its device since
+    /// launch has a device name to show but no live values behind it.
+    private var isShowingLiveValues: Bool {
+        appState.isConnected || appState.connectionStatus == .reconnecting
     }
 
-    /// Name/Connection value colour: black (primary) once connected, greyed (secondary) while
-    /// "Not paired"/pairing/resetting -- so the Info values read solid black when live, matching
-    /// the battery %, and fall back to grey together when there's no connection.
+    /// Name/Connection value colour: black (primary) while the values are live, greyed (secondary)
+    /// otherwise -- so the Info values read solid black when there's a device behind them,
+    /// matching the battery %, and fall back to grey together when there isn't.
     private var infoValueColor: Color {
-        isUnpairedForDisplay ? .secondary : .primary
+        isShowingLiveValues ? .primary : .secondary
     }
 
     private var batteryText: String {
-        if isUnpairedForDisplay {
+        // No device at all is a different answer from a device we just can't hear from.
+        guard appState.isPaired else {
             return "Not paired"
         }
-        guard let level = appState.batteryLevel else {
+        guard isShowingLiveValues, let level = appState.batteryLevel else {
             return "Unknown"
         }
         return "\(level)%"
     }
 
-    /// The battery *value* colour: greyed (secondary) when unpaired so "Not paired" matches the
-    /// Name/Connection rows; otherwise it flashes red/default in sync with the menu bar's
-    /// low-battery blink (see `batteryLabelColor`).
+    /// The battery *value* colour: greyed (secondary) when the reading isn't live, so "Not
+    /// paired"/"Unknown" match the Name/Connection rows; otherwise it flashes red/default in sync
+    /// with the menu bar's low-battery blink (see `batteryLabelColor`).
     private var batteryTextColor: Color {
-        if isUnpairedForDisplay { return .secondary }
+        if !isShowingLiveValues { return .secondary }
         return batteryLabelColor
     }
 
@@ -577,15 +579,17 @@ struct TimeFlipSettingsView: View {
     }
 
     private var statusText: String {
-        switch appState.pairingStatus {
-        case .notPaired:
-            return "Not paired"
+        switch appState.connectionStatus {
+        case .disconnected:
+            // The connection is down either way; which of the two it is depends on whether there
+            // is a device to be disconnected *from*.
+            return appState.isPaired ? "Disconnected" : "Not paired"
         case .pairing:
             if let name = appState.pendingPairingDeviceName {
                 return "Trying to pair with \(name)....."
             }
             return "Pairing..."
-        case .paired:
+        case .connected:
             return "Connected"
         case .reconnecting:
             return "Reconnecting..."

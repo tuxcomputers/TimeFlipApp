@@ -82,12 +82,11 @@ end tell'''
 ```
 - [x] Step 2: Click **Reset Device** (`AXButton` in the pairing section's `AXGroup`, right of **Forget
       Device**) and confirm the destructive-action dialog. [Method: Number 16](../Methods.md#method-16) -- **Cancel** is button 1, **Reset Device** (the destructive confirm)
-      is button 2. (Note: the pairing section only shows **Forget/Reset** once the app is *confirmed*
-      paired -- `isPaired` flips true via `confirmPaired`, which waits for the startup history
-      backfill; until then it shows a single **Scan for Devices** button, so clicking `button 2`
-      blindly fails with `-1719 Invalid index` if the backfill is still running (e.g. right after
-      01b's Scenario B restart). The first action below waits for the Reset button to actually exist
-      before clicking, rather than assuming it's there.)
+      is button 2. (Note: the pairing section shows **Forget/Reset** whenever the app is paired, and
+      a single **Scan for Devices** button when it isn't. Pairing is durable, so after a restart the
+      buttons are there as soon as the window opens rather than waiting on the history backfill --
+      but the first action below still waits for the Reset button to exist before clicking, since
+      clicking `button 2` when only Scan is present fails with `-1719 Invalid index`.)
 ```toml step
 [[actions]]
 action = "applescript"

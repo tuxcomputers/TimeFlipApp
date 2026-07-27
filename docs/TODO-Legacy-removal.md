@@ -58,25 +58,26 @@ have moved.
 
 ### Pairing state
 
-- [x] **`isPaired`** — whether a device is currently paired. *Done.* The field only ever existed
-      as a backward-compatibility fallback for `wantsPairing` (and `persistPreferences` wrote it
-      *from* `wantsPairing`, so the two always held the same value). Removed along with
-      `wantsPairing` below; the runtime `isPaired` always starts `false` and is established by
-      actually connecting.
+- [x] **`isPaired`** — whether a device is paired. *Done — the existing `paired` setting row,
+      which the app now restores at launch.* In the blob this was only ever a
+      backward-compatibility fallback for `wantsPairing`, written *from* it by
+      `persistPreferences`, so the two always held the same value.
 - [x] **`wantsPairing`** — whether the user has asked to be paired, distinct from currently being
-      paired. *Done — the `wants` key on the new `paired_device` setting row.* Deliberately not
-      folded into `paired`: that flag is cleared on every transient disconnect, so the two
-      together would lose the intent across a quit while the device is out of range, and the app
-      would come back up never attempting to reconnect.
+      paired. *Done — deleted outright rather than moved.* It existed to work around `paired`
+      being cleared on every transient disconnect, which lost the intent across a quit while the
+      device was out of range. With `paired` made durable (see below) the two say the same thing,
+      and a second flag to keep in step with the first is a bug waiting to happen.
 - [x] **`pairedDeviceName`** — remembered device name, shown while disconnected. *Done — the
       `name` key on `paired_device`.* The "Not paired" placeholder is a display default and is
       stored as absent rather than as that string.
 - [x] **`pairedDeviceUUID`** — CoreBluetooth peripheral identifier, used to reconnect to the same
       device rather than rediscovering. *Done — the `uuid` key on `paired_device`.*
 
-  All three share a row because they share a lifetime: they change only when the user pairs or
-  forgets a device. `AppState` takes them through its initialiser at launch and
-  `ApplicationDelegate` writes every change back.
+  Moving these turned up a pre-existing muddle rather than causing one: the app treated pairing as
+  something that lapsed whenever the device went out of range, which is what let a device reset
+  behind the app's back pass unnoticed. Pairing is now durable — set by pairing, cleared only by
+  Forget Device — and the transient half lives entirely in the `connection` row. See
+  [Pairing vs connection](database-design.md#pairing-vs-connection).
 
 ## Application Support files
 

@@ -827,56 +827,62 @@ final class AppDataStore {
         return formatter
     }()
 
-    /// Stamps `connection.last_connection` with the current local date-time. Called as part of
-    /// every successful device login (a new pairing, and each app-start/reconnect login) -- see
-    /// `ApplicationDelegate.startDeviceEvents` and `011_setting.sql`. Returns the string written,
-    /// so the caller can log it.
+    /// Marks the connection up: sets `connection.connected` and stamps `last_connection` with the
+    /// current local date-time. Called as part of every successful device login (a new pairing, and
+    /// each app-start/reconnect login) -- see `ApplicationDelegate.startDeviceEvents` and
+    /// `011_setting.sql`. Returns the string written, so the caller can log it.
+    ///
+    /// Says nothing about pairing: that was settled before the attempt and is `recordPaired`'s job.
     @discardableResult
     func recordConnection(now: Date = Date()) -> String {
         let stamp = Self.connectionTimestampFormatter.string(from: now)
-        saveSettingJSON(name: "connection", merging: ["last_connection": stamp])
+        saveSettingJSON(name: "connection", merging: ["connected": true, "last_connection": stamp])
         return stamp
     }
 
-    /// Stamps `connection.connection_lost` with the current local date-time, when the app detects
-    /// a lost device connection (see `ApplicationDelegate.handleDeviceDisconnect`). Cleared again
-    /// by `recordQuitRequest()` so a deliberate quit isn't misread as a drop.
+    /// Marks the connection down: clears `connection.connected` and stamps `connection_lost` with
+    /// the current local date-time, when the app detects a lost device connection (see
+    /// `ApplicationDelegate.handleDeviceDisconnect`). `connection_lost` is cleared again by
+    /// `recordQuitRequest()` so a deliberate quit isn't misread as a drop. The device stays paired
+    /// throughout -- a drop is not an unpairing.
     @discardableResult
     func recordConnectionLost(now: Date = Date()) -> String {
         let stamp = Self.connectionTimestampFormatter.string(from: now)
-        saveSettingJSON(name: "connection", merging: ["connection_lost": stamp])
+        saveSettingJSON(name: "connection", merging: ["connected": false, "connection_lost": stamp])
         return stamp
     }
 
-    /// Stamps `connection.quit_request` with the current local date-time and clears
-    /// `connection_lost` -- the imminent disconnect is an intentional shutdown, not a drop.
-    /// Called from `ApplicationDelegate.applicationWillTerminate`.
+    /// Stamps `connection.quit_request` with the current local date-time, marks the connection
+    /// down, and clears `connection_lost` -- the imminent disconnect is an intentional shutdown,
+    /// not a drop. Called from `ApplicationDelegate.applicationWillTerminate`.
     func recordQuitRequest(now: Date = Date()) {
         let stamp = Self.connectionTimestampFormatter.string(from: now)
-        saveSettingJSON(name: "connection", merging: ["quit_request": stamp, "connection_lost": ""])
+        saveSettingJSON(name: "connection", merging: [
+            "connected": false,
+            "quit_request": stamp,
+            "connection_lost": ""
+        ])
     }
 
-    /// Records whether the app currently considers a device paired, into the `paired` setting.
-    /// Set `true` at startup when the app already knows it is paired and whenever pairing
-    /// completes/reconnects; set `false` when the device is factory-reset (forgotten) or the
-    /// connection is lost. A test/observer reads this to gate its "is the device connected now?"
-    /// check -- if it's false, the device needs (re)pairing. See `011_setting.sql`.
+    /// Records whether the app is paired to a device, into the `paired` setting. **Durable**: set
+    /// `true` when a first pairing succeeds and `false` only when the user forgets the device
+    /// (Forget Device, or the end of a confirmed factory reset). Connects and disconnects
+    /// deliberately don't write here -- going out of range doesn't unpair anything, and this row
+    /// is what the app reads at launch to decide it still has a device to reconnect to. For "is it
+    /// reachable right now", see `recordConnection`/`recordConnectionLost`. See `011_setting.sql`.
     func recordPaired(_ paired: Bool) {
         saveSettingJSON(name: "paired", merging: ["paired": paired])
     }
 
-    /// Whether the user wants to be paired, as distinct from currently being paired. Lives on
-    /// `paired_device` rather than `paired`: that flag is volatile, cleared on every transient
-    /// disconnect (see `handleDeviceDisconnect`), so it cannot carry the intent across a quit
-    /// that happens while the device is out of range -- the app would come back up believing the
-    /// user never asked to be paired, and never reconnect.
-    func recordWantsPairing(_ wantsPairing: Bool) {
-        saveSettingJSON(name: "paired_device", merging: ["wants": wantsPairing])
+    /// Restores the pairing at launch. Defaults to not paired, matching a database that has never
+    /// seen a pairing.
+    func loadPaired() -> Bool {
+        loadSettingJSON(name: "paired")?["paired"] as? Bool ?? false
     }
 
     /// The remembered device: the name shown while disconnected, and the CoreBluetooth peripheral
-    /// identifier used to reconnect to the same device rather than rediscovering. Both change only
-    /// on pairing or forgetting, which is why they share a row with the intent.
+    /// identifier used to reconnect to the same device rather than rediscovering. Both are durable
+    /// alongside `paired` and change only on pairing or forgetting.
     /// `nil` is written as JSON null rather than skipped, so forgetting a device actually clears
     /// the stored value instead of leaving the previous one in place.
     func recordPairedDevice(name: String?, uuid: String?) {
@@ -886,12 +892,11 @@ final class AppDataStore {
         ])
     }
 
-    /// Restores the pairing intent and remembered device at launch. All three default to absent,
-    /// matching a database that has never seen a pairing.
-    func loadPairedDevice() -> (wantsPairing: Bool, name: String?, uuid: String?) {
+    /// Restores the remembered device at launch. Both default to absent, matching a database that
+    /// has never seen a pairing.
+    func loadPairedDevice() -> (name: String?, uuid: String?) {
         let json = loadSettingJSON(name: "paired_device")
         return (
-            wantsPairing: json?["wants"] as? Bool ?? false,
             name: json?["name"] as? String,
             uuid: json?["uuid"] as? String
         )

@@ -93,9 +93,9 @@ SELECT MAX(logged_at) FROM debug_log WHERE tag IN ('battery','hist-done','hist-s
 
 ## Detecting whether the device is paired
 
-The app writes its own `paired` setting -- `true` on startup when it already knows it's paired and
-on every pair/reconnect, `false` on factory-reset (forget) or a lost connection
-(`AppDataStore.recordPaired`, wired in `ApplicationDelegate`). So *paired-ness* is a definitive,
+The app writes its own `paired` setting -- `true` when a pairing succeeds, `false` only when the
+user forgets the device (Forget Device, or the end of a confirmed factory reset), via
+`AppDataStore.recordPaired` wired in `ApplicationDelegate`. So *paired-ness* is a definitive,
 directly-queryable fact, not something to infer from login rows:
 
 ```sql
@@ -103,10 +103,18 @@ SELECT COALESCE((SELECT json_extract(setting_value, '$.paired') FROM setting WHE
 -- -> 1 = paired, 0 = not paired (or the setting is absent)
 ```
 
-Distinct from *connected* (above): a paired device can be off / out of range. `00-test-setup.md`
-gates on this -- if it reads `0` after switching to the test DB (the "test DB + not paired" state a
-prior run's cleanup reset leaves), it scripts a re-pair; only when paired does it confirm the live
-connection.
+**This does not move when the device goes out of range or the app quits** -- pairing is durable, so
+it stays `1` across a drop and across a restart. Don't read it as a connectivity check; for that use
+`connection.connected` (or the login rows above):
+
+```sql
+SELECT COALESCE((SELECT json_extract(setting_value, '$.connected') FROM setting WHERE setting_name='connection'), 0);
+-- -> 1 = connected right now, 0 = not
+```
+
+`00-test-setup.md` gates on the *paired* query -- if it reads `0` after switching to the test DB
+(the "test DB + not paired" state a prior run's cleanup reset leaves), it scripts a re-pair; only
+when paired does it confirm the live connection.
 
 ---
 

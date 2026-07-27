@@ -34,6 +34,12 @@ final class AppState: ObservableObject {
     @Published var systemState: TimeFlipSystemState?
     @Published var lastEventDescription: String?
     @Published var lastEventDate: Date?
+    /// Whether the app knows which device it is meant to talk to. **Durable**: set once the user
+    /// picks a device and the pairing succeeds, and cleared only by `forgetDevice()` (which the
+    /// Forget Device button and the end of a factory reset call). It deliberately survives a
+    /// disconnect, going out of range, a rejected password and a quit -- none of those change
+    /// which device the app is paired to, they only stop it reaching that device right now. That
+    /// transient side is `connectionStatus`; see `isConnected` for the two combined.
     @Published var isPaired: Bool
     @Published var pairedDeviceName: String
     @Published var facetMappings: [FacetMapping]
@@ -43,8 +49,11 @@ final class AppState: ObservableObject {
     @Published var googleClientSecret: String
     @Published var devicePassword: String
     @Published var pairedDeviceUUID: String?
-    @Published var pairingStatus: PairingStatus
-    @Published var wantsPairing: Bool
+    /// Whether the app can reach the paired device right now. **Transient**: it changes on every
+    /// connect, drop, retry and reset, and it means nothing on its own -- a status of `.connected`
+    /// while `isPaired` is false is not a state the app can be in. Read `isConnected` rather than
+    /// comparing this to `.connected` directly, so that gating isn't re-derived at each call site.
+    @Published var connectionStatus: ConnectionStatus
     @Published var autoPauseMinutes: UInt16
     @Published var deviceInfo: TimeFlipDeviceInfo?
     @Published var ledBrightnessPercent: UInt8
@@ -124,6 +133,24 @@ final class AppState: ObservableObject {
     var onStartDeviceScan: ((Bool) -> Void)?
     var onStopDeviceScan: (() -> Void)?
 
+    /// Whether the app is talking to its device right now: paired to one **and** currently
+    /// connected to it. The `isPaired` half is the gate -- an unpaired app has no device to be
+    /// connected to, so this can never be true without it. Everything that needs a live device
+    /// (sending pause/lock, showing a battery level, enabling the Device tab's controls) should
+    /// ask this rather than either half alone.
+    var isConnected: Bool {
+        isPaired && connectionStatus == .connected
+    }
+
+    /// Whether the app should be trying to reach a device at all -- the gate on every reconnect,
+    /// backoff retry and wake-from-sleep attempt. True while paired, because a paired app is meant
+    /// to keep its device reachable however long that takes; and true mid-pairing, because that
+    /// attempt is still live and a drop during it should be retried rather than abandoned. False
+    /// otherwise, which is what stops a forgotten device being chased forever.
+    var shouldMaintainConnection: Bool {
+        isPaired || connectionStatus == .pairing
+    }
+
     init(
         preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
@@ -140,7 +167,7 @@ final class AppState: ObservableObject {
         googleCalendarID: String? = nil,
         googleCalendarName: String? = nil,
         googleClientID: String? = nil,
-        wantsPairing: Bool = false,
+        isPaired: Bool = false,
         pairedDeviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
         dailyResetHour: Int = 3,
@@ -160,7 +187,7 @@ final class AppState: ObservableObject {
         systemState = nil
         lastEventDescription = nil
         lastEventDate = nil
-        isPaired = false
+        self.isPaired = isPaired
         // "Not paired" is the placeholder the Device tab shows when no device is remembered;
         // the stored value is absent rather than that string.
         self.pairedDeviceName = pairedDeviceName ?? "Not paired"
@@ -177,8 +204,10 @@ final class AppState: ObservableObject {
         // of the real factory default, independent of whether config.json actually loads.
         devicePassword = DeveloperMode.isEnabled ? DeveloperMode.devicePassword : TimeFlipConstants.defaultPassword
         self.pairedDeviceUUID = pairedDeviceUUID
-        self.wantsPairing = wantsPairing
-        pairingStatus = wantsPairing ? .pairing : .notPaired
+        // Nothing has been attempted yet, so the connection is down whether or not a device is
+        // remembered. A paired app starts here and moves to `.connected` once it reaches the
+        // device; an unpaired one stays here until the user pairs.
+        connectionStatus = .disconnected
         self.autoPauseMinutes = autoPauseMinutes
         deviceInfo = nil
         self.ledBrightnessPercent = ledBrightnessPercent
@@ -375,8 +404,9 @@ final class AppState: ObservableObject {
         }
         pendingPairingDeviceID = nil
         pendingPairingDeviceName = nil
-        pairingStatus = .notPaired
-        wantsPairing = false
+        // The attempt never got as far as pairing, so there is nothing to unpair -- just drop back
+        // to no connection.
+        connectionStatus = .disconnected
     }
 
     func markDeviceInvalid(_ id: UUID) {
@@ -396,7 +426,7 @@ final class AppState: ObservableObject {
     func resetAndForgetDevice() async {
         let confirmed = await onResetDevicePasswordRequest?() ?? true
         guard confirmed else {
-            pairingStatus = .failed("Could not confirm password reset — device left paired")
+            connectionStatus = .failed("Could not confirm password reset — device left paired")
             return
         }
         forgetDevice()
@@ -413,22 +443,26 @@ final class AppState: ObservableObject {
     /// forgets the device into the pristine never-paired state (that login is deliberately NOT
     /// treated as pairing). Until then we sit in `.resetting` ("Resetting...").
     func factoryResetAndForgetDevice() async {
-        pairingStatus = .resetting
+        connectionStatus = .resetting
         pairedDeviceName = "Not paired"
         let sent = await onFactoryResetRequest?() ?? false
         if !sent {
             // Couldn't even send the command (e.g. not connected/logged in) -- surface it rather
             // than sit in "Resetting..." forever.
-            pairingStatus = .failed("Couldn't send the reset command")
+            connectionStatus = .failed("Couldn't send the reset command")
         }
     }
 
+    /// Unpairs: forgets which device the app talks to and returns it to the never-paired state.
+    /// **This is the only thing that clears `isPaired`** -- reached from the Forget Device button
+    /// and from the end of a confirmed factory reset, both of which are the user deciding they no
+    /// longer want this device. Nothing else may set `isPaired = false`; a dropped connection, a
+    /// rejected password or a quit all leave the pairing intact and only change `connectionStatus`.
     func forgetDevice() {
-        wantsPairing = false
         isPaired = false
         pairedDeviceName = "Not paired"
         pairedDeviceUUID = nil
-        pairingStatus = .notPaired
+        connectionStatus = .disconnected
         currentFacetID = TimeFlipConstants.unassignedFacetID
         isPaused = true
         isLocked = false
@@ -607,10 +641,16 @@ final class AppState: ObservableObject {
     }
 
 
-    func confirmPaired(name: String, uuid: String?) {
+    /// The device is reachable and talking to us. Called on every successful connect, so it runs
+    /// both at the end of a first pairing and after each routine reconnect.
+    ///
+    /// Pairing is the part that only happens once: `isPaired` is set unconditionally because
+    /// reaching a device is proof the app is paired to it, but `onPairingChange` fires only on the
+    /// false -> true edge, so a reconnect reports a connection and not a fresh pairing.
+    func confirmConnected(name: String, uuid: String?) {
+        let wasPaired = isPaired
         isPaired = true
-        wantsPairing = true
-        pairingStatus = .paired
+        connectionStatus = .connected
         pairedDeviceName = name
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
         if let id = pendingPairingDeviceID {
@@ -619,13 +659,18 @@ final class AppState: ObservableObject {
             pendingPairingDeviceName = nil
         }
         discoveredDevices = []
-        onPairingChange?(true)
+        if !wasPaired {
+            onPairingChange?(true)
+        }
         persistPreferences()
     }
 
+    /// A pairing attempt failed: the user picked a device and the app could not get as far as
+    /// talking to it. Nothing was ever paired, so this leaves `isPaired` false rather than
+    /// clearing it -- for a device that *is* already paired, see `connectionFailed(message:)`.
     func pairingFailed(message: String?) {
         isPaired = false
-        pairingStatus = .failed(message)
+        connectionStatus = .failed(message)
         if let id = pendingPairingDeviceID {
             deviceStatusMessages[id] = message ?? "Failed"
             pendingPairingDeviceID = nil
@@ -634,14 +679,32 @@ final class AppState: ObservableObject {
         onPairingChange?(false)
         persistPreferences()
     }
+
+    /// A connection to an already-paired device failed in a way that retrying will not fix -- in
+    /// practice, the device rejecting the stored password. The pairing is deliberately left
+    /// standing: the app still knows which device it is meant to talk to, and whether to give up
+    /// on that device is the user's call, made with Forget Device. Surfacing the failure here and
+    /// not scheduling another attempt is what stops the app quietly retrying a password the device
+    /// no longer accepts.
+    func connectionFailed(message: String?) {
+        connectionStatus = .failed(message)
+    }
 }
 
-enum PairingStatus: Equatable {
-    case notPaired
+/// Whether the app can currently reach the device it is paired to, and what it is doing about it.
+/// Every case is transient -- see `AppState.isPaired` for the durable half, and `isConnected` for
+/// the two combined. Deliberately says nothing about *which* device: that never changes here.
+enum ConnectionStatus: Equatable {
+    /// Not connected and not trying: either nothing is paired, or a paired device has been let go
+    /// of after a deliberate teardown. Rendered as "Not paired" only when `isPaired` is false.
+    case disconnected
+    /// A pairing attempt is in flight: the user picked a device and the app is trying to reach it
+    /// for the first time. The one case that can be live while `isPaired` is still false.
     case pairing
-    case paired
+    /// Connected and logged in.
+    case connected
     /// Connection to an already-paired device was lost (BLE range, sleep, etc.) and an automatic
-    /// reconnect is in progress. Distinct from `.failed`/`.notPaired` so the menu bar keeps
+    /// reconnect is in progress. Distinct from `.failed`/`.disconnected` so the menu bar keeps
     /// showing the last known activity/icon instead of tearing down to an unpaired look.
     case reconnecting
     /// A factory reset is in progress: the 0xFF command was sent and we're waiting for the device
