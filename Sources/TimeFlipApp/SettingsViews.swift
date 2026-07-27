@@ -5,7 +5,12 @@ struct SettingsRootView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
+    let loadCategories: () -> [CategoryRecord]
     @State private var selectedTab: SettingsTab = .facets
+    // Bumped whenever the Categories tab is selected; CategoriesSettingsView is `.id()`-tagged
+    // with it so SwiftUI treats each visit as a fresh view instance and its `onAppear` -- where
+    // it re-queries the category table -- fires every time, not just the first time.
+    @State private var categoriesReloadTick = 0
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
 
@@ -13,12 +18,14 @@ struct SettingsRootView: View {
         appState: AppState,
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
+        loadCategories: @escaping () -> [CategoryRecord],
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
         self.appState = appState
         self.authManager = authManager
         self.integrationCoordinator = integrationCoordinator
+        self.loadCategories = loadCategories
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -31,7 +38,8 @@ struct SettingsRootView: View {
                         Text("Device")
                     }
                     .tag(SettingsTab.timeflip)
-                CategoriesSettingsView(appState: appState)
+                CategoriesSettingsView(appState: appState, loadCategories: loadCategories)
+                    .id(categoriesReloadTick)
                     .tabItem {
                         Text("Categories")
                     }
@@ -58,6 +66,9 @@ struct SettingsRootView: View {
             }
             .onChange(of: selectedTab) { _, newValue in
                 DeveloperMode.debugPrint(.tab, "Tab switched to: \(newValue.debugName)")
+                if newValue == .categories {
+                    categoriesReloadTick += 1
+                }
             }
             .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }

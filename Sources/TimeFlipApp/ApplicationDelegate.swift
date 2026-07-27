@@ -48,7 +48,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private lazy var settingsWindowController = SettingsWindowController(
         appState: appState,
         authManager: authManager,
-        integrationCoordinator: integrationCoordinator
+        integrationCoordinator: integrationCoordinator,
+        loadCategories: { [dataStore] in dataStore.loadActiveCategories() }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(

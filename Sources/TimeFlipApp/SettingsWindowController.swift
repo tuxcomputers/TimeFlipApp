@@ -8,7 +8,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var minimumContentHeight: CGFloat
     private let minimumContentWidth: CGFloat = SettingsLayoutConstants.minimumWindowWidth
 
-    init(appState: AppState, authManager: GoogleAuthManager, integrationCoordinator: GoogleIntegrationCoordinator) {
+    init(
+        appState: AppState,
+        authManager: GoogleAuthManager,
+        integrationCoordinator: GoogleIntegrationCoordinator,
+        loadCategories: @escaping () -> [CategoryRecord]
+    ) {
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -35,6 +40,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             appState: appState,
             authManager: authManager,
             integrationCoordinator: integrationCoordinator,
+            loadCategories: loadCategories,
             onClose: { [weak window] in
                 window?.close()
             }
