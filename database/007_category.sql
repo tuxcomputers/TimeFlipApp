@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS category (
 -- skipSatisfiedColumnAdditions, which comments this line out when the column is already present.
 ALTER TABLE category ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1));
 
--- Unassigned is pinned to category_id 0 (a fixed sentinel, like the blank colour) so the
+-- Unassigned is pinned to category_id 0 (a fixed sentinel, like the None colour) so the
 -- colour-update path can skip it with `category_id >= 1` -- it must never be given a colour.
 INSERT INTO category (category_id, category_name, icon_id, colour_id)
 SELECT 0, 'Unassigned', 0, 0

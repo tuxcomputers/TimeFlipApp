@@ -89,7 +89,7 @@ enum ActivityLibrary {
 
     /// The facet colour-picker options, built from the `colour` reference table
     /// (`AppDataStore.loadColours`). Each option's swatch is the row's `device_hex`; rows without
-    /// one (e.g. the `blank` colour) are skipped.
+    /// one (e.g. the `None` colour) are skipped.
     static func colorOptions(from colours: [ColourRecord]) -> [ActivityColorOption] {
         colours.compactMap { record in
             guard let hex = record.deviceHex, let components = ColorComponents(hex: hex) else {

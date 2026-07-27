@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS colour (
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_colour ON colour(colour_name);
 
 INSERT INTO colour (colour_id, colour_name, device_hex)
-SELECT 0, 'blank', NULL WHERE NOT EXISTS (SELECT 1 FROM colour WHERE colour_id = 0);
+SELECT 0, 'None', NULL WHERE NOT EXISTS (SELECT 1 FROM colour WHERE colour_id = 0);
 INSERT INTO colour (colour_id, colour_name, device_hex)
 SELECT 1, 'Red', '#ff0000' WHERE NOT EXISTS (SELECT 1 FROM colour WHERE colour_id = 1);
 INSERT INTO colour (colour_id, colour_name, device_hex)

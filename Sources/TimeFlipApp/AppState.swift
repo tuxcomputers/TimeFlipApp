@@ -11,6 +11,10 @@ final class AppState: ObservableObject {
     /// The facet colour-picker palette, loaded once from the `colour` reference table at launch
     /// (see `ActivityLibrary.colorOptions(from:)`). Fixed for the session — no UI edits it.
     let colourOptions: [ActivityColorOption]
+    /// The `colour` table's own name for its `colour_id 0` seed row (see `005_colour.sql`) --
+    /// e.g. "None". Loaded once at launch alongside `colourOptions` rather than hardcoded, so a
+    /// renamed seed is picked up automatically.
+    let noColourName: String
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -104,7 +108,7 @@ final class AppState: ObservableObject {
     var onCurrentFacetMappingChange: (() -> Void)?
     // Fired when a colour is chosen in the facet picker, with the facet's ID and the chosen
     // colour's `colour_id`, so the assigned category's colour can be persisted (see
-    // ApplicationDelegate). Not fired for the `blank`/Unassigned no-op path.
+    // ApplicationDelegate). Not fired for the `None`/Unassigned no-op path.
     var onFacetColourPicked: ((_ facetID: UInt8, _ colourID: Int) -> Void)?
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
@@ -132,6 +136,7 @@ final class AppState: ObservableObject {
         doubleTapParameters: DoubleTapParameters,
         isDoubleTapEnabled: Bool,
         colourOptions: [ActivityColorOption] = [],
+        noColourName: String = "None",
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -140,6 +145,7 @@ final class AppState: ObservableObject {
         self.devicePasswordStore = devicePasswordStore
         self.developerConfigStore = developerConfigStore
         self.colourOptions = colourOptions
+        self.noColourName = noColourName
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         isLocked = false

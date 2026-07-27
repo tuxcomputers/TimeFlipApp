@@ -8,10 +8,6 @@ struct SettingsRootView: View {
     let loadCategories: () -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
     @State private var selectedTab: SettingsTab = .facets
-    // Bumped whenever the Categories tab is selected; CategoriesSettingsView is `.id()`-tagged
-    // with it so SwiftUI treats each visit as a fresh view instance and its `onAppear` -- where
-    // it re-queries the category table -- fires every time, not just the first time.
-    @State private var categoriesReloadTick = 0
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
 
@@ -46,7 +42,6 @@ struct SettingsRootView: View {
                     loadCategories: loadCategories,
                     updateCategoryColour: updateCategoryColour
                 )
-                    .id(categoriesReloadTick)
                     .tabItem {
                         Text("Categories")
                     }
@@ -73,9 +68,6 @@ struct SettingsRootView: View {
             }
             .onChange(of: selectedTab) { _, newValue in
                 DeveloperMode.debugPrint(.tab, "Tab switched to: \(newValue.debugName)")
-                if newValue == .categories {
-                    categoriesReloadTick += 1
-                }
             }
             .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }
@@ -399,38 +391,71 @@ struct ColorOptionList: View {
     let colourOptions: [ActivityColorOption]
     let onPick: (ActivityColorOption) -> Void
     let onSelect: () -> Void
+    /// Non-nil prepends a hollow "None" row (matching the None-colour swatch style), labelled
+    /// with this name, that picks `colour_id 0` -- the caller's job to supply the `colour` table's
+    /// own name for that row (see `AppState.noColourName`) rather than a hardcoded string. `nil`
+    /// omits the row entirely -- the Faces tab's picker, which has no such concept, passes nil.
+    var noneOptionName: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let noneOptionName {
+                ColorOptionRow(name: noneOptionName, swatchColor: nil, isSelected: false) {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(noneOptionName)\"")
+                    let noneOption = ActivityColorOption(colourId: 0, name: noneOptionName, color: .clear)
+                    selection = noneOption.color
+                    onPick(noneOption)
+                    onSelect()
+                }
+            }
             ForEach(colourOptions) { option in
-                Button {
+                ColorOptionRow(name: option.name, swatchColor: option.color, isSelected: selection == option.color) {
                     DeveloperMode.debugPrint(.click, "Button clicked: Color option \"\(option.name)\"")
                     selection = option.color
                     onPick(option)
                     onSelect()
-                } label: {
-                    HStack(spacing: SettingsLayoutConstants.ColorPicker.rowSpacing) {
-                        RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                            .fill(option.color)
-                            .frame(
-                                width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
-                                height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
-                            )
-                        Text(option.name)
-                        Spacer()
-                        if selection == option.color {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, SettingsLayoutConstants.ColorPicker.rowVerticalPadding)
-                    .padding(.horizontal, SettingsLayoutConstants.ColorPicker.rowHorizontalPadding)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(SettingsLayoutConstants.ColorPicker.listPadding)
+    }
+}
+
+private struct ColorOptionRow: View {
+    let name: String
+    /// `nil` renders a hollow (unfilled, black-stroked) square instead of a colour fill -- used
+    /// for the "None" row.
+    let swatchColor: Color?
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: SettingsLayoutConstants.ColorPicker.rowSpacing) {
+                RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                    .fill(swatchColor ?? .clear)
+                    .overlay {
+                        if swatchColor == nil {
+                            RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
+                                .stroke(Color.black)
+                        }
+                    }
+                    .frame(
+                        width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
+                        height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
+                    )
+                Text(name)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, SettingsLayoutConstants.ColorPicker.rowVerticalPadding)
+            .padding(.horizontal, SettingsLayoutConstants.ColorPicker.rowHorizontalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

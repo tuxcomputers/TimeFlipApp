@@ -60,6 +60,13 @@ enum SettingsLayoutConstants {
         static let cornerRadius: CGFloat = 8
     }
 
+    enum CategoryList {
+        // Fixed so every row's colour square lines up at the same x position regardless of how
+        // long that row's category name is -- a plain Text(name) with no width sizes to its own
+        // content, so the square right after it would otherwise drift per row.
+        static let nameColumnWidth: CGFloat = 160
+    }
+
     /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the
     /// window's minimum never shrinks below what the Device tab (the default-opened tab) needs,
     /// even when there are few enough facets that the Facets tab alone would ask for less.

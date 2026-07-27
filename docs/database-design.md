@@ -141,7 +141,7 @@ Reference table of activity icons that can be assigned to a facet.
 
 Constraints:
 - `icon_name` is `UNIQUE` — each icon asset is only represented by one row.
-- Seeded with a `blank` row (`icon_id = 0`) representing "no icon assigned", alongside the real
+- Seeded with a `None` row (`icon_id = 0`) representing "no icon assigned", alongside the real
   icon assets (`icon_id` 1-42) — so `category.icon_id` can stay a `NOT NULL` foreign key instead
   of allowing `NULL`.
 
@@ -153,11 +153,11 @@ Reference table of the colours available to assign to a category.
 |--------------|---------|--------------------------------------------------------------|
 | `colour_id`   | INTEGER | Primary key. Not autoincrementing — seeded with fixed IDs.   |
 | `colour_name` | TEXT    | Colour name, e.g. `Red`, `Teal`, `Cyan`.                      |
-| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `blank`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
+| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `None`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
 
 Constraints:
 - `colour_name` is `UNIQUE` — each colour is only represented by one row.
-- Seeded with a `blank` row (`colour_id = 0`, `device_hex` `NULL`) representing "no colour
+- Seeded with a `None` row (`colour_id = 0`, `device_hex` `NULL`) representing "no colour
   assigned" — so `category.colour_id` can stay a `NOT NULL` foreign key instead of allowing `NULL` —
   alongside 20 named colours (`colour_id` 1-20).
 - The 20 named colours are the categories listed on [html-color.codes](https://html-color.codes),
@@ -182,7 +182,7 @@ matters now that foreign keys are enforced (see the design principle above).
 Constraints:
 - `project_name` is `NOT NULL`.
 - Seeded with a `None` row pinned to `project_id = 0` — a fixed sentinel for "no project assigned",
-  the same id-0 convention used by `category` (`Unassigned`) and `colour` (`blank`), so
+  the same id-0 convention used by `category` (`Unassigned`) and `colour` (`None`), so
   `category.project_id` can stay `NOT NULL` and default to `0` instead of allowing `NULL`.
 
 ### `category` (`database/007_category.sql`)
@@ -193,23 +193,23 @@ Named activity category, linked to the icon and colour assigned to it.
 |--------------|---------|------------------------------------------------------------|
 | `category_id`  | INTEGER | Row identifier, primary key, autoincrementing.             |
 | `category_name`| TEXT    | Category name (e.g. an activity mapped to a facet).        |
-| `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `blank` icon) if no real icon is assigned. |
-| `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `blank` colour) if no real colour is assigned. |
+| `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `None` icon) if no real icon is assigned. |
+| `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `None` colour) if no real colour is assigned. |
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
 | `daily_limit`| INTEGER | Seconds of tracked time allowed against this category per day (`0` = no limit), following the same seconds convention as `duration_seconds` elsewhere (e.g. `time_entry`). The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
 | `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
 
 Constraints:
-- `icon_id` is a foreign key referencing `icon(icon_id)`, `NOT NULL`, defaulting to `0` (`blank`)
+- `icon_id` is a foreign key referencing `icon(icon_id)`, `NOT NULL`, defaulting to `0` (`None`)
   so a new category can be inserted without specifying one.
 - `colour_id` is a foreign key referencing `colour(colour_id)`, `NOT NULL`, defaulting to `0`
-  (`blank`) for the same reason.
+  (`None`) for the same reason.
 - `project_id` is a foreign key referencing `project(project_id)`, `NOT NULL`, defaulting to `0`
   (the `None` project) for the same reason. `project` (`006`) is created and seeded before
   `category` (`007`), so the reference resolves under enforced foreign keys.
-- Seeded with an `Unassigned` row (linked to the `blank` icon and the `blank` colour), a `Break`
+- Seeded with an `Unassigned` row (linked to the `None` icon and the `None` colour), a `Break`
   row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
-  both seeded with the `blank` colour, since none was specified.
+  both seeded with the `None` colour, since none was specified.
 
 ### `face` (`database/008_face.sql`)
 

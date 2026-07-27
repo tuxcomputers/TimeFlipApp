@@ -16,6 +16,7 @@ struct CategoriesSettingsView: View {
                     CategoryRow(
                         category: category,
                         colourOptions: appState.colourOptions,
+                        noColourName: appState.noColourName,
                         onColourPicked: updateCategoryColour
                     )
                 }
@@ -31,16 +32,29 @@ struct CategoriesSettingsView: View {
 private struct CategoryRow: View {
     let category: CategoryRecord
     let colourOptions: [ActivityColorOption]
+    let noColourName: String
     let onColourPicked: (Int, Int) -> Void
     @State private var selectedColor: Color
+    @State private var selectedColourID: Int
     @State private var isColorPickerPresented = false
 
-    init(category: CategoryRecord, colourOptions: [ActivityColorOption], onColourPicked: @escaping (Int, Int) -> Void) {
+    init(
+        category: CategoryRecord,
+        colourOptions: [ActivityColorOption],
+        noColourName: String,
+        onColourPicked: @escaping (Int, Int) -> Void
+    ) {
         self.category = category
         self.colourOptions = colourOptions
+        self.noColourName = noColourName
         self.onColourPicked = onColourPicked
         _selectedColor = State(initialValue: category.colourHex.flatMap { ColorComponents(hex: $0)?.color } ?? .black)
+        _selectedColourID = State(initialValue: category.colourID)
     }
+
+    /// The None colour (colour_id 0) has no real hex value -- rendered as a hollow black square
+    /// rather than a solid fill, so it reads as "no colour set" instead of an actual colour choice.
+    private var isBlank: Bool { selectedColourID == 0 }
 
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
@@ -50,30 +64,39 @@ private struct CategoryRow: View {
                 size: SettingsLayoutConstants.FacetList.iconSize
             )
             Text(category.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
             Button {
                 DeveloperMode.debugPrint(.click, "Button clicked: Category color swatch \"\(category.name)\" (\(isColorPickerPresented ? "close" : "open") picker)")
                 isColorPickerPresented.toggle()
             } label: {
                 RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                    .fill(selectedColor)
+                    .fill(isBlank ? Color.clear : selectedColor)
                     .overlay(
                         RoundedRectangle(cornerRadius: SettingsLayoutConstants.ColorPicker.rowSwatchCornerRadius)
-                            .stroke(Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity))
+                            .stroke(isBlank ? Color.black : Color.secondary.opacity(SettingsLayoutConstants.ColorPicker.swatchStrokeOpacity))
                     )
                     .frame(
                         width: SettingsLayoutConstants.ColorPicker.rowSwatchSize,
                         height: SettingsLayoutConstants.ColorPicker.rowSwatchSize
                     )
+                    // A Color.clear fill (the hollow None-colour case) has no hit-testable area of its
+                    // own -- without this, only the 1pt stroke line would register a click.
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .popover(isPresented: $isColorPickerPresented) {
                 ColorOptionList(
                     selection: $selectedColor,
                     colourOptions: colourOptions,
-                    onPick: { option in onColourPicked(category.id, option.colourId) }
-                ) {
-                    isColorPickerPresented = false
-                }
+                    onPick: { option in
+                        selectedColourID = option.colourId
+                        onColourPicked(category.id, option.colourId)
+                    },
+                    onSelect: { isColorPickerPresented = false },
+                    noneOptionName: noColourName
+                )
             }
             Spacer()
         }

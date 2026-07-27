@@ -13,7 +13,7 @@ struct DeviceEventRecord {
 }
 
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
-/// "#rrggbb" LED value, `nil` for the `blank` colour.
+/// "#rrggbb" LED value, `nil` for the `None` colour.
 struct ColourRecord: Equatable, Sendable {
     let id: Int
     let name: String
@@ -27,7 +27,7 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     /// The `icon` table's `icon_name` (e.g. `ic_meeting`) -- see `ActivityIconLoader`.
     let iconName: String
     let colourID: Int
-    /// The `colour` table's `device_hex` ("#rrggbb"), `nil` for the `blank` colour.
+    /// The `colour` table's `device_hex` ("#rrggbb"), `nil` for the `None` colour.
     let colourHex: String?
 }
 
