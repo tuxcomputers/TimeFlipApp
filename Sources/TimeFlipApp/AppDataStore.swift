@@ -57,6 +57,37 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
             dailyLimitMinutes: dailyLimitMinutes ?? self.dailyLimitMinutes
         )
     }
+
+    /// Display order for the Categories tab: names that are entirely a number come first in
+    /// numeric order, then everything else as text. A plain text sort interleaves them by digit --
+    /// 1, 10, 11, 2, 20, 3 -- which reads as broken the moment categories are numbered.
+    ///
+    /// The text comparison is `localizedStandardCompare`, the same Finder-style ordering that sorts
+    /// "ABC-2" before "ABC-10", so names with a number buried in them come out sensibly too.
+    ///
+    /// A name too long to fit an `Int` falls back to being treated as text -- an overflowed number
+    /// is not a number this can order.
+    static func displayOrder(_ lhs: CategoryRecord, _ rhs: CategoryRecord) -> Bool {
+        switch (Int(lhs.name), Int(rhs.name)) {
+        case let (lhsValue?, rhsValue?) where lhsValue != rhsValue:
+            return lhsValue < rhsValue
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        default:
+            // Either both are text, or both are the same number written differently ("1" / "01").
+            // localizedStandardCompare compares digit runs numerically, so that second case comes
+            // back .orderedSame and drops through to the id tiebreak below.
+            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            if comparison != .orderedSame {
+                return comparison == .orderedAscending
+            }
+            // Duplicate names are a legitimate outcome of the create flow, so break the tie on id
+            // rather than leaving two equal elements to an unstable sort.
+            return lhs.id < rhs.id
+        }
+    }
 }
 
 // SQLite-backed application data.
@@ -527,17 +558,20 @@ final class AppDataStore {
     }
 
     /// All real (`category_id >= 1`, excluding the `Unassigned` sentinel at id 0) rows of the
-    /// `category` table (`database/007_category.sql`), ordered by name. Both active and inactive
-    /// ones -- the Categories tab lists each in its own section, so splitting this into two
-    /// queries would just mean reading the same small table twice.
+    /// `category` table (`database/007_category.sql`). Both active and inactive ones -- the
+    /// Categories tab lists each in its own section, so splitting this into two queries would just
+    /// mean reading the same small table twice.
+    ///
+    /// Ordered by `CategoryRecord.displayOrder` rather than in SQL: the ordering needs a numeric
+    /// pass over names that are numbers, which SQLite can only express as a pile of CASE/GLOB
+    /// clauses that are harder to read and impossible to unit test.
     func loadCategories() -> [CategoryRecord] {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
         let sql = """
         SELECT c.category_id, c.category_name, c.icon_id, c.colour_id, c.is_active, c.daily_limit
         FROM category c
-        WHERE c.category_id >= 1
-        ORDER BY c.category_name;
+        WHERE c.category_id >= 1;
         """
         queue.sync {
             var stmt: OpaquePointer?
@@ -564,7 +598,7 @@ final class AppDataStore {
             }
             sqlite3_finalize(stmt)
         }
-        return results
+        return results.sorted(by: CategoryRecord.displayOrder)
     }
 
     /// Sets `colour_id` directly on a category -- the Categories tab's own colour picker. The
