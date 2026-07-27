@@ -12,6 +12,7 @@ struct CategoriesSettingsView: View {
                 Text("No active categories.")
                     .foregroundStyle(.secondary)
             } else {
+                CategoryColumnHeaderRow()
                 ForEach(categories) { category in
                     CategoryRow(
                         category: category,
@@ -26,6 +27,24 @@ struct CategoriesSettingsView: View {
         .onAppear {
             categories = loadCategories()
         }
+    }
+}
+
+/// Column labels above the category list, aligned to `CategoryRow`'s own column widths so each
+/// label sits directly over its column -- no label over the icon column, since there's nothing
+/// meaningful to caption there.
+private struct CategoryColumnHeaderRow: View {
+    var body: some View {
+        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+            Color.clear
+                .frame(width: SettingsLayoutConstants.FacetList.iconSize, height: 1)
+            Text("Name")
+                .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
+            Text("Colour")
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 
