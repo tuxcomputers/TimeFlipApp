@@ -11,13 +11,13 @@ CREATE TABLE IF NOT EXISTS category (
   -- budget. See docs/database-design.md.
   , daily_limit   INTEGER NOT NULL DEFAULT 0
   , cost          INTEGER NOT NULL DEFAULT 0
-  , is_active     INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1))
+  , active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))
 );
 
--- Adds is_active to a database created before this column existed. On a fresh database (the
+-- Adds active to a database created before this column existed. On a fresh database (the
 -- CREATE TABLE above already includes it) this is a no-op -- see AppDataStore.runDatabaseDDL's
 -- skipSatisfiedColumnAdditions, which comments this line out when the column is already present.
-ALTER TABLE category ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1));
+ALTER TABLE category ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1));
 
 -- Unassigned is pinned to category_id 0 (a fixed sentinel, like the None colour) so the
 -- colour-update path can skip it with `category_id >= 1` -- it must never be given a colour.

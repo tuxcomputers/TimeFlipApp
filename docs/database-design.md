@@ -78,7 +78,7 @@ facet or paused/resumed, marking the end of the previous segment.
 | `timezone_id`       | INTEGER | References `timezone.timezone_id` — the IANA zone (e.g. `America/New_York`) `start_time` was recorded in. |
 | `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering and the `finalised` flag; also half of the composite matching key (see below). Indexed. |
 | `duration_seconds`  | REAL    | How long the segment lasted, in seconds.                                    |
-| `is_paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
+| `paused`         | INTEGER | `1` if this segment was a paused interval, `0` otherwise.                   |
 | `finalised`         | INTEGER | `1` once the segment is closed out, `0` while it's still the device's in-progress interval. |
 | `processed`         | INTEGER | `1` once this segment has been turned into a `time_entry` (or merged away per `blip_time`), `0` otherwise. |
 
@@ -89,7 +89,7 @@ Constraints:
 - `timezone_id` is a foreign key referencing `timezone(timezone_id)`, `NOT NULL DEFAULT 0` (id 0 = the `Unknown` sentinel).
 - `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
-- `is_paused` is constrained to `0`/`1` (SQLite has no native boolean type).
+- `paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `processed` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 - `start_epoch` also has its own non-unique index (`IN1_device_event`) for ordering queries that
@@ -391,12 +391,12 @@ It is numbered `002` so it precedes every table that references it (foreign keys
 | `timezone_id`   | INTEGER | Row identifier, primary key, autoincrementing.                     |
 | `timezone_name` | TEXT    | IANA time zone identifier (e.g. `Australia/Sydney`). `NOT NULL`, `UNIQUE`. |
 | `display_name`  | TEXT    | Optional human-friendly label for a picker (e.g. `Sydney`). Nullable. |
-| `is_active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
+| `active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
 
 Constraints:
 - `timezone_name` is `NOT NULL` and `UNIQUE` (`UN1_timezone`), so get-or-create can look a zone up
   by identifier and never store it twice.
-- `is_active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
+- `active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
 
 Seeded with a single sentinel row — `timezone_id 0`, `timezone_name`/`display_name` `Unknown` —
 which is the value every referencing `timezone_id` column defaults to, so a row can satisfy its

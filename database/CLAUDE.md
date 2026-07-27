@@ -101,7 +101,7 @@
 - Add the column to the table's `CREATE TABLE IF NOT EXISTS` statement (so a **fresh** database
   gets it at creation) **and** add a guarded `ALTER TABLE <table> ADD COLUMN <column> ...;`
   statement in the same file, right after the `CREATE TABLE` (so an **existing** database that
-  predates the column also gets it). See `is_active` in `007_category.sql` for the pattern.
+  predates the column also gets it). See `active` in `007_category.sql` for the pattern.
 - The `ALTER TABLE` must be a single line ending in `;` — `AppDataStore.runDatabaseDDL` matches it
   with a regex (`skipSatisfiedColumnAdditions`) that only understands that shape, not an arbitrary
   multi-line statement.

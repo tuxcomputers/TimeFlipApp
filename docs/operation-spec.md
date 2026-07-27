@@ -46,7 +46,7 @@ to an `event_type` row by name:
 3. The app inserts a `device_event` row: `event_number`, `event_type_id`, `face`, `started_at` /
    `started_at_timezone` (captured in the local timezone at the moment the segment started —
    see [Database Design § local time + timezone](database-design.md#design-principle-local-time--timezone)),
-   `duration_seconds`, `is_paused`.
+   `duration_seconds`, `paused`.
 4. `event_number` is `UNIQUE`, so re-ingesting a frame already seen (e.g. after a reconnect) is a
    no-op rather than a duplicate row — the device's history buffer can and does replay frames the
    app has already processed.

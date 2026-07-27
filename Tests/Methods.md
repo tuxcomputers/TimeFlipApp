@@ -113,7 +113,7 @@ post(Quartz.kCGEventLeftMouseUp, 1)
 Confirmed live: this genuinely locked/unlocked the device via the status item's double-click
 gesture (`debug_log` showed `clickCount=1` then `clickCount=2`, then `"Lock ON triggered"`), and a
 plain single click (`click_state=1`, no second pair) genuinely toggled pause/resume the same way
-(`debug_log` `side=right clickCount=1`, a fresh `device_event` row with `is_paused` flipped) -- both
+(`debug_log` `side=right clickCount=1`, a fresh `device_event` row with `paused` flipped) -- both
 previously believed impossible to script (see the now-superseded notes this replaced, still visible
 in git history).
 

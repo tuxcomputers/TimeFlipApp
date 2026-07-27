@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS device_event (
   , timezone_id      INTEGER NOT NULL DEFAULT 0 REFERENCES timezone(timezone_id)
   , start_epoch      INTEGER NOT NULL
   , duration_seconds REAL NOT NULL CHECK (duration_seconds >= 0)
-  , is_paused        INTEGER NOT NULL CHECK (is_paused IN (0,1))
+  , paused           INTEGER NOT NULL CHECK (paused IN (0,1))
   , finalised        INTEGER NOT NULL DEFAULT 0 CHECK (finalised IN (0,1))
   , processed        INTEGER NOT NULL DEFAULT 0 CHECK (processed IN (0,1))
 );

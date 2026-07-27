@@ -337,7 +337,7 @@ final class AppDataStore {
                     start_time = ?,
                     timezone_id = ?,
                     duration_seconds = ?,
-                    is_paused = ?,
+                    paused = ?,
                     finalised = ?
                 WHERE device_event_id = ?;
                 """
@@ -372,7 +372,7 @@ final class AppDataStore {
 
                 let sql = """
                 INSERT INTO device_event (
-                    event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, is_paused, finalised
+                    event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised
                 ) VALUES (
                     ?, (SELECT event_type_id FROM event_type WHERE event_name = ?), ?, ?, ?, ?, ?, ?, ?
                 );
@@ -506,7 +506,7 @@ final class AppDataStore {
         guard let db else { return [:] }
         var results: [UInt8: CategoryRecord] = [:]
         let sql = """
-        SELECT f.face_id, c.category_id, c.category_name, c.icon_id, c.colour_id, c.is_active, c.daily_limit
+        SELECT f.face_id, c.category_id, c.category_name, c.icon_id, c.colour_id, c.active, c.daily_limit
         FROM face f
         JOIN category c ON c.category_id = f.category_id
         ORDER BY f.face_id;
@@ -570,7 +570,7 @@ final class AppDataStore {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
         let sql = """
-        SELECT c.category_id, c.category_name, c.icon_id, c.colour_id, c.is_active, c.daily_limit
+        SELECT c.category_id, c.category_name, c.icon_id, c.colour_id, c.active, c.daily_limit
         FROM category c
         WHERE c.category_id >= 1;
         """
@@ -659,7 +659,7 @@ final class AppDataStore {
         guard let db, !name.isEmpty else { return nil }
         var result: CategoryRecord?
         let sql = """
-        SELECT category_id, category_name, icon_id, colour_id, is_active, daily_limit
+        SELECT category_id, category_name, icon_id, colour_id, active, daily_limit
         FROM category
         WHERE category_name = ? COLLATE NOCASE
         LIMIT 1;
@@ -764,12 +764,12 @@ final class AppDataStore {
         }
     }
 
-    /// Sets `is_active` on a category -- the Categories tab's own Active checkbox. Same
+    /// Sets `active` on a category -- the Categories tab's own Active checkbox. Same
     /// `category_id >= 1` guard as the other category writers: the `Unassigned` sentinel is
     /// always active and must never be retired. See `database/007_category.sql`.
     func updateCategoryActive(categoryID: Int, isActive: Bool) {
         guard let db else { return }
-        let sql = "UPDATE category SET is_active = ? WHERE category_id = ? AND category_id >= 1;"
+        let sql = "UPDATE category SET active = ? WHERE category_id = ? AND category_id >= 1;"
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS timezone (
   timezone_id     INTEGER CONSTRAINT PK_timezone PRIMARY KEY AUTOINCREMENT
   , timezone_name TEXT NOT NULL
   , display_name  TEXT
-  , is_active     INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1))
+  , active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_timezone ON timezone(timezone_name);

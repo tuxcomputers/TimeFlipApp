@@ -50,7 +50,7 @@ erDiagram
         INTEGER timezone_id FK
         INTEGER start_epoch
         REAL    duration_seconds
-        INTEGER is_paused
+        INTEGER paused
         INTEGER finalised
         INTEGER processed
     }
@@ -138,6 +138,6 @@ erDiagram
         INTEGER timezone_id PK
         TEXT    timezone_name
         TEXT    display_name
-        INTEGER is_active
+        INTEGER active
     }
 ```
