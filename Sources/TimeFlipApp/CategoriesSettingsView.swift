@@ -6,6 +6,7 @@ struct CategoriesSettingsView: View {
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
     let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryIcon: (Int, Int) -> Void
     @State private var categories: [CategoryRecord] = []
     // Active is the section you actually work in, so it starts open; Inactive is the archive you
     // only occasionally go looking in, so it starts folded away.
@@ -55,6 +56,10 @@ struct CategoriesSettingsView: View {
             setActive: { categoryID, isActive in
                 updateCategoryActive(categoryID, isActive)
                 patch(categoryID) { $0.with(isActive: isActive) }
+            },
+            setIcon: { categoryID, iconID in
+                updateCategoryIcon(categoryID, iconID)
+                patch(categoryID) { $0.with(iconID: iconID) }
             }
         )
     }
@@ -65,11 +70,12 @@ struct CategoriesSettingsView: View {
     }
 }
 
-/// The three edits a category row can make, bundled so they travel together down to the row.
+/// The edits a category row can make, bundled so they travel together down to the row.
 struct CategoryRowActions {
     let setColour: (Int, Int) -> Void
     let setDailyLimit: (Int, Int) -> Void
     let setActive: (Int, Bool) -> Void
+    let setIcon: (Int, Int) -> Void
 }
 
 /// One collapsible group of categories, built like the Device tab's LED/More groups: the label is
@@ -96,6 +102,7 @@ private struct CategorySection: View {
                             category: category,
                             colourOptions: appState.colourOptions,
                             noColourName: appState.noColourName,
+                            iconOptions: appState.iconOptions,
                             actions: actions
                         )
                     }
@@ -140,8 +147,16 @@ private struct CategoryRow: View {
     let category: CategoryRecord
     let colourOptions: [ActivityColorOption]
     let noColourName: String
+    let iconOptions: [CategoryIconOption]
     let actions: CategoryRowActions
     @State private var isColorPickerPresented = false
+    @State private var isIconPickerPresented = false
+
+    /// `nil` for the None icon (icon_id 0), which is a sentinel rather than a bundled asset and so
+    /// never appears in `iconOptions`.
+    private var iconName: String? {
+        iconOptions.first { $0.iconId == category.iconID }?.iconName
+    }
 
     /// `nil` for the None colour (colour_id 0), which has no hex and so never appears in
     /// `colourOptions` -- drawn as a hollow black square rather than a solid fill, so it reads as
@@ -152,11 +167,7 @@ private struct CategoryRow: View {
 
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
-            ActivityIconView(
-                iconName: category.iconName,
-                tint: .black,
-                size: SettingsLayoutConstants.FacetList.iconSize
-            )
+            iconButton
             Text(category.name)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -172,6 +183,46 @@ private struct CategoryRow: View {
                 .disabled(!category.isActive)
             activeCheckbox
             Spacer()
+        }
+    }
+
+    /// Opens the icon grid. An unset icon (icon_id 0) shows the same "no icon" glyph the Faces
+    /// grid uses for its none cell, so the two pages read the same way.
+    private var iconButton: some View {
+        Button {
+            DeveloperMode.debugPrint(.click, "Button clicked: Category icon \"\(category.name)\" (\(isIconPickerPresented ? "close" : "open") picker)")
+            isIconPickerPresented.toggle()
+        } label: {
+            Group {
+                if let iconName {
+                    ActivityIconView(
+                        iconName: iconName,
+                        tint: .black,
+                        size: SettingsLayoutConstants.FacetList.iconSize
+                    )
+                } else {
+                    Image(systemName: "nosign")
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(.secondary)
+                        .frame(
+                            width: SettingsLayoutConstants.FacetList.iconSize,
+                            height: SettingsLayoutConstants.FacetList.iconSize
+                        )
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!category.isActive)
+        .popover(isPresented: $isIconPickerPresented) {
+            CategoryIconGrid(
+                iconOptions: iconOptions,
+                selectedIconID: category.iconID
+            ) { iconID in
+                actions.setIcon(category.id, iconID)
+                isIconPickerPresented = false
+            }
         }
     }
 
@@ -253,3 +304,101 @@ private struct CategoryRow: View {
         actions.setDailyLimit(category.id, clamped)
     }
 }
+
+/// The Categories tab's icon picker: every real icon (`icon_id >= 1`) in a fixed 6-wide grid, so
+/// the 42 seeded icons land as an even 6x7 with no scrolling.
+///
+/// There is no "none" cell, unlike the Faces tab's grid. Clicking the already-selected icon clears
+/// it instead, writing `icon_id` 0 -- so the same click both sets and unsets, and the grid stays a
+/// clean rectangle of real choices.
+///
+/// Icons draw black here rather than in the category's colour: the Faces grid tints to preview how
+/// the icon will look on the device, but nothing on this tab is previewing a device face.
+private struct CategoryIconGrid: View {
+    let iconOptions: [CategoryIconOption]
+    let selectedIconID: Int
+    let onPick: (Int) -> Void
+
+    private var columns: [GridItem] {
+        Array(
+            repeating: GridItem(
+                .fixed(SettingsLayoutConstants.IconGrid.cellSize),
+                spacing: SettingsLayoutConstants.IconGrid.columnSpacing
+            ),
+            count: SettingsLayoutConstants.CategoryList.iconGridColumns
+        )
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: SettingsLayoutConstants.IconGrid.columnSpacing) {
+            ForEach(iconOptions) { option in
+                let isSelected = option.iconId == selectedIconID
+                CategoryIconGridCell(
+                    iconName: option.iconName,
+                    isSelected: isSelected
+                ) {
+                    // Re-clicking the selected icon clears it; anything else selects it.
+                    let newIconID = isSelected ? 0 : option.iconId
+                    DeveloperMode.debugPrint(.click, "Button clicked: Icon grid cell (\(option.iconName)) -> icon_id \(newIconID)")
+                    onPick(newIconID)
+                }
+                .help(option.name)
+            }
+        }
+        .padding(SettingsLayoutConstants.IconGrid.gridVerticalPadding)
+    }
+}
+
+private struct CategoryIconGridCell: View {
+    let iconName: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: SettingsLayoutConstants.IconGrid.cellCornerRadius)
+                    .fill(Color(NSColor.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: SettingsLayoutConstants.IconGrid.cellCornerRadius)
+                            .stroke(strokeColor, lineWidth: strokeWidth)
+                    )
+                if let image = ActivityIconLoader.image(
+                    named: iconName,
+                    pointSize: SettingsLayoutConstants.IconGrid.iconPointSize
+                ) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundStyle(Color.black)
+                        .scaledToFit()
+                        .padding(SettingsLayoutConstants.IconGrid.cellPadding)
+                } else {
+                    Image(systemName: "square.dashed")
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(.secondary)
+                        .padding(SettingsLayoutConstants.IconGrid.cellPadding)
+                }
+            }
+            .frame(
+                width: SettingsLayoutConstants.IconGrid.cellSize,
+                height: SettingsLayoutConstants.IconGrid.cellSize
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var strokeColor: Color {
+        isSelected
+            ? Color.accentColor
+            : Color.secondary.opacity(SettingsLayoutConstants.IconGrid.unselectedStrokeOpacity)
+    }
+
+    private var strokeWidth: CGFloat {
+        isSelected
+            ? SettingsLayoutConstants.IconGrid.selectionStrokeWidth
+            : SettingsLayoutConstants.IconGrid.unselectedStrokeWidth
+    }
+}
+

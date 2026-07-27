@@ -13,6 +13,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         isDoubleTapEnabled: dataStore.loadDoubleTapEnabled(),
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
         noColourName: dataStore.loadColours().first(where: { $0.id == 0 })?.name ?? "None",
+        iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -59,6 +60,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         },
         updateCategoryActive: { [dataStore] categoryID, isActive in
             dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
+        },
+        updateCategoryIcon: { [dataStore] categoryID, iconID in
+            dataStore.updateCategoryIcon(categoryID: categoryID, iconID: iconID)
         }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)

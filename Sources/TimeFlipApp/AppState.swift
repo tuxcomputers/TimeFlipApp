@@ -15,6 +15,9 @@ final class AppState: ObservableObject {
     /// e.g. "None". Loaded once at launch alongside `colourOptions` rather than hardcoded, so a
     /// renamed seed is picked up automatically.
     let noColourName: String
+    /// The Categories tab's icon-grid palette, loaded once from the `icon` reference table at
+    /// launch (see `ActivityLibrary.iconOptions(from:)`). Fixed for the session -- no UI edits it.
+    let iconOptions: [CategoryIconOption]
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -133,6 +136,7 @@ final class AppState: ObservableObject {
         isDoubleTapEnabled: Bool,
         colourOptions: [ActivityColorOption] = [],
         noColourName: String = "None",
+        iconOptions: [CategoryIconOption] = [],
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -142,6 +146,7 @@ final class AppState: ObservableObject {
         self.developerConfigStore = developerConfigStore
         self.colourOptions = colourOptions
         self.noColourName = noColourName
+        self.iconOptions = iconOptions
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         isLocked = false

@@ -25,6 +25,17 @@ struct ActivityIconOption: Identifiable {
     var id: String { iconName }
 }
 
+/// One cell of the Categories tab's icon grid: the `icon` table's id paired with the asset name
+/// to draw and a human-readable label. Distinct from `ActivityIconOption`, which the Faces grid
+/// uses -- that one works in asset names alone and has no `icon_id` to write back.
+struct CategoryIconOption: Identifiable {
+    let iconId: Int
+    let name: String
+    let iconName: String
+
+    var id: Int { iconId }
+}
+
 struct ActivityColorOption: Identifiable {
     let colourId: Int
     let name: String
@@ -85,6 +96,17 @@ enum ActivityLibrary {
 
     static let iconOptions: [ActivityIconOption] = iconNames.map {
         ActivityIconOption(name: displayName(for: $0), iconName: $0)
+    }
+
+    /// The Categories tab's icon-grid options, built from the `icon` reference table
+    /// (`AppDataStore.loadIcons`). Skips `icon_id` 0, whose `None` name is a sentinel rather than
+    /// an asset: the grid clears an icon by re-clicking the selected one, so it needs no cell of
+    /// its own for "none". Rows naming an asset that isn't bundled are dropped too.
+    static func iconOptions(from icons: [IconRecord]) -> [CategoryIconOption] {
+        icons.compactMap { record in
+            guard record.id >= 1, validIconNames.contains(record.name) else { return nil }
+            return CategoryIconOption(iconId: record.id, name: displayName(for: record.name), iconName: record.name)
+        }
     }
 
     /// The facet colour-picker options, built from the `colour` reference table
