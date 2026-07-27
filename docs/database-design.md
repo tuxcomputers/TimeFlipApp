@@ -336,10 +336,13 @@ Seeded rows:
     The Settings button that dismisses the alert resets `last_alert` to the current date
     regardless of whether the user actually performed the check, pushing the next alert out by
     `interval_months` either way.
-- `pause_on_lock` = `{"enabled":true}` — when `enabled`, pausing via the app (command `0x06`)
-  also engages device lock mode (command `0x04`) so the device can't be flipped to a new facet
-  while paused. Does not apply when pause is triggered by a double-tap on the device itself —
-  that pause is left unlocked.
+- `pause_on_lock` = `{"enabled":true}` — when `enabled`, locking the device from the app (command
+  `0x04`) pauses it first (command `0x06`), so no time is recorded against a category while the
+  device is locked and unattended. The lock is what drives the pause, not the other way round.
+  Applies to both ways the app locks: the status item's double-click gesture, and quitting with
+  this setting on (`applicationShouldTerminate` pauses, then locks). Unlocking does **not**
+  auto-resume — that's a deliberate second decision by the user. Nothing here applies to a pause
+  triggered by double-tapping the device itself; that never locks.
 - `fetch_history_interval_seconds` = `{"seconds":10}` — how often `HistoryIngestor` sends a
   history fetch request (command `0x02`) on a repeating timer, independent of the fetches already
   triggered by live facet/pause events, so any entries the device hasn't pushed a live

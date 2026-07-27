@@ -405,9 +405,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// If `pause_on_lock` is enabled, pause and lock the device before actually quitting -- same
-    /// rationale as pausing via the app engaging lock mode (see `pause_on_lock`'s seed
-    /// description): the device shouldn't keep running/trackable once nothing's left controlling
-    /// it. If the setting is disabled (or the device isn't reachable to be commanded), quit
+    /// rationale as locking via the app pausing first (see `handleLockRequest` and
+    /// `pause_on_lock`'s seed description): the device shouldn't keep recording time against a
+    /// category once nothing's left controlling it. Quitting locks the device, so the setting that
+    /// governs "pause whenever the app locks" governs this too.
+    /// If the setting is disabled (or the device isn't reachable to be commanded), quit
     /// immediately with no device interaction -- being paired isn't enough here, since pause/lock
     /// are BLE round trips that go nowhere without a live connection. Delays termination
     /// (`.terminateLater`) rather than blocking this call, since they're async.

@@ -293,12 +293,12 @@ capture = "event_id_before_disabled_quit"
 action = "shell"
 command = "osascript -e 'tell application \"TimeFlip\" to quit'"
 ```
-- [x] Step 11: Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or no paired device,
-      exiting immediately"` -- not the pause/lock sequence above.
+- [x] Step 11: Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or device not
+      connected, exiting immediately"` -- not the pause/lock sequence above.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_2_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Quit requested; pause_on_lock disabled or no paired device, exiting immediately"
+expect_contains = "Quit requested; pause_on_lock disabled or device not connected, exiting immediately"
 timeout_seconds = 10
 ```
 - [x] Step 12: Confirm no new `paused = 1` device_event row was added around the quit time.

@@ -35,7 +35,7 @@ SELECT 'firmware_check', '{"last_alert":"' || date('now', 'localtime') || '","in
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'firmware_check');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'pause_on_lock', '{"enabled":true}', 'enabled: when true, pausing via the app (command 0x06) also engages device lock mode (command 0x04) so the device cannot be flipped to a new facet while paused. Does not apply when pause is triggered by a double-tap on the device itself -- that pause is left unlocked.'
+SELECT 'pause_on_lock', '{"enabled":true}', 'enabled: when true, locking the device from the app (command 0x04) pauses it first (command 0x06), so no time is recorded against a category while the device is locked and unattended. The lock drives the pause, not the other way round. Applies to both ways the app locks: the status item double-click gesture (ApplicationDelegate.handleLockRequest) and quitting with this setting on (applicationShouldTerminate pauses, then locks). Unlocking does not auto-resume -- resuming is a separate decision by the user. Does not apply to a pause triggered by double-tapping the device itself; that never locks.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'pause_on_lock');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
