@@ -14,6 +14,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
         iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
         faceCategories: dataStore.loadFaceCategories(),
+        googleCalendarID: dataStore.loadGoogleConfiguration().calendarID,
+        googleCalendarName: dataStore.loadGoogleConfiguration().calendarName,
+        googleClientID: dataStore.loadGoogleConfiguration().clientID,
         wantsPairing: dataStore.loadPairedDevice().wantsPairing,
         pairedDeviceName: dataStore.loadPairedDevice().name,
         pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
@@ -363,6 +366,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.$wantsPairing
             .sink { [weak self] wantsPairing in
                 self?.dataStore.recordWantsPairing(wantsPairing)
+            }
+            .store(in: &cancellables)
+        Publishers.CombineLatest(appState.$googleCalendarID, appState.$googleCalendarName)
+            .sink { [weak self] id, name in
+                self?.dataStore.recordGoogleCalendar(id: id, name: name)
+            }
+            .store(in: &cancellables)
+        appState.$googleClientID
+            .sink { [weak self] clientID in
+                let trimmed = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+                self?.dataStore.recordGoogleClientID(trimmed.isEmpty ? nil : trimmed)
             }
             .store(in: &cancellables)
         Publishers.CombineLatest(appState.$pairedDeviceName, appState.$pairedDeviceUUID)

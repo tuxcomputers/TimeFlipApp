@@ -368,6 +368,16 @@ Seeded rows:
     until then.
   - See `docs/TODO-devmode.md` for the full design of the `to_file` half (log filename format,
     restart-required behavior).
+- `google_account` = `{}` — everything Google, in one row:
+  - `name` / `email` — the connected account's identity, from the OpenID Connect userinfo
+    endpoint. Fetched once after sign-in and reused so the endpoint isn't called on every launch
+    or Settings open. These two are reset on sign-out; the keys below are not, since they are
+    configuration rather than identity.
+  - `calendar_id` / `calendar_name` — the calendar time entries sync into. Here rather than in
+    their own row because a calendar selection is meaningless without an account.
+  - `client_id` — the OAuth client id. Not a secret (it appears in every OAuth URL), which is why
+    it is not in the Keychain alongside the client secret. Developer mode's `config.json`
+    overrides it at launch.
 - `paired` = `{"paired":false}` and `paired_device` = `{"wants":false}` — pairing, split across two
   rows by how long the values live:
   - `paired` is **volatile connection state**: true on connect or reconnect, false on forget,

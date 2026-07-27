@@ -13,9 +13,6 @@ protocol PreferencesStore {
 
 struct PreferencesPayload: Codable {
     var facetMappings: [FacetMappingRecord] = []
-    var googleCalendarID: String?
-    var googleCalendarName: String?
-    var googleClientID: String?
 }
 
 struct FacetMappingRecord: Codable {

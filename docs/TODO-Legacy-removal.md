@@ -8,10 +8,12 @@ This lists everything that was persisted outside those two at the branch's fork 
 against it is measurable. A box is ticked only when the legacy copy is **gone**, not when the
 database merely has somewhere to put it.
 
-**4 of 13 done.** All four pairing fields have moved; what remains is the four per-facet mappings,
-the three Google fields and the two developer-mode files. None of those can be ticked by deleting
-code alone — each still has a live production reader. Two dead paths that needed no migration have
-also been cleared: see [Legacy paths already removed](#legacy-paths-already-removed).
+**7 of 13 done.** All four pairing fields and all three Google fields have moved. What remains is
+the four per-facet mappings, each still with a live production reader, and the two developer-mode
+files, which are intentional escape hatches rather than oversights. `PreferencesPayload` is now
+nothing but `facetMappings` — the `timeflip.preferences` key disappears with them. Two dead paths
+that needed no migration have also been cleared: see
+[Legacy paths already removed](#legacy-paths-already-removed).
 
 ## UserDefaults — the `timeflip.preferences` blob
 
@@ -43,13 +45,16 @@ have moved.
 
 ### Google integration
 
-- [ ] **`googleCalendarID`** — the calendar events sync into.
-      *No DB home yet.* A `setting` row is the natural fit. Not a secret, so not Keychain.
-- [ ] **`googleCalendarName`** — display name for the above, cached to avoid a lookup.
-      *No DB home yet.* Same `setting` row as the id.
-- [ ] **`googleClientID`** — OAuth client id. Not a secret (it appears in every OAuth URL), which
-      is why it is not in the Keychain alongside the client secret.
-      *No DB home yet.* A `setting` row.
+- [x] **`googleCalendarID`** — the calendar events sync into. *Done — the `calendar_id` key on the
+      existing `google_account` setting row.*
+- [x] **`googleCalendarName`** — display name for the above, cached to avoid a lookup. *Done —
+      `calendar_name` on the same row.*
+- [x] **`googleClientID`** — OAuth client id. Not a secret (it appears in every OAuth URL), which
+      is why it is not in the Keychain alongside the client secret. *Done — `client_id` on the
+      same row.* Developer mode's `config.json` still overrides it at launch, unchanged.
+
+  All three joined `google_account` rather than taking a row of their own. Sign-out resets only
+  that row's `name` and `email`, so configuration sharing the row is not collateral damage.
 
 ### Pairing state
 

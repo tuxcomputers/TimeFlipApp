@@ -1045,8 +1045,37 @@ final class AppDataStore {
     }
 
     /// Clears the cached account identity (e.g. on sign-out) so a later sign-in re-fetches fresh.
+    /// Only `name` and `email` are reset -- the configuration keys below share this row and are
+    /// not part of the identity being dropped.
     func clearGoogleAccount() {
         saveSettingJSON(name: "google_account", merging: ["name": "", "email": ""])
+    }
+
+    /// The calendar events sync into. Stored alongside the account identity rather than in its own
+    /// row, since it is meaningless without one.
+    func recordGoogleCalendar(id: String?, name: String?) {
+        saveSettingJSON(name: "google_account", merging: [
+            "calendar_id": id.map { $0 as Any } ?? NSNull(),
+            "calendar_name": name.map { $0 as Any } ?? NSNull()
+        ])
+    }
+
+    /// The OAuth client id. Not a secret -- it appears in every OAuth URL -- which is why it is
+    /// here rather than in the Keychain alongside the client secret.
+    func recordGoogleClientID(_ clientID: String?) {
+        saveSettingJSON(name: "google_account", merging: [
+            "client_id": clientID.map { $0 as Any } ?? NSNull()
+        ])
+    }
+
+    /// Restores the Google configuration at launch. All three default to absent.
+    func loadGoogleConfiguration() -> (calendarID: String?, calendarName: String?, clientID: String?) {
+        let json = loadSettingJSON(name: "google_account")
+        return (
+            calendarID: json?["calendar_id"] as? String,
+            calendarName: json?["calendar_name"] as? String,
+            clientID: json?["client_id"] as? String
+        )
     }
 
     /// Local hour (0-23) and minute (0-59) at which each category's tracked-time-vs-`daily_limit`

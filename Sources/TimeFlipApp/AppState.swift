@@ -137,6 +137,9 @@ final class AppState: ObservableObject {
         colourOptions: [ActivityColorOption] = [],
         iconOptions: [CategoryIconOption] = [],
         faceCategories: [UInt8: CategoryRecord] = [:],
+        googleCalendarID: String? = nil,
+        googleCalendarName: String? = nil,
+        googleClientID: String? = nil,
         wantsPairing: Bool = false,
         pairedDeviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
@@ -162,9 +165,11 @@ final class AppState: ObservableObject {
         // the stored value is absent rather than that string.
         self.pairedDeviceName = pairedDeviceName ?? "Not paired"
         facetMappings = ActivityLibrary.defaultMappings()
-        googleCalendarID = nil
-        googleCalendarName = nil
-        googleClientID = ""
+        self.googleCalendarID = googleCalendarID
+        self.googleCalendarName = googleCalendarName
+        // Developer mode's config.json can override this in applyDeveloperConfig below, which runs
+        // after this initialiser's assignments -- same precedence as before the move.
+        self.googleClientID = googleClientID ?? ""
         googleClientSecret = ""
         // Developer Mode's config.json is meant to supply this (see applyDeveloperConfig below),
         // but the symlink some dev setups point it at (a repo-tracked file) keeps getting lost --
@@ -457,9 +462,6 @@ final class AppState: ObservableObject {
         if !mappings.isEmpty {
             facetMappings = mappings.sorted { $0.facetID < $1.facetID }
         }
-        googleCalendarID = payload.googleCalendarID
-        googleCalendarName = payload.googleCalendarName
-        googleClientID = payload.googleClientID ?? ""
         isApplyingPreferences = false
     }
 
@@ -490,13 +492,7 @@ final class AppState: ObservableObject {
         // Coalesce all preference changes into a single debounced sink
         // to avoid cascading persistence calls and reduce disk I/O
         Publishers.MergeMany([
-            $facetMappings.map { _ in () }.eraseToAnyPublisher(),
-            $googleCalendarID.map { _ in () }.eraseToAnyPublisher(),
-            $googleCalendarName.map { _ in () }.eraseToAnyPublisher(),
-            $googleClientID.map { _ in () }.eraseToAnyPublisher(),
-            $isPaired.map { _ in () }.eraseToAnyPublisher(),
-            $pairedDeviceName.map { _ in () }.eraseToAnyPublisher(),
-            $pairedDeviceUUID.map { _ in () }.eraseToAnyPublisher()
+            $facetMappings.map { _ in () }.eraseToAnyPublisher()
         ])
         .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -545,12 +541,7 @@ final class AppState: ObservableObject {
             )
             return FacetMappingRecord(mapping: sanitized)
         }
-        let payload = PreferencesPayload(
-            facetMappings: records,
-            googleCalendarID: googleCalendarID,
-            googleCalendarName: googleCalendarName,
-            googleClientID: sanitizedClientID()
-        )
+        let payload = PreferencesPayload(facetMappings: records)
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
             persistDeveloperConfig()
