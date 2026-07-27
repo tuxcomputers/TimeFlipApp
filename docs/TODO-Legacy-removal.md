@@ -11,8 +11,8 @@ database merely has somewhere to put it.
 Nothing is ticked yet, and no item can be ticked by deleting code alone — every legacy field
 still has at least one live production reader. Several already have a database home and a live
 reader too, but the legacy copy is written alongside, which is the thing this list is about.
-Two dead paths *can* go independently of any migration: see
-[Legacy paths that can go now](#legacy-paths-that-can-go-now).
+Two dead paths that needed no migration have already been cleared: see
+[Legacy paths already removed](#legacy-paths-already-removed).
 
 ## UserDefaults — the `timeflip.preferences` blob
 
@@ -25,10 +25,10 @@ have moved.
 
 - [ ] **Facet name** — free text per facet, `""` meaning unassigned.
       *DB home:* `face.category_id` → `category.category_name`, which already exists and is what
-      the menu bar displays. Two readers keep the blob field alive: the Faces tab, which still
-      shows and edits it, and `HistoryIngestor`, which writes it to `logbook.activity_name` (a
-      write-only column — see [Legacy paths that can go now](#legacy-paths-that-can-go-now)).
-      Removing the first needs the Faces tab's category-assignment UI (see
+      the menu bar displays. The Faces tab, which still shows and edits it, is now the **only**
+      reader — `HistoryIngestor` no longer derives a name from it (see
+      [Legacy paths already removed](#legacy-paths-already-removed)). Removing that last reader
+      needs the Faces tab's category-assignment UI (see
       [TODO-features-under-development.md](TODO-features-under-development.md) § Faces).
 - [ ] **Facet icon** — asset name (`ic_meeting`), `""` for none.
       *DB home:* `category.icon_id`, already live for the menu bar and editable on the Categories
@@ -88,23 +88,24 @@ Both live in `~/Library/Application Support/TimeFlip/`, alongside the database.
       the login Keychain re-prompts for access each time. Same note as above: an intentional
       developer-mode substitute for `KeychainAuthStateStore`, not stray state.
 
-## Legacy paths that can go now
+## Legacy paths already removed
 
-Neither of these ticks a box on its own — the fields they touch still have other readers — but
-both are dead weight that can be removed independently of any migration, and removing them
-shrinks what the ticks above have to untangle later.
+Neither of these ticked a box on its own — the fields they touch still have other readers — but
+both were dead weight removable independently of any migration, and clearing them shrinks what the
+ticks above have to untangle later.
 
-- [ ] **`logbook.activity_name` is written on every event and never read.**
+- [x] **`logbook.activity_name` was written on every event and read by nothing.**
       `AppState.activity(for:)` — the blob-backed one, as distinct from `categoryActivity(for:)` —
-      has exactly one production caller, `HistoryIngestor`, which uses only its `name` to fill this
-      column. `logbook` itself is still live: `DailyFacetTotals` reads it via
-      `loadEvents(overlappingSince:)`. But that reader touches only `paused`, `startedAt`,
-      `duration` and `facetID`, never `activityName`.
-      Dropping it retires `AppState.activity(for:)` and leaves the Faces tab as the sole reader of
-      the blob's facet name. `logbook` is the legacy `000_` table and frozen, so the column stays
-      until the table goes — the write can pass `""` in the meantime.
-- [ ] **`AppDataStore.loadEvents(after:limit:)` has no production callers**, only tests. Dead code
-      kept alive by its own coverage.
+      had exactly one production caller, `HistoryIngestor`, which used only its `name` to fill this
+      column. `logbook` itself is still live (`DailyFacetTotals` reads it via
+      `loadEvents(overlappingSince:)`) but that reader touches only `paused`, `startedAt`,
+      `duration` and `facetID`.
+      The column is now written empty and `AppState.activity(for:)` is gone, along with
+      `DeviceEventRecord.activityName`. The column itself stays until `logbook` does — it is
+      `NOT NULL` and the legacy `000_` table is frozen.
+- [x] **`AppDataStore.loadEvents(after:limit:)` had no production callers**, only tests — dead code
+      kept alive by its own coverage. Deleted; the four assertions that used it now read through
+      `loadEvents(overlappingSince:)` with an epoch-zero cutoff, which returns the same rows.
 
 ## Already in the right place — not in scope
 

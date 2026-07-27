@@ -9,7 +9,6 @@ struct DeviceEventRecord {
     let startedAt: Date
     let duration: TimeInterval
     let isPaused: Bool
-    let activityName: String
 }
 
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
@@ -215,10 +214,13 @@ final class AppDataStore {
     @discardableResult
     func append(_ event: DeviceEventRecord) -> Bool {
         guard let db else { return false }
+        // activity_name is written empty: nothing reads it, and the only thing that used to fill
+        // it was the facet name out of the UserDefaults preferences blob. The column stays because
+        // logbook is the legacy 000_ table and frozen -- it goes when the table does.
         let sql = """
         INSERT OR REPLACE INTO logbook (
             event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%s','now')));
+        ) VALUES (?, ?, ?, ?, ?, '', COALESCE(?, strftime('%s','now')));
         """
         var success = false
         queue.sync {
@@ -233,8 +235,7 @@ final class AppDataStore {
             sqlite3_bind_double(stmt, 3, event.startedAt.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 4, event.duration)
             sqlite3_bind_int(stmt, 5, event.isPaused ? 1 : 0)
-            sqlite3_bind_text(stmt, 6, event.activityName, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_double(stmt, 7, Date().timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 6, Date().timeIntervalSince1970)
             if sqlite3_step(stmt) == SQLITE_DONE {
                 success = true
                 logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) facet=\(event.facetID, privacy: .public) dur=\(event.duration, privacy: .public)")
@@ -1155,55 +1156,11 @@ final class AppDataStore {
         return success
     }
 
-    func loadEvents(after logbookID: Int64?, limit: Int) -> [DeviceEventRecord] {
-        guard let db else { return [] }
-        var items: [DeviceEventRecord] = []
-        let sql = """
-        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name
-        FROM logbook
-        WHERE rowid > ?
-        ORDER BY rowid ASC
-        LIMIT ?;
-        """
-        let cutoff = logbookID ?? 0
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int64(stmt, 1, cutoff)
-                sqlite3_bind_int(stmt, 2, Int32(limit))
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let rowid = sqlite3_column_int64(stmt, 0)
-                    let eventNumber = UInt32(sqlite3_column_int64(stmt, 1))
-                    let facet = UInt8(sqlite3_column_int(stmt, 2))
-                    let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
-                    let duration = sqlite3_column_double(stmt, 4)
-                    let paused = sqlite3_column_int(stmt, 5) == 1
-                    guard let activityCString = sqlite3_column_text(stmt, 6) else { continue }
-                    let activity = String(cString: activityCString)
-                    items.append(
-                        DeviceEventRecord(
-                            id: rowid,
-                            eventNumber: eventNumber,
-                            facetID: facet,
-                            startedAt: started,
-                            duration: duration,
-                            isPaused: paused,
-                            activityName: activity
-                        )
-                    )
-                }
-            }
-            sqlite3_finalize(stmt)
-        }
-        return items
-    }
-
-    /// Fetch events whose interval overlaps the provided cutoff (started_at + duration > cutoff).
     func loadEvents(overlappingSince cutoff: Date) -> [DeviceEventRecord] {
         guard let db else { return [] }
         var items: [DeviceEventRecord] = []
         let sql = """
-        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused, activity_name
+        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused
         FROM logbook
         WHERE (started_at_s + duration_s) > ?
         ORDER BY rowid ASC;
@@ -1220,8 +1177,6 @@ final class AppDataStore {
                     let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
                     let duration = sqlite3_column_double(stmt, 4)
                     let paused = sqlite3_column_int(stmt, 5) == 1
-                    guard let activityCString = sqlite3_column_text(stmt, 6) else { continue }
-                    let activity = String(cString: activityCString)
                     items.append(
                         DeviceEventRecord(
                             id: rowid,
@@ -1229,8 +1184,7 @@ final class AppDataStore {
                             facetID: facet,
                             startedAt: started,
                             duration: duration,
-                            isPaused: paused,
-                            activityName: activity
+                            isPaused: paused
                         )
                     )
                 }

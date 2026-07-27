@@ -260,13 +260,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    func activity(for facetID: UInt8) -> Activity? {
-        Self.activity(for: facetID, in: facetMappings)
-    }
-
-    /// Free-function form so callers holding a freshly emitted `$facetMappings` payload (e.g. a
-    /// Combine sink) can resolve against it directly instead of the property, which under
-    /// `@Published`'s willSet-based emission hasn't been updated yet at emission time.
     /// What the menu bar shows for a face: the name and icon of the category the `face` table
     /// assigns it, rather than the facet's own `FacetMapping` (whose name and icon live in the
     /// UserDefaults preferences blob and describe the facet, not a category).
@@ -293,16 +286,6 @@ final class AppState: ObservableObject {
 
     func categoryActivity(for facetID: UInt8) -> Activity? {
         categoryActivity(for: facetID, in: faceCategories, mappings: facetMappings)
-    }
-
-    static func activity(for facetID: UInt8, in mappings: [FacetMapping]) -> Activity? {
-        guard let mapping = mappings.first(where: { $0.facetID == facetID }) else {
-            return nil
-        }
-        let iconName = ActivityLibrary.sanitizeIconName(mapping.iconName)
-        let name = ActivityLibrary.sanitizeActivityName(mapping.displayName)
-        let resolvedIcon = iconName.isEmpty ? nil : iconName
-        return Activity(name: name, iconName: resolvedIcon, limitMinutes: mapping.limitMinutes)
     }
 
     func mappingIndex(for facetID: UInt8) -> Int? {

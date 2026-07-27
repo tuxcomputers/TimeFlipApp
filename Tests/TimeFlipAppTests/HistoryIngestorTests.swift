@@ -106,7 +106,7 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(cursor, 10)
 
         // Verify only completed events stored
-        let stored = dataStore.loadEvents(after: nil, limit: 10)
+        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
         XCTAssertEqual(stored.count, 1)
         XCTAssertEqual(stored.first?.eventNumber, 10)
     }
@@ -152,7 +152,7 @@ final class HistoryIngestorTests: XCTestCase {
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
-        let stored = dataStore.loadEvents(after: nil, limit: 10)
+        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
         XCTAssertEqual(stored.count, 0, "Live last entry should not be stored yet.")
         let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertEqual(cursor, 5, "Cursor should remain at last committed event.")
@@ -194,7 +194,7 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         XCTAssertEqual(latest?.eventNumber, 20, "Latest entry should be passed through for UI updates.")
-        let stored = dataStore.loadEvents(after: nil, limit: 10)
+        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
         XCTAssertTrue(stored.isEmpty, "Live entry should not be stored in the logbook.")
         let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertNil(cursor, "Cursor should not advance when only a live entry is present.")
@@ -316,7 +316,7 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         // Event 10 is definitely closed (11 follows it in the same batch) so it's safe to commit.
-        let stored = dataStore.loadEvents(after: nil, limit: 10)
+        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
         XCTAssertEqual(stored.count, 1)
         XCTAssertEqual(stored.first?.eventNumber, 10)
         // Event 10 is committed to the logbook but is still the newest device_event row, because
