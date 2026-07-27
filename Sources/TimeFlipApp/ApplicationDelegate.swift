@@ -201,13 +201,27 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.appState.wantsPairing = true
                 // A newly selected device is almost always still on the factory default —
                 // reusing whatever password a previous (different) device rotated to would
-                // just be wrong here. Try the default first; fall back to the password field
-                // (e.g. a known custom PIN typed in for recovery) only if that's rejected.
+                // just be wrong here. So: the default first, then in a dev build the PIN dev
+                // devices are left on, then the password field (e.g. a known custom PIN typed in
+                // for recovery). Each is only tried if the one before was rejected as wrong --
+                // any other outcome stops the sequence.
+                //
+                // Pairing is the only place a password is guessed. Connecting uses the stored one
+                // and fails if it is rejected, because being paired means the app is meant to
+                // already know it (see startDeviceEvents).
+                var candidates = [TimeFlipConstants.defaultPassword]
+                if DeveloperMode.isEnabled {
+                    candidates.append(DeveloperMode.devicePassword)
+                }
+                candidates.append(self.appState.devicePassword)
+                var tried: Set<String> = []
                 var attemptedPassword = TimeFlipConstants.defaultPassword
-                var outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: attemptedPassword)
-                if outcome == .wrongPassword, self.appState.devicePassword != TimeFlipConstants.defaultPassword {
-                    attemptedPassword = self.appState.devicePassword
-                    outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: attemptedPassword)
+                var outcome = DeviceConnectOutcome.wrongPassword
+                for candidate in candidates where !tried.contains(candidate) {
+                    tried.insert(candidate)
+                    attemptedPassword = candidate
+                    outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: candidate)
+                    guard outcome == .wrongPassword else { break }
                 }
                 switch outcome {
                 case .connected:
@@ -480,13 +494,20 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             var passwordUsed = appState.devicePassword
             var loggedIn = await device.login(password: passwordUsed)
-            if !loggedIn, (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
+            // The factory default is a PAIRING password, not a connection fallback. Connecting is
+            // gated on already being paired, which means the app is supposed to know this device's
+            // password -- if the stored one is rejected, the honest answer is that the pairing is
+            // no longer valid and the user has to Forget and re-pair. Silently retrying 000000
+            // hides that: it re-logs-in to a device whose password the app has actually lost track
+            // of, so an out-of-band reset looks like nothing happened.
+            //
+            // The one exception is a factory reset this app itself just issued, where coming back
+            // on the default is the defined proof the 0xFF wipe took effect. That window is opened
+            // by us, bounded by factoryResetConfirmDeadline, and ends by dropping the device into
+            // the never-paired state below -- so it is confirming a reset, not connecting.
+            if !loggedIn, pendingFactoryResetConfirm,
+               (device as? TimeFlipBLEDevice)?.wasWrongPassword == true,
                passwordUsed != TimeFlipConstants.defaultPassword {
-                // The stored password goes stale after a reset (the device reverts to the factory
-                // default) -- both during a reset we initiated (pendingFactoryResetConfirm) and for
-                // an out-of-band reset -- so retry with the default before giving up, same reasoning
-                // already used for a freshly-selected device in onDeviceSelectedForPairing. During
-                // our own reset this default-password login is what confirms the wipe (below).
                 passwordUsed = TimeFlipConstants.defaultPassword
                 loggedIn = await device.login(password: passwordUsed)
             }
