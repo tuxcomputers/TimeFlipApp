@@ -11,6 +11,7 @@ struct SettingsRootView: View {
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
     let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryName: (Int, String) -> Void
     let updateCategoryIcon: (Int, Int) -> Void
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
@@ -26,6 +27,7 @@ struct SettingsRootView: View {
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
         updateCategoryActive: @escaping (Int, Bool) -> Void,
+        updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
@@ -39,6 +41,7 @@ struct SettingsRootView: View {
         self.updateCategoryColour = updateCategoryColour
         self.updateCategoryDailyLimit = updateCategoryDailyLimit
         self.updateCategoryActive = updateCategoryActive
+        self.updateCategoryName = updateCategoryName
         self.updateCategoryIcon = updateCategoryIcon
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
@@ -60,6 +63,7 @@ struct SettingsRootView: View {
                     updateCategoryColour: updateCategoryColour,
                     updateCategoryDailyLimit: updateCategoryDailyLimit,
                     updateCategoryActive: updateCategoryActive,
+                    updateCategoryName: updateCategoryName,
                     updateCategoryIcon: updateCategoryIcon
                 )
                     .tabItem {

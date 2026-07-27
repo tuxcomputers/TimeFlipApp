@@ -43,6 +43,7 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     /// A copy with one field replaced, so a view holding a loaded list can reflect an edit it just
     /// wrote to the database without re-reading the table.
     func with(
+        name: String? = nil,
         iconID: Int? = nil,
         colourID: Int? = nil,
         isActive: Bool? = nil,
@@ -50,7 +51,7 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     ) -> CategoryRecord {
         CategoryRecord(
             id: id,
-            name: name,
+            name: name ?? self.name,
             iconID: iconID ?? self.iconID,
             colourID: colourID ?? self.colourID,
             isActive: isActive ?? self.isActive,
@@ -715,6 +716,30 @@ final class AppDataStore {
             sqlite3_finalize(stmt)
         }
         return inserted
+    }
+
+    /// Renames a category. Every table that references it does so by `category_id`, so the new
+    /// name shows up wherever that history is displayed with nothing to backfill -- including for
+    /// periods before the rename, which is what the confirmation on the Categories tab warns
+    /// about. Same `category_id >= 1` guard as the other category writers: the `Unassigned`
+    /// sentinel keeps its name. See `database/007_category.sql`.
+    func updateCategoryName(categoryID: Int, name: String) {
+        guard let db, !name.isEmpty else { return }
+        let sql = "UPDATE category SET category_name = ? WHERE category_id = ? AND category_id >= 1;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category rename prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 2, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("category rename exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
     }
 
     /// Sets `icon_id` on a category -- the Categories tab's own icon grid. Same

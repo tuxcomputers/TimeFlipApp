@@ -8,6 +8,7 @@ struct CategoriesSettingsView: View {
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
     let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryName: (Int, String) -> Void
     let updateCategoryIcon: (Int, Int) -> Void
     @State private var categories: [CategoryRecord] = []
     // Active is the section you actually work in, so it starts open; Inactive is the archive you
@@ -210,7 +211,12 @@ struct CategoriesSettingsView: View {
             setIcon: { categoryID, iconID in
                 updateCategoryIcon(categoryID, iconID)
                 patch(categoryID) { $0.with(iconID: iconID) }
-            }
+            },
+            setName: { categoryID, name in
+                updateCategoryName(categoryID, name)
+                patch(categoryID) { $0.with(name: name) }
+            },
+            findCategory: findCategory
         )
     }
 
@@ -220,12 +226,15 @@ struct CategoriesSettingsView: View {
     }
 }
 
-/// The edits a category row can make, bundled so they travel together down to the row.
+/// What a category row needs to read and change, bundled so it travels together down to the row.
 struct CategoryRowActions {
     let setColour: (Int, Int) -> Void
     let setDailyLimit: (Int, Int) -> Void
     let setActive: (Int, Bool) -> Void
     let setIcon: (Int, Int) -> Void
+    let setName: (Int, String) -> Void
+    /// Used by the rename flow to spot a name that is already taken, the same check Save runs.
+    let findCategory: (String) -> CategoryRecord?
 }
 
 /// One collapsible group of categories, built like the Device tab's LED/More groups: the label is
@@ -299,6 +308,11 @@ private struct CategoryRow: View {
     let actions: CategoryRowActions
     @State private var isColorPickerPresented = false
     @State private var isIconPickerPresented = false
+    @State private var isEditingName = false
+    @State private var draftName = ""
+    /// Which confirmation a Save raised, if any. Non-nil is what puts it on screen.
+    @State private var renameConfirmation: RenameConfirmation?
+    @FocusState private var isNameFieldFocused: Bool
 
     /// `nil` for the None icon (icon_id 0), which is a sentinel rather than a bundled asset and so
     /// never appears in `iconOptions`.
@@ -316,10 +330,7 @@ private struct CategoryRow: View {
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
             iconButton
-            Text(category.name)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
+            nameField
             colourSwatch
                 .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
             dailyLimitField
@@ -332,6 +343,157 @@ private struct CategoryRow: View {
             activeCheckbox
             Spacer()
         }
+        .alert(
+            renameConfirmation?.title ?? "",
+            isPresented: Binding(
+                get: { renameConfirmation != nil },
+                set: { if !$0 { renameConfirmation = nil } }
+            ),
+            presenting: renameConfirmation
+        ) { confirmation in
+            renameButtons(for: confirmation)
+        } message: { confirmation in
+            Text(confirmation.message(currentName: category.name))
+        }
+    }
+
+    /// Read-only until Edit is chosen from its right-click menu, then an inline field. Enter
+    /// raises the confirmation; the name only changes once that is accepted.
+    @ViewBuilder
+    private var nameField: some View {
+        if isEditingName {
+            TextField("", text: $draftName)
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .focused($isNameFieldFocused)
+                .onAppear {
+                    // Deferred a runloop turn: at onAppear the field is not yet in the window's
+                    // responder chain, so focusing it synchronously is dropped.
+                    DispatchQueue.main.async { isNameFieldFocused = true }
+                }
+                .onSubmit(requestRename)
+                .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
+        } else {
+            Text(category.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
+                // Without this the menu only opens over the glyphs themselves, not the rest of the
+                // fixed-width column, which is a small target on a short name.
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button("Edit") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Edit category name \"\(category.name)\"")
+                        draftName = category.name
+                        isEditingName = true
+                    }
+                }
+        }
+    }
+
+    /// What a Save raised. Mirrors the create flow's collision handling: a name already in use by
+    /// an active category is a dead end, an inactive one is a "are you sure" -- with the plain
+    /// history warning when the name is free.
+    private enum RenameConfirmation: Identifiable {
+        case plain(newName: String)
+        case activeCollision(existingName: String)
+        case inactiveCollision(newName: String)
+
+        var id: String {
+            switch self {
+            case .plain(let name): return "plain:\(name)"
+            case .activeCollision(let name): return "active:\(name)"
+            case .inactiveCollision(let name): return "inactive:\(name)"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .plain: return "Rename this category?"
+            case .activeCollision, .inactiveCollision: return "That category already exists"
+            }
+        }
+
+        /// The history caveat rides along with the inactive case rather than following it in a
+        /// second dialog: both facts are about the same single decision, and stacking two alerts
+        /// to agree to one rename is worse than one alert that says both.
+        func message(currentName: String) -> String {
+            switch self {
+            case .plain(let newName):
+                return historyWarning(currentName: currentName, newName: newName)
+            case .activeCollision(let existingName):
+                return """
+                "\(existingName)" is already in the Active list, so this name is taken.
+                """
+            case .inactiveCollision(let newName):
+                return """
+                "\(newName)" already exists as an inactive category. Renaming to it leaves two \
+                categories with that name, and sorting them apart in reports later is on you. Do \
+                you really want to do this?
+
+                \(historyWarning(currentName: currentName, newName: newName))
+                """
+            }
+        }
+
+        private func historyWarning(currentName: String, newName: String) -> String {
+            """
+            "\(currentName)" keeps all of its history -- nothing recorded against it is lost.
+
+            But everything links to this category by id rather than by name, so reports covering \
+            time before the rename will show "\(newName)" too, not the name that was in use then.
+            """
+        }
+    }
+
+    @ViewBuilder
+    private func renameButtons(for confirmation: RenameConfirmation) -> some View {
+        switch confirmation {
+        case .plain(let newName):
+            Button("OK") { commitRename(to: newName) }
+            Button("Cancel", role: .cancel) { cancelRename() }
+        case .activeCollision:
+            Button("Ok I am an idiot that needs to open my eyes", role: .cancel) { cancelRename() }
+        case .inactiveCollision(let newName):
+            Button("Rename anyway") { commitRename(to: newName) }
+            Button("Cancel", role: .cancel) { cancelRename() }
+        }
+    }
+
+    /// Tidied the same way a newly created name is, so a rename cannot introduce the padding or
+    /// doubled spaces that creating would have collapsed. An unchanged or empty name just leaves
+    /// edit mode -- there is nothing to confirm.
+    ///
+    /// The taken-name check skips a hit on this same category: `findCategory` matches
+    /// `COLLATE NOCASE`, so "meeting" -> "Meeting" on the row being renamed finds itself, and
+    /// correcting a name's capitalisation is not a collision.
+    private func requestRename() {
+        let name = ActivityLibrary.normalizeCategoryName(draftName)
+        guard !name.isEmpty, name != category.name else {
+            cancelRename()
+            return
+        }
+        if let existing = actions.findCategory(name), existing.id != category.id {
+            DeveloperMode.debugPrint(.field, "Rename collision: \"\(name)\" matches category_id \(existing.id) (active=\(existing.isActive))")
+            renameConfirmation = existing.isActive
+                ? .activeCollision(existingName: existing.name)
+                : .inactiveCollision(newName: name)
+            return
+        }
+        renameConfirmation = .plain(newName: name)
+    }
+
+    private func commitRename(to newName: String) {
+        DeveloperMode.debugPrint(.click, "Button clicked: Confirm rename \"\(category.name)\" -> \"\(newName)\"")
+        actions.setName(category.id, newName)
+        cancelRename()
+    }
+
+    private func cancelRename() {
+        renameConfirmation = nil
+        isEditingName = false
+        isNameFieldFocused = false
+        draftName = ""
     }
 
     /// Opens the icon grid. An unset icon (icon_id 0) shows the same "no icon" glyph the Faces

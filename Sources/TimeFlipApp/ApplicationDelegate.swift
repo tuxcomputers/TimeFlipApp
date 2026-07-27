@@ -66,6 +66,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
             self?.refreshFaceCategories()
         },
+        updateCategoryName: { [weak self, dataStore] categoryID, name in
+            dataStore.updateCategoryName(categoryID: categoryID, name: name)
+            self?.refreshFaceCategories()
+        },
         updateCategoryIcon: { [weak self, dataStore] categoryID, iconID in
             dataStore.updateCategoryIcon(categoryID: categoryID, iconID: iconID)
             self?.refreshFaceCategories()
