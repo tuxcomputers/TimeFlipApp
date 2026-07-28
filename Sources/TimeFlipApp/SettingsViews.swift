@@ -226,10 +226,9 @@ private struct TopFacetEditor: View {
 
     var body: some View {
         VStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-            // Squared off here rather than left to fill the column, so the name sits directly under
-            // the device instead of being pushed to the bottom of a tall column.
+            // DeviceFaceView squares itself off, so the name sits directly under the device rather
+            // than being pushed to the bottom of a tall column.
             DeviceFaceView(litColour: litColour, lineColour: lineColour, iconName: iconName)
-                .aspectRatio(1, contentMode: .fit)
 
             Text(categoryName ?? "")
                 .font(.system(size: SettingsLayoutConstants.DeviceFace.nameFontSize, weight: .semibold))
@@ -269,10 +268,12 @@ struct ActivityIconView: View {
 /// faces individually -- so this draws every face in `litColour` and keeps the artwork's own black
 /// edges, which is why it deliberately skips the `.template` rendering `ActivityIconView` uses.
 ///
-/// Sized from the space it's given so the device fills the area, squared off to keep the artwork
-/// circular, and re-rendered at that size so the vector artwork stays crisp rather than being
-/// upscaled from a fixed-size raster. Anchored to the top of that space so it sits directly under
-/// the field above rather than drifting down the middle of a tall column.
+/// Squared off by aspect ratio and left to take whatever size it is given. It deliberately does
+/// **not** measure the space it is offered to decide its own size: the artwork is a vector, and an
+/// `NSImage` backed by one re-renders at whatever size it is drawn, so a fixed render size stays
+/// crisp at any scale. Sizing off a `GeometryReader` here instead would make this view's size
+/// depend on the height available to it, and the settings window already drives its own minimum
+/// height from a measured column -- the two together form a layout feedback loop.
 struct DeviceFaceView: View {
     let litColour: Color
     /// The colour of the inner lines and the centre icon. The outer outline is not drawn in this
@@ -283,39 +284,41 @@ struct DeviceFaceView: View {
     let iconName: String?
 
     var body: some View {
-        GeometryReader { proxy in
-            let side = max(1, min(proxy.size.width, proxy.size.height))
-            ZStack {
-                Group {
-                    if let image = ActivityIconLoader.colouredImage(
-                        named: "ic_timeflip2",
-                        pointSize: side,
-                        fill: NSColor(litColour),
-                        ink: NSColor(lineColour)
-                    ) {
-                        Image(nsImage: image)
-                            .resizable()
-                    } else {
-                        Image(systemName: "square.dashed")
-                            .resizable()
-                            .foregroundStyle(.secondary)
+        device
+            .aspectRatio(1, contentMode: .fit)
+            // An overlay is sized by what it covers, so reading the geometry here scales the icon
+            // to the device without the icon's size feeding back into the layout.
+            .overlay {
+                GeometryReader { proxy in
+                    // The centre face is centred on the artwork, so centring the icon in the same
+                    // frame puts it on that face without needing the pentagon's corners.
+                    if let iconName {
+                        ActivityIconView(
+                            iconName: iconName,
+                            tint: lineColour,
+                            size: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     }
                 }
-
-                // The centre face is centred on the artwork, so centring the icon in the same frame
-                // puts it on that face without needing to know where the pentagon's corners are.
-                if let iconName {
-                    ActivityIconView(
-                        iconName: iconName,
-                        tint: lineColour,
-                        size: side * SettingsLayoutConstants.DeviceFace.centreIconScale
-                    )
-                }
             }
-            .frame(width: side, height: side)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var device: some View {
+        if let image = ActivityIconLoader.colouredImage(
+            named: "ic_timeflip2",
+            pointSize: SettingsLayoutConstants.DeviceFace.renderPointSize,
+            fill: NSColor(litColour),
+            ink: NSColor(lineColour)
+        ) {
+            Image(nsImage: image)
+                .resizable()
+        } else {
+            Image(systemName: "square.dashed")
+                .resizable()
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -56,6 +56,10 @@ enum SettingsLayoutConstants {
         // inside that pentagon is ~0.297 of the artwork's width -- the limit comes from the two
         // upper edges meeting at the point, not the flat bottom one -- so this stays just inside.
         static let centreIconScale: CGFloat = 0.29
+        // The size the device artwork is rendered at, independent of how large it is drawn. The
+        // artwork is a vector and re-renders at draw size, so this only has to be generous enough
+        // that nothing downstream is ever upscaling a too-small raster.
+        static let renderPointSize: CGFloat = 512
         // The assigned category's name under the device. Sized to fill the space the squared-off
         // device leaves at the bottom of the column rather than to any system text style.
         static let nameFontSize: CGFloat = 56
