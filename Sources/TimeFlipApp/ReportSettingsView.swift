@@ -93,14 +93,17 @@ struct ReportSettingsView: View {
         Section("App settings") {
             LabeledContent("Daily reset at") {
                 HStack(spacing: 16) {
-                    // Same stacked-chevron stepper as the Device tab's auto-pause control. Hour and
-                    // AM/PM step independently -- the hour wraps 1<->12 without flipping AM/PM.
-                    HStack(spacing: 4) {
-                        Text("\(Self.to12Hour(appState.dailyResetHour).hour)")
-                            .monospacedDigit()
-                            .frame(width: 22, alignment: .trailing)
-                        stepArrows(up: { stepHour(1) }, down: { stepHour(-1) })
-                    }
+                    // The hour is typed or held; AM/PM stays arrows-only, since a two-state value has
+                    // nothing to run through and nothing sensible to type.
+                    SteppedNumberField(
+                        appState: appState,
+                        holdKey: "dailyResetHour",
+                        value: Self.to12Hour(appState.dailyResetHour).hour,
+                        range: 1...12,
+                        suffix: "",
+                        fieldWidth: 34,
+                        onCommit: setHour12
+                    )
                     HStack(spacing: 4) {
                         Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
                             .frame(width: 30, alignment: .leading)
@@ -113,12 +116,26 @@ struct ReportSettingsView: View {
                 set: { appState.setDisplaySeconds($0) }
             ))
             LabeledContent("Battery warning at") {
-                HStack(spacing: 4) {
-                    Text("\(appState.lowBatteryThresholdPercent)%")
-                        .monospacedDigit()
-                        .frame(width: 38, alignment: .trailing)
-                    stepArrows(up: { stepBatteryThreshold(1) }, down: { stepBatteryThreshold(-1) })
-                }
+                SteppedNumberField(
+                    appState: appState,
+                    holdKey: "batteryWarning",
+                    value: appState.lowBatteryThresholdPercent,
+                    range: Int(TimeFlipConstants.minBatteryLevel)...TimeFlipConstants.effectiveMaxLowBatteryWarningPercent,
+                    suffix: "%",
+                    fieldWidth: 44,
+                    onCommit: { appState.setLowBatteryThreshold($0) }
+                )
+            }
+            LabeledContent("Fetch history every") {
+                SteppedNumberField(
+                    appState: appState,
+                    holdKey: "fetchHistory",
+                    value: fetchIntervalMinutes,
+                    range: fetchIntervalMinutesRange,
+                    suffix: fetchIntervalMinutes == 1 ? "min" : "mins",
+                    fieldWidth: 44,
+                    onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
+                )
             }
         }
     }
@@ -144,31 +161,31 @@ struct ReportSettingsView: View {
         .buttonStyle(.plain)
     }
 
-    /// Steps the hour by ±1 on the 12-hour face (wrapping 12->1 / 1->12), keeping AM/PM fixed.
-    private func stepHour(_ delta: Int) {
+    /// Applies an hour picked on the 12-hour face, keeping AM/PM as it is. The face value is clamped
+    /// by the control rather than wrapped: with a field to type into, wrapping 12 round to 1 would
+    /// mean a typed 13 silently became 1.
+    private func setHour12(_ hour12: Int) {
         let current = Self.to12Hour(appState.dailyResetHour)
-        var hour12 = current.hour + delta
-        if hour12 > 12 { hour12 = 1 }
-        if hour12 < 1 { hour12 = 12 }
         let newHour = Self.to24Hour(hour12: hour12, meridiem: current.meridiem)
+        guard newHour != appState.dailyResetHour else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Daily reset hour: \(appState.dailyResetHour) -> \(newHour) (24h)")
-        appState.setDailyResetTime(
-            hour: newHour,
-            minute: appState.dailyResetMinute
-        )
+        appState.setDailyResetTime(hour: newHour, minute: appState.dailyResetMinute)
     }
 
-    /// Steps the low-battery threshold by ±1%. Clamped rather than wrapped, since 1% and 100% are
-    /// the ends of what the device reports, not points on a dial.
-    private func stepBatteryThreshold(_ delta: Int) {
-        let current = appState.lowBatteryThresholdPercent
-        let stepped = max(
-            Int(TimeFlipConstants.minBatteryLevel),
-            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, current + delta)
-        )
-        guard stepped != current else { return }
-        DeveloperMode.debugPrint(.field, "Field changed: Battery warning level: \(current)% -> \(stepped)%")
-        appState.setLowBatteryThreshold(stepped)
+    /// The stored interval as whole minutes. This control is the only place the value is thought of
+    /// in minutes; everywhere else, including `AppState`, it stays in seconds. Rounds down, so a
+    /// sub-minute interval (developer mode only) reads as 0 rather than being dressed up as 1.
+    private var fetchIntervalMinutes: Int {
+        appState.fetchHistoryIntervalSeconds / Int(TimeConstants.secondsPerMinute)
+    }
+
+    /// The interval bounds expressed in whole minutes, for the control. Everywhere else they stay in
+    /// seconds -- see `TimeFlipConstants.minFetchHistoryIntervalSeconds`.
+    private var fetchIntervalMinutesRange: ClosedRange<Int> {
+        let perMinute = Int(TimeConstants.secondsPerMinute)
+        let low = TimeFlipConstants.minFetchHistoryIntervalSeconds / perMinute
+        let high = TimeFlipConstants.maxFetchHistoryIntervalSeconds / perMinute
+        return low...high
     }
 
     /// Flips AM<->PM, keeping the hour on the clock face fixed.
@@ -474,5 +491,126 @@ struct ReportSettingsView: View {
             }
         }
         isLoadingCalendars = false
+    }
+}
+
+/// A number you can type into or hold an arrow to run through, used by the App tab's settings rows.
+///
+/// The arrows repeat while held, matching the Device tab's auto-pause stepper (same initial delay
+/// and tick cadence, see `AutoPauseStepper`) so the two tabs feel the same. Unlike that one the step
+/// is always 1: these ranges are small enough that accelerating through them buys nothing.
+///
+/// Typing is committed on Return or when the field loses focus, never per keystroke -- a
+/// keystroke-by-keystroke commit would clamp "1" on the way to "15" and fight the user. The draft is
+/// resynced from the value whenever the arrows move it, and clamped locally on commit so an
+/// out-of-range entry snaps back to what was actually stored rather than sitting there as typed.
+private struct SteppedNumberField: View {
+    @ObservedObject var appState: AppState
+    /// Distinguishes this control's arrows from the other rows' -- see `AppState.appSettingsHoldKey`.
+    let holdKey: String
+    let value: Int
+    let range: ClosedRange<Int>
+    /// Shown after the field, e.g. `%`. Empty for a bare number.
+    let suffix: String
+    let fieldWidth: CGFloat
+    let onCommit: (Int) -> Void
+
+    @State private var draft: String = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField("", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: fieldWidth)
+                .focused($isFocused)
+                .onSubmit(commitDraft)
+                .onChange(of: isFocused) { _, focused in
+                    if focused {
+                        draft = "\(value)"
+                    } else {
+                        commitDraft()
+                    }
+                }
+                .onChange(of: value) { _, newValue in
+                    // Don't overwrite what is being typed; the commit path resyncs instead.
+                    guard !isFocused else { return }
+                    draft = "\(newValue)"
+                }
+                .onAppear { draft = "\(value)" }
+            if !suffix.isEmpty {
+                Text(suffix)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(spacing: 1) {
+                arrow("chevron.up", delta: 1)
+                arrow("chevron.down", delta: -1)
+            }
+        }
+    }
+
+    private func arrow(_ systemImage: String, delta: Int) -> some View {
+        let key = "\(holdKey):\(delta)"
+        return Image(systemName: systemImage)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.secondary)
+            .frame(width: 16, height: 10)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
+                if isPressing {
+                    guard appState.appSettingsHoldKey != key else { return }
+                    appState.appSettingsHoldKey = key
+                    beginHold(delta: delta, from: step(delta, from: value))
+                } else if appState.appSettingsHoldKey == key {
+                    appState.cancelAppSettingsHold()
+                }
+            }, perform: {})
+    }
+
+    /// One tick, stepping from `current` rather than from the draft, so a half-typed entry can't be
+    /// used as the starting point. Returns the value now stored, unchanged if the step was clamped.
+    @discardableResult
+    private func step(_ delta: Int, from current: Int) -> Int {
+        let stepped = min(range.upperBound, max(range.lowerBound, current + delta))
+        guard stepped != current else { return current }
+        onCommit(stepped)
+        return stepped
+    }
+
+    /// Starts the repeat loop for a held arrow, counting on from `start`.
+    ///
+    /// The running total is a local variable rather than a re-read of `value`, because `value` is a
+    /// plain property: the struct copy this task captured keeps the pre-hold number for the whole
+    /// hold, so re-reading it would re-commit the same single step on every tick and the value would
+    /// appear to move once and then stick. (The auto-pause loop can re-read its equivalent only
+    /// because that one is `@State`, which reads through a box that outlives the copy.) A held arrow
+    /// is the only thing changing the value while it's down, so counting locally stays accurate.
+    private func beginHold(delta: Int, from start: Int) {
+        appState.appSettingsHoldTask?.cancel()
+        appState.appSettingsHoldTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AutoPauseStepper.initialHoldDelay * 1_000_000_000))
+            var current = start
+            while !Task.isCancelled {
+                let next = step(delta, from: current)
+                // Stop rather than spin once an end of the range is reached.
+                guard next != current else { return }
+                current = next
+                try? await Task.sleep(nanoseconds: UInt64(AutoPauseStepper.singleStepInterval * 1_000_000_000))
+            }
+        }
+    }
+
+    private func commitDraft() {
+        guard let typed = Int(draft.trimmingCharacters(in: .whitespaces)) else {
+            draft = "\(value)"
+            return
+        }
+        let clamped = min(range.upperBound, max(range.lowerBound, typed))
+        draft = "\(clamped)"
+        guard clamped != value else { return }
+        onCommit(clamped)
     }
 }

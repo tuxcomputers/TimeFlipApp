@@ -25,6 +25,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
         displaySecondsEnabled: dataStore.loadDisplaySecondsEnabled(),
         lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent(),
+        fetchHistoryIntervalSeconds: Int(dataStore.loadFetchHistoryIntervalSeconds()),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -303,6 +304,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             DeveloperMode.debugPrint(.field, "Field changed: Display seconds: \(enabled ? "on" : "off")")
             self.dataStore.saveDisplaySecondsEnabled(enabled)
             self.menuBarController.setDisplaySeconds(enabled)
+        }
+        appState.onFetchHistoryIntervalChange = { [weak self] seconds in
+            guard let self else { return }
+            DeveloperMode.debugPrint(.field, "Field changed: History fetch interval: \(seconds)s")
+            self.dataStore.saveFetchHistoryIntervalSeconds(seconds)
+            // Re-reads the setting and replaces the existing timer, so the new interval applies now
+            // rather than at the next launch.
+            self.historyIngestor?.startPeriodicFetchTimer()
         }
         appState.onLowBatteryThresholdChange = { [weak self] percent in
             guard let self else { return }

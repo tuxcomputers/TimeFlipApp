@@ -21,6 +21,13 @@ enum TimeFlipConstants {
     /// for most of the cells' usable life, which only teaches the user to ignore it.
     static let maxLowBatteryWarningPercent: Int = 20
 
+    /// Bounds for the periodic history-fetch interval, in **seconds** -- the unit the setting is
+    /// stored in and the unit every part of the app works in. Only the App tab's control presents it
+    /// as minutes, dividing to display and multiplying to save. An hour is the far end of useful:
+    /// the periodic fetch is a safety net behind the live facet/pause events, not the main path.
+    static let minFetchHistoryIntervalSeconds: Int = 60
+    static let maxFetchHistoryIntervalSeconds: Int = 3600
+
     /// The low-battery ceiling actually enforced. Developer mode lifts it to the full reportable
     /// range so a warning can be forced on a healthy battery for testing, which is also why a
     /// stored value above the cap is left alone while developer mode is on.

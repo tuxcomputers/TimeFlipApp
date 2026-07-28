@@ -82,6 +82,9 @@ final class AppState: ObservableObject {
     // `low_battery_level` setting. Held here for the same reason as `displaySecondsEnabled`: so the
     // App tab's control applies immediately rather than at the next launch.
     @Published var lowBatteryThresholdPercent: Int
+    // How often history is re-fetched, in seconds, matching the stored setting. The App tab's
+    // control is the only thing that turns this into minutes, for display.
+    @Published var fetchHistoryIntervalSeconds: Int
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
@@ -113,6 +116,12 @@ final class AppState: ObservableObject {
     // holding isn't left stuck "pressed" once the window reopens.
     var autoPauseHoldTask: Task<Void, Never>?
     var autoPauseHoldDirection: Int?
+    // The App tab's held stepper arrows, owned here for the same reasons as the auto-pause pair
+    // above: the window is hidden rather than deallocated, and a physically-held mouse button never
+    // delivers its release to a view whose window has closed under it. One key rather than one pair
+    // per control, since only one arrow can be held at a time.
+    var appSettingsHoldTask: Task<Void, Never>?
+    var appSettingsHoldKey: String?
     // Mirrors MenuBarController's low-battery blink state so the Settings window's Battery line
     // (a different view hierarchy from the status bar) can flash in sync with it and with the
     // "Preferences..." menu item -- MenuBarController owns the actual timer/latch and pushes
@@ -134,6 +143,8 @@ final class AppState: ObservableObject {
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
     var onDisplaySecondsChange: ((Bool) -> Void)?
     var onLowBatteryThresholdChange: ((Int) -> Void)?
+    /// Passes seconds, like everything outside the App tab's own control.
+    var onFetchHistoryIntervalChange: ((Int) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
@@ -186,6 +197,7 @@ final class AppState: ObservableObject {
         pairedDeviceUUID: String? = nil,
         displaySecondsEnabled: Bool = true,
         lowBatteryThresholdPercent: Int = 5,
+        fetchHistoryIntervalSeconds: Int = 60,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -234,6 +246,13 @@ final class AppState: ObservableObject {
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
         self.displaySecondsEnabled = displaySecondsEnabled
+        // Not clamped up to the minimum here: the value handed in has already been through
+        // `loadFetchHistoryIntervalSeconds`, which applies the floor unless developer mode is on,
+        // and forcing it again would hide a developer's deliberately sub-minute interval.
+        self.fetchHistoryIntervalSeconds = min(
+            TimeFlipConstants.maxFetchHistoryIntervalSeconds,
+            max(1, fetchHistoryIntervalSeconds)
+        )
         // Clamped on the way in as well as on the way out, so a stale or hand-edited
         // `low_battery_level` row can't surface as a threshold the UI would then refuse to set.
         // With developer mode on the stored value is left as it is, up to the reportable range, so a
@@ -471,6 +490,14 @@ final class AppState: ObservableObject {
         autoPauseHoldDirection = nil
     }
 
+    /// Stops a held App-tab stepper arrow. Called when the settings window closes, so a hold that
+    /// never received its release can't keep ticking database writes in the background.
+    func cancelAppSettingsHold() {
+        appSettingsHoldTask?.cancel()
+        appSettingsHoldTask = nil
+        appSettingsHoldKey = nil
+    }
+
     /// Called by MenuBarController every time its low-battery blink state changes (starts, stops,
     /// or toggles phase) so the Settings window's Battery line and the "Preferences..." menu item
     /// can mirror it.
@@ -619,6 +646,18 @@ final class AppState: ObservableObject {
         guard clamped != lowBatteryThresholdPercent else { return }
         lowBatteryThresholdPercent = clamped
         onLowBatteryThresholdChange?(clamped)
+    }
+
+    /// Updates the history-fetch interval, in seconds, and fires `onFetchHistoryIntervalChange`
+    /// so it is persisted and the live timer re-armed.
+    func setFetchHistoryIntervalSeconds(_ seconds: Int) {
+        let clamped = max(
+            TimeFlipConstants.minFetchHistoryIntervalSeconds,
+            min(TimeFlipConstants.maxFetchHistoryIntervalSeconds, seconds)
+        )
+        guard clamped != fetchHistoryIntervalSeconds else { return }
+        fetchHistoryIntervalSeconds = clamped
+        onFetchHistoryIntervalChange?(clamped)
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {

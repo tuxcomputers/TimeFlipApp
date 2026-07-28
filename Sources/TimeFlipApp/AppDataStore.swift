@@ -874,11 +874,17 @@ final class AppDataStore {
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the
     /// `fetch_history_interval_seconds` setting, seeded to `10`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
+    /// The App tab edits this in whole minutes, so anything below a minute can only have come from
+    /// the seed default or a hand-edited row. Sub-minute polling is a developer convenience -- it
+    /// makes history arrive quickly while testing -- so it is honoured while developer mode is on
+    /// and floored at one minute otherwise. Enforced here rather than by rewriting the row, so the
+    /// stored value survives untouched and a developer's 10s keeps working.
     func loadFetchHistoryIntervalSeconds() -> TimeInterval {
         guard let seconds = loadSettingJSON(name: "fetch_history_interval_seconds")?["seconds"] as? Int else {
             return 10
         }
-        return TimeInterval(seconds)
+        guard !DeveloperMode.isEnabled else { return TimeInterval(seconds) }
+        return TimeInterval(max(TimeFlipConstants.minFetchHistoryIntervalSeconds, seconds))
     }
 
     /// Whether locking the device via the app should also pause it first if it isn't already
@@ -1183,6 +1189,16 @@ final class AppDataStore {
         saveSettingJSON(name: "daily_reset_time", merging: [
             "hour": max(0, min(23, hour)),
             "minute": max(0, min(59, minute))
+        ])
+    }
+
+    /// Persists the periodic history-fetch interval (`fetch_history_interval_seconds`), in seconds.
+    func saveFetchHistoryIntervalSeconds(_ seconds: Int) {
+        saveSettingJSON(name: "fetch_history_interval_seconds", merging: [
+            "seconds": max(
+                TimeFlipConstants.minFetchHistoryIntervalSeconds,
+                min(TimeFlipConstants.maxFetchHistoryIntervalSeconds, seconds)
+            )
         ])
     }
 
