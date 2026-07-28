@@ -145,7 +145,7 @@ private struct PaneSetupView: View {
 
             HStack(alignment: .top, spacing: spacing) {
                 VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                    Text("Top facet")
+                    Text("Top face")
                         .font(.headline)
 
                     if let index = appState.mappingIndex(for: appState.currentFacetID) {
@@ -202,23 +202,7 @@ private struct TopFacetEditor: View {
     let tint: Color
 
     var body: some View {
-        let nameBinding = Binding(
-            get: { mapping.name },
-            set: {
-                let sanitized = ActivityLibrary.sanitizeActivityName($0)
-                DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) name: \"\(mapping.name)\" -> \"\(sanitized)\"")
-                mapping.name = sanitized
-            }
-        )
-        VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-            TextField("", text: nameBinding, prompt: Text("Unassigned"))
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-
-            DeviceFaceView(litColour: .red)
-                .layoutPriority(1)
-        }
+        DeviceFaceView(litColour: .red)
     }
 }
 
