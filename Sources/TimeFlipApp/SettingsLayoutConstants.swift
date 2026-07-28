@@ -50,6 +50,14 @@ enum SettingsLayoutConstants {
         static let listPadding: CGFloat = 6
     }
 
+    enum DeviceFace {
+        // The drawn device's centre face is a regular pentagon centred on the artwork, so an icon
+        // placed at the middle of the frame lands on it. The largest centred square that fits
+        // inside that pentagon is ~0.297 of the artwork's width -- the limit comes from the two
+        // upper edges meeting at the point, not the flat bottom one -- so this stays just inside.
+        static let centreIconScale: CGFloat = 0.29
+    }
+
     enum FacetList {
         static let rowSpacing: CGFloat = 12
         static let iconSize: CGFloat = 20

@@ -167,7 +167,8 @@ private struct PaneSetupView: View {
                         )
                         TopFacetEditor(
                             mapping: binding,
-                            litColour: appState.deviceBodyColour(for: appState.currentFacetID)
+                            litColour: appState.deviceBodyColour(for: appState.currentFacetID),
+                            iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName
                         )
                     } else {
                         Text("Flip the device to pick a facet.")
@@ -214,9 +215,11 @@ private struct TopFacetEditor: View {
     /// The colour to light the device in: the colour of the category assigned to this face, or
     /// white when it has none (see `AppState.deviceBodyColour`).
     let litColour: Color
+    /// The assigned category's icon, or `nil` when there isn't one to draw.
+    let iconName: String?
 
     var body: some View {
-        DeviceFaceView(litColour: litColour)
+        DeviceFaceView(litColour: litColour, iconName: iconName)
     }
 }
 
@@ -253,22 +256,37 @@ struct ActivityIconView: View {
 /// the field above rather than drifting down the middle of a tall column.
 struct DeviceFaceView: View {
     let litColour: Color
+    /// The icon of the category assigned to this face, drawn black on the centre face. `nil` when
+    /// the face has no category, or its category has no icon.
+    let iconName: String?
 
     var body: some View {
         GeometryReader { proxy in
             let side = max(1, min(proxy.size.width, proxy.size.height))
-            Group {
-                if let image = ActivityIconLoader.colouredImage(
-                    named: "ic_timeflip2",
-                    pointSize: side,
-                    fill: NSColor(litColour)
-                ) {
-                    Image(nsImage: image)
-                        .resizable()
-                } else {
-                    Image(systemName: "square.dashed")
-                        .resizable()
-                        .foregroundStyle(.secondary)
+            ZStack {
+                Group {
+                    if let image = ActivityIconLoader.colouredImage(
+                        named: "ic_timeflip2",
+                        pointSize: side,
+                        fill: NSColor(litColour)
+                    ) {
+                        Image(nsImage: image)
+                            .resizable()
+                    } else {
+                        Image(systemName: "square.dashed")
+                            .resizable()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // The centre face is centred on the artwork, so centring the icon in the same frame
+                // puts it on that face without needing to know where the pentagon's corners are.
+                if let iconName {
+                    ActivityIconView(
+                        iconName: iconName,
+                        tint: .black,
+                        size: side * SettingsLayoutConstants.DeviceFace.centreIconScale
+                    )
                 }
             }
             .frame(width: side, height: side)
