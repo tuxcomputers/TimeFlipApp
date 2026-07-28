@@ -85,6 +85,10 @@ final class AppState: ObservableObject {
     // setting. Held here rather than read once at launch so the App tab's toggle can take effect
     // immediately instead of at the next launch.
     @Published var displaySecondsEnabled: Bool
+    // Whether locking the device from the app pauses it first, mirroring the `pause_on_lock`
+    // setting. The lock and quit paths read the store directly on every action, so this copy exists
+    // for the App tab's toggle to have something to show and drive.
+    @Published var pauseOnLockEnabled: Bool
     // Battery level at or below which the low-battery warning shows, mirroring the
     // `low_battery_level` setting. Held here for the same reason as `displaySecondsEnabled`: so the
     // App tab's control applies immediately rather than at the next launch.
@@ -149,6 +153,7 @@ final class AppState: ObservableObject {
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
     var onDisplaySecondsChange: ((Bool) -> Void)?
+    var onPauseOnLockChange: ((Bool) -> Void)?
     var onLowBatteryThresholdChange: ((Int) -> Void)?
     /// Passes seconds, like everything outside the App tab's own control.
     var onFetchHistoryIntervalChange: ((Int) -> Void)?
@@ -206,7 +211,8 @@ final class AppState: ObservableObject {
         pairedDeviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
         displaySecondsEnabled: Bool = true,
-        lowBatteryThresholdPercent: Int = 5,
+        pauseOnLockEnabled: Bool = true,
+        lowBatteryThresholdPercent: Int = TimeFlipConstants.defaultLowBatteryWarningPercent,
         fetchHistoryIntervalSeconds: Int = 60,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
@@ -256,6 +262,7 @@ final class AppState: ObservableObject {
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
         self.displaySecondsEnabled = displaySecondsEnabled
+        self.pauseOnLockEnabled = pauseOnLockEnabled
         // Not clamped up to the minimum here: the value handed in has already been through
         // `loadFetchHistoryIntervalSeconds`, which applies the floor unless developer mode is on,
         // and forcing it again would hide a developer's deliberately sub-minute interval.
@@ -643,6 +650,15 @@ final class AppState: ObservableObject {
         guard enabled != displaySecondsEnabled else { return }
         displaySecondsEnabled = enabled
         onDisplaySecondsChange?(enabled)
+    }
+
+    /// Updates the pause-on-lock preference from the App-tab toggle and fires `onPauseOnLockChange`
+    /// so it is persisted. Nothing else has to be applied: the lock and quit paths read the setting
+    /// from the store each time they run, so the next lock picks this up whatever happens in between.
+    func setPauseOnLock(_ enabled: Bool) {
+        guard enabled != pauseOnLockEnabled else { return }
+        pauseOnLockEnabled = enabled
+        onPauseOnLockChange?(enabled)
     }
 
     /// Updates the low-battery threshold from the App-tab stepper and fires

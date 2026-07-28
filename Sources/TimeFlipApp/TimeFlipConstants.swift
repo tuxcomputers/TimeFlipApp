@@ -21,6 +21,11 @@ enum TimeFlipConstants {
     /// for most of the cells' usable life, which only teaches the user to ignore it.
     static let maxLowBatteryWarningPercent: Int = 20
 
+    /// Where the low-battery warning sits until someone changes it, matching the `low_battery_level`
+    /// seed in `database/011_setting.sql`. Held here as well so the fallbacks in code (a missing or
+    /// malformed row, `AppState`'s own default) can't drift away from what a fresh database gets.
+    static let defaultLowBatteryWarningPercent: Int = 10
+
     /// Bounds for the periodic history-fetch interval, in **seconds** -- the unit the setting is
     /// stored in and the unit every part of the app works in. Only the App tab's control presents it
     /// as minutes, dividing to display and multiplying to save. An hour is the far end of useful:

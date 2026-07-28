@@ -24,6 +24,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         pairedDeviceName: dataStore.loadPairedDevice().name,
         pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
         displaySecondsEnabled: dataStore.loadDisplaySecondsEnabled(),
+        pauseOnLockEnabled: dataStore.loadPauseOnLockEnabled(),
         lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent(),
         fetchHistoryIntervalSeconds: Int(dataStore.loadFetchHistoryIntervalSeconds()),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
@@ -321,6 +322,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             DeveloperMode.debugPrint(.field, "Field changed: Display seconds: \(enabled ? "on" : "off")")
             self.dataStore.saveDisplaySecondsEnabled(enabled)
             self.menuBarController.setDisplaySeconds(enabled)
+        }
+        appState.onPauseOnLockChange = { [weak self] enabled in
+            guard let self else { return }
+            DeveloperMode.debugPrint(.field, "Field changed: Pause on lock: \(enabled ? "on" : "off")")
+            self.dataStore.savePauseOnLockEnabled(enabled)
+            // Nothing to apply: handleLockRequest and the quit path each re-read the setting when
+            // they run, so the next lock picks this up without anything being held in sync here.
         }
         appState.onFetchHistoryIntervalChange = { [weak self] seconds in
             guard let self else { return }

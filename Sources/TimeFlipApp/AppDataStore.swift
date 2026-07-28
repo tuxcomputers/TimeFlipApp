@@ -1003,11 +1003,11 @@ final class AppDataStore {
     }
 
     /// Battery percentage at or below which the device is considered low on battery (the
-    /// `low_battery_level` setting, seeded to `5`; see `database/011_setting.sql`). Falls back to
+    /// `low_battery_level` setting, seeded to `10`; see `database/011_setting.sql`). Falls back to
     /// the seeded default if the row is missing or malformed.
     func loadLowBatteryLevelPercent() -> Int {
         guard let percent = loadSettingJSON(name: "low_battery_level")?["percent"] as? Int else {
-            return 5
+            return TimeFlipConstants.defaultLowBatteryWarningPercent
         }
         return percent
     }
@@ -1215,6 +1215,12 @@ final class AppDataStore {
     /// Persists the menu bar's seconds preference (`display_seconds`).
     func saveDisplaySecondsEnabled(_ enabled: Bool) {
         saveSettingJSON(name: "display_seconds", merging: ["enabled": enabled])
+    }
+
+    /// Persists whether locking the device should pause it first -- see `loadPauseOnLockEnabled`,
+    /// which the lock and quit paths re-read on every action rather than caching.
+    func savePauseOnLockEnabled(_ enabled: Bool) {
+        saveSettingJSON(name: "pause_on_lock", merging: ["enabled": enabled])
     }
 
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the

@@ -95,6 +95,20 @@ struct ReportSettingsView: View {
 
     @ViewBuilder private var appSettingsSection: some View {
         Section("App settings") {
+            LabeledContent("Show seconds in the menu bar") {
+                Toggle("", isOn: Binding(
+                    get: { appState.displaySecondsEnabled },
+                    set: { appState.setDisplaySeconds($0) }
+                ))
+                .labelsHidden()
+            }
+            LabeledContent("Pause the device when locking it") {
+                Toggle("", isOn: Binding(
+                    get: { appState.pauseOnLockEnabled },
+                    set: { appState.setPauseOnLock($0) }
+                ))
+                .labelsHidden()
+            }
             LabeledContent("Daily reset at") {
                 HStack(spacing: SettingsLayoutConstants.AppSettings.meridiemGap) {
                     // The hour is typed or held; AM/PM stays arrows-only, since a two-state value has
@@ -114,13 +128,6 @@ struct ReportSettingsView: View {
                         stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                     }
                 }
-            }
-            LabeledContent("Show seconds in the menu bar") {
-                Toggle("", isOn: Binding(
-                    get: { appState.displaySecondsEnabled },
-                    set: { appState.setDisplaySeconds($0) }
-                ))
-                .labelsHidden()
             }
             LabeledContent("Battery warning at") {
                 SteppedNumberField(
