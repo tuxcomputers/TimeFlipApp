@@ -283,12 +283,6 @@ struct ReportSettingsView: View {
                 Text(accountError)
                     .foregroundStyle(.secondary)
             }
-            // Signing out flips isAuthenticated to false, restarting the .task(id:) above, which
-            // clears the cached account and resets the section back to the credential fields.
-            Button("Sign out") {
-                DeveloperMode.debugPrint(.click, "Button clicked: Sign out")
-                authManager.signOut()
-            }
         } else {
             HStack {
                 Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
@@ -373,6 +367,13 @@ struct ReportSettingsView: View {
                         }
                     }
                     .disabled(isLoadingCalendars)
+                    // Signing out flips isAuthenticated to false, restarting the .task(id:) above,
+                    // which clears the cached account and resets the section above back to the
+                    // credential fields -- taking this button with it.
+                    Button("Sign out") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Sign out")
+                        authManager.signOut()
+                    }
                 }
             }
         } else {
