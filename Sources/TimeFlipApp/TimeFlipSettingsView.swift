@@ -75,13 +75,9 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: More (\(appState.isMoreExpanded ? "collapse" : "expand"))")
+                DisclosureRowLabel("More", isExpanded: appState.isMoreExpanded) {
                     appState.isMoreExpanded.toggle()
-                } label: {
-                    Text("More")
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -105,13 +101,9 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: LED (\(appState.isLEDExpanded ? "collapse" : "expand"))")
+                DisclosureRowLabel("LED", isExpanded: appState.isLEDExpanded) {
                     appState.isLEDExpanded.toggle()
-                } label: {
-                    Text("LED")
                 }
-                .buttonStyle(.plain)
             }
             DisclosureGroup(isExpanded: $appState.isDoubleTapExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -126,13 +118,9 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Double tap (\(appState.isDoubleTapExpanded ? "collapse" : "expand"))")
+                DisclosureRowLabel("Double tap", isExpanded: appState.isDoubleTapExpanded) {
                     appState.isDoubleTapExpanded.toggle()
-                } label: {
-                    Text("Double tap")
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -241,67 +229,44 @@ struct TimeFlipSettingsView: View {
 
     // MARK: - Controls
 
+    // Both LED values step with held arrows rather than dragging a slider. A slider commits a value
+    // per pixel of travel, and every commit is a device write once the 1s debounce settles -- see the
+    // brightness run in the 19:32 debug log, where one drag logged 30-odd changes. Arrows commit one
+    // step at a time, and the range is small enough to cross by holding.
     private var brightnessControls: some View {
-        HStack(spacing: 8) {
-            Slider(
-                value: Binding(
-                    get: { Double(ledBrightnessValue) },
-                    set: { applyLEDBrightness(newValue: Int($0.rounded())) }
-                ),
-                in: 1...100
-            )
-            .frame(width: 160)
-            TextField(
-                "",
-                value: Binding(
-                    get: { ledBrightnessValue },
-                    set: { applyLEDBrightness(newValue: $0) }
-                ),
-                format: .number
-            )
-            .frame(width: 50)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            Text("%")
-                .foregroundStyle(.secondary)
-        }
+        SteppedNumberField(
+            appState: appState,
+            holdKey: "ledBrightness",
+            value: ledBrightnessValue,
+            range: 1...100,
+            suffix: "%",
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth
+            ),
+            suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth,
+            onCommit: { applyLEDBrightness(newValue: $0) }
+        )
     }
 
     private var blinkIntervalControls: some View {
-        HStack(spacing: 8) {
-            Slider(
-                value: Binding(
-                    get: { Double(blinkIntervalValue) },
-                    set: { applyBlinkInterval(newValue: Int($0.rounded())) }
-                ),
-                in: 5...60
-            )
-            .frame(width: 160)
-            TextField(
-                "",
-                value: Binding(
-                    get: { blinkIntervalValue },
-                    set: { applyBlinkInterval(newValue: $0) }
-                ),
-                format: .number
-            )
-            .frame(width: 50)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            Text("sec")
-                .foregroundStyle(.secondary)
-        }
+        SteppedNumberField(
+            appState: appState,
+            holdKey: "blinkInterval",
+            value: blinkIntervalValue,
+            range: 5...60,
+            suffix: "sec",
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                suffixWidth: SettingsLayoutConstants.Stepper.secondsSuffixWidth
+            ),
+            suffixWidth: SettingsLayoutConstants.Stepper.secondsSuffixWidth,
+            onCommit: { applyBlinkInterval(newValue: $0) }
+        )
     }
 
+    // Field, then suffix, then arrows -- the order every other stepper in the window uses
+    // (SteppedNumberField), so the arrows sit on the right of the row rather than ahead of the value.
     private var autoPauseControls: some View {
-        HStack {
-            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
-            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
-            // custom buttons driving our own repeat loop instead.
-            VStack(spacing: 1) {
-                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
-                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
-            }
+        HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
             TextField(
                 "",
                 value: Binding(
@@ -310,19 +275,31 @@ struct TimeFlipSettingsView: View {
                 ),
                 format: .number
             )
+            .textFieldStyle(.roundedBorder)
             .frame(width: 50)
             .labelsHidden()
             .multilineTextAlignment(.trailing)
+            .monospacedDigit()
             Text("min")
                 .foregroundStyle(.secondary)
+            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
+            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
+            // custom buttons driving our own repeat loop instead.
+            VStack(spacing: SettingsLayoutConstants.Stepper.arrowSpacing) {
+                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
+                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
+            }
         }
     }
 
     private func autoPauseStepButton(direction: Int, systemImage: String) -> some View {
         Image(systemName: systemImage)
-            .font(.system(size: 8, weight: .bold))
+            .font(.system(size: SettingsLayoutConstants.Stepper.arrowPointSize, weight: .bold))
             .foregroundStyle(.secondary)
-            .frame(width: 16, height: 10)
+            .frame(
+                width: SettingsLayoutConstants.Stepper.arrowsWidth,
+                height: SettingsLayoutConstants.Stepper.arrowHeight
+            )
             .contentShape(Rectangle())
             .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
                 if isPressing {
@@ -339,57 +316,63 @@ struct TimeFlipSettingsView: View {
             }, perform: {})
     }
 
+    // Label, hint, then field: the fields form a column down the right of the group, all one size,
+    // ending where the stepper rows above them end. The hint in the middle absorbs the difference
+    // between the four labels and the four hint lengths.
     private var doubleTapControls: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
                 Text("Threshold")
+                doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.clickThreshold },
                         set: { doubleTapParams.clickThreshold = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Limit")
+                doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.limit },
                         set: { doubleTapParams.limit = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Latency")
+                doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.latency },
                         set: { doubleTapParams.latency = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
             }
             GridRow {
                 Text("Window")
+                doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.window },
                         set: { doubleTapParams.window = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The hint between a row's label and its field. Takes the slack in the middle of the row, which
+    /// is what pushes the fields over to the right.
     private func doubleTapFieldCaption(_ text: String) -> some View {
         Text(text)
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize()
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func numericField(
@@ -407,9 +390,16 @@ struct TimeFlipSettingsView: View {
             ),
             format: .number
         )
-        .frame(width: 60)
+        // Same look as every other typeable field in the window (see SteppedNumberField): without the
+        // border these read as plain labels, which hides that they can be typed into at all.
+        .textFieldStyle(.roundedBorder)
+        // The same block width every other value control in the window occupies, so these fields end
+        // on the same right edge as the steppers' arrows above them. They carry no suffix and no
+        // arrows of their own, so the whole width goes to the field.
+        .frame(width: SettingsLayoutConstants.Stepper.rowWidth)
         .labelsHidden()
         .multilineTextAlignment(.trailing)
+        .monospacedDigit()
     }
 
     // MARK: - Helpers
@@ -493,7 +483,7 @@ struct TimeFlipSettingsView: View {
         DeveloperMode.debugPrint(.field, "Field changed: Double-tap params: ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
         doubleTapParams = params
         appState.doubleTapParameters = params
-        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params))
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params), false)
         appState.onDoubleTapSettingsPersist?(params, appState.isDoubleTapEnabled)
     }
 
@@ -501,7 +491,8 @@ struct TimeFlipSettingsView: View {
         guard appState.isConnected else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Double-tap enabled: \(appState.isDoubleTapEnabled) -> \(enabled)")
         appState.isDoubleTapEnabled = enabled
-        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
+        // A checkbox, not a value being dialled in: send it straight away rather than debouncing.
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams), true)
         appState.onDoubleTapSettingsPersist?(doubleTapParams, enabled)
     }
 

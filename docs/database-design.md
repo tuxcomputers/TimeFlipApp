@@ -418,7 +418,7 @@ Seeded rows:
   a seconds component (`H:MM:SS`) and refreshes every second; when disabled, it shows `H:MM` and
   refreshes every minute. Hours are unpadded below 10 (`1:23:45`) and two digits from 10 up
   (`12:23:45`).
-- `low_battery_level` = `{"percent":5}` — the battery percentage (from the Battery Level
+- `low_battery_level` = `{"percent":10}` — the battery percentage (from the Battery Level
   characteristic `0x2A19`) at or below which the menu bar activity text starts blinking red/white
   (`MenuBarController`'s `updatedLowBatteryLatch`). To avoid flickering the warning on and off when
   a reading wobbles right around this value, it only clears again once the battery climbs 5

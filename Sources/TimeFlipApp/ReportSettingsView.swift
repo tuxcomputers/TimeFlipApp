@@ -6,7 +6,6 @@ struct ReportSettingsView: View {
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
 
-    @State private var calendars: [GoogleCalendarSummary] = []
     @State private var isLoadingCalendars = false
     @State private var calendarError: String?
     @State private var account: GoogleAccountInfo?
@@ -44,16 +43,21 @@ struct ReportSettingsView: View {
                 }
             }
 
-            dailyResetSection
+            appSettingsSection
         }
         .formStyle(.grouped)
+        // Runs on every appearance of this tab, not just when isAuthenticated changes, so everything
+        // it does has to be cheap on a revisit: loadAccount is cache-first, and the calendars are
+        // only listed when there is nothing to show without them.
         .task(id: authManager.isAuthenticated) {
             guard integrationsEnabled else { return }
             if authManager.isAuthenticated {
                 await loadAccount()
-                await loadCalendars()
+                if needsCalendarList {
+                    await loadCalendars()
+                }
             } else {
-                calendars = []
+                appState.googleCalendars = nil
                 calendarError = nil
                 account = nil
                 accountError = nil
@@ -81,7 +85,7 @@ struct ReportSettingsView: View {
         }
     }
 
-    // MARK: - Daily reset
+    // MARK: - App settings
 
     /// AM/PM half of the 12-hour picker. The stored value stays 24-hour (`appState.dailyResetHour`);
     /// this only drives the display.
@@ -89,32 +93,70 @@ struct ReportSettingsView: View {
         case am, pm
     }
 
-    @ViewBuilder private var dailyResetSection: some View {
-        Section("Daily reset") {
-            LabeledContent("Reset at") {
-                HStack(spacing: 16) {
-                    // Same stacked-chevron stepper as the Device tab's auto-pause control. Hour and
-                    // AM/PM step independently -- the hour wraps 1<->12 without flipping AM/PM.
-                    HStack(spacing: 4) {
-                        stepArrows(up: { stepHour(1) }, down: { stepHour(-1) })
-                        Text("\(Self.to12Hour(appState.dailyResetHour).hour)")
-                            .monospacedDigit()
-                            .frame(width: 22, alignment: .trailing)
-                    }
-                    HStack(spacing: 4) {
-                        stepArrows(up: toggleMeridiem, down: toggleMeridiem)
+    @ViewBuilder private var appSettingsSection: some View {
+        Section("App settings") {
+            LabeledContent("Show seconds in the menu bar") {
+                Toggle("", isOn: Binding(
+                    get: { appState.displaySecondsEnabled },
+                    set: { appState.setDisplaySeconds($0) }
+                ))
+                .labelsHidden()
+            }
+            LabeledContent("Pause the device when locking it") {
+                Toggle("", isOn: Binding(
+                    get: { appState.pauseOnLockEnabled },
+                    set: { appState.setPauseOnLock($0) }
+                ))
+                .labelsHidden()
+            }
+            LabeledContent("Daily reset at") {
+                HStack(spacing: SettingsLayoutConstants.Stepper.meridiemGap) {
+                    // The hour is typed or held; AM/PM stays arrows-only, since a two-state value has
+                    // nothing to run through and nothing sensible to type.
+                    SteppedNumberField(
+                        appState: appState,
+                        holdKey: "dailyResetHour",
+                        value: Self.to12Hour(appState.dailyResetHour).hour,
+                        range: 1...12,
+                        suffix: "",
+                        fieldWidth: SettingsLayoutConstants.Stepper.hourFieldWidth,
+                        onCommit: setHour12
+                    )
+                    HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
                         Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
-                            .frame(width: 30, alignment: .leading)
+                            .frame(width: SettingsLayoutConstants.Stepper.meridiemLabelWidth, alignment: .leading)
+                        stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                     }
                 }
             }
-            // Whole-hour + AM/PM is all the stepper sets, but the stored time keeps minutes so a
-            // finer reset can be dialled in for testing; show the effective 24-hour time so that
-            // minute is visible even though it isn't editable here.
-            Text(String(format: "Each category's daily total rolls over at %02d:%02d local time.",
-                        appState.dailyResetHour, appState.dailyResetMinute))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            LabeledContent("Battery warning at") {
+                SteppedNumberField(
+                    appState: appState,
+                    holdKey: "batteryWarning",
+                    value: appState.lowBatteryThresholdPercent,
+                    range: Int(TimeFlipConstants.minBatteryLevel)...TimeFlipConstants.effectiveMaxLowBatteryWarningPercent,
+                    suffix: "%",
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                        suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth
+                    ),
+                    suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth,
+                    onCommit: { appState.setLowBatteryThreshold($0) }
+                )
+            }
+            LabeledContent("Fetch history every") {
+                SteppedNumberField(
+                    appState: appState,
+                    holdKey: "fetchHistory",
+                    value: fetchIntervalMinutes,
+                    range: fetchIntervalMinutesRange,
+                    suffix: fetchIntervalMinutes == 1 ? "min" : "mins",
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                        suffixWidth: SettingsLayoutConstants.Stepper.minutesSuffixWidth
+                    ),
+                    suffixWidth: SettingsLayoutConstants.Stepper.minutesSuffixWidth,
+                    onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
+                )
+            }
         }
     }
 
@@ -139,18 +181,31 @@ struct ReportSettingsView: View {
         .buttonStyle(.plain)
     }
 
-    /// Steps the hour by ±1 on the 12-hour face (wrapping 12->1 / 1->12), keeping AM/PM fixed.
-    private func stepHour(_ delta: Int) {
+    /// Applies an hour picked on the 12-hour face, keeping AM/PM as it is. The face value is clamped
+    /// by the control rather than wrapped: with a field to type into, wrapping 12 round to 1 would
+    /// mean a typed 13 silently became 1.
+    private func setHour12(_ hour12: Int) {
         let current = Self.to12Hour(appState.dailyResetHour)
-        var hour12 = current.hour + delta
-        if hour12 > 12 { hour12 = 1 }
-        if hour12 < 1 { hour12 = 12 }
         let newHour = Self.to24Hour(hour12: hour12, meridiem: current.meridiem)
+        guard newHour != appState.dailyResetHour else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Daily reset hour: \(appState.dailyResetHour) -> \(newHour) (24h)")
-        appState.setDailyResetTime(
-            hour: newHour,
-            minute: appState.dailyResetMinute
-        )
+        appState.setDailyResetTime(hour: newHour, minute: appState.dailyResetMinute)
+    }
+
+    /// The stored interval as whole minutes. This control is the only place the value is thought of
+    /// in minutes; everywhere else, including `AppState`, it stays in seconds. Rounds down, so a
+    /// sub-minute interval (developer mode only) reads as 0 rather than being dressed up as 1.
+    private var fetchIntervalMinutes: Int {
+        appState.fetchHistoryIntervalSeconds / Int(TimeConstants.secondsPerMinute)
+    }
+
+    /// The interval bounds expressed in whole minutes, for the control. Everywhere else they stay in
+    /// seconds -- see `TimeFlipConstants.minFetchHistoryIntervalSeconds`.
+    private var fetchIntervalMinutesRange: ClosedRange<Int> {
+        let perMinute = Int(TimeConstants.secondsPerMinute)
+        let low = TimeFlipConstants.minFetchHistoryIntervalSeconds / perMinute
+        let high = TimeFlipConstants.maxFetchHistoryIntervalSeconds / perMinute
+        return low...high
     }
 
     /// Flips AM<->PM, keeping the hour on the clock face fixed.
@@ -248,12 +303,6 @@ struct ReportSettingsView: View {
                 Text(accountError)
                     .foregroundStyle(.secondary)
             }
-            // Signing out flips isAuthenticated to false, restarting the .task(id:) above, which
-            // clears the cached account and resets the section back to the credential fields.
-            Button("Sign out") {
-                DeveloperMode.debugPrint(.click, "Button clicked: Sign out")
-                authManager.signOut()
-            }
         } else {
             HStack {
                 Button(authManager.isAuthenticating ? "Authenticating..." : "Google Auth") {
@@ -277,24 +326,48 @@ struct ReportSettingsView: View {
         }
     }
 
+    /// The calendars listed so far, treating "never listed" the same as "none".
+    private var calendars: [GoogleCalendarSummary] {
+        appState.googleCalendars ?? []
+    }
+
+    /// The calendar currently synced into, as saved in the `google_account` setting. Known without
+    /// listing anything, which is what lets the section open with no network call.
+    private var savedCalendarName: String? {
+        appState.googleCalendarName.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Whether the section can't say anything useful without a `calendars.list` call: no list yet and
+    /// no saved calendar to name. Once either is true, listing waits until it is actually needed --
+    /// changing the selection (Refresh calendars) or checking a new calendar's name for a duplicate.
+    private var needsCalendarList: Bool {
+        appState.googleCalendars == nil && savedCalendarName == nil
+    }
+
     @ViewBuilder private var calendarSection: some View {
         if authManager.isAuthenticated {
             if isLoadingCalendars {
                 LabeledContent("Calendars") {
                     ProgressView()
                 }
-            } else if calendars.isEmpty {
-                Button("Load calendars") {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Load calendars")
-                    Task { @MainActor in
-                        await loadCalendars()
-                    }
-                }
-            } else {
+            } else if !calendars.isEmpty {
                 Picker("Calendar", selection: calendarSelectionBinding) {
                     Text("None").tag("")
                     ForEach(calendars) { calendar in
                         Text(calendar.summary).tag(calendar.id)
+                    }
+                }
+            } else if let savedCalendarName {
+                // Nothing listed, but the saved selection is still worth showing; Refresh calendars
+                // below turns this back into a picker when the selection needs changing.
+                LabeledContent("Calendar") {
+                    Text(savedCalendarName)
+                }
+            } else {
+                Button("Load calendars") {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Load calendars")
+                    Task { @MainActor in
+                        await loadCalendars()
                     }
                 }
             }
@@ -338,6 +411,13 @@ struct ReportSettingsView: View {
                         }
                     }
                     .disabled(isLoadingCalendars)
+                    // Signing out flips isAuthenticated to false, restarting the .task(id:) above,
+                    // which clears the cached account and resets the section above back to the
+                    // credential fields -- taking this button with it.
+                    Button("Sign out") {
+                        DeveloperMode.debugPrint(.click, "Button clicked: Sign out")
+                        authManager.signOut()
+                    }
                 }
             }
         } else {
@@ -389,14 +469,19 @@ struct ReportSettingsView: View {
     private func attemptCreateCalendar() {
         let name = trimmedNewCalendarName
         guard !name.isEmpty, !isSavingCalendar else { return }
-        // Check the calendars already loaded in the picker for a same-name match (case-insensitive).
-        // If one exists, ask before creating a duplicate; otherwise create it outright.
-        if let existing = calendars.first(where: { $0.summary.caseInsensitiveCompare(name) == .orderedSame }) {
-            existingCalendar = existing
-            showExistingCalendarAlert = true
-            return
-        }
         Task { @MainActor in
+            // The duplicate check reads the listed calendars, so list them first if that hasn't
+            // happened yet -- opening the tab no longer does it. Skipping the check would create a
+            // second calendar with the same name.
+            if appState.googleCalendars == nil {
+                await loadCalendars()
+            }
+            // A same-name match (case-insensitive) gets a confirmation; otherwise create outright.
+            if let existing = calendars.first(where: { $0.summary.caseInsensitiveCompare(name) == .orderedSame }) {
+                existingCalendar = existing
+                showExistingCalendarAlert = true
+                return
+            }
             await createCalendar(named: name)
         }
     }
@@ -447,7 +532,7 @@ struct ReportSettingsView: View {
         calendarError = nil
         do {
             let fetched = try await integrationCoordinator.fetchCalendars()
-            calendars = fetched.sorted { $0.summary.lowercased() < $1.summary.lowercased() }
+            appState.googleCalendars = fetched.sorted { $0.summary.lowercased() < $1.summary.lowercased() }
         } catch is CancellationError {
             // The .task(id:) restarted; the replacement load reports its own errors.
         } catch {

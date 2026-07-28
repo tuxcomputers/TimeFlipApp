@@ -10,6 +10,9 @@ import SwiftUI
 /// category and creating a second one with the same name, which is several screens of behaviour to
 /// keep in step.
 struct CategoryCreateControl: View {
+    /// Only for the Escape handling: while the name field is open, the window's Close button has to
+    /// give up its Escape shortcut -- see `AppState.openCategoryNameFields`.
+    @ObservedObject var appState: AppState
     let createCategory: (String) -> Void
     let findCategory: (String) -> CategoryRecord?
     /// Reinstates a retired category the new name collided with. Taken as a closure because each
@@ -121,6 +124,15 @@ struct CategoryCreateControl: View {
                     .disabled(normalizedNewCategoryName.isEmpty)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Escape abandons the name rather than closing the window. Counted on appear/disappear
+            // rather than set alongside isCreating, so the count follows what is actually on screen
+            // through a tab switch, which tears the field's view down while leaving isCreating set.
+            .onAppear { appState.categoryNameFieldAppeared() }
+            .onDisappear { appState.categoryNameFieldDisappeared() }
+            .onExitCommand {
+                DeveloperMode.debugPrint(.field, "Escape pressed: abandoned the new category name")
+                finishCreating()
+            }
         } else {
             Button {
                 DeveloperMode.debugPrint(.click, "Button clicked: Create category")

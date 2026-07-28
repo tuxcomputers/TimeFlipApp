@@ -47,7 +47,7 @@ SELECT 'display_seconds', '{"enabled":true}', 'enabled: when true, the menu bar 
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'display_seconds');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'low_battery_level', '{"percent":5}', 'percent: battery_level (0-100, from the Battery Level characteristic 0x2A19) at or below which the device is considered low on battery and the app should warn the user. No such warning is implemented yet -- this is just the threshold setting.'
+SELECT 'low_battery_level', '{"percent":10}', 'percent: battery_level (0-100, from the Battery Level characteristic 0x2A19) at or below which the device is considered low on battery and the menu bar activity text starts blinking red/white. Editable on the App tab, which refuses 0 and caps the value at TimeFlipConstants.maxLowBatteryWarningPercent unless developer mode is on.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'low_battery_level');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

@@ -208,7 +208,7 @@ expect = "matches"
 timeout_seconds = 5
 ```
 
-## Scenario B -- device write is debounced 1s after a param settles, then read back and verified
+## Scenario B -- device write is debounced after a param settles, then read back and verified
 
 Covers `ApplicationDelegate`'s `onDoubleTapParametersChange` (prints + immediate DB write on every
 change, device write debounced through `DeviceWriteDebouncer`) and
@@ -294,8 +294,8 @@ query = "SELECT message FROM debug_log WHERE tag='double-tap' AND message LIKE '
 expect_contains = "Params changed: ths=200"
 timeout_seconds = 10
 ```
-- [x] Step 4: Confirm `double_tap_settings` already reads `"clickThreshold":200` immediately (before the 1s
-      debounce elapses).
+- [x] Step 4: Confirm `double_tap_settings` already reads `"clickThreshold":200` immediately (before the
+      debounce elapses -- `DeviceWriteDebouncer.defaultDelay`).
 ```toml step
 action = "sql_query"
 query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"

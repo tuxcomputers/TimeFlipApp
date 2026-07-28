@@ -32,6 +32,7 @@ struct CategoriesSettingsView: View {
             }
             Section {
                 CategoryCreateControl(
+                    appState: appState,
                     createCategory: createCategory,
                     findCategory: findCategory,
                     // Patched in place rather than re-read, so the reinstated row moves from the
@@ -136,13 +137,9 @@ private struct CategorySection: View {
             }
             .padding(.vertical, SettingsLayoutConstants.CategoryList.sectionVerticalPadding)
         } label: {
-            Button {
-                DeveloperMode.debugPrint(.click, "Button clicked: \(title) categories (\(isExpanded ? "collapse" : "expand"))")
+            DisclosureRowLabel(title, logName: "\(title) categories", isExpanded: isExpanded) {
                 isExpanded.toggle()
-            } label: {
-                Text(title)
             }
-            .buttonStyle(.plain)
         }
     }
 }

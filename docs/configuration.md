@@ -226,7 +226,7 @@ be changed by editing the `setting` table directly in the local SQLite database 
   applies when quitting the app — if enabled, the app pauses and locks the device before exiting,
   so it isn't left running/trackable with nothing controlling
   it; if disabled, quitting doesn't touch the device at all
-- **Low Battery Threshold** (`low_battery_level`, default 5%): the battery percentage at/below
+- **Low Battery Threshold** (`low_battery_level`, default 10%): the battery percentage at/below
   which the menu bar activity text starts blinking red/white (see Status Indicators above). Once
   triggered, it only clears again after the battery climbs 5 points above the threshold, so a
   reading wobbling right around the threshold doesn't flicker the warning on and off. Takes effect

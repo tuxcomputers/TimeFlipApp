@@ -620,9 +620,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     func setFacetColor(facetID: UInt8, components: ColorComponents) async {
         guard isLoggedIn else { return }
         guard TimeFlipConstants.isValidFacetID(facetID) else { return }
-        let r = UInt16(max(0, min(65535, Int(components.red * 65535))))
-        let g = UInt16(max(0, min(65535, Int(components.green * 65535))))
-        let b = UInt16(max(0, min(65535, Int(components.blue * 65535))))
+        let (r, g, b) = components.deviceRGB16
         var payload = Data(repeating: 0, count: 8)
         payload[0] = 0x11
         payload[1] = facetID
@@ -1515,8 +1513,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             await setLEDBrightness(percent: defaultLEDBrightness)
         case .blinkIntervalSyncRequired:
             await setBlinkInterval(seconds: defaultBlinkIntervalSeconds)
-        case .factoryReset, .facetColorSyncRequired, .taskParametersSyncRequired, .unknown:
-            // We can't automatically restore facet colors/task params without persisted data; surface via logs.
+        case .facetColorSyncRequired:
+            // Answered a layer up: the colours come from the DB (face -> category -> colour), which
+            // this driver has no access to, so ApplicationDelegate handles the emitted
+            // .systemState event and re-sends all 12 facets.
+            logger.notice("SystemState \(system.syncStatus) deferred to app-level facet colour resync [\(context, privacy: .public)]")
+        case .factoryReset, .taskParametersSyncRequired, .unknown:
+            // We can't automatically restore task params without persisted data; surface via logs.
             logger.warning("SystemState \(system.syncStatus) needs manual sync [\(context, privacy: .public)]")
         }
 

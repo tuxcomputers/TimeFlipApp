@@ -70,6 +70,53 @@ enum SettingsLayoutConstants {
         static let nameMinimumScale: CGFloat = 0.4
     }
 
+    /// Every stepper row in the Settings window: `SteppedNumberField`'s own geometry, and the
+    /// arithmetic that makes rows of different content come out the same width.
+    ///
+    /// The geometry lives here rather than as statics on that view because a view's statics are
+    /// main-actor isolated while this arithmetic is nonisolated, and because a caller working
+    /// backwards from where it wants the arrows needs those numbers as much as the control does.
+    ///
+    /// `LabeledContent` right-aligns whatever it is handed, which is all the alignment these rows
+    /// need once every control comes out the same total width: a shared right edge plus a shared
+    /// width is a shared left edge, so the fields, suffixes and arrows line up in both directions
+    /// with nothing pinning them into a fixed-width column.
+    enum Stepper {
+        /// The stacked arrow pair's width, and the gaps between the field, the suffix and the arrows.
+        static let arrowsWidth: CGFloat = 16
+        static let itemSpacing: CGFloat = 4
+        /// Each chevron's height; two of them plus `arrowSpacing` make the pair.
+        static let arrowHeight: CGFloat = 10
+        static let arrowSpacing: CGFloat = 1
+        static let arrowPointSize: CGFloat = 8
+
+        // The App tab's daily-reset row sets the width every other stepper row matches, on both tabs:
+        // an hour field with arrows, a gap, then AM/PM with its own arrows. It is the one row whose
+        // width isn't free to change, since AM/PM has to fit.
+        static let hourFieldWidth: CGFloat = 34
+        static let meridiemLabelWidth: CGFloat = 30
+        static let meridiemGap: CGFloat = 16
+        // Fixed slots for the suffixes. Held here rather than left to size themselves, because the
+        // field widths are worked out from them -- a suffix that sized to its own text would move the
+        // arrows after it by however wide that text rendered.
+        static let percentSuffixWidth: CGFloat = 16
+        static let minutesSuffixWidth: CGFloat = 34
+        static let secondsSuffixWidth: CGFloat = 30
+
+        /// Where every row's arrows finish, measured from the row's left edge.
+        static var rowWidth: CGFloat {
+            hourFieldWidth + itemSpacing + arrowsWidth
+                + meridiemGap
+                + meridiemLabelWidth + itemSpacing + arrowsWidth
+        }
+
+        /// The field width that leaves `suffixWidth` of suffix and a set of arrows finishing exactly at
+        /// `rowWidth`, so a row with a suffix still lines its arrows up with the AM/PM ones.
+        static func fieldWidth(suffixWidth: CGFloat) -> CGFloat {
+            rowWidth - arrowsWidth - itemSpacing * 2 - suffixWidth
+        }
+    }
+
     enum FacetList {
         static let rowSpacing: CGFloat = 12
         static let iconSize: CGFloat = 20

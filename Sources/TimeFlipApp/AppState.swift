@@ -48,6 +48,13 @@ final class AppState: ObservableObject {
     @Published var facetMappings: [FacetMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
+    /// The signed-in account's calendars, as last listed from Google. Held here rather than on the
+    /// App tab's view so it outlives a tab switch: a `.task` restarts every time its view reappears,
+    /// so a view-owned list meant a `calendars.list` round trip on every visit to the tab. `nil`
+    /// means "never listed" (fetch on next look), an empty array means "listed, and there were
+    /// none". In memory only, so a restart lists afresh rather than showing a stale cache; the
+    /// Refresh calendars button re-lists on demand in between.
+    @Published var googleCalendars: [GoogleCalendarSummary]?
     @Published var googleClientID: String
     @Published var googleClientSecret: String
     @Published var devicePassword: String
@@ -74,6 +81,21 @@ final class AppState: ObservableObject {
     // stored value keeps hour AND minute so a finer time can be set for testing the reset firing.
     @Published var dailyResetHour: Int
     @Published var dailyResetMinute: Int
+    // Whether the menu bar duration shows a seconds component, mirroring the `display_seconds`
+    // setting. Held here rather than read once at launch so the App tab's toggle can take effect
+    // immediately instead of at the next launch.
+    @Published var displaySecondsEnabled: Bool
+    // Whether locking the device from the app pauses it first, mirroring the `pause_on_lock`
+    // setting. The lock and quit paths read the store directly on every action, so this copy exists
+    // for the App tab's toggle to have something to show and drive.
+    @Published var pauseOnLockEnabled: Bool
+    // Battery level at or below which the low-battery warning shows, mirroring the
+    // `low_battery_level` setting. Held here for the same reason as `displaySecondsEnabled`: so the
+    // App tab's control applies immediately rather than at the next launch.
+    @Published var lowBatteryThresholdPercent: Int
+    // How often history is re-fetched, in seconds, matching the stored setting. The App tab's
+    // control is the only thing that turns this into minutes, for display.
+    @Published var fetchHistoryIntervalSeconds: Int
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
@@ -92,6 +114,14 @@ final class AppState: ObservableObject {
     // window is hidden rather than deallocated on close (see SettingsWindowController), so plain
     // View @State would otherwise keep whatever was expanded across a close/reopen. Reset to
     // false via collapseDeviceTabDisclosures() from windowWillClose instead.
+    // How many category-name fields are open across the tabs. The Close button at the window root
+    // owns Escape (`keyboardShortcut(.cancelAction)`), and AppKit dispatches a key equivalent before
+    // the focused field ever sees the key, so the only way Escape can cancel a name field instead of
+    // closing the window is for that button to give the shortcut up while one is open.
+    //
+    // Counted rather than a flag because the Categories and Faces tabs each have their own create
+    // control: closing one field must not hand Escape back while the other is still open.
+    @Published private(set) var openCategoryNameFields = 0
     @Published var isMoreExpanded: Bool = false
     @Published var isLEDExpanded: Bool = false
     @Published var isDoubleTapExpanded: Bool = false
@@ -105,6 +135,12 @@ final class AppState: ObservableObject {
     // holding isn't left stuck "pressed" once the window reopens.
     var autoPauseHoldTask: Task<Void, Never>?
     var autoPauseHoldDirection: Int?
+    // The App tab's held stepper arrows, owned here for the same reasons as the auto-pause pair
+    // above: the window is hidden rather than deallocated, and a physically-held mouse button never
+    // delivers its release to a view whose window has closed under it. One key rather than one pair
+    // per control, since only one arrow can be held at a time.
+    var steppedFieldHoldTask: Task<Void, Never>?
+    var steppedFieldHoldKey: String?
     // Mirrors MenuBarController's low-battery blink state so the Settings window's Battery line
     // (a different view hierarchy from the status bar) can flash in sync with it and with the
     // "Preferences..." menu item -- MenuBarController owns the actual timer/latch and pushes
@@ -124,10 +160,18 @@ final class AppState: ObservableObject {
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
+    var onDisplaySecondsChange: ((Bool) -> Void)?
+    var onPauseOnLockChange: ((Bool) -> Void)?
+    var onLowBatteryThresholdChange: ((Int) -> Void)?
+    /// Passes seconds, like everything outside the App tab's own control.
+    var onFetchHistoryIntervalChange: ((Int) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
-    var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
+    /// `immediately` skips the usual debounce, for a change that has no run of intermediate values to
+    /// wait out: the Disable checkbox is a boolean, so there is nothing to settle. The register
+    /// values, which a held stepper walks through, leave it `false`.
+    var onDoubleTapParametersChange: ((DoubleTapParameters, _ immediately: Bool) -> Void)?
     // Fired with the real (never window-zeroed) parameters/enabled flag whenever either changes
     // from the UI, so a listener can persist them -- separate from onDoubleTapParametersChange,
     // which instead receives whatever should actually be sent to the device (see
@@ -174,6 +218,10 @@ final class AppState: ObservableObject {
         isPaired: Bool = false,
         pairedDeviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
+        displaySecondsEnabled: Bool = true,
+        pauseOnLockEnabled: Bool = true,
+        lowBatteryThresholdPercent: Int = TimeFlipConstants.defaultLowBatteryWarningPercent,
+        fetchHistoryIntervalSeconds: Int = 60,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -221,6 +269,23 @@ final class AppState: ObservableObject {
         self.isDoubleTapEnabled = isDoubleTapEnabled
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
+        self.displaySecondsEnabled = displaySecondsEnabled
+        self.pauseOnLockEnabled = pauseOnLockEnabled
+        // Not clamped up to the minimum here: the value handed in has already been through
+        // `loadFetchHistoryIntervalSeconds`, which applies the floor unless developer mode is on,
+        // and forcing it again would hide a developer's deliberately sub-minute interval.
+        self.fetchHistoryIntervalSeconds = min(
+            TimeFlipConstants.maxFetchHistoryIntervalSeconds,
+            max(1, fetchHistoryIntervalSeconds)
+        )
+        // Clamped on the way in as well as on the way out, so a stale or hand-edited
+        // `low_battery_level` row can't surface as a threshold the UI would then refuse to set.
+        // With developer mode on the stored value is left as it is, up to the reportable range, so a
+        // deliberately high threshold set for testing survives a restart.
+        self.lowBatteryThresholdPercent = max(
+            Int(TimeFlipConstants.minBatteryLevel),
+            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, lowBatteryThresholdPercent)
+        )
         self.dailyResetHour = dailyResetHour
         self.dailyResetMinute = dailyResetMinute
 
@@ -441,6 +506,20 @@ final class AppState: ObservableObject {
     /// press-and-hold repeat. Called when the Preferences window closes so reopening it always
     /// starts fully collapsed, and so a hold that never received its release event (window closed
     /// out from under it) can't keep ticking in the background.
+    /// Whether a category name is being typed somewhere in the window, so Escape belongs to that
+    /// field rather than to the Close button -- see `openCategoryNameFields`.
+    var isNamingCategory: Bool {
+        openCategoryNameFields > 0
+    }
+
+    func categoryNameFieldAppeared() {
+        openCategoryNameFields += 1
+    }
+
+    func categoryNameFieldDisappeared() {
+        openCategoryNameFields = max(0, openCategoryNameFields - 1)
+    }
+
     func collapseDeviceTabDisclosures() {
         isMoreExpanded = false
         isLEDExpanded = false
@@ -448,6 +527,14 @@ final class AppState: ObservableObject {
         autoPauseHoldTask?.cancel()
         autoPauseHoldTask = nil
         autoPauseHoldDirection = nil
+    }
+
+    /// Stops a held App-tab stepper arrow. Called when the settings window closes, so a hold that
+    /// never received its release can't keep ticking database writes in the background.
+    func cancelSteppedFieldHold() {
+        steppedFieldHoldTask?.cancel()
+        steppedFieldHoldTask = nil
+        steppedFieldHoldKey = nil
     }
 
     /// Called by MenuBarController every time its low-battery blink state changes (starts, stops,
@@ -577,6 +664,48 @@ final class AppState: ObservableObject {
         dailyResetHour = clampedHour
         dailyResetMinute = clampedMinute
         onDailyResetTimeChange?(clampedHour, clampedMinute)
+    }
+
+    /// Updates the menu bar's seconds preference from the App-tab toggle and fires
+    /// `onDisplaySecondsChange` so it is persisted and applied to the live status item.
+    func setDisplaySeconds(_ enabled: Bool) {
+        guard enabled != displaySecondsEnabled else { return }
+        displaySecondsEnabled = enabled
+        onDisplaySecondsChange?(enabled)
+    }
+
+    /// Updates the pause-on-lock preference from the App-tab toggle and fires `onPauseOnLockChange`
+    /// so it is persisted. Nothing else has to be applied: the lock and quit paths read the setting
+    /// from the store each time they run, so the next lock picks this up whatever happens in between.
+    func setPauseOnLock(_ enabled: Bool) {
+        guard enabled != pauseOnLockEnabled else { return }
+        pauseOnLockEnabled = enabled
+        onPauseOnLockChange?(enabled)
+    }
+
+    /// Updates the low-battery threshold from the App-tab stepper and fires
+    /// `onLowBatteryThresholdChange` so it is persisted and re-evaluated against the current level.
+    /// Clamped to the range the device actually reports.
+    func setLowBatteryThreshold(_ percent: Int) {
+        let clamped = max(
+            Int(TimeFlipConstants.minBatteryLevel),
+            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, percent)
+        )
+        guard clamped != lowBatteryThresholdPercent else { return }
+        lowBatteryThresholdPercent = clamped
+        onLowBatteryThresholdChange?(clamped)
+    }
+
+    /// Updates the history-fetch interval, in seconds, and fires `onFetchHistoryIntervalChange`
+    /// so it is persisted and the live timer re-armed.
+    func setFetchHistoryIntervalSeconds(_ seconds: Int) {
+        let clamped = max(
+            TimeFlipConstants.minFetchHistoryIntervalSeconds,
+            min(TimeFlipConstants.maxFetchHistoryIntervalSeconds, seconds)
+        )
+        guard clamped != fetchHistoryIntervalSeconds else { return }
+        fetchHistoryIntervalSeconds = clamped
+        onFetchHistoryIntervalChange?(clamped)
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {

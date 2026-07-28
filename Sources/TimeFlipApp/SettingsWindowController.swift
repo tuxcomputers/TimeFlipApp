@@ -84,6 +84,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.accessory)
         appState.clearDiscoveredDevicesOnClose()
         appState.collapseDeviceTabDisclosures()
+        appState.cancelSteppedFieldHold()
     }
 
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
