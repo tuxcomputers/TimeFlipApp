@@ -114,11 +114,16 @@ struct ReportSettingsView: View {
                         stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                     }
                 }
+                .valueColumn()
             }
-            Toggle("Show seconds in the menu bar", isOn: Binding(
-                get: { appState.displaySecondsEnabled },
-                set: { appState.setDisplaySeconds($0) }
-            ))
+            LabeledContent("Show seconds in the menu bar") {
+                Toggle("", isOn: Binding(
+                    get: { appState.displaySecondsEnabled },
+                    set: { appState.setDisplaySeconds($0) }
+                ))
+                .labelsHidden()
+                .valueColumn()
+            }
             LabeledContent("Battery warning at") {
                 SteppedNumberField(
                     appState: appState,
@@ -129,6 +134,7 @@ struct ReportSettingsView: View {
                     fieldWidth: 44,
                     onCommit: { appState.setLowBatteryThreshold($0) }
                 )
+                .valueColumn()
             }
             LabeledContent("Fetch history every") {
                 SteppedNumberField(
@@ -140,6 +146,7 @@ struct ReportSettingsView: View {
                     fieldWidth: 44,
                     onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
                 )
+                .valueColumn()
             }
         }
     }
@@ -525,5 +532,17 @@ struct ReportSettingsView: View {
             }
         }
         isLoadingCalendars = false
+    }
+}
+
+private extension View {
+    /// Pins a settings row's control to the left edge of the shared value column, so the fields and
+    /// arrows line up down the tab instead of each row starting wherever its own width happens to
+    /// put it. See `SettingsLayoutConstants.AppSettings.valueColumnWidth`.
+    func valueColumn() -> some View {
+        frame(
+            width: SettingsLayoutConstants.AppSettings.valueColumnWidth,
+            alignment: .leading
+        )
     }
 }

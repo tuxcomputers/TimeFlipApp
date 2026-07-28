@@ -70,6 +70,15 @@ enum SettingsLayoutConstants {
         static let nameMinimumScale: CGFloat = 0.4
     }
 
+    enum AppSettings {
+        // The App tab's value column. LabeledContent right-aligns whatever it is given, so controls
+        // of different widths (a 34pt hour field, a 44pt one plus a "mins" suffix, a switch) each
+        // started at a different x and the column read as ragged. Giving every row's control the same
+        // width with its contents leading-aligned pins them all to one left edge, since a fixed width
+        // off a shared right edge is a shared left edge.
+        static let valueColumnWidth: CGFloat = 150
+    }
+
     enum FacetList {
         static let rowSpacing: CGFloat = 12
         static let iconSize: CGFloat = 20
