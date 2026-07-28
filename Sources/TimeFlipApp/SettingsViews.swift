@@ -70,7 +70,7 @@ struct SettingsRootView: View {
                         Text("Categories")
                     }
                     .tag(SettingsTab.categories)
-                PaneSetupView(appState: appState)
+                PaneSetupView(appState: appState, loadCategories: loadCategories)
                     .tabItem {
                         Text("Faces")
                     }
@@ -131,6 +131,9 @@ enum SettingsTab: Hashable {
 
 private struct PaneSetupView: View {
     @ObservedObject var appState: AppState
+    let loadCategories: () -> [CategoryRecord]
+    /// Loaded once when the tab appears, the same way the Categories tab reads its own list.
+    @State private var categories: [CategoryRecord] = []
 
     var body: some View {
         // swiftlint:disable closure_body_length
@@ -167,13 +170,13 @@ private struct PaneSetupView: View {
                 .frame(maxHeight: .infinity, alignment: .topLeading)
 
                 VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                    Text("Faces")
+                    Text("Categories")
                         .font(.headline)
 
-                    FacetMappingList(
-                        mappings: appState.facetMappings,
-                        currentFacetID: appState.currentFacetID,
-                        tint: { appState.faceCategoryColour(for: $0) }
+                    CategoryAssignmentList(
+                        categories: categories.filter(\.isActive),
+                        iconOptions: appState.iconOptions,
+                        colourOptions: appState.colourOptions
                     )
                 }
                 .frame(width: rightWidth, alignment: .leading)
@@ -189,6 +192,7 @@ private struct PaneSetupView: View {
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onAppear { categories = loadCategories() }
         }
         // swiftlint:enable closure_body_length
     }
@@ -425,6 +429,74 @@ private struct ColorOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// The categories a face can be assigned, listed on the Faces tab beside the device.
+///
+/// Only active categories appear: a retired one still has to resolve for historical `time_entry`
+/// rows, but offering it for a new assignment is exactly what retiring it was meant to stop.
+private struct CategoryAssignmentList: View {
+    let categories: [CategoryRecord]
+    let iconOptions: [CategoryIconOption]
+    let colourOptions: [ActivityColorOption]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(categories) { category in
+                CategoryAssignmentRow(
+                    category: category,
+                    iconName: iconOptions.first { $0.iconId == category.iconID }?.iconName,
+                    colour: colourOptions.first { $0.colourId == category.colourID }?.color
+                )
+                if category.id != categories.last?.id {
+                    Divider()
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FacetList.cornerRadius)
+                .fill(Color(NSColor.textBackgroundColor))
+        )
+    }
+}
+
+private struct CategoryAssignmentRow: View {
+    let category: CategoryRecord
+    /// `nil` for the None icon (`icon_id` 0), a sentinel rather than a bundled asset.
+    let iconName: String?
+    /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
+    let colour: Color?
+
+    var body: some View {
+        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+            // The slot is held even when there's no icon, so every name in the list still lines up.
+            Group {
+                if let iconName {
+                    ZStack {
+                        RoundedRectangle(
+                            cornerRadius: SettingsLayoutConstants.FacetList.iconBackgroundCornerRadius
+                        )
+                        .fill(colour ?? Color(NSColor.controlBackgroundColor))
+                        ActivityIconView(
+                            iconName: iconName,
+                            tint: .black,
+                            size: SettingsLayoutConstants.FacetList.iconSize
+                        )
+                    }
+                }
+            }
+            .frame(
+                width: SettingsLayoutConstants.FacetList.iconBackgroundSize,
+                height: SettingsLayoutConstants.FacetList.iconBackgroundSize
+            )
+
+            Text(category.name)
+
+            Spacer()
+        }
+        .frame(height: SettingsLayoutConstants.facetRowHeight)
+        .padding(.horizontal, SettingsLayoutConstants.FacetList.horizontalPadding)
     }
 }
 

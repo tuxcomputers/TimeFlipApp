@@ -56,6 +56,11 @@ enum SettingsLayoutConstants {
         static let horizontalPadding: CGFloat = 8
         static let selectionOpacity: CGFloat = 0.12
         static let cornerRadius: CGFloat = 8
+        // The category-colour swatch behind a row's icon. Sized to clear the 20pt icon while still
+        // fitting the 36pt row, rather than reusing the icon grid's 40pt cell, which would overflow
+        // it.
+        static let iconBackgroundSize: CGFloat = 28
+        static let iconBackgroundCornerRadius: CGFloat = 6
     }
 
     enum CategoryList {
