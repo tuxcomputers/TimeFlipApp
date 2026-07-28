@@ -21,13 +21,16 @@ struct SteppedNumberField: View {
     /// Shown after the field, e.g. `%`. Empty for a bare number.
     let suffix: String
     let fieldWidth: CGFloat
+    /// A fixed slot for the suffix, so the arrows after it land at a width the caller can predict
+    /// rather than wherever the suffix's own text happens to end. `nil` lets it size to its text.
+    var suffixWidth: CGFloat? = nil
     let onCommit: (Int) -> Void
 
     @State private var draft: String = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
             TextField("", text: $draft)
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
@@ -52,8 +55,9 @@ struct SteppedNumberField: View {
             if !suffix.isEmpty {
                 Text(suffix)
                     .foregroundStyle(.secondary)
+                    .frame(width: suffixWidth, alignment: .leading)
             }
-            VStack(spacing: 1) {
+            VStack(spacing: SettingsLayoutConstants.Stepper.arrowSpacing) {
                 arrow("chevron.up", delta: 1)
                 arrow("chevron.down", delta: -1)
             }
@@ -63,9 +67,9 @@ struct SteppedNumberField: View {
     private func arrow(_ systemImage: String, delta: Int) -> some View {
         let key = "\(holdKey):\(delta)"
         return Image(systemName: systemImage)
-            .font(.system(size: 8, weight: .bold))
+            .font(.system(size: SettingsLayoutConstants.Stepper.arrowPointSize, weight: .bold))
             .foregroundStyle(.secondary)
-            .frame(width: 16, height: 10)
+            .frame(width: SettingsLayoutConstants.Stepper.arrowsWidth, height: SettingsLayoutConstants.Stepper.arrowHeight)
             .contentShape(Rectangle())
             .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
                 if isPressing {

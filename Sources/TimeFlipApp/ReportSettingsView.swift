@@ -96,7 +96,7 @@ struct ReportSettingsView: View {
     @ViewBuilder private var appSettingsSection: some View {
         Section("App settings") {
             LabeledContent("Daily reset at") {
-                HStack(spacing: 16) {
+                HStack(spacing: SettingsLayoutConstants.AppSettings.meridiemGap) {
                     // The hour is typed or held; AM/PM stays arrows-only, since a two-state value has
                     // nothing to run through and nothing sensible to type.
                     SteppedNumberField(
@@ -105,16 +105,15 @@ struct ReportSettingsView: View {
                         value: Self.to12Hour(appState.dailyResetHour).hour,
                         range: 1...12,
                         suffix: "",
-                        fieldWidth: 34,
+                        fieldWidth: SettingsLayoutConstants.AppSettings.hourFieldWidth,
                         onCommit: setHour12
                     )
-                    HStack(spacing: 4) {
+                    HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
                         Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
-                            .frame(width: 30, alignment: .leading)
+                            .frame(width: SettingsLayoutConstants.AppSettings.meridiemLabelWidth, alignment: .leading)
                         stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                     }
                 }
-                .valueColumn()
             }
             LabeledContent("Show seconds in the menu bar") {
                 Toggle("", isOn: Binding(
@@ -122,7 +121,6 @@ struct ReportSettingsView: View {
                     set: { appState.setDisplaySeconds($0) }
                 ))
                 .labelsHidden()
-                .valueColumn()
             }
             LabeledContent("Battery warning at") {
                 SteppedNumberField(
@@ -131,10 +129,12 @@ struct ReportSettingsView: View {
                     value: appState.lowBatteryThresholdPercent,
                     range: Int(TimeFlipConstants.minBatteryLevel)...TimeFlipConstants.effectiveMaxLowBatteryWarningPercent,
                     suffix: "%",
-                    fieldWidth: 44,
+                    fieldWidth: SettingsLayoutConstants.AppSettings.fieldWidth(
+                        suffixWidth: SettingsLayoutConstants.AppSettings.percentSuffixWidth
+                    ),
+                    suffixWidth: SettingsLayoutConstants.AppSettings.percentSuffixWidth,
                     onCommit: { appState.setLowBatteryThreshold($0) }
                 )
-                .valueColumn()
             }
             LabeledContent("Fetch history every") {
                 SteppedNumberField(
@@ -143,10 +143,12 @@ struct ReportSettingsView: View {
                     value: fetchIntervalMinutes,
                     range: fetchIntervalMinutesRange,
                     suffix: fetchIntervalMinutes == 1 ? "min" : "mins",
-                    fieldWidth: 44,
+                    fieldWidth: SettingsLayoutConstants.AppSettings.fieldWidth(
+                        suffixWidth: SettingsLayoutConstants.AppSettings.minutesSuffixWidth
+                    ),
+                    suffixWidth: SettingsLayoutConstants.AppSettings.minutesSuffixWidth,
                     onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
                 )
-                .valueColumn()
             }
         }
     }
@@ -532,17 +534,5 @@ struct ReportSettingsView: View {
             }
         }
         isLoadingCalendars = false
-    }
-}
-
-private extension View {
-    /// Pins a settings row's control to the left edge of the shared value column, so the fields and
-    /// arrows line up down the tab instead of each row starting wherever its own width happens to
-    /// put it. See `SettingsLayoutConstants.AppSettings.valueColumnWidth`.
-    func valueColumn() -> some View {
-        frame(
-            width: SettingsLayoutConstants.AppSettings.valueColumnWidth,
-            alignment: .leading
-        )
     }
 }
