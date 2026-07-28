@@ -25,7 +25,9 @@ final class MenuBarController: NSObject {
     private let settingsWindowController: SettingsWindowController
     private let onPauseToggle: ((Bool) -> Void)?
     private let onLockRequest: (() -> Void)?
-    private let displaySecondsEnabled: Bool
+    // Not a `let`: the App tab can change it while the app runs, which has to re-arm the refresh
+    // timer as well as change the format, since the tick interval follows it.
+    private var displaySecondsEnabled: Bool
     private let lowBatteryThresholdPercent: Int
     private var pendingSingleClickWorkItem: DispatchWorkItem?
     private var statusItem: NSStatusItem?
@@ -634,6 +636,15 @@ final class MenuBarController: NSObject {
         cachedIconName = name
         cachedIconSize = pointSize
         return icon
+    }
+
+    /// Applies a change to the seconds preference straight away: the format changes on the next
+    /// draw, and the refresh timer is re-armed because its interval and tolerance both follow this.
+    func setDisplaySeconds(_ enabled: Bool) {
+        guard enabled != displaySecondsEnabled else { return }
+        displaySecondsEnabled = enabled
+        updateStatusView()
+        startRefreshTimer()
     }
 
     func refreshFromState() {

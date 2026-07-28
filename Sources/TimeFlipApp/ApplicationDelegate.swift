@@ -23,6 +23,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         isPaired: dataStore.loadPaired(),
         pairedDeviceName: dataStore.loadPairedDevice().name,
         pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
+        displaySecondsEnabled: dataStore.loadDisplaySecondsEnabled(),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -295,6 +296,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onCurrentFacetMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
+        }
+        appState.onDisplaySecondsChange = { [weak self] enabled in
+            guard let self else { return }
+            DeveloperMode.debugPrint(.field, "Field changed: Display seconds: \(enabled ? "on" : "off")")
+            self.dataStore.saveDisplaySecondsEnabled(enabled)
+            self.menuBarController.setDisplaySeconds(enabled)
         }
         appState.onDailyResetTimeChange = { [weak self] hour, minute in
             guard let self else { return }

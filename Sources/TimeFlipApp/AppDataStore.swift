@@ -1186,6 +1186,11 @@ final class AppDataStore {
         ])
     }
 
+    /// Persists the menu bar's seconds preference (`display_seconds`).
+    func saveDisplaySecondsEnabled(_ enabled: Bool) {
+        saveSettingJSON(name: "display_seconds", merging: ["enabled": enabled])
+    }
+
     /// Reads a `setting` row's current JSON value, merges `updates` into it, and writes the
     /// result back -- the row always already exists (seeded by `011_setting.sql`), so this is a
     /// plain `UPDATE`, not an upsert.

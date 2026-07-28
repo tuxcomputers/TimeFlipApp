@@ -44,7 +44,7 @@ struct ReportSettingsView: View {
                 }
             }
 
-            dailyResetSection
+            appSettingsSection
         }
         .formStyle(.grouped)
         .task(id: authManager.isAuthenticated) {
@@ -81,7 +81,7 @@ struct ReportSettingsView: View {
         }
     }
 
-    // MARK: - Daily reset
+    // MARK: - App settings
 
     /// AM/PM half of the 12-hour picker. The stored value stays 24-hour (`appState.dailyResetHour`);
     /// this only drives the display.
@@ -89,9 +89,9 @@ struct ReportSettingsView: View {
         case am, pm
     }
 
-    @ViewBuilder private var dailyResetSection: some View {
-        Section("Daily reset") {
-            LabeledContent("Reset at") {
+    @ViewBuilder private var appSettingsSection: some View {
+        Section("App settings") {
+            LabeledContent("Daily reset at") {
                 HStack(spacing: 16) {
                     // Same stacked-chevron stepper as the Device tab's auto-pause control. Hour and
                     // AM/PM step independently -- the hour wraps 1<->12 without flipping AM/PM.
@@ -108,13 +108,10 @@ struct ReportSettingsView: View {
                     }
                 }
             }
-            // Whole-hour + AM/PM is all the stepper sets, but the stored time keeps minutes so a
-            // finer reset can be dialled in for testing; show the effective 24-hour time so that
-            // minute is visible even though it isn't editable here.
-            Text(String(format: "Each category's daily total rolls over at %02d:%02d local time.",
-                        appState.dailyResetHour, appState.dailyResetMinute))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Toggle("Show seconds in the menu bar", isOn: Binding(
+                get: { appState.displaySecondsEnabled },
+                set: { appState.setDisplaySeconds($0) }
+            ))
         }
     }
 

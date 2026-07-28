@@ -74,6 +74,10 @@ final class AppState: ObservableObject {
     // stored value keeps hour AND minute so a finer time can be set for testing the reset firing.
     @Published var dailyResetHour: Int
     @Published var dailyResetMinute: Int
+    // Whether the menu bar duration shows a seconds component, mirroring the `display_seconds`
+    // setting. Held here rather than read once at launch so the App tab's toggle can take effect
+    // immediately instead of at the next launch.
+    @Published var displaySecondsEnabled: Bool
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
@@ -124,6 +128,7 @@ final class AppState: ObservableObject {
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
+    var onDisplaySecondsChange: ((Bool) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
@@ -174,6 +179,7 @@ final class AppState: ObservableObject {
         isPaired: Bool = false,
         pairedDeviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
+        displaySecondsEnabled: Bool = true,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -221,6 +227,7 @@ final class AppState: ObservableObject {
         self.isDoubleTapEnabled = isDoubleTapEnabled
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
+        self.displaySecondsEnabled = displaySecondsEnabled
         self.dailyResetHour = dailyResetHour
         self.dailyResetMinute = dailyResetMinute
 
@@ -577,6 +584,14 @@ final class AppState: ObservableObject {
         dailyResetHour = clampedHour
         dailyResetMinute = clampedMinute
         onDailyResetTimeChange?(clampedHour, clampedMinute)
+    }
+
+    /// Updates the menu bar's seconds preference from the App-tab toggle and fires
+    /// `onDisplaySecondsChange` so it is persisted and applied to the live status item.
+    func setDisplaySeconds(_ enabled: Bool) {
+        guard enabled != displaySecondsEnabled else { return }
+        displaySecondsEnabled = enabled
+        onDisplaySecondsChange?(enabled)
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {
