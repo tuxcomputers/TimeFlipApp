@@ -48,6 +48,13 @@ final class AppState: ObservableObject {
     @Published var facetMappings: [FacetMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
+    /// The signed-in account's calendars, as last listed from Google. Held here rather than on the
+    /// App tab's view so it outlives a tab switch: a `.task` restarts every time its view reappears,
+    /// so a view-owned list meant a `calendars.list` round trip on every visit to the tab. `nil`
+    /// means "never listed" (fetch on next look), an empty array means "listed, and there were
+    /// none". In memory only, so a restart lists afresh rather than showing a stale cache; the
+    /// Refresh calendars button re-lists on demand in between.
+    @Published var googleCalendars: [GoogleCalendarSummary]?
     @Published var googleClientID: String
     @Published var googleClientSecret: String
     @Published var devicePassword: String

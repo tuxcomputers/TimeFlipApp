@@ -6,7 +6,6 @@ struct ReportSettingsView: View {
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
 
-    @State private var calendars: [GoogleCalendarSummary] = []
     @State private var isLoadingCalendars = false
     @State private var calendarError: String?
     @State private var account: GoogleAccountInfo?
@@ -47,13 +46,18 @@ struct ReportSettingsView: View {
             appSettingsSection
         }
         .formStyle(.grouped)
+        // Runs on every appearance of this tab, not just when isAuthenticated changes, so everything
+        // it does has to be cheap on a revisit: loadAccount is cache-first, and the calendars are
+        // only listed when there is nothing to show without them.
         .task(id: authManager.isAuthenticated) {
             guard integrationsEnabled else { return }
             if authManager.isAuthenticated {
                 await loadAccount()
-                await loadCalendars()
+                if needsCalendarList {
+                    await loadCalendars()
+                }
             } else {
-                calendars = []
+                appState.googleCalendars = nil
                 calendarError = nil
                 account = nil
                 accountError = nil
@@ -306,24 +310,48 @@ struct ReportSettingsView: View {
         }
     }
 
+    /// The calendars listed so far, treating "never listed" the same as "none".
+    private var calendars: [GoogleCalendarSummary] {
+        appState.googleCalendars ?? []
+    }
+
+    /// The calendar currently synced into, as saved in the `google_account` setting. Known without
+    /// listing anything, which is what lets the section open with no network call.
+    private var savedCalendarName: String? {
+        appState.googleCalendarName.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Whether the section can't say anything useful without a `calendars.list` call: no list yet and
+    /// no saved calendar to name. Once either is true, listing waits until it is actually needed --
+    /// changing the selection (Refresh calendars) or checking a new calendar's name for a duplicate.
+    private var needsCalendarList: Bool {
+        appState.googleCalendars == nil && savedCalendarName == nil
+    }
+
     @ViewBuilder private var calendarSection: some View {
         if authManager.isAuthenticated {
             if isLoadingCalendars {
                 LabeledContent("Calendars") {
                     ProgressView()
                 }
-            } else if calendars.isEmpty {
-                Button("Load calendars") {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Load calendars")
-                    Task { @MainActor in
-                        await loadCalendars()
-                    }
-                }
-            } else {
+            } else if !calendars.isEmpty {
                 Picker("Calendar", selection: calendarSelectionBinding) {
                     Text("None").tag("")
                     ForEach(calendars) { calendar in
                         Text(calendar.summary).tag(calendar.id)
+                    }
+                }
+            } else if let savedCalendarName {
+                // Nothing listed, but the saved selection is still worth showing; Refresh calendars
+                // below turns this back into a picker when the selection needs changing.
+                LabeledContent("Calendar") {
+                    Text(savedCalendarName)
+                }
+            } else {
+                Button("Load calendars") {
+                    DeveloperMode.debugPrint(.click, "Button clicked: Load calendars")
+                    Task { @MainActor in
+                        await loadCalendars()
                     }
                 }
             }
@@ -425,14 +453,19 @@ struct ReportSettingsView: View {
     private func attemptCreateCalendar() {
         let name = trimmedNewCalendarName
         guard !name.isEmpty, !isSavingCalendar else { return }
-        // Check the calendars already loaded in the picker for a same-name match (case-insensitive).
-        // If one exists, ask before creating a duplicate; otherwise create it outright.
-        if let existing = calendars.first(where: { $0.summary.caseInsensitiveCompare(name) == .orderedSame }) {
-            existingCalendar = existing
-            showExistingCalendarAlert = true
-            return
-        }
         Task { @MainActor in
+            // The duplicate check reads the listed calendars, so list them first if that hasn't
+            // happened yet -- opening the tab no longer does it. Skipping the check would create a
+            // second calendar with the same name.
+            if appState.googleCalendars == nil {
+                await loadCalendars()
+            }
+            // A same-name match (case-insensitive) gets a confirmation; otherwise create outright.
+            if let existing = calendars.first(where: { $0.summary.caseInsensitiveCompare(name) == .orderedSame }) {
+                existingCalendar = existing
+                showExistingCalendarAlert = true
+                return
+            }
             await createCalendar(named: name)
         }
     }
@@ -483,7 +516,7 @@ struct ReportSettingsView: View {
         calendarError = nil
         do {
             let fetched = try await integrationCoordinator.fetchCalendars()
-            calendars = fetched.sorted { $0.summary.lowercased() < $1.summary.lowercased() }
+            appState.googleCalendars = fetched.sorted { $0.summary.lowercased() < $1.summary.lowercased() }
         } catch is CancellationError {
             // The .task(id:) restarted; the replacement load reports its own errors.
         } catch {
