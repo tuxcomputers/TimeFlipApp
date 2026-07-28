@@ -469,7 +469,7 @@ struct TimeFlipSettingsView: View {
         DeveloperMode.debugPrint(.field, "Field changed: Double-tap params: ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
         doubleTapParams = params
         appState.doubleTapParameters = params
-        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params))
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(params), false)
         appState.onDoubleTapSettingsPersist?(params, appState.isDoubleTapEnabled)
     }
 
@@ -477,7 +477,8 @@ struct TimeFlipSettingsView: View {
         guard appState.isConnected else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Double-tap enabled: \(appState.isDoubleTapEnabled) -> \(enabled)")
         appState.isDoubleTapEnabled = enabled
-        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams))
+        // A checkbox, not a value being dialled in: send it straight away rather than debouncing.
+        appState.onDoubleTapParametersChange?(effectiveDoubleTapParameters(doubleTapParams), true)
         appState.onDoubleTapSettingsPersist?(doubleTapParams, enabled)
     }
 

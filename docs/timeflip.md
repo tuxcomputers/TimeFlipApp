@@ -76,16 +76,31 @@ on which command was sent — there's no single mechanism that covers all of the
 
 ### Debouncing writes for live-editable settings
 
-Auto-pause, LED brightness/blink interval, and double-tap parameters are all edited live in
-Preferences (press-and-hold steppers, sliders, or plain text fields), which can fire many
-intermediate value changes in quick succession. For each of these, `AppState`'s `onXChange`
-callback (wired in `ApplicationDelegate`) does two things on every single change:
+Auto-pause, LED brightness/blink interval, double-tap parameters, and a face's assigned category are
+all edited live in Preferences (press-and-hold steppers, plain text fields, a list of categories
+clicked through), which can fire many intermediate value changes in quick succession. For each of
+these, the change path does two things on every single change:
 
 1. Prints a debug message with the new value and persists it to the DB immediately — so the DB
-   and debug log always reflect the live value, even mid-drag/mid-hold.
-2. Reschedules a `DeviceWriteDebouncer` (1s delay): only the value still current a full second
-   after the last change actually reaches the device, so a fast sequence writes to the device
-   once, not once per tick.
+   and debug log always reflect the live value, even mid-hold.
+2. Reschedules a `DeviceWriteDebouncer`: only the value still current `DeviceWriteDebouncer.defaultDelay`
+   (2s) after the last change actually reaches the device, so a fast sequence writes to the device
+   once, not once per tick. Every debounced write shares that one constant, so the whole UI settles at
+   the same rate; each setting has its own debouncer instance, so editing one doesn't cancel
+   another's pending write.
+
+Writes that aren't a settling value are **not** debounced, and shouldn't be: lock and pause (a
+click that must act at once, including the pause-and-lock-before-quit sequence), device time,
+the password, the device name, and the facet colours pushed on connect or in answer to the device's
+own resync request. Delaying any of those would either make the UI feel broken or race a teardown.
+
+Booleans are in that group too, since a checkbox has no intermediate values to wait out. The
+double-tap **Disable** box is the one that reaches the device: it shares
+`onDoubleTapParametersChange` with the register values (disabling is faked by sending `window` 0 —
+see `effectiveDoubleTapParameters`), so that hook takes an `immediately` flag. The checkbox passes
+`true` and writes at once, the register steppers pass `false` and debounce. An immediate write also
+cancels any pending register write first: that one carries parameters worked out before the flag
+flipped, so letting it land afterwards would undo the toggle.
 
 Once the debounced write actually fires, whether it's followed by a read-back verification depends
 entirely on the read-back matrix above — this debounce doesn't change what's possible to confirm,
@@ -131,7 +146,7 @@ showing, and it decides what actually goes out:
   and leaves it to the emitted `.systemState` event, which `ApplicationDelegate` handles.
 
   These requests are **collapsed, not answered one for one** (`requestFacetColourResync`): the first
-  schedules a resync 1s later, and anything arriving while one is pending, running, or inside a 30s
+  schedules a resync one debounce delay later, and anything arriving while one is pending, running, or inside a 30s
   cooldown is counted and dropped, with the count logged. The device repeats itself freely — once per
   notification, again per post-reconcile re-read, and again on every reconnect while it is unhappy —
   and each answer is 12 flash writes that also light the LED. Answering each one measurably made

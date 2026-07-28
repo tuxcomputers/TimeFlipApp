@@ -155,7 +155,10 @@ final class AppState: ObservableObject {
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
-    var onDoubleTapParametersChange: ((DoubleTapParameters) -> Void)?
+    /// `immediately` skips the usual debounce, for a change that has no run of intermediate values to
+    /// wait out: the Disable checkbox is a boolean, so there is nothing to settle. The register
+    /// values, which a held stepper walks through, leave it `false`.
+    var onDoubleTapParametersChange: ((DoubleTapParameters, _ immediately: Bool) -> Void)?
     // Fired with the real (never window-zeroed) parameters/enabled flag whenever either changes
     // from the UI, so a listener can persist them -- separate from onDoubleTapParametersChange,
     // which instead receives whatever should actually be sent to the device (see

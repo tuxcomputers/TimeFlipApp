@@ -127,15 +127,18 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "lifecycle")
     private var cancellables: Set<AnyCancellable> = []
     private var lastSentFacetColors: [UInt8: ColorComponents] = [:]
-    // Debounces the device write for each live-editable setting below: DB persistence and the
-    // "value changed" debug print happen immediately on every change, but the actual device write
-    // (and, where the protocol supports it, its read-back verification) only fires once the value
-    // has been stable for autoPauseWriteDelay -- rescheduled on every intervening change so a fast
-    // sequence (a held stepper arrow, a dragged slider) reaches the device once, not per tick.
+    // Debounces the device write for each setting below whose value is edited live: DB persistence
+    // and the "value changed" debug print happen immediately on every change, but the actual device
+    // write (and, where the protocol supports it, its read-back verification) only fires once the
+    // value has been stable for DeviceWriteDebouncer.defaultDelay -- rescheduled on every
+    // intervening change, so a fast sequence (a held stepper arrow, a run of clicks) reaches the
+    // device once rather than once per tick. One debouncer each: sharing one would mean editing
+    // brightness cancelled a blink-interval write that hadn't fired yet.
     private let autoPauseWriteDebouncer = DeviceWriteDebouncer()
     private let ledBrightnessWriteDebouncer = DeviceWriteDebouncer()
     private let blinkIntervalWriteDebouncer = DeviceWriteDebouncer()
     private let doubleTapWriteDebouncer = DeviceWriteDebouncer()
+    private let facetColourWriteDebouncer = DeviceWriteDebouncer()
     private var facetColorInitialized = false
     /// Whether this run has actually written the facet colours to a device yet, which is what turns
     /// `lastSentFacetColors` from an assumption seeded off the DB into a real record. Until it has,
@@ -376,10 +379,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 await self?.device?.setBlinkInterval(seconds: seconds)
             }
         }
-        appState.onDoubleTapParametersChange = { [weak self] params in
+        appState.onDoubleTapParametersChange = { [weak self] params, immediately in
             guard let self else { return }
             let summary = "ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)"
             DeveloperMode.debugPrint(.doubleTap, "Params changed: \(summary)")
+            guard !immediately else {
+                // A boolean flip (the Disable checkbox) has nothing to settle, so it goes now. Any
+                // pending register write is dropped first: it carries parameters worked out before
+                // the flag flipped, so letting it land afterwards would undo the toggle.
+                self.doubleTapWriteDebouncer.cancel()
+                DeveloperMode.debugPrint(.doubleTap, "Params sent without debounce: \(summary)")
+                Task { @MainActor [weak self] in
+                    await self?.device?.setDoubleTapParameters(params)
+                }
+                return
+            }
             self.doubleTapWriteDebouncer.schedule { [weak self] in
                 await self?.device?.setDoubleTapParameters(params)
             }
@@ -392,6 +406,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         // The LED colours follow the faces' categories: assigning a face a different category, or
         // recolouring a category on the Categories tab, is what changes what the device lights up.
+        // Debounced like the other device writes, since clicking along the Faces tab's category list
+        // to find the right one emits a change per click -- only where it settles needs to be sent.
         appState.$faceCategories
             .sink { [weak self] categories in
                 Task { @MainActor in
@@ -404,7 +420,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                         self.facetColorInitialized = true
                         return
                     }
-                    await self.sendFacetColors(in: categories, reason: "category edit")
+                    self.facetColourWriteDebouncer.schedule { [weak self] in
+                        guard let self else { return }
+                        // Re-read the categories rather than sending the snapshot this emission
+                        // carried: the whole point of waiting is to send where the edits settled.
+                        await self.sendFacetColors(in: self.appState.faceCategories, reason: "category edit")
+                    }
                 }
             }
             .store(in: &cancellables)
