@@ -275,9 +275,11 @@ struct TimeFlipSettingsView: View {
                 ),
                 format: .number
             )
+            .textFieldStyle(.roundedBorder)
             .frame(width: 50)
             .labelsHidden()
             .multilineTextAlignment(.trailing)
+            .monospacedDigit()
             Text("min")
                 .foregroundStyle(.secondary)
             // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
@@ -388,12 +390,16 @@ struct TimeFlipSettingsView: View {
             ),
             format: .number
         )
+        // Same look as every other typeable field in the window (see SteppedNumberField): without the
+        // border these read as plain labels, which hides that they can be typed into at all.
+        .textFieldStyle(.roundedBorder)
         // The same block width every other value control in the window occupies, so these fields end
         // on the same right edge as the steppers' arrows above them. They carry no suffix and no
         // arrows of their own, so the whole width goes to the field.
         .frame(width: SettingsLayoutConstants.Stepper.rowWidth)
         .labelsHidden()
         .multilineTextAlignment(.trailing)
+        .monospacedDigit()
     }
 
     // MARK: - Helpers
