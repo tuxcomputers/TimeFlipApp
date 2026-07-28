@@ -56,6 +56,12 @@ enum SettingsLayoutConstants {
         // inside that pentagon is ~0.297 of the artwork's width -- the limit comes from the two
         // upper edges meeting at the point, not the flat bottom one -- so this stays just inside.
         static let centreIconScale: CGFloat = 0.29
+        // The assigned category's name under the device. Sized to fill the space the squared-off
+        // device leaves at the bottom of the column rather than to any system text style.
+        static let nameFontSize: CGFloat = 56
+        // Long names shrink rather than wrap or clip -- the column is only two thirds of the
+        // window, and a category name has no length limit.
+        static let nameMinimumScale: CGFloat = 0.4
     }
 
     enum FacetList {

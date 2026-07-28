@@ -168,7 +168,8 @@ private struct PaneSetupView: View {
                         TopFacetEditor(
                             mapping: binding,
                             litColour: appState.deviceBodyColour(for: appState.currentFacetID),
-                            iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName
+                            iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName,
+                            categoryName: appState.categoryActivity(for: appState.currentFacetID)?.name
                         )
                     } else {
                         Text("Flip the device to pick a facet.")
@@ -217,9 +218,24 @@ private struct TopFacetEditor: View {
     let litColour: Color
     /// The assigned category's icon, or `nil` when there isn't one to draw.
     let iconName: String?
+    /// The assigned category's name, shown under the device.
+    let categoryName: String?
 
     var body: some View {
-        DeviceFaceView(litColour: litColour, iconName: iconName)
+        VStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
+            // Squared off here rather than left to fill the column, so the name sits directly under
+            // the device instead of being pushed to the bottom of a tall column.
+            DeviceFaceView(litColour: litColour, iconName: iconName)
+                .aspectRatio(1, contentMode: .fit)
+
+            Text(categoryName ?? "")
+                .font(.system(size: SettingsLayoutConstants.DeviceFace.nameFontSize, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(SettingsLayoutConstants.DeviceFace.nameMinimumScale)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -492,6 +508,10 @@ private struct CategoryAssignmentList: View {
             RoundedRectangle(cornerRadius: SettingsLayoutConstants.FacetList.cornerRadius)
                 .fill(Color(NSColor.textBackgroundColor))
         )
+        // The first row takes keyboard focus when the tab appears, and its focus ring reads as a
+        // selection, as if that category were already the assigned one. Same reason the Categories
+        // tab's icon grid disables the effect. The rows stay keyboard-reachable either way.
+        .focusEffectDisabled()
     }
 }
 
