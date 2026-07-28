@@ -1186,6 +1186,16 @@ final class AppDataStore {
         ])
     }
 
+    /// Persists the battery level at or below which the low-battery warning shows
+    /// (`low_battery_level`). Clamped to the device's own reportable range.
+    func saveLowBatteryLevelPercent(_ percent: Int) {
+        let clamped = max(
+            Int(TimeFlipConstants.minBatteryLevel),
+            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, percent)
+        )
+        saveSettingJSON(name: "low_battery_level", merging: ["percent": clamped])
+    }
+
     /// Persists the menu bar's seconds preference (`display_seconds`).
     func saveDisplaySecondsEnabled(_ enabled: Bool) {
         saveSettingJSON(name: "display_seconds", merging: ["enabled": enabled])

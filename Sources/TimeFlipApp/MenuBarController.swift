@@ -28,7 +28,8 @@ final class MenuBarController: NSObject {
     // Not a `let`: the App tab can change it while the app runs, which has to re-arm the refresh
     // timer as well as change the format, since the tick interval follows it.
     private var displaySecondsEnabled: Bool
-    private let lowBatteryThresholdPercent: Int
+    // Not a `let`: the App tab can change it while the app runs.
+    private var lowBatteryThresholdPercent: Int
     private var pendingSingleClickWorkItem: DispatchWorkItem?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
@@ -636,6 +637,18 @@ final class MenuBarController: NSObject {
         cachedIconName = name
         cachedIconSize = pointSize
         return icon
+    }
+
+    /// Applies a new low-battery threshold straight away, re-running the latch against the level
+    /// already on hand so the warning starts or stops now rather than waiting for the next battery
+    /// reading, which can be minutes away.
+    func setLowBatteryThreshold(_ percent: Int) {
+        guard percent != lowBatteryThresholdPercent else { return }
+        lowBatteryThresholdPercent = percent
+        // The latch is sticky by design, so a threshold move has to be able to clear it as well as
+        // set it -- otherwise lowering the threshold would leave a stale warning blinking.
+        isLowBatteryLatched = false
+        refreshFromState()
     }
 
     /// Applies a change to the seconds preference straight away: the format changes on the next

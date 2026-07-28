@@ -78,6 +78,10 @@ final class AppState: ObservableObject {
     // setting. Held here rather than read once at launch so the App tab's toggle can take effect
     // immediately instead of at the next launch.
     @Published var displaySecondsEnabled: Bool
+    // Battery level at or below which the low-battery warning shows, mirroring the
+    // `low_battery_level` setting. Held here for the same reason as `displaySecondsEnabled`: so the
+    // App tab's control applies immediately rather than at the next launch.
+    @Published var lowBatteryThresholdPercent: Int
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
@@ -129,6 +133,7 @@ final class AppState: ObservableObject {
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
     var onDisplaySecondsChange: ((Bool) -> Void)?
+    var onLowBatteryThresholdChange: ((Int) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
@@ -180,6 +185,7 @@ final class AppState: ObservableObject {
         pairedDeviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
         displaySecondsEnabled: Bool = true,
+        lowBatteryThresholdPercent: Int = 5,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -228,6 +234,14 @@ final class AppState: ObservableObject {
         dailyFacetDurations = [:]
         dailyWindowStart = Date()
         self.displaySecondsEnabled = displaySecondsEnabled
+        // Clamped on the way in as well as on the way out, so a stale or hand-edited
+        // `low_battery_level` row can't surface as a threshold the UI would then refuse to set.
+        // With developer mode on the stored value is left as it is, up to the reportable range, so a
+        // deliberately high threshold set for testing survives a restart.
+        self.lowBatteryThresholdPercent = max(
+            Int(TimeFlipConstants.minBatteryLevel),
+            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, lowBatteryThresholdPercent)
+        )
         self.dailyResetHour = dailyResetHour
         self.dailyResetMinute = dailyResetMinute
 
@@ -592,6 +606,19 @@ final class AppState: ObservableObject {
         guard enabled != displaySecondsEnabled else { return }
         displaySecondsEnabled = enabled
         onDisplaySecondsChange?(enabled)
+    }
+
+    /// Updates the low-battery threshold from the App-tab stepper and fires
+    /// `onLowBatteryThresholdChange` so it is persisted and re-evaluated against the current level.
+    /// Clamped to the range the device actually reports.
+    func setLowBatteryThreshold(_ percent: Int) {
+        let clamped = max(
+            Int(TimeFlipConstants.minBatteryLevel),
+            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, percent)
+        )
+        guard clamped != lowBatteryThresholdPercent else { return }
+        lowBatteryThresholdPercent = clamped
+        onLowBatteryThresholdChange?(clamped)
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {

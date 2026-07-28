@@ -24,6 +24,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         pairedDeviceName: dataStore.loadPairedDevice().name,
         pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
         displaySecondsEnabled: dataStore.loadDisplaySecondsEnabled(),
+        lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent(),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -302,6 +303,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             DeveloperMode.debugPrint(.field, "Field changed: Display seconds: \(enabled ? "on" : "off")")
             self.dataStore.saveDisplaySecondsEnabled(enabled)
             self.menuBarController.setDisplaySeconds(enabled)
+        }
+        appState.onLowBatteryThresholdChange = { [weak self] percent in
+            guard let self else { return }
+            DeveloperMode.debugPrint(.battery, "Field changed: Low battery threshold: \(percent)%")
+            self.dataStore.saveLowBatteryLevelPercent(percent)
+            self.menuBarController.setLowBatteryThreshold(percent)
         }
         appState.onDailyResetTimeChange = { [weak self] hour, minute in
             guard let self else { return }

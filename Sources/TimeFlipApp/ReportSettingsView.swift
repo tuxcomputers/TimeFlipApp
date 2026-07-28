@@ -96,15 +96,15 @@ struct ReportSettingsView: View {
                     // Same stacked-chevron stepper as the Device tab's auto-pause control. Hour and
                     // AM/PM step independently -- the hour wraps 1<->12 without flipping AM/PM.
                     HStack(spacing: 4) {
-                        stepArrows(up: { stepHour(1) }, down: { stepHour(-1) })
                         Text("\(Self.to12Hour(appState.dailyResetHour).hour)")
                             .monospacedDigit()
                             .frame(width: 22, alignment: .trailing)
+                        stepArrows(up: { stepHour(1) }, down: { stepHour(-1) })
                     }
                     HStack(spacing: 4) {
-                        stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                         Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
                             .frame(width: 30, alignment: .leading)
+                        stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                     }
                 }
             }
@@ -112,6 +112,14 @@ struct ReportSettingsView: View {
                 get: { appState.displaySecondsEnabled },
                 set: { appState.setDisplaySeconds($0) }
             ))
+            LabeledContent("Battery warning at") {
+                HStack(spacing: 4) {
+                    Text("\(appState.lowBatteryThresholdPercent)%")
+                        .monospacedDigit()
+                        .frame(width: 38, alignment: .trailing)
+                    stepArrows(up: { stepBatteryThreshold(1) }, down: { stepBatteryThreshold(-1) })
+                }
+            }
         }
     }
 
@@ -148,6 +156,19 @@ struct ReportSettingsView: View {
             hour: newHour,
             minute: appState.dailyResetMinute
         )
+    }
+
+    /// Steps the low-battery threshold by ±1%. Clamped rather than wrapped, since 1% and 100% are
+    /// the ends of what the device reports, not points on a dial.
+    private func stepBatteryThreshold(_ delta: Int) {
+        let current = appState.lowBatteryThresholdPercent
+        let stepped = max(
+            Int(TimeFlipConstants.minBatteryLevel),
+            min(TimeFlipConstants.effectiveMaxLowBatteryWarningPercent, current + delta)
+        )
+        guard stepped != current else { return }
+        DeveloperMode.debugPrint(.field, "Field changed: Battery warning level: \(current)% -> \(stepped)%")
+        appState.setLowBatteryThreshold(stepped)
     }
 
     /// Flips AM<->PM, keeping the hour on the clock face fixed.
