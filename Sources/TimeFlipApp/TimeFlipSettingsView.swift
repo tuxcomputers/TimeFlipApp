@@ -241,56 +241,32 @@ struct TimeFlipSettingsView: View {
 
     // MARK: - Controls
 
+    // Both LED values step with held arrows rather than dragging a slider. A slider commits a value
+    // per pixel of travel, and every commit is a device write once the 1s debounce settles -- see the
+    // brightness run in the 19:32 debug log, where one drag logged 30-odd changes. Arrows commit one
+    // step at a time, and the range is small enough to cross by holding.
     private var brightnessControls: some View {
-        HStack(spacing: 8) {
-            Slider(
-                value: Binding(
-                    get: { Double(ledBrightnessValue) },
-                    set: { applyLEDBrightness(newValue: Int($0.rounded())) }
-                ),
-                in: 1...100
-            )
-            .frame(width: 160)
-            TextField(
-                "",
-                value: Binding(
-                    get: { ledBrightnessValue },
-                    set: { applyLEDBrightness(newValue: $0) }
-                ),
-                format: .number
-            )
-            .frame(width: 50)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            Text("%")
-                .foregroundStyle(.secondary)
-        }
+        SteppedNumberField(
+            appState: appState,
+            holdKey: "ledBrightness",
+            value: ledBrightnessValue,
+            range: 1...100,
+            suffix: "%",
+            fieldWidth: 50,
+            onCommit: { applyLEDBrightness(newValue: $0) }
+        )
     }
 
     private var blinkIntervalControls: some View {
-        HStack(spacing: 8) {
-            Slider(
-                value: Binding(
-                    get: { Double(blinkIntervalValue) },
-                    set: { applyBlinkInterval(newValue: Int($0.rounded())) }
-                ),
-                in: 5...60
-            )
-            .frame(width: 160)
-            TextField(
-                "",
-                value: Binding(
-                    get: { blinkIntervalValue },
-                    set: { applyBlinkInterval(newValue: $0) }
-                ),
-                format: .number
-            )
-            .frame(width: 50)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            Text("sec")
-                .foregroundStyle(.secondary)
-        }
+        SteppedNumberField(
+            appState: appState,
+            holdKey: "blinkInterval",
+            value: blinkIntervalValue,
+            range: 5...60,
+            suffix: "sec",
+            fieldWidth: 50,
+            onCommit: { applyBlinkInterval(newValue: $0) }
+        )
     }
 
     private var autoPauseControls: some View {

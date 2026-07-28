@@ -127,8 +127,8 @@ final class AppState: ObservableObject {
     // above: the window is hidden rather than deallocated, and a physically-held mouse button never
     // delivers its release to a view whose window has closed under it. One key rather than one pair
     // per control, since only one arrow can be held at a time.
-    var appSettingsHoldTask: Task<Void, Never>?
-    var appSettingsHoldKey: String?
+    var steppedFieldHoldTask: Task<Void, Never>?
+    var steppedFieldHoldKey: String?
     // Mirrors MenuBarController's low-battery blink state so the Settings window's Battery line
     // (a different view hierarchy from the status bar) can flash in sync with it and with the
     // "Preferences..." menu item -- MenuBarController owns the actual timer/latch and pushes
@@ -499,10 +499,10 @@ final class AppState: ObservableObject {
 
     /// Stops a held App-tab stepper arrow. Called when the settings window closes, so a hold that
     /// never received its release can't keep ticking database writes in the background.
-    func cancelAppSettingsHold() {
-        appSettingsHoldTask?.cancel()
-        appSettingsHoldTask = nil
-        appSettingsHoldKey = nil
+    func cancelSteppedFieldHold() {
+        steppedFieldHoldTask?.cancel()
+        steppedFieldHoldTask = nil
+        steppedFieldHoldKey = nil
     }
 
     /// Called by MenuBarController every time its low-battery blink state changes (starts, stops,
