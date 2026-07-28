@@ -18,6 +18,9 @@ final class AppState: ObservableObject {
     /// (`database/008_face.sql`). This is what the menu bar shows -- see `categoryActivity(for:)`.
     /// Published so an edit on the Categories tab reaches the menu bar without a relaunch.
     @Published var faceCategories: [UInt8: CategoryRecord]
+    /// Which faces are locked, keyed by `face_id` (`database/008_face.sql`). A locked face keeps
+    /// the category it has: the Faces tab refuses to reassign it, and so does the write itself.
+    @Published var faceLocks: [UInt8: Bool]
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
@@ -164,6 +167,7 @@ final class AppState: ObservableObject {
         colourOptions: [ActivityColorOption] = [],
         iconOptions: [CategoryIconOption] = [],
         faceCategories: [UInt8: CategoryRecord] = [:],
+        faceLocks: [UInt8: Bool] = [:],
         googleCalendarID: String? = nil,
         googleCalendarName: String? = nil,
         googleClientID: String? = nil,
@@ -180,6 +184,7 @@ final class AppState: ObservableObject {
         self.colourOptions = colourOptions
         self.iconOptions = iconOptions
         self.faceCategories = faceCategories
+        self.faceLocks = faceLocks
         currentFacetID = TimeFlipConstants.minFacetID
         isPaused = false
         isLocked = false
@@ -334,6 +339,39 @@ final class AppState: ObservableObject {
     func faceCategoryColour(for facetID: UInt8) -> Color {
         let colourID = faceCategories[facetID]?.colourID
         return colourOptions.first { $0.colourId == colourID }?.color ?? .primary
+    }
+
+    /// The colour to draw the on-screen device in for a face: its category's colour, or **white**
+    /// when there isn't one to show.
+    ///
+    /// White covers both a face with no category (the `Unassigned` sentinel) and a category with no
+    /// colour of its own (`colour_id` 0), because on the body of the device both mean the same
+    /// thing: nothing is lit. That's a third answer to the same question `faceCategoryColour` and
+    /// `facetLEDColours` each answer differently, and deliberately so -- an icon falls back to
+    /// `.primary` so it stays legible, the LED falls back to dark because that's off on the
+    /// hardware, and the drawn body falls back to white because an unlit device is white plastic.
+    func deviceBodyColour(for facetID: UInt8) -> Color {
+        let colourID = faceCategories[facetID]?.colourID
+        return colourOptions.first { $0.colourId == colourID }?.color ?? .white
+    }
+
+    /// The colour to draw the device's inner lines and centre icon in for a face: white when the
+    /// face's colour is dark enough that black would disappear into it, black otherwise. Which
+    /// colours flip is a per-row `white_lines` flag on the `colour` table, not a rule in code, so
+    /// the choice can be retuned by editing the row.
+    ///
+    /// The device's outer outline is not this colour: it stays black whatever the face is lit in,
+    /// so the shape still reads against the window behind it.
+    func deviceLineColour(for facetID: UInt8) -> Color {
+        let colourID = faceCategories[facetID]?.colourID
+        let usesWhiteLines = colourOptions.first { $0.colourId == colourID }?.usesWhiteLines ?? false
+        return usesWhiteLines ? .white : .black
+    }
+
+    /// Whether a face keeps the category it has. Unknown faces read as unlocked, which is also
+    /// the column's default.
+    func isFaceLocked(_ facetID: UInt8) -> Bool {
+        faceLocks[facetID] ?? false
     }
 
     /// What the device's LED should show for each facet: the `device_hex` of the colour assigned to

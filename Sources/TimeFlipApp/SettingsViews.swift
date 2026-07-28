@@ -13,6 +13,10 @@ struct SettingsRootView: View {
     let updateCategoryActive: (Int, Bool) -> Void
     let updateCategoryName: (Int, String) -> Void
     let updateCategoryIcon: (Int, Int) -> Void
+    /// Assigns a category to a physical face: `(face_id, category_id)`.
+    let assignCategoryToFace: (UInt8, Int) -> Void
+    /// Locks or unlocks a physical face: `(face_id, locked)`.
+    let setFaceLocked: (UInt8, Bool) -> Void
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
@@ -29,6 +33,8 @@ struct SettingsRootView: View {
         updateCategoryActive: @escaping (Int, Bool) -> Void,
         updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
+        assignCategoryToFace: @escaping (UInt8, Int) -> Void,
+        setFaceLocked: @escaping (UInt8, Bool) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
@@ -43,6 +49,8 @@ struct SettingsRootView: View {
         self.updateCategoryActive = updateCategoryActive
         self.updateCategoryName = updateCategoryName
         self.updateCategoryIcon = updateCategoryIcon
+        self.assignCategoryToFace = assignCategoryToFace
+        self.setFaceLocked = setFaceLocked
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -70,7 +78,15 @@ struct SettingsRootView: View {
                         Text("Categories")
                     }
                     .tag(SettingsTab.categories)
-                PaneSetupView(appState: appState)
+                PaneSetupView(
+                    appState: appState,
+                    loadCategories: loadCategories,
+                    createCategory: createCategory,
+                    findCategory: findCategory,
+                    updateCategoryActive: updateCategoryActive,
+                    assignCategoryToFace: assignCategoryToFace,
+                    setFaceLocked: setFaceLocked
+                )
                     .tabItem {
                         Text("Faces")
                     }
@@ -131,6 +147,14 @@ enum SettingsTab: Hashable {
 
 private struct PaneSetupView: View {
     @ObservedObject var appState: AppState
+    let loadCategories: () -> [CategoryRecord]
+    let createCategory: (String) -> Void
+    let findCategory: (String) -> CategoryRecord?
+    let updateCategoryActive: (Int, Bool) -> Void
+    let assignCategoryToFace: (UInt8, Int) -> Void
+    let setFaceLocked: (UInt8, Bool) -> Void
+    /// Loaded once when the tab appears, the same way the Categories tab reads its own list.
+    @State private var categories: [CategoryRecord] = []
 
     var body: some View {
         // swiftlint:disable closure_body_length
@@ -145,7 +169,7 @@ private struct PaneSetupView: View {
 
             HStack(alignment: .top, spacing: spacing) {
                 VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                    Text("Top facet")
+                    Text("Top face")
                         .font(.headline)
 
                     if let index = appState.mappingIndex(for: appState.currentFacetID) {
@@ -155,7 +179,17 @@ private struct PaneSetupView: View {
                         )
                         TopFacetEditor(
                             mapping: binding,
-                            tint: appState.faceCategoryColour(for: appState.currentFacetID)
+                            litColour: appState.deviceBodyColour(for: appState.currentFacetID),
+                            lineColour: appState.deviceLineColour(for: appState.currentFacetID),
+                            iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName,
+                            categoryName: appState.categoryActivity(for: appState.currentFacetID)?.name,
+                            isLocked: appState.isFaceLocked(appState.currentFacetID),
+                            onToggleLock: {
+                                let facetID = appState.currentFacetID
+                                let locked = !appState.isFaceLocked(facetID)
+                                DeveloperMode.debugPrint(.click, "Button clicked: Face \(facetID) lock -> \(locked ? "locked" : "unlocked")")
+                                setFaceLocked(facetID, locked)
+                            }
                         )
                     } else {
                         Text("Flip the device to pick a facet.")
@@ -167,13 +201,30 @@ private struct PaneSetupView: View {
                 .frame(maxHeight: .infinity, alignment: .topLeading)
 
                 VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                    Text("Faces")
+                    Text("Categories")
                         .font(.headline)
 
-                    FacetMappingList(
-                        mappings: appState.facetMappings,
-                        currentFacetID: appState.currentFacetID,
-                        tint: { appState.faceCategoryColour(for: $0) }
+                    CategoryAssignmentList(
+                        categories: categories.filter(\.isActive),
+                        iconOptions: appState.iconOptions,
+                        colourOptions: appState.colourOptions,
+                        // A locked face keeps the category it has, so there is nothing here to
+                        // click. The write refuses a locked face too, in case this ever gets past.
+                        canAssign: TimeFlipConstants.isValidFacetID(appState.currentFacetID)
+                            && !appState.isFaceLocked(appState.currentFacetID),
+                        onSelect: { assignCategoryToFace(appState.currentFacetID, $0) }
+                    )
+
+                    CategoryCreateControl(
+                        createCategory: createCategory,
+                        findCategory: findCategory,
+                        // Re-read rather than patched: this list only shows active categories, so a
+                        // reinstated one has to appear in it.
+                        reactivate: { category in
+                            updateCategoryActive(category.id, true)
+                            categories = loadCategories()
+                        },
+                        onCreated: { categories = loadCategories() }
                     )
                 }
                 .frame(width: rightWidth, alignment: .leading)
@@ -189,6 +240,7 @@ private struct PaneSetupView: View {
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onAppear { categories = loadCategories() }
         }
         // swiftlint:enable closure_body_length
     }
@@ -196,37 +248,74 @@ private struct PaneSetupView: View {
 
 private struct TopFacetEditor: View {
     @Binding var mapping: FacetMapping
-    /// The face's category colour, or `.primary` when it has none. The tint is all that's left of
-    /// the facet colour on this tab -- the value itself lives on the category now, so this reads it
-    /// from there rather than carrying a second copy per facet.
-    let tint: Color
+    /// The colour to light the device in: the colour of the category assigned to this face, or
+    /// white when it has none (see `AppState.deviceBodyColour`).
+    let litColour: Color
+    /// The colour of the device's inner lines and centre icon (see `AppState.deviceLineColour`).
+    let lineColour: Color
+    /// The assigned category's icon, or `nil` when there isn't one to draw.
+    let iconName: String?
+    /// The assigned category's name, shown under the device.
+    let categoryName: String?
+    let isLocked: Bool
+    let onToggleLock: () -> Void
 
     var body: some View {
-        let nameBinding = Binding(
-            get: { mapping.name },
-            set: {
-                let sanitized = ActivityLibrary.sanitizeActivityName($0)
-                DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) name: \"\(mapping.name)\" -> \"\(sanitized)\"")
-                mapping.name = sanitized
-            }
-        )
-        let iconBinding = Binding(
-            get: { mapping.iconName },
-            set: {
-                let sanitized = ActivityLibrary.sanitizeIconName($0)
-                DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) icon: \"\(mapping.iconName)\" -> \"\(sanitized)\"")
-                mapping.iconName = sanitized
-            }
-        )
+        VStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
+            // DeviceFaceView squares itself off, so the name sits directly under the device rather
+            // than being pushed to the bottom of a tall column.
+            DeviceFaceView(litColour: litColour, lineColour: lineColour, iconName: iconName)
+                .overlay(alignment: .topLeading) {
+                    FaceLockToggle(isLocked: isLocked, action: onToggleLock)
+                }
 
-        VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-            TextField("", text: nameBinding, prompt: Text("Unassigned"))
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
+            Text(categoryName ?? "")
+                .font(.system(size: SettingsLayoutConstants.DeviceFace.nameFontSize, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(SettingsLayoutConstants.DeviceFace.nameMinimumScale)
+                .frame(maxWidth: .infinity, alignment: .center)
 
-            IconGridPicker(selection: iconBinding, tint: tint)
+            Spacer(minLength: 0)
         }
+    }
+}
+
+/// Locks or unlocks the face on show, sitting in the corner of the device graphic.
+///
+/// A locked face keeps the category it has: the category list stops offering assignments while it
+/// is locked, so this is what a user reaches for before, and after, pinning a face they mean to
+/// keep -- Break and Meeting being the cases it exists for.
+private struct FaceLockToggle: View {
+    let isLocked: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            // Sized by font rather than by .resizable().scaledToFit(). Scaling to fit forces
+            // both glyphs' bounding boxes into the same square, and the open lock's box is the
+            // wider of the two because its shackle swings out, so its body came out smaller and
+            // the lock appeared to change size as it toggled. At a given font size the two are
+            // drawn to matching metrics, and anchoring the frame to the body's own corner keeps
+            // it put while only the shackle moves.
+            Image(systemName: isLocked ? "lock.fill" : "lock.open.fill")
+                .font(.system(size: SettingsLayoutConstants.DeviceFace.lockSize))
+                .frame(
+                    width: SettingsLayoutConstants.DeviceFace.lockSize,
+                    height: SettingsLayoutConstants.DeviceFace.lockSize,
+                    alignment: .bottomLeading
+                )
+                // Red for locked, green for unlocked: the colour says whether the face will
+                // accept a new category, matching the category list going dead beside it.
+                .foregroundStyle(isLocked ? Color.red : Color.green)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Without this the button wears a focus ring the moment the tab takes focus, which reads
+        // as a highlight around the lock rather than as keyboard focus. Same treatment as the
+        // category list beside it.
+        .focusEffectDisabled()
+        .help(isLocked ? "Unlock this face so its category can be changed" : "Lock this face to keep its category")
+        .accessibilityLabel(isLocked ? "Unlock face" : "Lock face")
     }
 }
 
@@ -247,6 +336,66 @@ struct ActivityIconView: View {
                 .resizable()
                 .foregroundStyle(.secondary)
                 .frame(width: size, height: size)
+        }
+    }
+}
+
+/// The device seen from directly above, lit in a single colour.
+///
+/// The hardware lights its whole body one colour for whichever face is upward -- it can't light
+/// faces individually -- so this draws every face in `litColour` and keeps the artwork's own black
+/// edges, which is why it deliberately skips the `.template` rendering `ActivityIconView` uses.
+///
+/// Squared off by aspect ratio and left to take whatever size it is given. It deliberately does
+/// **not** measure the space it is offered to decide its own size: the artwork is a vector, and an
+/// `NSImage` backed by one re-renders at whatever size it is drawn, so a fixed render size stays
+/// crisp at any scale. Sizing off a `GeometryReader` here instead would make this view's size
+/// depend on the height available to it, and the settings window already drives its own minimum
+/// height from a measured column -- the two together form a layout feedback loop.
+struct DeviceFaceView: View {
+    let litColour: Color
+    /// The colour of the inner lines and the centre icon. The outer outline is not drawn in this
+    /// and stays black, so the device's shape reads against the window whatever it is lit in.
+    let lineColour: Color
+    /// The icon of the category assigned to this face, drawn on the centre face. `nil` when the
+    /// face has no category, or its category has no icon.
+    let iconName: String?
+
+    var body: some View {
+        device
+            .aspectRatio(1, contentMode: .fit)
+            // An overlay is sized by what it covers, so reading the geometry here scales the icon
+            // to the device without the icon's size feeding back into the layout.
+            .overlay {
+                GeometryReader { proxy in
+                    // The centre face is centred on the artwork, so centring the icon in the same
+                    // frame puts it on that face without needing the pentagon's corners.
+                    if let iconName {
+                        ActivityIconView(
+                            iconName: iconName,
+                            tint: lineColour,
+                            size: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var device: some View {
+        if let image = ActivityIconLoader.colouredImage(
+            named: "ic_timeflip2",
+            pointSize: SettingsLayoutConstants.DeviceFace.renderPointSize,
+            fill: NSColor(litColour),
+            ink: NSColor(lineColour)
+        ) {
+            Image(nsImage: image)
+                .resizable()
+        } else {
+            Image(systemName: "square.dashed")
+                .resizable()
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -412,6 +561,109 @@ private struct ColorOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// The categories a face can be assigned, listed on the Faces tab beside the device.
+///
+/// Only active categories appear: a retired one still has to resolve for historical `time_entry`
+/// rows, but offering it for a new assignment is exactly what retiring it was meant to stop.
+private struct CategoryAssignmentList: View {
+    let categories: [CategoryRecord]
+    let iconOptions: [CategoryIconOption]
+    let colourOptions: [ActivityColorOption]
+    /// `false` until the device has reported which face is up, since there's no face to assign to
+    /// until then.
+    let canAssign: Bool
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(categories) { category in
+                let colour = colourOptions.first { $0.colourId == category.colourID }
+                CategoryAssignmentRow(
+                    category: category,
+                    iconName: iconOptions.first { $0.iconId == category.iconID }?.iconName,
+                    colour: colour?.color,
+                    // Same flag the drawn device reads, for the same reason: the icon sits on the
+                    // category's colour here too, so a dark one swallows a black glyph.
+                    iconColour: (colour?.usesWhiteLines ?? false) ? .white : .black,
+                    onSelect: { onSelect(category.id) }
+                )
+                .disabled(!canAssign)
+                if category.id != categories.last?.id {
+                    Divider()
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FacetList.cornerRadius)
+                .fill(Color(NSColor.textBackgroundColor))
+        )
+        // The first row takes keyboard focus when the tab appears, and its focus ring reads as a
+        // selection, as if that category were already the assigned one. Same reason the Categories
+        // tab's icon grid disables the effect. The rows stay keyboard-reachable either way.
+        .focusEffectDisabled()
+    }
+}
+
+private struct CategoryAssignmentRow: View {
+    let category: CategoryRecord
+    /// `nil` for the None icon (`icon_id` 0), a sentinel rather than a bundled asset.
+    let iconName: String?
+    /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
+    let colour: Color?
+    /// The icon's own colour, white on a colour dark enough to swallow a black glyph.
+    let iconColour: Color
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: {
+            DeveloperMode.debugPrint(.click, "Button clicked: Assign category \"\(category.name)\" to the top face")
+            onSelect()
+        }, label: { rowContent })
+        .buttonStyle(.plain)
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+            // A category with no icon still fills the slot, with a hollow black square -- the same
+            // way the Categories tab draws a category with no colour -- so it reads as "nothing
+            // set" rather than as a gap, and every name in the list lines up either way.
+            Group {
+                if let iconName {
+                    ZStack {
+                        RoundedRectangle(
+                            cornerRadius: SettingsLayoutConstants.FacetList.iconBackgroundCornerRadius
+                        )
+                        .fill(colour ?? Color(NSColor.controlBackgroundColor))
+                        ActivityIconView(
+                            iconName: iconName,
+                            tint: iconColour,
+                            size: SettingsLayoutConstants.FacetList.iconSize
+                        )
+                    }
+                } else {
+                    RoundedRectangle(
+                        cornerRadius: SettingsLayoutConstants.FacetList.iconBackgroundCornerRadius
+                    )
+                    .stroke(Color.black)
+                }
+            }
+            .frame(
+                width: SettingsLayoutConstants.FacetList.iconBackgroundSize,
+                height: SettingsLayoutConstants.FacetList.iconBackgroundSize
+            )
+
+            Text(category.name)
+
+            Spacer()
+        }
+        .frame(height: SettingsLayoutConstants.facetRowHeight)
+        .padding(.horizontal, SettingsLayoutConstants.FacetList.horizontalPadding)
+        // Without this the row only responds to clicks that land on the icon or the text, not the
+        // gap between them or the empty space the Spacer leaves to the right.
+        .contentShape(Rectangle())
     }
 }
 

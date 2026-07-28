@@ -73,6 +73,7 @@ erDiagram
         INTEGER colour_id PK
         TEXT    colour_name
         TEXT    device_hex
+        INTEGER white_lines
     }
 
     category {
@@ -88,6 +89,7 @@ erDiagram
     face {
         INTEGER face_id PK
         INTEGER category_id FK
+        INTEGER locked
     }
 
     time_entry {

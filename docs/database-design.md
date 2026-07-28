@@ -209,9 +209,17 @@ Reference table of the colours available to assign to a category.
 | `colour_id`   | INTEGER | Primary key. Not autoincrementing — seeded with fixed IDs.   |
 | `colour_name` | TEXT    | Colour name, e.g. `Red`, `Teal`, `Cyan`.                      |
 | `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `None`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
+| `white_lines` | INTEGER | `1` when the device drawn in this colour should take white inner lines and a white icon, `0` for black ones. `NOT NULL`, defaults to `0`. |
 
 Constraints:
 - `colour_name` is `UNIQUE` — each colour is only represented by one row.
+- `white_lines` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
+  It is seeded `1` for `Maroon`, `Brown`, `Green`, `Teal`, `Blue`, `Navy` and `Purple`: the seven
+  seeded colours dark enough that black lines disappear into them, by WCAG relative luminance
+  (those below the ~0.179 crossover where white contrasts better than black). Held as data rather
+  than computed from `device_hex` so the choice can be retuned by editing the row. Only the drawn
+  device's **inner** lines and centre icon follow it; the outer outline stays black whatever the
+  face is lit in, so the shape still reads against the window behind it.
 - Seeded with a `None` row (`colour_id = 0`, `device_hex` `NULL`) representing "no colour
   assigned" — so `category.colour_id` can stay a `NOT NULL` foreign key instead of allowing `NULL` —
   alongside 20 named colours (`colour_id` 1-20).
@@ -277,6 +285,7 @@ it.
 |---------------|---------|-----------------------------------------------------------------------|
 | `face_id`     | INTEGER | Primary key, `1`-`12` (matches the device's facet numbering).         |
 | `category_id` | INTEGER | References `category.category_id` — the category currently assigned to this facet. |
+| `locked`      | INTEGER | `1` to pin this face's category so it can't be reassigned by accident (a face the user wants permanent, e.g. Break or Meeting), `0` if it can be reassigned freely. `NOT NULL`, defaults to `0`. |
 
 Foreign keys:
 - The `category_id` column references the PK of the table `category` described above. `NOT NULL`.
@@ -284,6 +293,7 @@ Foreign keys:
 Constraints:
 - Seeded with all 12 faces pointing at the `Unassigned` category, except face `2` (`Meeting`) and
   face `8` (`Break`).
+- `locked` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 
 ### `time_entry` (`database/009_time_entry.sql`)
 

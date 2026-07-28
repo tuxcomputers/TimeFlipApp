@@ -17,6 +17,11 @@ struct ColourRecord: Equatable, Sendable {
     let id: Int
     let name: String
     let deviceHex: String?
+    /// `true` when the device drawn in this colour should take white inner lines and a white icon,
+    /// because it is dark enough that black ones disappear into it. The outer outline stays black
+    /// either way. Set per colour in `database/005_colour.sql` so it can be retuned by editing the
+    /// row rather than by changing code.
+    let usesWhiteLines: Bool
 }
 
 /// A row from the `icon` reference table (`database/004_icon.sql`).
@@ -481,7 +486,7 @@ final class AppDataStore {
     func loadColours() -> [ColourRecord] {
         guard let db else { return [] }
         var results: [ColourRecord] = []
-        let sql = "SELECT colour_id, colour_name, device_hex FROM colour ORDER BY colour_id;"
+        let sql = "SELECT colour_id, colour_name, device_hex, white_lines FROM colour ORDER BY colour_id;"
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -493,7 +498,8 @@ final class AppDataStore {
                 let id = Int(sqlite3_column_int64(stmt, 0))
                 let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
                 let hex = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-                results.append(ColourRecord(id: id, name: name, deviceHex: hex))
+                let usesWhiteLines = sqlite3_column_int64(stmt, 3) != 0
+                results.append(ColourRecord(id: id, name: name, deviceHex: hex, usesWhiteLines: usesWhiteLines))
             }
             sqlite3_finalize(stmt)
         }
@@ -534,6 +540,52 @@ final class AppDataStore {
             sqlite3_finalize(stmt)
         }
         return results
+    }
+
+    /// Which faces are locked, keyed by `face_id` (`database/008_face.sql`). A locked face is one
+    /// the user wants to keep permanently, so its category can't be reassigned by accident.
+    func loadFaceLocks() -> [UInt8: Bool] {
+        guard let db else { return [:] }
+        var results: [UInt8: Bool] = [:]
+        let sql = "SELECT face_id, locked FROM face ORDER BY face_id;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face lock load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let faceID = UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0))
+                results[faceID] = sqlite3_column_int64(stmt, 1) != 0
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
+    /// Locks or unlocks a face -- the lock control on the Faces tab. Same `face_id` guard as
+    /// `updateFaceCategory`, for the same reason.
+    func updateFaceLocked(faceID: UInt8, locked: Bool) {
+        guard let db else { return }
+        let sql = """
+        UPDATE face SET locked = ?
+        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face lock update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, locked ? 1 : 0)
+            sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("face lock update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
     }
 
     /// All rows of the `icon` reference table (`database/004_icon.sql`), ordered by `icon_id`.
@@ -601,6 +653,38 @@ final class AppDataStore {
             sqlite3_finalize(stmt)
         }
         return results.sorted(by: CategoryRecord.displayOrder)
+    }
+
+    /// Assigns a category to a physical face -- the Faces tab's category list. See
+    /// `database/008_face.sql`.
+    ///
+    /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFacetID`
+    /// sentinel (facet `0`, what `currentFacetID` reads before the device has reported a facet)
+    /// can't create a thirteenth row.
+    ///
+    /// A locked face is refused here as well as in the UI. Locking exists to stop a face being
+    /// reassigned by accident, and a guard the UI alone enforces is one a stale view can walk past.
+    func updateFaceCategory(faceID: UInt8, categoryID: Int) {
+        guard let db else { return }
+        let sql = """
+        UPDATE face SET category_id = ?
+        WHERE face_id = ? AND locked = 0
+          AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face category update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(categoryID))
+            sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("face category update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
     }
 
     /// Sets `colour_id` directly on a category -- the Categories tab's own colour picker. The

@@ -50,12 +50,37 @@ enum SettingsLayoutConstants {
         static let listPadding: CGFloat = 6
     }
 
+    enum DeviceFace {
+        // The drawn device's centre face is a regular pentagon centred on the artwork, so an icon
+        // placed at the middle of the frame lands on it. The largest centred square that fits
+        // inside that pentagon is ~0.297 of the artwork's width -- the limit comes from the two
+        // upper edges meeting at the point, not the flat bottom one -- so this stays just inside.
+        static let centreIconScale: CGFloat = 0.29
+        // The size the device artwork is rendered at, independent of how large it is drawn. The
+        // artwork is a vector and re-renders at draw size, so this only has to be generous enough
+        // that nothing downstream is ever upscaling a too-small raster.
+        static let renderPointSize: CGFloat = 512
+        // The lock control in the corner of the device graphic.
+        static let lockSize: CGFloat = 40
+        // The assigned category's name under the device. Sized to fill the space the squared-off
+        // device leaves at the bottom of the column rather than to any system text style.
+        static let nameFontSize: CGFloat = 56
+        // Long names shrink rather than wrap or clip -- the column is only two thirds of the
+        // window, and a category name has no length limit.
+        static let nameMinimumScale: CGFloat = 0.4
+    }
+
     enum FacetList {
         static let rowSpacing: CGFloat = 12
         static let iconSize: CGFloat = 20
         static let horizontalPadding: CGFloat = 8
         static let selectionOpacity: CGFloat = 0.12
         static let cornerRadius: CGFloat = 8
+        // The category-colour swatch behind a row's icon. Sized to clear the 20pt icon while still
+        // fitting the 36pt row, rather than reusing the icon grid's 40pt cell, which would overflow
+        // it.
+        static let iconBackgroundSize: CGFloat = 28
+        static let iconBackgroundCornerRadius: CGFloat = 6
     }
 
     enum CategoryList {

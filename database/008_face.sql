@@ -4,7 +4,10 @@
 CREATE TABLE IF NOT EXISTS face (
   face_id       INTEGER CONSTRAINT PK_face PRIMARY KEY
   , category_id INTEGER NOT NULL REFERENCES category(category_id)
+  , locked      INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1))
 );
+
+ALTER TABLE face ADD COLUMN locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1));
 
 INSERT INTO face (face_id, category_id)
 SELECT 1, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 1);

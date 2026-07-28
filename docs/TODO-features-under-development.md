@@ -1,7 +1,7 @@
 # Feature under development
 
-- [ ] Categories
-- [ ] Faces
+- [x] Categories
+- [x] Faces
 - [ ] Time logs
 - [ ] Calendar sync
 - [ ] Sync to TimeFlip cloud
