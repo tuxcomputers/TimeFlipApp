@@ -210,22 +210,14 @@ private struct TopFacetEditor: View {
                 mapping.name = sanitized
             }
         )
-        let iconBinding = Binding(
-            get: { mapping.iconName },
-            set: {
-                let sanitized = ActivityLibrary.sanitizeIconName($0)
-                DeveloperMode.debugPrint(.field, "Field changed: Facet \(mapping.facetID) icon: \"\(mapping.iconName)\" -> \"\(sanitized)\"")
-                mapping.iconName = sanitized
-            }
-        )
-
         VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
             TextField("", text: nameBinding, prompt: Text("Unassigned"))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
 
-            IconGridPicker(selection: iconBinding, tint: tint)
+            DeviceFaceView(litColour: .red)
+                .layoutPriority(1)
         }
     }
 }
@@ -248,6 +240,43 @@ struct ActivityIconView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: size, height: size)
         }
+    }
+}
+
+/// The device seen from directly above, lit in a single colour.
+///
+/// The hardware lights its whole body one colour for whichever face is upward -- it can't light
+/// faces individually -- so this draws every face in `litColour` and keeps the artwork's own black
+/// edges, which is why it deliberately skips the `.template` rendering `ActivityIconView` uses.
+///
+/// Sized from the space it's given so the device fills the area, squared off to keep the artwork
+/// circular, and re-rendered at that size so the vector artwork stays crisp rather than being
+/// upscaled from a fixed-size raster. Anchored to the top of that space so it sits directly under
+/// the field above rather than drifting down the middle of a tall column.
+struct DeviceFaceView: View {
+    let litColour: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let side = max(1, min(proxy.size.width, proxy.size.height))
+            Group {
+                if let image = ActivityIconLoader.colouredImage(
+                    named: "ic_timeflip2",
+                    pointSize: side,
+                    fill: NSColor(litColour)
+                ) {
+                    Image(nsImage: image)
+                        .resizable()
+                } else {
+                    Image(systemName: "square.dashed")
+                        .resizable()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: side, height: side)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
