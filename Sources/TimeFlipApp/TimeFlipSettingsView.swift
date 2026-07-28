@@ -314,57 +314,63 @@ struct TimeFlipSettingsView: View {
             }, perform: {})
     }
 
+    // Label, hint, then field: the fields form a column down the right of the group, all one size,
+    // ending where the stepper rows above them end. The hint in the middle absorbs the difference
+    // between the four labels and the four hint lengths.
     private var doubleTapControls: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
                 Text("Threshold")
+                doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.clickThreshold },
                         set: { doubleTapParams.clickThreshold = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Limit")
+                doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.limit },
                         set: { doubleTapParams.limit = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
             }
             GridRow {
                 Text("Latency")
+                doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.latency },
                         set: { doubleTapParams.latency = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
             }
             GridRow {
                 Text("Window")
+                doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
                 numericField(
                     value: Binding(
                         get: { doubleTapParams.window },
                         set: { doubleTapParams.window = $0 }
                     )
                 )
-                doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The hint between a row's label and its field. Takes the slack in the middle of the row, which
+    /// is what pushes the fields over to the right.
     private func doubleTapFieldCaption(_ text: String) -> some View {
         Text(text)
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize()
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func numericField(
@@ -382,7 +388,10 @@ struct TimeFlipSettingsView: View {
             ),
             format: .number
         )
-        .frame(width: 60)
+        // The same block width every other value control in the window occupies, so these fields end
+        // on the same right edge as the steppers' arrows above them. They carry no suffix and no
+        // arrows of their own, so the whole width goes to the field.
+        .frame(width: SettingsLayoutConstants.Stepper.rowWidth)
         .labelsHidden()
         .multilineTextAlignment(.trailing)
     }
