@@ -88,6 +88,7 @@ erDiagram
     face {
         INTEGER face_id PK
         INTEGER category_id FK
+        INTEGER locked
     }
 
     time_entry {
