@@ -77,6 +77,9 @@ struct SettingsRootView: View {
                 PaneSetupView(
                     appState: appState,
                     loadCategories: loadCategories,
+                    createCategory: createCategory,
+                    findCategory: findCategory,
+                    updateCategoryActive: updateCategoryActive,
                     assignCategoryToFace: assignCategoryToFace
                 )
                     .tabItem {
@@ -140,6 +143,9 @@ enum SettingsTab: Hashable {
 private struct PaneSetupView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
+    let createCategory: (String) -> Void
+    let findCategory: (String) -> CategoryRecord?
+    let updateCategoryActive: (Int, Bool) -> Void
     let assignCategoryToFace: (UInt8, Int) -> Void
     /// Loaded once when the tab appears, the same way the Categories tab reads its own list.
     @State private var categories: [CategoryRecord] = []
@@ -191,6 +197,18 @@ private struct PaneSetupView: View {
                         colourOptions: appState.colourOptions,
                         canAssign: TimeFlipConstants.isValidFacetID(appState.currentFacetID),
                         onSelect: { assignCategoryToFace(appState.currentFacetID, $0) }
+                    )
+
+                    CategoryCreateControl(
+                        createCategory: createCategory,
+                        findCategory: findCategory,
+                        // Re-read rather than patched: this list only shows active categories, so a
+                        // reinstated one has to appear in it.
+                        reactivate: { category in
+                            updateCategoryActive(category.id, true)
+                            categories = loadCategories()
+                        },
+                        onCreated: { categories = loadCategories() }
                     )
                 }
                 .frame(width: rightWidth, alignment: .leading)
@@ -549,7 +567,9 @@ private struct CategoryAssignmentRow: View {
 
     private var rowContent: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
-            // The slot is held even when there's no icon, so every name in the list still lines up.
+            // A category with no icon still fills the slot, with a hollow black square -- the same
+            // way the Categories tab draws a category with no colour -- so it reads as "nothing
+            // set" rather than as a gap, and every name in the list lines up either way.
             Group {
                 if let iconName {
                     ZStack {
@@ -563,6 +583,11 @@ private struct CategoryAssignmentRow: View {
                             size: SettingsLayoutConstants.FacetList.iconSize
                         )
                     }
+                } else {
+                    RoundedRectangle(
+                        cornerRadius: SettingsLayoutConstants.FacetList.iconBackgroundCornerRadius
+                    )
+                    .stroke(Color.black)
                 }
             }
             .frame(
