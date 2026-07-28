@@ -1,6 +1,6 @@
 # Feature under development
 
-- [ ] Categories
+- [x] Categories
 - [ ] Faces
 - [ ] Time logs
 - [ ] Calendar sync
