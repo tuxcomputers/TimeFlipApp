@@ -137,6 +137,20 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let blinkIntervalWriteDebouncer = DeviceWriteDebouncer()
     private let doubleTapWriteDebouncer = DeviceWriteDebouncer()
     private var facetColorInitialized = false
+    /// Whether this run has actually written the facet colours to a device yet, which is what turns
+    /// `lastSentFacetColors` from an assumption seeded off the DB into a real record. Until it has,
+    /// a connect writes all 12 rather than trusting that record -- see `startDeviceEvents`.
+    private var hasSentFacetColoursThisRun = false
+    // Collapses the device's repeated "I've lost my facet colours" requests into one resync -- see
+    // requestFacetColourResync for why answering them one for one is actively harmful.
+    private let facetColourResyncDebouncer = DeviceWriteDebouncer()
+    private var isFacetColourResyncPending = false
+    private var isFacetColourResyncRunning = false
+    private var lastFacetColourResyncAt: Date?
+    private var suppressedFacetColourRequests = 0
+    /// How long after finishing a resync to ignore further requests. The device can keep asking for
+    /// a while after being answered, and re-answering costs another 12 flash writes for nothing.
+    private let facetColourResyncCooldown: TimeInterval = 30
     private var awaitingInitialStatus = false
     // Guards handleDeviceEvent against acting on live BLE notifications until the initial history
     // backfill (recordDeviceEvent's ascending-order requirement -- see HistoryIngestor.refreshHistory)
@@ -390,7 +404,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                         self.facetColorInitialized = true
                         return
                     }
-                    await self.sendFacetColors(colours)
+                    await self.sendFacetColors(in: categories, reason: "category edit")
                 }
             }
             .store(in: &cancellables)
@@ -685,6 +699,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             await device.setLEDBrightness(percent: appState.ledBrightnessPercent)
             DeveloperMode.debugPrint(.syncLed, "LED blink interval: no device read-back available; applying \(appState.blinkIntervalSeconds)s")
             await device.setBlinkInterval(seconds: appState.blinkIntervalSeconds)
+            // Facet colours have no read-back either, so lastSentFacetColors is the app's only
+            // record of what the device is showing -- and at the start of a run that record is an
+            // assumption seeded from the DB, not evidence of anything having been sent. So the first
+            // connect of a run writes all 12 outright, as does a fresh pairing (skipConnect is only
+            // true there), which is a device this app has never coloured. Later reconnects in the
+            // same run have really sent those writes, so they trust the record and write only what
+            // drifted -- in practice a face reassigned while the device was away.
+            let isFirstFacetColourSync = skipConnect || !hasSentFacetColoursThisRun
+            await sendFacetColors(
+                in: appState.faceCategories,
+                reason: skipConnect ? "pairing" : (hasSentFacetColoursThisRun ? "reconnect" : "launch"),
+                force: isFirstFacetColourSync
+            )
+            hasSentFacetColoursThisRun = true
+            facetColorInitialized = true
             await syncDoubleTapParameters(expected: appState.effectiveDoubleTapParameters, device: device)
             guard !Task.isCancelled else { return }
             logger.notice("Backfill starting")
@@ -733,8 +762,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         logger.warning("Device disconnected; attempting auto-reconnect")
         let lostAt = dataStore.recordConnectionLost()
         DeveloperMode.debugPrint(.timeFlip, "connection.connection_lost recorded: \(lostAt)")
-        lastSentFacetColors.removeAll()
-        facetColorInitialized = false
+        // A new connection gets a fresh hearing: the cooldown is there to stop one connection's
+        // repeated asking from being re-answered, not to gag a device that comes back having really
+        // lost its colours.
+        lastFacetColourResyncAt = nil
+        suppressedFacetColourRequests = 0
+        // lastSentFacetColors deliberately survives a drop: the device keeps its facet colours in
+        // flash, so what it was last sent is still what it is showing, and keeping the record means
+        // a face reassigned while it is away registers as drift to write on reconnect. A device that
+        // really did lose them reports facetColorSyncRequired.
         awaitingInitialStatus = false
         isHistoryBackfillComplete = false
         stopDeviceEvents()
@@ -818,17 +854,107 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Writes each facet's LED colour (BLE `0x11`), skipping any that already show the right one.
-    /// `colours` covers all 12 facets -- see `AppState.facetLEDColours`, including why a category
-    /// with no colour resolves to black rather than being left alone.
-    private func sendFacetColors(_ colours: [UInt8: ColorComponents]) async {
-        guard let device else { return }
+    /// The colours are resolved from `categories` -- see `AppState.facetLEDColours`, including why a
+    /// category with no colour resolves to black rather than being left alone. The categories come in
+    /// rather than being read off `appState` so a Combine sink logs and sends the snapshot it was
+    /// handed.
+    ///
+    /// `force` writes all 12 regardless of what was last sent, for when the device says it no longer
+    /// has them. There is no read-back for `0x11` (the vendor spec defines none -- see
+    /// `docs/timeflip.md`), so what was last sent is the only record of what the device is showing.
+    private func sendFacetColors(
+        in categories: [UInt8: CategoryRecord],
+        reason: String,
+        force: Bool = false
+    ) async {
+        let colours = appState.facetLEDColours(in: categories)
+        guard let device else {
+            // Not connected: leave lastSentFacetColors alone so this shows up as drift to write at
+            // the next connect, rather than being recorded as though the device had received it.
+            DeveloperMode.debugPrint(.syncColour, "Facet colours (\(reason)): no device connected; deferred to next connect")
+            return
+        }
+        var written: [UInt8] = []
         for facetID in TimeFlipConstants.facetIDs {
             guard let components = colours[facetID] else { continue }
-            if lastSentFacetColors[facetID] != components {
+            if force || lastSentFacetColors[facetID] != components {
                 lastSentFacetColors[facetID] = components
                 await device.setFacetColor(facetID: facetID, components: components)
+                logFacetColour(facetID: facetID, components: components, in: categories, reason: reason)
+                written.append(facetID)
             }
         }
+        guard !written.isEmpty else {
+            // Deliberately not "already up to date": with no read-back for 0x11 the app can only
+            // speak for what it last sent, never for what the device is actually showing.
+            DeveloperMode.debugPrint(.syncColour, "Facet colours (\(reason)): unchanged since this run last sent them, nothing written")
+            return
+        }
+        DeveloperMode.debugPrint(.syncColour, "Facet colours (\(reason)): wrote \(written.count) of \(TimeFlipConstants.facetIDs.count) facets; no device read-back available")
+    }
+
+    /// The device reporting that it has lost its facet colours (system state `0x02 0x02`). It can say
+    /// so many times over: once per notification, once more per post-reconcile re-read, and again on
+    /// every reconnect while it is unhappy. Each answer is 12 flash-writing colour commands that also
+    /// light the LED, so the requests are collapsed into one resync rather than answered one for one.
+    ///
+    /// This is not hypothetical tidiness. With flat batteries the device was rebooting, asking on
+    /// every connect, and 8 requests in one second turned into 96 colour writes -- which lit the LED
+    /// continuously and helped brown out a device that was already failing to hold its own settings.
+    /// The first request schedules the resync; everything arriving while one is pending, running, or
+    /// inside the cooldown is counted and dropped.
+    private func requestFacetColourResync() {
+        let inCooldown = lastFacetColourResyncAt.map {
+            Date().timeIntervalSince($0) < facetColourResyncCooldown
+        } ?? false
+        guard !isFacetColourResyncPending, !isFacetColourResyncRunning, !inCooldown else {
+            suppressedFacetColourRequests += 1
+            return
+        }
+        isFacetColourResyncPending = true
+        DeveloperMode.debugPrint(.syncColour, "Device requested facet colour resync (system state 0x02 0x02)")
+        facetColourResyncDebouncer.schedule { [weak self] in
+            await self?.resyncFacetColours()
+        }
+    }
+
+    /// Answers a collapsed batch of resync requests with a single forced write of all 12 facets.
+    @MainActor
+    private func resyncFacetColours() async {
+        isFacetColourResyncPending = false
+        isFacetColourResyncRunning = true
+        let collapsed = suppressedFacetColourRequests
+        suppressedFacetColourRequests = 0
+        if collapsed > 0 {
+            DeveloperMode.debugPrint(.syncColour, "Collapsed \(collapsed) repeat resync request(s) into this one")
+        }
+        await sendFacetColors(in: appState.faceCategories, reason: "device request", force: true)
+        lastFacetColourResyncAt = Date()
+        isFacetColourResyncRunning = false
+    }
+
+    /// One line per facet actually written, naming the face, the category on it, the colour and the
+    /// hex sent -- so a face lighting up wrong (or not at all) can be checked against exactly what
+    /// went out for it. `rgb16` is what `0x11` carries: hex is 8 bits per channel, the command takes
+    /// 16, and both are logged so a scaling problem is visible rather than inferred.
+    private func logFacetColour(
+        facetID: UInt8,
+        components: ColorComponents,
+        in categories: [UInt8: CategoryRecord],
+        reason: String
+    ) {
+        let category = categories[facetID]
+        let categoryName = category?.name ?? "no category"
+        let colourName = appState.colourOptions.first { $0.colourId == category?.colourID }?.name
+            // A face with no category, or one whose colour didn't resolve, is sent black. Naming it
+            // "off" rather than leaving it blank keeps the reason for an unlit face on the line.
+            ?? (components == .off ? "off" : "unknown colour")
+        let (r, g, b) = components.deviceRGB16
+        let rgb16 = String(format: "%04x,%04x,%04x", Int(r), Int(g), Int(b))
+        DeveloperMode.debugPrint(
+            .syncColour,
+            "Face \(facetID) (\(reason)): \(categoryName) / \(colourName) \(components.hexString) sent as rgb16 \(rgb16)"
+        )
     }
 
     private func handleDeviceEvent(_ event: TimeFlipEvent) {
@@ -852,6 +978,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 Task { [weak self] in
                     await self?.historyIngestor?.refreshHistory(trigger: "factory_reset")
                 }
+            case .facetColorSyncRequired:
+                requestFacetColourResync()
             case .blinkIntervalSyncRequired:
                 Task { [weak self] in
                     guard let self else { return }

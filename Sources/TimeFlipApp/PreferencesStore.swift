@@ -96,6 +96,24 @@ extension ColorComponents {
         self.blue = Double(rgb & 0xFF) / 255.0
         self.alpha = 1.0
     }
+
+    /// The triple as command `0x11` carries it: 16 bits per channel, so 0-1 scales to 0-65535.
+    /// Shared by the write itself and the log of what was written, so the logged numbers are the
+    /// ones that actually went out rather than a second, drifting calculation.
+    var deviceRGB16: (red: UInt16, green: UInt16, blue: UInt16) {
+        func scale(_ channel: Double) -> UInt16 {
+            UInt16(max(0, min(65535, Int((channel * 65535).rounded()))))
+        }
+        return (scale(red), scale(green), scale(blue))
+    }
+
+    /// `"#rrggbb"`, the inverse of `init?(hex:)`. Alpha is dropped: the LED has no notion of it.
+    var hexString: String {
+        func scale(_ channel: Double) -> Int {
+            max(0, min(255, Int((channel * 255).rounded())))
+        }
+        return String(format: "#%02x%02x%02x", scale(red), scale(green), scale(blue))
+    }
 }
 
 extension FacetMappingRecord {

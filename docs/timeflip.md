@@ -64,7 +64,10 @@ on which command was sent — there's no single mechanism that covers all of the
   and check the returned lock byte.
 - **Commands with no read-back defined at all**: 0x09 (LED brightness), 0x0A (blink interval),
   0x11 (facet color). The vendor spec defines no command that reads these back — the write-ack
-  is genuinely the only confirmation available for these three.
+  is genuinely the only confirmation available for these three. For all three the app is therefore
+  the system of record: what it last sent is the only account of what the device holds, and the
+  device asks for a value back via the system-state sync-required codes when it has lost one (see
+  §4 and *Facet colours* below).
 - **Commands where a read is impossible by nature**: 0x30 (set password) can't be read back over
   BLE for obvious reasons. Confirmation has to be functional instead — attempt a real login with
   the new password and only treat the rotation as successful if that login succeeds. This is
@@ -93,6 +96,48 @@ only how often the device is bothered:
 - LED brightness/blink interval (`setLEDBrightness`/`setBlinkInterval`) write and log that the
   write happened, but log "no device read-back available" instead of a verification — there is no
   read command for either, per the matrix above, so nothing to compare against.
+
+### Facet colours
+
+Facet colours aren't edited as a value of their own: they follow the faces' categories, so what
+changes them is assigning a face a different category or recolouring a category. `ApplicationDelegate`
+subscribes to `appState.$faceCategories` and resolves all 12 facets through
+`AppState.facetLEDColours`, which maps each face's category to its `colour` row's device RGB (a face
+with no category, or a category with no colour, resolves to black — the protocol's only way to say
+"off").
+
+Everything is logged under the `sync-colour` tag: one line per facet actually written, naming the
+face, its category, the colour and the hex, plus the `rgb16` values `0x11` carries (hex is 8 bits per
+channel, the command takes 16, so both are logged and a scaling problem shows up rather than having
+to be inferred), then a closing line with the count and the reason. A face lighting up wrong, or not
+at all, can be checked against exactly what went out for it.
+
+Because 0x11 has no read-back, `lastSentFacetColors` is the app's record of what the device is
+showing, and it decides what actually goes out:
+
+- **A category edit** writes only the facets whose colour changed.
+- **The first connect of a run, and any fresh pairing**, write all 12. Until something has actually
+  been sent, the record is only an assumption seeded from the DB by the first `$faceCategories`
+  emission — nothing has been read from or written to the device, so it is no evidence at all. A
+  device that was factory reset, re-paired, or coloured by another app would otherwise be left
+  wrong indefinitely, since there is no read-back to catch it.
+- **Later reconnects in the same run** write only what drifted, which in practice means a face
+  reassigned while the device was away. By then the record is real: those writes went out on this
+  run, and the device keeps its colours in flash across a dropped BLE link, which is why the record
+  deliberately survives a disconnect.
+- **A device request** (`facetColorSyncRequired`, system state `0x02 0x02`) writes all 12 regardless
+  of the record — the device is saying it no longer has them, so the record can't be trusted. The
+  driver can't answer this itself (the colours come from the DB), so `reconcileSystemState` logs it
+  and leaves it to the emitted `.systemState` event, which `ApplicationDelegate` handles.
+
+  These requests are **collapsed, not answered one for one** (`requestFacetColourResync`): the first
+  schedules a resync 1s later, and anything arriving while one is pending, running, or inside a 30s
+  cooldown is counted and dropped, with the count logged. The device repeats itself freely — once per
+  notification, again per post-reconcile re-read, and again on every reconnect while it is unhappy —
+  and each answer is 12 flash writes that also light the LED. Answering each one measurably made
+  things worse: with flat batteries the device was rebooting, and 8 requests in one second became 96
+  colour writes that helped brown it out further. A new connection clears the cooldown, so a device
+  that really has lost its colours is still answered promptly.
 
 ## 4. Event and notification semantics
 

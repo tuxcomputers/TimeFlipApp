@@ -58,6 +58,7 @@ enum DeveloperMode {
         case syncAuto = "sync-auto"
         case syncDtap = "sync-dtap"
         case syncLed = "sync-led"
+        case syncColour = "sync-colour"
         case autoPause = "auto-pause"
         case dailyReset = "daily-reset"
         // LED debug split by the two device properties (brightness vs blink interval) so a
