@@ -42,6 +42,9 @@ struct ActivityColorOption: Identifiable {
     /// from `color` because that round trip goes through `NSColor` and a colour-space conversion,
     /// which can drift a channel -- and this is the value written to the LED (BLE `0x11`).
     let components: ColorComponents
+    /// `true` when the device drawn in this colour needs white inner lines and a white icon --
+    /// straight from the `colour` row (see `ColourRecord.usesWhiteLines`).
+    let usesWhiteLines: Bool
 
     var id: String { name }
 }
@@ -123,7 +126,8 @@ enum ActivityLibrary {
                 colourId: record.id,
                 name: record.name,
                 color: components.color,
-                components: components
+                components: components,
+                usesWhiteLines: record.usesWhiteLines
             )
         }
     }

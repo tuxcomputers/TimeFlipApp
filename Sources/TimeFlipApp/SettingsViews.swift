@@ -168,6 +168,7 @@ private struct PaneSetupView: View {
                         TopFacetEditor(
                             mapping: binding,
                             litColour: appState.deviceBodyColour(for: appState.currentFacetID),
+                            lineColour: appState.deviceLineColour(for: appState.currentFacetID),
                             iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName,
                             categoryName: appState.categoryActivity(for: appState.currentFacetID)?.name
                         )
@@ -216,6 +217,8 @@ private struct TopFacetEditor: View {
     /// The colour to light the device in: the colour of the category assigned to this face, or
     /// white when it has none (see `AppState.deviceBodyColour`).
     let litColour: Color
+    /// The colour of the device's inner lines and centre icon (see `AppState.deviceLineColour`).
+    let lineColour: Color
     /// The assigned category's icon, or `nil` when there isn't one to draw.
     let iconName: String?
     /// The assigned category's name, shown under the device.
@@ -225,7 +228,7 @@ private struct TopFacetEditor: View {
         VStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
             // Squared off here rather than left to fill the column, so the name sits directly under
             // the device instead of being pushed to the bottom of a tall column.
-            DeviceFaceView(litColour: litColour, iconName: iconName)
+            DeviceFaceView(litColour: litColour, lineColour: lineColour, iconName: iconName)
                 .aspectRatio(1, contentMode: .fit)
 
             Text(categoryName ?? "")
@@ -272,8 +275,11 @@ struct ActivityIconView: View {
 /// the field above rather than drifting down the middle of a tall column.
 struct DeviceFaceView: View {
     let litColour: Color
-    /// The icon of the category assigned to this face, drawn black on the centre face. `nil` when
-    /// the face has no category, or its category has no icon.
+    /// The colour of the inner lines and the centre icon. The outer outline is not drawn in this
+    /// and stays black, so the device's shape reads against the window whatever it is lit in.
+    let lineColour: Color
+    /// The icon of the category assigned to this face, drawn on the centre face. `nil` when the
+    /// face has no category, or its category has no icon.
     let iconName: String?
 
     var body: some View {
@@ -284,7 +290,8 @@ struct DeviceFaceView: View {
                     if let image = ActivityIconLoader.colouredImage(
                         named: "ic_timeflip2",
                         pointSize: side,
-                        fill: NSColor(litColour)
+                        fill: NSColor(litColour),
+                        ink: NSColor(lineColour)
                     ) {
                         Image(nsImage: image)
                             .resizable()
@@ -300,7 +307,7 @@ struct DeviceFaceView: View {
                 if let iconName {
                     ActivityIconView(
                         iconName: iconName,
-                        tint: .black,
+                        tint: lineColour,
                         size: side * SettingsLayoutConstants.DeviceFace.centreIconScale
                     )
                 }

@@ -17,6 +17,11 @@ struct ColourRecord: Equatable, Sendable {
     let id: Int
     let name: String
     let deviceHex: String?
+    /// `true` when the device drawn in this colour should take white inner lines and a white icon,
+    /// because it is dark enough that black ones disappear into it. The outer outline stays black
+    /// either way. Set per colour in `database/005_colour.sql` so it can be retuned by editing the
+    /// row rather than by changing code.
+    let usesWhiteLines: Bool
 }
 
 /// A row from the `icon` reference table (`database/004_icon.sql`).
@@ -481,7 +486,7 @@ final class AppDataStore {
     func loadColours() -> [ColourRecord] {
         guard let db else { return [] }
         var results: [ColourRecord] = []
-        let sql = "SELECT colour_id, colour_name, device_hex FROM colour ORDER BY colour_id;"
+        let sql = "SELECT colour_id, colour_name, device_hex, white_lines FROM colour ORDER BY colour_id;"
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -493,7 +498,8 @@ final class AppDataStore {
                 let id = Int(sqlite3_column_int64(stmt, 0))
                 let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
                 let hex = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-                results.append(ColourRecord(id: id, name: name, deviceHex: hex))
+                let usesWhiteLines = sqlite3_column_int64(stmt, 3) != 0
+                results.append(ColourRecord(id: id, name: name, deviceHex: hex, usesWhiteLines: usesWhiteLines))
             }
             sqlite3_finalize(stmt)
         }

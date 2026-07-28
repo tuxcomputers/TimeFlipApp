@@ -73,6 +73,7 @@ erDiagram
         INTEGER colour_id PK
         TEXT    colour_name
         TEXT    device_hex
+        INTEGER white_lines
     }
 
     category {

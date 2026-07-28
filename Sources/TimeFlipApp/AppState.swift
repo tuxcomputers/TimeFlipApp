@@ -350,6 +350,19 @@ final class AppState: ObservableObject {
         return colourOptions.first { $0.colourId == colourID }?.color ?? .white
     }
 
+    /// The colour to draw the device's inner lines and centre icon in for a face: white when the
+    /// face's colour is dark enough that black would disappear into it, black otherwise. Which
+    /// colours flip is a per-row `white_lines` flag on the `colour` table, not a rule in code, so
+    /// the choice can be retuned by editing the row.
+    ///
+    /// The device's outer outline is not this colour: it stays black whatever the face is lit in,
+    /// so the shape still reads against the window behind it.
+    func deviceLineColour(for facetID: UInt8) -> Color {
+        let colourID = faceCategories[facetID]?.colourID
+        let usesWhiteLines = colourOptions.first { $0.colourId == colourID }?.usesWhiteLines ?? false
+        return usesWhiteLines ? .white : .black
+    }
+
     /// What the device's LED should show for each facet: the `device_hex` of the colour assigned to
     /// the face's category, resolved through `colourOptions`.
     ///
