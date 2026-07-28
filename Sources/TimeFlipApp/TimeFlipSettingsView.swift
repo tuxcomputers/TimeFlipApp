@@ -257,15 +257,10 @@ struct TimeFlipSettingsView: View {
         )
     }
 
+    // Field, then suffix, then arrows -- the order every other stepper in the window uses
+    // (SteppedNumberField), so the arrows sit on the right of the row rather than ahead of the value.
     private var autoPauseControls: some View {
-        HStack {
-            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
-            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
-            // custom buttons driving our own repeat loop instead.
-            VStack(spacing: 1) {
-                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
-                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
-            }
+        HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
             TextField(
                 "",
                 value: Binding(
@@ -279,14 +274,24 @@ struct TimeFlipSettingsView: View {
             .multilineTextAlignment(.trailing)
             Text("min")
                 .foregroundStyle(.secondary)
+            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
+            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
+            // custom buttons driving our own repeat loop instead.
+            VStack(spacing: SettingsLayoutConstants.Stepper.arrowSpacing) {
+                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
+                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
+            }
         }
     }
 
     private func autoPauseStepButton(direction: Int, systemImage: String) -> some View {
         Image(systemName: systemImage)
-            .font(.system(size: 8, weight: .bold))
+            .font(.system(size: SettingsLayoutConstants.Stepper.arrowPointSize, weight: .bold))
             .foregroundStyle(.secondary)
-            .frame(width: 16, height: 10)
+            .frame(
+                width: SettingsLayoutConstants.Stepper.arrowsWidth,
+                height: SettingsLayoutConstants.Stepper.arrowHeight
+            )
             .contentShape(Rectangle())
             .onLongPressGesture(minimumDuration: 0, maximumDistance: 50, pressing: { isPressing in
                 if isPressing {
