@@ -75,13 +75,9 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: More (\(appState.isMoreExpanded ? "collapse" : "expand"))")
+                DisclosureRowLabel("More", isExpanded: appState.isMoreExpanded) {
                     appState.isMoreExpanded.toggle()
-                } label: {
-                    Text("More")
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -105,13 +101,9 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: LED (\(appState.isLEDExpanded ? "collapse" : "expand"))")
+                DisclosureRowLabel("LED", isExpanded: appState.isLEDExpanded) {
                     appState.isLEDExpanded.toggle()
-                } label: {
-                    Text("LED")
                 }
-                .buttonStyle(.plain)
             }
             DisclosureGroup(isExpanded: $appState.isDoubleTapExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -126,13 +118,9 @@ struct TimeFlipSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } label: {
-                Button {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Double tap (\(appState.isDoubleTapExpanded ? "collapse" : "expand"))")
+                DisclosureRowLabel("Double tap", isExpanded: appState.isDoubleTapExpanded) {
                     appState.isDoubleTapExpanded.toggle()
-                } label: {
-                    Text("Double tap")
                 }
-                .buttonStyle(.plain)
             }
         }
     }
