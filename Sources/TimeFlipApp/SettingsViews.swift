@@ -15,6 +15,8 @@ struct SettingsRootView: View {
     let updateCategoryIcon: (Int, Int) -> Void
     /// Assigns a category to a physical face: `(face_id, category_id)`.
     let assignCategoryToFace: (UInt8, Int) -> Void
+    /// Locks or unlocks a physical face: `(face_id, locked)`.
+    let setFaceLocked: (UInt8, Bool) -> Void
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
@@ -32,6 +34,7 @@ struct SettingsRootView: View {
         updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
         assignCategoryToFace: @escaping (UInt8, Int) -> Void,
+        setFaceLocked: @escaping (UInt8, Bool) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
@@ -47,6 +50,7 @@ struct SettingsRootView: View {
         self.updateCategoryName = updateCategoryName
         self.updateCategoryIcon = updateCategoryIcon
         self.assignCategoryToFace = assignCategoryToFace
+        self.setFaceLocked = setFaceLocked
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -80,7 +84,8 @@ struct SettingsRootView: View {
                     createCategory: createCategory,
                     findCategory: findCategory,
                     updateCategoryActive: updateCategoryActive,
-                    assignCategoryToFace: assignCategoryToFace
+                    assignCategoryToFace: assignCategoryToFace,
+                    setFaceLocked: setFaceLocked
                 )
                     .tabItem {
                         Text("Faces")
@@ -147,6 +152,7 @@ private struct PaneSetupView: View {
     let findCategory: (String) -> CategoryRecord?
     let updateCategoryActive: (Int, Bool) -> Void
     let assignCategoryToFace: (UInt8, Int) -> Void
+    let setFaceLocked: (UInt8, Bool) -> Void
     /// Loaded once when the tab appears, the same way the Categories tab reads its own list.
     @State private var categories: [CategoryRecord] = []
 
@@ -176,7 +182,14 @@ private struct PaneSetupView: View {
                             litColour: appState.deviceBodyColour(for: appState.currentFacetID),
                             lineColour: appState.deviceLineColour(for: appState.currentFacetID),
                             iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName,
-                            categoryName: appState.categoryActivity(for: appState.currentFacetID)?.name
+                            categoryName: appState.categoryActivity(for: appState.currentFacetID)?.name,
+                            isLocked: appState.isFaceLocked(appState.currentFacetID),
+                            onToggleLock: {
+                                let facetID = appState.currentFacetID
+                                let locked = !appState.isFaceLocked(facetID)
+                                DeveloperMode.debugPrint(.click, "Button clicked: Face \(facetID) lock -> \(locked ? "locked" : "unlocked")")
+                                setFaceLocked(facetID, locked)
+                            }
                         )
                     } else {
                         Text("Flip the device to pick a facet.")
@@ -195,7 +208,10 @@ private struct PaneSetupView: View {
                         categories: categories.filter(\.isActive),
                         iconOptions: appState.iconOptions,
                         colourOptions: appState.colourOptions,
-                        canAssign: TimeFlipConstants.isValidFacetID(appState.currentFacetID),
+                        // A locked face keeps the category it has, so there is nothing here to
+                        // click. The write refuses a locked face too, in case this ever gets past.
+                        canAssign: TimeFlipConstants.isValidFacetID(appState.currentFacetID)
+                            && !appState.isFaceLocked(appState.currentFacetID),
                         onSelect: { assignCategoryToFace(appState.currentFacetID, $0) }
                     )
 
@@ -241,12 +257,17 @@ private struct TopFacetEditor: View {
     let iconName: String?
     /// The assigned category's name, shown under the device.
     let categoryName: String?
+    let isLocked: Bool
+    let onToggleLock: () -> Void
 
     var body: some View {
         VStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
             // DeviceFaceView squares itself off, so the name sits directly under the device rather
             // than being pushed to the bottom of a tall column.
             DeviceFaceView(litColour: litColour, lineColour: lineColour, iconName: iconName)
+                .overlay(alignment: .topLeading) {
+                    FaceLockToggle(isLocked: isLocked, action: onToggleLock)
+                }
 
             Text(categoryName ?? "")
                 .font(.system(size: SettingsLayoutConstants.DeviceFace.nameFontSize, weight: .semibold))
@@ -256,6 +277,45 @@ private struct TopFacetEditor: View {
 
             Spacer(minLength: 0)
         }
+    }
+}
+
+/// Locks or unlocks the face on show, sitting in the corner of the device graphic.
+///
+/// A locked face keeps the category it has: the category list stops offering assignments while it
+/// is locked, so this is what a user reaches for before, and after, pinning a face they mean to
+/// keep -- Break and Meeting being the cases it exists for.
+private struct FaceLockToggle: View {
+    let isLocked: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            // Sized by font rather than by .resizable().scaledToFit(). Scaling to fit forces
+            // both glyphs' bounding boxes into the same square, and the open lock's box is the
+            // wider of the two because its shackle swings out, so its body came out smaller and
+            // the lock appeared to change size as it toggled. At a given font size the two are
+            // drawn to matching metrics, and anchoring the frame to the body's own corner keeps
+            // it put while only the shackle moves.
+            Image(systemName: isLocked ? "lock.fill" : "lock.open.fill")
+                .font(.system(size: SettingsLayoutConstants.DeviceFace.lockSize))
+                .frame(
+                    width: SettingsLayoutConstants.DeviceFace.lockSize,
+                    height: SettingsLayoutConstants.DeviceFace.lockSize,
+                    alignment: .bottomLeading
+                )
+                // Red for locked, green for unlocked: the colour says whether the face will
+                // accept a new category, matching the category list going dead beside it.
+                .foregroundStyle(isLocked ? Color.red : Color.green)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Without this the button wears a focus ring the moment the tab takes focus, which reads
+        // as a highlight around the lock rather than as keyboard focus. Same treatment as the
+        // category list beside it.
+        .focusEffectDisabled()
+        .help(isLocked ? "Unlock this face so its category can be changed" : "Lock this face to keep its category")
+        .accessibilityLabel(isLocked ? "Unlock face" : "Lock face")
     }
 }
 

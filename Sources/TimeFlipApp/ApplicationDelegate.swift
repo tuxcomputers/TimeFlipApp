@@ -14,6 +14,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         colourOptions: ActivityLibrary.colorOptions(from: dataStore.loadColours()),
         iconOptions: ActivityLibrary.iconOptions(from: dataStore.loadIcons()),
         faceCategories: dataStore.loadFaceCategories(),
+        faceLocks: dataStore.loadFaceLocks(),
         googleCalendarID: dataStore.loadGoogleConfiguration().calendarID,
         googleCalendarName: dataStore.loadGoogleConfiguration().calendarName,
         googleClientID: dataStore.loadGoogleConfiguration().clientID,
@@ -84,6 +85,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         },
         assignCategoryToFace: { [weak self, dataStore] faceID, categoryID in
             dataStore.updateFaceCategory(faceID: faceID, categoryID: categoryID)
+            self?.refreshFaceCategories()
+        },
+        setFaceLocked: { [weak self, dataStore] faceID, locked in
+            dataStore.updateFaceLocked(faceID: faceID, locked: locked)
             self?.refreshFaceCategories()
         }
     )
@@ -852,6 +857,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     /// Both tables are tiny and this only runs on an explicit user edit.
     private func refreshFaceCategories() {
         appState.faceCategories = dataStore.loadFaceCategories()
+        appState.faceLocks = dataStore.loadFaceLocks()
     }
 
     /// Triggered by a double-click on the right-hand side of the status item. If `pause_on_lock`

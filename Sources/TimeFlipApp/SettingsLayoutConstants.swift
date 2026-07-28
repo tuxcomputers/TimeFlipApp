@@ -60,6 +60,8 @@ enum SettingsLayoutConstants {
         // artwork is a vector and re-renders at draw size, so this only has to be generous enough
         // that nothing downstream is ever upscaling a too-small raster.
         static let renderPointSize: CGFloat = 512
+        // The lock control in the corner of the device graphic.
+        static let lockSize: CGFloat = 40
         // The assigned category's name under the device. Sized to fill the space the squared-off
         // device leaves at the bottom of the column rather than to any system text style.
         static let nameFontSize: CGFloat = 56

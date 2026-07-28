@@ -542,6 +542,52 @@ final class AppDataStore {
         return results
     }
 
+    /// Which faces are locked, keyed by `face_id` (`database/008_face.sql`). A locked face is one
+    /// the user wants to keep permanently, so its category can't be reassigned by accident.
+    func loadFaceLocks() -> [UInt8: Bool] {
+        guard let db else { return [:] }
+        var results: [UInt8: Bool] = [:]
+        let sql = "SELECT face_id, locked FROM face ORDER BY face_id;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face lock load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let faceID = UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0))
+                results[faceID] = sqlite3_column_int64(stmt, 1) != 0
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
+    /// Locks or unlocks a face -- the lock control on the Faces tab. Same `face_id` guard as
+    /// `updateFaceCategory`, for the same reason.
+    func updateFaceLocked(faceID: UInt8, locked: Bool) {
+        guard let db else { return }
+        let sql = """
+        UPDATE face SET locked = ?
+        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face lock update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, locked ? 1 : 0)
+            sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("face lock update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
     /// All rows of the `icon` reference table (`database/004_icon.sql`), ordered by `icon_id`.
     /// Drives the Categories tab's icon grid, which skips the `None` sentinel at id 0.
     func loadIcons() -> [IconRecord] {
@@ -615,11 +661,15 @@ final class AppDataStore {
     /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFacetID`
     /// sentinel (facet `0`, what `currentFacetID` reads before the device has reported a facet)
     /// can't create a thirteenth row.
+    ///
+    /// A locked face is refused here as well as in the UI. Locking exists to stop a face being
+    /// reassigned by accident, and a guard the UI alone enforces is one a stale view can walk past.
     func updateFaceCategory(faceID: UInt8, categoryID: Int) {
         guard let db else { return }
         let sql = """
         UPDATE face SET category_id = ?
-        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+        WHERE face_id = ? AND locked = 0
+          AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
         """
         queue.sync {
             var stmt: OpaquePointer?
