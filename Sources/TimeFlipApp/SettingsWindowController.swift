@@ -19,7 +19,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
         updateCategoryActive: @escaping (Int, Bool) -> Void,
         updateCategoryName: @escaping (Int, String) -> Void,
-        updateCategoryIcon: @escaping (Int, Int) -> Void
+        updateCategoryIcon: @escaping (Int, Int) -> Void,
+        assignCategoryToFace: @escaping (UInt8, Int) -> Void
     ) {
         let window = NSWindow(
             contentRect: NSRect(
@@ -55,6 +56,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             updateCategoryActive: updateCategoryActive,
             updateCategoryName: updateCategoryName,
             updateCategoryIcon: updateCategoryIcon,
+            assignCategoryToFace: assignCategoryToFace,
             onClose: { [weak window] in
                 window?.close()
             }

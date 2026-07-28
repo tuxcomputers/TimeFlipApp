@@ -336,6 +336,20 @@ final class AppState: ObservableObject {
         return colourOptions.first { $0.colourId == colourID }?.color ?? .primary
     }
 
+    /// The colour to draw the on-screen device in for a face: its category's colour, or **white**
+    /// when there isn't one to show.
+    ///
+    /// White covers both a face with no category (the `Unassigned` sentinel) and a category with no
+    /// colour of its own (`colour_id` 0), because on the body of the device both mean the same
+    /// thing: nothing is lit. That's a third answer to the same question `faceCategoryColour` and
+    /// `facetLEDColours` each answer differently, and deliberately so -- an icon falls back to
+    /// `.primary` so it stays legible, the LED falls back to dark because that's off on the
+    /// hardware, and the drawn body falls back to white because an unlit device is white plastic.
+    func deviceBodyColour(for facetID: UInt8) -> Color {
+        let colourID = faceCategories[facetID]?.colourID
+        return colourOptions.first { $0.colourId == colourID }?.color ?? .white
+    }
+
     /// What the device's LED should show for each facet: the `device_hex` of the colour assigned to
     /// the face's category, resolved through `colourOptions`.
     ///

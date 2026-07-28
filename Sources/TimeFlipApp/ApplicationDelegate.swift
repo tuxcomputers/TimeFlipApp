@@ -81,6 +81,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         updateCategoryIcon: { [weak self, dataStore] categoryID, iconID in
             dataStore.updateCategoryIcon(categoryID: categoryID, iconID: iconID)
             self?.refreshFaceCategories()
+        },
+        assignCategoryToFace: { [weak self, dataStore] faceID, categoryID in
+            dataStore.updateFaceCategory(faceID: faceID, categoryID: categoryID)
+            self?.refreshFaceCategories()
         }
     )
     private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)

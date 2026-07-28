@@ -603,6 +603,34 @@ final class AppDataStore {
         return results.sorted(by: CategoryRecord.displayOrder)
     }
 
+    /// Assigns a category to a physical face -- the Faces tab's category list. See
+    /// `database/008_face.sql`.
+    ///
+    /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFacetID`
+    /// sentinel (facet `0`, what `currentFacetID` reads before the device has reported a facet)
+    /// can't create a thirteenth row.
+    func updateFaceCategory(faceID: UInt8, categoryID: Int) {
+        guard let db else { return }
+        let sql = """
+        UPDATE face SET category_id = ?
+        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face category update prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(categoryID))
+            sqlite3_bind_int64(stmt, 2, Int64(faceID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("face category update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+    }
+
     /// Sets `colour_id` directly on a category -- the Categories tab's own colour picker. The
     /// `category_id >= 1` guard means the `Unassigned` category (`category_id 0`) is never given
     /// a colour. See `database/007_category.sql`.

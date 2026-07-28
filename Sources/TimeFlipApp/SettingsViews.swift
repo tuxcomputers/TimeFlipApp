@@ -13,6 +13,8 @@ struct SettingsRootView: View {
     let updateCategoryActive: (Int, Bool) -> Void
     let updateCategoryName: (Int, String) -> Void
     let updateCategoryIcon: (Int, Int) -> Void
+    /// Assigns a category to a physical face: `(face_id, category_id)`.
+    let assignCategoryToFace: (UInt8, Int) -> Void
     @State private var selectedTab: SettingsTab = .facets
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
@@ -29,6 +31,7 @@ struct SettingsRootView: View {
         updateCategoryActive: @escaping (Int, Bool) -> Void,
         updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
+        assignCategoryToFace: @escaping (UInt8, Int) -> Void,
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
@@ -43,6 +46,7 @@ struct SettingsRootView: View {
         self.updateCategoryActive = updateCategoryActive
         self.updateCategoryName = updateCategoryName
         self.updateCategoryIcon = updateCategoryIcon
+        self.assignCategoryToFace = assignCategoryToFace
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -70,7 +74,11 @@ struct SettingsRootView: View {
                         Text("Categories")
                     }
                     .tag(SettingsTab.categories)
-                PaneSetupView(appState: appState, loadCategories: loadCategories)
+                PaneSetupView(
+                    appState: appState,
+                    loadCategories: loadCategories,
+                    assignCategoryToFace: assignCategoryToFace
+                )
                     .tabItem {
                         Text("Faces")
                     }
@@ -132,6 +140,7 @@ enum SettingsTab: Hashable {
 private struct PaneSetupView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
+    let assignCategoryToFace: (UInt8, Int) -> Void
     /// Loaded once when the tab appears, the same way the Categories tab reads its own list.
     @State private var categories: [CategoryRecord] = []
 
@@ -158,7 +167,7 @@ private struct PaneSetupView: View {
                         )
                         TopFacetEditor(
                             mapping: binding,
-                            tint: appState.faceCategoryColour(for: appState.currentFacetID)
+                            litColour: appState.deviceBodyColour(for: appState.currentFacetID)
                         )
                     } else {
                         Text("Flip the device to pick a facet.")
@@ -176,7 +185,9 @@ private struct PaneSetupView: View {
                     CategoryAssignmentList(
                         categories: categories.filter(\.isActive),
                         iconOptions: appState.iconOptions,
-                        colourOptions: appState.colourOptions
+                        colourOptions: appState.colourOptions,
+                        canAssign: TimeFlipConstants.isValidFacetID(appState.currentFacetID),
+                        onSelect: { assignCategoryToFace(appState.currentFacetID, $0) }
                     )
                 }
                 .frame(width: rightWidth, alignment: .leading)
@@ -200,13 +211,12 @@ private struct PaneSetupView: View {
 
 private struct TopFacetEditor: View {
     @Binding var mapping: FacetMapping
-    /// The face's category colour, or `.primary` when it has none. The tint is all that's left of
-    /// the facet colour on this tab -- the value itself lives on the category now, so this reads it
-    /// from there rather than carrying a second copy per facet.
-    let tint: Color
+    /// The colour to light the device in: the colour of the category assigned to this face, or
+    /// white when it has none (see `AppState.deviceBodyColour`).
+    let litColour: Color
 
     var body: some View {
-        DeviceFaceView(litColour: .red)
+        DeviceFaceView(litColour: litColour)
     }
 }
 
@@ -440,6 +450,10 @@ private struct CategoryAssignmentList: View {
     let categories: [CategoryRecord]
     let iconOptions: [CategoryIconOption]
     let colourOptions: [ActivityColorOption]
+    /// `false` until the device has reported which face is up, since there's no face to assign to
+    /// until then.
+    let canAssign: Bool
+    let onSelect: (Int) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -447,8 +461,10 @@ private struct CategoryAssignmentList: View {
                 CategoryAssignmentRow(
                     category: category,
                     iconName: iconOptions.first { $0.iconId == category.iconID }?.iconName,
-                    colour: colourOptions.first { $0.colourId == category.colourID }?.color
+                    colour: colourOptions.first { $0.colourId == category.colourID }?.color,
+                    onSelect: { onSelect(category.id) }
                 )
+                .disabled(!canAssign)
                 if category.id != categories.last?.id {
                     Divider()
                 }
@@ -467,8 +483,17 @@ private struct CategoryAssignmentRow: View {
     let iconName: String?
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
     let colour: Color?
+    let onSelect: () -> Void
 
     var body: some View {
+        Button(action: {
+            DeveloperMode.debugPrint(.click, "Button clicked: Assign category \"\(category.name)\" to the top face")
+            onSelect()
+        }, label: { rowContent })
+        .buttonStyle(.plain)
+    }
+
+    private var rowContent: some View {
         HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
             // The slot is held even when there's no icon, so every name in the list still lines up.
             Group {
@@ -497,6 +522,9 @@ private struct CategoryAssignmentRow: View {
         }
         .frame(height: SettingsLayoutConstants.facetRowHeight)
         .padding(.horizontal, SettingsLayoutConstants.FacetList.horizontalPadding)
+        // Without this the row only responds to clicks that land on the icon or the text, not the
+        // gap between them or the empty space the Spacer leaves to the right.
+        .contentShape(Rectangle())
     }
 }
 
