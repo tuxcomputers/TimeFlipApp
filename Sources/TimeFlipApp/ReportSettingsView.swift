@@ -110,7 +110,7 @@ struct ReportSettingsView: View {
                 .labelsHidden()
             }
             LabeledContent("Daily reset at") {
-                HStack(spacing: SettingsLayoutConstants.AppSettings.meridiemGap) {
+                HStack(spacing: SettingsLayoutConstants.Stepper.meridiemGap) {
                     // The hour is typed or held; AM/PM stays arrows-only, since a two-state value has
                     // nothing to run through and nothing sensible to type.
                     SteppedNumberField(
@@ -119,12 +119,12 @@ struct ReportSettingsView: View {
                         value: Self.to12Hour(appState.dailyResetHour).hour,
                         range: 1...12,
                         suffix: "",
-                        fieldWidth: SettingsLayoutConstants.AppSettings.hourFieldWidth,
+                        fieldWidth: SettingsLayoutConstants.Stepper.hourFieldWidth,
                         onCommit: setHour12
                     )
                     HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
                         Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
-                            .frame(width: SettingsLayoutConstants.AppSettings.meridiemLabelWidth, alignment: .leading)
+                            .frame(width: SettingsLayoutConstants.Stepper.meridiemLabelWidth, alignment: .leading)
                         stepArrows(up: toggleMeridiem, down: toggleMeridiem)
                     }
                 }
@@ -136,10 +136,10 @@ struct ReportSettingsView: View {
                     value: appState.lowBatteryThresholdPercent,
                     range: Int(TimeFlipConstants.minBatteryLevel)...TimeFlipConstants.effectiveMaxLowBatteryWarningPercent,
                     suffix: "%",
-                    fieldWidth: SettingsLayoutConstants.AppSettings.fieldWidth(
-                        suffixWidth: SettingsLayoutConstants.AppSettings.percentSuffixWidth
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                        suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth
                     ),
-                    suffixWidth: SettingsLayoutConstants.AppSettings.percentSuffixWidth,
+                    suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth,
                     onCommit: { appState.setLowBatteryThreshold($0) }
                 )
             }
@@ -150,10 +150,10 @@ struct ReportSettingsView: View {
                     value: fetchIntervalMinutes,
                     range: fetchIntervalMinutesRange,
                     suffix: fetchIntervalMinutes == 1 ? "min" : "mins",
-                    fieldWidth: SettingsLayoutConstants.AppSettings.fieldWidth(
-                        suffixWidth: SettingsLayoutConstants.AppSettings.minutesSuffixWidth
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                        suffixWidth: SettingsLayoutConstants.Stepper.minutesSuffixWidth
                     ),
-                    suffixWidth: SettingsLayoutConstants.AppSettings.minutesSuffixWidth,
+                    suffixWidth: SettingsLayoutConstants.Stepper.minutesSuffixWidth,
                     onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
                 )
             }

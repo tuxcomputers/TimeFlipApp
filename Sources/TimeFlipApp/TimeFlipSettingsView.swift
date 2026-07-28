@@ -240,7 +240,10 @@ struct TimeFlipSettingsView: View {
             value: ledBrightnessValue,
             range: 1...100,
             suffix: "%",
-            fieldWidth: 50,
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth
+            ),
+            suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth,
             onCommit: { applyLEDBrightness(newValue: $0) }
         )
     }
@@ -252,7 +255,10 @@ struct TimeFlipSettingsView: View {
             value: blinkIntervalValue,
             range: 5...60,
             suffix: "sec",
-            fieldWidth: 50,
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
+                suffixWidth: SettingsLayoutConstants.Stepper.secondsSuffixWidth
+            ),
+            suffixWidth: SettingsLayoutConstants.Stepper.secondsSuffixWidth,
             onCommit: { applyBlinkInterval(newValue: $0) }
         )
     }
