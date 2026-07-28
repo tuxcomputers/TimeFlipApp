@@ -114,6 +114,14 @@ final class AppState: ObservableObject {
     // window is hidden rather than deallocated on close (see SettingsWindowController), so plain
     // View @State would otherwise keep whatever was expanded across a close/reopen. Reset to
     // false via collapseDeviceTabDisclosures() from windowWillClose instead.
+    // How many category-name fields are open across the tabs. The Close button at the window root
+    // owns Escape (`keyboardShortcut(.cancelAction)`), and AppKit dispatches a key equivalent before
+    // the focused field ever sees the key, so the only way Escape can cancel a name field instead of
+    // closing the window is for that button to give the shortcut up while one is open.
+    //
+    // Counted rather than a flag because the Categories and Faces tabs each have their own create
+    // control: closing one field must not hand Escape back while the other is still open.
+    @Published private(set) var openCategoryNameFields = 0
     @Published var isMoreExpanded: Bool = false
     @Published var isLEDExpanded: Bool = false
     @Published var isDoubleTapExpanded: Bool = false
@@ -498,6 +506,20 @@ final class AppState: ObservableObject {
     /// press-and-hold repeat. Called when the Preferences window closes so reopening it always
     /// starts fully collapsed, and so a hold that never received its release event (window closed
     /// out from under it) can't keep ticking in the background.
+    /// Whether a category name is being typed somewhere in the window, so Escape belongs to that
+    /// field rather than to the Close button -- see `openCategoryNameFields`.
+    var isNamingCategory: Bool {
+        openCategoryNameFields > 0
+    }
+
+    func categoryNameFieldAppeared() {
+        openCategoryNameFields += 1
+    }
+
+    func categoryNameFieldDisappeared() {
+        openCategoryNameFields = max(0, openCategoryNameFields - 1)
+    }
+
     func collapseDeviceTabDisclosures() {
         isMoreExpanded = false
         isLEDExpanded = false

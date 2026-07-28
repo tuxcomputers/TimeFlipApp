@@ -32,6 +32,7 @@ struct CategoriesSettingsView: View {
             }
             Section {
                 CategoryCreateControl(
+                    appState: appState,
                     createCategory: createCategory,
                     findCategory: findCategory,
                     // Patched in place rather than re-read, so the reinstated row moves from the

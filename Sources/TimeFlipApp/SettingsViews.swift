@@ -119,7 +119,10 @@ struct SettingsRootView: View {
                     DeveloperMode.debugPrint(.click, "Button clicked: Close (Settings window)")
                     onClose()
                 }
-                .keyboardShortcut(.cancelAction)
+                // Given up while a category name is being typed, so Escape cancels that field
+                // instead: a key equivalent is dispatched before the focused field sees the key, so
+                // the field cannot win this any other way.
+                .keyboardShortcut(appState.isNamingCategory ? nil : .cancelAction)
                 .padding([.horizontal, .bottom], SettingsLayoutConstants.Pane.sectionSpacing)
                 .padding(.top, SettingsLayoutConstants.Pane.sectionSpacing / 2)
             }
@@ -216,6 +219,7 @@ private struct PaneSetupView: View {
                     )
 
                     CategoryCreateControl(
+                        appState: appState,
                         createCategory: createCategory,
                         findCategory: findCategory,
                         // Re-read rather than patched: this list only shows active categories, so a
