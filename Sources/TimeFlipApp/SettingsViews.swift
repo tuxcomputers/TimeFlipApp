@@ -499,10 +499,14 @@ private struct CategoryAssignmentList: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(categories) { category in
+                let colour = colourOptions.first { $0.colourId == category.colourID }
                 CategoryAssignmentRow(
                     category: category,
                     iconName: iconOptions.first { $0.iconId == category.iconID }?.iconName,
-                    colour: colourOptions.first { $0.colourId == category.colourID }?.color,
+                    colour: colour?.color,
+                    // Same flag the drawn device reads, for the same reason: the icon sits on the
+                    // category's colour here too, so a dark one swallows a black glyph.
+                    iconColour: (colour?.usesWhiteLines ?? false) ? .white : .black,
                     onSelect: { onSelect(category.id) }
                 )
                 .disabled(!canAssign)
@@ -528,6 +532,8 @@ private struct CategoryAssignmentRow: View {
     let iconName: String?
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
     let colour: Color?
+    /// The icon's own colour, white on a colour dark enough to swallow a black glyph.
+    let iconColour: Color
     let onSelect: () -> Void
 
     var body: some View {
@@ -550,7 +556,7 @@ private struct CategoryAssignmentRow: View {
                         .fill(colour ?? Color(NSColor.controlBackgroundColor))
                         ActivityIconView(
                             iconName: iconName,
-                            tint: .black,
+                            tint: iconColour,
                             size: SettingsLayoutConstants.FacetList.iconSize
                         )
                     }
