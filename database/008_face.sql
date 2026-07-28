@@ -1,7 +1,5 @@
 -- face
 -- The 12 physical facets of the TimeFlip device, each linked to its assigned category.
--- A locked face is one the user wants to keep permanently (e.g. Break or Meeting), pinning its
--- category so it can't be reassigned by accident.
 
 CREATE TABLE IF NOT EXISTS face (
   face_id       INTEGER CONSTRAINT PK_face PRIMARY KEY

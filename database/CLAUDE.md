@@ -10,6 +10,17 @@
   bring them into line with the rules below (naming, primary keys, seeds, etc.), and don't count
   them when reasoning about the schema. Leave them exactly as they are until they're removed.
 
+## Comments in DDL files
+
+- A DDL file opens with exactly **two** comment lines: the table name, then a single line saying
+  what the table holds. Nothing else in the file is commented -- no per-column notes, no rationale,
+  no section headers between statements.
+- Everything past that one line -- what each column means, why a constraint exists, what the seed
+  rows are for -- goes in [`../docs/database-design.md`](../docs/database-design.md), which
+  describes every table in DDL order. One home for the prose keeps the two from drifting apart, and
+  the DDL stays readable as pure schema.
+- `000_logbook.sql` is the one exception, per the legacy rule above -- leave its header as it is.
+
 ## Table naming
 
 - Every table name is **singular** — `device_event`, not `device_events`; `device_notification`,
