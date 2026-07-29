@@ -42,7 +42,13 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
-from actions import run_step, condition_met, resolve_missing_vars_from_remembered  # noqa: E402
+from methods import load_methods, methods_path, resolve_uses  # noqa: E402
+from actions import (  # noqa: E402
+    condition_met,
+    print_action_required,
+    resolve_missing_vars_from_remembered,
+    run_step,
+)
 from remembered import Remembered  # noqa: E402
 from session_setup import (  # noqa: E402
     _latest_debug_log_id,
@@ -68,6 +74,16 @@ def _checklist_name(path):
     """The checklist's spoken name, from its filename -- e.g.
     "01b-history-refresh-checklist.md" -> "01b history refresh checklist"."""
     return os.path.basename(path).removesuffix(".md").replace("-", " ")
+
+
+def _display_name(path):
+    """The checklist's console name: the leading id token as-is, the rest sentence-cased --
+    "00-test-setup.md" -> "00 Test setup", "01b-history-refresh-checklist.md" -> "01b History
+    refresh checklist"."""
+    stem = os.path.basename(path).removesuffix(".md")
+    ident, _, rest = stem.partition("-")
+    words = rest.replace("-", " ").strip()
+    return f"{ident} {words[:1].upper()}{words[1:]}" if words else ident
 
 
 def _log_path(path):
@@ -120,22 +136,28 @@ class _TeeLog(list):
 
 
 class _RunHalted(Exception):
-    """Raised to end the whole run immediately (not just the current checklist) -- used by the
-    per-step confirmation gate when the developer answers 'n', or when a step fails while that
-    gate is on, so a mis-run can be investigated before it cascades into later steps/checklists.
-    Carries a short reason for the log/console."""
+    """Raised to end the whole run immediately (not just the current checklist) -- used by -sf
+    when a step fails, so a mis-run can be investigated before it cascades into later
+    steps/checklists. Carries a short reason for the log/console."""
 
 
-def _confirm_step(path, step, detail, log_lines):
-    """Primary per-step question, phrased so Y = good/continue: shows the step's result and asks
-    the developer to confirm it did what it should. Returns True if confirmed, False otherwise
-    (the caller then runs _handle_failure)."""
-    note = _note_id(path, step)
-    print(f"  result: {detail}")
-    if prompt_yn(f"{note}: Continue?"):
-        log_lines.append(f"CONFIRMED: {note}")
-        return True
-    return False
+def _result_lines(result):
+    """The console lines for a finished step's result.
+
+    A pass echoes only the value it read, or nothing at all when the step just *did* something:
+        -> PASS: 2059
+        -> PASS
+    A failure puts the two halves a reader wants on their own lines:
+        -> FAIL:
+        Expected: 67
+        Result: Yep
+    A failure with nothing to compare (a shell command's non-zero exit, an exception) has no
+    Expected, so it reports what came back on the one line instead: `-> FAIL: exit=1`."""
+    if result.success:
+        return [f"-> PASS: {result.value}" if result.value else "-> PASS"]
+    if result.expected is None:
+        return [f"-> FAIL: {result.detail}"]
+    return ["-> FAIL:", f"Expected: {result.expected}", f"Result: {result.actual}"]
 
 
 def _skip_rest_of_scenario(failed_step, checklist, log_lines, skipped_prose):
@@ -152,12 +174,10 @@ def _skip_rest_of_scenario(failed_step, checklist, log_lines, skipped_prose):
             )
 
 
-def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason,
-                    confirm_steps, stop_on_failure):
+def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason, stop_on_failure):
     """Unified failure path. The step is logged as failed and left unticked, then the REST of its
     scenario is skipped (see _skip_rest_of_scenario) and the run carries on with the NEXT scenario.
-    Exceptions: -sf halts the whole run immediately; in confirm-steps mode the developer is asked
-    whether to keep going (a No halts). Either halt raises _RunHalted so a mis-run can be
+    Exception: -sf halts the whole run immediately, raising _RunHalted so a mis-run can be
     investigated before end-of-run cleanup."""
     checklist.mark(step, False)
     checklist.save()
@@ -166,11 +186,6 @@ def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason,
     log_lines.append(f"FAILURE LOGGED: {note} -- {reason}")
     if stop_on_failure:
         raise _RunHalted(f"{note}: {reason}")
-    if confirm_steps:
-        cont = prompt_yn(f"{note}: Failure is logged, did you want to continue the tests?")
-        log_lines.append(f"Continue after failure [{note}]? -> {'y' if cont else 'n'}")
-        if not cont:
-            raise _RunHalted(f"{note}: {reason}")
     _skip_rest_of_scenario(step, checklist, log_lines, skipped_prose)
 
 
@@ -352,9 +367,10 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
     return "resume"
 
 
-def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False, remembered=None,
-                  initial_vars=None, stop_on_failure=False):
+def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
+                  initial_vars=None, stop_on_failure=False, methods=None):
     checklist = Checklist(path)
+    methods = methods if methods is not None else {}
     log_lines.append(f"\n=== {_log_path(path)} ===")
 
     # `test` names this checklist for the remembered-values tree (run -> test -> scenario ->
@@ -385,24 +401,27 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             log_lines.append(f"\n{step.section}")
             last_section = step.section
         actor_tag = "(You) " if step.actor == "you" else ""
-        # Full single-line step text for the console; the log uses the shorter "Step N: STATUS ..."
-        # form (section is the sub-heading above). step.prose is only the checkbox's first physical
-        # line, so a wrapped step would otherwise print cut off at the source line break.
-        label = f"{step.section} Step {step.number}: {step.description()}"
+        # Console header: "(01b History refresh checklist) Scenario A - Step 3: <instruction>".
+        # The instruction is the step's FIRST line in the .md (see Step.description) -- the short
+        # imperative sentence -- not the rationale/detail that follows it on the wrapped lines.
+        # The log uses the shorter "Step N: STATUS ..." form (section is the sub-heading above).
         desc = step.description()
-        print(f"\n[{os.path.basename(path)}] {actor_tag}{label}")
+        print(f"\n({_display_name(path)}) {actor_tag}{step.section} - Step {step.number}: {desc}")
 
         # Which scenario this step is in (for recording captures under it), and -- for a resume
         # that skipped earlier scenarios -- fill any $var this step needs that an earlier scenario
         # captured, from logs/00-remembered.json. Both no-op for a spec-less (human) step.
         ctx["section"] = step.section
-        resolve_missing_vars_from_remembered(step.spec, ctx)
+        # Expand any `use = "method-N"` against Tests/Methods.md first, so a shared body's own
+        # `$vars` are in the spec before the remembered-value fill and the run see it.
+        spec = resolve_uses(step.spec, methods)
+        resolve_missing_vars_from_remembered(spec, ctx)
 
-        if step.spec is None:
+        if spec is None:
             if auto_yes:
                 # --yes/non-interactive: there's no human to ask, and this step needs one
                 # (no toml to automate it) -- record it as a skip rather than block on input.
-                print("  -> SKIP: needs human verification; --yes/non-interactive can't ask.")
+                print("-> SKIP: needs human verification; --yes/non-interactive can't ask.")
                 log_lines.append(f"Step {step.number}: SKIP - {desc} (needs human; --yes)")
                 all_ok = False
                 skipped_prose.add(step.prose)
@@ -411,7 +430,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             # confirmation). Ask -- never silently skip. The question is phrased so Y =
             # passed/continue. (The switch-to-test setup is done by Tests/00-test-setup.md, so
             # there are no auto-ticked Setup steps here any more.)
-            print("  -> NEEDS YOU: verify this step against the app/device.")
+            print_action_required("Verify the step above against the app/device, then answer below.")
             passed = prompt_yn(f"{_note_id(path, step)}: Did this check pass?")
             if passed:
                 checklist.mark(step, True)
@@ -421,15 +440,15 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             log_lines.append(f"Step {step.number}: FAIL - {desc} (human-verified)")
             all_ok = False
             _handle_failure(path, step, checklist, log_lines, skipped_prose,
-                            "human-verified step did not pass", confirm_steps, stop_on_failure)
+                            "human-verified step did not pass", stop_on_failure)
             continue
 
         # Optional `when` guard: a step only applies under some condition on a captured var
         # (e.g. "flip to build history" only `when $start_event_id < 10`). If the guard isn't
         # met the step isn't needed -- tick it and move on without running or asking.
-        cond = step.spec.get("when")
+        cond = spec.get("when")
         if cond is not None and not condition_met(cond, ctx):
-            print(f"  -> SKIP: not needed (when {cond})")
+            print(f"-> SKIP: not needed (when {cond})")
             log_lines.append(f"Step {step.number}: SKIP - {desc} (when {cond} not met)")
             checklist.mark(step, True)
             checklist.save()
@@ -448,35 +467,35 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, confirm_steps=False,
             ctx["vars"]["current_log_id"] = _latest_debug_log_id(os.path.realpath(ctx["db_path"]))
         except Exception:  # noqa: BLE001 -- a transient read must not crash the run
             ctx["vars"]["current_log_id"] = 0
-        result = run_step(step.spec, ctx)
-        status = "PASS" if result.success else "FAIL"
-        print(f"  -> {status}: {result.detail}")
-        # A pass that got what was expected needs no detail -- the tick + PASS is enough. A fail
-        # gets a following "- Result:" line so we can see why. (Captured values aren't logged here
-        # any more; they're recorded in logs/00-remembered.json.)
+        result = run_step(spec, ctx)
+        # A pass shows only what it *read* -- "-> PASS: 2059", or a bare "-> PASS" for a step that
+        # just does something (click, quit, sleep). A fail splits the comparison over its own
+        # "Expected:"/"Result:" lines, falling back to the raw detail when nothing was asserted
+        # (a shell command's non-zero exit, an exception).
+        print("\n".join(_result_lines(result)))
+        # The log mirrors that: a pass that got what it expected needs no detail (the tick + PASS
+        # is enough), a fail records the comparison. (Captured values aren't logged here; they're
+        # recorded in logs/00-remembered.json.)
         if result.success:
             log_lines.append(f"Step {step.number}: PASS - {desc}")
         else:
             log_lines.append(f"Step {step.number}: FAIL - {desc}")
-            log_lines.append(f"  - Result: {result.detail}")
+            if result.expected is not None:
+                log_lines.append(f"  - Expected: {result.expected}")
+                log_lines.append(f"  - Result: {result.actual}")
+            else:
+                log_lines.append(f"  - Result: {result.detail}")
 
         if result.success:
-            # In confirm-steps mode the developer still gets the final say on whether the
-            # (auto-passing) result is actually right; a No drops to the log-and-continue gate.
-            if confirm_steps and not _confirm_step(path, step, result.detail, log_lines):
-                all_ok = False
-                _handle_failure(path, step, checklist, log_lines, skipped_prose,
-                                f"result not confirmed: {result.detail}", confirm_steps, stop_on_failure)
-                continue
             checklist.mark(step, True)
             checklist.save()
             continue
 
         # Failed step: log it, skip the rest of its scenario, carry on with the next scenario
-        # (or halt, under -sf / a No in confirm-steps mode).
+        # (or halt, under -sf).
         all_ok = False
         _handle_failure(path, step, checklist, log_lines, skipped_prose,
-                        f"step failed: {result.detail}", confirm_steps, stop_on_failure)
+                        f"step failed: {result.detail}", stop_on_failure)
         continue
 
     if not ran_any:
@@ -513,25 +532,14 @@ def main():
         help="Skip the interactive confirmation prompt (still prints the warning) -- for CI/non-interactive runs only.",
     )
     parser.add_argument(
-        "-nc", "--no-confirm-steps",
-        dest="confirm_steps",
-        action="store_false",
-        help="Don't pause after each step. By default (interactive runs) the runner shows every "
-        "step's result and waits for a y/n that it did what it should; answering 'n' -- or any step "
-        "failing -- ends the whole run so a mis-run can be investigated before it cascades. --yes "
-        "implies this flag (no human to confirm).",
-    )
-    parser.add_argument(
         "-sf", "--stop-on-failure",
         action="store_true",
         help="Stop the whole run on the first failed step. The default instead skips the rest of "
         "that step's scenario (later steps in a scenario assume the earlier ones passed) and "
         "carries on with the next scenario. With -sf the run halts for investigation and "
-        "end-of-run cleanup is skipped, same as answering 'n' to the per-step confirmation gate.",
+        "end-of-run cleanup is skipped so the state can be inspected.",
     )
     args = parser.parse_args()
-    # No human to answer per-step prompts under --yes, so confirmation is off there.
-    confirm_steps = args.confirm_steps and not args.yes
     stop_on_failure = args.stop_on_failure
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -563,6 +571,16 @@ def main():
     # Side-record of values read (recorded) and settings changed (changed, with live current)
     # this run, keyed by the same timestamp as the .txt log. Populated live as steps capture.
     remembered = Remembered(os.path.join(log_dir, "00-remembered.json"), timestamp)
+
+    # The shared step bodies every checklist's `use = "method-N"` refers to. Loaded once, up front,
+    # so a typo in Methods.md fails the run here rather than mid-way through a device test.
+    try:
+        methods = load_methods(methods_path(repo_root))
+    except (OSError, ValueError) as e:
+        print(f"error: {e}")
+        log_lines.append(f"ABORTED: {e}")
+        sys.exit(1)
+    log_lines.append(f"Shared methods loaded: {', '.join(sorted(methods))}")
 
     # First thing, before we ask the developer anything: if we're still on production and
     # the device is mid-timing a real activity, bail immediately rather than after they've
@@ -620,9 +638,10 @@ def main():
         # production round-trip prompt in Step 1.
         resume = "y" if run_mode == "resume" else "n"
         db_mode = "keep" if run_mode == "resume" else "fresh"
-        if not run_checklist(setup_path, db_path, log_lines, args.yes, confirm_steps, remembered,
+        if not run_checklist(setup_path, db_path, log_lines, args.yes, remembered,
                              initial_vars={"needs_history": needs_history,
-                                           "resume": resume, "db_mode": db_mode}):
+                                           "resume": resume, "db_mode": db_mode},
+                             methods=methods):
             print("\nAborted -- test setup failed; not running any checklists.")
             log_lines.append("ABORTED: test setup failed.")
             sys.exit(1)
@@ -638,8 +657,8 @@ def main():
                 log_lines.append(f"ABORTED: {msg}")
                 overall_ok = False
                 break
-            ok = run_checklist(path, db_path, log_lines, args.yes, confirm_steps, remembered,
-                               stop_on_failure=stop_on_failure)
+            ok = run_checklist(path, db_path, log_lines, args.yes, remembered,
+                               stop_on_failure=stop_on_failure, methods=methods)
             overall_ok = overall_ok and ok
     except _RunHalted as halt:
         banner = "!" * 70

@@ -128,35 +128,59 @@ before comparison in both, so any casing works:
   Anything else (a stray keystroke, a blank Enter) re-prompts instead of being silently
   counted as an answer, so an accidental key can't flip the result either way.
 
-## Per-step confirmation (on by default; `--no-confirm-steps` to turn off)
+## Steps run without confirmation
 
-By default (any interactive run) the runner pauses after **every** step, prints its result,
-and asks you to confirm it did what it should -- every question is phrased so **`y` = good,
-keep going**:
+Steps run straight through -- the runner prints each step's result and moves on, with no
+per-step y/n gate. One line names the step, one reports the result:
 
 ```
-[01b] Step 6: Query db_type and confirm it reads test...
-  -> PASS: query result: {"type":"test"}
-  result: query result: {"type":"test"}
-T01b-Setup-St6: Continue? [y/n]:
+(00 Test setup) Setup - Step 1: Check which database is active.
+-> PASS: production
 ```
 
-Every continue prompt is prefixed with the step's id (`T01b-Setup-St6`). Answer `y` and it
-moves on (logging `CONFIRMED: <id>`). Answer `n` -- or if a step outright fails -- the failure
-is logged and left unticked, then a follow-up asks **`<id>: Failure is logged, did you want to
-continue the tests?`**. `y` skips that step and carries on; `n` ends the whole run (cleanup is
-skipped so you can inspect the state) for you to work out what went wrong. Your answer to that
-follow-up is logged too. This is the guard against a run sailing through steps that didn't
-really happen (e.g. against a disconnected device).
+The step line is `(<checklist>) [<actor>] <section> - Step <n>: <instruction>`, where the
+instruction is the step's **first line** in the `.md` -- so write that line as the short
+imperative sentence and put the rationale/caveats on the wrapped lines under it (see
+`Tests/00-test-setup.md` for the shape). `(You)` appears for a `**(You)**` step.
 
-`--no-confirm-steps` (short: `-nc`) turns the per-step pausing off (fast, hands-off within a
-checklist). `--yes` implies `--no-confirm-steps` -- with no human present there's nobody to
-confirm.
+The result line reports only what the step **read**, so a pass stays scannable:
+
+```
+-> PASS: 2059          a value it read (a single-key JSON object is unwrapped: {"type":"test"} -> test)
+-> PASS                a step that just *does* something -- a click, a quit, a sleep
+-> SKIP: not needed (when $want_switch == y)
+```
+
+A failure splits the comparison over its own lines, which is what you actually want to read:
+
+```
+-> FAIL:
+Expected: 67
+Result: Yep
+```
+
+A failure with nothing to compare (a shell command's non-zero exit, an exception) has no
+`Expected`, so it reports what came back inline instead: `-> FAIL: exit=1`.
+
+The only questions asked mid-checklist are the ones a step genuinely needs a human for: an
+`ask_user` step, and a documentation-only step with no ` ```toml step ` block (which the runner
+asks you to verify against the app/device rather than guess at). Both announce themselves with
+a boxed banner, so the point where the run is waiting on you can't be missed in the scroll:
+
+```
+**********************************************************************
+*                          Action required                           *
+**********************************************************************
+>>> ACTION NEEDED: Flip the cube to the Break face.
+```
+
+An indefinite wait re-prints the same banner titled `Still waiting` once a minute, so a
+developer who stepped away sees it again on return.
 
 `--stop-on-failure` (short: `-sf`) changes what a failed step does: instead of the default
 (skip the rest of that step's **scenario** and carry on with the next scenario -- see
 "Scenarios are the atomic unit" below), the whole run halts for investigation and end-of-run
-cleanup is skipped -- the same outcome as answering `n` to the confirmation gate, but automatic.
+cleanup is skipped, so you can inspect the state.
 
 Between every step (whatever the mode) the runner pauses `STEP_PAUSE_SECONDS` (2s) -- a beat
 for the app/device to settle before the next step, even after a step that already waited on
@@ -177,6 +201,56 @@ action = "click_menu_item"
 item = "Lock"
 \`\`\`
 ```
+
+### Shared bodies: `use = "method-N"`
+
+A body used by many steps (launching the app, quitting it, confirming the device reconnected,
+clicking a menu item, reading a setting) is written **once** in `Tests/Methods.md`, inside the
+`## Method N` section that already documents the technique in prose, as a ` ```toml method ` fence.
+A step then names it instead of repeating it:
+
+```markdown
+- [ ] Step 2: Quit the app. [Method: Number 3](../Methods.md#method-3).
+\`\`\`toml step
+use = "method-3"
+\`\`\`
+```
+
+So the Method link a step already cites *is* the thing it runs -- the prose and the behaviour can't
+drift, and changing how the app is launched is one edit rather than fifteen copies of a `nohup`
+command. `scripts/testrunner/methods.py` resolves it; the table is loaded once at the start of a run,
+so a typo in `Methods.md` fails immediately rather than mid-device-test.
+
+The step's other keys do two jobs -- they fill the method's `$placeholders` **and** override or
+extend its keys:
+
+```markdown
+\`\`\`toml step
+use = "method-24.a"        # Method 24's sub-block a: read a setting
+setting = "db_type"        # fills the method's $setting
+expect = "{\"type\":\"test\"}"   # the step's own assertion, on top
+\`\`\`
+```
+
+That is also how one shared query serves both an immediate read and a poll -- `action` is just
+another key to override:
+
+```markdown
+\`\`\`toml step
+use = "method-24.d"           # reads the latest debug_log row for a tag
+action = "wait_for_sql"       # ... but wait for it rather than read once
+tag = "battery"
+expect_contains = "isLowBattery=false"
+\`\`\`
+```
+
+A method covering many variants of one technique holds them as lettered sub-blocks rather than
+burning a method number on each, named with a dot: **Method 24** ("Query the DB") is the DB reads
+and writes checklists make over and over, so `use = "method-24.b"` is the max-`debug_log_id`
+baseline. `use = 3` and `use = "3"` also work; `use` is valid at step level and inside an
+`[[actions]]` entry, so a step can mix shared and bespoke actions.
+
+Currently 203 of the 328 actions across the checklists are shared this way, over 18 bodies.
 
 A step needing more than one action (e.g. "click, then confirm via `debug_log`") uses an
 array of actions, run in order, stopping at the first failure:
@@ -325,20 +399,23 @@ section name as a sub-heading, then one line per step:
 === Bench/01b-history-refresh-checklist.md ===
 
 Setup
-Step 1: PASS - confirm the latest device_event row is open
+Step 1: PASS - Confirm the latest device_event row is open.
 
 Scenario A
-Step 1: PASS - note the open row's event_number and duration
-Step 2: SKIP - build history (when $needs_history == y not met)
-Step 3: FAIL - query debug_log for the unchanged marker
-  - Result: query result: ... (expected '...')
+Step 1: PASS - Note the open row's event_number and duration.
+Step 2: SKIP - Build history. (when $needs_history == y not met)
+Step 3: FAIL - Query debug_log for the unchanged marker.
+  - Expected: contains history fetch: device max_event_number=13 unchanged
+  - Result: (no rows) (still, after waiting 15s)
 ```
 
-A **PASS** that got what it expected records no detail -- the tick is enough. A **FAIL**
-adds a `  - Result:` line so the reason is visible. A **SKIP** shows why (an unmet `when`
+The step text is the step's first line in the `.md`, same as the console. A **PASS** that got
+what it expected records no detail -- the tick is enough. A **FAIL** records the comparison as
+`  - Expected:` / `  - Result:` lines, or a single `  - Result:` when there was nothing to
+compare (a shell command's non-zero exit, an exception). A **SKIP** shows why (an unmet `when`
 guard, or a human step under `--yes`). Captured values are **not** logged here -- they go to
-`logs/00-remembered.json` (see `remember`/`restores` above). (Per-step confirmation mode still
-adds its `CONFIRMED` / `FAILURE LOGGED` lines, keyed by the `T<checklist>-<section>-St<n>` id.)
+`logs/00-remembered.json` (see `remember`/`restores` above). A failure also adds a
+`FAILURE LOGGED` line, keyed by the `T<checklist>-<section>-St<n>` id.
 
 ## Failure handling and logs
 
@@ -348,8 +425,7 @@ can't be trusted. Each skipped step is logged `SKIP - ... (scenario '<name>' hal
 failure)` and left unticked, so a later `s` resume restarts the whole scenario. The run then
 carries on with the **next scenario** (whose own preconditions step re-establishes what it needs),
 and with the other checklists passed on the command line. `-sf`/`--stop-on-failure` overrides this
-and halts the whole run at the first failure instead; in per-step-confirmation mode a `n` at the
-failure gate does the same.
+and halts the whole run at the first failure instead.
 
 Before each feature checklist the runner also checks the device is actually connected (a
 recent heartbeat -- `battery`/`hist-*` rows land every ~10s while connected; see

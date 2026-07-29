@@ -55,6 +55,54 @@ class StepResult:
     success: bool
     detail: str
     captured: Optional[Any] = None
+    # The one thing this action *read* (a db value, a matched log line, a y/n answer), already
+    # console-formatted. None for an action that merely *does* something (a click, a shell
+    # command, a keystroke) -- those have no value worth echoing, so a passing step prints a
+    # bare "-> PASS". `detail` stays the full diagnostic text, used on a failure.
+    value: Optional[str] = None
+    # On a failure with an assertion behind it, the two halves the reader actually wants, printed
+    # as separate "Expected:"/"Result:" lines. Both None for a failure with nothing to compare
+    # (a shell command's non-zero exit, an exception) -- then `detail` is printed instead.
+    expected: Optional[str] = None
+    actual: Optional[str] = None
+
+
+# Width of the starred box announcing a step that needs a person (see print_action_required).
+ACTION_BANNER_WIDTH = 70
+
+# How long act_wait_for_sql polls quietly before alerting the developer that it's still waiting. A
+# relaunched app needs a few seconds to find the device and log `Login accepted`, so an instant
+# alert would fire on every restart and clear itself moments later. (Deliberately NOT applied to
+# ask_user/ask_user_or_detect: those wait on a person doing something, so nothing will happen at
+# all until they're told -- those still ask straight away.)
+ALERT_AFTER_SECONDS = 5
+
+
+def print_action_required(message, title="Action required"):
+    """Announce that the run has stopped and needs a person, as a centred starred box. A run
+    scrolls a long way on its own, and the nudge that actually needs a human has to be findable
+    at a glance rather than reading as one more result line."""
+    bar = "*" * ACTION_BANNER_WIDTH
+    print(bar)
+    print(f"*{title.center(ACTION_BANNER_WIDTH - 2)}*")
+    print(bar)
+    print(f">>> ACTION NEEDED: {message}")
+
+
+def _pretty_value(text):
+    """Console form of a value read from the DB. A single-key JSON object shows just its value
+    (`{"type":"production"}` -> `production`) -- the step text already says which setting is
+    being read, so the key is noise. Anything else is passed through unchanged."""
+    t = str(text).strip()
+    if t.startswith("{") and t.endswith("}"):
+        try:
+            obj = json.loads(t)
+        except ValueError:
+            return t
+        if isinstance(obj, dict) and len(obj) == 1:
+            v = next(iter(obj.values()))
+            return v if isinstance(v, str) else json.dumps(v)
+    return t
 
 
 def _sub(text, ctx):
@@ -116,7 +164,51 @@ def act_shell(spec, ctx):
     r = subprocess.run(command, shell=True, capture_output=True, text=True)
     ok = r.returncode == 0
     detail = (r.stdout.strip() or r.stderr.strip() or f"exit={r.returncode}")
+    # A shell step *does* something (quit the app, relink the db, sleep) -- there's no value to
+    # echo on a pass, and nothing was asserted, so a failure just reports what came back.
     return StepResult(ok, detail)
+
+
+APP_PROCESS_PATTERN = "TimeFlip.app/Contents/MacOS/TimeFlip"
+
+
+def app_running():
+    r = subprocess.run(["pgrep", "-f", APP_PROCESS_PATTERN], capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def act_quit_app(spec, ctx):
+    """Quit the app and wait until its process is really gone.
+
+    `osascript -e 'tell application "TimeFlip" to quit'` returns once the app *acknowledges* the
+    quit event, which is not the same as having exited -- and with `pause_on_lock` on, the app
+    pauses and locks the device over BLE in `applicationWillTerminate` before it terminates. A step
+    that quit and immediately relaunched could therefore start a second instance on top of the
+    first (the failure session_setup._quit_app was written to prevent, for the end-of-run restore
+    path only). Polling for the process to disappear closes that for every checklist quit, and
+    surfaces a quit that never completes (a modal dialog holding it open) as a step failure rather
+    than as mysterious behaviour two steps later.
+
+    Quitting an app that isn't running is NOT a no-op in AppleScript -- it can launch the app to
+    deliver the event -- so a process that isn't there is reported as already gone instead."""
+    if not app_running():
+        return StepResult(True, "already not running")
+    r = subprocess.run(["osascript", "-e", 'tell application "TimeFlip" to quit'],
+                       capture_output=True, text=True)
+    timeout = spec.get("timeout_seconds", 30)
+    interval = spec.get("poll_interval", 0.5)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not app_running():
+            return StepResult(True, "quit, process gone")
+        time.sleep(interval)
+    stderr = r.stderr.strip()
+    return StepResult(
+        False,
+        f"app still running {timeout}s after the quit was sent" + (f": {stderr}" if stderr else ""),
+        expected="the app's process to exit",
+        actual=f"still running (after waiting {timeout}s)" + (f" -- osascript said: {stderr}" if stderr else ""),
+    )
 
 
 def _run_osascript_with_retry(script, retries=2, retry_delay=0.6):
@@ -135,23 +227,50 @@ def _run_osascript_with_retry(script, retries=2, retry_delay=0.6):
 
 
 def act_applescript(spec, ctx):
+    """Run an AppleScript against the app, retrying until it works or `timeout_seconds` elapses.
+
+    The retry matters because these scripts read/click a window that may not be there *yet*: a
+    Settings window opened by the click before takes a moment to exist, and a script addressing it
+    a beat too early fails outright. Steps used to paper over that with a fixed `sleep 1` in front,
+    which is both slower than necessary when the window is ready and still too short when the
+    machine is busy. Retrying instead means the step continues the moment the element is really
+    there. An `expect`/`expect_contains` mismatch retries too (the value may not have landed yet);
+    a script with neither succeeds as soon as osascript returns cleanly, so a plain click is done
+    on its first try and never repeats."""
     script = _sub(spec["script"], ctx)
-    r = _run_osascript_with_retry(script)
-    ok = r.returncode == 0
-    text = r.stdout.strip() if ok else r.stderr.strip()
-    if ok:
-        expect, expect_contains = _resolve_expect(spec, ctx)
-        if expect is not None:
-            ok = text == str(expect)
-        elif expect_contains is not None:
-            ok = expect_contains in text
-        if ok and "capture" in spec:
-            ctx["vars"][spec["capture"]] = text
-            _remember_capture(spec, ctx, text)
-        if not ok:
-            expected_desc = expect if expect is not None else expect_contains
-            text = f"{text} (expected {expected_desc!r})"
-    return StepResult(ok, text)
+    timeout = spec.get("timeout_seconds", 30)
+    interval = spec.get("poll_interval", 1)
+    deadline = time.time() + timeout
+    while True:
+        r = _run_osascript_with_retry(script)
+        ok = r.returncode == 0
+        text = r.stdout.strip() if ok else r.stderr.strip()
+        expected = None
+        actual = None
+        if ok:
+            expect, expect_contains = _resolve_expect(spec, ctx)
+            if expect is not None:
+                ok = text == str(expect)
+            elif expect_contains is not None:
+                ok = expect_contains in text
+            if ok and "capture" in spec:
+                ctx["vars"][spec["capture"]] = text
+                _remember_capture(spec, ctx, text)
+            if not ok:
+                expected = str(expect) if expect is not None else f"contains {expect_contains}"
+                actual = text or "(nothing)"
+        if ok or time.time() >= deadline:
+            if not ok and expected is not None:
+                actual = f"{actual} (still, after retrying for {timeout}s)"
+                text = f"{text} (expected {expected!r})"
+            break
+        time.sleep(interval)
+    # A script that captures or asserts is reading something (a field's contents, a UI state);
+    # one that just drives the UI isn't. Checked off `spec` rather than the resolved expect vars,
+    # which only exist on the `ok` path.
+    reads = any(k in spec for k in ("capture", "expect", "expect_contains"))
+    return StepResult(ok, text, value=_pretty_value(text) if (ok and reads and text) else None,
+                      expected=expected, actual=actual)
 
 
 def _resolve_expect(spec, ctx):
@@ -180,7 +299,16 @@ def act_sql_query(spec, ctx):
         _remember_capture(spec, ctx, captured)
     expected_desc = expect if expect is not None else expect_contains
     detail = f"query result: {text}" + ("" if ok else f" (expected {expected_desc!r})")
-    return StepResult(ok, detail, captured)
+    # Only a query that actually reads the app's state is a value worth echoing. A constant
+    # `SELECT 'y';` is variable plumbing (it sets a flag a later `when` guard reads), so it
+    # stays silent rather than printing a "y" that says nothing about the device.
+    reads_state = " from " in query.lower()
+    return StepResult(
+        ok, detail, captured,
+        value=_pretty_value(text) if (ok and reads_state) else None,
+        expected=None if ok else (str(expect) if expect is not None else f"contains {expect_contains}"),
+        actual=None if ok else text,
+    )
 
 
 def act_sql_exec(spec, ctx):
@@ -199,17 +327,25 @@ def act_wait_for_sql(spec, ctx):
     query = _sub(spec["query"], ctx)
     expect, expect_contains = _resolve_expect(spec, ctx)
     timeout = spec.get("timeout_seconds", 30)
-    interval = spec.get("poll_interval", 2)
+    # Poll every second by default: the point of a wait is to continue the moment the value
+    # appears, so a coarser cadence only adds dead time to a step that already succeeded. A step
+    # waiting on something that moves on a minutes timescale (a battery reading flapping, a
+    # Bluetooth drop being noticed) sets a slower `poll_interval` itself.
+    interval = spec.get("poll_interval", 1)
     # timeout_seconds = 0 (or negative) means wait *indefinitely* -- for a step gated on a human
     # action (turn Bluetooth off/on, flip the cube) the developer might wander off, and a
     # distraction shouldn't fail the run. It just keeps polling (and re-nudging) until the side
     # effect the step waits on actually shows up. A positive timeout still fails on expiry as before.
     wait_forever = timeout is not None and timeout <= 0
-    # Optional prompt: printed ONLY if the condition isn't already met, right before we start
-    # polling -- i.e. an "action needed" nudge the developer sees exactly when their input is
-    # required (e.g. "start flipping the device"), and never when it's already satisfied.
+    # Optional prompt: an "action needed" nudge the developer sees when their input is required
+    # (e.g. "pair the device", "start flipping"). It is NOT printed the moment the condition is
+    # unmet -- after the app is (re)started it takes a few seconds to connect and log its
+    # `Login accepted`, and alerting instantly meant every relaunch cried "the device hasn't
+    # reconnected" and then passed 2s later. So we poll quietly for a grace period first and only
+    # alert if it still hasn't happened by then. `alert_after_seconds` overrides the 5s default.
     prompt = spec.get("prompt")
     prompt = _sub(prompt, ctx) if prompt else None
+    alert_after = spec.get("alert_after_seconds", ALERT_AFTER_SECONDS)
 
     def matched(text):
         if expect is not None:
@@ -221,24 +357,34 @@ def act_wait_for_sql(spec, ctx):
     rows, cols = _run_sql(ctx["db_path"], query)
     last_text = _format_rows(rows, cols)
     if matched(last_text):
-        return StepResult(True, f"already satisfied: {last_text}")
-    if prompt:
-        print(f"\n>>> ACTION NEEDED: {prompt}")
-    deadline = None if wait_forever else time.time() + timeout
-    last_nudge = time.time()
+        return StepResult(True, f"already satisfied: {last_text}", value=_pretty_value(last_text))
+    started = time.time()
+    deadline = None if wait_forever else started + timeout
+    alerted = False
+    last_nudge = started
     while wait_forever or time.time() < deadline:
         time.sleep(interval)
         rows, cols = _run_sql(ctx["db_path"], query)
         last_text = _format_rows(rows, cols)
         if matched(last_text):
-            return StepResult(True, f"matched after poll: {last_text}")
+            return StepResult(True, f"matched after poll: {last_text}", value=_pretty_value(last_text))
+        # Grace period elapsed and still nothing -- now it's worth a person's attention.
+        if prompt and not alerted and time.time() - started >= alert_after:
+            print_action_required(prompt)
+            alerted = True
+            last_nudge = time.time()
         # On an indefinite wait, re-show the nudge every minute so a developer who stepped away
         # sees it again on return, rather than a lone prompt scrolled off the top.
-        if prompt and wait_forever and time.time() - last_nudge >= 60:
-            print(f">>> STILL WAITING: {prompt}")
+        if prompt and alerted and wait_forever and time.time() - last_nudge >= 60:
+            print_action_required(prompt, title="Still waiting")
             last_nudge = time.time()
-    expected_desc = expect if expect is not None else expect_contains
-    return StepResult(False, f"timed out after {timeout}s waiting for {expected_desc!r}, last saw: {last_text}")
+    expected_desc = str(expect) if expect is not None else f"contains {expect_contains}"
+    return StepResult(
+        False,
+        f"timed out after {timeout}s waiting for {expected_desc!r}, last saw: {last_text}",
+        expected=expected_desc,
+        actual=f"{last_text} (still, after waiting {timeout}s)",
+    )
 
 
 def act_cgevent_click(spec, ctx):
@@ -421,15 +567,17 @@ def act_ask_user(spec, ctx):
     var (for a later `when` guard to read) and the step always succeeds -- 'n' is a valid
     choice, not a failure. Without `capture`, 'n' fails the step as before."""
     prompt = _sub(spec["prompt"], ctx)
-    print(f"\n>>> ACTION NEEDED: {prompt}")
+    print_action_required(prompt)
     while True:
         answer = input(">>> y/n: ").strip().lower()
         if answer in ("y", "n"):
             if "capture" in spec:
                 ctx["vars"][spec["capture"]] = answer
                 _remember_capture(spec, ctx, answer)
-                return StepResult(True, f"user answered {answer}")
-            return StepResult(answer == "y", f"user answered {answer}")
+                return StepResult(True, f"user answered {answer}", value=answer)
+            if answer == "y":
+                return StepResult(True, "user answered y", value="y")
+            return StepResult(False, "user answered n", expected="y", actual="n")
         print(f"Not recognized: {answer!r} -- please answer 'y' or 'n'.")
 
 
@@ -439,14 +587,14 @@ def act_ask_user_or_detect(spec, ctx):
     prompt = _sub(spec["prompt"], ctx)
     query = _sub(spec["detect_query"], ctx)
     timeout = spec.get("timeout_seconds", 120)
-    interval = spec.get("poll_interval", 2)
+    interval = spec.get("poll_interval", 1)  # see act_wait_for_sql
     # timeout_seconds = 0 (or negative) waits indefinitely -- for a physical action (flip the cube)
     # the developer can take as long as they like; a distraction shouldn't fail the run. See the
     # matching note in act_wait_for_sql.
     wait_forever = timeout is not None and timeout <= 0
     rows, cols = _run_sql(ctx["db_path"], query)
     baseline = _format_rows(rows, cols)
-    print(f"\n>>> ACTION NEEDED: {prompt}")
+    print_action_required(prompt)
     print(">>> (auto-detecting via the database -- no need to press Enter)")
     deadline = None if wait_forever else time.time() + timeout
     last_nudge = time.time()
@@ -454,13 +602,19 @@ def act_ask_user_or_detect(spec, ctx):
         rows, cols = _run_sql(ctx["db_path"], query)
         current = _format_rows(rows, cols)
         if current != baseline:
-            return StepResult(True, f"detected change: {baseline} -> {current}")
+            return StepResult(True, f"detected change: {baseline} -> {current}",
+                              value=f"{_pretty_value(baseline)} -> {_pretty_value(current)}")
         time.sleep(interval)
         # Re-nudge an indefinite wait each minute so a developer who stepped away sees it on return.
         if wait_forever and time.time() - last_nudge >= 60:
-            print(f">>> STILL WAITING: {prompt}")
+            print_action_required(prompt, title="Still waiting")
             last_nudge = time.time()
-    return StepResult(False, f"timed out after {timeout}s waiting for a change from {baseline}")
+    return StepResult(
+        False,
+        f"timed out after {timeout}s waiting for a change from {baseline}",
+        expected=f"any change from {baseline}",
+        actual=f"{baseline} (unchanged, after waiting {timeout}s)",
+    )
 
 
 def act_cgevent_click_element(spec, ctx):
@@ -469,7 +623,12 @@ def act_cgevent_click_element(spec, ctx):
     doesn't actuate (the discovered-device pairing row). Reads the element's `position`+`size` via
     System Events, then CGEvent-clicks the middle. `element` is a System Events element reference
     relative to the target `process` (default TimeFlip), e.g.
-    `first static text of group 3 of ... whose name contains "TimeFlip"`."""
+    `first static text of group 3 of ... whose name contains "TimeFlip"`.
+
+    Locating the element retries until it's found or `timeout_seconds` elapses -- the row this
+    clicks often appears a few seconds after the action that produces it (a BLE scan result, a
+    freshly-opened window), so a single early read would fail on something that was about to
+    work. Only the *read* retries; the click happens once, after the element is really there."""
     import Quartz
 
     element = _sub(spec["element"], ctx)
@@ -482,9 +641,21 @@ def act_cgevent_click_element(spec, ctx):
         return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text) & "," & (item 2 of s as text)
     end tell
 end tell'''
-    r = _run_osascript_with_retry(frame_script)
+    timeout = spec.get("timeout_seconds", 30)
+    interval = spec.get("poll_interval", 1)
+    deadline = time.time() + timeout
+    while True:
+        r = _run_osascript_with_retry(frame_script)
+        if r.returncode == 0 or time.time() >= deadline:
+            break
+        time.sleep(interval)
     if r.returncode != 0:
-        return StepResult(False, f"couldn't locate element {element!r}: {r.stderr.strip()}")
+        return StepResult(
+            False,
+            f"couldn't locate element {element!r} within {timeout}s: {r.stderr.strip()}",
+            expected=f"element {element} to exist",
+            actual=f"not found (still, after retrying for {timeout}s)",
+        )
     try:
         x, y, w, h = (float(v) for v in r.stdout.strip().split(","))
     except ValueError:
@@ -503,6 +674,7 @@ end tell'''
 
 ACTIONS = {
     "shell": act_shell,
+    "quit_app": act_quit_app,
     "applescript": act_applescript,
     "sql_query": act_sql_query,
     "sql_exec": act_sql_exec,
@@ -544,6 +716,7 @@ def run_step(spec, ctx):
     checkbox in the .md but two actions here)."""
     if "actions" in spec:
         details = []
+        values = []
         last_captured = None
         for sub in spec["actions"]:
             cond = sub.get("when")
@@ -552,8 +725,15 @@ def run_step(spec, ctx):
                 continue
             r = _run_single(sub, ctx)
             details.append(r.detail)
+            if r.value:
+                values.append(r.value)
             last_captured = r.captured
             if not r.success:
-                return StepResult(False, " | ".join(details))
-        return StepResult(True, " | ".join(details), last_captured)
+                # The failing action's expected/actual is what the reader needs; `detail` still
+                # carries the whole sequence for the log.
+                return StepResult(False, " | ".join(details), expected=r.expected, actual=r.actual)
+        # Every value the sequence read, in order -- a step that only clicks/sleeps contributes
+        # none and so prints a bare "-> PASS".
+        return StepResult(True, " | ".join(details), last_captured,
+                          value=", ".join(values) if values else None)
     return _run_single(spec, ctx)

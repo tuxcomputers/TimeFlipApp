@@ -124,8 +124,8 @@ def ensure_not_timing_on_production(db_path):
 
 
 def _app_running():
-    r = subprocess.run(["pgrep", "-f", "TimeFlip.app/Contents/MacOS/TimeFlip"], capture_output=True, text=True)
-    return r.returncode == 0
+    from actions import app_running  # local import, same reason as in restore_production_database
+    return app_running()
 
 
 # Tags the app logs on a ~10s cadence while a device is connected (battery push + periodic history
@@ -174,19 +174,11 @@ def device_appears_connected(db_path, within_seconds=30, poll_seconds=12, interv
 
 
 def _quit_app(timeout=10):
-    """Sends the AppleScript quit, then polls until the process actually disappears --
-    a fixed sleep trusted the quit silently, so a stuck/ignored quit (a dialog waiting
-    on input, an AppleScript error swallowed by capture_output) would fall through to
-    _launch_app() launching a second instance on top of the still-running first one,
-    instead of surfacing the failure. Returns False (without launching anything) if the
-    process is still there after timeout."""
-    subprocess.run(["osascript", "-e", 'tell application "TimeFlip" to quit'], capture_output=True, text=True)
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not _app_running():
-            return True
-        time.sleep(1)
-    return False
+    """Quit and wait for the process to actually disappear -- see actions.act_quit_app, which is
+    the same behaviour every checklist quit now gets (`Method 3`). Returns False (without
+    launching anything) if the process is still there after timeout."""
+    from actions import act_quit_app  # local import, same reason as in restore_production_database
+    return act_quit_app({"timeout_seconds": timeout}, {}).success
 
 
 def _launch_app(repo_root):

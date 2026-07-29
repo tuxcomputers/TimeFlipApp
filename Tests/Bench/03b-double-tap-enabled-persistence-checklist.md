@@ -22,24 +22,19 @@ The switch to the test database (quit, `use-test-database.sh`, relaunch, confirm
 is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
 repeated here.
 
-- [x] Step 1: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding:
-      `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM
-      setting WHERE setting_name = 'db_type';"`.
+- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding
+`sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM setting WHERE setting_name = 'db_type';"`
 ```toml step
-action = "sql_query"
-query = "SELECT setting_value FROM setting WHERE setting_name='db_type';"
+use = "method-24.a"
+setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [x] Step 2: Open Preferences (status-item menu -> "Settings...") and switch to the Device tab (radio
-      button 1 of the tab picker), then expand the **Double tap** disclosure under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
+- [ ] Step 2: Open Preferences on the Device tab and expand the **Double tap** disclosure.
+Preferences is the status-item menu's "Settings..." item; the Device tab is radio button 1 of the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
-action = "click_menu_item"
+use = "method-6"
 item = "Settings..."
-
-[[actions]]
-action = "shell"
-command = "sleep 1"
 
 [[actions]]
 action = "applescript"
@@ -90,8 +85,8 @@ expect = "true"
 Double tap disclosure expanded -- established in Setup immediately above, which this scenario
 runs straight on from.
 
-- [x] Step 1: Read whether **Disable** is currently checked or not (accessibility `value` of the checkbox),
-      then toggle it to the opposite state. [Method: Number 13](../Methods.md#method-13).
+- [ ] Step 1: Read whether **Disable** is currently checked or not
+(accessibility `value` of the checkbox), then toggle it to the opposite state.  [Method: Number 13](../Methods.md#method-13).
 ```toml step
 [[actions]]
 action = "applescript"
@@ -118,42 +113,36 @@ tell application "System Events"
 end tell'''
 capture = "checkbox_after_toggle"
 ```
-- [x] Step 2: Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if
-      Disable is now checked, `true` if not).
+- [ ] Step 2: Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if Disable is now checked, `true` if not).
 ```toml step
+use = "method-24.f"
 action = "wait_for_sql"
-query = "SELECT json_extract(setting_value, '$.enabled') FROM setting WHERE setting_name='double_tap_settings';"
+setting = "double_tap_settings"
+field = "enabled"
 expect = "$checkbox_before"
-timeout_seconds = 5
+timeout_seconds = 30
 ```
-- [x] Step 3: Quit the app and start it again; confirm reconnect via a fresh `debug_log` `"Login accepted,
-      code=0x02"` row.
+- [ ] Step 3: Quit the app and start it again
+confirm reconnect via a fresh `debug_log` `"Login accepted, code=0x02"` row. Methods: [Number 3](../Methods.md#method-3) to quit, [Number 2](../Methods.md#method-2) to start.
 ```toml step
 [[actions]]
-action = "shell"
-command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+use = "method-3"
 
 [[actions]]
-action = "shell"
-command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+use = "method-2"
 
 [[actions]]
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+use = "method-4"
+since_id = "$current_log_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 4: Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable** still shows the
-      state set above -- read the checkbox's value directly via accessibility, no screenshot
-      needed.
+- [ ] Step 4: Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable**
+still shows the state set above -- read the checkbox's value directly via accessibility, no screenshot needed.
 ```toml step
 [[actions]]
-action = "click_menu_item"
+use = "method-6"
 item = "Settings..."
-
-[[actions]]
-action = "shell"
-command = "sleep 1"
 
 [[actions]]
 action = "applescript"
@@ -187,8 +176,8 @@ tell application "System Events"
 end tell'''
 expect = "$checkbox_after_toggle"
 ```
-- [x] Step 5: Toggle **Disable** back to its original state from the first step, so the session doesn't
-      leave a real setting changed.
+- [ ] Step 5: Toggle **Disable** back to its original state from the first step
+, so the session doesn't leave a real setting changed.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -205,7 +194,7 @@ end tell'''
 action = "wait_for_sql"
 query = "SELECT CASE WHEN json_extract(setting_value, '$.enabled') = (1 - $checkbox_before) THEN 'matches' ELSE json_extract(setting_value, '$.enabled') END FROM setting WHERE setting_name='double_tap_settings';"
 expect = "matches"
-timeout_seconds = 5
+timeout_seconds = 30
 ```
 
 ## Scenario B -- device write is debounced after a param settles, then read back and verified
@@ -222,29 +211,31 @@ Double tap disclosure expanded, **Disable** back to its original state -- the cl
 previous scenario leaves behind (check `double_tap_settings.enabled` directly if running this
 scenario standalone).
 
-- [x] Step 1: Record the current double-tap params (`clickThreshold`/`limit`/`latency`/`window`) from
-      `double_tap_settings` -- captured, so they land in `logs/00-remembered.json` under this
-      scenario and Step 6 (and a later resume) can read the originals back -- then show them to the
-      dev to confirm they match the app's **Double tap** section before the scenario changes them.
+- [ ] Step 1: Record the current double-tap params
+(`clickThreshold`/`limit`/`latency`/`window`) from `double_tap_settings` -- captured, so they land in `logs/00-remembered.json` under this scenario and Step 6 (and a later resume) can read the originals back -- then show them to the dev to confirm they match the app's **Double tap** section before the scenario changes them.
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"
+use = "method-24.f"
+setting = "double_tap_settings"
+field = "clickThreshold"
 capture = "dt_threshold_original"
 
 [[actions]]
-action = "sql_query"
-query = "SELECT json_extract(setting_value, '$.limit') FROM setting WHERE setting_name='double_tap_settings';"
+use = "method-24.f"
+setting = "double_tap_settings"
+field = "limit"
 capture = "dt_limit_original"
 
 [[actions]]
-action = "sql_query"
-query = "SELECT json_extract(setting_value, '$.latency') FROM setting WHERE setting_name='double_tap_settings';"
+use = "method-24.f"
+setting = "double_tap_settings"
+field = "latency"
 capture = "dt_latency_original"
 
 [[actions]]
-action = "sql_query"
-query = "SELECT json_extract(setting_value, '$.window') FROM setting WHERE setting_name='double_tap_settings';"
+use = "method-24.f"
+setting = "double_tap_settings"
+field = "window"
 capture = "dt_window_original"
 
 [[actions]]
@@ -257,13 +248,11 @@ Window:    $dt_window_original
 
 Do all four match what the app shows?'''
 ```
-- [x] Step 2: Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick
-      succession without tabbing away between them: `30`, then immediately `150`, then immediately
-      `200`.
+- [ ] Step 2: Change the threshold field with input
+Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick succession without tabbing away between them: `30`, then immediately `150`, then immediately `200`.
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
+use = "method-24.b"
 capture = "before_ths_id"
 
 [[actions]]
@@ -285,34 +274,34 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [x] Step 3: Query `debug_log` (tag `double-tap`) for rows newer than the noted ID and confirm a `"Params
-      changed: ths=Xm ..."` + `"Params saved to DB: enabled=..."` pair for every intermediate
-      value, ending at `ths=200`.
+- [ ] Step 3: Confirm every intermediate value logged a changed + saved-to-DB pair
+, ending at `ths=200`. In `debug_log` (tag `double-tap`), rows newer than the noted ID: a `"Params changed: ths=Xm ..."` + `"Params saved to DB: enabled=..."` pair per value.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='double-tap' AND message LIKE 'Params changed: ths=200%' AND debug_log_id > $before_ths_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Params changed: ths=200"
-timeout_seconds = 10
+timeout_seconds = 30
 ```
-- [x] Step 4: Confirm `double_tap_settings` already reads `"clickThreshold":200` immediately (before the
-      debounce elapses -- `DeviceWriteDebouncer.defaultDelay`).
+- [ ] Step 4: Confirm `double_tap_settings`
+already reads `"clickThreshold":200` immediately. That is before the debounce elapses (`DeviceWriteDebouncer.defaultDelay`).
 ```toml step
-action = "sql_query"
-query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"
+use = "method-24.f"
+setting = "double_tap_settings"
+field = "clickThreshold"
 expect = "200"
 ```
-- [x] Step 5: Wait about 1.5s, then query `debug_log` again and confirm exactly **one** `"Writing ths=200
-      lim=20 lat=50 win=50"` line (not one per intermediate value), followed by `"Read ths=200
-      lim=20 lat=50 win=50"` and `"Verification confirmed: requested ths=200 ...; actual ths=200
-      ..."`.
+- [ ] Step 5: Wait about 1.5s, then confirm one debounced write
+, read and verification line. In `debug_log`: exactly **one** `"Writing ths=200 lim=20 lat=50 win=50"` (not one per intermediate value), followed by `"Read ths=200 lim=20 lat=50 win=50"` and `"Verification confirmed: requested ths=200 ...; actual ths=200 ..."`
 ```toml step
+use = "method-24.e"
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='double-tap' AND debug_log_id > $before_ths_id ORDER BY debug_log_id DESC LIMIT 1;"
+tag = "double-tap"
+since_id = "$before_ths_id"
 expect_contains = "Verification confirmed: requested ths=200"
-timeout_seconds = 10
+timeout_seconds = 30
 ```
-- [x] Step 6: Restore Threshold to the original value recorded in Step 1 (`$dt_threshold_original`) and
-      confirm `double_tap_settings` reads that `clickThreshold` again.
+- [ ] Step 6: Restore Threshold to the original value recorded in Step 1.
+      That is `$dt_threshold_original`; confirm `double_tap_settings` reads that `clickThreshold` again.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -330,19 +319,15 @@ tell application "System Events"
 end tell'''
 
 [[actions]]
+use = "method-24.f"
 action = "wait_for_sql"
-query = "SELECT json_extract(setting_value, '$.clickThreshold') FROM setting WHERE setting_name='double_tap_settings';"
+setting = "double_tap_settings"
+field = "clickThreshold"
 expect = "$dt_threshold_original"
-timeout_seconds = 5
+timeout_seconds = 30
 ```
-- [x] Step 7: Close the Settings window (opened in Setup) so the next checklist starts with no stray
-      window open. [Method: Number 23](../Methods.md#method-23).
+- [ ] Step 7: Close the Settings window
+(opened in Setup) so the next checklist starts with no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
-action = "applescript"
-script = '''
-tell application "System Events"
-    tell process "TimeFlip"
-        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
-    end tell
-end tell'''
+use = "method-23"
 ```

@@ -18,55 +18,55 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected, unpaired state not applicable here; check the menu bar (lock
 badge) before continuing.
 
-- [x] **(Claude)** Step 1: If the device isn't already locked, click the "Lock" menu item and confirm
-      `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`.
+- [ ] **(Claude)** Step 1: Click the "Lock" menu item
+if the device isn't already locked. Confirm `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`.
 ```toml step
 [[actions]]
-action = "click_menu_item"
+use = "method-6"
 item = "Lock"
 
 [[actions]]
+use = "method-24.d"
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
-timeout_seconds = 10
+timeout_seconds = 30
 ```
-- [x] **(You)** Step 2: Try flipping to whichever of **Break**/**Meeting** the device is *not* already on,
-      while locked (the step reads the current face and names the target below, so it's a real
-      attempted transition); confirm nothing happens (the device itself refuses the flip while
-      locked).
+- [ ] **(You)** Step 2: Flip to whichever of **Break**/**Meeting** it is *not* on.
+The step reads the current face and names the target below, so it's a real attempted transition. confirm nothing happens (the device itself refuses the flip while locked).
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+use = "method-24.c"
+column = "device_event_id"
 capture = "event_id_before_locked_flip"
 
 [[actions]]
-action = "sql_query"
-query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 'Meeting' ELSE 'Break' END;"
+use = "method-24.h"
 capture = "flip_target_name"
 
 [[actions]]
 action = "ask_user"
 prompt = "Flip the cube to the $flip_target_name face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
-- [x] **(Claude)** Step 3: Confirm no new `device_event` row appeared for the attempted flip (query
-      `device_event_id DESC`, latest row unchanged before/after).
+- [ ] **(Claude)** Step 3: Confirm no new `device_event` row appeared
+for the attempted flip (query `device_event_id DESC`, latest row unchanged before/after).
 ```toml step
-action = "sql_query"
-query = "SELECT device_event_id FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+use = "method-24.c"
+column = "device_event_id"
 expect = "$event_id_before_locked_flip"
 ```
-- [x] **(Claude)** Step 4: Click "Unlock" from the menu and confirm `debug_log` shows `"Lock OFF triggered"`
-      / `"...confirmed: requested=OFF actual=OFF"`, returning to a clean unlocked state.
+- [ ] **(Claude)** Step 4: Click "Unlock" from the menu, returning to a clean unlocked state.
+      Confirm `debug_log` shows `"Lock OFF triggered"` / `"...confirmed: requested=OFF
+      actual=OFF"`.
 ```toml step
 [[actions]]
-action = "click_menu_item"
+use = "method-6"
 item = "Unlock"
 
 [[actions]]
+use = "method-24.d"
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' ORDER BY debug_log_id DESC LIMIT 1;"
+tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
-timeout_seconds = 10
+timeout_seconds = 30
 ```

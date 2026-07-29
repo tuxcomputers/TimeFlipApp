@@ -24,10 +24,14 @@ file holds only reusable step-execution techniques.
 `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
 
 <a id="method-2"></a>
-## Method 2: Launch the app for a Claude-driven step
+## Method 2: Launch the app
 
 Invoke the built binary directly (inherits the shell's env vars, needed for debug hooks) --
 `scripts/run.sh` doesn't reliably pass them through.
+```toml method
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+```
 
 <a id="method-3"></a>
 ## Method 3: Quit the app
@@ -35,6 +39,17 @@ Invoke the built binary directly (inherits the shell's env vars, needed for debu
 `osascript -e 'tell application "TimeFlip" to quit'`. Never `pkill`/`kill` for a real test step --
 skips `applicationWillTerminate` (e.g. `pause_on_lock`-on-quit never fires). `pkill` is fine only as
 last-resort cleanup.
+
+**Sending the quit is not the same as the app having exited.** `osascript` returns once the app
+*acknowledges* the event, and with `pause_on_lock` on the app then pauses and locks the device over
+BLE in `applicationWillTerminate` before terminating -- so a step that quits and relaunches can
+start a second instance on top of the first. The runnable form therefore polls until the process is
+really gone (and fails the step if it never goes, e.g. a modal dialog holding the app open). It also
+no-ops when the app isn't running, which a raw `tell ... to quit` does not: AppleScript will *launch*
+the app to deliver the event.
+```toml method
+action = "quit_app"
+```
 
 <a id="method-4"></a>
 ## Method 4: Confirm device reconnect
@@ -44,6 +59,16 @@ user.
 ```
 sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
   "SELECT logged_at, message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
+```
+Runnable form: `since_id` scopes it to a row *this* restart produced -- pass the baseline the step
+captured before quitting (`since_id = "$before_quit_id"`); it defaults to `$current_log_id`, the max
+log id as of the start of this step.
+```toml method
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $since_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+since_id = "$current_log_id"
+timeout_seconds = 30
 ```
 
 <a id="method-5"></a>
@@ -76,6 +101,11 @@ Read names first (`name of every menu item of menu 1`) to check current state. `
 dismisses (Escape), same block. **Never split read and click across two `osascript` calls** -- the
 menu stays open and the next call collides and hangs (~2 min stall, easily misread as an
 Accessibility problem; a real permission denial errors instantly with `-1719`, it doesn't hang).
+The runner does all of that inside one `osascript` call, so a step only names the item:
+```toml method
+action = "click_menu_item"
+item = "$item"
+```
 
 <a id="method-7"></a>
 ## Method 7: Simulate a real click, double-click, or held press via CGEventPost
@@ -172,6 +202,17 @@ contains "TimeFlip"` (skips the "Click a device below to pair with it." header);
 `click radio button <N> of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"`
 (1/2/3 = Device/Facets/Report). A radio button's `title` is always `missing value` -- use
 `description`.
+Pass the tab number as `tab`. The click retries until the Settings window actually exists, so no
+fixed sleep is needed after opening it:
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        click radio button $tab of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+    end tell
+end tell"""
+```
 
 <a id="method-11"></a>
 ## Method 11: Read a label or value via accessibility
@@ -179,6 +220,17 @@ contains "TimeFlip"` (skips the "Click a device below to pair with it." header);
 Read any label/value via accessibility (`static text`/control `value`) -- no screenshot needed. Dump
 `entire contents` of the window to find an element's path; re-derive each time, since indices shift
 with which disclosures are expanded.
+Reading which Settings tab is selected is common enough to share -- `tab` is the radio button
+number, and it returns `1` when that tab is the selected one:
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        return value of radio button $tab of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+    end tell
+end tell"""
+```
 
 <a id="method-12"></a>
 ## Method 12: Edit a text field
@@ -353,7 +405,114 @@ tell application "System Events"
     end tell
 end tell
 ```
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
+    end tell
+end tell"""
+```
 
 A checklist that opens the Settings window closes it again at the end (or whenever the following
 steps no longer need it) so the next checklist starts with no stray window open -- the window
 otherwise persists for the whole run, since each reopen just re-shows the already-open window.
+
+<a id="method-24"></a>
+## Method 24: Query the DB
+
+The reads and writes checklists make over and over, in one place. A step names the variant it wants
+(`Method 24.a`) and supplies the parameter, so `use = "method-24.a"` + `setting = "db_type"` reads
+that setting. Sub-blocks are parameterised where the only difference between call sites is a name --
+one entry per literal query would be twenty near-identical copies of the same `SELECT`.
+
+Every sub-block is a plain `sql_query` (read now, once). A step that needs to *wait* for the value
+adds `action = "wait_for_sql"` plus `expect`/`expect_contains`, which overrides the action while
+keeping the query -- that's how the same SQL serves both an immediate read and a poll.
+
+- **a** -- a setting's raw `setting_value` (`setting`), e.g. `db_type`, `auto_pause_minutes`,
+  `pause_on_lock`, `low_battery_level`.
+- **b** -- the current max `debug_log_id`, the baseline a later step scopes its search to.
+- **c** -- one column of the latest `device_event` row (`column`), by `device_event_id DESC` -- e.g.
+  `paused`, `event_number`, `duration_seconds`. Never `MAX(event_number)`: the device's counter isn't
+  unique across a factory reset (see Method 20).
+- **d** -- the latest `debug_log` message for a tag (`tag`).
+- **e** -- the latest `debug_log` message for a tag (`tag`) newer than a baseline (`since_id`), i.e.
+  a row *this* step or scenario produced rather than a stale one from earlier in the run.
+- **f** -- one JSON field of a setting (`setting`, `field`), e.g. `clickThreshold` of
+  `double_tap_settings`.
+- **g** -- the live battery `level`, flap-robust: the **higher of the two most-frequent** readings,
+  since the device's reported level oscillates by 1-2% between samples.
+- **h** -- the facet the device is *not* currently resting on, as a name (`Break`/`Meeting`) -- what
+  to ask a person to flip to.
+- **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`.
+- **j** -- the latest *real* `battery` row, skipping the `level=nil` placeholder the app logs before
+  the first reading arrives.
+
+```toml method
+[a]
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name='$setting';"
+
+[b]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+
+[c]
+action = "sql_query"
+query = "SELECT $column FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+
+[d]
+action = "sql_query"
+query = "SELECT message FROM debug_log WHERE tag='$tag' ORDER BY debug_log_id DESC LIMIT 1;"
+
+[e]
+action = "sql_query"
+query = "SELECT message FROM debug_log WHERE tag='$tag' AND debug_log_id > $since_id ORDER BY debug_log_id DESC LIMIT 1;"
+since_id = "$current_log_id"
+
+[f]
+action = "sql_query"
+query = "SELECT json_extract(setting_value, '$.$field') FROM setting WHERE setting_name='$setting';"
+
+[g]
+action = "sql_query"
+query = "SELECT bl FROM (SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) AS bl, COUNT(*) AS n FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' GROUP BY bl ORDER BY n DESC LIMIT 2) ORDER BY bl DESC LIMIT 1;"
+
+[h]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 'Meeting' ELSE 'Break' END;"
+
+[i]
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '$value' WHERE setting_name = '$setting';"
+
+[j]
+action = "sql_query"
+query = "SELECT message FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
+```
+
+<a id="method-25"></a>
+## Method 25: Read the status-item menu's item names
+
+What the dropdown currently offers, which is how the device's live state is read from the UI:
+`Lock` vs `Unlock` and `Pause` vs `Resume` are mutually-exclusive labels reflecting it. Opens the
+menu, reads every item name, and dismisses with `key code 53` -- all in one `tell` block, for the
+reason Method 6 gives. A step asserts against the returned comma-separated list, e.g.
+`expect_contains = "Unlock"` to confirm the device reads as locked.
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names"""
+```

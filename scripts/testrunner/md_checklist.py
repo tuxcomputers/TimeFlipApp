@@ -26,7 +26,7 @@ NOTE_RE = re.compile(r"^\s*\((?:Automated|AUTOMATED FAILURE): .*\)\s*$")
 
 _ACTOR_RE = re.compile(r"^\*\*\((?:You|Claude)\)\*\*\s*")
 _STEP_NUM_RE = re.compile(r"^Step\s+\d+:\s*")
-_METHOD_RE = re.compile(r"\s*(?:--\s*)?Method:\s", re.IGNORECASE)
+_METHOD_RE = re.compile(r"\s*(?:--\s*)?Methods?:\s", re.IGNORECASE)  # "Method: X" or "Methods: X, Y"
 _ASIDE_RE = re.compile(r"\s+(?:--|—)\s")  # " -- "/" — " introduces rationale/an aside
 
 
@@ -41,21 +41,11 @@ def _clean_section(text):
     return text.strip()
 
 
-def _strip_trailing_paren(text):
-    """Drop a single trailing parenthetical (an evidence note like "(Confirmed: ...)" or
-    "(event_number=13, ...)"), leaving mid-sentence parens intact."""
-    text = text.rstrip()
-    if not text.endswith(")"):
-        return text
-    depth = 0
-    for k in range(len(text) - 1, -1, -1):
-        if text[k] == ")":
-            depth += 1
-        elif text[k] == "(":
-            depth -= 1
-            if depth == 0:
-                return text[:k].rstrip()
-    return text
+def _balanced(text):
+    """Does this fragment close everything it opens -- parentheses, a `code span`, **bold**, a
+    "quoted log message"? Used to reject a cut that would strand an opener mid-phrase."""
+    return (text.count("(") == text.count(")") and text.count("`") % 2 == 0
+            and text.count("**") % 2 == 0 and text.count('"') % 2 == 0)
 
 
 @dataclass
@@ -70,26 +60,33 @@ class Step:
     full_text: str  # prose joined across wrapped continuation lines (excludes the toml block)
 
     def description(self, maxlen=None):
-        """A human instruction for prompts: actor label and `Step N:` prefix stripped, cut at
-        `Method:` (or the trailing evidence note when there's no Method), wrapped lines
-        collapsed onto one line. Full length by default -- pass `maxlen` to cap it with an
-        ellipsis (callers generally don't; the terminal can take the whole line)."""
-        t = _ACTOR_RE.sub("", self.full_text.strip())
+        """A human instruction for prompts/logs: the step's FIRST line in the .md, with the actor
+        label and `Step N:` prefix stripped and any `Method:` reference cut off. Deliberately the
+        first line only, not `full_text`: by convention that line is the short imperative sentence
+        ("Quit the app.") and the wrapped lines after it are rationale/caveats, which belong in the
+        file for a reader but would bury the instruction in a one-line console/log entry. Full
+        length by default -- pass `maxlen` to cap it with an ellipsis."""
+        t = _ACTOR_RE.sub("", self.prose.strip())
         t = _STEP_NUM_RE.sub("", t)
-        # Drop a trailing evidence parenthetical first (so a " -- " inside that note can't be
-        # mistaken for an aside), then cut at the first Method note or " -- "/" — " aside --
-        # both introduce rationale rather than instruction.
-        t = _strip_trailing_paren(t)
-        cuts = [m.start() for m in (_METHOD_RE.search(t), _ASIDE_RE.search(t)) if m]
-        if cuts:
-            t = t[: min(cuts)]
+        # Cut at the first Method reference or " -- "/" — " aside -- both introduce rationale
+        # rather than instruction -- but only where the cut is *balanced*, since one inside a
+        # parenthetical/code span/quoted message would strand its opener ("...(before the
+        # debounce elapses"). A trailing parenthetical is kept: on a first line it qualifies the
+        # instruction ("(`finalised=0`)", "(call it C)") rather than recording a run's result.
+        cuts = sorted(m.start() for m in _METHOD_RE.finditer(t))
+        cuts += sorted(m.start() for m in _ASIDE_RE.finditer(t))
+        cut = next((c for c in sorted(cuts) if _balanced(t[:c])), None)
+        if cut is not None:
+            t = t[:cut]
         t = " ".join(t.split())
         # Cutting just before a "([Method ...])" / "[Method ...]" reference can strand the
         # link/paren opener that introduced it (e.g. "...reconnects ([" or "...open. ["); drop
         # a trailing run of "(" / "[" and the punctuation leading into it. No-op when the text
         # doesn't end in a stray opener.
         t = re.sub(r"[\s.,;:]*[([]+$", "", t)
-        t = t.rstrip(" .")
+        # The first line is a whole sentence, so its full stop is kept (only stray trailing
+        # whitespace goes) -- unlike the old full_text form, which was cut mid-sentence.
+        t = t.rstrip()
         if maxlen is not None and len(t) > maxlen:
             t = t[: maxlen - 1].rstrip() + "…"
         return t

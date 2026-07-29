@@ -34,7 +34,9 @@ by `Tests/00-test-setup.md`, which the supervisor always runs first -- and the e
 there precisely because this history-refresh checklist is in the run. This step only checks the one
 extra thing Scenario A relies on.
 
-- [x] Step 1: Confirm the latest `device_event` row is open/growing (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on (the device is left resting on one face by the setup's flip step).
+- [ ] Step 1: Confirm the latest `device_event` row is open/growing.
+      (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on (the device
+      is left resting on one face by the setup's flip step).
 ```toml step
 action = "sql_query"
 query = "SELECT finalised FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -46,8 +48,8 @@ expect = "0"
 **Preconditions:** an already-open, actively-growing `device_event` row -- established by Setup
 immediately above, which this scenario runs straight on from.
 
-- [x] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds` (call the
-      latter D0).
+- [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds`
+(call the latter D0).
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -59,8 +61,9 @@ action = "sql_query"
 query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "duration_d0"
 ```
-- [x] Step 2: Wait for at least one periodic refresh interval (`SELECT setting_value FROM setting WHERE
-      setting_name = 'fetch_history_interval_seconds';`) without touching the device.
+- [ ] Step 2: Wait for at least one periodic refresh interval.
+      (`SELECT setting_value FROM setting WHERE setting_name = 'fetch_history_interval_seconds';`)
+      without touching the device.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -71,18 +74,17 @@ capture = "refresh_interval"
 action = "shell"
 command = "sleep 15"
 ```
-- [x] Step 3: Query `debug_log` and confirm a `history` row logged `"history fetch: device
-      max_event_number=<event_number> unchanged; DB refreshed"` -- the cheap-check skip path was
-      taken, not a full stream fetch.
+- [ ] Step 3: Query `debug_log` and confirm a `history` row logged
+`"history fetch: device  max_event_number=<event_number> unchanged; DB refreshed"`  the cheap-check skip path was taken, not a full stream fetch.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-result' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "history fetch: device max_event_number=$event_number_d0 unchanged; DB refreshed"
-timeout_seconds = 15
+timeout_seconds = 30
 ```
-- [x] Step 4: Re-query the same `device_event` row: confirm `event_number` is unchanged but
-      `duration_seconds` increased beyond D0 -- the skip path still refreshes the open row's
-      duration.
+- [ ] Step 4: Re-query the same `device_event` row.
+      Confirm `event_number` is unchanged but `duration_seconds` increased beyond D0 -- the skip
+      path still refreshes the open row's duration.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -93,8 +95,7 @@ expect = "$event_number_d0"
 action = "wait_for_sql"
 query = "SELECT CASE WHEN duration_seconds > $duration_d0 THEN 'increased' ELSE duration_seconds END FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 expect = "increased"
-timeout_seconds = 15
-poll_interval = 3
+timeout_seconds = 30
 ```
 
 ## Scenario B -- quit and relaunch resumes from the position derived from `device_event`
@@ -110,42 +111,38 @@ isn't verifiable this run -- note that plainly and move on rather than forcing i
 the rows after the last point where the counter went *backwards* -- and takes the maximum within
 it. On a database spanning resets the two answers differ.)
 
-- [x] Step 1: Query `device_event` for the current generation's highest `event_number` (call it C) --
-      the value the app derives its resume position from.
+- [ ] Step 1: Query `device_event` for the current generation's highest `event_number`
+(call it C) the value the app derives its resume position from.
 ```toml step
 action = "sql_query"
 query = "WITH ordered AS (SELECT device_event_id, event_number, LAG(event_number) OVER (ORDER BY start_epoch, device_event_id) AS prev FROM device_event) SELECT MAX(event_number) FROM ordered WHERE device_event_id >= COALESCE((SELECT MAX(device_event_id) FROM ordered WHERE prev IS NOT NULL AND event_number < prev), 0);"
 capture = "cursor_c"
 ```
-- [x] Step 2: Quit the app. [Method: Number 3](../Methods.md#method-3).
+- [ ] Step 2: Quit the app.
+[Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
+use = "method-24.b"
 capture = "before_quit_id"
 
 [[actions]]
-action = "shell"
-command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+use = "method-3"
 ```
-- [x] Step 3: Start the app again and confirm reconnect. Methods: [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
+- [ ] Step 3: Start the app again and confirm reconnect.
+      Methods: [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
 ```toml step
 [[actions]]
-action = "shell"
-command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+use = "method-2"
 
 [[actions]]
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Login accepted"
-timeout_seconds = 30
+use = "method-4"
+since_id = "$before_quit_id"
 ```
-- [x] Step 4: Query `debug_log` for the startup fetch's `"history fetch triggered: trigger=startup
-      known_max=<N>"` line and confirm `known_max` equals C -- it resumed from the position derived
-      from `device_event` rather than re-fetching from scratch (which would show `known_max=0`).
+- [ ] Step 4: Query `debug_log` for the startup fetch's
+`"history fetch triggered: trigger=startup known_max=<N>"` line and confirm `known_max` equals C it resumed from the position derived from `device_event` rather than re-fetching from scratch (which would show `known_max=0`).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-start' AND message LIKE 'history fetch triggered: trigger=startup%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"
 expect_contains = "history fetch triggered: trigger=startup known_max=$cursor_c"
-timeout_seconds = 15
+timeout_seconds = 30
 ```

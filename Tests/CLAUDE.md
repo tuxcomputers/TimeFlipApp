@@ -56,6 +56,12 @@ Each folder's own `README.md` describes just that suite.
 - Each step is prefixed `Step N: ` (after any actor label), numbered from 1 and restarting at
   each `## ` section. The runner keys log NOTE lines off these (e.g. `T01b-ScA-St4`); renumber a
   section if you insert/remove a step.
+- A step's **first line** is the short instruction, on its own; rationale, caveats and `Method:`
+  references go on the wrapped lines under it. The runner prints/logs only that first line.
+- A step body used by more than one step lives **once** in `Methods.md`, as a ` ```toml method `
+  fence inside the `## Method N` section documenting it; steps reference it with `use = "method-N"`
+  (or `use = "method-24.b"` for a lettered sub-block) rather than repeating the body. Don't paste a
+  second copy of a launch/quit/query body into a checklist -- add or extend a method.
 
 ## Scenario preconditions
 

@@ -34,68 +34,65 @@ low-battery state -- the clean state the Bench run's own restore leaves behind. 
 query below; if it shows a non-default threshold or `isLowBattery=true` left over from an
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
-- [x] **(Claude)** Step 1: Query the current threshold and the live `battery` `level` (the **higher of the
-      two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device
-      read low), and note both in the logs/00-remembered.json file.
+- [ ] **(Claude)** Step 1: Query the current threshold and the live `battery` `level`
+, and note both.  Take the **higher of the two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device read low. Both go in the logs/00-remembered.json file.
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT setting_value FROM setting WHERE setting_name='low_battery_level';"
+use = "method-24.a"
+setting = "low_battery_level"
 capture = "threshold_original"
 remember = "changed"
 restores = "low_battery_level"
 
 [[actions]]
+use = "method-24.j"
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "level="
-timeout_seconds = 15
+timeout_seconds = 30
 
 [[actions]]
-action = "sql_query"
-query = "SELECT bl FROM (SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) AS bl, COUNT(*) AS n FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' GROUP BY bl ORDER BY n DESC LIMIT 2) ORDER BY bl DESC LIMIT 1;"
+use = "method-24.g"
 capture = "battery_level_a"
 ```
-- [x] **(Claude)** Step 2: Quit the app. [Method: Number 3](../Methods.md#method-3).
+- [ ] **(Claude)** Step 2: Quit the app.
+      [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
+use = "method-24.b"
 capture = "before_quit_id"
 
 [[actions]]
-action = "shell"
-command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+use = "method-3"
 ```
-- [x] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above, so the fresh
-      connection registers as low immediately: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite
-      "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name =
-      'low_battery_level';"`. (Set to 25%.)
+- [ ] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above
+, so the fresh connection registers as low immediately:
+`sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name = 'low_battery_level';"`
 ```toml step
-action = "sql_exec"
-query = "UPDATE setting SET setting_value = '{\"percent\":$battery_level_a}' WHERE setting_name = 'low_battery_level';"
+use = "method-24.i"
+setting = "low_battery_level"
+value = "{\"percent\":$battery_level_a}"
 ```
-- [x] **(Claude)** Step 4: Start the app and confirm it reconnects to the device (fresh `debug_log`
-      `"Login accepted, code=0x02"` row).
+- [ ] **(Claude)** Step 4: Start the app
+[Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device (fresh `debug_log` `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
-action = "shell"
-command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+use = "method-2"
 
 [[actions]]
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+use = "method-4"
+since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] **(Claude)** Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows
-      `isLowBattery=true`, so the visual checks below are being made while the app really is in the
-      low state.
+- [ ] **(Claude)** Step 5: Confirm a `battery` row logged
+after the restart shows `isLowBattery=true` in `debug_log` -- so the visual checks below are made while the app really is in the low state.
 ```toml step
+use = "method-24.e"
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+tag = "battery"
+since_id = "$before_quit_id"
 expect_contains = "isLowBattery=true"
-timeout_seconds = 15
+timeout_seconds = 30
 ```
 
 ## Scenario B -- confirm the flashing and the left-click-skips-the-menu behavior
@@ -104,17 +101,12 @@ timeout_seconds = 15
 (`isLowBattery=true`) -- confirmed by that section's own final query above; re-check it directly
 if running this section standalone rather than straight after.
 
-- [x] **(You)** Step 1: Confirm the activity name (left side of the menu bar item) is blinking red/white.
-- [x] **(Claude)** Step 2: Click the **left side** of the status item (the icon + activity name, not the
-      duration/timer side) via CGEventPost and confirm the low-battery shortcut fired: `debug_log`
-      (`click` tag) logs `Left-click while low battery: opening Settings on the Device tab` (the app
-      opens Settings directly instead of the dropdown menu while the warning is active). Step 3 then
-      confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target
-      `status_item_left`).
+- [ ] **(You)** Step 1: Confirm the activity name is blinking red/white.
+- [ ] **(Claude)** Step 2: Click the **left side** of the status item
+and confirm the low-battery shortcut fired. That is the icon + activity name, not the duration/timer side, clicked via CGEventPost: `debug_log` (`click` tag) logs `Left-click while low battery: opening Settings on the Device tab` (the app opens Settings directly instead of the dropdown menu while the warning is active). Step 3 then confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
+use = "method-24.b"
 capture = "before_left_click_id"
 
 [[actions]]
@@ -126,88 +118,70 @@ mode = "single"
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click while low battery: opening Settings%' AND debug_log_id > $before_left_click_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "opening Settings on the Device tab"
-timeout_seconds = 10
+timeout_seconds = 30
 ```
-- [x] **(Claude)** Step 3: Confirm via accessibility that Settings opened on the Device tab (radio button 1
-      of the tab picker reads `value = 1`) -- the window only exists if the left-click opened Settings, so
-      this doubles as proof it wasn't the dropdown menu.
+- [ ] **(Claude)** Step 3: Confirm that Settings opened on the Device tab
+(radio button 1 of the tab picker reads `value = 1`) -- the window only exists if the left-click opened Settings, so this doubles as proof it wasn't the dropdown menu.
 ```toml step
 [[actions]]
-action = "shell"
-command = "sleep 1"
-
-[[actions]]
-action = "applescript"
-script = '''
-tell application "System Events"
-    tell process "TimeFlip"
-        return value of radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
-    end tell
-end tell'''
+use = "method-11"
+tab = 1
 expect = "1"
 ```
-- [x] **(You)** Step 4: Confirm the "Battery" line on the Device tab -- both the **label** and the
-      percentage value -- is flashing red/default in sync with the menu bar blink.
-
-### Bugs found and fixed - branch 'feature/projects'
-2026-07-22 - The "Settings..." dropdown menu item's blink would freeze permanently after hovering
-on/off it a few times (`NSMenuItem` doesn't reliably repaint an open menu's row after a highlight
-change); a custom-view redraw workaround reduced but didn't eliminate the race. Fixed by dropping
-the blink there entirely -- clicking the left side of the status item while low battery now opens
-Settings directly on the Device tab instead of showing the menu at all.
+- [ ] **(You)** Step 4: Confirm the "Battery" line on the Device tab is flashing red/default.
+      Both the **label** and the percentage value flash, in sync with the menu bar blink.
 
 ## Scenario C -- restore and confirm it all stops
 
 **Preconditions:** still in the low-battery state, both elements still flashing (the previous
 section's own state, unchanged) -- so there's something real to restore and confirm stops.
 
-- [x] **(Claude)** Step 1: Quit the app.
+- [ ] **(Claude)** Step 1: Quit the app.
+[Method: Number 3](../Methods.md#method-3)
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
+use = "method-24.b"
 capture = "before_quit_id"
 
 [[actions]]
-action = "shell"
-command = "osascript -e 'tell application \"TimeFlip\" to quit'"
+use = "method-3"
 ```
-- [x] **(Claude)** Step 2: Restore `low_battery_level` to its original value noted above. (Restored to 5%.)
+- [ ] **(Claude)** Step 2: Restore `low_battery_level` to its original value noted above.
+      (Restored to 5%.)
 ```toml step
-action = "sql_exec"
-query = "UPDATE setting SET setting_value = '$threshold_original' WHERE setting_name = 'low_battery_level';"
+use = "method-24.i"
+setting = "low_battery_level"
+value = "$threshold_original"
 ```
-- [x] **(Claude)** Step 3: Start the app and confirm it reconnects to the device (fresh `debug_log`
-      `"Login accepted, code=0x02"` row).
+- [ ] **(Claude)** Step 3: Start the app
+[Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device (fresh `debug_log` `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
-action = "shell"
-command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+use = "method-2"
 
 [[actions]]
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+use = "method-4"
+since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] **(Claude)** Step 4: Query `debug_log` and confirm a `battery` row now shows `isLowBattery=false`.
+- [ ] **(Claude)** Step 4: Query `debug_log` and confirm a `battery` row now
+shows `isLowBattery=false`
 ```toml step
+use = "method-24.e"
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id ORDER BY debug_log_id DESC LIMIT 1;"
+tag = "battery"
+since_id = "$before_quit_id"
 expect_contains = "isLowBattery=false"
-timeout_seconds = 15
+timeout_seconds = 30
 ```
-- [x] **(You)** Step 5: Confirm the activity name is no longer flashing, and that the Battery line on the
-      Device tab is no longer flashing.
-- [x] **(Claude)** Step 6: Click the **left side** of the status item again via CGEventPost and confirm it
-      now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only
-      applies while the warning is active. `debug_log` (`click` tag) logs `Left-click: opening the
-      dropdown menu` (the non-low branch); an Escape then dismisses the menu it opened so it doesn't
-      block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+- [ ] **(You)** Step 5: Confirm the activity name is no longer flashing
+, and that the Battery line on the Device tab is no longer flashing.
+- [ ] **(Claude)** Step 6: Click the **left side** of the status item again
+ via CGEventPost and confirm it now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only applies while the warning is active. `debug_log` (`click` tag) logs `Left-click: opening the dropdown menu` (the non-low branch); an Escape then dismisses the menu it opened so it doesn't block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
 ```toml step
 [[actions]]
-action = "sql_query"
-query = "SELECT MAX(debug_log_id) FROM debug_log;"
+use = "method-24.b"
 capture = "before_menu_click_id"
 
 [[actions]]
@@ -219,7 +193,7 @@ mode = "single"
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click: opening the dropdown menu%' AND debug_log_id > $before_menu_click_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "opening the dropdown menu"
-timeout_seconds = 10
+timeout_seconds = 30
 
 [[actions]]
 action = "shell"
