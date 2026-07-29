@@ -15,6 +15,7 @@ TEST_DB="$DB_DIR/test.sqlite"
 # arg) starts fresh, the default for a normal run.
 MODE="${1:-fresh}"
 
+
 if [ ! -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
   echo "error: $APPDATA does not exist yet -- launch the app at least once first," \
     "so it can create the symlink and production.sqlite." >&2
@@ -48,7 +49,10 @@ else
   echo "Creating $TEST_DB..."
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   # Same DDL files, same filename-sorted order AppDataStore.runDatabaseDDL() runs at every launch,
-  # with foreign keys enforced during seeding to match the app's own connection.
+  # with foreign keys enforced during seeding to match the app's own connection. The files hold no
+  # live ALTER TABLE (see database/CLAUDE.md: migrations are commented out and run by hand), so
+  # every statement here applies cleanly to an empty database. A live one would fail this script
+  # under `set -e`, which is the right outcome: it breaks that rule.
   for sql_file in "$SCRIPT_DIR"/database/*.sql; do
     { echo "PRAGMA foreign_keys = ON;"; cat "$sql_file"; } | sqlite3 "$TEST_DB"
   done

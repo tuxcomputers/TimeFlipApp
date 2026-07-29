@@ -115,20 +115,26 @@
 
 ## Adding a column to an existing table
 
-- Add the column to the table's `CREATE TABLE IF NOT EXISTS` statement (so a **fresh** database
-  gets it at creation) **and** add a guarded `ALTER TABLE <table> ADD COLUMN <column> ...;`
-  statement in the same file, right after the `CREATE TABLE` (so an **existing** database that
-  predates the column also gets it). See `active` in `007_category.sql` for the pattern.
-- The `ALTER TABLE` must be a single line ending in `;` — `AppDataStore.runDatabaseDDL` matches it
-  with a regex (`skipSatisfiedColumnAdditions`) that only understands that shape, not an arbitrary
-  multi-line statement.
-- Don't guard it with SQL itself — sqlite has no conditional DDL (no `ADD COLUMN IF NOT EXISTS`),
-  and `sqlite3_exec` aborts every remaining statement in a file the moment one fails, so an
-  unconditional `ALTER TABLE` would break that file's seed inserts the instant the column already
-  exists (i.e. on every fresh database, since the `CREATE TABLE` above already added it). Instead,
-  `runDatabaseDDL` checks each such statement against `pragma_table_info` before running the file,
-  and comments out the ones whose column is already present — the file executes the same either
-  way, the guard is just invisible until you look at what actually ran.
-- This repo's databases aren't migrated on a version number yet (see the planned `099`-script +
-  `database_version`-setting feature) — this pattern is the interim way an existing database
-  picks up a schema change without that machinery.
+- Add the column to the table's `CREATE TABLE IF NOT EXISTS` statement, so a **fresh** database
+  gets it at creation.
+- **Write the migration for an existing database as a commented-out `ALTER TABLE`**, directly under
+  that `CREATE TABLE`, and never as a live statement. It is a record of the change, not something
+  the app or any script runs. See `white_lines` in `005_colour.sql` for the shape:
+  ```sql
+  -- Migration (run by hand against a database that predates this column):
+  -- ALTER TABLE colour ADD COLUMN white_lines INTEGER NOT NULL DEFAULT 0 CHECK (white_lines IN (0,1));
+  ```
+- **The developer runs those `ALTER`s by hand** against any existing database, until the automated
+  migration feature exists (the planned `099`-script plus a `database_version` setting). Nothing
+  applies them automatically, so a schema change does not reach an existing database on its own.
+  `scripts/compare-database-to-ddl.sh` reports exactly which ones a database is still missing.
+- Why they cannot be live: sqlite has no conditional DDL (no `ADD COLUMN IF NOT EXISTS`), and a
+  failed statement abandons the rest of the file, taking that table's indexes and seed rows with
+  it. An unconditional `ALTER` therefore breaks every **fresh** database, because the `CREATE TABLE`
+  above has already added the column and sqlite reports `duplicate column name`. That is not
+  hypothetical: it silently emptied `colour` on a fresh database (the app logs the error and carries
+  on, so it self-heals on the second launch) and hard-failed `use-test-database.sh` under `set -e`.
+- `AppDataStore.runDatabaseDDL` still carries `skipSatisfiedColumnAdditions`, which comments out a
+  live `ALTER ... ADD COLUMN` whose column already exists. With this rule in force nothing reaches
+  it, and it cannot help the fresh-database case anyway (it checks the live database, which has no
+  such table yet when the file that creates it runs). Leave it until the migration feature lands.

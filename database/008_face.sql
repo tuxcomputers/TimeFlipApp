@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS face (
   , locked      INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1))
 );
 
-ALTER TABLE face ADD COLUMN locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1));
+-- Migration (run by hand against a database that predates this column, see CLAUDE.md):
+-- ALTER TABLE face ADD COLUMN locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1));
 
 INSERT INTO face (face_id, category_id)
 SELECT 1, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 1);
