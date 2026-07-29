@@ -48,8 +48,7 @@ expect = "0"
 **Preconditions:** an already-open, actively-growing `device_event` row -- established by Setup
 immediately above, which this scenario runs straight on from.
 
-- [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds`
-(call the latter D0).
+- [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds`.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -83,8 +82,8 @@ expect_contains = "history fetch: device max_event_number=$event_number_d0 uncha
 timeout_seconds = 30
 ```
 - [ ] Step 4: Re-query the same `device_event` row.
-      Confirm `event_number` is unchanged but `duration_seconds` increased beyond D0 -- the skip
-      path still refreshes the open row's duration.
+      Confirm `event_number` is unchanged but `duration_seconds` increased -- the skip path still
+      refreshes the open row's duration.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -111,8 +110,8 @@ isn't verifiable this run -- note that plainly and move on rather than forcing i
 the rows after the last point where the counter went *backwards* -- and takes the maximum within
 it. On a database spanning resets the two answers differ.)
 
-- [ ] Step 1: Query `device_event` for the current generation's highest `event_number`
-(call it C) the value the app derives its resume position from.
+- [ ] Step 1: Query `device_event` for the current generation's highest `event_number`.
+That is the value the app derives its resume position from.
 ```toml step
 action = "sql_query"
 query = "WITH ordered AS (SELECT device_event_id, event_number, LAG(event_number) OVER (ORDER BY start_epoch, device_event_id) AS prev FROM device_event) SELECT MAX(event_number) FROM ordered WHERE device_event_id >= COALESCE((SELECT MAX(device_event_id) FROM ordered WHERE prev IS NOT NULL AND event_number < prev), 0);"
@@ -139,7 +138,7 @@ use = "method-4"
 since_id = "$before_quit_id"
 ```
 - [ ] Step 4: Query `debug_log` for the startup fetch's
-`"history fetch triggered: trigger=startup known_max=<N>"` line and confirm `known_max` equals C it resumed from the position derived from `device_event` rather than re-fetching from scratch (which would show `known_max=0`).
+`"history fetch triggered: trigger=startup known_max=<N>"` line and confirm it resumed from the position derived from `device_event` rather than re-fetching from scratch (which would show `known_max=0`).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-start' AND message LIKE 'history fetch triggered: trigger=startup%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"

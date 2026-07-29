@@ -301,7 +301,7 @@ expect_contains = "Verification confirmed: requested ths=200"
 timeout_seconds = 30
 ```
 - [ ] Step 6: Restore Threshold to the original value recorded in Step 1.
-      That is `$dt_threshold_original`; confirm `double_tap_settings` reads that `clickThreshold` again.
+      Confirm `double_tap_settings` reads that `clickThreshold` again.
 ```toml step
 [[actions]]
 action = "applescript"

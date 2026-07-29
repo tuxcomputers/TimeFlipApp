@@ -32,7 +32,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 ```
 - [ ] **(Claude)** Step 2: Note the current max `event_number`
-(call it N), by `device_event_id DESC`, not `MAX(event_number)` -- [Method: Number 20](../Methods.md#method-20). (Re-noted after an unrelated cleanup below:  N=9, facet 2 "Meeting", running/unpaused.)
+By `device_event_id DESC`, not `MAX(event_number)` -- [Method: Number 20](../Methods.md#method-20).
 ```toml step
 [[actions]]
 use = "method-24.c"
@@ -62,8 +62,9 @@ detect_query = "SELECT event_number FROM device_event ORDER BY device_event_id D
 timeout_seconds = 0
 poll_interval = 2
 ```
-- [ ] **(Claude)** Step 5: Confirm a new `device_event` row exists with `event_number` > N.
-      Event N's own row must now be `finalised = 1`, with a `duration_seconds` that stopped growing.
+- [ ] **(Claude)** Step 5: Confirm a new `device_event` row exists with a higher `event_number`.
+      The previously-open row must now be `finalised = 1`, with a `duration_seconds` that stopped
+      growing.
 ```toml step
 [[actions]]
 use = "method-24.c"
@@ -95,8 +96,7 @@ action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Login accepted"
 ```
-- [ ] **(Claude)** Step 2: Note the current max `event_number`
-(call it N).
+- [ ] **(Claude)** Step 2: Note the current max `event_number`.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -134,7 +134,7 @@ timeout_seconds = 0
 poll_interval = 3
 ```
 - [ ] **(Claude)** Step 6: Confirm the disconnected-flip backlog synced on reconnect
-poll until at least **2** new `device_event` rows exist with `event_number` greater than N (the pre-disconnect baseline), i.e. the intermediate flips arrived as their own segments once the connection came back. (No-gap ordering and the final open row matching the resting facet are visual/interpretive -- a gap can be legitimate: a sub-`blip_time` quick pass-over gets merged into the surrounding segment and logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's own filter"`, so confirm any gap is explained that way before treating it as missing data.)
+poll until at least **2** new `device_event` rows exist above the pre-disconnect baseline, i.e. the intermediate flips arrived as their own segments once the connection came back. (No-gap ordering and the final open row matching the resting facet are visual/interpretive -- a gap can be legitimate: a sub-`blip_time` quick pass-over gets merged into the surrounding segment and logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's own filter"`, so confirm any gap is explained that way before treating it as missing data.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT CASE WHEN (SELECT COUNT(DISTINCT event_number) FROM device_event WHERE event_number > $n_before_disconnect) >= 2 THEN 'synced' ELSE 'waiting' END;"

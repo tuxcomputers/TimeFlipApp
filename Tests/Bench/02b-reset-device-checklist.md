@@ -40,8 +40,8 @@ use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Note the device's current event counter as **N**
-(the pre-reset baseline): query `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a `history` fetch's `device_last_event=`. **N** must be > 0 -- `01b`'s Setup backfill should already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` -- use `start_epoch`/`start_time` if a time is needed, or omit entirely and just order by `device_event_id DESC`.)
+- [ ] Step 2: Note the device's current event counter as the pre-reset baseline.
+Query `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a `history` fetch's `device_last_event=`. It must be > 0 -- `01b`'s Setup backfill should already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` -- use `start_epoch`/`start_time` if a time is needed, or omit entirely and just order by `device_event_id DESC`.)
 ```toml step
 use = "method-24.c"
 column = "event_number"
@@ -50,7 +50,7 @@ capture = "n_pre_reset"
 
 ## Scenario A -- factory reset wipes the device's own event counter and ends never-paired
 
-**Preconditions:** test DB active, device paired and connected, pre-reset baseline **N** (> 0)
+**Preconditions:** test DB active, device paired and connected, the pre-reset baseline noted (> 0)
 noted -- all established immediately above in Setup, which this scenario runs straight on from.
 
 - [ ] Step 1: Open Settings (status-item menu -> "Settings...")
@@ -200,7 +200,7 @@ end tell'''
 expect = "Connected"
 ```
 - [ ] Step 9: Confirm the device's own event counter was wiped by the reset
- the first `history` fetch after re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet), not resuming from the pre-reset baseline **N**. (`MAX(event_number)` in the local `device_event` table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence. This must run **after** the re-pair, not before: the app stops history fetches while forgotten (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a *real* post-reset event with the device's own low numbering needs a physical flip -- that's the Interactive counterpart.)
+ the first `history` fetch after re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet), not resuming from the pre-reset baseline. (`MAX(event_number)` in the local `device_event` table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence. This must run **after** the re-pair, not before: the app stops history fetches while forgotten (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a *real* post-reset event with the device's own low numbering needs a physical flip -- that's the Interactive counterpart.)
 ```toml step
 use = "method-24.e"
 action = "wait_for_sql"
