@@ -160,13 +160,24 @@ def _format_rows(rows, cols):
 
 
 def act_shell(spec, ctx):
+    """Run a shell command. A shell step *does* something (relink the db, sleep), so there's no
+    value to echo on a pass and nothing was asserted to compare on a failure.
+
+    A failure reports the exit code and **stderr**, then stdout. Preferring stdout (the old
+    behaviour) hid the actual error whenever a script printed progress before dying: a DDL error
+    that took `use-test-database.sh` down was logged as nothing but the script's own "Creating
+    test.sqlite..." chatter, which says only where it got to, not what went wrong."""
     command = _sub(spec["command"], ctx)
     r = subprocess.run(command, shell=True, capture_output=True, text=True)
-    ok = r.returncode == 0
-    detail = (r.stdout.strip() or r.stderr.strip() or f"exit={r.returncode}")
-    # A shell step *does* something (quit the app, relink the db, sleep) -- there's no value to
-    # echo on a pass, and nothing was asserted, so a failure just reports what came back.
-    return StepResult(ok, detail)
+    out, err = r.stdout.strip(), r.stderr.strip()
+    if r.returncode == 0:
+        return StepResult(True, out or "exit=0")
+    parts = [f"exit={r.returncode}"]
+    if err:
+        parts.append(err)
+    if out:
+        parts.append(f"(stdout before it failed: {out})")
+    return StepResult(False, " | ".join(parts))
 
 
 APP_PROCESS_PATTERN = "TimeFlip.app/Contents/MacOS/TimeFlip"

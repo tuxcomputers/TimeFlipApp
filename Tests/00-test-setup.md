@@ -27,7 +27,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [x] Step 1: Check which database is active and decide whether to record production history.
+- [ ] Step 1: Check which database is active and decide whether to record production history.
 On production, record it. Otherwise ask whether to switch to production and record first, or skip straight to the test DB. On a resume (`resume = y`) skip this decision entirely -- we're continuing on the existing test DB and must not round-trip to production. Sets `record_history` (`y`/`n`) that steps 2--7 read, and `want_switch` (`y` only in the not-on-production + chose-to-switch case).
 ```toml step
 [[actions]]
@@ -69,21 +69,21 @@ when = '$want_prompt == y'
 query = "SELECT '$want_switch';"
 capture = "record_history"
 ```
-- [x] Step 2: Switch to the production database so the history fetch below runs against it.
+- [ ] Step 2: Switch to the production database so the history fetch below runs against it.
 Only when Step 1 chose to switch (`want_switch = y`); relinks the `appdata.sqlite` symlink at `production.sqlite` (the running app keeps the old file open until the restart in Step 4 picks this up).
 ```toml step
 when = '$want_switch == y'
 action = "shell"
 command = "scripts/use-production-database.sh"
 ```
-- [x] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below.
+- [ ] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below.
 Skipped (and ticked) when Step 1 chose not to record history.
 ```toml step
 use = "method-24.b"
 when = '$record_history == y'
 capture = "prod_before_id"
 ```
-- [x] Step 4: Restart the app so it does a fresh history fetch against production
+- [ ] Step 4: Restart the app so it does a fresh history fetch against production
 -- this makes sure all real device history is recorded to production.sqlite before we switch away from it (the end-of-run factory reset later wipes the device's own counter). The quit only fires if the app is actually running, so this also just *starts* it when it was shut down. Skipped when not recording history. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
 ```toml step
 when = '$record_history == y'
@@ -94,7 +94,7 @@ use = "method-3"
 [[actions]]
 use = "method-2"
 ```
-- [x] Step 5: Confirm the app reconnected to the device against production
+- [ ] Step 5: Confirm the app reconnected to the device against production
 (a fresh `Login accepted` after the restart above). If it doesn't reconnect, the device is likely not paired / off / out of range -- the prompt says how to fix it, then this keeps waiting. Skipped when not recording history.
 ```toml step
 use = "method-4"
@@ -104,7 +104,7 @@ expect_contains = "Login accepted"
 prompt = "The device hasn't reconnected. Pair it (Device tab -> Scan for Devices -> click the device), or power it on / bring it in range."
 timeout_seconds = 120
 ```
-- [x] Step 6: Confirm that forced production history fetch actually completed
+- [ ] Step 6: Confirm that forced production history fetch actually completed
 (`history fetch complete: trigger=startup`), so real history is fully synced before the switch. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
@@ -113,7 +113,7 @@ query = "SELECT message FROM debug_log WHERE tag='hist-done' AND message = 'hist
 expect_contains = "history fetch complete: trigger=startup"
 timeout_seconds = 60
 ```
-- [x] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity**
+- [ ] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity**
 before the destructive switch/reset -- the latest event must be a pause (or there are no events yet), never an open timing segment. This gate runs whenever we're recording production history, so it also catches the case where Step 2 just switched onto production. Fails (aborting the run) if the device is timing -- pause it and re-run. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
