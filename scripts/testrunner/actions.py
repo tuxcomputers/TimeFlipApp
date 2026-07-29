@@ -78,14 +78,20 @@ ACTION_BANNER_WIDTH = 70
 ALERT_AFTER_SECONDS = 5
 
 
-def print_action_required(message, title="Action required"):
-    """Announce that the run has stopped and needs a person, as a centred starred box. A run
-    scrolls a long way on its own, and the nudge that actually needs a human has to be findable
-    at a glance rather than reading as one more result line."""
+def print_action_banner(title="Action required"):
+    """The centred starred box announcing that the run needs a person. A run scrolls a long way on
+    its own, so the point where it is waiting has to be findable at a glance rather than reading as
+    one more result line. Printed on its own so a caller can put the step's own text inside the
+    box's shadow, above the nudge (see supervisor's human-verified step)."""
     bar = "*" * ACTION_BANNER_WIDTH
     print(bar)
     print(f"*{title.center(ACTION_BANNER_WIDTH - 2)}*")
     print(bar)
+
+
+def print_action_required(message, title="Action required"):
+    """The banner plus the nudge itself."""
+    print_action_banner(title)
     print(f">>> ACTION NEEDED: {message}")
 
 
@@ -372,23 +378,18 @@ def act_wait_for_sql(spec, ctx):
     started = time.time()
     deadline = None if wait_forever else started + timeout
     alerted = False
-    last_nudge = started
     while wait_forever or time.time() < deadline:
         time.sleep(interval)
         rows, cols = _run_sql(ctx["db_path"], query)
         last_text = _format_rows(rows, cols)
         if matched(last_text):
             return StepResult(True, f"matched after poll: {last_text}", value=_pretty_value(last_text))
-        # Grace period elapsed and still nothing -- now it's worth a person's attention.
+        # Grace period elapsed and still nothing -- now it's worth a person's attention. Said
+        # once, not repeated: a wait can run for minutes (an indefinite one until the developer
+        # acts), and re-printing the banner would just push the step it asks about off the screen.
         if prompt and not alerted and time.time() - started >= alert_after:
             print_action_required(prompt)
             alerted = True
-            last_nudge = time.time()
-        # On an indefinite wait, re-show the nudge every minute so a developer who stepped away
-        # sees it again on return, rather than a lone prompt scrolled off the top.
-        if prompt and alerted and wait_forever and time.time() - last_nudge >= 60:
-            print_action_required(prompt, title="Still waiting")
-            last_nudge = time.time()
     expected_desc = str(expect) if expect is not None else f"contains {expect_contains}"
     return StepResult(
         False,
@@ -608,7 +609,6 @@ def act_ask_user_or_detect(spec, ctx):
     print_action_required(prompt)
     print(">>> (auto-detecting via the database -- no need to press Enter)")
     deadline = None if wait_forever else time.time() + timeout
-    last_nudge = time.time()
     while wait_forever or time.time() < deadline:
         rows, cols = _run_sql(ctx["db_path"], query)
         current = _format_rows(rows, cols)
@@ -616,10 +616,6 @@ def act_ask_user_or_detect(spec, ctx):
             return StepResult(True, f"detected change: {baseline} -> {current}",
                               value=f"{_pretty_value(baseline)} -> {_pretty_value(current)}")
         time.sleep(interval)
-        # Re-nudge an indefinite wait each minute so a developer who stepped away sees it on return.
-        if wait_forever and time.time() - last_nudge >= 60:
-            print_action_required(prompt, title="Still waiting")
-            last_nudge = time.time()
     return StepResult(
         False,
         f"timed out after {timeout}s waiting for a change from {baseline}",

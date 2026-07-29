@@ -122,7 +122,7 @@ query = "SELECT COALESCE((SELECT CASE WHEN paused = 0 THEN 'TIMING' ELSE 'ok' EN
 expect = "ok"
 ```
 - [ ] Step 8: Switch to the test database
--- quit the app (if running), run `scripts/use-test-database.sh $db_mode`, relaunch. On a fresh run (`db_mode = fresh`) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
+-- quit the app (if running), run `scripts/use-test-database.sh $db_mode`, relaunch. On a fresh run (`db_mode = fresh`) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). A fresh `test.sqlite` also gets production's `paired`/`paired_device` rows copied into it, before the relaunch, so the app connects to the device it is already paired to rather than pairing again from scratch: those rows are per-database, and the device's PIN is no longer the factory default once a pairing has rotated it. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
 ```toml step
 [[actions]]
 use = "method-3"
@@ -135,7 +135,7 @@ command = "scripts/use-test-database.sh $db_mode"
 use = "method-2"
 ```
 - [ ] Step 9: Read whether the app is paired to a device
- -- the `paired` setting, written only when a pairing succeeds or the user forgets the device, so it survives the relaunch above and says nothing about whether the device is currently reachable (that's `connection.connected`). Capture `paired_state` (`1` = paired, `0` = not). When it's `0` -- the "test DB + not paired" start state a prior run's end-of-run cleanup reset leaves behind -- Step 10 pairs the device; the connectivity confirm (Step 11) only matters once paired. The short wait just lets the relaunched app settle before the read.
+ -- the `paired` setting, written only when a pairing succeeds or the user forgets the device, so it survives the relaunch above and says nothing about whether the device is currently reachable (that's `connection.connected`). Capture `paired_state` (`1` = paired, `0` = not). Normally `1`, since Step 8 copied production's pairing across. It is `0` only when production was not paired either, or after a cleanup reset left the device never-paired -- then Step 10 pairs the device; the connectivity confirm (Step 11) only matters once paired. The short wait just lets the relaunched app settle before the read.
 ```toml step
 [[actions]]
 action = "shell"

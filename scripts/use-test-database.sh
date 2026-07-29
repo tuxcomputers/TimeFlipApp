@@ -57,6 +57,32 @@ else
     { echo "PRAGMA foreign_keys = ON;"; cat "$sql_file"; } | sqlite3 "$TEST_DB"
   done
   sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
+
+  # Carry the pairing across from production. Which device this Mac is paired to (`paired_device`)
+  # and whether it is paired at all (`paired`) are per-database rows, so a freshly seeded
+  # test.sqlite reads as never-paired and the app would have to pair from scratch -- against a
+  # device whose PIN is no longer the factory default, because the earlier production pairing
+  # rotated it. Copying these two rows lets the app simply connect, using the password it already
+  # has (a dev build's config.json PIN, otherwise the Keychain), neither of which lives in the
+  # database. Pairing itself is 02b's subject, not setup's.
+  #
+  # The stored `uuid` does not have to be current: the app finds the device by scanning for its
+  # name or service and connects to that (see TimeFlipBLEDevice.scanAndConnect), which is why
+  # production keeps working with a peripheral id from an earlier pairing.
+  if [ -e "$PRODUCTION" ]; then
+    for setting_name in paired paired_device; do
+      # quote() returns the value as a ready-escaped SQL literal, quotes included, so a device name
+      # containing an apostrophe cannot break the UPDATE below.
+      literal="$(sqlite3 -readonly "$PRODUCTION" \
+        "SELECT quote(setting_value) FROM setting WHERE setting_name = '$setting_name';")"
+      if [ -n "$literal" ]; then
+        sqlite3 "$TEST_DB" \
+          "UPDATE setting SET setting_value = $literal WHERE setting_name = '$setting_name';"
+      fi
+    done
+    echo "Copied the pairing (paired, paired_device) from production.sqlite, so the app connects" \
+      "to the already-paired device instead of pairing again."
+  fi
 fi
 
 rm -f "$APPDATA"

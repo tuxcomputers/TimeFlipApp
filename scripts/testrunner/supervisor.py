@@ -24,9 +24,9 @@ Usage (from repo root, normally via scripts/testrunner/run_tests.sh):
 Each unchecked step with a ```toml step block runs via actions.run_step(); the result
 flips its checkbox and appends an "(Automated: ...)"/"(AUTOMATED FAILURE: ...)" note,
 same convention a human/Claude run already leaves. A step with no such block is
-documentation-only and is skipped, not guessed at. On the first failed step in a
-checklist, that checklist stops (later steps assume the state earlier ones left) --
-subsequent checklists passed on the command line still run.
+documentation-only and is skipped, not guessed at. Any failed step stops the whole run
+(later steps assume the state earlier ones left), leaving the device in the state that
+failed and skipping end-of-run cleanup so it can be inspected.
 
 Every run writes a full transcript to logs/YYYY-MM-DD_hh.mm.ss.txt regardless of
 outcome, and exits non-zero if anything failed or was skipped -- for CI/scripts to
@@ -45,7 +45,7 @@ from md_checklist import Checklist  # noqa: E402
 from methods import load_methods, methods_path, resolve_uses  # noqa: E402
 from actions import (  # noqa: E402
     condition_met,
-    print_action_required,
+    print_action_banner,
     resolve_missing_vars_from_remembered,
     run_step,
 )
@@ -136,9 +136,9 @@ class _TeeLog(list):
 
 
 class _RunHalted(Exception):
-    """Raised to end the whole run immediately (not just the current checklist) -- used by -sf
-    when a step fails, so a mis-run can be investigated before it cascades into later
-    steps/checklists. Carries a short reason for the log/console."""
+    """Raised to end the whole run immediately (not just the current checklist) whenever a step
+    fails, so a mis-run can be investigated before it cascades into later steps/checklists.
+    Carries a short reason for the log/console."""
 
 
 def _result_lines(result):
@@ -160,33 +160,21 @@ def _result_lines(result):
     return ["-> FAIL:", f"Expected: {result.expected}", f"Result: {result.actual}"]
 
 
-def _skip_rest_of_scenario(failed_step, checklist, log_lines, skipped_prose):
-    """Skip (don't run, leave unticked) every remaining step in the failed step's scenario. Later
-    steps in a scenario assume the earlier ones passed -- step 1 relies on the scenario's
-    preconditions, step 25 on steps 1-24 -- so once one fails the rest can't be trusted. They're
-    logged as SKIP and left unticked, so a resume restarts the whole scenario from its first step."""
-    for s in checklist.steps:
-        if s.section == failed_step.section and not s.checked and s.prose not in skipped_prose:
-            skipped_prose.add(s.prose)
-            log_lines.append(
-                f"Step {s.number}: SKIP - {s.description()} "
-                f"(scenario '{s.section}' halted by an earlier failure)"
-            )
+def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason):
+    """Unified failure path: the step is logged as failed, left unticked, and the WHOLE RUN stops.
 
-
-def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason, stop_on_failure):
-    """Unified failure path. The step is logged as failed and left unticked, then the REST of its
-    scenario is skipped (see _skip_rest_of_scenario) and the run carries on with the NEXT scenario.
-    Exception: -sf halts the whole run immediately, raising _RunHalted so a mis-run can be
-    investigated before end-of-run cleanup."""
+    Any failure halts, with no way to override it. Later steps lean on what earlier ones
+    established (step 1 on the scenario's preconditions, step 25 on steps 1-24, a later checklist
+    on the state an earlier one left), so carrying on past a failure produces results that cannot
+    be trusted anyway, and it does it while the state that caused the failure is being churned away
+    on the device. Halting leaves that state intact to look at. _RunHalted also skips end-of-run
+    cleanup, so the device is not reset out from under the investigation."""
     checklist.mark(step, False)
     checklist.save()
     skipped_prose.add(step.prose)
     note = _note_id(path, step)
     log_lines.append(f"FAILURE LOGGED: {note} -- {reason}")
-    if stop_on_failure:
-        raise _RunHalted(f"{note}: {reason}")
-    _skip_rest_of_scenario(step, checklist, log_lines, skipped_prose)
+    raise _RunHalted(f"{note}: {reason}")
 
 
 def discover_checklists(repo_root, folder=None, search=None):
@@ -368,7 +356,7 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
 
 
 def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
-                  initial_vars=None, stop_on_failure=False, methods=None):
+                  initial_vars=None, methods=None):
     checklist = Checklist(path)
     methods = methods if methods is not None else {}
     log_lines.append(f"\n=== {_log_path(path)} ===")
@@ -406,7 +394,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
         # imperative sentence -- not the rationale/detail that follows it on the wrapped lines.
         # The log uses the shorter "Step N: STATUS ..." form (section is the sub-heading above).
         desc = step.description()
-        print(f"\n({_display_name(path)}) {actor_tag}{step.section} - Step {step.number}: {desc}")
+        header = f"({_display_name(path)}) {actor_tag}{step.section} - Step {step.number}: {desc}"
 
         # Which scenario this step is in (for recording captures under it), and -- for a resume
         # that skipped earlier scenarios -- fill any $var this step needs that an earlier scenario
@@ -421,17 +409,21 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
             if auto_yes:
                 # --yes/non-interactive: there's no human to ask, and this step needs one
                 # (no toml to automate it) -- record it as a skip rather than block on input.
+                print(f"\n{header}")
                 print("-> SKIP: needs human verification; --yes/non-interactive can't ask.")
                 log_lines.append(f"Step {step.number}: SKIP - {desc} (needs human; --yes)")
                 all_ok = False
                 skipped_prose.add(step.prose)
                 continue
             # No toml to automate this, so a human has to look (e.g. a screenshot / visual
-            # confirmation). Ask -- never silently skip. The question is phrased so Y =
-            # passed/continue. (The switch-to-test setup is done by Tests/00-test-setup.md, so
-            # there are no auto-ticked Setup steps here any more.)
-            print_action_required("Verify the step above against the app/device, then answer below.")
-            passed = prompt_yn(f"{_note_id(path, step)}: Did this check pass?")
+            # confirmation). Ask -- never silently skip. Banner first, then the step, then the
+            # question: the thing being asked about sits inside the box that announced it rather
+            # than above it, so a reader who spots the stars has the step right there. The question
+            # is phrased so Y = passed/continue.
+            print()
+            print_action_banner()
+            print(header)
+            passed = prompt_yn(">>> ACTION NEEDED: Verify the above is true")
             if passed:
                 checklist.mark(step, True)
                 checklist.save()
@@ -440,12 +432,13 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
             log_lines.append(f"Step {step.number}: FAIL - {desc} (human-verified)")
             all_ok = False
             _handle_failure(path, step, checklist, log_lines, skipped_prose,
-                            "human-verified step did not pass", stop_on_failure)
+                            "human-verified step did not pass")
             continue
 
         # Optional `when` guard: a step only applies under some condition on a captured var
         # (e.g. "flip to build history" only `when $start_event_id < 10`). If the guard isn't
         # met the step isn't needed -- tick it and move on without running or asking.
+        print(f"\n{header}")
         cond = spec.get("when")
         if cond is not None and not condition_met(cond, ctx):
             print(f"-> SKIP: not needed (when {cond})")
@@ -491,11 +484,10 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
             checklist.save()
             continue
 
-        # Failed step: log it, skip the rest of its scenario, carry on with the next scenario
-        # (or halt, under -sf).
+        # Failed step: log it and halt the run (see _handle_failure).
         all_ok = False
         _handle_failure(path, step, checklist, log_lines, skipped_prose,
-                        f"step failed: {result.detail}", stop_on_failure)
+                        f"step failed: {result.detail}")
         continue
 
     if not ran_any:
@@ -531,16 +523,7 @@ def main():
         action="store_true",
         help="Skip the interactive confirmation prompt (still prints the warning) -- for CI/non-interactive runs only.",
     )
-    parser.add_argument(
-        "-sf", "--stop-on-failure",
-        action="store_true",
-        help="Stop the whole run on the first failed step. The default instead skips the rest of "
-        "that step's scenario (later steps in a scenario assume the earlier ones passed) and "
-        "carries on with the next scenario. With -sf the run halts for investigation and "
-        "end-of-run cleanup is skipped so the state can be inspected.",
-    )
     args = parser.parse_args()
-    stop_on_failure = args.stop_on_failure
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -658,7 +641,7 @@ def main():
                 overall_ok = False
                 break
             ok = run_checklist(path, db_path, log_lines, args.yes, remembered,
-                               stop_on_failure=stop_on_failure, methods=methods)
+                               methods=methods)
             overall_ok = overall_ok and ok
     except _RunHalted as halt:
         banner = "!" * 70

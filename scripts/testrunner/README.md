@@ -174,13 +174,12 @@ a boxed banner, so the point where the run is waiting on you can't be missed in 
 >>> ACTION NEEDED: Flip the cube to the Break face.
 ```
 
-An indefinite wait re-prints the same banner titled `Still waiting` once a minute, so a
-developer who stepped away sees it again on return.
+The nudge is printed **once**, when the grace period runs out. A wait can last minutes (an
+indefinite one until you act), and repeating the banner would only push the step it is asking
+about off the screen.
 
-`--stop-on-failure` (short: `-sf`) changes what a failed step does: instead of the default
-(skip the rest of that step's **scenario** and carry on with the next scenario -- see
-"Scenarios are the atomic unit" below), the whole run halts for investigation and end-of-run
-cleanup is skipped, so you can inspect the state.
+**Any failure stops the run** (see "Failure handling and logs" below). There is no flag for it and
+no way to carry on.
 
 Between every step (whatever the mode) the runner pauses `STEP_PAUSE_SECONDS` (2s) -- a beat
 for the app/device to settle before the next step, even after a step that already waited on
@@ -419,13 +418,17 @@ guard, or a human step under `--yes`). Captured values are **not** logged here -
 
 ## Failure handling and logs
 
-**Scenarios are the atomic unit.** On a step's failure, the rest of that step's **scenario** is
-skipped -- later steps in a scenario assume the earlier ones passed, so once one fails the rest
-can't be trusted. Each skipped step is logged `SKIP - ... (scenario '<name>' halted by an earlier
-failure)` and left unticked, so a later `s` resume restarts the whole scenario. The run then
-carries on with the **next scenario** (whose own preconditions step re-establishes what it needs),
-and with the other checklists passed on the command line. `-sf`/`--stop-on-failure` overrides this
-and halts the whole run at the first failure instead.
+**A failed step stops the whole run.** Not just the scenario, and not just the checklist: nothing
+after it runs, in any checklist. Later steps lean on what earlier ones established (step 1 on the
+scenario's preconditions, step 25 on steps 1-24, a later checklist on the state an earlier one
+left), so carrying on past a failure produces results that can't be trusted anyway, and it does it
+while churning away the device state that caused the failure. Halting leaves that state intact.
+
+The failed step is logged `FAILURE LOGGED` and left unticked, as is everything after it, so a
+resume picks up from the failure. End-of-run cleanup (the device factory reset, the switch back to
+production) is deliberately **skipped** on a halt, so the device is not reset out from under the
+investigation -- the run says so, and reminds you that you are probably still on the test database.
+Exit code is 2.
 
 Before each feature checklist the runner also checks the device is actually connected (a
 recent heartbeat -- `battery`/`hist-*` rows land every ~10s while connected; see
