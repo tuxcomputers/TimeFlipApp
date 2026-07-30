@@ -444,6 +444,18 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 
+    /// The device's own clock (command 0x07), which drifts from the host's until `initializeSession`
+    /// syncs it -- `setDeviceTime` is what moves it in a test.
+    ///
+    /// Returns `nil` when not logged in, matching `TimeFlipBLEDevice.readDeviceTime`: the real device
+    /// won't answer a command from an unauthenticated session, and a caller that treats a `nil` here
+    /// as "clock at zero" rather than "not logged in yet" is a bug worth catching in a test.
+    func readDeviceTime() async -> Date? {
+        await waitForRadio(configuration.latency.read)
+        guard isLoggedIn else { return nil }
+        return deviceTime()
+    }
+
     func pair() {
         guard !isPaired else { return }
         isPaired = true

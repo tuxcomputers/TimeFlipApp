@@ -51,7 +51,7 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 `peripheral`, `handleMainDisconnect`, `scheduleTimeout`, `cancelTimeout`, `hexString`, `withLock`,
 `test` are CoreBluetooth plumbing, not device capabilities.
 
-- [ ] `readDeviceTime() async -> Date?`
+- [x] `readDeviceTime() async -> Date?`
 - [ ] `rotateDevicePassword() async -> String?`
 - [ ] `resetDevicePasswordToDefault() async -> Bool` (password reset, *not* factory reset -- drop it if
       the owner reads "except the reset" as covering this too)
