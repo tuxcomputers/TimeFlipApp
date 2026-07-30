@@ -8,10 +8,11 @@ picks up. Design decisions already settled are recorded below so they don't get 
 
 ## Excluded, deliberately
 
-- **Factory reset.** Not being modelled. `factoryReset` isn't on `TimeFlipSessionManaging` at all --
-  only on `TimeFlipBLEDevice` -- so modelling it means widening the protocol, not just adding a mock
-  method. `Bench/02b` therefore stays a device-only checklist. (Its *timing* is now measured, see
-  below; that's separate from modelling it.)
+- ~~**Factory reset.**~~ **Now modelled** (2026-07-31). The protocol was widened as anticipated:
+  `factoryReset` is on `TimeFlipSessionManaging`, and `ApplicationDelegate` calls it through the
+  protocol instead of casting to `TimeFlipBLEDevice`, which is what had made the path unreachable
+  for the mock. Covered by `Workflows/W06-factory-reset.swift`. The reconnect/confirm loop around
+  it stays out of scope -- it's private AppKit-lifecycle code.
 
 **No longer excluded:** the owner released the device on 2026-07-31 ("feel free to use it to check
 timings of reset etc") and is building the event history up deliberately to give the per-record
@@ -30,9 +31,14 @@ figure a real sample. The earlier "no reset, no full-history dump" restriction i
    opt in to `.realistic()`.
 5. **Latency charged before the guards.** A rejected command still costs a round trip on real
    hardware, so the caller waits either way.
-6. **Spreads are provisional.** The centres came from second-resolution `debug_log`, estimated from
-   how often a pair of rows straddled a second boundary -- an aggregate, which gives no spread. The
-   +/-20% widths are assumed, not observed, and flagged as such in the code.
+6. ~~**Spreads are provisional.**~~ **Superseded 2026-07-31**: every figure is now measured directly
+   against a millisecond `debug_log`, min-to-max rather than assumed +/-20%. The old straddle-counting
+   estimate turned out to be wrong by ~3x on the phases that dominate. See the measured table below.
+7. **History frames are quantised, not smoothly distributed.** Gaps land on whole multiples of the
+   BLE connection interval, so `historyFrames` is a `FrameCadence`, not a `DelayRange`. A uniform
+   range cannot produce the observed bursts.
+8. **Fresh links cost about twice settled ones.** Hence `settledWrite` alongside `write`; it is a
+   property of the connection, not of any command.
 
 ## Checklist
 
@@ -47,8 +53,8 @@ Commits so far: `b50f9d5` timing mechanism, `480e637` readDeviceTime, plus the p
 - [x] `waitForRadio` samples a range rather than sleeping a fixed span
 - [x] `SeededGenerator` (SplitMix64) + `delayGenerator` / `sampledDelays` stored properties
 - [x] `Configuration.randomSeed`, fixed by default so runs are reproducible
-- [x] Expose the drawn delays for assertions via `sampledDelays` (no clear helper yet -- add one if a
-      test ever needs to measure a second phase of the same session in isolation)
+- [x] Expose the drawn delays for assertions via `sampledDelays`, plus `clearSampledDelays()` for
+      measuring one phase of a session in isolation (added once the password tests needed it)
 
 ### Functions the real device has and the mock doesn't
 
@@ -74,6 +80,12 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 - [x] Per-record delays are not all identical (the point of the range)
 - [x] `.instant` really is instant, and remains the default; a rejected command still costs a trip
 - [x] A workflow using the new discovery/pairing functions (`Workflows/W05-pairing.swift`)
+- [x] Frame gaps quantise to whole connection intervals, and the modelled mean matches the measured
+      19.4ms
+- [x] Both password operations charge two legs, and a settled-session reset is not billed at
+      fresh-link rates
+- [x] A factory-reset workflow (`Workflows/W06-factory-reset.swift`) plus unit coverage of the
+      reboot window expiring on its own
 
 ### Instrumentation added so the measurement is possible at all (2026-07-31)
 
@@ -201,9 +213,19 @@ comments describe: **two seconds after the reset the cube still accepted the old
 the second reconnect was `123456` rejected and `000000` accepted. Live confirmation that refusing to
 treat an immediate re-login as proof is load-bearing, not defensive coding.
 
-Still not modelled in the mock (`factoryReset` isn't on `TimeFlipSessionManaging`), but the numbers
-are here if it ever is: a ~78ms write, then ~13.5s during which the device is unreachable and
-briefly still honours the old password.
+Now modelled, using exactly these numbers: `Latency.factoryResetReboot` is the 13,544ms window, and
+the mock keeps honouring the pre-reset password for its duration while refusing the default. The
+0xFF write is charged as a `settledWrite` (Forget/Reset run on a settled session), close to the 78ms
+measured.
+
+Two details the modelling forced out that weren't obvious from the measurement alone:
+
+- The counter must restart at **1, not 0**. `streamHistory` treats event number 0 as the
+  end-of-stream sentinel, so a device allocating 0 would terminate its own history stream on its
+  first record. The hardware was observed going nil -> 1 -> 2, agreeing.
+- A rebooted cube is still lying on a face, so it **starts a new segment immediately** -- but that
+  segment isn't an *event* until a flip closes it. That's the source of the familiar post-reset
+  "idle, frozen duration" display: correct behaviour, not a bug.
 
 **Factory reset**, also owner-approved on 2026-07-31 ("the events are not work records"), and it
 **erases the device's event history** -- so it must run after every history measurement, which is

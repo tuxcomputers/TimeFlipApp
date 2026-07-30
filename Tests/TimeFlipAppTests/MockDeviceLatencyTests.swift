@@ -237,6 +237,94 @@ final class MockDeviceLatencyTests: XCTestCase {
                        "measured 115-152ms fresh against 54-79ms settled, roughly 2x; got \(ratio)x")
     }
 
+    // MARK: - Factory reset
+
+    /// The write is charged; the reboot is not, because the real `factoryReset` returns as soon as
+    /// 0xFF lands and never waits for the device to come back.
+    func testFactoryResetChargesTheWriteOnlyNotTheReboot() async {
+        var latency = MockTimeFlipDevice.Latency.instant
+        latency.settledWrite = .milliseconds(10, 10)
+        latency.factoryResetReboot = .milliseconds(5_000, 5_000)
+        let device = makeDevice(latency: latency)
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        device.clearSampledDelays()
+
+        let clock = ContinuousClock()
+        let elapsed = await clock.measure {
+            _ = await device.factoryReset()
+        }
+
+        XCTAssertEqual(device.sampledDelays.map(millis), [10], "just the 0xFF write")
+        XCTAssertLessThan(elapsed, .milliseconds(500), "must not block for the reboot")
+    }
+
+    /// The behaviour the whole model exists for, checked without the force-complete helper so the
+    /// deadline itself is under test: the old password keeps working until the reboot elapses.
+    func testTheOldPasswordKeepsWorkingUntilTheRebootElapses() async {
+        var latency = MockTimeFlipDevice.Latency.instant
+        latency.factoryResetReboot = .milliseconds(200, 200)
+        let device = makeDevice(latency: latency)
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        let rotated = await device.rotateDevicePassword()
+        XCTAssertEqual(rotated, "123456")
+
+        _ = await device.factoryReset()
+
+        let oldDuringReboot = await device.login(password: "123456")
+        XCTAssertTrue(oldDuringReboot, "the pre-reset PIN must still be accepted mid-reboot")
+        let defaultDuringReboot = await device.login(password: TimeFlipConstants.defaultPassword)
+        XCTAssertFalse(defaultDuringReboot, "the default must not work before the wipe lands")
+
+        try? await Task.sleep(for: .milliseconds(300))
+
+        let defaultAfter = await device.login(password: TimeFlipConstants.defaultPassword)
+        XCTAssertTrue(defaultAfter, "once rebooted the device answers to the factory default")
+        let oldAfter = await device.login(password: "123456")
+        XCTAssertFalse(oldAfter, "and no longer to the rotated one")
+    }
+
+    /// Under `.instant` there is no window at all, so a caller that never opts into latency sees a
+    /// reset that simply happened -- no behaviour that only exists when delays are switched on.
+    func testAnInstantResetAppliesImmediately() async {
+        let device = makeDevice(latency: .instant)
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        _ = await device.rotateDevicePassword()
+
+        _ = await device.factoryReset()
+
+        let oldWorks = await device.login(password: "123456")
+        XCTAssertFalse(oldWorks, "no reboot window when everything is instant")
+        XCTAssertFalse(device.isPaired, "a reset ends never-paired")
+    }
+
+    func testAFactoryResetWipesHistoryAndRestartsTheCounter() async {
+        let device = makeDevice(latency: .instant)
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        device.seedHistory(Self.entries(count: 9))
+        XCTAssertNotNil(device.lastEventNumber)
+
+        _ = await device.factoryReset()
+
+        XCTAssertTrue(device.history.isEmpty, "history is erased with everything else")
+        XCTAssertNil(device.lastEventNumber, "and there is no event until a flip closes a segment")
+
+        device.pair()
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        device.flip(to: 4)
+        XCTAssertEqual(device.lastEventNumber, 1, "the counter restarts from the bottom")
+    }
+
+    func testAResetIsRefusedWhenNotLoggedIn() async {
+        var latency = MockTimeFlipDevice.Latency.instant
+        latency.settledWrite = .milliseconds(10, 10)
+        let device = makeDevice(latency: latency)
+
+        let sent = await device.factoryReset()
+
+        XCTAssertFalse(sent, "an unauthenticated session cannot erase the device")
+        XCTAssertEqual(device.sampledDelays.count, 1, "but the command still cost a round trip")
+    }
+
     private static func entries(count: Int) -> [TimeFlipHistoryEntry] {
         (0..<count).map { index in
             let number = UInt32(1000 + index)

@@ -291,7 +291,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             return confirmed
         }
         appState.onFactoryResetRequest = { [weak self] in
-            guard let self, let bleDevice = self.device as? TimeFlipBLEDevice else { return false }
+            // Against the protocol, not `as? TimeFlipBLEDevice`: the cast made this path
+            // unreachable for the mock, so the one flow whose failure mode is "the cube is
+            // unreachable afterwards" was the one flow with no test coverage.
+            guard let self, let device = self.device else { return false }
             // Arm the confirmation window BEFORE sending 0xFF so the disconnect the reset triggers
             // is recognised as "device rebooting" (kept as .resetting) rather than a reconnect
             // failure. The stored password is cleared only once the reset is actually confirmed
@@ -299,7 +302,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self.pendingFactoryResetConfirm = true
             self.factoryResetConfirmDeadline = Date().addingTimeInterval(self.factoryResetConfirmTimeout)
             self.reconnectAttempt = 0
-            let sent = await bleDevice.factoryReset()
+            let sent = await device.factoryReset()
             guard sent else {
                 self.pendingFactoryResetConfirm = false
                 self.factoryResetConfirmDeadline = nil

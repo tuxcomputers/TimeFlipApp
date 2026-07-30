@@ -58,6 +58,15 @@ protocol TimeFlipSessionManaging: TimeFlipDevice {
     func setDoubleTapParameters(_ params: DoubleTapParameters) async
     /// Read accelerometer double-tap parameters (cmd 0x17).
     func readDoubleTapParameters() async -> DoubleTapParameters?
+    /// Erase everything on the device and reboot it (cmd 0xFF).
+    ///
+    /// Returns whether the command was *sent*, not whether the reset happened -- the device
+    /// acknowledges nothing and reboots asynchronously, so the wipe can only be confirmed
+    /// out-of-band by the device reappearing on the factory-default password. On the protocol
+    /// rather than only on `TimeFlipBLEDevice` so the mock can stand in for it; the caller has no
+    /// business knowing which implementation it holds.
+    @discardableResult
+    func factoryReset() async -> Bool
 }
 
 @MainActor
@@ -77,4 +86,9 @@ protocol TimeFlipMockControlling: AnyObject {
     func setDeviceTime(_ date: Date)
     func appendEventLog(_ message: String)
     func snapshot() -> TimeFlipDeviceSnapshot
+    /// Ends a pending factory-reset reboot immediately, applying the wipe.
+    ///
+    /// Lets a test cross the reboot boundary without sleeping through it -- the measured reboot is
+    /// 13.5 seconds, which no test should spend. No-op when no reset is pending.
+    func completeFactoryResetReboot()
 }

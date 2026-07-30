@@ -39,6 +39,8 @@ final class FakeDevice: TimeFlipSessionManaging {
     func setBlinkInterval(seconds: UInt8) async {}
     func setDoubleTapParameters(_ params: DoubleTapParameters) async {}
     func readDoubleTapParameters() async -> DoubleTapParameters? { nil }
+    // Nothing here exercises a reset; MockTimeFlipDevice models it properly and W06 drives it.
+    func factoryReset() async -> Bool { false }
     func refreshDeviceInfo() async {}
     func readElapsedSeconds(faceID: UInt8) async -> TimeInterval? { nil }
     func setPause(_ paused: Bool) async {}

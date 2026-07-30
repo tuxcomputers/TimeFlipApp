@@ -32,6 +32,7 @@ Deliberately close to `Tests/CLAUDE.md`'s rules for the scripted checklists, so 
 | `W03-lock-blocks-flips` | a locked device refuses flips, nothing reaches the DB, the running segment is undisturbed, unlocking restores flips | the app's half of `Interactive/04i` Scenario A, and `Bench/04b` Scenario E's substance |
 | `W04-history-resume` | the cheap skip path when nothing is new; a relaunch re-deriving its position from `device_event` without re-ingesting or skipping | `Bench/01b` Scenarios A and B |
 | `W05-pairing` | scan, pick a result, connect, log in, pair; the PIN rotation that follows and Forget putting the factory default back | the app's half of the pairing flow in `Bench/02b` Setup |
+| `W06-factory-reset` | 0xFF acknowledges nothing; the reboot window where the cube still answers to its **old** PIN and not yet the default; then wipe, counter restart, never-paired | the app's half of `Bench/02b` |
 
 ## What cannot move to CI, and why
 
@@ -58,10 +59,14 @@ checklists are not simply un-migrated backlog:
   workflow drives history ingestion directly and cannot yet assert what the *live* stream does to the
   database. Extracting a `DeviceEventProcessor` would close that gap and is the single highest-value
   change for widening CI coverage.
-- **`Bench/02b`, factory reset.** `factoryReset` isn't on `TimeFlipSessionManaging` at all — only on
-  `TimeFlipBLEDevice` — so the mock cannot be asked to reset. Modelling it (no usable ack, device
-  reboots, old password briefly still accepted, ends never-paired) would make a good workflow, but it
-  means adding behaviour, not just a test.
+- **The confirmation loop around a factory reset.** The reset itself is modelled now and covered by
+  `W06`; this entry previously said it couldn't be, because `factoryReset` lived only on
+  `TimeFlipBLEDevice`. It's on `TimeFlipSessionManaging` now, and `ApplicationDelegate` calls it
+  through the protocol rather than casting, so the mock reaches the same path the hardware does.
+  What still can't move is the retry loop wrapped around it: arming `factoryResetConfirmDeadline`,
+  tearing the session down and driving `scheduleReconnect` all live in private AppKit-lifecycle
+  code. `W06` asserts what the *device* does -- which is what that loop is written against -- and
+  leaves the reconnect behaviour to the checklist.
 
 ## Adding a workflow
 

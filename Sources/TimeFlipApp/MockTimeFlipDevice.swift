@@ -211,6 +211,15 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         /// How records arrive once the stream starts. See `FrameCadence` -- gaps quantise to whole
         /// BLE connection intervals rather than varying smoothly, so this is not a plain range.
         var historyFrames: FrameCadence
+        /// How long the device spends erasing flash and rebooting after a factory reset, during
+        /// which it is unreachable and then briefly still honours its **old** password. Measured
+        /// once at 13,544ms end to end (0xFF sent to the device reappearing on the default), with
+        /// the old PIN still accepted 2s in and rejected by 9s.
+        ///
+        /// One sample, so treated as a single figure rather than a fitted range -- widen it when
+        /// there is more than one reset to average. Three orders of magnitude above every other
+        /// operation here, which is the point: nothing else makes the device vanish for that long.
+        var factoryResetReboot: DelayRange
 
         /// Everything answers immediately. The default, and what every caller got before `Latency`
         /// existed.
@@ -223,7 +232,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             settledWrite: .none,
             read: .none,
             historyRead: .none,
-            historyFrames: .none
+            historyFrames: .none,
+            factoryResetReboot: .none
         )
 
         /// The measured timings, as ranges, multiplied by `scale`. Use a small scale in CI (`0.1`
@@ -249,7 +259,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
                 settledWrite: range(54, 79),
                 read: range(53, 79),
                 historyRead: range(30, 240),
-                historyFrames: .realistic(scale: scale)
+                historyFrames: .realistic(scale: scale),
+                factoryResetReboot: range(13_544, 13_544)
             )
         }
     }
@@ -318,6 +329,20 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     func clearSampledDelays() {
         sampledDelays.removeAll()
     }
+
+    /// A factory reset the device has accepted but not finished applying.
+    ///
+    /// The real device erases flash and reboots asynchronously, and the gap between the two is not
+    /// an implementation detail to smooth over -- it is the behaviour worth modelling. Confirmed on
+    /// hardware 2026-07-31: two seconds after 0xFF the cube **still accepted the old PIN**, and only
+    /// by nine seconds was it rejected and the default accepted.
+    private struct PendingFactoryReset {
+        /// When the reboot finishes and the wipe becomes observable.
+        var completesAt: ContinuousClock.Instant
+        /// The password in force when 0xFF was sent, still honoured until then.
+        var oldPassword: String
+    }
+    private var pendingFactoryReset: PendingFactoryReset?
 
     private var brightnessPercent: UInt8 = 100
     private var blinkIntervalSeconds: UInt8 = 5
@@ -476,6 +501,9 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     func connect() async -> Bool {
         // No transport, but a real connect is scan + connect + service/characteristic discovery.
         await waitForRadio(configuration.latency.connect)
+        // A reconnect is the usual way the app first observes a completed reset: it drops the link
+        // when 0xFF goes out and comes back to find a factory-default device.
+        applyFactoryResetIfDue()
         logger.debug("Mock connect")
         return true
     }
@@ -496,6 +524,23 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     /// re-login inside a password change happens on an already-open link, where it measured 120-123ms
     /// during pairing and 60-61ms on a settled session.
     private func applyLogin(password: String) -> Bool {
+        applyFactoryResetIfDue()
+
+        // Mid-reboot after a factory reset: the device has not applied the wipe yet, so it still
+        // answers to the password it had when 0xFF was sent, and does *not* yet answer to the
+        // default. That asymmetry is what makes gating confirmation on the default password a
+        // correct test -- accepting any successful login here would confirm the reset seconds
+        // before it happened.
+        if let pending = pendingFactoryReset {
+            guard password == pending.oldPassword else {
+                logger.warning("Mock login rejected (device still rebooting after factory reset)")
+                return false
+            }
+            isLoggedIn = true
+            logger.debug("Mock login accepted on the pre-reset password; reboot still in progress")
+            return true
+        }
+
         // Accept only the configured six-character password.
         guard password.count == 6, password == devicePassword else {
             logger.warning("Mock login rejected")
@@ -528,10 +573,12 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func snapshot() -> TimeFlipDeviceSnapshot {
-        stateWithUpdatedDeviceTime()
+        applyFactoryResetIfDue()
+        return stateWithUpdatedDeviceTime()
     }
 
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry] {
+        applyFactoryResetIfDue()
         let entries = fetchHistorySync(startingFrom: eventNumber)
         let latency = configuration.latency
         // The command round trip before any record arrives -- paid even when there is nothing new.
@@ -549,6 +596,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         // The cheap single-event check, which is a characteristic read rather than a stream: it pays
         // `read`, not the stream's command round trip.
         await waitForRadio(configuration.latency.read)
+        applyFactoryResetIfDue()
         return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 
@@ -657,6 +705,89 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         guard applyLogin(password: TimeFlipConstants.defaultPassword) else { return false }
         logger.notice("Mock device password reset to default and confirmed")
         return true
+    }
+
+    /// Erases everything on the device (command 0xFF) and reboots it.
+    ///
+    /// Returns whether the command was **sent**, never whether the reset happened -- matching
+    /// `TimeFlipBLEDevice`, which cannot do better: the device writes no fresh command result for
+    /// 0xFF (the characteristic still holds the *previous* command's response) and then reboots. So
+    /// there is nothing synchronous to confirm against, and the caller must confirm out of band by
+    /// the device reappearing on the factory-default password.
+    ///
+    /// The reboot is deliberately *not* awaited here, because the real one isn't either. What the
+    /// mock reproduces is the window it opens:
+    ///
+    ///  - the 0xFF write is cheap (78ms measured) and unacknowledged
+    ///  - for `latency.factoryResetReboot` afterwards the device still answers to its **old**
+    ///    password and not to the default (measured: old PIN accepted at +2s, rejected by +9s)
+    ///  - only then does the password revert, history clear, the event counter restart and the
+    ///    device return to never-paired
+    ///
+    /// A caller that treats the write, or an immediate re-login, as proof of a wipe will therefore
+    /// fail against this mock exactly as it would against hardware.
+    @discardableResult
+    func factoryReset() async -> Bool {
+        // Charged before the guard: a rejected command still costs a round trip.
+        await waitForRadio(configuration.latency.settledWrite)
+        guard isLoggedIn else { return false }
+
+        let reboot = configuration.latency.factoryResetReboot.sample(using: &delayGenerator)
+        pendingFactoryReset = PendingFactoryReset(
+            completesAt: ContinuousClock().now + reboot,
+            oldPassword: devicePassword
+        )
+        logger.notice("Mock factory reset (0xFF) sent; device rebooting for \(reboot)")
+        // Under `.instant` the window is zero-width, so the wipe is already due and the very next
+        // operation observes it -- no waiting, and no behaviour that only appears with latency on.
+        applyFactoryResetIfDue()
+        return true
+    }
+
+    /// Ends a pending reboot now rather than waiting the measured 13.5 seconds out.
+    func completeFactoryResetReboot() {
+        guard pendingFactoryReset != nil else { return }
+        pendingFactoryReset?.completesAt = ContinuousClock().now
+        applyFactoryResetIfDue()
+    }
+
+    /// Applies a pending wipe once its reboot has elapsed.
+    ///
+    /// Lazy rather than scheduled on a `Task`: a timer would make the moment the state flips
+    /// non-deterministic, and a test asserting "the old PIN still works" would be racing it. Every
+    /// operation that observes device state calls this first, so the wipe lands at a well-defined
+    /// point -- the next thing the caller does after the reboot is up.
+    private func applyFactoryResetIfDue() {
+        guard let pending = pendingFactoryReset, ContinuousClock().now >= pending.completesAt else {
+            return
+        }
+        pendingFactoryReset = nil
+
+        devicePassword = TimeFlipConstants.defaultPassword
+        history = []
+        // Restarts at 1, which is why AppDataStore derives its ingest position from device_event
+        // instead of storing a high-water mark that a reset would strand above the live counter.
+        //
+        // One, not zero, and not merely to match the hardware (observed going nil -> 1 -> 2 after a
+        // real reset): `TimeFlipBLEDevice.streamHistory` treats an event number of 0 as the
+        // end-of-stream sentinel, so a device that allocated 0 would terminate its own history
+        // stream on its first record.
+        nextEventNumber = 1
+        // A rebooted cube is still lying on a face, so it starts timing again straight away -- but
+        // that segment isn't an *event* until a flip closes it. Hence the familiar post-reset
+        // behaviour of the app showing an idle, frozen duration until the cube is first moved:
+        // correct, not a bug. Leaving no session at all would lose the first segment entirely.
+        beginSession(faceID: state.faceID, paused: state.isPaused, at: deviceTime())
+        faceColors = [:]
+        brightnessPercent = 100
+        blinkIntervalSeconds = 5
+        doubleTapParameters = .default
+        // Ends never-paired, not reconnected: the app drops the connection and the reset is
+        // confirmed by a default-password login, which is deliberately not treated as a pairing.
+        isPaired = false
+        isLoggedIn = false
+        notificationsEnabled = false
+        logger.notice("Mock factory reset applied; device is back to factory settings")
     }
 
     /// The device's own clock (command 0x07), which drifts from the host's until `initializeSession`
