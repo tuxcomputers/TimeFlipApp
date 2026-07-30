@@ -250,9 +250,23 @@ end tell"""
 <a id="method-12"></a>
 ## Method 12: Edit a text field
 
-Focus it, `cmd+A`, type the value -- it commits live on every keystroke; `keystroke tab` is optional
-and only moves focus (a `tab` between rapid edits on the same field misdirects the next value
-elsewhere, so omit it for back-to-back edits). `keystroke` always targets the frontmost app
+Focus it, `cmd+A`, type the value -- then **commit it**. Which fields need a commit key differs, and
+getting this wrong fails quietly (see the LED bug in `Bench/06b`'s history):
+
+- The Device tab's **auto-pause** field commits live on every keystroke, so no commit key is needed,
+  and a `tab` between back-to-back edits actively hurts -- it moves focus and the next value lands
+  elsewhere, so omit it for rapid edits on that field.
+- Every **`SteppedNumberField`** -- LED brightness and blink interval, plus the App tab's daily-reset
+  hour, battery-warning level and fetch-history interval -- commits **only** on Return or focus
+  loss, deliberately, so typing `15` isn't clamped to `1` on the way. Typing alone changes nothing:
+  confirmed live, a typed value produced no DB write and no `debug_log` row at all until committed.
+  - `keystroke return` commits and **keeps focus on the field**, so it is the only way to make
+    several rapid edits to one field. Verified live: `10`/`50`/`95` each followed by Return gave
+    three changed+saved pairs and exactly one debounced device write.
+  - `keystroke tab` also commits, but moves focus on -- use it to finish editing a field, never
+    between values.
+
+`keystroke` always targets the frontmost app
 regardless of which process the `tell` addresses -- run `tell application "TimeFlip" to activate`
 before every sequence and confirm with `name of first process whose frontmost is true`. A plain
 `click` on a field doesn't reliably set focus either -- follow with `set focused of e to true` and

@@ -21,14 +21,14 @@ The switch to the test database (quit, `use-test-database.sh`, relaunch, confirm
 is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
 repeated here.
 
-- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
+- [x] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
 before proceeding: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM setting WHERE setting_name = 'db_type';"`
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
+- [x] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
 Preferences is the status-item menu's "Settings..." item; the Device tab is selected by name via the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
@@ -70,8 +70,8 @@ expect = "true"
 disclosure expanded -- established in Setup immediately above, which this scenario runs straight
 on from.
 
-- [ ] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
-      [Method: Number 12](../Methods.md#method-12).
+- [x] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
+      Each value needs a `tab` after it to commit -- a `SteppedNumberField` writes nothing until Return or focus loss, so typing alone leaves the DB untouched. [Method: Number 12](../Methods.md#method-12).
 ```toml step
 action = "applescript"
 script = '''
@@ -84,12 +84,14 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "77"
+        keystroke tab
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             set e2 to text field "Blink Interval"
             set focused of e2 to true
         end tell
         keystroke "a" using command down
         keystroke "42"
+        keystroke tab
     end tell
 end tell'''
 ```
@@ -178,19 +180,22 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "10"
+        keystroke return
         keystroke "a" using command down
         keystroke "50"
+        keystroke return
         keystroke "a" using command down
         keystroke "95"
+        keystroke return
     end tell
 end tell'''
 ```
 - [ ] Step 2: Confirm **each** intermediate brightness value logged a changed + saved pair, in order.
-In `debug_log` (tag `led`), rows newer than the noted ID: a `"Brightness value changed to X%"` + `"Brightness saved to DB: X%"` pair per value.
+In `debug_log` (tag `led-bright`), rows newer than the noted ID: a `"Brightness value changed to X%"` + `"Brightness saved to DB: X%"` pair per value. Asserted as the whole ordered run, not just the final value -- checking only `95` would pass on a sequence that committed once instead of three times, which is exactly what happens without the `return` after each value.
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='led-bright' AND message LIKE 'Brightness value changed to 95%' AND debug_log_id > $before_brightness_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Brightness value changed to 95"
+query = "SELECT group_concat(message, ' | ') FROM (SELECT message FROM debug_log WHERE tag='led-bright' AND (message LIKE 'Brightness value changed%' OR message LIKE 'Brightness saved to DB%') AND debug_log_id > $before_brightness_id ORDER BY debug_log_id);"
+expect_contains = "Brightness value changed to 10% | Brightness saved to DB: 10% | Brightness value changed to 50% | Brightness saved to DB: 50% | Brightness value changed to 95% | Brightness saved to DB: 95%"
 timeout_seconds = 30
 ```
 - [ ] Step 3: Confirm `led_settings` already reads `"brightness":95`
@@ -226,12 +231,21 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "8"
+        keystroke return
         keystroke "a" using command down
         keystroke "25"
+        keystroke return
         keystroke "a" using command down
         keystroke "55"
+        keystroke return
     end tell
 end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT group_concat(message, ' | ') FROM (SELECT message FROM debug_log WHERE tag='led-blink' AND (message LIKE 'Blink interval value changed%' OR message LIKE 'Blink interval saved to DB%') AND debug_log_id > $current_log_id ORDER BY debug_log_id);"
+expect_contains = "Blink interval value changed to 8s | Blink interval saved to DB: 8s | Blink interval value changed to 25s | Blink interval saved to DB: 25s | Blink interval value changed to 55s | Blink interval saved to DB: 55s"
+timeout_seconds = 30
 
 [[actions]]
 use = "method-24.e"
@@ -256,12 +270,14 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "77"
+        keystroke tab
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             set e2 to text field "Blink Interval"
             set focused of e2 to true
         end tell
         keystroke "a" using command down
         keystroke "42"
+        keystroke tab
     end tell
 end tell'''
 
