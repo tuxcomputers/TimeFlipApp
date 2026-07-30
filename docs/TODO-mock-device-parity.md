@@ -8,11 +8,14 @@ picks up. Design decisions already settled are recorded below so they don't get 
 
 ## Excluded, deliberately
 
-- **Factory reset.** Not being modelled (owner's instruction, 2026-07-31). `factoryReset` also isn't on
-  `TimeFlipSessionManaging` at all -- only on `TimeFlipBLEDevice` -- so modelling it means widening the
-  protocol, not just adding a mock method. `Bench/02b` therefore stays a device-only checklist.
-- **Measuring against the real device today.** The owner is using the cube to build up history. No
-  reset, no full-history dump, no driving the app on their screen. Timing measurement waits.
+- **Factory reset.** Not being modelled. `factoryReset` isn't on `TimeFlipSessionManaging` at all --
+  only on `TimeFlipBLEDevice` -- so modelling it means widening the protocol, not just adding a mock
+  method. `Bench/02b` therefore stays a device-only checklist. (Its *timing* is now measured, see
+  below; that's separate from modelling it.)
+
+**No longer excluded:** the owner released the device on 2026-07-31 ("feel free to use it to check
+timings of reset etc") and is building the event history up deliberately to give the per-record
+figure a real sample. The earlier "no reset, no full-history dump" restriction is lifted.
 
 ## Settled design decisions
 
@@ -71,6 +74,28 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 - [x] Per-record delays are not all identical (the point of the range)
 - [x] `.instant` really is instant, and remains the default; a rejected command still costs a trip
 - [x] A workflow using the new discovery/pairing functions (`Workflows/W05-pairing.swift`)
+
+### Instrumentation added so the measurement is possible at all (2026-07-31)
+
+Commits `fdf51e2`, `69c6266`. Three operations had no measurable duration before this, which is why
+they were listed as unmeasured rather than merely imprecise:
+
+- `connect` / `enableNotifications` / `initializeSession` logged only to `os_log`, never to
+  `debug_log`. Now bracketed by the `conn-phase` tag, with `connect` split into radio-power,
+  scan+link and characteristic discovery so a slow connect can be attributed.
+- `resetDevicePasswordToDefault` and `factoryReset` logged only their *completion*, with no start
+  marker anywhere. Both now log a start, and all three password/reset operations self-report their
+  0x30/0xFF write and their confirming re-login separately.
+- History frames had no per-frame timing. The `hist-time` tag reports the command round trip and
+  every inter-frame gap, accumulated in memory and emitted as one row -- a row per frame would
+  insert into SQLite inside the gap being measured.
+
+Spans use `ContinuousClock`, not `Date`: a wall-clock adjustment mid-connect would corrupt them.
+
+Extraction script (scratchpad, promote to `scripts/` if it earns its keep):
+`measure_timings.py [db] [--since ISO8601]`, which reports n/min/p50/max/mean per leg and suggests a
+5th-95th-percentile `DelayRange`. It warns loudly if the DB predates `f20ca37` and has no
+milliseconds, since every figure would silently quantise to whole seconds.
 
 ### Measuring the password-set timing on the real device (tonight)
 
