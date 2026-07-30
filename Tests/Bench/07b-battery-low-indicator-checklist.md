@@ -10,18 +10,30 @@ above that threshold. Requires Developer Mode enabled, the `debug` setting's `en
 and a paired, connected device.
 
 Battery level itself isn't persisted anywhere else in the DB (it's a live BLE reading) -- only the
-threshold is a DB setting, which is what lets this test trigger the blink on demand instead of
-waiting for the real battery to drain or charge. The threshold is only read once at launch, so it
-must be changed while the app is down, not while it's running.
+threshold is a DB setting, which is what lets this file trigger the warning on demand instead of
+waiting for the real battery to drain or charge. These scenarios change it in the DB while the app is
+down, since it's read at launch. (The App tab's battery-warning field does apply a change live, but
+`MenuBarController.setLowBatteryThreshold` clears the latch whenever the threshold moves, so a
+threshold change can never be used to observe the latch's sticky behaviour -- see below.)
 
-**Automated coverage:** the hysteresis/recovery-margin latch is unit-tested in
-`Tests/TimeFlipAppTests/LowBatteryLatchTests.swift`, the red/white blink color selection in
+**Automated coverage:** the hysteresis/recovery-margin latch is unit-tested case-by-case in
+`Tests/TimeFlipAppTests/LowBatteryLatchTests.swift` and as a full mock-device reading *sequence* in
+`LowBatteryMockSequenceTests.swift`, the red/white blink color selection in
 `MenuBarStatusStyleTests.swift`, and the Settings-window blink mirror + forced-Device-tab hint in
 `AppStateDeviceTabTests.swift`
 
-This bench file drives the state transitions and asserts them from `debug_log` (the `isLowBattery`
-latch flipping true/false with the right hysteresis) plus the accessibility-readable forced-Device-tab
-behavior. Confirming the actual *flash rendering* -- the menu-bar text and the Battery line visibly
+**The recovery-margin scenario lives in CI, not here.** Proving the margin rather than the bare
+threshold controls the latch needs the level to climb *above* the threshold while staying inside the
+margin, within one app session. That is impossible on a healthy device: a fresh battery reports a flat
+100% (`maxBatteryLevel`), leaving no headroom to climb into and no second value to flap between, and
+moving the threshold instead wipes the latch as noted above. It ran on hardware only while the test
+battery happened to be part-drained and flapping. It is now
+`LowBatteryMockSequenceTests.testDrainThenFlapThenRecoverAcrossTheThreshold`, which drives the same
+9% -> 10/11% flap -> 15% -> 16% arc through `MockTimeFlipDevice` deterministically on every push.
+
+This bench file drives the state transitions that *are* observable on real hardware at any battery
+level and asserts them from `debug_log` (the `isLowBattery` latch flipping true then false), plus the
+accessibility-readable forced-Device-tab behavior. Confirming the actual *flash rendering* -- the menu-bar text and the Battery line visibly
 blinking over time -- is a genuinely time-based visual check and lives in
 `Tests/Interactive/07i-battery-low-indicator-checklist.md`, run after this one. The "Settings..."
 dropdown menu item no longer flashes (design changed live during a test run -- `NSMenuItem` doesn't
@@ -44,9 +56,9 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Scenario A -- trigger the low-battery state
 
-**Preconditions:** device connected, threshold at its real default (5%), not currently in a
+**Preconditions:** device connected, threshold at its real default (10%), not currently in a
 low-battery state -- check via the query below; if it shows `isLowBattery=true` or a non-default
-threshold left over from an interrupted prior run, restore the threshold to 5% and restart the app
+threshold left over from an interrupted prior run, restore the threshold to 10% and restart the app
 before continuing.
 
 - [ ] Step 1: Capture the live level
@@ -165,126 +177,10 @@ expect_contains = "isLowBattery=false"
 timeout_seconds = 30
 ```
 
-## Scenario C -- confirm the recovery margin, not just the bare threshold, controls the latch
+## Scenario C -- opening Preferences on low battery force-selects the Device tab
 
 **Preconditions:** clean baseline left by the previous section -- threshold restored to its real
-default (5%), `isLowBattery=false` Confirmed by that section's own final query above; re-check it
-directly if running this section standalone rather than straight after.
-
-The battery's live reading naturally flaps by 1-2% even when not actively charging/draining (it
-was observed genuinely slowly draining over the course of this session, 23% down to 21%, then
-stabilizing around 22-23%). This section sets the threshold to a value at/near the live reading so
-the fresh connection is immediately low, then confirms a small flap upward -- still below
-`recoveryAt` (threshold + 5) -- does *not* clear the latch. This is the real hysteresis case the
-"Confirm recovery clears it" section above doesn't exercise, since that one already restored the
-threshold to a value (5%) far enough below the live level that `recoveryAt` was trivially
-satisfied.
-
-- [ ] Step 1: Capture the live level, robust to the 1-2% flap.
-Not the last row's value -- that's whichever of the flapping pair landed most recently (e.g. 18 out of a 17/18 flap), and Step 6 needs the level to rise *above* the threshold, so a threshold set to the *higher* flap value never gets exceeded and Step 6 times out. Instead take the **lower of the two most-frequent** levels (`GROUP BY level ORDER BY count DESC LIMIT 2`, then the smaller) -- that ignores one-off outliers and earlier drift, and setting the threshold there means the natural flap up to the higher value clears it while staying below `recoveryAt`
-```toml step
-[[actions]]
-use = "method-24.j"
-action = "wait_for_sql"
-expect_contains = "level="
-timeout_seconds = 30
-
-[[actions]]
-action = "sql_query"
-query = "SELECT bl FROM (SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) AS bl, COUNT(*) AS n FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' GROUP BY bl ORDER BY n DESC LIMIT 2) ORDER BY bl LIMIT 1;"
-capture = "battery_level_c"
-```
-- [ ] Step 2: Quit the app.
-[Method: Number 3](../Methods.md#method-3)
-```toml step
-[[actions]]
-use = "method-24.b"
-capture = "before_quit_id"
-
-[[actions]]
-use = "method-3"
-```
-- [ ] Step 3: Update the threshold to a value at/near the live reading
-via the same `UPDATE setting ...` command.
-```toml step
-use = "method-24.i"
-setting = "low_battery_level"
-value = "{\"percent\":$battery_level_c}"
-```
-- [ ] Step 4: Start the app and confirm it reconnects to the device.
-[Method: Number 2](../Methods.md#method-2).
-```toml step
-[[actions]]
-use = "method-2"
-
-[[actions]]
-use = "method-4"
-since_id = "$before_quit_id"
-expect_contains = "Login accepted"
-timeout_seconds = 30
-```
-- [ ] Step 5: Query `debug_log` and confirm a `battery` row logged after the restart shows `isLowBattery=true`
-(Note: the threshold is set to the *lower* of the flap pair -- so the latch trips only when the device flaps **down** to that value, not on the first post-restart reading, which is often the higher value and reads `isLowBattery=false` until then. Post-restart battery reports are sparse (a ~2-minute gap between flaps was seen live), so this waits well past the first reading -- a short timeout would give up before the flap-down that latches it.)
-```toml step
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='battery' AND debug_log_id > $before_quit_id AND message LIKE '%isLowBattery=true%' ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "isLowBattery=true"
-timeout_seconds = 180
-poll_interval = 5
-```
-- [ ] Step 6: Poll `debug_log` until a `battery` row reads higher than the threshold.
-      Confirm `isLowBattery` is still `true` on that row, since it remains below `recoveryAt`
-```toml step
-action = "wait_for_sql"
-query = "SELECT CASE WHEN CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) > $battery_level_c AND message LIKE '%isLowBattery=true%' THEN 'flapped_up_still_low' ELSE message END FROM debug_log WHERE tag='battery' ORDER BY debug_log_id DESC LIMIT 1;"
-expect = "flapped_up_still_low"
-timeout_seconds = 300
-poll_interval = 5
-```
-- [ ] Step 7: Quit the app.
-[Method: Number 3](../Methods.md#method-3)
-```toml step
-[[actions]]
-use = "method-24.b"
-capture = "before_quit_id"
-
-[[actions]]
-use = "method-3"
-```
-- [ ] Step 8: Restore the threshold to its original value
-via the same `UPDATE setting ...` command.
-```toml step
-use = "method-24.i"
-setting = "low_battery_level"
-value = "$threshold_original"
-```
-- [ ] Step 9: Start the app
-[Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device.
-```toml step
-[[actions]]
-use = "method-2"
-
-[[actions]]
-use = "method-4"
-since_id = "$before_quit_id"
-expect_contains = "Login accepted"
-timeout_seconds = 30
-```
-- [ ] Step 10: Query `debug_log` and confirm a `battery` row
-logged after the restart shows `isLowBattery=false`
-```toml step
-use = "method-24.e"
-action = "wait_for_sql"
-tag = "battery"
-since_id = "$before_quit_id"
-expect_contains = "isLowBattery=false"
-timeout_seconds = 30
-```
-
-## Scenario D -- opening Preferences on low battery force-selects the Device tab
-
-**Preconditions:** clean baseline left by the previous section -- threshold restored to its real
-default (5%), `isLowBattery=false` Confirmed by that section's own final query above; re-check it
+default (10%), `isLowBattery=false` Confirmed by that section's own final query above; re-check it
 directly if running this section standalone rather than straight after.
 
 Covers the `AppState.pendingSettingsTab` hint: opening Preferences while low-battery is active jumps
@@ -423,7 +319,7 @@ capture = "before_quit_id"
 use = "method-3"
 ```
 - [ ] Step 10: Restore the threshold to its original value.
-      (Restored to 5%.)
+      Whatever Scenario A captured as `$threshold_original`, so the session leaves no real setting changed.
 ```toml step
 use = "method-24.i"
 setting = "low_battery_level"
