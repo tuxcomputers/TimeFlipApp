@@ -41,11 +41,15 @@ final class WorkflowHarness {
     private let databaseURL: URL
     /// The step that broke, if any. Set by `failed(step:)`, read by `requirePreviousStepsPassed()`.
     private var brokenStep: String?
+    /// The single consumer of `device.events`; see `startEventConsumerIfNeeded()`.
+    private var eventConsumer: Task<Void, Never>?
+    /// Every battery reading that consumer has seen, in arrival order.
+    private let batteryReadings = LevelBox()
 
     /// A fixed base time so every expectation is deterministic: nothing here may read the real clock.
     static let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private init(workflow: String) {
+    private init(workflow: String, latency: MockTimeFlipDevice.Latency) {
         self.workflow = workflow
         // A directory per workflow, so two workflows can never see each other's rows. Deliberately
         // not `AppDataStore.testDatabaseURL()`, which is one fixed path shared by every caller --
@@ -59,7 +63,12 @@ final class WorkflowHarness {
 
         self.dataStore = AppDataStore(databaseURL: databaseURL)
         self.device = MockTimeFlipDevice(
-            configuration: .init(initialFaceID: 1, isInitiallyPaired: true, emitInitialStatus: false)
+            configuration: .init(
+                initialFaceID: 1,
+                isInitiallyPaired: true,
+                emitInitialStatus: false,
+                latency: latency
+            )
         )
         self.appState = AppState(
             preferencesStore: InMemoryPreferencesStore(),
@@ -105,9 +114,15 @@ final class WorkflowHarness {
     /// The harness for `workflow`, created on first use. swift-testing builds a fresh suite *instance*
     /// per test, so a stored property could never carry state from one step to the next -- the shared
     /// state has to live here.
-    static func shared(_ workflow: String) -> WorkflowHarness {
+    ///
+    /// `latency` only applies on the call that creates it; later calls return the existing harness
+    /// unchanged, since every step of a workflow has to talk to the same device.
+    static func shared(
+        _ workflow: String,
+        latency: MockTimeFlipDevice.Latency = .instant
+    ) -> WorkflowHarness {
         if let existing = harnesses[workflow] { return existing }
-        let created = WorkflowHarness(workflow: workflow)
+        let created = WorkflowHarness(workflow: workflow, latency: latency)
         harnesses[workflow] = created
         return created
     }
@@ -166,6 +181,63 @@ final class WorkflowHarness {
     /// What the app does on (re)connect before it starts processing live events.
     func ingestHistory(trigger: String) async {
         await ingestor.refreshHistory(trigger: trigger)
+    }
+
+    /// Reports each level in `levels` and returns the battery readings that actually arrived on the
+    /// event stream, giving up after `timeout`.
+    ///
+    /// Two hazards this works around, both of which cost real debugging time:
+    ///
+    ///  - `MockTimeFlipDevice.emit` silently drops everything until the device is paired, logged in
+    ///    **and** notified. A step awaiting a reading it will never receive would *hang* rather than
+    ///    fail, which a CI suite must never do -- hence the bound. Returning what arrived (possibly
+    ///    nothing) lets a caller assert presence or absence.
+    ///  - `device.events` hands back a **cached, single-consumer** `AsyncStream`. Iterating it in one
+    ///    step and abandoning that iteration leaves every later step reading silence from the same
+    ///    stream, which looks exactly like a broken device. So the harness runs **one** long-lived
+    ///    consumer, mirroring `ApplicationDelegate`'s single `for await event in device.events` loop.
+    func collectBatteryLevels(
+        driving levels: [UInt8],
+        timeout: Duration = .seconds(5)
+    ) async -> [UInt8] {
+        startEventConsumerIfNeeded()
+        let box = batteryReadings
+        let before = await box.count()
+
+        for level in levels {
+            device.setBatteryLevel(level)
+        }
+
+        // Poll rather than wait out the timeout, so the common case returns promptly.
+        let deadline = ContinuousClock().now.advanced(by: timeout)
+        while ContinuousClock().now < deadline {
+            if await box.count() >= before + levels.count { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return await box.suffix(from: before)
+    }
+
+    /// Starts the single stream consumer, once. Kept for the harness's lifetime: cancelling and
+    /// restarting it would abandon the stream and silence every later step.
+    private func startEventConsumerIfNeeded() {
+        guard eventConsumer == nil else { return }
+        let stream = device.events
+        let box = batteryReadings
+        eventConsumer = Task {
+            for await event in stream {
+                if case .batteryLevel(let level) = event {
+                    await box.append(level)
+                }
+            }
+        }
+    }
+
+    /// Actor because the draining task and the test body touch it from different isolation domains.
+    actor LevelBox {
+        private var levels: [UInt8] = []
+        func append(_ level: UInt8) { levels.append(level) }
+        func count() -> Int { levels.count }
+        func suffix(from index: Int) -> [UInt8] { Array(levels.dropFirst(index)) }
     }
 
     // MARK: - Database assertions
