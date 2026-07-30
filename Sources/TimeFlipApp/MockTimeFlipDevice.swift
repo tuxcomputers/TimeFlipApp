@@ -14,6 +14,94 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         static let historySample2DurationMinutes: TimeInterval = 2
     }
 
+    /// How long the mock takes to answer, so it behaves like a device on a radio link rather than a
+    /// function call. A real TimeFlip never answers instantly: connecting means scan plus connect plus
+    /// service and characteristic discovery, and every command is a write followed by a notification
+    /// coming back.
+    ///
+    /// This matters beyond realism for its own sake. With zero latency, a caller that forgets to
+    /// `await` a step before depending on it still passes, because the work already finished before
+    /// the next line ran. Give the operations real duration and that ordering bug shows up.
+    ///
+    /// Default is `.instant`, so existing callers are unaffected and fast tests stay fast; opt into
+    /// `.realistic()` where the timing is the point.
+    ///
+    /// ## Where the numbers come from
+    ///
+    /// Measured from `debug_log` on a real device (`real.sqlite`, 252 history fetches and 39 logins),
+    /// not invented. `logged_at` only has second resolution, so each figure is estimated from how
+    /// often a pair of rows straddles a second boundary: for a duration under one second with start
+    /// times spread evenly through the second, the fraction that straddle *is* the duration. Rows
+    /// were paired adjacently, because pairing "next matching message" makes a failed login line up
+    /// with a much later successful retry and reports absurd gaps (43s, 57s, 922s were all this).
+    ///
+    ///  - `historyRead` 130ms -- a fetch where the cheap check found nothing new (21 of 166 straddled)
+    ///  - a fetch that actually transferred 340ms (29 of 86 straddled), so ~210ms of streaming on top
+    ///  - `login` 260ms for the whole sequence (10 of 39); the single write-then-notify leg inside it
+    ///    ("Password sent" to "raw bytes") is 120ms (5 of 42)
+    ///  - `write` 110ms, from back-to-back LED colour writes (47 of 444)
+    ///  - a verified write, lock plus read-back, is 290ms -- consistent with `write` + `read`
+    ///
+    /// `connect`, `enableNotifications` and `initializeSession` are **estimates**: nothing logs the
+    /// start of a scan or connect, so there is no pair to measure. They're flagged individually below.
+    /// Scale the profile down rather than editing the figures, so the relative costs stay in
+    /// proportion.
+    struct Latency: Sendable {
+        /// Scan, connect, then discover services and characteristics. **Estimated** -- nothing logs
+        /// the start of a scan, so this is unmeasured. Much the slowest step in practice.
+        var connect: Duration
+        /// Password write plus the device's reply. Measured: 260ms.
+        var login: Duration
+        /// Subscribing to each notification characteristic in turn. **Estimated.**
+        var enableNotifications: Duration
+        /// Time sync plus the initial status burst. **Estimated** (roughly two round trips).
+        var initializeSession: Duration
+        /// A command write and its acknowledgement (auto-pause, lock, brightness, colour). Measured:
+        /// 110ms. A write that also reads back to verify costs this *plus* `read`.
+        var write: Duration
+        /// A characteristic read (lock state, double-tap parameters, device info). Measured: 130ms.
+        var read: Duration
+        /// The fixed cost of any history fetch, including one that finds nothing new. Measured: 130ms.
+        var historyRead: Duration
+        /// Charged per entry on top of `historyRead`, because history streams back frame by frame.
+        /// **Inferred**: the ~210ms difference between a no-op and a transferring fetch, divided over a
+        /// backlog of roughly twenty entries. The split between fixed and per-entry is an inference;
+        /// only the two totals were measured.
+        var historyPerEntry: Duration
+
+        /// Everything answers immediately. The default, and what every caller got before `Latency`
+        /// existed.
+        static let instant = Latency(
+            connect: .zero,
+            login: .zero,
+            enableNotifications: .zero,
+            initializeSession: .zero,
+            write: .zero,
+            read: .zero,
+            historyRead: .zero,
+            historyPerEntry: .zero
+        )
+
+        /// The measured timings above, multiplied by `scale`. Use a small scale in CI (`0.1` keeps a
+        /// whole workflow well under a second) -- the operations still genuinely suspend and
+        /// interleave, which is what catches ordering bugs; the wall-clock size is not the point.
+        static func realistic(scale: Double = 1.0) -> Latency {
+            func ms(_ milliseconds: Double) -> Duration {
+                .microseconds(Int(milliseconds * 1000 * scale))
+            }
+            return Latency(
+                connect: ms(800),
+                login: ms(260),
+                enableNotifications: ms(150),
+                initializeSession: ms(250),
+                write: ms(110),
+                read: ms(130),
+                historyRead: ms(130),
+                historyPerEntry: ms(10)
+            )
+        }
+    }
+
     struct Configuration: Sendable {
         var initialFaceID: UInt8
         var batteryLevel: UInt8
@@ -23,6 +111,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         var isInitiallyPaired: Bool
         var autoPauseMinutes: UInt16
         var emitInitialStatus: Bool
+        var latency: Latency
 
         init(
             initialFaceID: UInt8 = Constants.defaultInitialFaceID,
@@ -32,7 +121,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             isLocked: Bool = false,
             isInitiallyPaired: Bool = true,
             autoPauseMinutes: UInt16 = 0,
-            emitInitialStatus: Bool = true
+            emitInitialStatus: Bool = true,
+            latency: Latency = .instant
         ) {
             self.initialFaceID = initialFaceID
             self.batteryLevel = batteryLevel
@@ -42,6 +132,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             self.isInitiallyPaired = isInitiallyPaired
             self.autoPauseMinutes = autoPauseMinutes
             self.emitInitialStatus = emitInitialStatus
+            self.latency = latency
         }
     }
 
@@ -180,10 +271,23 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         logger.notice("Mock TimeFlip device stopped")
     }
 
+    // MARK: - Simulated radio latency
+
+    /// Suspends for `duration`, so the mock answers on the same sort of timescale a device on a radio
+    /// link does. Zero under `.instant` (the default), where `Task.sleep` returns immediately.
+    ///
+    /// A rejected command still costs time: the real device is asked and answers no, so the caller
+    /// waits either way. Latency is therefore charged *before* the guards, not after them.
+    private func waitForRadio(_ duration: Duration) async {
+        guard duration > .zero else { return }
+        try? await Task.sleep(for: duration)
+    }
+
     // MARK: - Session management (parity with real device)
 
     func connect() async -> Bool {
-        // No transport; keep for API parity
+        // No transport, but a real connect is scan + connect + service/characteristic discovery.
+        await waitForRadio(configuration.latency.connect)
         logger.debug("Mock connect")
         return true
     }
@@ -193,6 +297,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func login(password: String) async -> Bool {
+        await waitForRadio(configuration.latency.login)
         // Accept only the configured six-character password.
         guard password.count == 6, password == devicePassword else {
             logger.warning("Mock login rejected")
@@ -204,12 +309,14 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func enableNotifications() async {
+        await waitForRadio(configuration.latency.enableNotifications)
         // Notifications always active once paired & logged
         notificationsEnabled = true
         logger.debug("Mock notifications enabled")
     }
 
     func initializeSession(hostTime: Date, desiredAutoPauseMinutes: UInt16) async {
+        await waitForRadio(configuration.latency.initializeSession)
         synchronizeTimeWithHost(date: hostTime)
         applyAutoPause(minutes: desiredAutoPauseMinutes)
         emitInitialStatusIfNeeded()
@@ -217,6 +324,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func setFaceColor(faceID: UInt8, components: ColorComponents) async {
+        await waitForRadio(configuration.latency.write)
         faceColors[faceID] = components
         logger.debug("Mock set color face=\(faceID, privacy: .public) r=\(components.red) g=\(components.green) b=\(components.blue)")
     }
@@ -226,11 +334,17 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry] {
-        fetchHistorySync(startingFrom: eventNumber)
+        let entries = fetchHistorySync(startingFrom: eventNumber)
+        // A fixed cost even when there's nothing new, plus streaming time per entry returned -- the
+        // measured difference between a no-op fetch and one that actually transferred.
+        let latency = configuration.latency
+        await waitForRadio(latency.historyRead + latency.historyPerEntry * entries.count)
+        return entries
     }
 
     func readLastEvent() async -> TimeFlipHistoryEntry? {
-        history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
+        await waitForRadio(configuration.latency.historyRead)
+        return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 
     func pair() {
@@ -322,26 +436,32 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func setAutoPause(minutes: UInt16) async {
+        await waitForRadio(configuration.latency.write)
         applyAutoPause(minutes: minutes)
     }
 
     func setPause(_ on: Bool) async {
+        await waitForRadio(configuration.latency.write)
         setPaused(on, emitDoubleTap: false, faceIDOverride: state.faceID, reason: "pause_cmd")
     }
 
     func setLock(_ on: Bool) async {
+        await waitForRadio(configuration.latency.write)
         setLocked(on)
     }
 
     func refreshLockState() async -> Bool {
-        state.isLocked
+        await waitForRadio(configuration.latency.read)
+        return state.isLocked
     }
 
     func setLEDBrightness(percent: UInt8) async {
+        await waitForRadio(configuration.latency.write)
         setBrightness(percent: percent)
     }
 
     func setBlinkInterval(seconds: UInt8) async {
+        await waitForRadio(configuration.latency.write)
         applyBlinkInterval(seconds: seconds)
     }
 
@@ -351,15 +471,18 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func setDoubleTapParameters(_ params: DoubleTapParameters) async {
+        await waitForRadio(configuration.latency.write)
         doubleTapParameters = params
         appendEventLog("double_tap_params ths=\(params.clickThreshold) lim=\(params.limit) lat=\(params.latency) win=\(params.window)")
     }
 
     func readDoubleTapParameters() async -> DoubleTapParameters? {
-        doubleTapParameters
+        await waitForRadio(configuration.latency.read)
+        return doubleTapParameters
     }
 
     func refreshDeviceInfo() async {
+        await waitForRadio(configuration.latency.read)
         emit(.deviceInfo(state.deviceInfo ?? TimeFlipDeviceInfo(
             manufacturer: "TimeFlip",
             modelNumber: "TimeFlip2",
