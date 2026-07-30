@@ -58,6 +58,12 @@
   back to `0` when a lookup fails.
 - Store local time as ISO 8601 text without a UTC offset/`Z` suffix (e.g. `2026-07-16T09:30:00`) —
   the offset is recoverable via the referenced `timezone` row, not the timestamp itself.
+- Whole seconds, with one exception: `debug_log.logged_at` records milliseconds
+  (`2026-07-16T09:30:00.123`, see `AppDataStore.debugLogTimeFormatter`). It is the diagnostic record a
+  test session is reconstructed from, and every BLE round trip this app makes is sub-second, so at
+  second resolution a duration can only be recovered statistically rather than measured. The columns
+  that sit beside an `<name>_epoch` INTEGER stay at whole seconds so the text can't disagree with the
+  key that actually orders them.
 - If a table needs to *order by* or *compare* a date/time column (not just display it), also add
   an indexed `<name>_epoch` INTEGER column (Unix epoch seconds, same moment as `<name>`) and
   compare/sort on that instead of the text column or any device-supplied sequence number. A

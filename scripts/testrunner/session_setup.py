@@ -130,8 +130,8 @@ def _app_running():
 
 # Tags the app logs on a ~10s cadence while a device is connected (battery push + periodic history
 # fetch). They fall silent when the device is forgotten/dropped, so their recency is a liveness
-# signal -- see device_appears_connected. logged_at is only second-precision, which is fine here:
-# we're checking recency ("within N seconds of now"), not ordering rows within a second.
+# signal -- see device_appears_connected. logged_at carries milliseconds, which datetime.fromisoformat
+# parses without help; recency ("within N seconds of now") wouldn't need them either way.
 _HEARTBEAT_TAGS = ("battery", "hist-done", "hist-start", "hist-check", "hist-result")
 
 

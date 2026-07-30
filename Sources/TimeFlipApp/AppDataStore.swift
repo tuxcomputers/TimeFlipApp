@@ -1272,6 +1272,39 @@ final class AppDataStore {
         return formatter
     }()
 
+    /// `debug_log.logged_at` only: the same local-time ISO 8601 shape as `localTimeFormatter`, to the
+    /// millisecond (`2026-07-16T09:30:00.123`).
+    ///
+    /// `debug_log` is the diagnostic record a test session is reconstructed from, and whole seconds
+    /// are too coarse to time anything the device does. Every BLE round trip this app makes is
+    /// sub-second -- a login is ~260ms, a history fetch ~130ms with nothing new -- so at second
+    /// resolution the only way to recover a duration is statistically, from how often a pair of rows
+    /// happens to straddle a second boundary. That is what had to be done to size
+    /// `MockTimeFlipDevice.Latency`, and it gives one aggregate figure per operation rather than a
+    /// measurement of any individual one.
+    ///
+    /// Applied on every database, not just the test one: the timings worth having are frequently in
+    /// *production* data (the latency figures above came from `real.sqlite`), and one format
+    /// everywhere means a parsing mistake cannot hide in the environment nobody looks at.
+    ///
+    /// Safe to widen because nothing reads these strings back into `Date`s in Swift -- they are
+    /// write-only diagnostics. On the tooling side, `session_setup.py` parses them with Python's
+    /// `datetime.fromisoformat`, which accepts fractional seconds, and `MAX(logged_at)` still orders
+    /// correctly even across a mix of old and new rows, since the fraction sits after the part that
+    /// decides the comparison.
+    ///
+    /// Deliberately *not* used for `device_event.start_time` or `device_notification.start_time`:
+    /// those sit beside `start_epoch`, an INTEGER of whole seconds which is the actual ordering and
+    /// uniqueness key (`UN1_device_event`), and making the text finer-grained than the key next to it
+    /// would invite the two to disagree.
+    private static let debugLogTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+        formatter.timeZone = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
 
     /// Records a point-in-time device notification (double tap, battery level, system state,
     /// device info, event log — see `TimeFlipEvent.deviceNotification`) so what the device sends
@@ -1329,7 +1362,7 @@ final class AppDataStore {
                 sqlite3_finalize(stmt)
                 return
             }
-            sqlite3_bind_text(stmt, 1, AppDataStore.localTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 1, AppDataStore.debugLogTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
             sqlite3_bind_int64(stmt, 2, currentTimezoneID)
             sqlite3_bind_text(stmt, 3, tag, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 4, message, -1, SQLITE_TRANSIENT)
