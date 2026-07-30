@@ -688,6 +688,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             ? "123456"
             : String(format: "%06d", Int.random(in: 0...999_999))
         DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(generatedRandomPassword)")
+        let clock = ContinuousClock()
+        let begin = clock.now
         let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
         do {
             _ = try await performCommand(payload)
@@ -696,6 +698,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             DeveloperMode.debugPrint(.timeFlip, "Failed to set new device password: \(error.localizedDescription)")
             return nil
         }
+        let written = clock.now
+        DeveloperMode.debugPrint(.connPhase, "password rotate 0x30 write: \(Self.elapsed(from: begin, to: written))")
         do {
             guard try await attemptLogin(with: generatedRandomPassword) else {
                 logger.error("Device rejected re-login with new password; not saving")
@@ -709,6 +713,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
         logger.notice("Device password rotated and confirmed")
         DeveloperMode.debugPrint(.timeFlip, "Device password confirmed set to: \(generatedRandomPassword)")
+        DeveloperMode.debugPrint(
+            .connPhase,
+            "password rotate confirm re-login: \(Self.elapsed(from: written, to: clock.now)), total: \(Self.elapsed(from: begin, to: clock.now))"
+        )
         return generatedRandomPassword
     }
 
@@ -719,6 +727,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     @discardableResult
     func resetDevicePasswordToDefault() async -> Bool {
         guard isLoggedIn else { return false }
+        DeveloperMode.debugPrint(.timeFlip, "Resetting device password to default: \(TimeFlipConstants.defaultPassword)")
+        let clock = ContinuousClock()
+        let begin = clock.now
         let payload = Data([0x30]) + Data(TimeFlipConstants.defaultPassword.utf8)
         do {
             _ = try await performCommand(payload)
@@ -727,6 +738,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             DeveloperMode.debugPrint(.timeFlip, "Failed to reset device password to default: \(error.localizedDescription)")
             return false
         }
+        let written = clock.now
+        DeveloperMode.debugPrint(.connPhase, "password reset 0x30 write: \(Self.elapsed(from: begin, to: written))")
         do {
             guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
                 logger.error("Device rejected re-login with default password; reset not confirmed")
@@ -740,6 +753,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
         logger.notice("Device password reset to default and confirmed")
         DeveloperMode.debugPrint(.timeFlip, "Device password confirmed reset to default: \(TimeFlipConstants.defaultPassword)")
+        DeveloperMode.debugPrint(
+            .connPhase,
+            "password reset confirm re-login: \(Self.elapsed(from: written, to: clock.now)), total: \(Self.elapsed(from: begin, to: clock.now))"
+        )
         return true
     }
 
@@ -759,6 +776,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     @discardableResult
     func factoryReset() async -> Bool {
         guard isLoggedIn else { return false }
+        DeveloperMode.debugPrint(.timeFlip, "Factory reset (0xFF) triggered")
+        let clock = ContinuousClock()
+        let begin = clock.now
         let payload = Data([0xFF])
         let result: Data
         do {
@@ -778,6 +798,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         // .debug-level os_log that macOS doesn't persist), but it is NOT a meaningful ack.
         logger.notice("Device factory reset (0xFF) sent; no ack expected, read-back=\(result.hexString(), privacy: .public) (likely stale)")
         DeveloperMode.debugPrint(.timeFlip, "Factory reset (0xFF) sent; device sends no ack, read-back=\(result.hexString()) (likely stale); awaiting device reboot to confirm via default-password login")
+        // Only covers writing 0xFF. The erase-and-reboot the device then performs is deliberately
+        // not waited on here (see above), so this is the command cost, not the reset's true cost --
+        // that one is only observable as the delay before the device reappears on the default
+        // password, which ApplicationDelegate bounds with factoryResetConfirmTimeout.
+        DeveloperMode.debugPrint(.connPhase, "factory reset 0xFF write: \(Self.elapsed(from: begin, to: clock.now))")
         return true
     }
 
