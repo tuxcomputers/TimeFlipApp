@@ -97,48 +97,107 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     ///
     /// ## Where the numbers come from
     ///
-    /// Measured from `debug_log` on a real device (`real.sqlite`, 252 history fetches and 39 logins),
-    /// not invented. `logged_at` only has second resolution, so each figure is estimated from how
-    /// often a pair of rows straddles a second boundary: for a duration under one second with start
-    /// times spread evenly through the second, the fraction that straddle *is* the duration. Rows
-    /// were paired adjacently, because pairing "next matching message" makes a failed login line up
-    /// with a much later successful retry and reports absurd gaps (43s, 57s, 922s were all this).
+    /// Every figure below was **measured directly** on real hardware on 2026-07-31, against a
+    /// `debug_log` recording milliseconds, with the app timing its own spans on a `ContinuousClock`
+    /// (tags `conn-phase` and `hist-time`). Nine connect/login sequences and five full 21-record
+    /// history dumps.
     ///
-    ///  - `historyRead` 130ms -- a fetch where the cheap check found nothing new (21 of 166 straddled)
-    ///  - a fetch that actually transferred 340ms (29 of 86 straddled), so ~210ms of streaming on top
-    ///  - `login` 260ms for the whole sequence (10 of 39); the single write-then-notify leg inside it
-    ///    ("Password sent" to "raw bytes") is 120ms (5 of 42)
-    ///  - `write` 110ms, from back-to-back LED colour writes (47 of 444)
-    ///  - a verified write, lock plus read-back, is 290ms -- consistent with `write` + `read`
+    /// This replaced an earlier set inferred from second-resolution logs by counting how often a
+    /// pair of rows straddled a second boundary. That method gives a centre and no spread at all,
+    /// and it turned out to be wrong by a factor of three on the phases that dominate: measured
+    /// `connect` is 2.2-4.6s against an assumed 0.6-1.0s, `initializeSession` 1.1-1.3s against an
+    /// assumed 0.2-0.3s. Bringing a session up really costs about four seconds, not one.
     ///
-    /// `connect`, `enableNotifications` and `initializeSession` are **estimates**: nothing logs the
-    /// start of a scan or connect, so there is no pair to measure. They're flagged individually below.
+    /// A cross-check that the legs are self-consistent: `lock` performs a write plus a read-back and
+    /// measures 173-224ms (p50 186), against `write` p50 118 + `read` p50 62 = 180.
+    ///
     /// Scale the profile down rather than editing the figures, so the relative costs stay in
     /// proportion.
+    /// How consecutive history frames arrive.
+    ///
+    /// Not a plain delay range, because the gaps are not smoothly distributed. BLE delivers on
+    /// connection events, so a gap is a whole number of connection intervals: measured on real
+    /// hardware over 105 inter-frame gaps, the arrivals fit a 14.5ms grid with a residual standard
+    /// deviation of 1.32ms, distributed
+    ///
+    ///     0 intervals   3.8%   (two frames in one connection event, gap 0-1ms)
+    ///     1 interval   62.9%   (12-18ms)
+    ///     2 intervals  29.5%   (27-31ms)
+    ///     3 intervals   3.8%   (41-45ms)
+    ///
+    /// giving a mean of 19.4ms per record, which held at 19 in every one of the five runs.
+    ///
+    /// The count multiplies a *single* interval draw rather than summing that many independent ones:
+    /// the observed spread does not grow with the count (one interval spans 6ms, two spans 4ms,
+    /// three spans 4ms), so the jitter is in the grid's phase, not accumulated per interval.
+    ///
+    /// This shape matters. Two frames landing in the same connection event, then a 3-interval pause,
+    /// is exactly the burst a consumer that assumes evenly-paced arrivals gets wrong, and a uniform
+    /// range can never produce it.
+    struct FrameCadence: Sendable, Equatable {
+        /// One BLE connection interval.
+        var interval: DelayRange
+        /// How many intervals a gap spans, as relative weights indexed by that count: element 0 is
+        /// the chance two frames share a connection event, element 1 one interval, and so on.
+        var intervalWeights: [Double]
+
+        static let none = FrameCadence(interval: .none, intervalWeights: [])
+
+        /// Measured distribution above. Weights are relative, so they need not sum to 1.
+        static func realistic(scale: Double = 1.0) -> FrameCadence {
+            FrameCadence(
+                interval: DelayRange.milliseconds(12, 18).scaled(by: scale),
+                intervalWeights: [0.038, 0.629, 0.295, 0.038]
+            )
+        }
+
+        func sample(using generator: inout some RandomNumberGenerator) -> Duration {
+            let total = intervalWeights.reduce(0, +)
+            guard interval.upper > .zero, total > 0 else { return .zero }
+
+            var remaining = Double.random(in: 0..<total, using: &generator)
+            var count = intervalWeights.count - 1
+            for (index, weight) in intervalWeights.enumerated() {
+                remaining -= weight
+                if remaining < 0 {
+                    count = index
+                    break
+                }
+            }
+            guard count > 0 else { return .zero }
+            return interval.sample(using: &generator) * count
+        }
+    }
+
     struct Latency: Sendable {
-        /// Scan, connect, then discover services and characteristics. **Estimated** -- nothing logs
-        /// the start of a scan, so this is unmeasured. Much the slowest step in practice.
+        /// Scan, connect, then discover services and characteristics. Measured 2232-4550ms (n=9),
+        /// and much the slowest step by a wide margin. The spread is almost entirely in finding the
+        /// device: scan+link alone ranged 1182-3306ms, while characteristic discovery was steady at
+        /// 1047-1197ms and waiting for the radio to power up was 0-46ms.
         var connect: DelayRange
-        /// Password write plus the device's reply. Measured: ~260ms.
+        /// Password write plus the device's reply plus the accept decision. Measured 239-270ms (n=9),
+        /// which splits 177-210 / 58-61 / 1-2.
         var login: DelayRange
-        /// Subscribing to each notification characteristic in turn. **Estimated.**
+        /// Subscribing to each of the five notification characteristics in turn. Measured 595-715ms
+        /// (n=9), so roughly 125ms per subscription.
         var enableNotifications: DelayRange
-        /// Time sync plus the initial status burst. **Estimated** (roughly two round trips).
+        /// Time sync, status refresh, auto-pause normalisation, device info and the health check.
+        /// Measured 1137-1289ms (n=9).
         var initializeSession: DelayRange
-        /// A command write and its acknowledgement (auto-pause, lock, brightness, colour). Measured:
-        /// ~110ms. A write that also reads back to verify costs this *plus* `read`.
+        /// A command write and its acknowledgement (auto-pause, lock, brightness, colour). Measured
+        /// 115-152ms (n=9). A write that also reads back to verify costs this *plus* `read`.
         var write: DelayRange
-        /// A characteristic read (lock state, double-tap parameters, device info). Measured: ~130ms.
+        /// A characteristic read (lock state, double-tap parameters, device info). Measured 53-79ms
+        /// (n=117), from the cheap single-event check each history fetch begins with.
         var read: DelayRange
-        /// The fixed cost of any history fetch before records start arriving, including a fetch that
-        /// finds nothing new. Measured: ~130ms.
+        /// The fixed cost of a history fetch before records start arriving. Measured 30-240ms (n=25),
+        /// and genuinely **bimodal** rather than merely broad: a fetch issued right after connect came
+        /// back in 30-45ms, one issued mid-session in 155-240ms. Modelled as the full span, since the
+        /// mock has no notion of how long the session has been up.
         var historyRead: DelayRange
-        /// Charged **per record**, sampled separately for each one, because history streams back frame
-        /// by frame -- so a hundred-record backlog costs a hundred independent draws, not one delay
-        /// times a hundred. **Inferred**: the ~210ms gap between a no-op fetch and a transferring one,
-        /// spread over a backlog of roughly twenty records. Only the two totals were measured; the
-        /// per-record split and its spread are the least certain figures here.
-        var historyPerRecord: DelayRange
+        /// How records arrive once the stream starts. See `FrameCadence` -- gaps quantise to whole
+        /// BLE connection intervals rather than varying smoothly, so this is not a plain range.
+        var historyFrames: FrameCadence
 
         /// Everything answers immediately. The default, and what every caller got before `Latency`
         /// existed.
@@ -150,31 +209,32 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             write: .none,
             read: .none,
             historyRead: .none,
-            historyPerRecord: .none
+            historyFrames: .none
         )
 
         /// The measured timings, as ranges, multiplied by `scale`. Use a small scale in CI (`0.1`
         /// keeps a whole workflow well under a second) -- the operations still genuinely suspend and
         /// interleave, which is what catches ordering bugs; the wall-clock size is not the point.
         ///
-        /// The spreads are **provisional**. `debug_log` only had whole seconds when these were taken,
-        /// so each centre came from how often a pair of rows straddled a second boundary -- an
-        /// aggregate, which yields no spread at all. The widths below are therefore assumed (roughly
-        /// +/-20% of centre), not observed. `debug_log` now records milliseconds, so a single ordinary
-        /// session on the device will give real per-operation distributions to replace them.
+        /// Each range is the observed min-to-max, not a percentile band: the samples came from a
+        /// single device on a single afternoon, so the tails are more likely under-explored than
+        /// over-stated. Widen them if a second device disagrees.
+        ///
+        /// A whole `.realistic()` session is roughly four seconds of connect, notifications and
+        /// initialisation before the first history record arrives, which is why CI uses a scale.
         static func realistic(scale: Double = 1.0) -> Latency {
             func range(_ lower: Double, _ upper: Double) -> DelayRange {
                 DelayRange.milliseconds(lower, upper).scaled(by: scale)
             }
             return Latency(
-                connect: range(600, 1000),
-                login: range(210, 310),
-                enableNotifications: range(120, 180),
-                initializeSession: range(200, 300),
-                write: range(90, 130),
-                read: range(105, 155),
-                historyRead: range(105, 155),
-                historyPerRecord: range(8, 12)
+                connect: range(2232, 4550),
+                login: range(239, 270),
+                enableNotifications: range(595, 715),
+                initializeSession: range(1137, 1289),
+                write: range(115, 152),
+                read: range(53, 79),
+                historyRead: range(30, 240),
+                historyFrames: .realistic(scale: scale)
             )
         }
     }
@@ -369,9 +429,23 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     @discardableResult
     private func waitForRadio(_ range: DelayRange) async -> Duration {
         guard range.upper > .zero else { return .zero }
-        let duration = range.sample(using: &delayGenerator)
+        return await suspend(for: range.sample(using: &delayGenerator))
+    }
+
+    /// The frame-arrival counterpart, drawing from a quantised cadence rather than a flat range.
+    @discardableResult
+    private func waitForFrame(_ cadence: FrameCadence) async -> Duration {
+        guard cadence.interval.upper > .zero else { return .zero }
+        return await suspend(for: cadence.sample(using: &delayGenerator))
+    }
+
+    private func suspend(for duration: Duration) async -> Duration {
         sampledDelays.append(duration)
-        try? await Task.sleep(for: duration)
+        // A zero draw is real -- two frames sharing one connection event -- and is recorded as a
+        // sample, but there is nothing to sleep for.
+        if duration > .zero {
+            try? await Task.sleep(for: duration)
+        }
         return duration
     }
 
@@ -430,17 +504,19 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         let latency = configuration.latency
         // The command round trip before any record arrives -- paid even when there is nothing new.
         await waitForRadio(latency.historyRead)
-        // Then one draw *per record*, because the device streams them frame by frame. Sampling each
-        // separately is the point: a fifty-record backlog is fifty independent delays, so the total
-        // varies the way a real transfer does rather than being a clean multiple.
+        // Then one gap *per record*, because the device streams them frame by frame. Each is drawn
+        // independently from the connection-interval cadence, so a fifty-record backlog is fifty
+        // draws and lands in bursts, the way a real transfer does, rather than at a clean tempo.
         for _ in entries {
-            await waitForRadio(latency.historyPerRecord)
+            await waitForFrame(latency.historyFrames)
         }
         return entries
     }
 
     func readLastEvent() async -> TimeFlipHistoryEntry? {
-        await waitForRadio(configuration.latency.historyRead)
+        // The cheap single-event check, which is a characteristic read rather than a stream: it pays
+        // `read`, not the stream's command round trip.
+        await waitForRadio(configuration.latency.read)
         return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 

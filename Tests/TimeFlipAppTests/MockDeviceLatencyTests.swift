@@ -68,10 +68,10 @@ final class MockDeviceLatencyTests: XCTestCase {
 
     // MARK: - Per-record history streaming
 
-    func testHistoryChargesOneDelayPerRecordPlusTheCommandRoundTrip() async {
+    func testHistoryChargesOneGapPerRecordPlusTheCommandRoundTrip() async {
         var latency = MockTimeFlipDevice.Latency.instant
         latency.historyRead = .milliseconds(1, 1)
-        latency.historyPerRecord = .milliseconds(1, 2)
+        latency.historyFrames = .init(interval: .milliseconds(1, 2), intervalWeights: [0, 1])
         let device = makeDevice(latency: latency)
         device.seedHistory(Self.entries(count: 12))
 
@@ -84,7 +84,7 @@ final class MockDeviceLatencyTests: XCTestCase {
     func testAFetchWithNothingToReturnStillCostsTheCommandRoundTrip() async {
         var latency = MockTimeFlipDevice.Latency.instant
         latency.historyRead = .milliseconds(1, 1)
-        latency.historyPerRecord = .milliseconds(1, 2)
+        latency.historyFrames = .init(interval: .milliseconds(1, 2), intervalWeights: [0, 1])
         let device = makeDevice(latency: latency)
         device.seedHistory([])
 
@@ -93,9 +93,9 @@ final class MockDeviceLatencyTests: XCTestCase {
         XCTAssertEqual(device.sampledDelays.count, 1, "the command is still sent and answered")
     }
 
-    func testPerRecordDelaysAreDrawnIndependently() async {
+    func testFrameGapsAreDrawnIndependently() async {
         var latency = MockTimeFlipDevice.Latency.instant
-        latency.historyPerRecord = .milliseconds(160, 200)
+        latency.historyFrames = .init(interval: .milliseconds(160, 200), intervalWeights: [0, 1])
         let device = makeDevice(latency: latency)
         device.seedHistory(Self.entries(count: 40))
 
@@ -108,6 +108,58 @@ final class MockDeviceLatencyTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(value, 160)
             XCTAssertLessThanOrEqual(value, 200)
         }
+    }
+
+    // MARK: - Frame cadence
+
+    /// The property that a plain range cannot express: gaps land on whole multiples of the
+    /// connection interval, including zero when two frames share one connection event.
+    func testFrameGapsQuantiseToWholeConnectionIntervals() {
+        let cadence = MockTimeFlipDevice.FrameCadence(
+            interval: .fixed(.milliseconds(15)),
+            intervalWeights: [1, 1, 1, 1]
+        )
+        var generator = MockTimeFlipDevice.SeededGenerator(seed: 7)
+        var counts: Set<Int> = []
+        for _ in 0..<400 {
+            let drawn = millis(cadence.sample(using: &generator))
+            let intervals = drawn / 15
+            XCTAssertEqual(intervals, intervals.rounded(), accuracy: 0.001,
+                           "\(drawn)ms is not a whole number of 15ms intervals")
+            counts.insert(Int(intervals.rounded()))
+        }
+        XCTAssertEqual(counts, [0, 1, 2, 3], "every weighted count should be reachable")
+    }
+
+    func testFrameGapWeightsGovernHowOftenEachCountAppears() {
+        // Only single intervals allowed: a 0-weighted count must never be drawn.
+        let cadence = MockTimeFlipDevice.FrameCadence(
+            interval: .fixed(.milliseconds(15)),
+            intervalWeights: [0, 1, 0, 0]
+        )
+        var generator = MockTimeFlipDevice.SeededGenerator(seed: 7)
+        let drawn = (0..<200).map { _ in millis(cadence.sample(using: &generator)) }
+        XCTAssertEqual(Set(drawn), [15])
+    }
+
+    func testTheMeasuredCadenceReproducesItsRealWorldMean() {
+        // Real hardware averaged 19.4ms per record across 105 gaps; the modelled weights should
+        // land near that, or the profile is not the distribution it claims to be.
+        var generator = MockTimeFlipDevice.SeededGenerator(seed: 11)
+        let cadence = MockTimeFlipDevice.FrameCadence.realistic()
+        let drawn = (0..<5_000).map { _ in millis(cadence.sample(using: &generator)) }
+        let mean = drawn.reduce(0, +) / Double(drawn.count)
+        XCTAssertEqual(mean, 19.4, accuracy: 1.5, "modelled mean \(mean)ms should match the measured 19.4ms")
+    }
+
+    func testAnInstantCadenceCostsNothing() {
+        var generator = MockTimeFlipDevice.SeededGenerator(seed: 3)
+        var cadence = MockTimeFlipDevice.FrameCadence.none
+        XCTAssertEqual(millis(cadence.sample(using: &generator)), 0)
+        // A cadence with an interval but no weights is also silent, rather than crashing on an
+        // empty weight list.
+        cadence = .init(interval: .milliseconds(10, 20), intervalWeights: [])
+        XCTAssertEqual(millis(cadence.sample(using: &generator)), 0)
     }
 
     // MARK: - The default stays instant
