@@ -4,10 +4,10 @@ import OSLog
 @MainActor
 final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling {
     private enum Constants {
-        static let defaultInitialFacetID: UInt8 = 4
+        static let defaultInitialFaceID: UInt8 = 4
         static let defaultBatteryLevel: UInt8 = 95
-        static let historySample1FacetID: UInt8 = 5
-        static let historySample2FacetID: UInt8 = 4
+        static let historySample1FaceID: UInt8 = 5
+        static let historySample2FaceID: UInt8 = 4
         static let historySample1OffsetMinutes: TimeInterval = 8
         static let historySample1DurationMinutes: TimeInterval = 6
         static let historySample2OffsetMinutes: TimeInterval = 2
@@ -15,7 +15,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     struct Configuration: Sendable {
-        var initialFacetID: UInt8
+        var initialFaceID: UInt8
         var batteryLevel: UInt8
         var systemState: TimeFlipSystemState
         var isPaused: Bool
@@ -25,7 +25,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         var emitInitialStatus: Bool
 
         init(
-            initialFacetID: UInt8 = Constants.defaultInitialFacetID,
+            initialFaceID: UInt8 = Constants.defaultInitialFaceID,
             batteryLevel: UInt8 = Constants.defaultBatteryLevel,
             systemState: TimeFlipSystemState = .ok,
             isPaused: Bool = true,
@@ -34,7 +34,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             autoPauseMinutes: UInt16 = 0,
             emitInitialStatus: Bool = true
         ) {
-            self.initialFacetID = initialFacetID
+            self.initialFaceID = initialFaceID
             self.batteryLevel = batteryLevel
             self.systemState = systemState
             self.isPaused = isPaused
@@ -46,7 +46,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     private struct ActiveSession {
-        var facetID: UInt8
+        var faceID: UInt8
         var start: Date
         var isPaused: Bool
     }
@@ -63,7 +63,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     private var blinkIntervalSeconds: UInt8 = 5
     private var doubleTapParameters: DoubleTapParameters = .default
     private var devicePassword: String = TimeFlipConstants.defaultPassword
-    private var facetColors: [UInt8: ColorComponents] = [:]
+    private var faceColors: [UInt8: ColorComponents] = [:]
     // Real firmware uses a monotonic counter; timestamp-derived numbers collide
     // when two sessions start within the same second.
     private var nextEventNumber: UInt32 = 0
@@ -99,15 +99,15 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         self.logger = logger
         self.isPaired = configuration.isInitiallyPaired
         let now = Date()
-        let initialFacetID = TimeFlipConstants.isValidFacetID(configuration.initialFacetID)
-            ? configuration.initialFacetID
-            : TimeFlipConstants.unassignedFacetID
+        let initialFaceID = TimeFlipConstants.isValidFaceID(configuration.initialFaceID)
+            ? configuration.initialFaceID
+            : TimeFlipConstants.unassignedFaceID
         let batteryLevel = min(
             max(configuration.batteryLevel, TimeFlipConstants.minBatteryLevel),
             TimeFlipConstants.maxBatteryLevel
         )
         self.state = TimeFlipDeviceSnapshot(
-            facetID: initialFacetID,
+            faceID: initialFaceID,
             isPaused: configuration.isPaused,
             isLocked: configuration.isLocked,
             autoPauseMinutes: configuration.autoPauseMinutes,
@@ -131,7 +131,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         history.append(
             TimeFlipHistoryEntry(
                 eventNumber: allocateEventNumber(),
-                facetID: Constants.historySample1FacetID,
+                faceID: Constants.historySample1FaceID,
                 startedAt: sample1Start,
                 duration: Constants.historySample1DurationMinutes * TimeConstants.secondsPerMinute,
                 isPaused: false
@@ -140,15 +140,15 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         history.append(
             TimeFlipHistoryEntry(
                 eventNumber: allocateEventNumber(),
-                facetID: Constants.historySample2FacetID,
+                faceID: Constants.historySample2FaceID,
                 startedAt: sample2Start,
                 duration: Constants.historySample2DurationMinutes * TimeConstants.secondsPerMinute,
                 isPaused: false
             )
         )
-        if TimeFlipConstants.isValidFacetID(initialFacetID) {
+        if TimeFlipConstants.isValidFaceID(initialFaceID) {
             self.activeSession = ActiveSession(
-                facetID: initialFacetID,
+                faceID: initialFaceID,
                 start: now,
                 isPaused: configuration.isPaused
             )
@@ -216,9 +216,9 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         scheduleAutoPauseIfNeeded()
     }
 
-    func setFacetColor(facetID: UInt8, components: ColorComponents) async {
-        facetColors[facetID] = components
-        logger.debug("Mock set color facet=\(facetID, privacy: .public) r=\(components.red) g=\(components.green) b=\(components.blue)")
+    func setFaceColor(faceID: UInt8, components: ColorComponents) async {
+        faceColors[faceID] = components
+        logger.debug("Mock set color face=\(faceID, privacy: .public) r=\(components.red) g=\(components.green) b=\(components.blue)")
     }
 
     func snapshot() -> TimeFlipDeviceSnapshot {
@@ -270,19 +270,19 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         }
     }
 
-    func flip(to facetID: UInt8) {
+    func flip(to faceID: UInt8) {
         guard !state.isLocked else {
-            appendEventLog("flip_ignored_locked facet=\(facetID)")
+            appendEventLog("flip_ignored_locked face=\(faceID)")
             return
         }
-        guard TimeFlipConstants.isValidFacetID(facetID) else {
-            appendEventLog("flip_ignored_invalid facet=\(facetID)")
+        guard TimeFlipConstants.isValidFaceID(faceID) else {
+            appendEventLog("flip_ignored_invalid face=\(faceID)")
             return
         }
         let now = deviceTime()
         finalizeActiveSession(at: now)
         state = TimeFlipDeviceSnapshot(
-            facetID: facetID,
+            faceID: faceID,
             isPaused: state.isPaused,
             isLocked: state.isLocked,
             autoPauseMinutes: state.autoPauseMinutes,
@@ -291,24 +291,24 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             deviceTime: now,
             deviceInfo: state.deviceInfo
         )
-        beginSession(facetID: facetID, paused: state.isPaused, at: now)
-        emit(.facetChanged(facetID: facetID))
-        appendEventLog("flip facet=\(facetID)")
+        beginSession(faceID: faceID, paused: state.isPaused, at: now)
+        emit(.faceChanged(faceID: faceID))
+        appendEventLog("flip face=\(faceID)")
         scheduleAutoPauseIfNeeded(resetTimer: true)
     }
 
-    func doubleTap(targetFacetID: UInt8?) {
-        if let targetFacetID, !TimeFlipConstants.isValidFacetID(targetFacetID) {
-            appendEventLog("double_tap_ignored_invalid facet=\(targetFacetID)")
+    func doubleTap(targetFaceID: UInt8?) {
+        if let targetFaceID, !TimeFlipConstants.isValidFaceID(targetFaceID) {
+            appendEventLog("double_tap_ignored_invalid face=\(targetFaceID)")
             return
         }
-        let facetID = targetFacetID ?? state.facetID
+        let faceID = targetFaceID ?? state.faceID
         let newPauseState = !state.isPaused
-        setPaused(newPauseState, emitDoubleTap: true, facetIDOverride: facetID, reason: "double_tap")
+        setPaused(newPauseState, emitDoubleTap: true, faceIDOverride: faceID, reason: "double_tap")
     }
 
     func setPaused(_ paused: Bool) {
-        setPaused(paused, emitDoubleTap: true, facetIDOverride: state.facetID, reason: "pause_command")
+        setPaused(paused, emitDoubleTap: true, faceIDOverride: state.faceID, reason: "pause_command")
     }
 
     func setLocked(_ locked: Bool) {
@@ -326,7 +326,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     func setPause(_ on: Bool) async {
-        setPaused(on, emitDoubleTap: false, facetIDOverride: state.facetID, reason: "pause_cmd")
+        setPaused(on, emitDoubleTap: false, faceIDOverride: state.faceID, reason: "pause_cmd")
     }
 
     func setLock(_ on: Bool) async {
@@ -406,17 +406,17 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     private func setPaused(
         _ paused: Bool,
         emitDoubleTap: Bool,
-        facetIDOverride: UInt8,
+        faceIDOverride: UInt8,
         reason: String
     ) {
         guard state.isPaused != paused else { return }
         let now = deviceTime()
-        let effectiveFacetID = TimeFlipConstants.isValidFacetID(facetIDOverride) ? facetIDOverride : state.facetID
+        let effectiveFaceID = TimeFlipConstants.isValidFaceID(faceIDOverride) ? faceIDOverride : state.faceID
         finalizeActiveSession(at: now)
         state = stateWithUpdatedDeviceTime(isPaused: paused, deviceTimeValue: now)
-        beginSession(facetID: state.facetID, paused: paused, at: now)
+        beginSession(faceID: state.faceID, paused: paused, at: now)
         if emitDoubleTap {
-            emit(.doubleTap(TimeFlipDoubleTapPayload(facetID: effectiveFacetID, pauseOn: paused)))
+            emit(.doubleTap(TimeFlipDoubleTapPayload(faceID: effectiveFaceID, pauseOn: paused)))
         }
         appendEventLog("\(reason)=\(paused)")
         scheduleAutoPauseIfNeeded(resetTimer: true)
@@ -436,7 +436,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
                 self?.setPaused(
                     true,
                     emitDoubleTap: true,
-                    facetIDOverride: self?.state.facetID ?? TimeFlipConstants.unassignedFacetID,
+                    faceIDOverride: self?.state.faceID ?? TimeFlipConstants.unassignedFaceID,
                     reason: "auto_pause"
                 )
             }
@@ -453,9 +453,9 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         guard configuration.emitInitialStatus, isPaired, isLoggedIn, notificationsEnabled else { return }
         emit(.systemState(state.systemState))
         emit(.batteryLevel(state.batteryLevel))
-        emit(.facetChanged(facetID: state.facetID))
+        emit(.faceChanged(faceID: state.faceID))
         if state.isPaused {
-            emit(.doubleTap(TimeFlipDoubleTapPayload(facetID: state.facetID, pauseOn: true)))
+            emit(.doubleTap(TimeFlipDoubleTapPayload(faceID: state.faceID, pauseOn: true)))
         }
     }
 
@@ -471,7 +471,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     private func stateWithUpdatedDeviceTime(
-        facetID: UInt8? = nil,
+        faceID: UInt8? = nil,
         isPaused: Bool? = nil,
         isLocked: Bool? = nil,
         autoPauseMinutes: UInt16? = nil,
@@ -482,7 +482,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     ) -> TimeFlipDeviceSnapshot {
         let time = deviceTimeValue ?? deviceTime()
         return TimeFlipDeviceSnapshot(
-            facetID: facetID ?? state.facetID,
+            faceID: faceID ?? state.faceID,
             isPaused: isPaused ?? state.isPaused,
             isLocked: isLocked ?? state.isLocked,
             autoPauseMinutes: autoPauseMinutes ?? state.autoPauseMinutes,
@@ -499,7 +499,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         history.append(
             TimeFlipHistoryEntry(
                 eventNumber: allocateEventNumber(),
-                facetID: activeSession.facetID,
+                faceID: activeSession.faceID,
                 startedAt: activeSession.start,
                 duration: duration,
                 isPaused: activeSession.isPaused
@@ -508,8 +508,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         self.activeSession = nil
     }
 
-    private func beginSession(facetID: UInt8, paused: Bool, at date: Date) {
-        guard TimeFlipConstants.isValidFacetID(facetID) else { return }
-        activeSession = ActiveSession(facetID: facetID, start: date, isPaused: paused)
+    private func beginSession(faceID: UInt8, paused: Bool, at date: Date) {
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return }
+        activeSession = ActiveSession(faceID: faceID, start: date, isPaused: paused)
     }
 }

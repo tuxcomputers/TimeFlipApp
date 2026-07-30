@@ -14,7 +14,7 @@ protocol TimeFlipDevice: TimeFlipEventSource {
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry]
     /// Cheap single-frame read of the device's actual current record (history characteristic
     /// command 0x01, sentinel value 0xFFFFFFFF) without pulling the full history stream. Per the
-    /// vendor spec this returns a complete History block (event number, facet, start time,
+    /// vendor spec this returns a complete History block (event number, face, start time,
     /// duration) for the device's last event, not just the bare number, so the caller can refresh
     /// its stored duration for that entry even when nothing else has changed. Returns nil if the
     /// read fails or times out.
@@ -30,12 +30,12 @@ protocol TimeFlipSessionManaging: TimeFlipDevice {
     func disconnect() async
     /// Send the password to the device. Returns false if authentication fails.
     func login(password: String) async -> Bool
-    /// Subscribe to notification characteristics (facet/event/history) on the device.
+    /// Subscribe to notification characteristics (face/event/history) on the device.
     func enableNotifications() async
     /// Host-driven initialization: synchronize time and emit status so the app can seed state.
     func initializeSession(hostTime: Date, desiredAutoPauseMinutes: UInt16) async
-    /// Update the LED color for a facet (command 0x11). No-op if unsupported.
-    func setFacetColor(facetID: UInt8, components: ColorComponents) async
+    /// Update the LED color for a face (command 0x11). No-op if unsupported.
+    func setFaceColor(faceID: UInt8, components: ColorComponents) async
     /// Configure auto-pause duration (command 0x05). 0 disables auto-pause.
     func setAutoPause(minutes: UInt16) async
     /// Refresh Device Information service fields (manufacturer/model/firmware/hardware/system ID).
@@ -67,8 +67,8 @@ protocol TimeFlipMockControlling: AnyObject {
 
     func pair()
     func forget()
-    func flip(to facetID: UInt8)
-    func doubleTap(targetFacetID: UInt8?)
+    func flip(to faceID: UInt8)
+    func doubleTap(targetFaceID: UInt8?)
     func setPaused(_ paused: Bool)
     func setLocked(_ locked: Bool)
     func setAutoPause(minutes: UInt16)

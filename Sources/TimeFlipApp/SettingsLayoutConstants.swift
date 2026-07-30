@@ -10,8 +10,8 @@ enum SettingsLayoutConstants {
     static let deviceTabMinimumContentHeight: CGFloat = 660
     static let defaultWindowHeight: CGFloat = deviceTabMinimumContentHeight + 20
 
-    static let facetRowHeight: CGFloat = 36
-    static let facetDividerHeight: CGFloat = 1
+    static let faceRowHeight: CGFloat = 36
+    static let faceDividerHeight: CGFloat = 1
     static let paneVerticalPadding: CGFloat = Pane.verticalPadding
     static let columnHeaderHeight: CGFloat = 22
     static let columnHeaderSpacing: CGFloat = 12
@@ -117,7 +117,7 @@ enum SettingsLayoutConstants {
         }
     }
 
-    enum FacetList {
+    enum FaceList {
         static let rowSpacing: CGFloat = 12
         static let iconSize: CGFloat = 20
         static let horizontalPadding: CGFloat = 8
@@ -154,13 +154,13 @@ enum SettingsLayoutConstants {
         static let createFieldSpacing: CGFloat = 8
     }
 
-    /// The Facets tab's own content height, floored at `deviceTabMinimumContentHeight` so the
+    /// The Faces tab's own content height, floored at `deviceTabMinimumContentHeight` so the
     /// window's minimum never shrinks below what the Device tab (the default-opened tab) needs,
-    /// even when there are few enough facets that the Facets tab alone would ask for less.
-    static func fallbackMinimumContentHeight(facetCount: Int) -> CGFloat {
-        let rows = CGFloat(facetCount) * facetRowHeight
-        let dividers = CGFloat(max(0, facetCount - 1)) * facetDividerHeight
-        let facetsHeight = paneVerticalPadding + columnHeaderHeight + columnHeaderSpacing + rows + dividers + paneVerticalPadding
-        return max(facetsHeight, deviceTabMinimumContentHeight)
+    /// even when there are few enough faces that the Faces tab alone would ask for less.
+    static func fallbackMinimumContentHeight(faceCount: Int) -> CGFloat {
+        let rows = CGFloat(faceCount) * faceRowHeight
+        let dividers = CGFloat(max(0, faceCount - 1)) * faceDividerHeight
+        let facesHeight = paneVerticalPadding + columnHeaderHeight + columnHeaderSpacing + rows + dividers + paneVerticalPadding
+        return max(facesHeight, deviceTabMinimumContentHeight)
     }
 }

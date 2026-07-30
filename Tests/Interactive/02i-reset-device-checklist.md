@@ -48,7 +48,7 @@ Flip to whichever of **Break**/**Meeting** the device is *not* already on (Step 
 face and names the target below) -- so a real post-reset flip happens; asking for the face it's
 already resting on would give the poll nothing to detect.
 
-- [ ] **(You)** Step 2: Confirm you flipped the device to a different facet.
+- [ ] **(You)** Step 2: Confirm you flipped the device to a different face.
 ```toml step
 action = "ask_user_or_detect"
 prompt = "Flip the cube to the $flip_target_name face."

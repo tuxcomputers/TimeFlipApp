@@ -1,5 +1,5 @@
 -- device_event
--- One row per device-reported timing segment (a facet flip or pause).
+-- One row per device-reported timing segment (a face flip or pause).
 
 CREATE TABLE IF NOT EXISTS device_event (
   device_event_id    INTEGER CONSTRAINT PK_device_event PRIMARY KEY AUTOINCREMENT

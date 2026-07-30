@@ -459,7 +459,7 @@ keeping the query -- that's how the same SQL serves both an immediate read and a
   `double_tap_settings`.
 - **g** -- the live battery `level`, flap-robust: the **higher of the two most-frequent** readings,
   since the device's reported level oscillates by 1-2% between samples.
-- **h** -- the facet the device is *not* currently resting on, as a name (`Break`/`Meeting`) -- what
+- **h** -- the face the device is *not* currently resting on, as a name (`Break`/`Meeting`) -- what
   to ask a person to flip to.
 - **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`.
 - **j** -- the latest *real* `battery` row, skipping the `level=nil` placeholder the app logs before

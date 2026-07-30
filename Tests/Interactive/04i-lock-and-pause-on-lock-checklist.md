@@ -5,7 +5,7 @@
 Run **after** `Tests/Bench/04b-lock-and-pause-on-lock-checklist.md`. Everything that used to live
 here -- the status-item's own single/double-click-right-half gesture -- moved to that file's
 Scenarios D/E once CGEventPost (with `kCGMouseEventClickState` set explicitly) was confirmed to
-drive it ([Method: Number 7](../Methods.md#method-7)), previously believed unscriptable. What's left needs a physical facet flip, which
+drive it ([Method: Number 7](../Methods.md#method-7)), previously believed unscriptable. What's left needs a physical face flip, which
 no synthetic event can produce.
 
 Requires Developer Mode enabled, the `debug` setting's `enabled` field `true`, and a paired,

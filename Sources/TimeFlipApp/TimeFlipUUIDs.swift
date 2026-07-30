@@ -5,7 +5,7 @@ enum TimeFlipUUIDs {
     // TimeFlip2 service and characteristic UUIDs from the vendor protocol v4.3.
     static let service = CBUUID(string: "F1196F50-71A4-11E6-BDF4-0800200C9A66")
     static let eventsData = CBUUID(string: "F1196F51-71A4-11E6-BDF4-0800200C9A66")
-    static let facets = CBUUID(string: "F1196F52-71A4-11E6-BDF4-0800200C9A66")
+    static let faces = CBUUID(string: "F1196F52-71A4-11E6-BDF4-0800200C9A66")
     static let commandResult = CBUUID(string: "F1196F53-71A4-11E6-BDF4-0800200C9A66")
     static let command = CBUUID(string: "F1196F54-71A4-11E6-BDF4-0800200C9A66")
     static let doubleTap = CBUUID(string: "F1196F55-71A4-11E6-BDF4-0800200C9A66")

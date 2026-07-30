@@ -7,7 +7,7 @@ final class HistoryIngestor {
     private let device: TimeFlipSessionManaging
     private let dataStore: AppDataStore
     private let appState: AppState
-    private let dailyTotals: DailyFacetTotals
+    private let dailyTotals: DailyFaceTotals
     private let onNewEvents: (() -> Void)?
     private let onLatestEntry: ((TimeFlipHistoryEntry) -> Void)?
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "history-ingestor")
@@ -29,7 +29,7 @@ final class HistoryIngestor {
         device: TimeFlipSessionManaging,
         dataStore: AppDataStore,
         appState: AppState,
-        dailyTotals: DailyFacetTotals,
+        dailyTotals: DailyFaceTotals,
         onNewEvents: (() -> Void)? = nil,
         onLatestEntry: ((TimeFlipHistoryEntry) -> Void)? = nil
     ) {
@@ -48,7 +48,7 @@ final class HistoryIngestor {
 
     /// Starts a repeating timer (interval from the `fetch_history_interval_seconds` setting) that
     /// re-fetches device history so any entries the device hasn't pushed a live notification for
-    /// yet still get picked up, on top of the fetches already triggered by live facet/pause
+    /// yet still get picked up, on top of the fetches already triggered by live face/pause
     /// events. Safe to call again (e.g. if the setting changes) -- replaces any existing timer.
     func startPeriodicFetchTimer() {
         periodicFetchTimer?.invalidate()
@@ -92,7 +92,7 @@ final class HistoryIngestor {
         DeveloperMode.debugPrint(.histStart, "history fetch triggered: trigger=\(trigger) known_max=\(knownMax ?? 0)")
 
         // Step 2: cheap single-frame read of the device's actual current record. Per the vendor
-        // spec this comes back as a complete History block (facet/start time/duration included,
+        // spec this comes back as a complete History block (face/start time/duration included,
         // not just the event number), so if it turns out nothing changed we can still refresh the
         // DB's duration for that entry below without paying for the full stream. A brand-new
         // pairing has nothing local to compare against, and a failed/timed-out read comes back
@@ -108,7 +108,7 @@ final class HistoryIngestor {
             // Same event -- nothing new, but its duration may have grown since we last saw it.
             dataStore.recordDeviceEvent(
                 eventNumber: deviceLastEventNumber,
-                deviceFace: deviceEntry.facetID,
+                deviceFace: deviceEntry.faceID,
                 startedAt: deviceEntry.startedAt,
                 durationSeconds: deviceEntry.duration,
                 isPaused: deviceEntry.isPaused
@@ -204,7 +204,7 @@ final class HistoryIngestor {
         if let latestEventNumber {
             dataStore.recordDeviceEvent(
                 eventNumber: latestEventNumber,
-                deviceFace: latestEntry.facetID,
+                deviceFace: latestEntry.faceID,
                 startedAt: latestEntry.startedAt,
                 durationSeconds: latestEntry.duration,
                 isPaused: latestEntry.isPaused
@@ -246,7 +246,7 @@ final class HistoryIngestor {
             let record = DeviceEventRecord(
                 id: nil,
                 eventNumber: eventNumber,
-                facetID: entry.facetID,
+                faceID: entry.faceID,
                 startedAt: entry.startedAt,
                 duration: entry.duration,
                 isPaused: entry.isPaused
@@ -260,20 +260,20 @@ final class HistoryIngestor {
             // recording above for the in-progress segment.
             dataStore.recordDeviceEvent(
                 eventNumber: eventNumber,
-                deviceFace: entry.facetID,
+                deviceFace: entry.faceID,
                 startedAt: entry.startedAt,
                 durationSeconds: entry.duration,
                 isPaused: entry.isPaused
             )
             // Only accumulate time for active (non-paused) segments
             if !entry.isPaused {
-                let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, facetID: entry.facetID)
+                let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, faceID: entry.faceID)
                 if added > 0 {
-                    appState.incrementDailyTotal(facetID: entry.facetID, by: added)
+                    appState.incrementDailyTotal(faceID: entry.faceID, by: added)
                 }
             }
             maxCommitted = eventNumber
-            logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) facet=\(entry.facetID, privacy: .public)")
+            logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) face=\(entry.faceID, privacy: .public)")
         }
         return maxCommitted
     }

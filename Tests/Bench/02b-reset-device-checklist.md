@@ -14,7 +14,7 @@ exercises.
 
 Every step here is Claude-driven against a connected device -- launching/quitting the app, driving
 Preferences-window controls via System Events, and reading `sqlite3`/`debug_log` -- see
-`../Methods.md` for the verified mechanics. The one part that requires a physical facet flip
+`../Methods.md` for the verified mechanics. The one part that requires a physical face flip
 (generating a *real* post-reset event to see the device's own low numbering) lives in
 `Tests/Interactive/02i-reset-device-checklist.md`, run after the whole Bench phase.
 

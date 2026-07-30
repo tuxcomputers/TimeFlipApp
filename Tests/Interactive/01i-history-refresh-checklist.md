@@ -15,7 +15,7 @@ event numbers here will be small (post-reset), not a continuation of `01b`'s pre
 that's expected, not a bug; only the *relative* deltas below matter, not any specific absolute
 number.
 
-> Facets used throughout this checklist's run: facet 2 ("Meeting") and facet 8 ("Break") only.
+> Faces used throughout this checklist's run: face 2 ("Meeting") and face 8 ("Break") only.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
@@ -76,7 +76,7 @@ action = "sql_query"
 query = "SELECT finalised FROM device_event WHERE event_number = $n_before_flip ORDER BY device_event_id DESC LIMIT 1;"
 expect = "1"
 ```
-- [ ] **(Claude)** Step 6: Confirm the menu bar updated to the new facet
+- [ ] **(Claude)** Step 6: Confirm the menu bar updated to the new face
       -- its `device_face` is now the target face flipped to in Step 4.
 ```toml step
 use = "method-24.c"
@@ -134,7 +134,7 @@ timeout_seconds = 0
 poll_interval = 3
 ```
 - [ ] **(Claude)** Step 6: Confirm the disconnected-flip backlog synced on reconnect
-poll until at least **2** new `device_event` rows exist above the pre-disconnect baseline, i.e. the intermediate flips arrived as their own segments once the connection came back. (No-gap ordering and the final open row matching the resting facet are visual/interpretive -- a gap can be legitimate: a sub-`blip_time` quick pass-over gets merged into the surrounding segment and logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's own filter"`, so confirm any gap is explained that way before treating it as missing data.)
+poll until at least **2** new `device_event` rows exist above the pre-disconnect baseline, i.e. the intermediate flips arrived as their own segments once the connection came back. (No-gap ordering and the final open row matching the resting face are visual/interpretive -- a gap can be legitimate: a sub-`blip_time` quick pass-over gets merged into the surrounding segment and logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's own filter"`, so confirm any gap is explained that way before treating it as missing data.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT CASE WHEN (SELECT COUNT(DISTINCT event_number) FROM device_event WHERE event_number > $n_before_disconnect) >= 2 THEN 'synced' ELSE 'waiting' END;"

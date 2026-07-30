@@ -117,7 +117,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     var onDeviceDiscovered: ((DiscoveredBLEDevice) -> Void)?
     var onDiscoveryScanStopped: (() -> Void)?
     private var snapshotState = TimeFlipDeviceSnapshot(
-        facetID: TimeFlipConstants.unassignedFacetID,
+        faceID: TimeFlipConstants.unassignedFaceID,
         isPaused: true,
         isLocked: false,
         autoPauseMinutes: 0,
@@ -136,7 +136,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private let logger: Logger
     private let requiredCharacteristicUUIDs: Set<CBUUID> = [
         TimeFlipUUIDs.eventsData,
-        TimeFlipUUIDs.facets,
+        TimeFlipUUIDs.faces,
         TimeFlipUUIDs.commandResult,
         TimeFlipUUIDs.command,
         TimeFlipUUIDs.doubleTap,
@@ -590,8 +590,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     func enableNotifications() async {
-        logger.debug("Enabling notifications for facets/doubleTap/system/events/battery")
-        await withNotification(TimeFlipUUIDs.facets, enabled: true)
+        logger.debug("Enabling notifications for faces/doubleTap/system/events/battery")
+        await withNotification(TimeFlipUUIDs.faces, enabled: true)
         await withNotification(TimeFlipUUIDs.doubleTap, enabled: true)
         await withNotification(TimeFlipUUIDs.systemState, enabled: true)
         await withNotification(TimeFlipUUIDs.eventsData, enabled: true)
@@ -617,21 +617,21 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         await readSystemState(context: "post-initialize health check")
     }
 
-    func setFacetColor(facetID: UInt8, components: ColorComponents) async {
+    func setFaceColor(faceID: UInt8, components: ColorComponents) async {
         guard isLoggedIn else { return }
-        guard TimeFlipConstants.isValidFacetID(facetID) else { return }
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return }
         let (r, g, b) = components.deviceRGB16
         var payload = Data(repeating: 0, count: 8)
         payload[0] = 0x11
-        payload[1] = facetID
+        payload[1] = faceID
         payload[2] = UInt8(r >> 8); payload[3] = UInt8(r & 0xFF)
         payload[4] = UInt8(g >> 8); payload[5] = UInt8(g & 0xFF)
         payload[6] = UInt8(b >> 8); payload[7] = UInt8(b & 0xFF)
         do {
-            logger.debug("Setting color facet=\(facetID, privacy: .public) r=\(r) g=\(g) b=\(b)")
+            logger.debug("Setting color face=\(faceID, privacy: .public) r=\(r) g=\(g) b=\(b)")
             _ = try await performCommand(payload)
         } catch {
-            logger.error("Failed to set color facet=\(facetID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.error("Failed to set color face=\(faceID, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -708,7 +708,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         return true
     }
 
-    /// Full factory reset (command 0xFF): erases all flash-stored data on the device -- facet
+    /// Full factory reset (command 0xFF): erases all flash-stored data on the device -- face
     /// colors, task/pomodoro parameters, name, password, everything -- back to factory settings.
     /// Per the vendor spec this is the same command the official app's "Disconnect TimeFlip"
     /// button triggers.
@@ -1130,7 +1130,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
             if let entry = TimeFlipHistoryParser.parse(frame) {
                 let ev = entry.eventNumber ?? cursor
-                logger.debug("History frame parsed ev=\(ev) facet=\(entry.facetID) dur=\(entry.duration)")
+                logger.debug("History frame parsed ev=\(ev) face=\(entry.faceID) dur=\(entry.duration)")
                 entries.append(entry)
                 cursor = ev &+ 1
             } else {
@@ -1152,7 +1152,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     /// Per the vendor spec, requesting event 0xFFFFFFFF via command 0x01 substitutes the real
     /// last event's complete "History block" frame (same layout a single-event read would
-    /// return -- event number, facet, start time, duration). Unlike 0x02, whose response is
+    /// return -- event number, face, start time, duration). Unlike 0x02, whose response is
     /// explicitly documented as "data flow with notification", 0x01's response isn't described as
     /// a notification at all -- confirmed empirically too: waiting on a notification here reliably
     /// timed out against real hardware, while an explicit read of the characteristic's value right
@@ -1444,10 +1444,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func primeSnapshot() async {
         do {
             _ = await readSystemState(context: "prime snapshot", emitEvent: false)
-            if let facetData = try await read(TimeFlipUUIDs.facets)?.first {
-                snapshotState = snapshotStateUpdating(facetID: facetData)
-                logger.debug("Initial facet \(facetData)")
-                emit(.facetChanged(facetID: facetData))
+            if let faceData = try await read(TimeFlipUUIDs.faces)?.first {
+                snapshotState = snapshotStateUpdating(faceID: faceData)
+                logger.debug("Initial face \(faceData)")
+                emit(.faceChanged(faceID: faceData))
             }
             if let battery = try await read(TimeFlipUUIDs.batteryLevel)?.first {
                 snapshotState = snapshotStateUpdating(batteryLevel: battery)
@@ -1513,11 +1513,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             await setLEDBrightness(percent: defaultLEDBrightness)
         case .blinkIntervalSyncRequired:
             await setBlinkInterval(seconds: defaultBlinkIntervalSeconds)
-        case .facetColorSyncRequired:
+        case .faceColorSyncRequired:
             // Answered a layer up: the colours come from the DB (face -> category -> colour), which
             // this driver has no access to, so ApplicationDelegate handles the emitted
-            // .systemState event and re-sends all 12 facets.
-            logger.notice("SystemState \(system.syncStatus) deferred to app-level facet colour resync [\(context, privacy: .public)]")
+            // .systemState event and re-sends all 12 faces.
+            logger.notice("SystemState \(system.syncStatus) deferred to app-level face colour resync [\(context, privacy: .public)]")
         case .factoryReset, .taskParametersSyncRequired, .unknown:
             // We can't automatically restore task params without persisted data; surface via logs.
             logger.warning("SystemState \(system.syncStatus) needs manual sync [\(context, privacy: .public)]")
@@ -1528,7 +1528,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     private func snapshotStateUpdating(
-        facetID: UInt8? = nil,
+        faceID: UInt8? = nil,
         isPaused: Bool? = nil,
         isLocked: Bool? = nil,
         autoPauseMinutes: UInt16? = nil,
@@ -1538,7 +1538,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         deviceInfo: TimeFlipDeviceInfo? = nil
     ) -> TimeFlipDeviceSnapshot {
         TimeFlipDeviceSnapshot(
-            facetID: facetID ?? snapshotState.facetID,
+            faceID: faceID ?? snapshotState.faceID,
             isPaused: isPaused ?? snapshotState.isPaused,
             isLocked: isLocked ?? snapshotState.isLocked,
             autoPauseMinutes: autoPauseMinutes ?? snapshotState.autoPauseMinutes,
@@ -1552,7 +1552,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func emit(_ event: TimeFlipEvent) {
         continuation?.yield(event)
         switch event {
-        case .facetChanged, .doubleTap:
+        case .faceChanged, .doubleTap:
             // Don't update snapshot from events - history is source of truth
             break
         case .autoPauseMinutes(let minutes):
@@ -1800,9 +1800,9 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         }
         guard error == nil, let data = characteristic.value else { return }
         switch uuid {
-        case TimeFlipUUIDs.facets:
-            guard let facet = data.first else { return }
-            emit(.facetChanged(facetID: facet))
+        case TimeFlipUUIDs.faces:
+            guard let face = data.first else { return }
+            emit(.faceChanged(faceID: face))
         case TimeFlipUUIDs.doubleTap:
             guard let raw = data.first else { return }
             emit(.doubleTap(TimeFlipDoubleTapPayload(rawValue: raw)))

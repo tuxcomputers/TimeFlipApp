@@ -20,10 +20,10 @@ document reads top to bottom without forward references, and each `Foreign keys`
 
 ## Design principle: decoded, not raw
 
-The TimeFlip device reports events over Bluetooth as raw hex payloads (e.g. a facet byte, a
+The TimeFlip device reports events over Bluetooth as raw hex payloads (e.g. a face byte, a
 big-endian duration, a status flag). This database never stores those raw bytes directly —
 every column holds the *decoded, human-readable* value instead. For example, the device's raw
-facet byte is converted to a plain facet number (`1`-`12`) before it's written to the `face`
+face byte is converted to a plain face number (`1`-`12`) before it's written to the `face`
 column, so the table can be read and reasoned about directly (in a SQLite browser, in `sqlite3`,
 etc.) without needing to know the device's wire format.
 
@@ -61,14 +61,14 @@ precede `007_category`. Inserting a new table therefore follows the renumber rul
 Reference table of the different event types the TimeFlip device can trigger. Most of these
 (`double_tap`, `battery_level`, `system_state`, `device_info`, `event_log`) are live BLE
 notifications the device sends outside the history stream, not timing segments, and so never
-appear in `device_event` — only `facet_flip` and `pause` come from the history stream that
+appear in `device_event` — only `face_flip` and `pause` come from the history stream that
 populates `device_event` (see `Sources/TimeFlipApp/TimeFlipEvent.swift` and
 `docs/timeflip.md` §4-5 for the full notification/history breakdown).
 
 | Column           | Type    | Description                                              |
 |-------------------|---------|-------------------------------------------------------------|
 | `event_type_id`   | INTEGER | Primary key. Not autoincrementing — seeded with fixed IDs.  |
-| `event_name`      | TEXT    | Event type name, e.g. `facet_flip`, `pause`, `double_tap`.   |
+| `event_name`      | TEXT    | Event type name, e.g. `face_flip`, `pause`, `double_tap`.   |
 
 Constraints:
 - `event_name` is `UNIQUE` — each event type is only represented by one row.
@@ -77,7 +77,7 @@ Constraints:
 
   | IDs   | Group                                                | Types                                                                            |
   |-------|------------------------------------------------------|----------------------------------------------------------------------------------|
-  | `1`-`2` | → `device_event` — timing segments, carry a duration | `facet_flip`, `pause`                                                            |
+  | `1`-`2` | → `device_event` — timing segments, carry a duration | `face_flip`, `pause`                                                            |
   | `3`-`8` | → `device_notification` — point-in-time, no duration | `double_tap`, `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`, `event_log` |
 
   The grouping is a convention of the seed order, not something the schema enforces — nothing stops
@@ -117,14 +117,14 @@ misleading — the offset is derived from the IANA identifier at read time inste
 ### `device_event` (`database/003_device_event.sql`)
 
 One row per device-reported timing segment — created whenever the device is flipped to a new
-facet or paused/resumed, marking the end of the previous segment.
+face or paused/resumed, marking the end of the previous segment.
 
 | Column             | Type    | Description                                                                 |
 |---------------------|---------|-------------------------------------------------------------------------------|
 | `device_event_id`  | INTEGER | Row identifier, primary key, autoincrementing (`PK_device_event`).          |
 | `event_number`      | INTEGER | The device's own sequence number for this event. Part of the composite matching key with `start_epoch` — see below — but not unique on its own, and not used for ordering. |
-| `event_type_id`     | INTEGER | References `event_type.event_type_id` — always `facet_flip` or `pause` for rows in this table. |
-| `device_face`       | INTEGER | Decoded facet number, `1`-`12`. Decoded from the device's raw facet byte, not stored as hex. |
+| `event_type_id`     | INTEGER | References `event_type.event_type_id` — always `face_flip` or `pause` for rows in this table. |
+| `device_face`       | INTEGER | Decoded face number, `1`-`12`. Decoded from the device's raw face byte, not stored as hex. |
 | `start_time`        | TEXT    | When the segment started, as a local-time ISO 8601 timestamp with no UTC offset (e.g. `2026-07-16T09:30:00`). Decoded from the device's raw timestamp encoding. Display only — see `start_epoch` for ordering/comparisons. |
 | `timezone_id`       | INTEGER | References `timezone.timezone_id` — the IANA zone (e.g. `America/New_York`) `start_time` was recorded in. |
 | `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering and the `finalised` flag; also half of the composite matching key (see below). Indexed. |
@@ -135,14 +135,14 @@ facet or paused/resumed, marking the end of the previous segment.
 
 Foreign keys:
 - The `event_type_id` column references the PK of the table `event_type` described above.
-  `NOT NULL`. Always `facet_flip` or `pause` for rows in this table.
+  `NOT NULL`. Always `face_flip` or `pause` for rows in this table.
 - The `timezone_id` column references the PK of the table `timezone` described above.
   `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
 
 Constraints:
 - `(event_number, start_epoch)` has a composite `UNIQUE` index (`UN1_device_event`) — see below
   for why it's the pair, not `event_number` alone, that's unique.
-- `device_face` is constrained to the valid TimeFlip facet range (`1`-`12`).
+- `device_face` is constrained to the valid TimeFlip face range (`1`-`12`).
 - `duration_seconds` is constrained to be non-negative.
 - `paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
@@ -169,7 +169,7 @@ alone:
   `start_epoch` alone isn't unique enough to use by itself either — the device only reports
   whole-second timestamps (`docs/TimeFlip2 BLE Protocol v4.3.md`'s `0x07`/`0x08` commands and the
   history frame's flip-timestamp field are both "number of seconds", no finer resolution), so two
-  genuinely different segments (e.g. a quick flip across a facet while searching for the right
+  genuinely different segments (e.g. a quick flip across a face while searching for the right
   one — see the `blip_time` setting) can legitimately share the same `start_epoch` second. The
   combination of both is what's actually unique: the only way two different real segments collide
   on `(event_number, start_epoch)` is an exact coincidence of a device reset landing the reused
@@ -187,7 +187,7 @@ it, so an already-`processed` row can't be silently un-flagged by the live segme
 
 ### `icon` (`database/004_icon.sql`)
 
-Reference table of activity icons that can be assigned to a facet.
+Reference table of activity icons that can be assigned to a face.
 
 | Column     | Type    | Description                                                                                   |
 |------------|---------|-------------------------------------------------------------------------------------------------|
@@ -208,7 +208,7 @@ Reference table of the colours available to assign to a category.
 |--------------|---------|--------------------------------------------------------------|
 | `colour_id`   | INTEGER | Primary key. Not autoincrementing — seeded with fixed IDs.   |
 | `colour_name` | TEXT    | Colour name, e.g. `Red`, `Teal`, `Cyan`.                      |
-| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `None`). This is the value sent to the tracker's facet-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
+| `device_hex`  | TEXT    | The RGB value shown on the device for this colour, as an `#rrggbb` hex string (`NULL` for `None`). This is the value sent to the tracker's face-colour command (`0x11`, which takes 16-bit R/G/B — see the BLE protocol doc); the app scales each 8-bit channel up when sending. Stored here — rather than derived from an AppKit system colour — so each named colour maps to a fixed, predictable value on the LED. |
 | `white_lines` | INTEGER | `1` when the device drawn in this colour should take white inner lines and a white icon, `0` for black ones. `NOT NULL`, defaults to `0`. |
 
 Constraints:
@@ -255,7 +255,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | Column       | Type    | Description                                              |
 |--------------|---------|------------------------------------------------------------|
 | `category_id`  | INTEGER | Row identifier, primary key, autoincrementing.             |
-| `category_name`| TEXT    | Category name (e.g. an activity mapped to a facet).        |
+| `category_name`| TEXT    | Category name (e.g. an activity mapped to a face).        |
 | `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `None` icon) if no real icon is assigned. |
 | `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `None` colour) if no real colour is assigned. |
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
@@ -278,13 +278,13 @@ Constraints:
 
 ### `face` (`database/008_face.sql`)
 
-The 12 physical facets of the TimeFlip device, each linked to the category currently assigned to
+The 12 physical faces of the TimeFlip device, each linked to the category currently assigned to
 it.
 
 | Column        | Type    | Description                                                        |
 |---------------|---------|-----------------------------------------------------------------------|
-| `face_id`     | INTEGER | Primary key, `1`-`12` (matches the device's facet numbering).         |
-| `category_id` | INTEGER | References `category.category_id` — the category currently assigned to this facet. |
+| `face_id`     | INTEGER | Primary key, `1`-`12` (matches the device's face numbering).         |
+| `category_id` | INTEGER | References `category.category_id` — the category currently assigned to this face. |
 | `locked`      | INTEGER | `1` to pin this face's category so it can't be reassigned by accident (a face the user wants permanent, e.g. Break or Meeting), `0` if it can be reassigned freely. `NOT NULL`, defaults to `0`. |
 
 Foreign keys:
@@ -330,7 +330,7 @@ Constraints:
 
 Point-in-time device notifications that aren't timing segments — `double_tap`, `battery_level`,
 `system_state`, `device_info`, `event_log` (see `event_type`). Unlike `device_event`, these don't
-have a duration or a facet; each row is a single moment with a decoded value.
+have a duration or a face; each row is a single moment with a decoded value.
 
 | Column                  | Type    | Description                                                              |
 |--------------------------|---------|------------------------------------------------------------------------------|
@@ -379,10 +379,10 @@ Seeded rows:
   - `brightness` (%) and `blink_interval` (seconds — the gap from the end of one blink to the
     start of the next) are seeded from `AppState`'s `ledBrightnessPercent`/`blinkIntervalSeconds`
     defaults (`Sources/TimeFlipApp/AppState.swift` lines 91-92).
-- `auto_pause_minutes` = `{"minutes":0}` — delay after which the device pauses itself if the facet
+- `auto_pause_minutes` = `{"minutes":0}` — delay after which the device pauses itself if the face
   hasn't changed (device cmd `0x05`; `0` disables, matching the vendor protocol's own
   disabled-by-default behavior; the device itself only supports whole-minute granularity, so this
-  can't be made finer). The timer resets every time the facet changes.
+  can't be made finer). The timer resets every time the face changes.
 - `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired
   face, it can briefly pass over other faces, creating unwanted `device_event` segments for
   them. Any segment shorter than `seconds` is merged into the *following* segment rather than
@@ -411,7 +411,7 @@ Seeded rows:
   triggered by double-tapping the device itself; that never locks.
 - `fetch_history_interval_seconds` = `{"seconds":10}` — how often `HistoryIngestor` sends a
   history fetch request (command `0x02`) on a repeating timer, independent of the fetches already
-  triggered by live facet/pause events, so any entries the device hasn't pushed a live
+  triggered by live face/pause events, so any entries the device hasn't pushed a live
   notification for yet still get picked up. Stored in seconds; a future Settings UI will expose
   this in minutes and convert before saving here.
 - `display_seconds` = `{"enabled":true}` — when `enabled`, the menu bar duration display includes

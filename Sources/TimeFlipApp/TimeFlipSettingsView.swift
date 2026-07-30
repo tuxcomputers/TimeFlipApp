@@ -161,7 +161,7 @@ struct TimeFlipSettingsView: View {
                         }
                     } message: {
                         Text("""
-                        This erases everything stored on the device -- facet colors, task \
+                        This erases everything stored on the device -- face colors, task \
                         settings, name, and password -- back to factory defaults. This cannot be \
                         undone.
                         """)

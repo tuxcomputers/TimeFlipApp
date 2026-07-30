@@ -32,16 +32,16 @@ create-if-missing and active-filtered-dropdown behavior.)
 - Any **active** category can be assigned to a face.
 - The same category can be assigned to multiple faces at once.
 - Two ways to assign:
-  1. The list on the right-hand side (the existing per-facet settings list).
-  2. Click the **current face** (the device's currently active facet) to open a dropdown of
+  1. The list on the right-hand side (the existing per-face settings list).
+  2. Click the **current face** (the device's currently active face) to open a dropdown of
      active categories; typing into the field filters the dropdown by the typed text.
 
-- Category assignment **replaces** today's free-text per-facet editing: a face's identity becomes
+- Category assignment **replaces** today's free-text per-face editing: a face's identity becomes
   its assigned `category_id`, and the category's own name/icon/colour (already columns on
   `category`) are what display for that face. The current free-text name field
-  (`TopFacetEditor`'s `nameBinding` in `SettingsViews.swift`) goes away.
+  (`TopFaceEditor`'s `nameBinding` in `SettingsViews.swift`) goes away.
 
-(Note: today, `TopFacetEditor` in `SettingsViews.swift` edits a facet's name/icon/colour directly
+(Note: today, `TopFaceEditor` in `SettingsViews.swift` edits a face's name/icon/colour directly
 per row, independent of the `category` table — there's no category-picker dropdown yet, filtered
 or otherwise, and no "click the current face to assign" gesture. This is a real re-model of how a
 face's display comes to be, not just an added picker, on top of the `active`-aware category list

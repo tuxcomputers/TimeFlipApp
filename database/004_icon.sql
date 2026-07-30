@@ -1,5 +1,5 @@
 -- icon
--- Reference table of activity icons available to assign to a facet.
+-- Reference table of activity icons available to assign to a face.
 
 CREATE TABLE IF NOT EXISTS icon (
   icon_id     INTEGER CONSTRAINT PK_icon PRIMARY KEY

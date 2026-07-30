@@ -1,7 +1,7 @@
 import Foundation
 
 struct TimeFlipDeviceSnapshot: Equatable, Sendable {
-    let facetID: UInt8
+    let faceID: UInt8
     let isPaused: Bool
     let isLocked: Bool
     let autoPauseMinutes: UInt16
@@ -13,7 +13,7 @@ struct TimeFlipDeviceSnapshot: Equatable, Sendable {
 
 struct TimeFlipHistoryEntry: Equatable, Sendable {
     let eventNumber: UInt32?
-    let facetID: UInt8
+    let faceID: UInt8
     let startedAt: Date
     let duration: TimeInterval
     let isPaused: Bool
@@ -26,7 +26,7 @@ extension TimeFlipDeviceSnapshot {
         let status = systemState.syncStatus.description
         let hardware = systemState.hardwareStatus.description
         return """
-        {"facetID":\(facetID),"paused":\(isPaused),"locked":\(isLocked),"autoPauseMinutes":\(autoPauseMinutes),"battery":\(batteryLevel),"systemStatus":"\(status)","hardwareStatus":"\(hardware)","deviceTime":"\(timeString)"}
+        {"faceID":\(faceID),"paused":\(isPaused),"locked":\(isLocked),"autoPauseMinutes":\(autoPauseMinutes),"battery":\(batteryLevel),"systemStatus":"\(status)","hardwareStatus":"\(hardware)","deviceTime":"\(timeString)"}
         """
     }
 }

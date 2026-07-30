@@ -12,7 +12,7 @@ final class FakeDevice: TimeFlipSessionManaging {
     /// stream that got cut short before reaching the device's actual last event.
     var deviceLastEventOverride: TimeFlipHistoryEntry?
     var snapshotValue = TimeFlipDeviceSnapshot(
-        facetID: TimeFlipConstants.minFacetID,
+        faceID: TimeFlipConstants.minFaceID,
         isPaused: true,
         isLocked: false,
         autoPauseMinutes: 0,
@@ -33,14 +33,14 @@ final class FakeDevice: TimeFlipSessionManaging {
     func login(password: String) async -> Bool { true }
     func enableNotifications() async {}
     func initializeSession(hostTime: Date, desiredAutoPauseMinutes: UInt16) async {}
-    func setFacetColor(facetID: UInt8, components: ColorComponents) async {}
+    func setFaceColor(faceID: UInt8, components: ColorComponents) async {}
     func setAutoPause(minutes: UInt16) async {}
     func setLEDBrightness(percent: UInt8) async {}
     func setBlinkInterval(seconds: UInt8) async {}
     func setDoubleTapParameters(_ params: DoubleTapParameters) async {}
     func readDoubleTapParameters() async -> DoubleTapParameters? { nil }
     func refreshDeviceInfo() async {}
-    func readElapsedSeconds(facetID: UInt8) async -> TimeInterval? { nil }
+    func readElapsedSeconds(faceID: UInt8) async -> TimeInterval? { nil }
     func setPause(_ paused: Bool) async {}
     func setLock(_ locked: Bool) async {}
     func refreshLockState() async -> Bool { snapshotValue.isLocked }
@@ -72,14 +72,14 @@ final class HistoryIngestorTests: XCTestCase {
         let entries = [
             TimeFlipHistoryEntry(
                 eventNumber: 10,
-                facetID: 3,
+                faceID: 3,
                 startedAt: now.addingTimeInterval(-120),
                 duration: 60,
                 isPaused: false
             ),
             TimeFlipHistoryEntry(
                 eventNumber: 11,
-                facetID: 4,
+                faceID: 4,
                 startedAt: now.addingTimeInterval(-30),
                 duration: 20,
                 isPaused: false
@@ -97,7 +97,7 @@ final class HistoryIngestorTests: XCTestCase {
             doubleTapParameters: .default,
             isDoubleTapEnabled: true
         )
-        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
@@ -116,14 +116,14 @@ final class HistoryIngestorTests: XCTestCase {
         let entries = [
             TimeFlipHistoryEntry(
                 eventNumber: 5,
-                facetID: 2,
+                faceID: 2,
                 startedAt: now.addingTimeInterval(-300),
                 duration: 120,
                 isPaused: false
             ),
             TimeFlipHistoryEntry(
                 eventNumber: 6,
-                facetID: 2,
+                faceID: 2,
                 startedAt: now.addingTimeInterval(-100),
                 duration: 50,
                 isPaused: false
@@ -148,7 +148,7 @@ final class HistoryIngestorTests: XCTestCase {
             (event: 5, at: now.addingTimeInterval(-300)),
             (event: 6, at: now.addingTimeInterval(-100))
         ])
-        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
@@ -163,7 +163,7 @@ final class HistoryIngestorTests: XCTestCase {
         let entries = [
             TimeFlipHistoryEntry(
                 eventNumber: 20,
-                facetID: 1,
+                faceID: 1,
                 startedAt: now.addingTimeInterval(-10),
                 duration: 0,
                 isPaused: true
@@ -183,7 +183,7 @@ final class HistoryIngestorTests: XCTestCase {
         )
         var latest: TimeFlipHistoryEntry?
 
-        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,
@@ -203,7 +203,7 @@ final class HistoryIngestorTests: XCTestCase {
     func testSkipsStreamOnFirstRefreshOfSessionWhenPersistedCursorAlreadyMatchesDevice() async {
         let now = Date()
         let entries = [
-            TimeFlipHistoryEntry(eventNumber: 20, facetID: 1, startedAt: now.addingTimeInterval(-10), duration: 10, isPaused: false)
+            TimeFlipHistoryEntry(eventNumber: 20, faceID: 1, startedAt: now.addingTimeInterval(-10), duration: 10, isPaused: false)
         ]
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
@@ -222,7 +222,7 @@ final class HistoryIngestorTests: XCTestCase {
         // with no in-memory state populated yet (lastCommittedEventNumber/lastObservedEventNumber
         // are both nil until something reads them).
         seedDeviceEvents(dataStore, [(event: 20, at: now.addingTimeInterval(-10))])
-        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
 
         // The very first refresh call of this instance's lifetime must still hydrate the
@@ -236,7 +236,7 @@ final class HistoryIngestorTests: XCTestCase {
     func testSkipsStreamWhenDeviceMaxEventNumberUnchanged() async {
         let now = Date()
         let entries = [
-            TimeFlipHistoryEntry(eventNumber: 20, facetID: 1, startedAt: now.addingTimeInterval(-10), duration: 10, isPaused: false)
+            TimeFlipHistoryEntry(eventNumber: 20, faceID: 1, startedAt: now.addingTimeInterval(-10), duration: 10, isPaused: false)
         ]
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
@@ -251,7 +251,7 @@ final class HistoryIngestorTests: XCTestCase {
             isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
-        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,
@@ -270,7 +270,7 @@ final class HistoryIngestorTests: XCTestCase {
         // refresh should short-circuit on the cheap check (no full stream) while still refreshing
         // the DB/UI with that duration, straight from the cheap check's own response.
         device.deviceLastEventOverride = TimeFlipHistoryEntry(
-            eventNumber: 20, facetID: 1, startedAt: now.addingTimeInterval(-10), duration: 45, isPaused: false
+            eventNumber: 20, faceID: 1, startedAt: now.addingTimeInterval(-10), duration: 45, isPaused: false
         )
         await ingestor.refreshHistory(trigger: "test")
         XCTAssertEqual(device.fetchHistoryCallCount, 1, "Stream should be skipped when the device's max event number hasn't advanced.")
@@ -280,15 +280,15 @@ final class HistoryIngestorTests: XCTestCase {
     func testWithholdsLiveEntryWhenStreamIsCutShortOfDeviceMax() async {
         let now = Date()
         let entries = [
-            TimeFlipHistoryEntry(eventNumber: 10, facetID: 2, startedAt: now.addingTimeInterval(-300), duration: 120, isPaused: false),
-            TimeFlipHistoryEntry(eventNumber: 11, facetID: 3, startedAt: now.addingTimeInterval(-60), duration: 30, isPaused: false)
+            TimeFlipHistoryEntry(eventNumber: 10, faceID: 2, startedAt: now.addingTimeInterval(-300), duration: 120, isPaused: false),
+            TimeFlipHistoryEntry(eventNumber: 11, faceID: 3, startedAt: now.addingTimeInterval(-60), duration: 30, isPaused: false)
         ]
         let device = FakeDevice(history: entries)
         // Simulate a stream that got cut short partway: the device's actual last event is 15, but
         // the fetch above only returned through 11, so 11 can't be trusted as "the current entry".
         device.deviceLastEventOverride = TimeFlipHistoryEntry(
             eventNumber: 15,
-            facetID: 4,
+            faceID: 4,
             startedAt: now.addingTimeInterval(-5),
             duration: 0,
             isPaused: false
@@ -305,7 +305,7 @@ final class HistoryIngestorTests: XCTestCase {
             isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
-        let dailyTotals = DailyFacetTotals(dataStore: dataStore)
+        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,

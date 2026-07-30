@@ -69,7 +69,7 @@ Logbook Database (SQLite)
 
 ### Event Pipeline
 
-1. Device sends notifications on facet changes or pause events
+1. Device sends notifications on face changes or pause events
 2. Driver fetches complete history from device
 3. History ingested into local SQLite logbook (all but last frame)
 4. Last frame (live interval) drives UI only, never persisted

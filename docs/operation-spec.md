@@ -17,7 +17,7 @@ TimeFlip device (BLE)
       ▼
 Decode raw notification/history frame
       │
-      ├─ Timing segment (facet flip / pause) ──► device_event ──► time_entry ──► Google Calendar
+      ├─ Timing segment (face flip / pause) ──► device_event ──► time_entry ──► Google Calendar
       │                                                 ▲
       └─ Point-in-time notification ──────────► device_notification
                                        (double tap, battery, system state, device info, event log)
@@ -31,17 +31,17 @@ decides which of the two tables below it lands in.
 When the app receives a decoded event from the BLE driver (`TimeFlipEvent` today), it's matched
 to an `event_type` row by name:
 
-- `facet_flip`, `pause` → come only from the **history stream** (the `...58` characteristic).
+- `face_flip`, `pause` → come only from the **history stream** (the `...58` characteristic).
   These carry a duration and belong to a timing segment → go to `device_event`.
 - `double_tap`, `auto_pause_minutes`, `battery_level`, `system_state`, `device_info`,
   `event_log` → live BLE notifications with no duration → go to `device_notification`.
 
 ## 2. Recording a timing segment (`device_event`)
 
-1. The device's history stream reports a frame: event number, facet byte, timestamp, duration.
+1. The device's history stream reports a frame: event number, face byte, timestamp, duration.
    The app decodes this into human-readable values (never stores the raw hex) — see
    [Database Design § decoded, not raw](database-design.md#design-principle-decoded-not-raw).
-2. The facet byte's high bit determines `event_type_id` (`facet_flip` vs `pause`) and the decoded
+2. The face byte's high bit determines `event_type_id` (`face_flip` vs `pause`) and the decoded
    `face` number (`1`-`12`).
 3. The app inserts a `device_event` row: `event_number`, `event_type_id`, `face`, `started_at` /
    `started_at_timezone` (captured in the local timezone at the moment the segment started —
@@ -117,7 +117,7 @@ yesterday); the rule below is the intended, correct behavior:
    `time_entry` row with that `category_id` whose `started_at` falls on or after today's
    midnight, **plus** the elapsed time of a currently in-progress segment if the device is right
    now on a face mapped to that category (the same "stored total + live segment" pattern the app
-   already uses per-facet — see `MenuBarController.currentDuration`).
+   already uses per-face — see `MenuBarController.currentDuration`).
 3. Because faces map to categories many-to-one (see [Workflow § faces map to categories
    many-to-one](workflow.md#faces-map-to-categories-many-to-one)), this sum must include
    `time_entry` rows created from *every* face mapped to that category, not just whichever face

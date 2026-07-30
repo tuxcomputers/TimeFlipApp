@@ -1,5 +1,5 @@
 -- face
--- The 12 physical facets of the TimeFlip device, each linked to its assigned category.
+-- The 12 physical faces of the TimeFlip device, each linked to its assigned category.
 
 CREATE TABLE IF NOT EXISTS face (
   face_id       INTEGER CONSTRAINT PK_face PRIMARY KEY

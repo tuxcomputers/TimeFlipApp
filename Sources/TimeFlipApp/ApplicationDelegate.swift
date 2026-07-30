@@ -96,7 +96,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self?.refreshFaceCategories()
         }
     )
-    private lazy var dailyTotals = DailyFacetTotals(dataStore: dataStore)
+    private lazy var dailyTotals = DailyFaceTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(
         appState: appState,
         settingsWindowController: settingsWindowController,
@@ -127,7 +127,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var mockHTTPServer: MockEventHTTPServer?
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "lifecycle")
     private var cancellables: Set<AnyCancellable> = []
-    private var lastSentFacetColors: [UInt8: ColorComponents] = [:]
+    private var lastSentFaceColors: [UInt8: ColorComponents] = [:]
     // Debounces the device write for each setting below whose value is edited live: DB persistence
     // and the "value changed" debug print happen immediately on every change, but the actual device
     // write (and, where the protocol supports it, its read-back verification) only fires once the
@@ -139,22 +139,22 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private let ledBrightnessWriteDebouncer = DeviceWriteDebouncer()
     private let blinkIntervalWriteDebouncer = DeviceWriteDebouncer()
     private let doubleTapWriteDebouncer = DeviceWriteDebouncer()
-    private let facetColourWriteDebouncer = DeviceWriteDebouncer()
-    private var facetColorInitialized = false
-    /// Whether this run has actually written the facet colours to a device yet, which is what turns
-    /// `lastSentFacetColors` from an assumption seeded off the DB into a real record. Until it has,
+    private let faceColourWriteDebouncer = DeviceWriteDebouncer()
+    private var faceColorInitialized = false
+    /// Whether this run has actually written the face colours to a device yet, which is what turns
+    /// `lastSentFaceColors` from an assumption seeded off the DB into a real record. Until it has,
     /// a connect writes all 12 rather than trusting that record -- see `startDeviceEvents`.
-    private var hasSentFacetColoursThisRun = false
-    // Collapses the device's repeated "I've lost my facet colours" requests into one resync -- see
-    // requestFacetColourResync for why answering them one for one is actively harmful.
-    private let facetColourResyncDebouncer = DeviceWriteDebouncer()
-    private var isFacetColourResyncPending = false
-    private var isFacetColourResyncRunning = false
-    private var lastFacetColourResyncAt: Date?
-    private var suppressedFacetColourRequests = 0
+    private var hasSentFaceColoursThisRun = false
+    // Collapses the device's repeated "I've lost my face colours" requests into one resync -- see
+    // requestFaceColourResync for why answering them one for one is actively harmful.
+    private let faceColourResyncDebouncer = DeviceWriteDebouncer()
+    private var isFaceColourResyncPending = false
+    private var isFaceColourResyncRunning = false
+    private var lastFaceColourResyncAt: Date?
+    private var suppressedFaceColourRequests = 0
     /// How long after finishing a resync to ignore further requests. The device can keep asking for
     /// a while after being answered, and re-answering costs another 12 flash writes for nothing.
-    private let facetColourResyncCooldown: TimeInterval = 30
+    private let faceColourResyncCooldown: TimeInterval = 30
     private var awaitingInitialStatus = false
     // Guards handleDeviceEvent against acting on live BLE notifications until the initial history
     // backfill (recordDeviceEvent's ascending-order requirement -- see HistoryIngestor.refreshHistory)
@@ -314,7 +314,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self.scheduleReconnect()
             return true
         }
-        appState.onCurrentFacetMappingChange = { [weak self] in
+        appState.onCurrentFaceMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
         appState.onDisplaySecondsChange = { [weak self] enabled in
@@ -420,19 +420,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] categories in
                 Task { @MainActor in
                     guard let self else { return }
-                    let colours = self.appState.facetLEDColours(in: categories)
-                    if !self.facetColorInitialized {
+                    let colours = self.appState.faceLEDColours(in: categories)
+                    if !self.faceColorInitialized {
                         // First emission is the state as loaded, not an edit -- record what the
-                        // device is assumed to already show without writing all 12 facets at launch.
-                        self.lastSentFacetColors = colours
-                        self.facetColorInitialized = true
+                        // device is assumed to already show without writing all 12 faces at launch.
+                        self.lastSentFaceColors = colours
+                        self.faceColorInitialized = true
                         return
                     }
-                    self.facetColourWriteDebouncer.schedule { [weak self] in
+                    self.faceColourWriteDebouncer.schedule { [weak self] in
                         guard let self else { return }
                         // Re-read the categories rather than sending the snapshot this emission
                         // carried: the whole point of waiting is to send where the edits settled.
-                        await self.sendFacetColors(in: self.appState.faceCategories, reason: "category edit")
+                        await self.sendFaceColors(in: self.appState.faceCategories, reason: "category edit")
                     }
                 }
             }
@@ -683,7 +683,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             await MainActor.run {
                 // Login confirms the device is reachable and authenticated again — clear the
                 // "reconnecting" state right away; the history backfill below will correct the
-                // displayed facet/duration/pause state to whatever the device actually reports.
+                // displayed face/duration/pause state to whatever the device actually reports.
                 if self.appState.connectionStatus == .reconnecting {
                     self.appState.connectionStatus = .connected
                 }
@@ -728,21 +728,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             await device.setLEDBrightness(percent: appState.ledBrightnessPercent)
             DeveloperMode.debugPrint(.syncLed, "LED blink interval: no device read-back available; applying \(appState.blinkIntervalSeconds)s")
             await device.setBlinkInterval(seconds: appState.blinkIntervalSeconds)
-            // Facet colours have no read-back either, so lastSentFacetColors is the app's only
+            // Face colours have no read-back either, so lastSentFaceColors is the app's only
             // record of what the device is showing -- and at the start of a run that record is an
             // assumption seeded from the DB, not evidence of anything having been sent. So the first
             // connect of a run writes all 12 outright, as does a fresh pairing (skipConnect is only
             // true there), which is a device this app has never coloured. Later reconnects in the
             // same run have really sent those writes, so they trust the record and write only what
             // drifted -- in practice a face reassigned while the device was away.
-            let isFirstFacetColourSync = skipConnect || !hasSentFacetColoursThisRun
-            await sendFacetColors(
+            let isFirstFaceColourSync = skipConnect || !hasSentFaceColoursThisRun
+            await sendFaceColors(
                 in: appState.faceCategories,
-                reason: skipConnect ? "pairing" : (hasSentFacetColoursThisRun ? "reconnect" : "launch"),
-                force: isFirstFacetColourSync
+                reason: skipConnect ? "pairing" : (hasSentFaceColoursThisRun ? "reconnect" : "launch"),
+                force: isFirstFaceColourSync
             )
-            hasSentFacetColoursThisRun = true
-            facetColorInitialized = true
+            hasSentFaceColoursThisRun = true
+            faceColorInitialized = true
             await syncDoubleTapParameters(expected: appState.effectiveDoubleTapParameters, device: device)
             guard !Task.isCancelled else { return }
             logger.notice("Backfill starting")
@@ -794,12 +794,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // A new connection gets a fresh hearing: the cooldown is there to stop one connection's
         // repeated asking from being re-answered, not to gag a device that comes back having really
         // lost its colours.
-        lastFacetColourResyncAt = nil
-        suppressedFacetColourRequests = 0
-        // lastSentFacetColors deliberately survives a drop: the device keeps its facet colours in
+        lastFaceColourResyncAt = nil
+        suppressedFaceColourRequests = 0
+        // lastSentFaceColors deliberately survives a drop: the device keeps its face colours in
         // flash, so what it was last sent is still what it is showing, and keeping the record means
         // a face reassigned while it is away registers as drift to write on reconnect. A device that
-        // really did lose them reports facetColorSyncRequired.
+        // really did lose them reports faceColorSyncRequired.
         awaitingInitialStatus = false
         isHistoryBackfillComplete = false
         stopDeviceEvents()
@@ -822,7 +822,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             return
         }
         // Nothing to reconnect to: this drop happened during a pairing attempt that never got as
-        // far as pairing (a drop between connect() and the first facet event), so report it as the
+        // far as pairing (a drop between connect() and the first face event), so report it as the
         // pairing failure it is rather than retrying forever against a device the app isn't
         // actually paired to.
         guard appState.shouldMaintainConnection else {
@@ -882,8 +882,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         DeveloperMode.debugPrint(.syncDtap, "Double-tap OK: device matches expected \(expectedSummary)")
     }
 
-    /// Writes each facet's LED colour (BLE `0x11`), skipping any that already show the right one.
-    /// The colours are resolved from `categories` -- see `AppState.facetLEDColours`, including why a
+    /// Writes each face's LED colour (BLE `0x11`), skipping any that already show the right one.
+    /// The colours are resolved from `categories` -- see `AppState.faceLEDColours`, including why a
     /// category with no colour resolves to black rather than being left alone. The categories come in
     /// rather than being read off `appState` so a Combine sink logs and sends the snapshot it was
     /// handed.
@@ -891,38 +891,38 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     /// `force` writes all 12 regardless of what was last sent, for when the device says it no longer
     /// has them. There is no read-back for `0x11` (the vendor spec defines none -- see
     /// `docs/timeflip.md`), so what was last sent is the only record of what the device is showing.
-    private func sendFacetColors(
+    private func sendFaceColors(
         in categories: [UInt8: CategoryRecord],
         reason: String,
         force: Bool = false
     ) async {
-        let colours = appState.facetLEDColours(in: categories)
+        let colours = appState.faceLEDColours(in: categories)
         guard let device else {
-            // Not connected: leave lastSentFacetColors alone so this shows up as drift to write at
+            // Not connected: leave lastSentFaceColors alone so this shows up as drift to write at
             // the next connect, rather than being recorded as though the device had received it.
-            DeveloperMode.debugPrint(.syncColour, "Facet colours (\(reason)): no device connected; deferred to next connect")
+            DeveloperMode.debugPrint(.syncColour, "Face colours (\(reason)): no device connected; deferred to next connect")
             return
         }
         var written: [UInt8] = []
-        for facetID in TimeFlipConstants.facetIDs {
-            guard let components = colours[facetID] else { continue }
-            if force || lastSentFacetColors[facetID] != components {
-                lastSentFacetColors[facetID] = components
-                await device.setFacetColor(facetID: facetID, components: components)
-                logFacetColour(facetID: facetID, components: components, in: categories, reason: reason)
-                written.append(facetID)
+        for faceID in TimeFlipConstants.faceIDs {
+            guard let components = colours[faceID] else { continue }
+            if force || lastSentFaceColors[faceID] != components {
+                lastSentFaceColors[faceID] = components
+                await device.setFaceColor(faceID: faceID, components: components)
+                logFaceColour(faceID: faceID, components: components, in: categories, reason: reason)
+                written.append(faceID)
             }
         }
         guard !written.isEmpty else {
             // Deliberately not "already up to date": with no read-back for 0x11 the app can only
             // speak for what it last sent, never for what the device is actually showing.
-            DeveloperMode.debugPrint(.syncColour, "Facet colours (\(reason)): unchanged since this run last sent them, nothing written")
+            DeveloperMode.debugPrint(.syncColour, "Face colours (\(reason)): unchanged since this run last sent them, nothing written")
             return
         }
-        DeveloperMode.debugPrint(.syncColour, "Facet colours (\(reason)): wrote \(written.count) of \(TimeFlipConstants.facetIDs.count) facets; no device read-back available")
+        DeveloperMode.debugPrint(.syncColour, "Face colours (\(reason)): wrote \(written.count) of \(TimeFlipConstants.faceIDs.count) faces; no device read-back available")
     }
 
-    /// The device reporting that it has lost its facet colours (system state `0x02 0x02`). It can say
+    /// The device reporting that it has lost its face colours (system state `0x02 0x02`). It can say
     /// so many times over: once per notification, once more per post-reconcile re-read, and again on
     /// every reconnect while it is unhappy. Each answer is 12 flash-writing colour commands that also
     /// light the LED, so the requests are collapsed into one resync rather than answered one for one.
@@ -932,47 +932,47 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     /// continuously and helped brown out a device that was already failing to hold its own settings.
     /// The first request schedules the resync; everything arriving while one is pending, running, or
     /// inside the cooldown is counted and dropped.
-    private func requestFacetColourResync() {
-        let inCooldown = lastFacetColourResyncAt.map {
-            Date().timeIntervalSince($0) < facetColourResyncCooldown
+    private func requestFaceColourResync() {
+        let inCooldown = lastFaceColourResyncAt.map {
+            Date().timeIntervalSince($0) < faceColourResyncCooldown
         } ?? false
-        guard !isFacetColourResyncPending, !isFacetColourResyncRunning, !inCooldown else {
-            suppressedFacetColourRequests += 1
+        guard !isFaceColourResyncPending, !isFaceColourResyncRunning, !inCooldown else {
+            suppressedFaceColourRequests += 1
             return
         }
-        isFacetColourResyncPending = true
-        DeveloperMode.debugPrint(.syncColour, "Device requested facet colour resync (system state 0x02 0x02)")
-        facetColourResyncDebouncer.schedule { [weak self] in
-            await self?.resyncFacetColours()
+        isFaceColourResyncPending = true
+        DeveloperMode.debugPrint(.syncColour, "Device requested face colour resync (system state 0x02 0x02)")
+        faceColourResyncDebouncer.schedule { [weak self] in
+            await self?.resyncFaceColours()
         }
     }
 
-    /// Answers a collapsed batch of resync requests with a single forced write of all 12 facets.
+    /// Answers a collapsed batch of resync requests with a single forced write of all 12 faces.
     @MainActor
-    private func resyncFacetColours() async {
-        isFacetColourResyncPending = false
-        isFacetColourResyncRunning = true
-        let collapsed = suppressedFacetColourRequests
-        suppressedFacetColourRequests = 0
+    private func resyncFaceColours() async {
+        isFaceColourResyncPending = false
+        isFaceColourResyncRunning = true
+        let collapsed = suppressedFaceColourRequests
+        suppressedFaceColourRequests = 0
         if collapsed > 0 {
             DeveloperMode.debugPrint(.syncColour, "Collapsed \(collapsed) repeat resync request(s) into this one")
         }
-        await sendFacetColors(in: appState.faceCategories, reason: "device request", force: true)
-        lastFacetColourResyncAt = Date()
-        isFacetColourResyncRunning = false
+        await sendFaceColors(in: appState.faceCategories, reason: "device request", force: true)
+        lastFaceColourResyncAt = Date()
+        isFaceColourResyncRunning = false
     }
 
-    /// One line per facet actually written, naming the face, the category on it, the colour and the
+    /// One line per face actually written, naming the face, the category on it, the colour and the
     /// hex sent -- so a face lighting up wrong (or not at all) can be checked against exactly what
     /// went out for it. `rgb16` is what `0x11` carries: hex is 8 bits per channel, the command takes
     /// 16, and both are logged so a scaling problem is visible rather than inferred.
-    private func logFacetColour(
-        facetID: UInt8,
+    private func logFaceColour(
+        faceID: UInt8,
         components: ColorComponents,
         in categories: [UInt8: CategoryRecord],
         reason: String
     ) {
-        let category = categories[facetID]
+        let category = categories[faceID]
         let categoryName = category?.name ?? "no category"
         let colourName = appState.colourOptions.first { $0.colourId == category?.colourID }?.name
             // A face with no category, or one whose colour didn't resolve, is sent black. Naming it
@@ -982,7 +982,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         let rgb16 = String(format: "%04x,%04x,%04x", Int(r), Int(g), Int(b))
         DeveloperMode.debugPrint(
             .syncColour,
-            "Face \(facetID) (\(reason)): \(categoryName) / \(colourName) \(components.hexString) sent as rgb16 \(rgb16)"
+            "Face \(faceID) (\(reason)): \(categoryName) / \(colourName) \(components.hexString) sent as rgb16 \(rgb16)"
         )
     }
 
@@ -996,7 +996,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             dataStore.recordDeviceNotification(eventType: notification.eventType, payload: notification.payload)
         }
         appState.update(from: event)
-        if awaitingInitialStatus, case .facetChanged = event {
+        if awaitingInitialStatus, case .faceChanged = event {
             awaitingInitialStatus = false
             appState.confirmConnected(name: "TimeFlip", uuid: nil)
         }
@@ -1007,8 +1007,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 Task { [weak self] in
                     await self?.historyIngestor?.refreshHistory(trigger: "factory_reset")
                 }
-            case .facetColorSyncRequired:
-                requestFacetColourResync()
+            case .faceColorSyncRequired:
+                requestFaceColourResync()
             case .blinkIntervalSyncRequired:
                 Task { [weak self] in
                     guard let self else { return }
@@ -1023,7 +1023,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 break
             }
         }
-        if useHistoryPipeline, event.isFacetOrPauseChange {
+        if useHistoryPipeline, event.isFaceOrPauseChange {
             logger.debug("schedule_history_fetch reason=live_event")
             Task { [weak self] in
                 await self?.historyIngestor?.refreshHistory(trigger: "live_event")
@@ -1064,7 +1064,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyActiveInterval(from entry: TimeFlipHistoryEntry) {
-        guard TimeFlipConstants.isValidFacetID(entry.facetID) else { return }
+        guard TimeFlipConstants.isValidFaceID(entry.faceID) else { return }
         let isPaused = entry.isPaused
         let elapsed: TimeInterval
         if entry.duration > 0 {
@@ -1072,9 +1072,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         } else {
             elapsed = max(0, Date().timeIntervalSince(entry.startedAt))
         }
-        appState.currentFacetID = entry.facetID
+        appState.currentFaceID = entry.faceID
         appState.isPaused = isPaused
-        menuBarController.applyElapsed(facetID: entry.facetID, elapsedSeconds: elapsed, isPaused: isPaused)
+        menuBarController.applyElapsed(faceID: entry.faceID, elapsedSeconds: elapsed, isPaused: isPaused)
     }
 
     private func seedDailyTotals(now: Date = Date()) {

@@ -192,7 +192,7 @@ prompt = "The device isn't connecting on the test database. It's already paired 
 timeout_seconds = 120
 ```
 - [ ] Step 12: Leave the device unlocked and unpaused
- so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave Step 14's flips dead (a lock freezes facet switching).
+ so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave Step 14's flips dead (a lock freezes face switching).
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```

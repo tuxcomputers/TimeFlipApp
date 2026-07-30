@@ -12,7 +12,7 @@ menu-bar observation to a DB check (the same still-open event's `duration_second
 proving the same fact without needing eyes on the screen. Scenarios D and E below cover the status-item's own click gesture (single-click pause/resume,
 double-click lock), now Claude-drivable via CGEventPost ([Method: Number 7](../Methods.md#method-7)) -- previously believed unscriptable
 (a raw screen-position hit-test, not a menu/AX action), until `kCGMouseEventClickState` was found to
-be the missing piece. Only the physical facet-flip-while-locked check in
+be the missing piece. Only the physical face-flip-while-locked check in
 `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md` still needs a person.
 
 Methods used throughout this file: [Number 6](../Methods.md#method-6),
@@ -510,5 +510,5 @@ to return to a clean, unlocked, unpaused state.
 action = "ensure_unlocked_unpaused"
 ```
 
-The physical facet-flip-while-locked check still needs a real cube flip -- see
+The physical face-flip-while-locked check still needs a real cube flip -- see
 `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md`

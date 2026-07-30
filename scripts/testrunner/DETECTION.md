@@ -42,7 +42,7 @@ menu bar under developer mode.)
 
 ## Detecting if the device is paused (vs timing an activity)
 
-`device_event` has one row per timing segment (a facet flip or a pause), with an
+`device_event` has one row per timing segment (a face flip or a pause), with an
 `paused` flag; see [`../../database/003_device_event.sql`](../../database/003_device_event.sql).
 The **most recent** segment's flag is the current state. Order by `start_epoch` (indexed
 Unix seconds), **not** `event_number` -- the device's counter resets on factory reset and

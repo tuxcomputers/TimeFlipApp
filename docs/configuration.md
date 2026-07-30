@@ -159,23 +159,23 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
 
 ### Configuring Activities
 
-1. In Preferences > "Facets" tab
-2. Each TimeFlip facet (1-12) can be assigned:
+1. In Preferences > "Faces" tab
+2. Each TimeFlip face (1-12) can be assigned:
    - **Activity Name**: Custom label for the activity
    - **Icon**: Native TimeFlip icon (matching the stickers included with your device)
 
-**Color** and **Daily Limit** belong to the *category*, not the facet, and are set on the
-Categories tab — both describe the activity being measured, so two facets assigned the same
+**Color** and **Daily Limit** belong to the *category*, not the face, and are set on the
+Categories tab — both describe the activity being measured, so two faces assigned the same
 category share them.
 
-- **Color**: the RGB LED colour the device lights that facet up in. A category with **no** colour
-  leaves the facet's LED **dark** — clearing a colour turns the light off rather than leaving the
+- **Color**: the RGB LED colour the device lights that face up in. A category with **no** colour
+  leaves the face's LED **dark** — clearing a colour turns the light off rather than leaving the
   previous one lit.
 - **Daily Limit**: optional, in whole minutes. The menu bar text turns red once the limit is
   reached, resetting daily at the time set by `daily_reset_time` (3am by default) — see Status
   Indicators below.
 
-![Preferences - Facets](../image/preferences-facets.png)
+![Preferences - Faces](../image/preferences-faces.png)
 
 ### Device Settings
 
@@ -236,9 +236,9 @@ be changed by editing the `setting` table directly in the local SQLite database 
 
 ### Basic Time Tracking
 
-1. Flip your TimeFlip device to any facet to start tracking that activity
+1. Flip your TimeFlip device to any face to start tracking that activity
 2. The menu bar shows the current activity name, icon, and elapsed time
-3. Flip to another facet to switch activities
+3. Flip to another face to switch activities
 4. All completed sessions are automatically logged
 
 ### Manual Pause/Resume
@@ -304,7 +304,7 @@ private let enableMockEvents = true
 The app includes a mock device that simulates TimeFlip behavior and accepts commands via HTTP:
 
 ```bash
-# Send a mock facet change event
+# Send a mock face change event
 ./scripts/send_mock_event.sh
 ```
 

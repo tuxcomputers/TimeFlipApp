@@ -529,7 +529,7 @@ def act_ensure_unlocked_unpaused(spec, ctx):
     seconds AFTER `Login accepted` (confirmed live -- `lockChanged` landed ~2.5s after login), and
     until it does the menu shows the default "Lock"/"Pause", indistinguishable from a genuinely
     clean device. A single early read therefore misses a locked/paused device and leaves it that
-    way (then flips don't register -- a lock freezes facet switching). So poll over a settle
+    way (then flips don't register -- a lock freezes face switching). So poll over a settle
     window: click Unlock/Resume whenever they surface, and only conclude "already clean" once the
     menu has stayed free of both for `clean_confirm_seconds` (or `timeout_seconds` elapses).
     `poll_interval`/`clean_confirm_seconds`/`timeout_seconds` are overridable."""

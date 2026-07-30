@@ -8,7 +8,7 @@ final class AppState: ObservableObject {
     private let googleClientSecretStore: GoogleClientSecretStore
     private let devicePasswordStore: TimeFlipDevicePasswordStoring
     private let developerConfigStore: DeveloperConfigStoring // Developer mode; see DeveloperConfigStore.swift
-    /// The facet colour-picker palette, loaded once from the `colour` reference table at launch
+    /// The face colour-picker palette, loaded once from the `colour` reference table at launch
     /// (see `ActivityLibrary.colorOptions(from:)`). Fixed for the session — no UI edits it.
     let colourOptions: [ActivityColorOption]
     /// The Categories tab's icon-grid palette, loaded once from the `icon` reference table at
@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     private var suppressNextPersist = false
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "app-state")
 
-    @Published var currentFacetID: UInt8
+    @Published var currentFaceID: UInt8
     @Published var isPaused: Bool
     @Published var isLocked: Bool
     @Published var batteryLevel: UInt8?
@@ -45,7 +45,7 @@ final class AppState: ObservableObject {
     /// transient side is `connectionStatus`; see `isConnected` for the two combined.
     @Published var isPaired: Bool
     @Published var pairedDeviceName: String
-    @Published var facetMappings: [FacetMapping]
+    @Published var faceMappings: [FaceMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
     /// The signed-in account's calendars, as last listed from Google. Held here rather than on the
@@ -74,7 +74,7 @@ final class AppState: ObservableObject {
     // send them to the device with `window` forced to 0 (which makes the accelerometer's
     // double-tap gesture unrecognizable) instead of the real value. See effectiveDoubleTapParameters.
     @Published var isDoubleTapEnabled: Bool
-    @Published var dailyFacetDurations: [UInt8: TimeInterval]
+    @Published var dailyFaceDurations: [UInt8: TimeInterval]
     @Published var dailyWindowStart: Date
     // Local time (24-hour) at which each category's daily accounting rolls over, mirroring the
     // `daily_reset_time` setting. The App-tab stepper edits it in whole hours + AM/PM, but the
@@ -156,7 +156,7 @@ final class AppState: ObservableObject {
     var onCancelPairingAttempt: (() -> Void)?
     var onResetDevicePasswordRequest: (() async -> Bool)?
     var onFactoryResetRequest: (() async -> Bool)?
-    var onCurrentFacetMappingChange: (() -> Void)?
+    var onCurrentFaceMappingChange: (() -> Void)?
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
@@ -233,7 +233,7 @@ final class AppState: ObservableObject {
         self.iconOptions = iconOptions
         self.faceCategories = faceCategories
         self.faceLocks = faceLocks
-        currentFacetID = TimeFlipConstants.minFacetID
+        currentFaceID = TimeFlipConstants.minFaceID
         isPaused = false
         isLocked = false
         batteryLevel = nil
@@ -244,7 +244,7 @@ final class AppState: ObservableObject {
         // "Not paired" is the placeholder the Device tab shows when no device is remembered;
         // the stored value is absent rather than that string.
         self.pairedDeviceName = pairedDeviceName ?? "Not paired"
-        facetMappings = ActivityLibrary.defaultMappings()
+        faceMappings = ActivityLibrary.defaultMappings()
         self.googleCalendarID = googleCalendarID
         self.googleCalendarName = googleCalendarName
         // Developer mode's config.json can override this in applyDeveloperConfig below, which runs
@@ -267,7 +267,7 @@ final class AppState: ObservableObject {
         self.blinkIntervalSeconds = blinkIntervalSeconds
         self.doubleTapParameters = doubleTapParameters
         self.isDoubleTapEnabled = isDoubleTapEnabled
-        dailyFacetDurations = [:]
+        dailyFaceDurations = [:]
         dailyWindowStart = Date()
         self.displaySecondsEnabled = displaySecondsEnabled
         self.pauseOnLockEnabled = pauseOnLockEnabled
@@ -351,7 +351,7 @@ final class AppState: ObservableObject {
         lastEventDescription = event.description
 
         switch event {
-        case .facetChanged, .doubleTap:
+        case .faceChanged, .doubleTap:
             // Live events only trigger history fetch; state comes from history
             break
         case .autoPauseMinutes(let minutes):
@@ -370,21 +370,21 @@ final class AppState: ObservableObject {
     }
 
     /// What the menu bar shows for a face: the name, icon and daily limit of the category the
-    /// `face` table assigns it, rather than the facet's own `FacetMapping` (whose fields live in
-    /// the UserDefaults preferences blob and describe the facet, not a category).
+    /// `face` table assigns it, rather than the face's own `FaceMapping` (whose fields live in
+    /// the UserDefaults preferences blob and describe the face, not a category).
     ///
     /// All three come from the one `CategoryRecord`, which is the point: a limit belongs to the
     /// thing being measured. Two faces assigned the same category share its limit, where the blob
-    /// gave each facet its own and let the pair drift apart.
+    /// gave each face its own and let the pair drift apart.
     ///
     /// `categories` is passed in rather than read off `self` so a Combine sink can supply the value
     /// it was handed: `@Published` publishes in `willSet`, so the property itself is still the old
     /// value while a subscriber runs.
     func categoryActivity(
-        for facetID: UInt8,
+        for faceID: UInt8,
         in categories: [UInt8: CategoryRecord]
     ) -> Activity? {
-        guard let category = categories[facetID] else { return nil }
+        guard let category = categories[faceID] else { return nil }
         let iconName = iconOptions.first { $0.iconId == category.iconID }?.iconName
         return Activity(
             name: category.name,
@@ -393,16 +393,16 @@ final class AppState: ObservableObject {
         )
     }
 
-    func categoryActivity(for facetID: UInt8) -> Activity? {
-        categoryActivity(for: facetID, in: faceCategories)
+    func categoryActivity(for faceID: UInt8) -> Activity? {
+        categoryActivity(for: faceID, in: faceCategories)
     }
 
     /// The colour of the category assigned to a face, for tinting it on screen. `.primary` when the
     /// category has no colour or the face has none — on screen that means "draw it in the ordinary
-    /// foreground colour", which is not the same answer as the LED's (see `facetLEDColours`, where
+    /// foreground colour", which is not the same answer as the LED's (see `faceLEDColours`, where
     /// no colour means dark): an icon drawn black-on-black would just vanish.
-    func faceCategoryColour(for facetID: UInt8) -> Color {
-        let colourID = faceCategories[facetID]?.colourID
+    func faceCategoryColour(for faceID: UInt8) -> Color {
+        let colourID = faceCategories[faceID]?.colourID
         return colourOptions.first { $0.colourId == colourID }?.color ?? .primary
     }
 
@@ -412,11 +412,11 @@ final class AppState: ObservableObject {
     /// White covers both a face with no category (the `Unassigned` sentinel) and a category with no
     /// colour of its own (`colour_id` 0), because on the body of the device both mean the same
     /// thing: nothing is lit. That's a third answer to the same question `faceCategoryColour` and
-    /// `facetLEDColours` each answer differently, and deliberately so -- an icon falls back to
+    /// `faceLEDColours` each answer differently, and deliberately so -- an icon falls back to
     /// `.primary` so it stays legible, the LED falls back to dark because that's off on the
     /// hardware, and the drawn body falls back to white because an unlit device is white plastic.
-    func deviceBodyColour(for facetID: UInt8) -> Color {
-        let colourID = faceCategories[facetID]?.colourID
+    func deviceBodyColour(for faceID: UInt8) -> Color {
+        let colourID = faceCategories[faceID]?.colourID
         return colourOptions.first { $0.colourId == colourID }?.color ?? .white
     }
 
@@ -427,19 +427,19 @@ final class AppState: ObservableObject {
     ///
     /// The device's outer outline is not this colour: it stays black whatever the face is lit in,
     /// so the shape still reads against the window behind it.
-    func deviceLineColour(for facetID: UInt8) -> Color {
-        let colourID = faceCategories[facetID]?.colourID
+    func deviceLineColour(for faceID: UInt8) -> Color {
+        let colourID = faceCategories[faceID]?.colourID
         let usesWhiteLines = colourOptions.first { $0.colourId == colourID }?.usesWhiteLines ?? false
         return usesWhiteLines ? .white : .black
     }
 
     /// Whether a face keeps the category it has. Unknown faces read as unlocked, which is also
     /// the column's default.
-    func isFaceLocked(_ facetID: UInt8) -> Bool {
-        faceLocks[facetID] ?? false
+    func isFaceLocked(_ faceID: UInt8) -> Bool {
+        faceLocks[faceID] ?? false
     }
 
-    /// What the device's LED should show for each facet: the `device_hex` of the colour assigned to
+    /// What the device's LED should show for each face: the `device_hex` of the colour assigned to
     /// the face's category, resolved through `colourOptions`.
     ///
     /// A face whose category has no colour — `colour_id` 0 (`None`), which has no `device_hex` and
@@ -451,26 +451,26 @@ final class AppState: ObservableObject {
     ///
     /// `categories` is passed in for the same reason as `categoryActivity`: a Combine sink has to
     /// use the value it was handed, not read the property back.
-    func facetLEDColours(in categories: [UInt8: CategoryRecord]) -> [UInt8: ColorComponents] {
+    func faceLEDColours(in categories: [UInt8: CategoryRecord]) -> [UInt8: ColorComponents] {
         var resolved: [UInt8: ColorComponents] = [:]
-        for facetID in TimeFlipConstants.facetIDs {
-            let colourID = categories[facetID]?.colourID
-            resolved[facetID] = colourOptions.first { $0.colourId == colourID }?.components ?? .off
+        for faceID in TimeFlipConstants.faceIDs {
+            let colourID = categories[faceID]?.colourID
+            resolved[faceID] = colourOptions.first { $0.colourId == colourID }?.components ?? .off
         }
         return resolved
     }
 
-    func mappingIndex(for facetID: UInt8) -> Int? {
-        facetMappings.firstIndex { $0.facetID == facetID }
+    func mappingIndex(for faceID: UInt8) -> Int? {
+        faceMappings.firstIndex { $0.faceID == faceID }
     }
 
-    func updateMapping(_ mapping: FacetMapping) {
-        guard let index = mappingIndex(for: mapping.facetID) else { return }
-        var updated = facetMappings
+    func updateMapping(_ mapping: FaceMapping) {
+        guard let index = mappingIndex(for: mapping.faceID) else { return }
+        var updated = faceMappings
         updated[index] = mapping
-        facetMappings = updated
-        if mapping.facetID == currentFacetID {
-            onCurrentFacetMappingChange?()
+        faceMappings = updated
+        if mapping.faceID == currentFaceID {
+            onCurrentFaceMappingChange?()
         }
     }
 
@@ -587,7 +587,7 @@ final class AppState: ObservableObject {
         forgetDevice()
     }
 
-    /// Starts a full factory reset (erases facet colors, task parameters, name, password --
+    /// Starts a full factory reset (erases face colors, task parameters, name, password --
     /// everything -- back to defaults). The caller (the Settings UI) confirms with the user first;
     /// this proceeds immediately.
     ///
@@ -618,7 +618,7 @@ final class AppState: ObservableObject {
         pairedDeviceName = "Not paired"
         pairedDeviceUUID = nil
         connectionStatus = .disconnected
-        currentFacetID = TimeFlipConstants.unassignedFacetID
+        currentFaceID = TimeFlipConstants.unassignedFaceID
         isPaused = true
         isLocked = false
         batteryLevel = nil
@@ -639,15 +639,15 @@ final class AppState: ObservableObject {
             return
         }
         isApplyingPreferences = true
-        let mappings = payload.facetMappings.map { record in
-            FacetMapping(
-                facetID: record.facetID,
+        let mappings = payload.faceMappings.map { record in
+            FaceMapping(
+                faceID: record.faceID,
                 name: ActivityLibrary.sanitizeActivityName(record.name),
                 iconName: ActivityLibrary.sanitizeIconName(record.iconName)
             )
         }
         if !mappings.isEmpty {
-            facetMappings = mappings.sorted { $0.facetID < $1.facetID }
+            faceMappings = mappings.sorted { $0.faceID < $1.faceID }
         }
         isApplyingPreferences = false
     }
@@ -709,19 +709,19 @@ final class AppState: ObservableObject {
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {
-        dailyFacetDurations = totals
+        dailyFaceDurations = totals
     }
 
-    func incrementDailyTotal(facetID: UInt8, by delta: TimeInterval) {
+    func incrementDailyTotal(faceID: UInt8, by delta: TimeInterval) {
         guard delta > 0 else { return }
-        dailyFacetDurations[facetID, default: 0] += delta
+        dailyFaceDurations[faceID, default: 0] += delta
     }
 
     private func observePreferences() {
         // Coalesce all preference changes into a single debounced sink
         // to avoid cascading persistence calls and reduce disk I/O
         Publishers.MergeMany([
-            $facetMappings.map { _ in () }.eraseToAnyPublisher()
+            $faceMappings.map { _ in () }.eraseToAnyPublisher()
         ])
         .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -758,17 +758,17 @@ final class AppState: ObservableObject {
             logger.warning("Skipped one persist after a failed preferences decode to avoid clobbering the stored blob")
             return
         }
-        let records = facetMappings.map { mapping -> FacetMappingRecord in
+        let records = faceMappings.map { mapping -> FaceMappingRecord in
             let sanitizedName = ActivityLibrary.sanitizeActivityName(mapping.name)
             let sanitizedIcon = ActivityLibrary.sanitizeIconName(mapping.iconName)
-            let sanitized = FacetMapping(
-                facetID: mapping.facetID,
+            let sanitized = FaceMapping(
+                faceID: mapping.faceID,
                 name: sanitizedName,
                 iconName: sanitizedIcon
             )
-            return FacetMappingRecord(mapping: sanitized)
+            return FaceMappingRecord(mapping: sanitized)
         }
-        let payload = PreferencesPayload(facetMappings: records)
+        let payload = PreferencesPayload(faceMappings: records)
         preferencesStore.save(payload)
         if isDeveloperConfigActive {
             persistDeveloperConfig()

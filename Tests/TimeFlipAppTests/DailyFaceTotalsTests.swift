@@ -3,7 +3,7 @@ import XCTest
 
 // swiftlint:disable line_length number_separator
 @MainActor
-final class DailyFacetTotalsTests: XCTestCase {
+final class DailyFaceTotalsTests: XCTestCase {
     private var dataStoreURL: URL!
 
     override func setUp() async throws {
@@ -23,7 +23,7 @@ final class DailyFacetTotalsTests: XCTestCase {
             DeviceEventRecord(
                 id: nil,
                 eventNumber: 1,
-                facetID: 1,
+                faceID: 1,
                 startedAt: morningStart,
                 duration: 1_200,
                 isPaused: false
@@ -36,14 +36,14 @@ final class DailyFacetTotalsTests: XCTestCase {
             DeviceEventRecord(
                 id: nil,
                 eventNumber: 2,
-                facetID: 1,
+                faceID: 1,
                 startedAt: crossStart,
                 duration: 5_400,
                 isPaused: false
             )
         )
 
-        let totals = DailyFacetTotals(dataStore: store, calendar: calendar, resetHour: 3, now: now)
+        let totals = DailyFaceTotals(dataStore: store, calendar: calendar, resetHour: 3, now: now)
         totals.seedFromLogbook(now: now)
 
         let counted = totals.totals[1] ?? 0
@@ -57,11 +57,11 @@ final class DailyFacetTotalsTests: XCTestCase {
         let calendar = Calendar(identifier: .gregorian)
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 10, hour: 10, minute: 0, second: 0)))
         let store = AppDataStore(databaseURL: dataStoreURL)
-        let totals = DailyFacetTotals(dataStore: store, calendar: calendar, resetHour: 3, now: now)
+        let totals = DailyFaceTotals(dataStore: store, calendar: calendar, resetHour: 3, now: now)
         totals.seedFromLogbook(now: now)
 
         let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 10, hour: 9, minute: 30)))
-        let added = totals.accumulate(start: start, duration: 600, facetID: 4, now: now)
+        let added = totals.accumulate(start: start, duration: 600, faceID: 4, now: now)
 
         XCTAssertEqual(added, 600, accuracy: 0.1)
         XCTAssertEqual(totals.totals[4] ?? 0, 600, accuracy: 0.1)
@@ -71,7 +71,7 @@ final class DailyFacetTotalsTests: XCTestCase {
         let calendar = Calendar(identifier: .gregorian)
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 10, hour: 4, minute: 0)))
         let store = AppDataStore(databaseURL: dataStoreURL)
-        let totals = DailyFacetTotals(dataStore: store, calendar: calendar, resetHour: 3, now: now)
+        let totals = DailyFaceTotals(dataStore: store, calendar: calendar, resetHour: 3, now: now)
 
         let expectedNext = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 11, hour: 3)))
         XCTAssertEqual(totals.nextResetDate, expectedNext)
