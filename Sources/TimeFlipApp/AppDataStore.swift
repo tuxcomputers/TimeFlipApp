@@ -772,8 +772,14 @@ final class AppDataStore {
         return result
     }
 
-    /// Inserts a category, active, with the `None` icon and colour and no daily limit. The caller
-    /// is expected to have trimmed the name; an empty one is rejected here rather than stored.
+    /// Inserts a category, active, with the `None` icon and colour and no daily limit, and returns
+    /// its new `category_id` -- `nil` if nothing was inserted. The caller is expected to have
+    /// trimmed the name; an empty one is rejected here rather than stored.
+    ///
+    /// The id is read back from the insert rather than left to the caller to look up by name,
+    /// because a name is not a key here: creating a second category with a name an inactive one
+    /// already holds is a legitimate outcome (see `findCategory(named:)`'s callers), and a
+    /// name lookup afterwards would find that older row instead of this one.
     ///
     /// A plain insert: whether the name is already taken is settled by the caller via
     /// `findCategory(named:)` before getting here, and a duplicate name is a legitimate outcome
@@ -781,9 +787,9 @@ final class AppDataStore {
     /// in `database/007_category.sql` is there to make re-running the DDL idempotent -- it is not
     /// an operational pattern to copy into runtime writes.
     @discardableResult
-    func createCategory(name: String) -> Bool {
-        guard let db, !name.isEmpty else { return false }
-        var inserted = false
+    func createCategory(name: String) -> Int? {
+        guard let db, !name.isEmpty else { return nil }
+        var newCategoryID: Int?
         let sql = "INSERT INTO category (category_name, icon_id, colour_id) VALUES (?, 0, 0);"
         queue.sync {
             var stmt: OpaquePointer?
@@ -794,13 +800,17 @@ final class AppDataStore {
             }
             sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) == SQLITE_DONE {
-                inserted = sqlite3_changes(db) > 0
+                // Read inside the same queue hop as the step, so no other write on this connection
+                // can move the last-insert rowid in between.
+                if sqlite3_changes(db) > 0 {
+                    newCategoryID = Int(sqlite3_last_insert_rowid(db))
+                }
             } else {
                 logger.error("category create exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }
-        return inserted
+        return newCategoryID
     }
 
     /// Renames a category. Every table that references it does so by `category_id`, so the new

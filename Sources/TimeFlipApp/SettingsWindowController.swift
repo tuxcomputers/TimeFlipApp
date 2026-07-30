@@ -13,7 +13,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
         loadCategories: @escaping () -> [CategoryRecord],
-        createCategory: @escaping (String) -> Void,
+        createCategory: @escaping (String) -> Int?,
         findCategory: @escaping (String) -> CategoryRecord?,
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
