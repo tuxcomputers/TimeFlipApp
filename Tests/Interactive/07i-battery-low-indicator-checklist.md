@@ -121,11 +121,11 @@ expect_contains = "opening Settings on the Device tab"
 timeout_seconds = 30
 ```
 - [ ] **(Claude)** Step 3: Confirm that Settings opened on the Device tab
-(radio button 1 of the tab picker reads `value = 1`) -- the window only exists if the left-click opened Settings, so this doubles as proof it wasn't the dropdown menu.
+(the Device tab reads `value = 1`) -- the window only exists if the left-click opened Settings, so this doubles as proof it wasn't the dropdown menu.
 ```toml step
 [[actions]]
 use = "method-11"
-tab = 1
+tab = "Device"
 expect = "1"
 ```
 - [ ] **(You)** Step 4: Confirm the "Battery" line on the Device tab is flashing red/default.

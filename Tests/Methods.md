@@ -204,17 +204,26 @@ contains "TimeFlip"` (skips the "Click a device below to pair with it." header);
 <a id="method-10"></a>
 ## Method 10: Switch Settings-window tabs
 
-`click radio button <N> of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"`
-(1/2/3 = Device/Facets/Report). A radio button's `title` is always `missing value` -- use
-`description`.
-Pass the tab number as `tab`. The click retries until the Settings window actually exists, so no
+Address the tab by **name**, never by index. Both `title` and `name` read `missing value` on these
+buttons, but `description` holds the visible label (`Device`, `Categories`, `Faces`, `App`), so:
+
+`click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+whose description is "<name>")`
+
+Indices were the original approach and broke silently when the `Categories` tab was inserted second:
+every `radio button 2` quietly became Categories rather than Faces, and `3` became Faces rather than
+App, so steps went on selecting *a* tab and passing while testing the wrong one. A name that doesn't
+match errors `-1719 Invalid index` instead, which is the point -- though note `act_applescript`
+retries, so a mistyped name spends the full `timeout_seconds` before reporting it.
+
+Pass the tab name as `tab`. The click retries until the Settings window actually exists, so no
 fixed sleep is needed after opening it:
 ```toml method
 action = "applescript"
 script = """
 tell application "System Events"
     tell process "TimeFlip"
-        click radio button $tab of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "$tab")
     end tell
 end tell"""
 ```
@@ -225,14 +234,15 @@ end tell"""
 Read any label/value via accessibility (`static text`/control `value`) -- no screenshot needed. Dump
 `entire contents` of the window to find an element's path; re-derive each time, since indices shift
 with which disclosures are expanded.
-Reading which Settings tab is selected is common enough to share -- `tab` is the radio button
-number, and it returns `1` when that tab is the selected one:
+Reading which Settings tab is selected is common enough to share -- `tab` is the tab's name (see
+Method 10 on why these are addressed by name, not index), and it returns `1` when that tab is the
+selected one:
 ```toml method
 action = "applescript"
 script = """
 tell application "System Events"
     tell process "TimeFlip"
-        return value of radio button $tab of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        return value of (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "$tab")
     end tell
 end tell"""
 ```

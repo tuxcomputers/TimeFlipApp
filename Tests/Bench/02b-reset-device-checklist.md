@@ -54,7 +54,7 @@ capture = "n_pre_reset"
 noted -- all established immediately above in Setup, which this scenario runs straight on from.
 
 - [ ] Step 1: Open Settings (status-item menu -> "Settings...")
-and switch to the Device tab (radio button 1 of the tab picker). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). (Note: on this branch the menu item is "Settings..." and the other tabs are "Faces"/"App" -- it is based on `main`, which includes the settings-rename merge; the Device tab is still radio button 1.)
+and switch to the Device tab (selected by name). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
 use = "method-6"
@@ -62,7 +62,7 @@ item = "Settings..."
 
 [[actions]]
 use = "method-10"
-tab = 1
+tab = "Device"
 ```
 - [ ] Step 2: Click **Reset Device** and confirm the destructive-action dialog.
  The button is an `AXButton` in the pairing section's `AXGroup`, right of **Forget Device**. [Method: Number 16](../Methods.md#method-16) -- **Cancel** is button 1, **Reset Device** (the destructive confirm) is button 2. (Note: the pairing section shows **Forget/Reset** whenever the app is paired, and a single **Scan for Devices** button when it isn't. Pairing is durable, so after a restart the buttons are there as soon as the window opens rather than waiting on the history backfill -- but the first action below still waits for the Reset button to exist before clicking, since clicking `button 2` when only Scan is present fails with `-1719 Invalid index`.)

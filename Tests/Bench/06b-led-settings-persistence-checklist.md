@@ -29,7 +29,7 @@ setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
 - [ ] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
-Preferences is the status-item menu's "Settings..." item; the Device tab is radio button 1 of the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
+Preferences is the status-item menu's "Settings..." item; the Device tab is selected by name via the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
 use = "method-6"
@@ -40,7 +40,7 @@ action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
-        click radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")
         delay 0.3
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             if not (exists text field "Brightness") then
@@ -127,7 +127,7 @@ action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
-        click radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")
         delay 0.3
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             if not (exists text field "Brightness") then

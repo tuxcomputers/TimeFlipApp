@@ -370,7 +370,7 @@ action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
-        click radio button 2 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Faces")
         delay 0.5
         click button 1 of window "TimeFlip Settings"
     end tell
@@ -382,11 +382,11 @@ item = "Settings..."
 
 [[actions]]
 use = "method-11"
-tab = 1
+tab = "Device"
 expect = "1"
 ```
 - [ ] Step 8: Confirm the force-to-Device holds from a *different* last tab too
-select the **App** tab (radio button 3, vs Faces in Step 7), close Preferences, then reopen it while still low, and confirm via the accessibility tree that the **Device** tab (radio button 1) is the selected one again. [Method: Number 11](../Methods.md#method-11) -- reading `radio button 1`'s `value`, so no human check needed.
+select the **App** tab (vs **Faces** in Step 7), close Preferences, then reopen it while still low, and confirm via the accessibility tree that the **Device** tab is the selected one again. [Method: Number 11](../Methods.md#method-11) -- reading the Device tab's `value`, so no human check needed.
 ```toml step
 [[actions]]
 use = "method-6"
@@ -397,7 +397,7 @@ action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
-        click radio button 3 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "App")
         delay 0.5
         click button 1 of window "TimeFlip Settings"
     end tell
@@ -409,7 +409,7 @@ item = "Settings..."
 
 [[actions]]
 use = "method-11"
-tab = 1
+tab = "Device"
 expect = "1"
 ```
 - [ ] Step 9: Quit the app.
@@ -460,7 +460,7 @@ item = "Settings..."
 
 [[actions]]
 use = "method-11"
-tab = 2
+tab = "Faces"
 expect = "1"
 ```
 - [ ] Step 14: Close the Settings window

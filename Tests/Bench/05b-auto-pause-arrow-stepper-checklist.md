@@ -37,7 +37,7 @@ use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Open Preferences and switch to the Device tab (radio button 1 of the tab picker).
+- [ ] Step 2: Open Preferences and switch to the Device tab (selected by name).
 Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). Confirm **Auto-pause** sits at the top of the **Settings** section, above the collapsed **LED** disclosure (not inside a separate **Advanced** section, which no longer exists) -- read the ordering of static text/control elements in that section via accessibility ([Method: Number 11](../Methods.md#method-11)).
 ```toml step
 [[actions]]
@@ -49,7 +49,7 @@ action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
-        click radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")
         delay 0.3
         return value of static text 1 of group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
     end tell
@@ -395,7 +395,7 @@ item = "Settings..."
 
 [[actions]]
 use = "method-10"
-tab = 1
+tab = "Device"
 
 [[actions]]
 action = "sql_query"

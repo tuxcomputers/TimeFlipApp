@@ -297,7 +297,7 @@ def reset_device_for_cleanup(db_path):
                     "script": (
                         'tell application "System Events"\n'
                         '    tell process "TimeFlip"\n'
-                        '        click radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"\n'
+                        '        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")\n'
                         "    end tell\n"
                         "end tell"
                     ),

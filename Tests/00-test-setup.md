@@ -157,7 +157,7 @@ item = "Settings..."
 
 [[actions]]
 use = "method-10"
-tab = 1
+tab = "Device"
 
 [[actions]]
 action = "applescript"
