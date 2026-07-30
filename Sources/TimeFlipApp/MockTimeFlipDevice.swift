@@ -83,36 +83,6 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         }
     }
 
-    /// How long the mock takes to answer, so it behaves like a device on a radio link rather than a
-    /// function call. A real TimeFlip never answers instantly: connecting means scan plus connect plus
-    /// service and characteristic discovery, and every command is a write followed by a notification
-    /// coming back.
-    ///
-    /// This matters beyond realism for its own sake. With zero latency, a caller that forgets to
-    /// `await` a step before depending on it still passes, because the work already finished before
-    /// the next line ran. Give the operations real duration and that ordering bug shows up.
-    ///
-    /// Default is `.instant`, so existing callers are unaffected and fast tests stay fast; opt into
-    /// `.realistic()` where the timing is the point.
-    ///
-    /// ## Where the numbers come from
-    ///
-    /// Every figure below was **measured directly** on real hardware on 2026-07-31, against a
-    /// `debug_log` recording milliseconds, with the app timing its own spans on a `ContinuousClock`
-    /// (tags `conn-phase` and `hist-time`). Nine connect/login sequences and five full 21-record
-    /// history dumps.
-    ///
-    /// This replaced an earlier set inferred from second-resolution logs by counting how often a
-    /// pair of rows straddled a second boundary. That method gives a centre and no spread at all,
-    /// and it turned out to be wrong by a factor of three on the phases that dominate: measured
-    /// `connect` is 2.2-4.6s against an assumed 0.6-1.0s, `initializeSession` 1.1-1.3s against an
-    /// assumed 0.2-0.3s. Bringing a session up really costs about four seconds, not one.
-    ///
-    /// A cross-check that the legs are self-consistent: `lock` performs a write plus a read-back and
-    /// measures 173-224ms (p50 186), against `write` p50 118 + `read` p50 62 = 180.
-    ///
-    /// Scale the profile down rather than editing the figures, so the relative costs stay in
-    /// proportion.
     /// How consecutive history frames arrive.
     ///
     /// Not a plain delay range, because the gaps are not smoothly distributed. BLE delivers on
@@ -169,6 +139,36 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         }
     }
 
+    /// How long the mock takes to answer, so it behaves like a device on a radio link rather than a
+    /// function call. A real TimeFlip never answers instantly: connecting means scan plus connect plus
+    /// service and characteristic discovery, and every command is a write followed by a notification
+    /// coming back.
+    ///
+    /// This matters beyond realism for its own sake. With zero latency, a caller that forgets to
+    /// `await` a step before depending on it still passes, because the work already finished before
+    /// the next line ran. Give the operations real duration and that ordering bug shows up.
+    ///
+    /// Default is `.instant`, so existing callers are unaffected and fast tests stay fast; opt into
+    /// `.realistic()` where the timing is the point.
+    ///
+    /// ## Where the numbers come from
+    ///
+    /// Every figure below was **measured directly** on real hardware on 2026-07-31, against a
+    /// `debug_log` recording milliseconds, with the app timing its own spans on a `ContinuousClock`
+    /// (tags `conn-phase` and `hist-time`). Nine connect/login sequences and five full 21-record
+    /// history dumps.
+    ///
+    /// This replaced an earlier set inferred from second-resolution logs by counting how often a
+    /// pair of rows straddled a second boundary. That method gives a centre and no spread at all,
+    /// and it turned out to be wrong by a factor of three on the phases that dominate: measured
+    /// `connect` is 2.2-4.6s against an assumed 0.6-1.0s, `initializeSession` 1.1-1.3s against an
+    /// assumed 0.2-0.3s. Bringing a session up really costs about four seconds, not one.
+    ///
+    /// A cross-check that the legs are self-consistent: `lock` performs a write plus a read-back and
+    /// measures 173-224ms (p50 186), against `write` p50 118 + `read` p50 62 = 180.
+    ///
+    /// Scale the profile down rather than editing the figures, so the relative costs stay in
+    /// proportion.
     struct Latency: Sendable {
         /// Scan, connect, then discover services and characteristics. Measured 2232-4550ms (n=9),
         /// and much the slowest step by a wide margin. The spread is almost entirely in finding the
@@ -187,6 +187,19 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         /// A command write and its acknowledgement (auto-pause, lock, brightness, colour). Measured
         /// 115-152ms (n=9). A write that also reads back to verify costs this *plus* `read`.
         var write: DelayRange
+        /// The same command round trip, but on a link that has been up for a while rather than one
+        /// just established. Measured 54-79ms (n=6) -- roughly **half** `write`.
+        ///
+        /// This split is not a property of any particular command, it is a property of the link, and
+        /// it showed up independently three times on 2026-07-31: the password reset's 0x30 write cost
+        /// 54-79ms on a settled session against the rotation's 113-144ms on the pairing probe, their
+        /// confirming re-logins split 60-61 against 120-123, and login overall measured 59ms
+        /// established against 245ms at connect. Presumably the connection parameters the central
+        /// negotiates on a fresh link differ from the settled ones.
+        ///
+        /// Kept as a separate figure rather than widening `write` to 54-152ms, because the two modes
+        /// are bimodal and predictable from context, not one broad distribution.
+        var settledWrite: DelayRange
         /// A characteristic read (lock state, double-tap parameters, device info). Measured 53-79ms
         /// (n=117), from the cheap single-event check each history fetch begins with.
         var read: DelayRange
@@ -207,6 +220,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             enableNotifications: .none,
             initializeSession: .none,
             write: .none,
+            settledWrite: .none,
             read: .none,
             historyRead: .none,
             historyFrames: .none
@@ -232,6 +246,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
                 enableNotifications: range(595, 715),
                 initializeSession: range(1137, 1289),
                 write: range(115, 152),
+                settledWrite: range(54, 79),
                 read: range(53, 79),
                 historyRead: range(30, 240),
                 historyFrames: .realistic(scale: scale)
@@ -297,6 +312,13 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     /// Every delay actually drawn, in order -- lets a test assert the spread and the per-record count
     /// rather than just the elapsed total.
     private(set) var sampledDelays: [Duration] = []
+
+    /// Discards the delays drawn so far, so a test can measure one phase of a session without the
+    /// setup that preceded it (e.g. the cost of a password rotation, not the login that enabled it).
+    func clearSampledDelays() {
+        sampledDelays.removeAll()
+    }
+
     private var brightnessPercent: UInt8 = 100
     private var blinkIntervalSeconds: UInt8 = 5
     private var doubleTapParameters: DoubleTapParameters = .default
@@ -464,6 +486,16 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
     func login(password: String) async -> Bool {
         await waitForRadio(configuration.latency.login)
+        return applyLogin(password: password)
+    }
+
+    /// The login decision with no radio cost attached, so a caller that has already charged the
+    /// appropriate round trip doesn't pay twice.
+    ///
+    /// Needed because `latency.login` is the *connect-time* figure (239-270ms), and the confirming
+    /// re-login inside a password change happens on an already-open link, where it measured 120-123ms
+    /// during pairing and 60-61ms on a settled session.
+    private func applyLogin(password: String) -> Bool {
         // Accept only the configured six-character password.
         guard password.count == 6, password == devicePassword else {
             logger.warning("Mock login rejected")
@@ -589,6 +621,10 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     ///
     /// In Developer Mode the real driver rotates to a fixed `123456` rather than a random value, so the
     /// mock does the same and stays predictable for tests.
+    /// Timing: measured 236-266ms end to end (n=6), splitting 113-144ms for the 0x30 write and
+    /// 120-123ms for the confirming re-login. Both legs cost a `write` rather than one costing a
+    /// full `login`, because rotation only ever runs inside the pairing flow, on the freshly
+    /// connected probe -- a routine reconnect reuses the stored password and never gets here.
     func rotateDevicePassword() async -> String? {
         await waitForRadio(configuration.latency.write)
         guard isLoggedIn else { return nil }
@@ -597,7 +633,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             : String(format: "%06d", Int.random(in: 0...999_999, using: &delayGenerator))
         devicePassword = newPassword
         // Confirm the way the real one does, by actually logging in again.
-        guard await login(password: newPassword) else { return nil }
+        await waitForRadio(configuration.latency.write)
+        guard applyLogin(password: newPassword) else { return nil }
         logger.notice("Mock device password rotated and confirmed")
         return newPassword
     }
@@ -607,12 +644,17 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     ///
     /// This is the *password* reset, not a factory reset -- no history is touched and the device stays
     /// paired. `factoryReset` is deliberately not modelled; see `docs/TODO-mock-device-parity.md`.
+    /// Timing: measured 116-141ms end to end (n=6), splitting 54-79ms for the 0x30 write and
+    /// 60-61ms for the confirming re-login -- about half the rotation's cost. Both legs are charged
+    /// `settledWrite`, not `write`, because Forget Device runs on a session that has been up a
+    /// while, where every round trip is roughly half what it costs on a fresh link.
     @discardableResult
     func resetDevicePasswordToDefault() async -> Bool {
-        await waitForRadio(configuration.latency.write)
+        await waitForRadio(configuration.latency.settledWrite)
         guard isLoggedIn else { return false }
         devicePassword = TimeFlipConstants.defaultPassword
-        guard await login(password: TimeFlipConstants.defaultPassword) else { return false }
+        await waitForRadio(configuration.latency.settledWrite)
+        guard applyLogin(password: TimeFlipConstants.defaultPassword) else { return false }
         logger.notice("Mock device password reset to default and confirmed")
         return true
     }

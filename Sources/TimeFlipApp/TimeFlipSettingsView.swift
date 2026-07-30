@@ -136,16 +136,24 @@ struct TimeFlipSettingsView: View {
                     Text("Resetting device…")
                         .foregroundStyle(.secondary)
                 } else if appState.isPaired {
+                    // These carry an explicit accessibility label because a plain SwiftUI Button in
+                    // this window exposes *no* readable name at all -- title, description and child
+                    // text all come back `missing value`, so the only way to tell Forget from Reset
+                    // was their index. Addressing two adjacent buttons by index, one of which wipes
+                    // the device, is precisely the fragility that broke the tab steps when a tab was
+                    // inserted (Methods.md Method 10). The label makes them nameable.
                     Button("Forget Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
                         Task { await appState.resetAndForgetDevice() }
                     }
+                    .accessibilityLabel("Forget Device")
                     .disabled(appState.connectionStatus == .pairing)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
+                    .accessibilityLabel("Reset Device")
                     .disabled(appState.connectionStatus == .pairing)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
@@ -176,6 +184,9 @@ struct TimeFlipSettingsView: View {
                             appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
                         }
                     }
+                    // Label tracks the title, so a caller can wait for "Stop Scan" to confirm the
+                    // scan actually started rather than sleeping and hoping.
+                    .accessibilityLabel(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices")
                     Toggle("All Devices", isOn: $scanAllDevices)
                         .toggleStyle(.checkbox)
                         .disabled(appState.isScanningForDevices)

@@ -189,6 +189,54 @@ final class MockDeviceLatencyTests: XCTestCase {
         XCTAssertEqual(device.sampledDelays.count, 1, "the device was still asked, and still answered")
     }
 
+    // MARK: - Password operations charge both their legs
+
+    /// Both password operations are a 0x30 write *plus* a confirming re-login, and the mock has to
+    /// charge for both -- the whole reason the real driver re-logs in is that the write alone is not
+    /// proof, so a mock that billed one round trip would understate the operation that matters most.
+    func testRotatingThePasswordCostsTheWriteAndTheConfirmingLogin() async {
+        var latency = MockTimeFlipDevice.Latency.instant
+        latency.write = .milliseconds(10, 10)
+        let device = makeDevice(latency: latency)
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        device.clearSampledDelays()
+
+        let rotated = await device.rotateDevicePassword()
+
+        XCTAssertNotNil(rotated)
+        XCTAssertEqual(device.sampledDelays.count, 2, "the 0x30 write and the confirming re-login")
+        XCTAssertEqual(device.sampledDelays.map(millis), [10, 10])
+    }
+
+    func testResettingThePasswordUsesTheCheaperSettledLinkCost() async {
+        var latency = MockTimeFlipDevice.Latency.instant
+        latency.write = .milliseconds(100, 100)
+        latency.settledWrite = .milliseconds(10, 10)
+        let device = makeDevice(latency: latency)
+        _ = await device.login(password: TimeFlipConstants.defaultPassword)
+        device.clearSampledDelays()
+
+        let reset = await device.resetDevicePasswordToDefault()
+
+        XCTAssertTrue(reset)
+        // Forget Device runs on a session that has been up a while, so both legs are settled-link
+        // round trips. Measured on hardware at roughly half a fresh-link write.
+        XCTAssertEqual(device.sampledDelays.map(millis), [10, 10],
+                       "a settled-session reset must not be billed at fresh-link rates")
+    }
+
+    func testTheRealisticProfileKeepsTheSettledLinkAboutHalfAFreshOne() {
+        let profile = MockTimeFlipDevice.Latency.realistic()
+        var generator = MockTimeFlipDevice.SeededGenerator(seed: 5)
+        func mean(_ range: MockTimeFlipDevice.DelayRange) -> Double {
+            let draws = (0..<2_000).map { _ in millis(range.sample(using: &generator)) }
+            return draws.reduce(0, +) / Double(draws.count)
+        }
+        let ratio = mean(profile.write) / mean(profile.settledWrite)
+        XCTAssertEqual(ratio, 2.0, accuracy: 0.35,
+                       "measured 115-152ms fresh against 54-79ms settled, roughly 2x; got \(ratio)x")
+    }
+
     private static func entries(count: Int) -> [TimeFlipHistoryEntry] {
         (0..<count).map { index in
             let number = UInt32(1000 + index)
