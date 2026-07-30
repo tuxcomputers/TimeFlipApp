@@ -99,3 +99,110 @@ extension MockDeviceParityTests {
         XCTAssertTrue(device.isPaired, "and the device stays paired")
     }
 }
+
+// MARK: - Discovery and pairing
+
+extension MockDeviceParityTests {
+    private func scannedDevice(named name: String) -> DiscoveredBLEDevice {
+        DiscoveredBLEDevice(id: UUID(), name: name)
+    }
+
+    func testScanningReportsEachStagedDeviceThroughTheCallback() async {
+        let device = MockTimeFlipDevice(configuration: .init(emitInitialStatus: false))
+        device.discoverableDevices = [scannedDevice(named: "TimeFlip v2.0"), scannedDevice(named: "TimeFlip v2.0")]
+        var found: [DiscoveredBLEDevice] = []
+        device.onDeviceDiscovered = { found.append($0) }
+
+        await device.startDiscoveryScan(filterToTimeFlip: true)
+
+        XCTAssertEqual(found.count, 2)
+    }
+
+    func testScanningWithNothingInRangeReportsNothing() async {
+        let device = MockTimeFlipDevice(configuration: .init(emitInitialStatus: false))
+        device.discoverableDevices = []
+        var found: [DiscoveredBLEDevice] = []
+        device.onDeviceDiscovered = { found.append($0) }
+
+        await device.startDiscoveryScan(filterToTimeFlip: true)
+
+        XCTAssertTrue(found.isEmpty, "no cube in range is a case worth being able to test")
+    }
+
+    func testTheTimeFlipFilterExcludesOtherDevices() async {
+        let device = MockTimeFlipDevice(configuration: .init(emitInitialStatus: false))
+        device.discoverableDevices = [scannedDevice(named: "Someone's Headphones"), scannedDevice(named: "TimeFlip v2.0")]
+        var filtered: [DiscoveredBLEDevice] = []
+        device.onDeviceDiscovered = { filtered.append($0) }
+        await device.startDiscoveryScan(filterToTimeFlip: true)
+        XCTAssertEqual(filtered.map(\.name), ["TimeFlip v2.0"])
+
+        var unfiltered: [DiscoveredBLEDevice] = []
+        device.onDeviceDiscovered = { unfiltered.append($0) }
+        await device.startDiscoveryScan(filterToTimeFlip: false)
+        XCTAssertEqual(unfiltered.count, 2, "the show-everything pairing path should see both")
+    }
+
+    func testStoppingAScanFiresTheStoppedCallbackOnlyOnce() async {
+        let device = MockTimeFlipDevice(configuration: .init(emitInitialStatus: false))
+        var stops = 0
+        device.onDiscoveryScanStopped = { stops += 1 }
+
+        await device.startDiscoveryScan(filterToTimeFlip: true)
+        device.stopDiscoveryScan()
+        device.stopDiscoveryScan()
+
+        XCTAssertEqual(stops, 1, "a second stop with no scan running is a no-op")
+    }
+
+    func testConnectingToAScannedDeviceLogsInAndPairs() async {
+        let device = MockTimeFlipDevice(configuration: .init(isInitiallyPaired: false, emitInitialStatus: false))
+        let target = scannedDevice(named: "TimeFlip v2.0")
+        device.discoverableDevices = [target]
+
+        let outcome = await device.connectToDiscoveredDevice(id: target.id, password: TimeFlipConstants.defaultPassword)
+
+        XCTAssertEqual(outcome, .connected)
+        XCTAssertTrue(device.isPaired, "a successful pair should leave the device paired")
+    }
+
+    func testAWrongPasswordIsReportedDistinctlyFromOtherFailures() async {
+        let device = MockTimeFlipDevice(configuration: .init(isInitiallyPaired: false, emitInitialStatus: false))
+        let target = scannedDevice(named: "TimeFlip v2.0")
+        device.discoverableDevices = [target]
+
+        let outcome = await device.connectToDiscoveredDevice(id: target.id, password: "999999")
+
+        // Distinct from .failed on purpose: the UI says "Wrong PIN" for one and not the other.
+        XCTAssertEqual(outcome, .wrongPassword)
+        XCTAssertFalse(device.isPaired)
+    }
+
+    func testConnectingToSomethingThatWasNeverScannedIsNotATimeFlip() async {
+        let device = MockTimeFlipDevice(configuration: .init(isInitiallyPaired: false, emitInitialStatus: false))
+        device.discoverableDevices = []
+
+        let outcome = await device.connectToDiscoveredDevice(id: UUID(), password: TimeFlipConstants.defaultPassword)
+
+        XCTAssertEqual(outcome, .notTimeFlip)
+    }
+
+    func testCancellingBeforeConnectingReportsCancelled() async {
+        var latency = MockTimeFlipDevice.Latency.instant
+        latency.connect = .milliseconds(80, 120)
+        let device = MockTimeFlipDevice(
+            configuration: .init(isInitiallyPaired: false, emitInitialStatus: false, latency: latency)
+        )
+        let target = scannedDevice(named: "TimeFlip v2.0")
+        device.discoverableDevices = [target]
+
+        async let outcome = device.connectToDiscoveredDevice(id: target.id, password: TimeFlipConstants.defaultPassword)
+        try? await Task.sleep(for: .milliseconds(10))
+        device.cancelConnectionAttempt()
+
+        // Cancel lands between steps, as it does on hardware -- not by tearing down mid-operation.
+        let result = await outcome
+        XCTAssertEqual(result, .cancelled)
+        XCTAssertFalse(device.isPaired, "a cancelled attempt must not leave the device paired")
+    }
+}

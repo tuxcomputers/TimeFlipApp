@@ -444,6 +444,65 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 
+    // MARK: - Discovery and pairing (parity with the real device)
+
+    /// Devices a scan will report. Set this to stage what the pairing UI should find -- an empty list
+    /// models "no cube in range", which is a case worth being able to test.
+    var discoverableDevices: [DiscoveredBLEDevice] = [
+        DiscoveredBLEDevice(id: UUID(uuidString: "5EED0000-0000-0000-0000-00000000C0BE")!, name: "TimeFlip v2.0")
+    ]
+    /// Mirrors `TimeFlipBLEDevice`'s callbacks so the same UI code can drive either.
+    var onDeviceDiscovered: ((DiscoveredBLEDevice) -> Void)?
+    var onDiscoveryScanStopped: (() -> Void)?
+    private(set) var isDiscoveryScanning = false
+    private var cancelledConnectionAttempt = false
+
+    /// Reports each staged device through `onDeviceDiscovered`, one at a time, taking radio time
+    /// between them -- results trickle in on a real scan rather than arriving as a complete list.
+    ///
+    /// `filterToTimeFlip` mirrors the real parameter: when true, only devices named like a TimeFlip
+    /// are reported, so the "show everything" pairing path can be exercised too.
+    func startDiscoveryScan(filterToTimeFlip: Bool) async {
+        isDiscoveryScanning = true
+        cancelledConnectionAttempt = false
+        for candidate in discoverableDevices {
+            guard isDiscoveryScanning else { return }
+            if filterToTimeFlip, !candidate.name.lowercased().contains("timeflip") { continue }
+            await waitForRadio(configuration.latency.read)
+            guard isDiscoveryScanning else { return }
+            onDeviceDiscovered?(candidate)
+        }
+    }
+
+    func stopDiscoveryScan() {
+        guard isDiscoveryScanning else { return }
+        isDiscoveryScanning = false
+        onDiscoveryScanStopped?()
+    }
+
+    /// Connect to a scanned device and log in, reporting the same outcomes the real driver does so a
+    /// caller has to handle `wrongPassword` and `notTimeFlip` distinctly rather than treating every
+    /// failure alike.
+    func connectToDiscoveredDevice(id: UUID, password: String) async -> DeviceConnectOutcome {
+        stopDiscoveryScan()
+        guard discoverableDevices.contains(where: { $0.id == id }) else { return .notTimeFlip }
+        guard await connect() else { return .failed }
+        if cancelledConnectionAttempt { return .cancelled }
+        guard await login(password: password) else { return .wrongPassword }
+        if cancelledConnectionAttempt { return .cancelled }
+        await enableNotifications()
+        pair()
+        return .connected
+    }
+
+    /// Abandons an in-flight connection attempt. Checked at each await point in
+    /// `connectToDiscoveredDevice`, so a cancel lands between steps the way it does on real hardware
+    /// rather than tearing down mid-operation.
+    func cancelConnectionAttempt() {
+        cancelledConnectionAttempt = true
+        stopDiscoveryScan()
+    }
+
     /// Sets a new device password (command 0x30) and confirms it by re-logging in with it, returning
     /// the new password, or `nil` if anything failed.
     ///

@@ -57,11 +57,11 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 - [x] `rotateDevicePassword() async -> String?`
 - [x] `resetDevicePasswordToDefault() async -> Bool` (password reset, *not* factory reset -- history
       and pairing untouched, asserted by a test. Say if "except the reset" was meant to cover this.)
-- [ ] `startDiscoveryScan(filterToTimeFlip: Bool) async`
-- [ ] `stopDiscoveryScan()`
-- [ ] `connectToDiscoveredDevice(id: UUID, password: String) async -> DeviceConnectOutcome`
-- [ ] `cancelConnectionAttempt()`
-- [ ] Discovery emits `onDeviceDiscovered`-equivalent results so the pairing flow can be exercised
+- [x] `startDiscoveryScan(filterToTimeFlip: Bool) async`
+- [x] `stopDiscoveryScan()`
+- [x] `connectToDiscoveredDevice(id: UUID, password: String) async -> DeviceConnectOutcome`
+- [x] `cancelConnectionAttempt()`
+- [x] Discovery emits `onDeviceDiscovered` / `onDiscoveryScanStopped`, staged via `discoverableDevices`
 
 ### Tests
 
@@ -71,6 +71,38 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 - [x] Per-record delays are not all identical (the point of the range)
 - [x] `.instant` really is instant, and remains the default; a rejected command still costs a trip
 - [ ] A workflow using the new discovery/pairing functions
+
+### Measuring the password-set timing on the real device (tonight)
+
+Owner asked for this specifically, flipping between the factory default and the dev PIN. Both values
+are known (`000000` / `123456`), so a half-completed rotation can only leave the cube on one of two
+PINs -- owner has said they'll try each if `config.json` ends up wrong, so there's no lock-out risk.
+
+The two operations are triggered only from the UI, so this needs the app driven with the owner
+hands-off (root `CLAUDE.md`'s live-interaction ritual):
+
+- **Forget Device** -> `resetDevicePasswordToDefault()` -> device back to `000000`
+- **Scan, tap the device, pair** -> `rotateDevicePassword()` -> device to `123456`
+  (rotation runs *only* in the pairing flow -- `ApplicationDelegate:708`, `skipConnect` -- routine
+  reconnects reuse the stored password, so a plain restart will not exercise it)
+
+Pre-requisite: **rebuild and relaunch the app first**. Millisecond `logged_at` landed in `f20ca37`,
+but the running binary predates it, so the timings would come back at second resolution again.
+
+Legs to extract from `debug_log` (all already logged, tag `TimeFlip`):
+
+- `Rotating device password to: ...` -> `Password sent; reading commandResult…`  (command write)
+- `Password sent; reading commandResult…` -> `Login commandResult raw bytes: ...`  (device reply)
+- `... raw bytes` -> `Login accepted, code=0x02`  (confirming re-login)
+- whole op: `Rotating...` -> `Device password confirmed set to: ...`
+
+- [ ] Rebuild + relaunch so debug_log records milliseconds
+- [ ] Forget Device, capture the reset legs
+- [ ] Re-pair, capture the rotate legs
+- [ ] Repeat a few times for a spread, not one sample -- the point is `lower`/`upper`, not a centre
+- [ ] Feed the result into `Latency.write` (currently 90-130ms, provisional) and add a dedicated
+      `passwordSet` range if it turns out not to match a plain write
+- [ ] Confirm `config.json` PIN still matches afterwards
 
 ### Follow-ups once the device is free
 
