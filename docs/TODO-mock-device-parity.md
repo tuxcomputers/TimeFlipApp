@@ -33,6 +33,8 @@ picks up. Design decisions already settled are recorded below so they don't get 
 
 ## Checklist
 
+Commits so far: `b50f9d5` timing mechanism, `480e637` readDeviceTime, plus the password pair below.
+
 ### Timing mechanism
 
 - [x] `DelayRange` with `lower`/`upper`, `.none`, `.fixed`, `.milliseconds`, `scaled(by:)`
@@ -40,10 +42,10 @@ picks up. Design decisions already settled are recorded below so they don't get 
 - [x] `Latency` converted from fixed `Duration`s to `DelayRange`s
 - [x] `historyPerEntry` renamed `historyPerRecord`, sampled per record in `fetchHistory`
 - [x] `waitForRadio` samples a range rather than sleeping a fixed span
-- [ ] `SeededGenerator` + `delayGenerator` / `sampledDelays` stored properties (**build is red until
-      this lands** -- `waitForRadio` already references both)
-- [ ] `Configuration.randomSeed`, defaulting to something fixed so runs are reproducible by default
-- [ ] Expose the drawn delays for assertions (`sampledDelays`, and a reset/clear helper)
+- [x] `SeededGenerator` (SplitMix64) + `delayGenerator` / `sampledDelays` stored properties
+- [x] `Configuration.randomSeed`, fixed by default so runs are reproducible
+- [x] Expose the drawn delays for assertions via `sampledDelays` (no clear helper yet -- add one if a
+      test ever needs to measure a second phase of the same session in isolation)
 
 ### Functions the real device has and the mock doesn't
 
@@ -52,9 +54,9 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 `test` are CoreBluetooth plumbing, not device capabilities.
 
 - [x] `readDeviceTime() async -> Date?`
-- [ ] `rotateDevicePassword() async -> String?`
-- [ ] `resetDevicePasswordToDefault() async -> Bool` (password reset, *not* factory reset -- drop it if
-      the owner reads "except the reset" as covering this too)
+- [x] `rotateDevicePassword() async -> String?`
+- [x] `resetDevicePasswordToDefault() async -> Bool` (password reset, *not* factory reset -- history
+      and pairing untouched, asserted by a test. Say if "except the reset" was meant to cover this.)
 - [ ] `startDiscoveryScan(filterToTimeFlip: Bool) async`
 - [ ] `stopDiscoveryScan()`
 - [ ] `connectToDiscoveredDevice(id: UUID, password: String) async -> DeviceConnectOutcome`
@@ -63,11 +65,11 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 
 ### Tests
 
-- [ ] Same seed produces the same delay sequence; different seeds differ
-- [ ] Every sampled delay lies within its declared range
-- [ ] A history fetch draws exactly one delay per record plus one for the command round trip
-- [ ] Per-record delays are not all identical (the point of the range)
-- [ ] `.instant` really is instant, and remains the default
+- [x] Same seed produces the same delay sequence; different seeds differ
+- [x] Every sampled delay lies within its declared range
+- [x] A history fetch draws exactly one delay per record plus one for the command round trip
+- [x] Per-record delays are not all identical (the point of the range)
+- [x] `.instant` really is instant, and remains the default; a rejected command still costs a trip
 - [ ] A workflow using the new discovery/pairing functions
 
 ### Follow-ups once the device is free

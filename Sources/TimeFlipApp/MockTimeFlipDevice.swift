@@ -444,6 +444,44 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 
+    /// Sets a new device password (command 0x30) and confirms it by re-logging in with it, returning
+    /// the new password, or `nil` if anything failed.
+    ///
+    /// The confirming re-login is the part worth modelling: `TimeFlipBLEDevice` will not report success
+    /// -- and the caller must not store the new password -- until the device has actually accepted it.
+    /// A mock that just swapped the password and returned it would let a caller pass while skipping the
+    /// step that stops the device being left on a password nobody holds.
+    ///
+    /// In Developer Mode the real driver rotates to a fixed `123456` rather than a random value, so the
+    /// mock does the same and stays predictable for tests.
+    func rotateDevicePassword() async -> String? {
+        await waitForRadio(configuration.latency.write)
+        guard isLoggedIn else { return nil }
+        let newPassword = DeveloperMode.isEnabled
+            ? "123456"
+            : String(format: "%06d", Int.random(in: 0...999_999, using: &delayGenerator))
+        devicePassword = newPassword
+        // Confirm the way the real one does, by actually logging in again.
+        guard await login(password: newPassword) else { return nil }
+        logger.notice("Mock device password rotated and confirmed")
+        return newPassword
+    }
+
+    /// Puts the password back to the factory default (command 0x30) and confirms it with a real
+    /// re-login, so "Forget Device" can't leave the device on a password nobody has.
+    ///
+    /// This is the *password* reset, not a factory reset -- no history is touched and the device stays
+    /// paired. `factoryReset` is deliberately not modelled; see `docs/TODO-mock-device-parity.md`.
+    @discardableResult
+    func resetDevicePasswordToDefault() async -> Bool {
+        await waitForRadio(configuration.latency.write)
+        guard isLoggedIn else { return false }
+        devicePassword = TimeFlipConstants.defaultPassword
+        guard await login(password: TimeFlipConstants.defaultPassword) else { return false }
+        logger.notice("Mock device password reset to default and confirmed")
+        return true
+    }
+
     /// The device's own clock (command 0x07), which drifts from the host's until `initializeSession`
     /// syncs it -- `setDeviceTime` is what moves it in a test.
     ///
