@@ -39,7 +39,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Query the current `pause_on_lock` value
+- [x] Step 1: Query the current `pause_on_lock` value
  and note it in the logs/00-remembered.json file.
  ```toml step
 action = "sql_query"
@@ -48,7 +48,7 @@ capture = "pause_on_lock_original"
 remember = "changed"
 restores = "pause_on_lock"
 ```
-- [ ] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
+- [x] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
       If the device is currently paused or locked, resolve that first (click Resume / Unlock via
       the menu) so the scenarios below start from a clean unlocked, unpaused state.
 ```toml step
@@ -60,25 +60,25 @@ action = "ensure_unlocked_unpaused"
 **Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=true` -- checked and
 resolved in Setup immediately above, which this scenario runs straight on from.
 
-- [ ] Step 1: Set `pause_on_lock` to `true`
+- [x] Step 1: Set `pause_on_lock` to `true`
 ```toml step
 use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":true}"
 ```
-- [ ] Step 2: Check the menu bar shows the play icon (▶)
+- [x] Step 2: Check the menu bar shows the play icon (▶)
       -- device not already paused.
 ```toml step
 use = "method-24.c"
 column = "paused"
 expect = "0"
 ```
-- [ ] Step 3: Click the "Lock" menu item.
+- [x] Step 3: Click the "Lock" menu item.
 ```toml step
 use = "method-6"
 item = "Lock"
 ```
-- [ ] Step 4: Confirm a new `paused = 1` device_event
+- [x] Step 4: Confirm a new `paused = 1` device_event
 row was written and the lock verified. `debug_log` shows `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`
 ```toml step
 [[actions]]
@@ -360,7 +360,7 @@ point (`x = position.x + size.width * 0.75`, `y = position.y + size.height / 2`)
 behind, though `pause_on_lock` is still `true` from there; this scenario's own first step forces it
 to `false` regardless.
 
-- [ ] Step 1: Set `pause_on_lock` to `false`
+- [x] Step 1: Set `pause_on_lock` to `false`
 ```toml step
 use = "method-24.i"
 setting = "pause_on_lock"

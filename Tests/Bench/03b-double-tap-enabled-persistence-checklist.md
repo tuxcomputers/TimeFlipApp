@@ -22,14 +22,14 @@ The switch to the test database (quit, `use-test-database.sh`, relaunch, confirm
 is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
 repeated here.
 
-- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding
+- [x] Step 1: Query `db_type` and confirm it reads `{"type":"test"}` before proceeding
 `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM setting WHERE setting_name = 'db_type';"`
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Open Preferences on the Device tab and expand the **Double tap** disclosure.
+- [x] Step 2: Open Preferences on the Device tab and expand the **Double tap** disclosure.
 Preferences is the status-item menu's "Settings..." item; the Device tab is radio button 1 of the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
@@ -85,7 +85,7 @@ expect = "true"
 Double tap disclosure expanded -- established in Setup immediately above, which this scenario
 runs straight on from.
 
-- [ ] Step 1: Read whether **Disable** is currently checked or not
+- [x] Step 1: Read whether **Disable** is currently checked or not
 (accessibility `value` of the checkbox), then toggle it to the opposite state.  [Method: Number 13](../Methods.md#method-13).
 ```toml step
 [[actions]]
@@ -113,7 +113,7 @@ tell application "System Events"
 end tell'''
 capture = "checkbox_after_toggle"
 ```
-- [ ] Step 2: Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if Disable is now checked, `true` if not).
+- [x] Step 2: Query `double_tap_settings` and confirm its `enabled` field flipped to match (`false` if Disable is now checked, `true` if not).
 ```toml step
 use = "method-24.f"
 action = "wait_for_sql"
@@ -122,7 +122,7 @@ field = "enabled"
 expect = "$checkbox_before"
 timeout_seconds = 30
 ```
-- [ ] Step 3: Quit the app and start it again
+- [x] Step 3: Quit the app and start it again
 confirm reconnect via a fresh `debug_log` `"Login accepted, code=0x02"` row. Methods: [Number 3](../Methods.md#method-3) to quit, [Number 2](../Methods.md#method-2) to start.
 ```toml step
 [[actions]]
@@ -137,7 +137,7 @@ since_id = "$current_log_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [ ] Step 4: Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable**
+- [x] Step 4: Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable**
 still shows the state set above -- read the checkbox's value directly via accessibility, no screenshot needed.
 ```toml step
 [[actions]]
@@ -176,7 +176,7 @@ tell application "System Events"
 end tell'''
 expect = "$checkbox_after_toggle"
 ```
-- [ ] Step 5: Toggle **Disable** back to its original state from the first step
+- [x] Step 5: Toggle **Disable** back to its original state from the first step
 , so the session doesn't leave a real setting changed.
 ```toml step
 [[actions]]
@@ -211,7 +211,7 @@ Double tap disclosure expanded, **Disable** back to its original state -- the cl
 previous scenario leaves behind (check `double_tap_settings.enabled` directly if running this
 scenario standalone).
 
-- [ ] Step 1: Record the current double-tap params
+- [x] Step 1: Record the current double-tap params
 (`clickThreshold`/`limit`/`latency`/`window`) from `double_tap_settings` -- captured, so they land in `logs/00-remembered.json` under this scenario and Step 6 (and a later resume) can read the originals back -- then show them to the dev to confirm they match the app's **Double tap** section before the scenario changes them.
 ```toml step
 [[actions]]
@@ -248,7 +248,7 @@ Window:    $dt_window_original
 
 Do all four match what the app shows?'''
 ```
-- [ ] Step 2: Change the threshold field with input
+- [x] Step 2: Change the threshold field with input
 Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick succession without tabbing away between them: `30`, then immediately `150`, then immediately `200`.
 ```toml step
 [[actions]]
@@ -274,7 +274,7 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [ ] Step 3: Confirm every intermediate value logged a changed + saved-to-DB pair
+- [x] Step 3: Confirm every intermediate value logged a changed + saved-to-DB pair
 , ending at `ths=200`. In `debug_log` (tag `double-tap`), rows newer than the noted ID: a `"Params changed: ths=Xm ..."` + `"Params saved to DB: enabled=..."` pair per value.
 ```toml step
 action = "wait_for_sql"
@@ -282,7 +282,7 @@ query = "SELECT message FROM debug_log WHERE tag='double-tap' AND message LIKE '
 expect_contains = "Params changed: ths=200"
 timeout_seconds = 30
 ```
-- [ ] Step 4: Confirm `double_tap_settings`
+- [x] Step 4: Confirm `double_tap_settings`
 already reads `"clickThreshold":200` immediately. That is before the debounce elapses (`DeviceWriteDebouncer.defaultDelay`).
 ```toml step
 use = "method-24.f"
@@ -290,7 +290,7 @@ setting = "double_tap_settings"
 field = "clickThreshold"
 expect = "200"
 ```
-- [ ] Step 5: Wait about 1.5s, then confirm one debounced write
+- [x] Step 5: Wait about 1.5s, then confirm one debounced write
 , read and verification line. In `debug_log`: exactly **one** `"Writing ths=200 lim=20 lat=50 win=50"` (not one per intermediate value), followed by `"Read ths=200 lim=20 lat=50 win=50"` and `"Verification confirmed: requested ths=200 ...; actual ths=200 ..."`
 ```toml step
 use = "method-24.e"
@@ -300,7 +300,7 @@ since_id = "$before_ths_id"
 expect_contains = "Verification confirmed: requested ths=200"
 timeout_seconds = 30
 ```
-- [ ] Step 6: Restore Threshold to the original value recorded in Step 1.
+- [x] Step 6: Restore Threshold to the original value recorded in Step 1.
       Confirm `double_tap_settings` reads that `clickThreshold` again.
 ```toml step
 [[actions]]
@@ -326,7 +326,7 @@ field = "clickThreshold"
 expect = "$dt_threshold_original"
 timeout_seconds = 30
 ```
-- [ ] Step 7: Close the Settings window
+- [x] Step 7: Close the Settings window
 (opened in Setup) so the next checklist starts with no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
