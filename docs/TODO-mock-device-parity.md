@@ -97,7 +97,57 @@ Extraction script (scratchpad, promote to `scripts/` if it earns its keep):
 5th-95th-percentile `DelayRange`. It warns loudly if the DB predates `f20ca37` and has no
 milliseconds, since every figure would silently quantise to whole seconds.
 
-### Measuring the password-set timing on the real device (tonight)
+### Measured, and folded into the mock (2026-07-31, commit `5e29916`)
+
+Nine connect/login sequences and five full 21-record history dumps on the owner's device. Every
+`Latency` figure is now observed rather than inferred; the old ones came from second-resolution
+straddle counting, which gives a centre and no spread.
+
+| Leg | Was (assumed) | Measured | n |
+| --- | --- | --- | --- |
+| `connect` | 600-1000ms | **2232-4550ms** | 9 |
+| `enableNotifications` | 120-180ms | **595-715ms** | 9 |
+| `initializeSession` | 200-300ms | **1137-1289ms** | 9 |
+| `login` | 210-310ms | 239-270ms | 9 |
+| `write` | 90-130ms | 115-152ms | 9 |
+| `read` | 105-155ms | 53-79ms | 117 |
+| `historyRead` | 105-155ms | 30-240ms (bimodal) | 25 |
+
+Bringing a session up costs **~4 seconds**, not the ~1 the mock modelled. Within `connect`, the
+variance is almost all in scan+link (1182-3306ms); characteristic discovery is steady (1047-1197ms)
+and waiting for the radio to power up is negligible (0-46ms).
+
+`historyRead` is genuinely bimodal, not merely wide: issued right after connect it returns in
+30-45ms, mid-session in 155-240ms. Modelled as the full span, since the mock has no notion of
+session age.
+
+**The shape correction matters more than the numbers.** History frames do not arrive independently:
+they land on BLE connection events, so gaps quantise to whole multiples of a ~14.5ms interval
+(residual stdev 1.32ms over 105 gaps), distributed
+
+| intervals | share | observed |
+| --- | --- | --- |
+| 0 (two frames, one connection event) | 3.8% | 0-1ms |
+| 1 | 62.9% | 12-18ms |
+| 2 | 29.5% | 27-31ms |
+| 3 | 3.8% | 41-45ms |
+
+Mean 19.4ms per record, which held at 19 in all five runs. `historyPerRecord: DelayRange` is
+therefore replaced by `historyFrames: FrameCadence`. A uniform range cannot generate a burst.
+
+Cross-check that the legs are self-consistent: `lock` is a write plus a read-back, measured
+173-224ms (p50 186), against `write` p50 118 + `read` p50 62 = 180.
+
+- [x] Measure real per-operation distributions and replace the provisional centres *and* widths
+- [x] Per-record history streaming cost, previously the least certain figure
+- [x] `connect`, `enableNotifications`, `initializeSession`, which had no measurement at all
+
+Method, if it needs repeating: the ingest position is derived from `device_event`, not stored in a
+cursor table (see `AppDataStore.swift:1438`), so clearing that table makes the next launch re-fetch
+from event 0. That gives repeatable full dumps without touching the device. Scripts are in the
+session scratchpad (`full_history_cycle.sh`, `analyse_frames.py`, `measure_timings.py`).
+
+### Still to measure: password and reset timing (needs the owner hands-off)
 
 Owner asked for this specifically, flipping between the factory default and the dev PIN. Both values
 are known (`000000` / `123456`), so a half-completed rotation can only leave the cube on one of two
@@ -111,31 +161,24 @@ hands-off (root `CLAUDE.md`'s live-interaction ritual):
   (rotation runs *only* in the pairing flow -- `ApplicationDelegate:708`, `skipConnect` -- routine
   reconnects reuse the stored password, so a plain restart will not exercise it)
 
-Pre-requisite: **rebuild and relaunch the app first**. Millisecond `logged_at` landed in `f20ca37`,
-but the running binary predates it, so the timings would come back at second resolution again.
+Both operations now self-report their legs (commit `69c6266`), split into the 0x30 write and the
+confirming re-login, so the extraction is just a matter of running them a few times.
 
-Legs to extract from `debug_log` (all already logged, tag `TimeFlip`):
-
-- `Rotating device password to: ...` -> `Password sent; reading commandResult…`  (command write)
-- `Password sent; reading commandResult…` -> `Login commandResult raw bytes: ...`  (device reply)
-- `... raw bytes` -> `Login accepted, code=0x02`  (confirming re-login)
-- whole op: `Rotating...` -> `Device password confirmed set to: ...`
-
-- [ ] Rebuild + relaunch so debug_log records milliseconds
+- [x] Rebuild + relaunch so `debug_log` records milliseconds
 - [ ] Forget Device, capture the reset legs
 - [ ] Re-pair, capture the rotate legs
 - [ ] Repeat a few times for a spread, not one sample -- the point is `lower`/`upper`, not a centre
-- [ ] Feed the result into `Latency.write` (currently 90-130ms, provisional) and add a dedicated
-      `passwordSet` range if it turns out not to match a plain write
+- [ ] Add a dedicated `passwordSet` range if it turns out not to match a plain `write` (115-152ms)
 - [ ] Confirm `config.json` PIN still matches afterwards
 
-### Follow-ups once the device is free
+**Factory reset**, also owner-approved on 2026-07-31 ("the events are not work records"), and it
+**erases the device's event history** -- so it must run after every history measurement, which is
+why it is last here. `factory reset 0xFF write` covers only sending the command; the cost that
+matters is the erase-and-reboot, observable as the gap from `Factory reset (0xFF) sent` to the
+device reappearing on the default password.
 
-- [ ] Measure real per-operation distributions from `debug_log` now that it records milliseconds
-      (landed in `f20ca37`), and replace the provisional centres *and* widths
-- [ ] Particularly: per-record history streaming cost, which is currently the least certain figure
-- [ ] `connect`, `enableNotifications`, `initializeSession` have no measurement at all -- nothing logs
-      the start of a scan, so these may need a temporary timing log to pin down
+- [ ] Capture the 0xFF write and the reboot-to-default-login gap
+- [ ] Re-pair afterwards so the cube isn't left unpaired on `000000`
 
 ## Where things live
 
