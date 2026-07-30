@@ -165,12 +165,17 @@ exactly 1 -- the control wasn't left in a stuck "held" state. Two independent sy
 required physical simultaneity, just event ordering.
 
 Get target coordinates from the element's `position`/`size` via accessibility (Read a label or value
-via accessibility, below) -- already in points, no pixel conversion needed. Caveat: this failed for
-the auto-pause stepper's own two `image` elements specifically -- both reported identical
-`position`/`size` (a SwiftUI AX quirk collapsing custom-drawn glyphs to their container's frame, not
-their own) -- so for that control, derive the coordinates instead from the adjacent text field's
-reliable `position`/`size` (real `AXTextField`) plus a `screencapture -R` crop to visually place the
-arrows relative to it (pixel-based, 2x retina -- halve to convert back to point space).
+via accessibility, below) -- already in points, no pixel conversion needed. Caveat for a stacked
+arrow pair (the auto-pause stepper): both its `image` elements report the **same** rect, that of the
+upper chevron (a SwiftUI AX quirk collapsing the pair's custom-drawn glyphs onto one frame), so
+`image 2` is no use -- read `image 1` and derive the lower arrow as `image 1`'s center plus the
+stack's pitch (`arrowHeight` + `arrowSpacing` in `SettingsLayoutConstants.Stepper`, 11pt).
+
+Anchor on the target element itself, never on a hand-measured offset from a neighbour. These arrows
+were once located by offsetting left from the adjacent text field; when the row was restyled to put
+the arrows *after* the value (matching every other stepper in the window) the offset silently
+pointed into empty space, and the clicks that stopped landing were invisible to any step that didn't
+assert the value actually moved.
 
 <a id="method-8"></a>
 ## Method 8: Status-item click gesture

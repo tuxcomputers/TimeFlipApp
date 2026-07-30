@@ -220,10 +220,9 @@ timeout_seconds = 30
 ## Scenario C -- press-and-hold acceleration, up arrow
 
 **Preconditions:** device connected and paired, Preferences open on the Device tab with the
-auto-pause field focusable, TimeFlip frontmost before typing ([Method: Number 12](../Methods.md#method-12)). Get the arrow's coordinates via the adjacent text field's `position`/`size` (the
-two stepper `image` elements themselves report identical, unreliable geometry -- see the coordinate
-caveat in the CGEventPost method, `../Methods.md`) plus a targeted `screencapture -R` crop to place
-them relative to it.
+auto-pause field focusable, TimeFlip frontmost before typing ([Method: Number 12](../Methods.md#method-12)). Get the arrow's coordinates from `image 1`'s own `position`/`size`, deriving the down
+arrow from it by the stack's pitch -- both stepper `image` elements report that same upper-chevron
+rect, so `image 2` is no use (see the coordinate caveat in the CGEventPost method, `../Methods.md`).
 
 - [ ] Step 1: Type `1` directly into the auto-pause text field
 (starting value for the hold).
@@ -247,6 +246,10 @@ action = "wait_for_sql"
 setting = "auto_pause_minutes"
 expect = "{\"minutes\":1}"
 timeout_seconds = 30
+
+[[actions]]
+use = "method-24.b"
+capture = "before_hold_id"
 ```
 - [ ] Step 2: Click and hold the **up** arrow
 (CGEventPost `mouseDown`, wait ~4s, `mouseUp`) until the value passes 30, then release. [Method: Number 7](../Methods.md#method-7).
@@ -257,10 +260,16 @@ mode = "hold"
 hold_seconds = 4
 ```
 - [ ] Step 3: Confirm the hold stepped by single digits, then by 5 past the second gridline.
-The full sequence during the hold is in `debug_log` (tag `auto-pause`, `"Auto-pause value changed to Xm"`): single digits up through the second gridline past the starting value, then steps of 5 beyond that (`secondBoundary` uses integer division).
+The full sequence during the hold is in `debug_log` (tag `auto-pause`, `"Auto-pause value changed to Xm"`): single digits up through the second gridline past the starting value, then steps of 5 beyond that (`secondBoundary` uses integer division). Asserted as the literal run of values the hold produced, scoped to rows newer than the pre-hold ID -- an assertion that only read the *last* value would tick just as happily if the click missed the arrow entirely and nothing moved.
 ```toml step
+[[actions]]
 action = "sql_query"
-query = "SELECT CAST(substr(message, 29, length(message) - 29) AS INTEGER) FROM debug_log WHERE tag='auto-pause' AND message LIKE 'Auto-pause value changed%' ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT group_concat(v) FROM (SELECT CAST(substr(message, 29, length(message) - 29) AS INTEGER) AS v FROM debug_log WHERE tag='auto-pause' AND message LIKE 'Auto-pause value changed to %' AND debug_log_id > $before_hold_id ORDER BY debug_log_id);"
+expect_contains = "2,3,4,5,6,7,8,9,10,15,20"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CAST(substr(message, 29, length(message) - 29) AS INTEGER) FROM debug_log WHERE tag='auto-pause' AND message LIKE 'Auto-pause value changed to %' AND debug_log_id > $before_hold_id ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "final_hold_value"
 ```
 - [ ] Step 4: Query the DB and confirm `auto_pause_minutes` matches the final logged value.
@@ -296,6 +305,10 @@ action = "wait_for_sql"
 setting = "auto_pause_minutes"
 expect = "{\"minutes\":26}"
 timeout_seconds = 30
+
+[[actions]]
+use = "method-24.b"
+capture = "before_down_hold_id"
 ```
 - [ ] Step 2: Click and hold the **down** arrow
 (CGEventPost `mouseDown`, wait ~4s, `mouseUp`) until the value reaches 0, then release.
@@ -306,11 +319,11 @@ mode = "hold"
 hold_seconds = 4
 ```
 - [ ] Step 3: Query `debug_log` and confirm the sequence mirrors Scenario C
-single digits down to the second gridline below 26, then by 5 down to 0, and that the field stayed at 0 rather than going negative once the down arrow was held past it.
+single digits down to the second gridline below 26, then by 5 down to 0, and that the field stayed at 0 rather than going negative once the down arrow was held past it -- the whole run asserted as one literal sequence, same reason as Scenario C's Step 3.
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='auto-pause' AND message LIKE 'Auto-pause value changed%' ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Auto-pause value changed to 0m"
+query = "SELECT group_concat(v) FROM (SELECT CAST(substr(message, 29, length(message) - 29) AS INTEGER) AS v FROM debug_log WHERE tag='auto-pause' AND message LIKE 'Auto-pause value changed to %' AND debug_log_id > $before_down_hold_id ORDER BY debug_log_id);"
+expect_contains = "25,24,23,22,21,20,15,10,5,0"
 timeout_seconds = 30
 ```
 - [ ] Step 4: Confirm `auto_pause_minutes` reads `{"minutes":0}`, not negative.
