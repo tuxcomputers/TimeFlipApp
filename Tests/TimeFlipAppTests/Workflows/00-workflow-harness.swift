@@ -50,7 +50,7 @@ final class WorkflowHarness {
     /// A fixed base time so every expectation is deterministic: nothing here may read the real clock.
     static let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private init(workflow: String, latency: MockTimeFlipDevice.Latency) {
+    private init(workflow: String, latency: MockTimeFlipDevice.Latency, startsPaired: Bool) {
         self.workflow = workflow
         // A directory per workflow, so two workflows can never see each other's rows. Deliberately
         // not `AppDataStore.testDatabaseURL()`, which is one fixed path shared by every caller --
@@ -66,7 +66,7 @@ final class WorkflowHarness {
         self.device = MockTimeFlipDevice(
             configuration: .init(
                 initialFaceID: 1,
-                isInitiallyPaired: true,
+                isInitiallyPaired: startsPaired,
                 emitInitialStatus: false,
                 latency: latency
             )
@@ -106,6 +106,9 @@ final class WorkflowHarness {
         device.flip(to: 2)
         device.flip(to: 1)
         device.seedHistory([])
+        // An unpaired workflow pairs as part of what it's testing, so it must not start out paired --
+        // but the flush above still had to run, since the stale wall-clock session exists either way.
+        if !startsPaired { device.forget() }
     }
 
     // MARK: - One harness per workflow
@@ -120,10 +123,11 @@ final class WorkflowHarness {
     /// unchanged, since every step of a workflow has to talk to the same device.
     static func shared(
         _ workflow: String,
-        latency: MockTimeFlipDevice.Latency = .instant
+        latency: MockTimeFlipDevice.Latency = .instant,
+        startsPaired: Bool = true
     ) -> WorkflowHarness {
         if let existing = harnesses[workflow] { return existing }
-        let created = WorkflowHarness(workflow: workflow, latency: latency)
+        let created = WorkflowHarness(workflow: workflow, latency: latency, startsPaired: startsPaired)
         harnesses[workflow] = created
         return created
     }

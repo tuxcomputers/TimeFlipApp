@@ -31,6 +31,7 @@ Deliberately close to `Tests/CLAUDE.md`'s rules for the scripted checklists, so 
 | `W02-flips-while-disconnected` | flips while the app isn't listening are backfilled on reconnect, exactly once, in order, with one segment left open | `Interactive/01i` Scenario B (backlog after being out of range) |
 | `W03-lock-blocks-flips` | a locked device refuses flips, nothing reaches the DB, the running segment is undisturbed, unlocking restores flips | the app's half of `Interactive/04i` Scenario A, and `Bench/04b` Scenario E's substance |
 | `W04-history-resume` | the cheap skip path when nothing is new; a relaunch re-deriving its position from `device_event` without re-ingesting or skipping | `Bench/01b` Scenarios A and B |
+| `W05-pairing` | scan, pick a result, connect, log in, pair; the PIN rotation that follows and Forget putting the factory default back | the app's half of the pairing flow in `Bench/02b` Setup |
 
 ## What cannot move to CI, and why
 

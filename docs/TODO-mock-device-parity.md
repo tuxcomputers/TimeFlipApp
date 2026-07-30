@@ -70,7 +70,7 @@ Delta taken from `TimeFlipBLEDevice`. Transport internals are **not** in scope -
 - [x] A history fetch draws exactly one delay per record plus one for the command round trip
 - [x] Per-record delays are not all identical (the point of the range)
 - [x] `.instant` really is instant, and remains the default; a rejected command still costs a trip
-- [ ] A workflow using the new discovery/pairing functions
+- [x] A workflow using the new discovery/pairing functions (`Workflows/W05-pairing.swift`)
 
 ### Measuring the password-set timing on the real device (tonight)
 
