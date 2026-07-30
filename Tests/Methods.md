@@ -117,13 +117,29 @@ synthetic AX/coordinate clicks simply never arrive (no effect, and -- once the `
 print existed to check -- no log line either).
 
 A raw `CGEventPost` (e.g. via Python's `pyobjc`/`Quartz`) *does* arrive correctly, but only if
-`kCGMouseEventClickState` is set explicitly on both the down and up events -- omitting it makes
-macOS treat every event as a fresh single click (`clickCount` always `1`), which is the actual root
-cause behind "synthetic double-clicks don't work" (not click speed, a missing metadata field):
+**both** of the following hold. Each was found the hard way, and each fails silently.
+
+1. `kCGMouseEventClickState` is set explicitly on the down and up events -- omitting it makes macOS
+   treat every event as a fresh single click (`clickCount` always `1`), which is the actual root
+   cause behind "synthetic double-clicks don't work" (not click speed, a missing metadata field).
+2. A `kCGEventMouseMoved` is posted to the target point **first**. A down/up pair carries
+   coordinates, but without a preceding move the click is delivered against wherever the window
+   server still believes the pointer is -- so it lands on whatever is under the *old* position.
+   Confirmed live 2026-07-31 while pairing repeatedly: with no move, one click actuated `Stop Scan`
+   instead of the device row 80pt below it, and a later one produced no effect and no `click`-tagged
+   log line at all. Adding the move made seven consecutive pairings reliable. Raise the target window
+   too (`set frontmost to true`, then `perform action "AXRaise"`), since the click goes to whatever
+   window owns that screen point, not to the app you meant.
 
 ```python
 import Quartz, time
 X, Y = <screen point x>, <screen point y>
+
+# (2) Move first -- not optional; see above.
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(
+    None, Quartz.kCGEventMouseMoved, (X, Y), Quartz.kCGMouseButtonLeft))
+time.sleep(0.3)
+
 def post(kind, click_state):
     e = Quartz.CGEventCreateMouseEvent(None, kind, (X, Y), Quartz.kCGMouseButtonLeft)
     Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, click_state)
@@ -197,8 +213,11 @@ it. A raw **CGEventPost mouse click at the row's centre** *does* actuate it (con
 2026-07-25: paired a freshly factory-reset device start to finish this way). The runner's
 `cgevent_click_element` action does exactly that -- it reads the element's `position`+`size` via
 accessibility, then CGEvent-clicks the middle -- so this is a normal script/`(Claude)` step now, not
-an ad-hoc "ask the user to click" one. Locate the row with `first static text ... whose name
-contains "TimeFlip"` (skips the "Click a device below to pair with it." header); see
+an ad-hoc "ask the user to click" one. Locate the row by its `AXIdentifier`, `discovered-device-row`
+(Method 13), which doesn't depend on the cube being named "TimeFlip"; locating it as `first static
+text ... whose name contains "TimeFlip"` also works and skips the "Click a device below to pair with
+it." header. Either way the click itself needs Method 7's preceding `kCGEventMouseMoved`, without
+which it lands on whatever was under the pointer before. See
 `Bench/02b-reset-device-checklist.md` Step 7.
 
 <a id="method-10"></a>
@@ -278,6 +297,43 @@ across calls).
 
 `click button "..."` / `set value of checkbox ... to true` -- confirm each via `debug_log`/DB the
 first time it's actually used.
+
+**A SwiftUI `Button` in the Settings window exposes no readable name at all.** Not merely empty:
+`AXTitle`, `AXDescription` and `AXHelp` are absent from the element's attribute list entirely, and
+it has no children to read either, so `button "Forget Device"` matches nothing and only the index
+works. Addressing by index is what silently broke the tab steps when a tab was inserted (Method 10),
+and here the two adjacent candidates are Forget Device and Reset Device, one of which wipes the cube.
+
+The fix is to name the control, not to work around it -- but **`.accessibilityLabel` does not work
+here**. Verified against the device 2026-07-31: with the label applied, `AXDescription` still never
+appears. `.accessibilityIdentifier` does work; it adds `AXIdentifier`, which System Events can
+filter on:
+
+```applescript
+tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
+    click (first button whose value of attribute "AXIdentifier" is "forget-device")
+end tell
+```
+
+Identifiers in the pairing section (`TimeFlipSettingsView.swift`): `forget-device`, `reset-device`,
+`scan-for-devices` (one identifier for both titles -- read `title` or the debug log to tell which
+mode it's in), and `discovered-device-row` on every result row.
+
+Two traps when filtering on `AXIdentifier`:
+
+- A `whose value of attribute "AXIdentifier" is ...` clause over `every UI element` **errors**
+  (`-1728`) as soon as it meets a sibling lacking the attribute -- checkboxes and progress
+  indicators here do. Iterate with a `try` inside instead. It's safe over `every button`, where all
+  the candidates have one.
+- An identifier makes an element *findable*, not *clickable*. The discovered-device row still needs
+  a real CGEvent click (Method 9).
+
+**If a control you need can't be addressed by name, add an identifier to the source** rather than
+reaching for an index.
+
+Whatever the selector, the app logs `Button clicked: <name>` under the `click` tag, so a step can
+prove the intended control fired instead of assuming it -- worth doing on anything destructive even
+when addressing by identifier.
 
 <a id="method-14"></a>
 ## Method 14: Auto-pause stepper arrows

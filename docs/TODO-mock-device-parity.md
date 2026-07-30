@@ -165,11 +165,45 @@ Both operations now self-report their legs (commit `69c6266`), split into the 0x
 confirming re-login, so the extraction is just a matter of running them a few times.
 
 - [x] Rebuild + relaunch so `debug_log` records milliseconds
-- [ ] Forget Device, capture the reset legs
-- [ ] Re-pair, capture the rotate legs
-- [ ] Repeat a few times for a spread, not one sample -- the point is `lower`/`upper`, not a centre
-- [ ] Add a dedicated `passwordSet` range if it turns out not to match a plain `write` (115-152ms)
-- [ ] Confirm `config.json` PIN still matches afterwards
+- [x] Forget Device, capture the reset legs
+- [x] Re-pair, capture the rotate legs
+- [x] Repeat a few times for a spread, not one sample -- seven pairings, n=6 per leg
+- [x] Add a dedicated `passwordSet` range if it turns out not to match a plain `write` -- **not
+      needed**, see below
+- [x] Confirm `config.json` PIN still matches afterwards -- `123456`, checked against the device's
+      last accepted login rather than assumed
+
+| Leg | rotate (n=6) | reset (n=6) |
+| --- | --- | --- |
+| 0x30 write | 113-144ms | 54-79ms |
+| confirm re-login | 120-123ms | 60-61ms |
+| **total** | **236-266ms** | **116-141ms** |
+
+No `passwordSet` range: the rotation's write (113-144ms) matches a plain `write` (115-152ms). The
+reset being half that is **the link, not the command** -- rotation only ever runs inside the pairing
+flow on a freshly connected probe, the reset on a settled session. The same 2x split appears in the
+confirm re-logins (120-123 vs 60-61) and in login overall (245ms at connect vs 59ms established),
+so it is a transport property, modelled as `Latency.settledWrite` alongside `write`.
+
+Both operations now charge **two** legs in the mock (write plus confirming re-login). They
+previously charged one write and then a full connect-time `login`, overstating a rotation as
+354-422ms and a reset far worse.
+
+### Factory reset, measured 2026-07-31
+
+```
+0xFF write:                  78ms
+0xFF sent -> confirmed:  13,544ms
+```
+
+The write is trivial; the cost is the erase-and-reboot. It also reproduced the race the driver's
+comments describe: **two seconds after the reset the cube still accepted the old PIN**, and only on
+the second reconnect was `123456` rejected and `000000` accepted. Live confirmation that refusing to
+treat an immediate re-login as proof is load-bearing, not defensive coding.
+
+Still not modelled in the mock (`factoryReset` isn't on `TimeFlipSessionManaging`), but the numbers
+are here if it ever is: a ~78ms write, then ~13.5s during which the device is unreachable and
+briefly still honours the old password.
 
 **Factory reset**, also owner-approved on 2026-07-31 ("the events are not work records"), and it
 **erases the device's event history** -- so it must run after every history measurement, which is

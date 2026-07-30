@@ -136,24 +136,30 @@ struct TimeFlipSettingsView: View {
                     Text("Resetting device…")
                         .foregroundStyle(.secondary)
                 } else if appState.isPaired {
-                    // These carry an explicit accessibility label because a plain SwiftUI Button in
-                    // this window exposes *no* readable name at all -- title, description and child
-                    // text all come back `missing value`, so the only way to tell Forget from Reset
-                    // was their index. Addressing two adjacent buttons by index, one of which wipes
-                    // the device, is precisely the fragility that broke the tab steps when a tab was
-                    // inserted (Methods.md Method 10). The label makes them nameable.
+                    // These carry an accessibility *identifier* so a test can address them by name.
+                    // A plain SwiftUI Button in this Form exposes no readable name whatsoever --
+                    // AXTitle, AXDescription and AXHelp aren't merely empty, they're absent from the
+                    // element's attribute list entirely, and it has no children to read either. So
+                    // the only way to tell Forget from Reset was their index, and addressing two
+                    // adjacent buttons by index when one of them wipes the device is exactly the
+                    // fragility that silently broke the tab steps when a tab was inserted
+                    // (Methods.md Method 10).
+                    //
+                    // `.accessibilityLabel` does NOT fix this here -- verified on the device
+                    // 2026-07-31, AXDescription still never appears. `.accessibilityIdentifier`
+                    // does: it adds AXIdentifier, which System Events can filter on.
                     Button("Forget Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
                         Task { await appState.resetAndForgetDevice() }
                     }
-                    .accessibilityLabel("Forget Device")
+                    .accessibilityIdentifier("forget-device")
                     .disabled(appState.connectionStatus == .pairing)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
-                    .accessibilityLabel("Reset Device")
+                    .accessibilityIdentifier("reset-device")
                     .disabled(appState.connectionStatus == .pairing)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
@@ -184,9 +190,10 @@ struct TimeFlipSettingsView: View {
                             appState.startDeviceScan(filterToTimeFlip: !scanAllDevices)
                         }
                     }
-                    // Label tracks the title, so a caller can wait for "Stop Scan" to confirm the
-                    // scan actually started rather than sleeping and hoping.
-                    .accessibilityLabel(appState.isScanningForDevices ? "Stop Scan" : "Scan for Devices")
+                    // One identifier, not two: the button is the same control whichever title it
+                    // shows, and a test that had to guess which name to look for would be back to
+                    // racing the scan state. Read `title`/the debug log to tell which mode it's in.
+                    .accessibilityIdentifier("scan-for-devices")
                     Toggle("All Devices", isOn: $scanAllDevices)
                         .toggleStyle(.checkbox)
                         .disabled(appState.isScanningForDevices)
@@ -221,6 +228,13 @@ struct TimeFlipSettingsView: View {
                             }
                         }
                         .contentShape(Rectangle())
+                        // Every row shares one identifier deliberately: a test wants "the first
+                        // discovered device", and keying on the device's own name or UUID would
+                        // mean knowing them before the scan has found anything. Locating the row
+                        // by its name text still works; this just doesn't depend on the cube being
+                        // called "TimeFlip". Actuating it still needs a real CGEvent click
+                        // (Methods.md Method 9) -- an identifier makes it findable, not clickable.
+                        .accessibilityIdentifier("discovered-device-row")
                         .onTapGesture {
                             DeveloperMode.debugPrint(.click, "Discovered-device row tapped: \(device.name)\(isInvalid ? " (invalid, ignored)" : "")")
                             guard !isInvalid else { return }
