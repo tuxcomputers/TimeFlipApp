@@ -245,16 +245,43 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     func connect() async -> Bool {
         do {
             logger.notice("connect() begin")
+            let clock = ContinuousClock()
+            let begin = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect begin")
             stopDiscoveryScan()
+
             try await waitForBluetoothPower()
+            let powered = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect radio powered: \(Self.elapsed(from: begin, to: powered))")
+
             try await scanAndConnect()
+            let connected = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect scan+link established: \(Self.elapsed(from: powered, to: connected))")
+
             try await discoverServicesAndCharacteristics()
+            let discovered = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect characteristics discovered: \(Self.elapsed(from: connected, to: discovered))")
+
             logger.notice("connect() completed")
+            DeveloperMode.debugPrint(.connPhase, "connect complete, total: \(Self.elapsed(from: begin, to: discovered))")
             return true
         } catch {
             logger.error("BLE connect failed: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.connPhase, "connect failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// Whole milliseconds between two `ContinuousClock` instants, rendered as e.g. `742ms`.
+    ///
+    /// A monotonic clock rather than `Date`, because these spans exist to calibrate the mock's
+    /// delay ranges and a wall-clock adjustment mid-connect would silently corrupt the figure.
+    /// `debug_log` already carries millisecond wall-clock timestamps, so the deltas are only
+    /// logged where the boundary isn't already inferable from two adjacent rows.
+    static func elapsed(from start: ContinuousClock.Instant, to end: ContinuousClock.Instant) -> String {
+        let components = (end - start).components
+        let milliseconds = components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
+        return "\(milliseconds)ms"
     }
 
     /// Connect to a peripheral the user picked from a discovery scan result, verifying it's
@@ -591,17 +618,24 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     func enableNotifications() async {
         logger.debug("Enabling notifications for faces/doubleTap/system/events/battery")
+        let clock = ContinuousClock()
+        let begin = clock.now
+        DeveloperMode.debugPrint(.connPhase, "enableNotifications begin (5 subscriptions)")
         await withNotification(TimeFlipUUIDs.faces, enabled: true)
         await withNotification(TimeFlipUUIDs.doubleTap, enabled: true)
         await withNotification(TimeFlipUUIDs.systemState, enabled: true)
         await withNotification(TimeFlipUUIDs.eventsData, enabled: true)
         await withNotification(TimeFlipUUIDs.batteryLevel, enabled: true)
         logger.notice("Notification subscriptions set")
+        DeveloperMode.debugPrint(.connPhase, "enableNotifications complete: \(Self.elapsed(from: begin, to: clock.now))")
     }
 
     func initializeSession(hostTime: Date, desiredAutoPauseMinutes: UInt16) async {
         guard isLoggedIn else { return }
         logger.notice("Initializing session with hostTime \(hostTime.timeIntervalSince1970, privacy: .public)")
+        let clock = ContinuousClock()
+        let begin = clock.now
+        DeveloperMode.debugPrint(.connPhase, "initializeSession begin")
         await setDeviceTime(hostTime)
         await refreshStatus()
         await AutoPauseNormalizer.normalize(
@@ -615,6 +649,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         await refreshDeviceInfo()
         await primeSnapshot()
         await readSystemState(context: "post-initialize health check")
+        DeveloperMode.debugPrint(.connPhase, "initializeSession complete: \(Self.elapsed(from: begin, to: clock.now))")
     }
 
     func setFaceColor(faceID: UInt8, components: ColorComponents) async {
@@ -1072,6 +1107,14 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let sentinel20 = Data(repeating: 0, count: 20)
         var cursor = startEvent
 
+        // Frame arrival times, accumulated in memory and emitted as a single line once the stream
+        // ends. Deliberately not one debug_log row per frame: each row is a SQLite insert, which
+        // would add its own latency to the very inter-frame gap being measured. These feed the
+        // mock's `historyRead` (command round trip) and `historyPerRecord` (per-frame) ranges.
+        let clock = ContinuousClock()
+        var lastFrameAt = clock.now
+        var frameGapsMilliseconds: [Int64] = []
+
         let stream = AsyncStream<Data> { continuation in
             historyStreamContinuation = continuation
         }
@@ -1088,6 +1131,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             command.replaceSubrange(1..<5, with: withUnsafeBytes(of: cursor.bigEndian, Array.init))
 
             logger.debug("History stream request startFrom=\(cursor, privacy: .public)")
+            // Reset here, not at declaration: the enable-notification hop above is a real BLE
+            // round trip, and folding it into the first frame's gap would inflate the command
+            // round-trip figure the mock is calibrated against.
+            lastFrameAt = clock.now
             try await write(command, to: TimeFlipUUIDs.history, type: .withResponse)
         } catch {
             logger.error("History stream start failed: \(error.localizedDescription, privacy: .public)")
@@ -1114,6 +1161,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
         for await frame in stream {
             resetIdleWatchdog()
+            let arrivedAt = clock.now
+            let gap = (arrivedAt - lastFrameAt).components
+            frameGapsMilliseconds.append(gap.seconds * 1_000 + gap.attoseconds / 1_000_000_000_000_000)
+            lastFrameAt = arrivedAt
             // Treat any frame with eventNumber==0 as sentinel.
             if frame.count >= 4 {
                 let evNum = frame.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
@@ -1147,6 +1198,24 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
         idleWatchdog?.cancel()
         await withNotification(TimeFlipUUIDs.history, enabled: false)
+
+        if let commandRoundTrip = frameGapsMilliseconds.first {
+            // First gap is the command round trip (write acknowledged -> first frame); the rest are
+            // the device's own per-frame spacing, which is what a mock streaming a backlog has to
+            // reproduce. The trailing sentinel frame is included, so the list is one longer than
+            // the record count.
+            let perFrame = frameGapsMilliseconds.dropFirst()
+            let summary = perFrame.isEmpty
+                ? "none"
+                : "\(perFrame.map(String.init).joined(separator: ",")) (min=\(perFrame.min() ?? 0) max=\(perFrame.max() ?? 0) mean=\(perFrame.reduce(0, +) / Int64(perFrame.count)))"
+            DeveloperMode.debugPrint(
+                .histTime,
+                "history stream from=\(startEvent) records=\(entries.count) frames=\(frameGapsMilliseconds.count) round_trip=\(commandRoundTrip)ms per_frame_ms=\(summary)"
+            )
+        } else {
+            DeveloperMode.debugPrint(.histTime, "history stream from=\(startEvent) received no frames")
+        }
+
         return entries
     }
 
