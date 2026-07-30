@@ -36,7 +36,8 @@ final class WorkflowHarness {
     let device: MockTimeFlipDevice
     let appState: AppState
     let dailyTotals: DailyFaceTotals
-    let ingestor: HistoryIngestor
+    /// Replaced by `simulateRelaunch()`, which is why this isn't a `let`.
+    private(set) var ingestor: HistoryIngestor
 
     private let databaseURL: URL
     /// The step that broke, if any. Set by `failed(step:)`, read by `requirePreviousStepsPassed()`.
@@ -181,6 +182,19 @@ final class WorkflowHarness {
     /// What the app does on (re)connect before it starts processing live events.
     func ingestHistory(trigger: String) async {
         await ingestor.refreshHistory(trigger: trigger)
+    }
+
+    /// Stands in for quitting and relaunching the app: a brand-new `HistoryIngestor` against the same
+    /// database and the same device, so every in-memory cursor is gone and the resume position has to
+    /// be re-derived from `device_event` on disk. The device keeps its own state, exactly as real
+    /// hardware does across an app restart.
+    func simulateRelaunch() {
+        ingestor = HistoryIngestor(
+            device: device,
+            dataStore: dataStore,
+            appState: appState,
+            dailyTotals: dailyTotals
+        )
     }
 
     /// Reports each level in `levels` and returns the battery readings that actually arrived on the
