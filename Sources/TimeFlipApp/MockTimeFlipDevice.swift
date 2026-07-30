@@ -14,6 +14,75 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         static let historySample2DurationMinutes: TimeInterval = 2
     }
 
+    /// A span a real operation takes, as the range it varies across rather than one number. Sampling
+    /// uniformly between the bounds is what makes a run of history records come back 184ms, 198ms,
+    /// 163ms, ... instead of the same figure every time -- which is how the device behaves, and which
+    /// stops a caller from accidentally depending on a delay being constant.
+    ///
+    /// `lower == upper` gives a fixed delay; `.none` gives no delay at all.
+    struct DelayRange: Sendable, Equatable {
+        var lower: Duration
+        var upper: Duration
+
+        static let none = DelayRange(lower: .zero, upper: .zero)
+
+        /// A span that doesn't vary. Use when a real measurement shows no meaningful spread, not as a
+        /// placeholder for "haven't measured it yet" -- an honest wide range is better than a fake
+        /// precise one.
+        static func fixed(_ duration: Duration) -> DelayRange {
+            DelayRange(lower: duration, upper: duration)
+        }
+
+        /// Milliseconds, the unit every figure here was measured in.
+        static func milliseconds(_ lower: Double, _ upper: Double) -> DelayRange {
+            DelayRange(lower: .microseconds(Int(lower * 1000)), upper: .microseconds(Int(upper * 1000)))
+        }
+
+        /// Whole microseconds in a `Duration`, counting both components -- a range may exceed a second
+        /// once scaled up, so the seconds part can't be ignored.
+        private static func microseconds(_ duration: Duration) -> Int64 {
+            duration.components.seconds * 1_000_000
+                + duration.components.attoseconds / 1_000_000_000_000
+        }
+
+        func scaled(by factor: Double) -> DelayRange {
+            DelayRange(
+                lower: .microseconds(Int64(Double(Self.microseconds(lower)) * factor)),
+                upper: .microseconds(Int64(Double(Self.microseconds(upper)) * factor))
+            )
+        }
+
+        /// A value in `[lower, upper]`, drawn from `generator` so a run is reproducible.
+        func sample(using generator: inout some RandomNumberGenerator) -> Duration {
+            let low = Self.microseconds(lower)
+            let high = Self.microseconds(upper)
+            guard high > low else { return lower }
+            return .microseconds(Int64.random(in: low...high, using: &generator))
+        }
+    }
+
+    /// Deterministic PRNG (SplitMix64) so a run with realistic latency is reproducible.
+    ///
+    /// Randomised delays are the point -- a real device doesn't answer in the same time twice -- but
+    /// unreproducible ones would be a liability: a failure that only appears for some draws could not
+    /// be replayed. Seeding fixes that, so the same seed always yields the same sequence and a failing
+    /// run can be re-run exactly.
+    struct SeededGenerator: RandomNumberGenerator, Sendable {
+        private var state: UInt64
+
+        init(seed: UInt64) {
+            self.state = seed
+        }
+
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
     /// How long the mock takes to answer, so it behaves like a device on a radio link rather than a
     /// function call. A real TimeFlip never answers instantly: connecting means scan plus connect plus
     /// service and characteristic discovery, and every command is a write followed by a notification
@@ -49,55 +118,63 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     struct Latency: Sendable {
         /// Scan, connect, then discover services and characteristics. **Estimated** -- nothing logs
         /// the start of a scan, so this is unmeasured. Much the slowest step in practice.
-        var connect: Duration
-        /// Password write plus the device's reply. Measured: 260ms.
-        var login: Duration
+        var connect: DelayRange
+        /// Password write plus the device's reply. Measured: ~260ms.
+        var login: DelayRange
         /// Subscribing to each notification characteristic in turn. **Estimated.**
-        var enableNotifications: Duration
+        var enableNotifications: DelayRange
         /// Time sync plus the initial status burst. **Estimated** (roughly two round trips).
-        var initializeSession: Duration
+        var initializeSession: DelayRange
         /// A command write and its acknowledgement (auto-pause, lock, brightness, colour). Measured:
-        /// 110ms. A write that also reads back to verify costs this *plus* `read`.
-        var write: Duration
-        /// A characteristic read (lock state, double-tap parameters, device info). Measured: 130ms.
-        var read: Duration
-        /// The fixed cost of any history fetch, including one that finds nothing new. Measured: 130ms.
-        var historyRead: Duration
-        /// Charged per entry on top of `historyRead`, because history streams back frame by frame.
-        /// **Inferred**: the ~210ms difference between a no-op and a transferring fetch, divided over a
-        /// backlog of roughly twenty entries. The split between fixed and per-entry is an inference;
-        /// only the two totals were measured.
-        var historyPerEntry: Duration
+        /// ~110ms. A write that also reads back to verify costs this *plus* `read`.
+        var write: DelayRange
+        /// A characteristic read (lock state, double-tap parameters, device info). Measured: ~130ms.
+        var read: DelayRange
+        /// The fixed cost of any history fetch before records start arriving, including a fetch that
+        /// finds nothing new. Measured: ~130ms.
+        var historyRead: DelayRange
+        /// Charged **per record**, sampled separately for each one, because history streams back frame
+        /// by frame -- so a hundred-record backlog costs a hundred independent draws, not one delay
+        /// times a hundred. **Inferred**: the ~210ms gap between a no-op fetch and a transferring one,
+        /// spread over a backlog of roughly twenty records. Only the two totals were measured; the
+        /// per-record split and its spread are the least certain figures here.
+        var historyPerRecord: DelayRange
 
         /// Everything answers immediately. The default, and what every caller got before `Latency`
         /// existed.
         static let instant = Latency(
-            connect: .zero,
-            login: .zero,
-            enableNotifications: .zero,
-            initializeSession: .zero,
-            write: .zero,
-            read: .zero,
-            historyRead: .zero,
-            historyPerEntry: .zero
+            connect: .none,
+            login: .none,
+            enableNotifications: .none,
+            initializeSession: .none,
+            write: .none,
+            read: .none,
+            historyRead: .none,
+            historyPerRecord: .none
         )
 
-        /// The measured timings above, multiplied by `scale`. Use a small scale in CI (`0.1` keeps a
-        /// whole workflow well under a second) -- the operations still genuinely suspend and
+        /// The measured timings, as ranges, multiplied by `scale`. Use a small scale in CI (`0.1`
+        /// keeps a whole workflow well under a second) -- the operations still genuinely suspend and
         /// interleave, which is what catches ordering bugs; the wall-clock size is not the point.
+        ///
+        /// The spreads are **provisional**. `debug_log` only had whole seconds when these were taken,
+        /// so each centre came from how often a pair of rows straddled a second boundary -- an
+        /// aggregate, which yields no spread at all. The widths below are therefore assumed (roughly
+        /// +/-20% of centre), not observed. `debug_log` now records milliseconds, so a single ordinary
+        /// session on the device will give real per-operation distributions to replace them.
         static func realistic(scale: Double = 1.0) -> Latency {
-            func ms(_ milliseconds: Double) -> Duration {
-                .microseconds(Int(milliseconds * 1000 * scale))
+            func range(_ lower: Double, _ upper: Double) -> DelayRange {
+                DelayRange.milliseconds(lower, upper).scaled(by: scale)
             }
             return Latency(
-                connect: ms(800),
-                login: ms(260),
-                enableNotifications: ms(150),
-                initializeSession: ms(250),
-                write: ms(110),
-                read: ms(130),
-                historyRead: ms(130),
-                historyPerEntry: ms(10)
+                connect: range(600, 1000),
+                login: range(210, 310),
+                enableNotifications: range(120, 180),
+                initializeSession: range(200, 300),
+                write: range(90, 130),
+                read: range(105, 155),
+                historyRead: range(105, 155),
+                historyPerRecord: range(8, 12)
             )
         }
     }
@@ -112,6 +189,9 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         var autoPauseMinutes: UInt16
         var emitInitialStatus: Bool
         var latency: Latency
+        /// Seed for the delay sampler. Fixed by default so a run is reproducible; vary it only to
+        /// deliberately explore different draws.
+        var randomSeed: UInt64
 
         init(
             initialFaceID: UInt8 = Constants.defaultInitialFaceID,
@@ -122,7 +202,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             isInitiallyPaired: Bool = true,
             autoPauseMinutes: UInt16 = 0,
             emitInitialStatus: Bool = true,
-            latency: Latency = .instant
+            latency: Latency = .instant,
+            randomSeed: UInt64 = 0x5EED
         ) {
             self.initialFaceID = initialFaceID
             self.batteryLevel = batteryLevel
@@ -133,6 +214,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             self.autoPauseMinutes = autoPauseMinutes
             self.emitInitialStatus = emitInitialStatus
             self.latency = latency
+            self.randomSeed = randomSeed
         }
     }
 
@@ -150,6 +232,11 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     private var deviceTimeOffset: TimeInterval = 0
     private var activeSession: ActiveSession?
     private(set) var history: [TimeFlipHistoryEntry] = []
+    /// Draws every simulated delay. Seeded from `Configuration.randomSeed`.
+    private var delayGenerator: SeededGenerator
+    /// Every delay actually drawn, in order -- lets a test assert the spread and the per-record count
+    /// rather than just the elapsed total.
+    private(set) var sampledDelays: [Duration] = []
     private var brightnessPercent: UInt8 = 100
     private var blinkIntervalSeconds: UInt8 = 5
     private var doubleTapParameters: DoubleTapParameters = .default
@@ -188,6 +275,7 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     ) {
         self.configuration = configuration
         self.logger = logger
+        self.delayGenerator = SeededGenerator(seed: configuration.randomSeed)
         self.isPaired = configuration.isInitiallyPaired
         let now = Date()
         let initialFaceID = TimeFlipConstants.isValidFaceID(configuration.initialFaceID)
@@ -273,14 +361,18 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
     // MARK: - Simulated radio latency
 
-    /// Suspends for `duration`, so the mock answers on the same sort of timescale a device on a radio
-    /// link does. Zero under `.instant` (the default), where `Task.sleep` returns immediately.
+    /// Suspends for a value drawn from `range`, so the mock answers on the same sort of timescale a
+    /// device on a radio link does, and varies the way one does. No-op under `.instant` (the default).
     ///
     /// A rejected command still costs time: the real device is asked and answers no, so the caller
     /// waits either way. Latency is therefore charged *before* the guards, not after them.
-    private func waitForRadio(_ duration: Duration) async {
-        guard duration > .zero else { return }
+    @discardableResult
+    private func waitForRadio(_ range: DelayRange) async -> Duration {
+        guard range.upper > .zero else { return .zero }
+        let duration = range.sample(using: &delayGenerator)
+        sampledDelays.append(duration)
         try? await Task.sleep(for: duration)
+        return duration
     }
 
     // MARK: - Session management (parity with real device)
@@ -335,10 +427,15 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry] {
         let entries = fetchHistorySync(startingFrom: eventNumber)
-        // A fixed cost even when there's nothing new, plus streaming time per entry returned -- the
-        // measured difference between a no-op fetch and one that actually transferred.
         let latency = configuration.latency
-        await waitForRadio(latency.historyRead + latency.historyPerEntry * entries.count)
+        // The command round trip before any record arrives -- paid even when there is nothing new.
+        await waitForRadio(latency.historyRead)
+        // Then one draw *per record*, because the device streams them frame by frame. Sampling each
+        // separately is the point: a fifty-record backlog is fifty independent delays, so the total
+        // varies the way a real transfer does rather than being a clean multiple.
+        for _ in entries {
+            await waitForRadio(latency.historyPerRecord)
+        }
         return entries
     }
 
