@@ -1,7 +1,11 @@
 # CI tests for the Categories tab
 
-A list, not an implementation. CI here means the hermetic `swift test` suite (XCTest plus the
-swift-testing workflow suites), never the on-device checklists under `Tests/`.
+**All written.** `CategoryStoreTests` (1-24), `CategoryEditRulesTests` (25-43) and
+`Workflows/W09-category-lifecycle` (44-49). This file is kept as the map of what is covered and
+why, and as the record of what was deliberately left to a checklist.
+
+CI here means the hermetic `swift test` suite (XCTest plus the swift-testing workflow suites),
+never the on-device checklists under `Tests/`.
 
 The tab's behaviour splits three ways, and the split matters more than the individual tests:
 
@@ -26,7 +30,7 @@ Not to be redone. Listed so the gaps below read as gaps rather than as the whole
 
 ## Store writes and reads
 
-New `CategoryStoreTests`, against a real database via `TestDBPaths`.
+`CategoryStoreTests`, against a real seeded database in a temporary directory.
 
 **`loadCategories`**
 
@@ -35,7 +39,10 @@ New `CategoryStoreTests`, against a real database via `TestDBPaths`.
    read.
 3. Returns rows in `displayOrder`, not rowid order. Seed out of order so insertion order and sorted
    order genuinely differ.
-4. Returns `[]` on a table holding only the sentinel.
+4. On a fresh database returns exactly the seeds, `Break` and `Meeting`. Written this way rather
+   than as an empty case, which would need the seeds deleted first: the seeds are what the Faces
+   tab's default assignments point at, so pinning them catches a change that would silently alter a
+   new install.
 
 **The `category_id >= 1` guard.** Every writer carries it, and each needs its own test: a write
 aimed at the sentinel must leave it untouched.
@@ -68,13 +75,16 @@ aimed at the sentinel must leave it untouched.
     as a collision rather than silently inserting a second one.
 20. Returns `nil` for an empty name.
 21. With two rows sharing a name (legitimate, per the create flow), returns one deterministically.
-    Worth pinning: the query is `LIMIT 1` with no `ORDER BY`, so the current answer is whatever
-    SQLite picks. **If that turns out to be unstable, it is a real bug, not a bad test.**
+    The query is `LIMIT 1` with no `ORDER BY`, so the test pins what it currently answers, which is
+    the older row. Repeated lookups agreed. **A failure here is a real bug, not a bad test**: both
+    collision paths ask this question and act on the answer.
 
 **Cross-table**
 
 22. Retiring a category leaves its `time_entry` rows resolvable. This is the entire stated reason
-    for `active` existing instead of a delete, and nothing asserts it.
+    for `active` existing instead of a delete. Nothing writes `time_entry` yet, so the test lays a
+    row down with raw SQL: it pins the schema contract the feature will rest on, since the retire
+    path already ships.
 23. Renaming a category changes what historical rows report, since everything links by
     `category_id`. This is the behaviour the confirmation dialog warns about, and it should be
     proven true rather than assumed.
@@ -127,13 +137,17 @@ alert names the row that exists while the debug line records what was typed.
 40. Ticking it in the Inactive section moves it back.
 41. `patch` updates only the row it names and leaves the rest of the list identical.
 42. `patch` against an id not in the list is a no-op.
-43. `CategoryRecord.with(...)` replaces exactly the named field. Currently untested despite being
-    what every edit on the tab funnels through.
+43. `CategoryRecord.with(...)` replaces exactly the named field and never the id. Every edit on the
+    tab funnels through it, and it had no test at all.
 
 ## Workflow suite
 
-One new ordered suite, `W09-category-lifecycle`, in the style of the existing `W0*` files. The unit
-tests above each prove one write; this proves the sequence a real user drives.
+`W09-category-lifecycle`, an ordered suite in the style of the existing `W0*` files. The tests above
+each prove one write or one decision; this proves that they compose. Reinstating goes through
+`createDecision` rather than calling the store directly, because typing a colliding name is the only
+way to reach it in the app.
+
+`time_entry` survival is left to test 22 rather than repeated here, for the raw-SQL reason above.
 
 44. Create a category, confirm it lands active with no icon, no colour and no limit.
 45. Assign it to a face and confirm the face resolves to it.
