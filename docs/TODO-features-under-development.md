@@ -6,6 +6,7 @@
 - [ ] Calendar sync
 - [ ] Sync to TimeFlip cloud
 - [ ] Projects
+- [ ] Device rename
 
 ## Categories
 
@@ -107,3 +108,35 @@ association is already schema-supported; each category's own `cost` is what roll
 project. What's missing: any project create/manage UI at all (no `Project`-named view exists
 anywhere in `Sources/`), and any reporting query that groups by `project_id` -- today's reports
 (`ReportSettingsView.swift`) don't reference `project` at all.)
+
+## Device rename
+
+- The user can give the physical TimeFlip its own name.
+- The chosen name is stored in a `setting` row, and checked and restored on app startup, so the
+  cube carries the user's name rather than the vendor default.
+
+(Note: the driver can already write the name -- `TimeFlipBLEDevice.setDeviceName` sends `0x15`
+-- but **nothing in the app calls it**, and there is no `setting` row for it yet. Three things
+that shape the work, all confirmed against the vendor spec and the hardware:
+
+**The name has a real read-back, unlike LED brightness and blink interval.** The spec lists
+Device Name / `0x2A00` as a readable Generic Access characteristic. So "checked and restored" can
+genuinely compare before writing, instead of the write-blind approach `0x09`/`0x0A` are stuck
+with. But the driver has no reference to `0x2A00` anywhere, so that read is a prerequisite; until
+it exists the restore can only write unconditionally on every startup.
+
+**Do not reuse `paired_device.name`.** That row is the *advertised* name the app remembers so it
+can show something while disconnected, and it is not the same string: it currently reads
+`TimeFlip` while the cube advertises `TimeFlip v2.0`. Driving a rename from it would make the app
+quietly rename the cube to its own display label. (Caught during a live probe on 2026-07-31,
+before it ran.)
+
+**18 ASCII characters, and the two limits differ.** The spec caps the `0x15` write at 18 symbols,
+ASCII only, while `0x2A00` reads up to 20. `setDeviceName` enforces the write limit by returning
+false, so an over-long or non-ASCII stored value would fail silently on every startup with only a
+debug line to show for it. Validate where the setting is written, not just at the BLE call.
+
+One useful interaction: `0xFE` (reset task info) deliberately leaves the name untouched, so only a
+full `0xFF` factory reset clears it. A startup restore is therefore exactly what repairs the name
+after the device-test runner's end-of-run factory reset, which is why that leftover needs no
+separate handling once this exists.)
