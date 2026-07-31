@@ -34,6 +34,39 @@ Deliberately close to `Tests/CLAUDE.md`'s rules for the scripted checklists, so 
 | `W05-pairing` | scan, pick a result, connect, log in, pair; the PIN rotation that follows and Forget putting the factory default back | the app's half of the pairing flow in `Bench/02b` Setup |
 | `W06-factory-reset` | 0xFF acknowledges nothing; the reboot window where the cube still answers to its **old** PIN and not yet the default; then wipe, counter restart, never-paired | the app's half of `Bench/02b` |
 
+## Coverage map: what CI took over, and what each checklist still uniquely proves
+
+Checked file by file on 2026-07-31, when the question "can the covered checklists be deleted now?"
+came up. **The answer was no, for every one of them** -- but the overlap is real and worth recording,
+so the question doesn't have to be re-derived from scratch next time.
+
+| Checklist | CI now covers | What only the checklist proves |
+| --- | --- | --- |
+| `01b` A, skip path | `W04` steps 2-3 | that a *real* open segment genuinely grows, and the real periodic timer fires |
+| `01b` B, relaunch resume | `W04` steps 4-6 | a real process restart, not just a fresh `HistoryIngestor`; a real reconnect |
+| `02b`, factory reset | `W06` + `W05` | the Reset Device button and its dialog, the never-paired UI state, the real ~13.5s reboot |
+| `03b` A, persistence | `SettingsPersistenceTests` | that the checkbox *reflects* the stored value after a restart |
+| `03b` B, debounce | `W07` | real keystroke input, and a real 0x17 read-back from firmware |
+| `04b`, lock and pause | `W03` (lock blocks flips) | the `pause_on_lock` coupling, quit behaviour, status-item gestures |
+| `05b`, stepper | `AutoPauseStepperTests` (logic) | the AppKit press-and-hold gesture itself |
+| `06b`, LED settings | `SettingsPersistenceTests` + `W07` | real field input -- and LED has *no* read-back, so only hardware shows the effect landed |
+| `07b`, low battery | `LowBatteryMockSequenceTests`, `MenuBarStatusStyleTests` | real battery readings, and the menu bar actually flashing |
+
+The pattern is the same every time: **CI covers the app's logic, the checklist covers the app's
+edges** -- the real window on one side, the real firmware on the other. A workflow that passes
+against `MockTimeFlipDevice` proves the app responds correctly *to the mock*. If the mock's model of
+the device is wrong, the workflow and the mock are wrong together and agree with each other. That is
+exactly the failure a device checklist exists to catch, so deleting one because a mock test covers
+"the same" behaviour trades real evidence for a self-consistent loop.
+
+Two things would genuinely unlock deletions rather than just overlap:
+
+- **Extracting `DeviceEventProcessor` from `ApplicationDelegate`.** Still the single highest-value
+  change here (see below). It would let a workflow drive the *live* event path, which is most of
+  what `01b` and `04b` are really exercising.
+- **A device-backed CI runner.** Not plausible: GitHub's macOS runners are VMs with no Bluetooth and
+  no cube.
+
 ## What cannot move to CI, and why
 
 Worth being explicit, because "convert the tests to CI" has a hard ceiling here and the remaining
