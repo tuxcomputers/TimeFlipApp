@@ -103,9 +103,10 @@ history-fetch completion, factory reset), and the `since_id`/per-file pitfalls -
 ## After everything runs
 
 Once every requested checklist has finished (pass or fail), the supervisor factory-resets
-the device and asks you to re-pair it (one click, can't be scripted) -- this wipes the
-whole session's test activity from the device's own onboard counter, so none of it gets
-mistaken for real history. It then asks (`y/n`) whether to switch the app back to the
+the device and re-pairs it -- this wipes the whole session's test activity from the
+device's own onboard counter, so none of it gets mistaken for real history. The re-pair
+clicks the discovered row itself (`cgevent_click_element`, the same click `Bench/02b`
+Step 7 uses) and only falls back to asking you if that click doesn't land. It then asks (`y/n`) whether to switch the app back to the
 production database now -- say `n` if you're about to run more tests, since switching to
 production and back to test every run is wasted effort (`use-test-database.sh` rebuilds
 `test.sqlite` from scratch each time). `y` repoints `appdata.sqlite` back at
