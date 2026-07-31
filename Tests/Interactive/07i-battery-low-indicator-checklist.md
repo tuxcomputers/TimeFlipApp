@@ -35,14 +35,12 @@ query below; if it shows a non-default threshold or `isLowBattery=true` left ove
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
 - [x] **(Claude)** Step 1: Query the current threshold and the live `battery` `level`
-, and note both.  Take the **higher of the two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device read low. Both go in the logs/00-remembered.json file.
+, and note both.  Take the **higher of the two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device read low. Both are captured, so they can be restored at the end.
 ```toml step
 [[actions]]
 use = "method-24.a"
 setting = "low_battery_level"
 capture = "threshold_original"
-remember = "changed"
-restores = "low_battery_level"
 
 [[actions]]
 use = "method-24.j"

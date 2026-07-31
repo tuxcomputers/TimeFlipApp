@@ -40,13 +40,11 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 ## Setup
 
 - [x] Step 1: Query the current `pause_on_lock` value
- and note it in the logs/00-remembered.json file.
+ and capture it, so a later step (or a resume) can put it back.
  ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='pause_on_lock';"
 capture = "pause_on_lock_original"
-remember = "changed"
-restores = "pause_on_lock"
 ```
 - [x] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
       If the device is currently paused or locked, resolve that first (click Resume / Unlock via

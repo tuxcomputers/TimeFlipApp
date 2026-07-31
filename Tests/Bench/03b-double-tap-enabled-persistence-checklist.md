@@ -202,7 +202,7 @@ timeout_seconds = 30
 Covers `ApplicationDelegate`'s `onDoubleTapParametersChange` (prints + immediate DB write on every
 change, device write debounced through `DeviceWriteDebouncer`) and
 `TimeFlipBLEDevice.setDoubleTapParameters`'s existing read-back verification (`0x17`). Step 1
-records the current Threshold/Limit/Latency/Window values to `logs/00-remembered.json` first (so
+captures the current Threshold/Limit/Latency/Window values first (so
 the original params are recoverable), and Step 6 restores Threshold from that record. [Method: Number 22](../Methods.md#method-22), since this changes a real
 physical accelerometer register, not just app state.
 
@@ -212,7 +212,7 @@ previous scenario leaves behind (check `double_tap_settings.enabled` directly if
 scenario standalone).
 
 - [x] Step 1: Record the current double-tap params
-(`clickThreshold`/`limit`/`latency`/`window`) from `double_tap_settings` -- captured, so they land in `logs/00-remembered.json` under this scenario and Step 6 (and a later resume) can read the originals back -- then show them to the dev to confirm they match the app's **Double tap** section before the scenario changes them.
+(`clickThreshold`/`limit`/`latency`/`window`) from `double_tap_settings` -- captured under this scenario, so Step 6 (and a later resume) can read the originals back -- then show them to the dev to confirm they match the app's **Double tap** section before the scenario changes them.
 ```toml step
 [[actions]]
 use = "method-24.f"
@@ -240,7 +240,7 @@ capture = "dt_window_original"
 
 [[actions]]
 action = "ask_user"
-prompt = '''Current Double-tap params, now recorded to logs/00-remembered.json -- these should match the app's Double tap section, top to bottom:
+prompt = '''Current Double-tap params, now captured -- these should match the app's Double tap section, top to bottom:
 Threshold: $dt_threshold_original
 Limit:     $dt_limit_original
 Latency:   $dt_latency_original

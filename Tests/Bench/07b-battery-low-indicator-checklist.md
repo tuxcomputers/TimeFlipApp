@@ -85,13 +85,11 @@ capture = "before_quit_id"
 use = "method-3"
 ```
 - [x] Step 3: Query the current threshold
-and note it in the logs/00-remembered.json file.
+and capture it, so Scenario C can restore it.
 ```toml step
 use = "method-24.a"
 setting = "low_battery_level"
 capture = "threshold_original"
-remember = "changed"
-restores = "low_battery_level"
 ```
 - [x] Step 4: Update the threshold to at/above the level noted above
 , so the fresh connection registers as low immediately.
@@ -196,14 +194,12 @@ setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
 - [x] Step 2: Query the current threshold and the live battery level
-and note them in the logs/00-remembered.json file. The level is the **higher of the two most-frequent** readings (flap-robust; this scenario sets `threshold = level` to make the device read low, so it must be at/above the top of the flap).
+and capture them, so they can be restored at the end. The level is the **higher of the two most-frequent** readings (flap-robust; this scenario sets `threshold = level` to make the device read low, so it must be at/above the top of the flap).
 ```toml step
 [[actions]]
 use = "method-24.a"
 setting = "low_battery_level"
 capture = "threshold_original"
-remember = "changed"
-restores = "low_battery_level"
 
 [[actions]]
 use = "method-24.j"
