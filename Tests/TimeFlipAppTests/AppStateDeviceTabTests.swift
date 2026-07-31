@@ -33,22 +33,24 @@ final class AppStateDeviceTabTests: XCTestCase {
         XCTAssertFalse(appState.isDoubleTapExpanded)
     }
 
-    func testCollapseDeviceTabDisclosuresCancelsAnInFlightAutoPauseHold() {
-        // Bench checklist 05 Scenario C: closing the Preferences window mid-hold (which calls
-        // collapseDeviceTabDisclosures from windowWillClose) must cancel the repeating hold loop so
-        // its device/DB writes stop, and clear the direction so a stale hold can't resume.
+    func testCancelSteppedFieldHoldCancelsAnInFlightHold() {
+        // Bench checklist 05b Scenario E: closing the Preferences window mid-hold must cancel the
+        // repeating hold loop so its device/DB writes stop, and clear the key so a stale hold can't
+        // resume. windowWillClose calls this for every stepper in the window, auto-pause included --
+        // it used to have its own hold state, and asserting on that one now proves nothing about
+        // what actually runs.
         let appState = makeAppState()
         let heldTask = Task<Void, Never> {
             try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
         }
-        appState.autoPauseHoldTask = heldTask
-        appState.autoPauseHoldDirection = 1
+        appState.steppedFieldHoldTask = heldTask
+        appState.steppedFieldHoldKey = "autoPause:1"
 
-        appState.collapseDeviceTabDisclosures()
+        appState.cancelSteppedFieldHold()
 
         XCTAssertTrue(heldTask.isCancelled)
-        XCTAssertNil(appState.autoPauseHoldTask)
-        XCTAssertNil(appState.autoPauseHoldDirection)
+        XCTAssertNil(appState.steppedFieldHoldTask)
+        XCTAssertNil(appState.steppedFieldHoldKey)
     }
 
     func testSetLowBatteryBlinkStateMirrorsBothValues() {

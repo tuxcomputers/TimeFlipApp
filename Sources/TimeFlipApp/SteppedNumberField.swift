@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A number you can type into or hold an arrow to run through, shared by the App tab's settings rows
-/// and the Device tab's LED brightness and blink interval.
+/// A number you can type into or hold an arrow to run through. Every typeable value in the Settings
+/// window is one of these: the App tab's settings rows, and the Device tab's auto-pause, LED
+/// brightness and blink interval, and four double-tap params.
 ///
 /// The arrows repeat while held, and accelerate exactly as the auto-pause field does: ticks of 1
 /// until the value passes the second multiple of 5 beyond where the hold began, then ticks of 5 at

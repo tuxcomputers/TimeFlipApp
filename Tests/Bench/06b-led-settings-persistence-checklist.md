@@ -71,7 +71,7 @@ disclosure expanded -- established in Setup immediately above, which this scenar
 on from.
 
 - [ ] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
-      Each value needs a `tab` after it to commit -- a `SteppedNumberField` writes nothing until Return or focus loss, so typing alone leaves the DB untouched. [Method: Number 12](../Methods.md#method-12).
+      Each value needs a Return after it to commit -- a `SteppedNumberField` writes nothing until Return or focus loss, so typing alone leaves the DB untouched. [Method: Number 12](../Methods.md#method-12).
 ```toml step
 action = "applescript"
 script = '''
@@ -84,14 +84,14 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "77"
-        keystroke tab
+        keystroke return
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             set e2 to text field "Blink Interval"
             set focused of e2 to true
         end tell
         keystroke "a" using command down
         keystroke "42"
-        keystroke tab
+        keystroke return
     end tell
 end tell'''
 ```
@@ -270,14 +270,14 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "77"
-        keystroke tab
+        keystroke return
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             set e2 to text field "Blink Interval"
             set focused of e2 to true
         end tell
         keystroke "a" using command down
         keystroke "42"
-        keystroke tab
+        keystroke return
     end tell
 end tell'''
 

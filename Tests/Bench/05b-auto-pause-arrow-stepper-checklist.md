@@ -76,6 +76,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "4"
+        keystroke return
     end tell
 end tell'''
 
@@ -99,6 +100,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "26"
+        keystroke return
     end tell
 end tell'''
 
@@ -122,6 +124,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "0"
+        keystroke return
     end tell
 end tell'''
 
@@ -144,7 +147,7 @@ auto-pause field focusable -- left in place by the previous scenario, which also
 `auto_pause_minutes` at `0`, though this scenario overwrites that value immediately anyway.
 
 - [ ] Step 1: Type three distinct values into the field in quick succession
-without tabbing away between them (`tab` shifts focus off the field, breaking the sequence -- select-all + type commits live on every keystroke already, no `tab` needed): `7`, then immediately `70`, then immediately `150`.
+committing each with Return and staying on the field: `7`, then immediately `70`, then immediately `150`. (Note: Return is what commits, and it keeps focus; `tab` would commit too but move focus on, so the next value would land somewhere else. [Method: Number 12](../Methods.md#method-12).)
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -160,10 +163,13 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "7"
+        keystroke return
         keystroke "a" using command down
         keystroke "70"
+        keystroke return
         keystroke "a" using command down
         keystroke "150"
+        keystroke return
     end tell
 end tell'''
 ```
@@ -205,6 +211,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "0"
+        keystroke return
     end tell
 end tell'''
 
@@ -237,6 +244,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "1"
+        keystroke return
     end tell
 end tell'''
 
@@ -296,6 +304,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "26"
+        keystroke return
     end tell
 end tell'''
 
@@ -350,6 +359,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "50"
+        keystroke return
     end tell
 end tell'''
 

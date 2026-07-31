@@ -529,8 +529,9 @@ final class AppState: ObservableObject {
         autoPauseHoldDirection = nil
     }
 
-    /// Stops a held App-tab stepper arrow. Called when the settings window closes, so a hold that
-    /// never received its release can't keep ticking database writes in the background.
+    /// Stops a held stepper arrow, on either tab -- every stepper in the window shares this one
+    /// hold. Called when the settings window closes, so a hold that never received its release
+    /// can't keep ticking database writes in the background.
     func cancelSteppedFieldHold() {
         steppedFieldHoldTask?.cancel()
         steppedFieldHoldTask = nil
