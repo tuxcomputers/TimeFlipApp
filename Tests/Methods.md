@@ -182,10 +182,16 @@ required physical simultaneity, just event ordering.
 
 Get target coordinates from the element's `position`/`size` via accessibility (Read a label or value
 via accessibility, below) -- already in points, no pixel conversion needed. Caveat for a stacked
-arrow pair (the auto-pause stepper): both its `image` elements report the **same** rect, that of the
-upper chevron (a SwiftUI AX quirk collapsing the pair's custom-drawn glyphs onto one frame), so
-`image 2` is no use -- read `image 1` and derive the lower arrow as `image 1`'s center plus the
-stack's pitch (`arrowHeight` + `arrowSpacing` in `SettingsLayoutConstants.Stepper`, 11pt).
+arrow pair (every `SteppedNumberField` has one): both its `image` elements report the **same** rect,
+that of the upper chevron (a SwiftUI AX quirk collapsing the pair's custom-drawn glyphs onto one
+frame), so `image 2` is no use -- read `image 1` and derive the lower arrow as `image 1`'s center
+plus the stack's pitch (`arrowHeight` + `arrowSpacing` in `SettingsLayoutConstants.Stepper`, 11pt).
+
+The pairs are indistinguishable from each other, so **the only thing identifying a row's arrows is
+the index**, counted in layout order down the group. `image 1` of the Device tab's Settings group is
+auto-pause's up chevron because auto-pause is the first row there. Assert that ordering before
+relying on it (`Bench/05b` Setup Step 2 does), or a row inserted above sends the clicks to a
+different control with no error to show for it.
 
 Anchor on the target element itself, never on a hand-measured offset from a neighbour. These arrows
 were once located by offsetting left from the adjacent text field; when the row was restyled to put
