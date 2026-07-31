@@ -18,7 +18,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** device connected, unpaired state not applicable here; check the menu bar (lock
 badge) before continuing.
 
-- [ ] **(Claude)** Step 1: Click the "Lock" menu item
+- [x] **(Claude)** Step 1: Click the "Lock" menu item
 if the device isn't already locked. Confirm `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`.
 ```toml step
 [[actions]]
@@ -32,7 +32,7 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 30
 ```
-- [ ] **(You)** Step 2: Flip to whichever of **Break**/**Meeting** it is *not* on.
+- [x] **(You)** Step 2: Flip to whichever of **Break**/**Meeting** it is *not* on.
 The step reads the current face and names the target below, so it's a real attempted transition. confirm nothing happens (the device itself refuses the flip while locked).
 ```toml step
 [[actions]]
@@ -48,14 +48,14 @@ capture = "flip_target_name"
 action = "ask_user"
 prompt = "Flip the cube to the $flip_target_name face while it's locked. Did the device refuse the flip -- i.e. nothing happened? (y/n)"
 ```
-- [ ] **(Claude)** Step 3: Confirm no new `device_event` row appeared
+- [x] **(Claude)** Step 3: Confirm no new `device_event` row appeared
 for the attempted flip (query `device_event_id DESC`, latest row unchanged before/after).
 ```toml step
 use = "method-24.c"
 column = "device_event_id"
 expect = "$event_id_before_locked_flip"
 ```
-- [ ] **(Claude)** Step 4: Click "Unlock" from the menu, returning to a clean unlocked state.
+- [x] **(Claude)** Step 4: Click "Unlock" from the menu, returning to a clean unlocked state.
       Confirm `debug_log` shows `"Lock OFF triggered"` / `"...confirmed: requested=OFF
       actual=OFF"`.
 ```toml step

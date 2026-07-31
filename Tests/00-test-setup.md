@@ -27,7 +27,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Check which database is active and decide whether to record production history.
+- [x] Step 1: Check which database is active and decide whether to record production history.
 On production, record it. Otherwise ask whether to switch to production and record first, or skip straight to the test DB. On a resume (`resume = y`) skip this decision entirely -- we're continuing on the existing test DB and must not round-trip to production. Sets `record_history` (`y`/`n`) that steps 2--7 read, and `want_switch` (`y` only in the not-on-production + chose-to-switch case).
 ```toml step
 [[actions]]
@@ -69,21 +69,21 @@ when = '$want_prompt == y'
 query = "SELECT '$want_switch';"
 capture = "record_history"
 ```
-- [ ] Step 2: Switch to the production database so the history fetch below runs against it.
+- [x] Step 2: Switch to the production database so the history fetch below runs against it.
 Only when Step 1 chose to switch (`want_switch = y`); relinks the `appdata.sqlite` symlink at `production.sqlite` (the running app keeps the old file open until the restart in Step 4 picks this up).
 ```toml step
 when = '$want_switch == y'
 action = "shell"
 command = "scripts/use-production-database.sh"
 ```
-- [ ] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below.
+- [x] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below.
 Skipped (and ticked) when Step 1 chose not to record history.
 ```toml step
 use = "method-24.b"
 when = '$record_history == y'
 capture = "prod_before_id"
 ```
-- [ ] Step 4: Restart the app so it does a fresh history fetch against production
+- [x] Step 4: Restart the app so it does a fresh history fetch against production
 -- this makes sure all real device history is recorded to production.sqlite before we switch away from it (the end-of-run factory reset later wipes the device's own counter). The quit only fires if the app is actually running, so this also just *starts* it when it was shut down. Skipped when not recording history. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
 ```toml step
 when = '$record_history == y'
@@ -94,7 +94,7 @@ use = "method-3"
 [[actions]]
 use = "method-2"
 ```
-- [ ] Step 5: Confirm the app reconnected to the device against production
+- [x] Step 5: Confirm the app reconnected to the device against production
 (a fresh `Login accepted` after the restart above). If it doesn't reconnect, the device is likely not paired / off / out of range -- the prompt says how to fix it, then this keeps waiting. Skipped when not recording history.
 ```toml step
 use = "method-4"
@@ -104,7 +104,7 @@ expect_contains = "Login accepted"
 prompt = "The device hasn't reconnected. Pair it (Device tab -> Scan for Devices -> click the device), or power it on / bring it in range."
 timeout_seconds = 120
 ```
-- [ ] Step 6: Confirm that forced production history fetch actually completed
+- [x] Step 6: Confirm that forced production history fetch actually completed
 (`history fetch complete: trigger=startup`), so real history is fully synced before the switch. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
@@ -113,7 +113,7 @@ query = "SELECT message FROM debug_log WHERE tag='hist-done' AND message = 'hist
 expect_contains = "history fetch complete: trigger=startup"
 timeout_seconds = 60
 ```
-- [ ] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity**
+- [x] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity**
 before the destructive switch/reset -- the latest event must be a pause (or there are no events yet), never an open timing segment. This gate runs whenever we're recording production history, so it also catches the case where Step 2 just switched onto production. Fails (aborting the run) if the device is timing -- pause it and re-run. Skipped when not recording history.
 ```toml step
 when = '$record_history == y'
@@ -121,7 +121,7 @@ action = "sql_query"
 query = "SELECT COALESCE((SELECT CASE WHEN paused = 0 THEN 'TIMING' ELSE 'ok' END FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), 'ok');"
 expect = "ok"
 ```
-- [ ] Step 8: Switch to the test database
+- [x] Step 8: Switch to the test database
 -- quit the app (if running), run `scripts/use-test-database.sh $db_mode`, relaunch. On a fresh run (`db_mode = fresh`) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). A fresh `test.sqlite` also gets production's `paired`/`paired_device` rows copied into it, before the relaunch, so the app connects to the device it is already paired to rather than pairing again from scratch: those rows are per-database, and the device's PIN is no longer the factory default once a pairing has rotated it. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
 ```toml step
 [[actions]]
@@ -134,7 +134,7 @@ command = "scripts/use-test-database.sh $db_mode"
 [[actions]]
 use = "method-2"
 ```
-- [ ] Step 9: Read whether the app is paired to a device
+- [x] Step 9: Read whether the app is paired to a device
  -- the `paired` setting, written only when a pairing succeeds or the user forgets the device, so it survives the relaunch above and says nothing about whether the device is currently reachable (that's `connection.connected`). Capture `paired_state` (`1` = paired, `0` = not). Normally `1`, since Step 8 copied production's pairing across. It is `0` only when production was not paired either, or after a cleanup reset left the device never-paired -- then Step 10 pairs the device; the connectivity confirm (Step 11) only matters once paired. The short wait just lets the relaunched app settle before the read.
 ```toml step
 [[actions]]
@@ -146,7 +146,7 @@ action = "sql_query"
 query = "SELECT COALESCE((SELECT json_extract(setting_value, '$.paired') FROM setting WHERE setting_name='paired'), 0);"
 capture = "paired_state"
 ```
-- [ ] Step 10: Pair the device by script
+- [x] Step 10: Pair the device by script
  -- only when it isn't paired (`paired_state != 1`; e.g. a prior run's cleanup reset left it never-paired). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](Methods.md#method-9) / `cgevent_click_element`), and wait for the pairing-complete marker (`"Device password confirmed set to:"`, `> current_log_id`). Skipped (and ticked) when already paired. If the automated click doesn't land, the prompt asks you to click the row yourself. Closes the Settings window afterwards ([Method: Number 23](Methods.md#method-23)) so setup leaves no stray window open.
 ```toml step
 when = '$paired_state != 1'
@@ -182,7 +182,7 @@ timeout_seconds = 60
 [[actions]]
 use = "method-23"
 ```
-- [ ] Step 11: Confirm the device is connected against the fresh test database
+- [x] Step 11: Confirm the device is connected against the fresh test database
  -- a `Login accepted` (an auto-reconnect if it was already paired, or the pairing login from Step 10). `test.sqlite` starts its own `debug_log_id` sequence, so any login here is post-switch. If it never connects -- paired but off / out of range -- the prompt says how to fix it.
 ```toml step
 action = "wait_for_sql"
@@ -191,18 +191,18 @@ expect_contains = "Login accepted"
 prompt = "The device isn't connecting on the test database. It's already paired -- power it on / bring it in range and it will reconnect."
 timeout_seconds = 120
 ```
-- [ ] Step 12: Leave the device unlocked and unpaused
+- [x] Step 12: Leave the device unlocked and unpaused
  so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave Step 14's flips dead (a lock freezes face switching).
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [ ] Step 13: Confirm `db_type` now reads **test** before any feature checklist runs.
+- [x] Step 13: Confirm `db_type` now reads **test** before any feature checklist runs.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 14: Build up device history to **≥ 10 events**
+- [x] Step 14: Build up device history to **≥ 10 events**
 -- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it prompts you to flip and polls with **no timeout** -- take as long as you need, it won't fail the run. Confirmed on the test DB (Step 13 above) so real flips record to `test.sqlite`.
 ```toml step
 when = '$needs_history == y'
@@ -213,7 +213,7 @@ prompt = "The history-refresh checklist needs at least 10 device events. Flip th
 timeout_seconds = 0
 poll_interval = 3
 ```
-- [ ] Step 15: Confirm you've **stopped flipping**
+- [x] Step 15: Confirm you've **stopped flipping**
  and the device is resting on one face before any checklist runs -- the ≥10 monitor above returns the instant the count hits 10, which can be mid-flip, so `01b`'s "event count unchanged" scenario would otherwise race a still-climbing counter. Only when history was being built (`needs_history = y`).
 ```toml step
 when = '$needs_history == y'
