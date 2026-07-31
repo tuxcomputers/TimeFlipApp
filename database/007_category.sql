@@ -12,8 +12,16 @@ CREATE TABLE IF NOT EXISTS category (
   , active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_category ON category(category_name COLLATE NOCASE) WHERE active = 1;
+
 -- Migration (run by hand against a database that predates this column, see CLAUDE.md):
 -- ALTER TABLE category ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1));
+
+-- Migration (run by hand against a database that predates this index, see CLAUDE.md).
+-- Creating it fails if two active rows already share a name, so check first and retire one:
+--   SELECT category_name, COUNT(*) FROM category WHERE active = 1
+--    GROUP BY category_name COLLATE NOCASE HAVING COUNT(*) > 1;
+-- CREATE UNIQUE INDEX IF NOT EXISTS UN1_category ON category(category_name COLLATE NOCASE) WHERE active = 1;
 
 INSERT INTO category (category_id, category_name, icon_id, colour_id)
 SELECT 0, 'Unassigned', 0, 0

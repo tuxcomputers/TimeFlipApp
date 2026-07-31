@@ -75,10 +75,23 @@ aimed at the sentinel must leave it untouched.
 19. Finds the `Unassigned` sentinel, unlike `loadCategories`. Typing that name has to be reported
     as a collision rather than silently inserting a second one.
 20. Returns `nil` for an empty name.
-21. With two rows sharing a name (legitimate, per the create flow), returns one deterministically.
-    The query is `LIMIT 1` with no `ORDER BY`, so the test pins what it currently answers, which is
-    the older row. Repeated lookups agreed. **A failure here is a real bug, not a bad test**: both
-    collision paths ask this question and act on the answer.
+21. With two rows sharing a name (legitimate, per the create flow), prefers the **active** one,
+    and falls back to the oldest when every match is retired. **A failure here is a real bug, not a
+    bad test**: both collision paths ask this question and act on the answer.
+
+**One active category per name (`UN1_category`).** Added after the tests above, when the partial
+unique index went in. See `docs/database-design.md` for why the index is partial.
+
+21a. A second *active* category cannot take an active name.
+21b. The name is taken case-insensitively, matching `findCategory`.
+21c. Any number of *inactive* categories may share a name.
+21d. One active may sit alongside its retired namesakes.
+21e. Reinstating succeeds when no active category holds the name.
+21f. Reinstating is refused, and reports it, when one does. The case that makes
+     `updateCategoryActive`'s return value necessary: the tab patches rather than re-reads, so a
+     refusal reported as success would tick the box over a row that is still retired.
+21g. Retiring is never refused. The index only constrains active rows, so leaving is always
+     possible even when coming back would not be.
 
 **Cross-table**
 

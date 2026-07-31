@@ -261,6 +261,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
 | `daily_limit`| INTEGER | Whole minutes of tracked time allowed against this category per day (`0` = no limit). Minutes rather than the seconds convention used by `duration_seconds` elsewhere (e.g. `time_entry`): a limit is a coarse user-set budget, and nobody sets one to the nearest 30 seconds. The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
 | `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
+| `active`     | INTEGER | `1` while the category is in use, `0` once it has been retired. Retiring is an `UPDATE`, never a `DELETE`, so historical `time_entry` rows and any face still holding the category keep resolving; a retired category simply stops being offered for new assignments. `NOT NULL`, defaults to `1`, constrained to `0`/`1`. |
 
 Foreign keys — all three parents are seeded with an id-`0` sentinel row, which is what lets these
 columns be `NOT NULL` and still allow "nothing assigned":
@@ -275,6 +276,22 @@ Constraints:
 - Seeded with an `Unassigned` row (linked to the `None` icon and the `None` colour), a `Break`
   row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) --
   both seeded with the `None` colour, since none was specified.
+- `UN1_category` is a **partial** unique index: `category_name COLLATE NOCASE` where `active = 1`.
+  Only one *active* category may hold a name, while any number of retired ones may share it. That
+  is what makes "create a new category with the same name" a real choice rather than a way to end
+  up with two live categories nobody can tell apart, and it is why the index cannot simply be
+  `UNIQUE (category_name)` the way `colour_name` and `icon_name` are.
+- `COLLATE NOCASE` deliberately matches `AppDataStore.findCategory(named:)`, which is also
+  case-insensitive. An index without it would let `email` and `Email` both be active while the
+  app's own collision check considered them the same name, so the two would disagree about what a
+  duplicate is.
+- Because a retired category's name can be taken by an active one while it is away, **reinstating
+  can fail**. `AppDataStore.updateCategoryActive` returns whether the write took, since the
+  Categories tab patches its loaded list rather than re-reading and would otherwise show the
+  checkbox ticked over a row that is still retired.
+- `AppDataStore.findCategory(named:)` orders `active DESC, category_id ASC` for the same reason:
+  answering with a retired namesake would have the tab offer to reinstate a category whose name is
+  already taken, which this index then refuses.
 
 ### `face` (`database/008_face.sql`)
 

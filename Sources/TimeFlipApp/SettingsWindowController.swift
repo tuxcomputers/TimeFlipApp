@@ -17,7 +17,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         findCategory: @escaping (String) -> CategoryRecord?,
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
-        updateCategoryActive: @escaping (Int, Bool) -> Void,
+        updateCategoryActive: @escaping (Int, Bool) -> Bool,
         updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
         assignCategoryToFace: @escaping (UInt8, Int) -> Void,

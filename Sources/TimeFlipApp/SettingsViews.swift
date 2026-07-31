@@ -11,7 +11,7 @@ struct SettingsRootView: View {
     let findCategory: (String) -> CategoryRecord?
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
-    let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryActive: (Int, Bool) -> Bool
     let updateCategoryName: (Int, String) -> Void
     let updateCategoryIcon: (Int, Int) -> Void
     /// Assigns a category to a physical face: `(face_id, category_id)`.
@@ -31,7 +31,7 @@ struct SettingsRootView: View {
         findCategory: @escaping (String) -> CategoryRecord?,
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
-        updateCategoryActive: @escaping (Int, Bool) -> Void,
+        updateCategoryActive: @escaping (Int, Bool) -> Bool,
         updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
         assignCategoryToFace: @escaping (UInt8, Int) -> Void,
@@ -154,7 +154,7 @@ private struct PaneSetupView: View {
     let loadCategories: () -> [CategoryRecord]
     let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
-    let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryActive: (Int, Bool) -> Bool
     let assignCategoryToFace: (UInt8, Int) -> Void
     let setFaceLocked: (UInt8, Bool) -> Void
     /// Loaded once when the tab appears, the same way the Categories tab reads its own list.
@@ -225,9 +225,13 @@ private struct PaneSetupView: View {
                         // Re-read rather than patched: this list only shows active categories, so a
                         // reinstated one has to appear in it.
                         reactivate: { category in
-                            updateCategoryActive(category.id, true)
+                            // Nothing to re-read or assign if the reinstate was refused: the
+                            // category is still retired, so it would not appear in this list and
+                            // must not land on the face either.
+                            guard updateCategoryActive(category.id, true) else { return false }
                             categories = loadCategories()
                             assignToFaceOnShow(category.id)
+                            return true
                         },
                         onCreated: { newCategoryID in
                             categories = loadCategories()

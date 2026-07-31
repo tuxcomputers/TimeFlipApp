@@ -13,7 +13,7 @@ struct CategoriesSettingsView: View {
     let findCategory: (String) -> CategoryRecord?
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
-    let updateCategoryActive: (Int, Bool) -> Void
+    let updateCategoryActive: (Int, Bool) -> Bool
     let updateCategoryName: (Int, String) -> Void
     let updateCategoryIcon: (Int, Int) -> Void
     @State private var categories: [CategoryRecord] = []
@@ -82,8 +82,12 @@ struct CategoriesSettingsView: View {
                 patch(categoryID) { $0.with(dailyLimitMinutes: minutes) }
             },
             setActive: { categoryID, isActive in
-                updateCategoryActive(categoryID, isActive)
+                // Patched only if the write took. Reinstating can be refused when an active
+                // category has taken the name since, and patching regardless would tick the box
+                // over a row that is still retired.
+                guard updateCategoryActive(categoryID, isActive) else { return false }
                 patch(categoryID) { $0.with(isActive: isActive) }
+                return true
             },
             setIcon: { categoryID, iconID in
                 updateCategoryIcon(categoryID, iconID)
@@ -106,7 +110,9 @@ struct CategoriesSettingsView: View {
 struct CategoryRowActions {
     let setColour: (Int, Int) -> Void
     let setDailyLimit: (Int, Int) -> Void
-    let setActive: (Int, Bool) -> Void
+    /// Returns whether the change was stored. `false` means the database refused it, which
+    /// currently only happens when reinstating a category whose name an active one now holds.
+    let setActive: (Int, Bool) -> Bool
     let setIcon: (Int, Int) -> Void
     let setName: (Int, String) -> Void
     /// Used by the rename flow to spot a name that is already taken, the same check Save runs.
@@ -188,6 +194,8 @@ private struct CategoryRow: View {
     @State private var draftName = ""
     /// Which confirmation a Save raised, if any. Non-nil is what puts it on screen.
     @State private var renameConfirmation: CategoryRenameConfirmation?
+    /// Set when the database refused to reinstate this row, which puts the explanation on screen.
+    @State private var reinstateRefused = false
     @FocusState private var isNameFieldFocused: Bool
 
     /// `nil` for the None icon (icon_id 0), which is a sentinel rather than a bundled asset and so
@@ -417,16 +425,34 @@ private struct CategoryRow: View {
     /// Unticking moves the row straight to the Inactive group, and ticking it there moves it back
     /// -- the list this row was built from is re-partitioned by the same edit that writes the
     /// change, so the row lands in the matching group on the next render.
+    ///
+    /// Ticking can be refused: only one *active* category may hold a name, so a retired row whose
+    /// name an active one has taken since cannot come back under it. Nothing moves in that case and
+    /// the alert says why, rather than the box appearing to tick and silently springing back.
     private var activeCheckbox: some View {
         Toggle("", isOn: Binding(
             get: { category.isActive },
             set: { newValue in
                 DeveloperMode.debugPrint(.click, "Button clicked: Category \"\(category.name)\" active -> \(newValue)")
-                actions.setActive(category.id, newValue)
+                guard actions.setActive(category.id, newValue) else {
+                    DeveloperMode.debugPrint(.field, "Category \"\(category.name)\" could not be reinstated: the name is taken by an active category")
+                    reinstateRefused = true
+                    return
+                }
             }
         ))
         .toggleStyle(.checkbox)
         .labelsHidden()
+        .alert("That name is already in use", isPresented: $reinstateRefused) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("""
+            An active category is already called "\(category.name)", so this one cannot be \
+            reinstated under that name.
+
+            Rename one of them first, then try again.
+            """)
+        }
     }
 
     private func applyDailyLimit(newValue: Int) {

@@ -252,20 +252,109 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertNil(makeStore().findCategory(named: ""))
     }
 
-    /// Two categories may legitimately share a name: creating one over an inactive namesake is a
-    /// supported choice. The query is `LIMIT 1` with no `ORDER BY`, so this pins what it currently
-    /// answers. **A failure here is a real bug** -- the create and rename collision paths both ask
-    /// this question and act on the answer, so it cannot be allowed to vary between calls.
-    func testFindCategoryAnswersDeterministicallyWhenTwoRowsShareAName() throws {
+    /// Categories may legitimately share a name as long as only one of them is active. The answer
+    /// has to be that active row: reporting an inactive namesake instead would have the tab offer
+    /// to reinstate a category whose name is already taken, which `UN1_category` then refuses.
+    ///
+    /// **A failure here is a real bug** -- the create and rename collision paths both ask this
+    /// question and act on the answer.
+    func testFindCategoryPrefersTheActiveRowWhenTwoShareAName() throws {
         let store = makeStore()
-        let firstID = try XCTUnwrap(store.createCategory(name: "Standup"))
-        store.updateCategoryActive(categoryID: firstID, isActive: false)
-        _ = try XCTUnwrap(store.createCategory(name: "Standup"))
+        let retiredID = try XCTUnwrap(store.createCategory(name: "Standup"))
+        store.updateCategoryActive(categoryID: retiredID, isActive: false)
+        let activeID = try XCTUnwrap(store.createCategory(name: "Standup"))
 
         let answers = (0..<5).map { _ in store.findCategory(named: "Standup")?.id }
 
         XCTAssertEqual(Set(answers.compactMap { $0 }).count, 1, "repeated lookups must agree")
-        XCTAssertEqual(answers.first ?? nil, firstID, "currently the older row")
+        XCTAssertEqual(answers.first ?? nil, activeID)
+        XCTAssertNotEqual(answers.first ?? nil, retiredID)
+    }
+
+    /// With no active row to prefer, the oldest wins. Pinned so the answer is stable rather than
+    /// whatever SQLite happens to return first.
+    func testFindCategoryReturnsTheOldestWhenEveryMatchIsInactive() throws {
+        let store = makeStore()
+        let firstID = try XCTUnwrap(store.createCategory(name: "Standup"))
+        store.updateCategoryActive(categoryID: firstID, isActive: false)
+        let secondID = try XCTUnwrap(store.createCategory(name: "Standup"))
+        store.updateCategoryActive(categoryID: secondID, isActive: false)
+
+        XCTAssertEqual(store.findCategory(named: "Standup")?.id, firstID)
+    }
+
+    // MARK: - One active category per name (UN1_category)
+
+    /// The partial unique index: `category_name COLLATE NOCASE` where `active = 1`.
+    func testASecondActiveCategoryCannotTakeAnActiveName() throws {
+        let store = makeStore()
+        _ = try XCTUnwrap(store.createCategory(name: "Email"))
+
+        XCTAssertNil(store.createCategory(name: "Email"))
+        XCTAssertEqual(store.loadCategories().filter { $0.name == "Email" }.count, 1)
+    }
+
+    /// `COLLATE NOCASE` on the index, matching `findCategory`. Without it the database and the
+    /// app's own collision check would disagree about what a duplicate is.
+    func testTheActiveNameIsTakenCaseInsensitively() throws {
+        let store = makeStore()
+        _ = try XCTUnwrap(store.createCategory(name: "Email"))
+
+        XCTAssertNil(store.createCategory(name: "email"))
+    }
+
+    /// The point of a *partial* index. Retired namesakes accumulate freely, which is what makes
+    /// "create a new category with the same name" a supported choice.
+    func testAnyNumberOfInactiveCategoriesMayShareAName() throws {
+        let store = makeStore()
+        for _ in 0..<3 {
+            let id = try XCTUnwrap(store.createCategory(name: "Email"))
+            store.updateCategoryActive(categoryID: id, isActive: false)
+        }
+
+        XCTAssertEqual(store.loadCategories().filter { $0.name == "Email" }.count, 3)
+        XCTAssertTrue(store.loadCategories().filter { $0.name == "Email" }.allSatisfy { !$0.isActive })
+    }
+
+    /// An active category may sit alongside its retired namesakes -- one active, any number
+    /// retired.
+    func testOneActiveMaySitAlongsideRetiredNamesakes() throws {
+        let store = makeStore()
+        let retiredID = try XCTUnwrap(store.createCategory(name: "Email"))
+        store.updateCategoryActive(categoryID: retiredID, isActive: false)
+
+        XCTAssertNotNil(store.createCategory(name: "Email"))
+    }
+
+    func testReinstatingSucceedsWhenNoActiveCategoryHoldsTheName() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "Email"))
+        store.updateCategoryActive(categoryID: id, isActive: false)
+
+        XCTAssertTrue(store.updateCategoryActive(categoryID: id, isActive: true))
+        XCTAssertEqual(store.loadCategories().first { $0.id == id }?.isActive, true)
+    }
+
+    /// The case that makes the return value necessary. The Categories tab patches its loaded list
+    /// rather than re-reading, so a refusal reported as success would tick the checkbox over a row
+    /// that is still retired.
+    func testReinstatingIsRefusedWhenAnActiveCategoryHoldsTheName() throws {
+        let store = makeStore()
+        let retiredID = try XCTUnwrap(store.createCategory(name: "Email"))
+        store.updateCategoryActive(categoryID: retiredID, isActive: false)
+        _ = try XCTUnwrap(store.createCategory(name: "Email"))
+
+        XCTAssertFalse(store.updateCategoryActive(categoryID: retiredID, isActive: true))
+        XCTAssertEqual(store.loadCategories().first { $0.id == retiredID }?.isActive, false, "still retired")
+    }
+
+    /// Retiring is never refused: the index only constrains active rows, so leaving is always
+    /// possible even when coming back would not be.
+    func testRetiringIsAlwaysAllowed() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "Email"))
+
+        XCTAssertTrue(store.updateCategoryActive(categoryID: id, isActive: false))
     }
 
     // MARK: - Cross-table

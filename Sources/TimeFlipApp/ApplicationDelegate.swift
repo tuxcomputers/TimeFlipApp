@@ -76,8 +76,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self?.refreshFaceCategories()
         },
         updateCategoryActive: { [weak self, dataStore] categoryID, isActive in
-            dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
+            let succeeded = dataStore.updateCategoryActive(categoryID: categoryID, isActive: isActive)
             self?.refreshFaceCategories()
+            return succeeded
         },
         updateCategoryName: { [weak self, dataStore] categoryID, name in
             dataStore.updateCategoryName(categoryID: categoryID, name: name)
