@@ -21,14 +21,14 @@ The switch to the test database (quit, `use-test-database.sh`, relaunch, confirm
 is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
 repeated here.
 
-- [x] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
+- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
 before proceeding: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM setting WHERE setting_name = 'db_type';"`
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [x] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
+- [ ] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
 Preferences is the status-item menu's "Settings..." item; the Device tab is selected by name via the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
@@ -70,7 +70,7 @@ expect = "true"
 disclosure expanded -- established in Setup immediately above, which this scenario runs straight
 on from.
 
-- [x] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
+- [ ] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
       Each value needs a `tab` after it to commit -- a `SteppedNumberField` writes nothing until Return or focus loss, so typing alone leaves the DB untouched. [Method: Number 12](../Methods.md#method-12).
 ```toml step
 action = "applescript"
