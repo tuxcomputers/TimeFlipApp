@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct CategoriesSettingsView: View {
+    /// A day's worth of minutes. The limit is a budget for time tracked in one day, so a day is the
+    /// most that can be spent against it and anything above is unreachable rather than merely
+    /// generous. An upper bound is also required now the field is a `SteppedNumberField`, which
+    /// steps within a range: without one, a held arrow would have nothing to stop at.
+    static let maximumDailyLimitMinutes = 1440
+
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
     let createCategory: (String) -> Int?
@@ -129,6 +135,7 @@ private struct CategorySection: View {
                     CategoryColumnHeaderRow()
                     ForEach(categories) { category in
                         CategoryRow(
+                            appState: appState,
                             category: category,
                             colourOptions: appState.colourOptions,
                             iconOptions: appState.iconOptions,
@@ -169,6 +176,9 @@ private struct CategoryColumnHeaderRow: View {
 }
 
 private struct CategoryRow: View {
+    /// Only for the daily-limit stepper's hold state, which lives on `AppState` so the window can
+    /// cancel a hold it never saw released.
+    @ObservedObject var appState: AppState
     let category: CategoryRecord
     let colourOptions: [ActivityColorOption]
     let iconOptions: [CategoryIconOption]
@@ -440,25 +450,24 @@ private struct CategoryRow: View {
         }
     }
 
-    /// Whole minutes per day, 0 = disabled. Deliberately uncapped, unlike the Device tab's
-    /// auto-pause (the device's own protocol caps that at 240m) -- this is an app-side budget, so
-    /// there is no upper bound to enforce. Negative input is clamped to 0 on commit.
+    /// Whole minutes per day, 0 = disabled. The same `SteppedNumberField` every other typeable
+    /// value in the window uses, so this row's arrows accelerate and commit exactly as auto-pause
+    /// does rather than being the one number on either tab that behaves differently.
+    ///
+    /// `holdKey` carries the category id: a single hold is live at a time across the whole window
+    /// (`AppState.steppedFieldHoldKey`), so two rows sharing a key would have the second press read
+    /// as the first still being down.
     private var dailyLimitField: some View {
-        HStack(spacing: SettingsLayoutConstants.CategoryList.limitFieldSpacing) {
-            TextField(
-                "",
-                value: Binding(
-                    get: { category.dailyLimitMinutes },
-                    set: { applyDailyLimit(newValue: $0) }
-                ),
-                format: .number
-            )
-            .frame(width: SettingsLayoutConstants.CategoryList.limitFieldWidth)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            Text("min")
-                .foregroundStyle(.secondary)
-        }
+        SteppedNumberField(
+            appState: appState,
+            holdKey: "category.dailyLimit.\(category.id)",
+            value: category.dailyLimitMinutes,
+            range: 0...CategoriesSettingsView.maximumDailyLimitMinutes,
+            suffix: "min",
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+            suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
+            onCommit: { applyDailyLimit(newValue: $0) }
+        )
     }
 
     /// Unticking moves the row straight to the Inactive group, and ticking it there moves it back
