@@ -67,6 +67,18 @@ protocol TimeFlipSessionManaging: TimeFlipDevice {
     /// business knowing which implementation it holds.
     @discardableResult
     func factoryReset() async -> Bool
+    /// Set a face's task/pomodoro parameters (cmd 0x13).
+    @discardableResult
+    func setFaceTaskParameters(_ params: FaceTaskParameters) async -> Bool
+    /// Read a face's task parameters, including elapsed timer seconds (cmd 0x14).
+    func readFaceTaskParameters(faceID: UInt8) async -> FaceTaskParameters?
+    /// Set the device's advertised name, 18 ASCII characters maximum (cmd 0x15).
+    @discardableResult
+    func setDeviceName(_ name: String) async -> Bool
+    /// Reset every face's task info to default (cmd 0xFE). Narrower than `factoryReset`: history,
+    /// pairing, password, colours and name all survive.
+    @discardableResult
+    func resetTaskInfoToDefault() async -> Bool
 }
 
 @MainActor

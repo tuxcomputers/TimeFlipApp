@@ -236,6 +236,49 @@ device reappearing on the default password.
 - [ ] Capture the 0xFF write and the reboot-to-default-login gap
 - [ ] Re-pair afterwards so the cube isn't left unpaired on `000000`
 
+### The full spec command set (2026-07-31)
+
+Parity had been measured against `TimeFlipBLEDevice`, so it could only ever find things the *driver*
+had and the mock didn't. Checked against `docs/TimeFlip2 BLE Protocol v4.3.md` instead, four commands
+turned out to be missing from **both**: `0x13` set face task params, `0x14` read them, `0x15` set
+device name, `0xFE` reset task info. All four are now implemented in the driver and the mock, so
+every command in the spec is covered.
+
+All four verified working on real hardware, with read-backs proving they take effect rather than
+being accepted and discarded:
+
+| Command | Measured | n | Result |
+| --- | --- | --- | --- |
+| `0x14` read face task | 116-151ms | 5 | returns mode/limit/elapsed |
+| `0x13` write face task | 118-119ms | 5 | read-back showed `mode=1 limit=1500` |
+| `0x15` set device name | 58-118ms | 6 | name changed, then restored |
+| `0xFE` reset task info | 58-89ms | 3 | read-back showed `mode=0 limit=0` |
+
+**None needs its own `DelayRange`** -- each is an ordinary command round trip, priced by link age.
+
+**This probe corrected a mistake in the existing figures.** `read` (53-79ms) and `write`
+(115-152ms) looked like a read/write difference, but `read` was sampled mid-session and `write`
+during pairing, so the two differ in *when* they ran as much as what they did -- and `read` is
+within noise of `settledWrite` (54-79ms). These commands ran as one sequence that crossed the
+boundary, separating the effects: a read-shaped command (`0x14`) on a fresh link cost 116-151ms and
+a write-shaped one (`0xFE`) on a settled link cost 58-89ms, the opposite of what an intrinsic
+read/write difference predicts. Command direction doesn't matter; connection age does. `read` and
+`settledWrite` are very likely the same quantity measured twice.
+
+- [ ] Consider merging `read` into `settledWrite`; needs re-deciding what each existing caller charges
+- [ ] The driver still never reads Generic Access `0x2A00`, so it has no idea what the cube is
+      actually called -- `paired_device.name` holds `"TimeFlip"` while the cube advertises
+      `"TimeFlip v2.0"`. Not a command, but the same class of gap.
+
+**Tests for these four are written but commented out** in `MockDeviceParityTests.swift`: the app has
+no task/pomodoro or device-name feature, so asserting behaviour now would pin down decisions nobody
+has made. Kept rather than deleted because the wire formats were derived from the spec and
+re-deriving them is wasted work. They compile as written.
+
+Measured via temporary env-var-gated scaffolding in `ApplicationDelegate` (`CLAUDE.md`'s sanctioned
+pattern), **since reverted** -- `swift test` is hermetic and has no Bluetooth permission, so a test
+could not have reached the cube.
+
 ## Where things live
 
 - Mock: `Sources/TimeFlipApp/MockTimeFlipDevice.swift`

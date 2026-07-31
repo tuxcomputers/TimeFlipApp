@@ -39,8 +39,13 @@ final class FakeDevice: TimeFlipSessionManaging {
     func setBlinkInterval(seconds: UInt8) async {}
     func setDoubleTapParameters(_ params: DoubleTapParameters) async {}
     func readDoubleTapParameters() async -> DoubleTapParameters? { nil }
-    // Nothing here exercises a reset; MockTimeFlipDevice models it properly and W06 drives it.
+    // Nothing here exercises a reset or the task commands; MockTimeFlipDevice models them properly
+    // and W06 / MockDeviceParityTests drive them.
     func factoryReset() async -> Bool { false }
+    func setFaceTaskParameters(_ params: FaceTaskParameters) async -> Bool { false }
+    func readFaceTaskParameters(faceID: UInt8) async -> FaceTaskParameters? { nil }
+    func setDeviceName(_ name: String) async -> Bool { false }
+    func resetTaskInfoToDefault() async -> Bool { false }
     func refreshDeviceInfo() async {}
     func readElapsedSeconds(faceID: UInt8) async -> TimeInterval? { nil }
     func setPause(_ paused: Bool) async {}

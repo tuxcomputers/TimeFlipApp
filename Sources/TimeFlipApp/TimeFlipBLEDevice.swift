@@ -1417,6 +1417,115 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
+    // MARK: - Task/pomodoro parameters and device name (0x13, 0x14, 0x15, 0xFE)
+    //
+    // The device runs a per-face countdown on its own and asks the host to push parameters via the
+    // `taskParametersSyncRequired` system-state notification, which this driver decoded and then
+    // ignored because it had no way to answer. These four commands complete the spec's command set.
+
+    /// Sets a face's task parameters (command 0x13).
+    ///
+    /// Face numbers are validated against the app's own range rather than the spec's stated 0-24:
+    /// the protocol document describes a 24-facet variant, while this app targets the 12-face
+    /// TimeFlip2 and `TimeFlipConstants.isValidFaceID` is the single place that decision lives.
+    @discardableResult
+    func setFaceTaskParameters(_ params: FaceTaskParameters) async -> Bool {
+        guard isLoggedIn else { return false }
+        guard TimeFlipConstants.isValidFaceID(params.faceID) else {
+            logger.error("setFaceTaskParameters rejected invalid face \(params.faceID, privacy: .public)")
+            return false
+        }
+        do {
+            DeveloperMode.debugPrint(
+                .faceTask,
+                "Face \(params.faceID) task set to mode=\(params.mode.rawValue) limit=\(params.limitSeconds)s triggered"
+            )
+            _ = try await performCommand(params.commandPayload())
+            DeveloperMode.debugPrint(.faceTask, "Face \(params.faceID) task written")
+            return true
+        } catch {
+            logger.error("Failed to set face task params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Face \(params.faceID) task write failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Reads a face's task parameters (command 0x14), including how long its timer has been running.
+    func readFaceTaskParameters(faceID: UInt8) async -> FaceTaskParameters? {
+        guard isLoggedIn else { return nil }
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return nil }
+        do {
+            let response = try await performCommand(Data([0x14, faceID]))
+            guard let params = FaceTaskParameters.parse(response) else {
+                logger.error("Unexpected 0x14 response len=\(response.count) resp=\(response.hexString(), privacy: .public)")
+                DeveloperMode.debugPrint(.faceTask, "Face \(faceID) task read unexpected: \(response.hexString())")
+                return nil
+            }
+            DeveloperMode.debugPrint(
+                .faceTask,
+                "Face \(faceID) task read mode=\(params.mode.rawValue) limit=\(params.limitSeconds)s elapsed=\(params.elapsedSeconds.map(String.init) ?? "nil")s"
+            )
+            return params
+        } catch {
+            logger.error("Failed to read face task params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Face \(faceID) task read failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Sets the device's advertised name (command 0x15).
+    ///
+    /// The spec caps the name at 18 ASCII characters and puts the length in the byte after the
+    /// opcode. Non-ASCII is rejected rather than lossily transcoded: the payload is a raw byte count
+    /// and a multi-byte character would make the declared length disagree with the bytes sent,
+    /// which is the kind of thing that bricks a name field rather than failing cleanly.
+    @discardableResult
+    func setDeviceName(_ name: String) async -> Bool {
+        guard isLoggedIn else { return false }
+        guard let ascii = name.data(using: .ascii), !ascii.isEmpty else {
+            logger.error("setDeviceName rejected non-ASCII or empty name")
+            DeveloperMode.debugPrint(.faceTask, "Device name rejected (non-ASCII or empty): \(name)")
+            return false
+        }
+        guard ascii.count <= Self.maximumDeviceNameLength else {
+            logger.error("setDeviceName rejected \(ascii.count, privacy: .public) chars, max \(Self.maximumDeviceNameLength, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Device name rejected (\(ascii.count) chars, max \(Self.maximumDeviceNameLength))")
+            return false
+        }
+        do {
+            DeveloperMode.debugPrint(.faceTask, "Device name set to '\(name)' triggered")
+            _ = try await performCommand(Data([0x15, UInt8(ascii.count)]) + ascii)
+            DeveloperMode.debugPrint(.faceTask, "Device name written: '\(name)'")
+            return true
+        } catch {
+            logger.error("Failed to set device name: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Device name write failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Per the spec, 18 ASCII symbols maximum.
+    static let maximumDeviceNameLength = 18
+
+    /// Resets every face's task info to default (command 0xFE).
+    ///
+    /// Narrower than `factoryReset`: task parameters only. History, pairing, password, colours and
+    /// the device name are untouched, so unlike 0xFF this needs no reboot and no re-pair.
+    @discardableResult
+    func resetTaskInfoToDefault() async -> Bool {
+        guard isLoggedIn else { return false }
+        do {
+            DeveloperMode.debugPrint(.faceTask, "Task info reset (0xFE) triggered")
+            _ = try await performCommand(Data([0xFE]))
+            DeveloperMode.debugPrint(.faceTask, "Task info reset (0xFE) accepted")
+            return true
+        } catch {
+            logger.error("Failed to reset task info: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Task info reset failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     func setAutoPause(minutes: UInt16) async {
         let high = UInt8(minutes >> 8)
         let low = UInt8(minutes & 0xFF)

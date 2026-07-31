@@ -167,6 +167,23 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     /// A cross-check that the legs are self-consistent: `lock` performs a write plus a read-back and
     /// measures 173-224ms (p50 186), against `write` p50 118 + `read` p50 62 = 180.
     ///
+    /// ## `read` vs `write` is really fresh-link vs settled-link
+    ///
+    /// Worth knowing before trusting either figure. `write` (115-152ms) was measured from LED writes
+    /// during pairing, and `read` (53-79ms) from the cheap history check mid-session -- so the two
+    /// samples differ in *when* they ran as much as in what they did, and `read` is within noise of
+    /// `settledWrite` (54-79ms).
+    ///
+    /// Probing 0x13/0x14/0x15/0xFE on 2026-07-31 separated the two, because those commands ran in a
+    /// single sequence that crossed the boundary. A *read*-shaped command (0x14) on a fresh link cost
+    /// 116-151ms, and a *write*-shaped one (0xFE) on a settled link cost 58-89ms -- the opposite way
+    /// round from what an intrinsic read/write difference would predict. The direction of the command
+    /// does not matter; the age of the connection does.
+    ///
+    /// `read` and `settledWrite` are therefore very likely the same quantity measured twice, and
+    /// could be merged. Left separate for now because collapsing them means re-deciding what every
+    /// existing caller should charge, which is a bigger change than this one.
+    ///
     /// Scale the profile down rather than editing the figures, so the relative costs stay in
     /// proportion.
     struct Latency: Sendable {
@@ -347,6 +364,12 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     private var brightnessPercent: UInt8 = 100
     private var blinkIntervalSeconds: UInt8 = 5
     private var doubleTapParameters: DoubleTapParameters = .default
+    /// Per-face task config (0x13/0x14). Absent means the face is `.simple` with no limit, which is
+    /// what a device reports for a face that has never been configured.
+    private var faceTaskParameters: [UInt8: FaceTaskParameters] = [:]
+    /// When each face's timer started, on the *device's* clock, so 0x14's elapsed field advances
+    /// with `setDeviceTime` instead of the host's wall clock.
+    private var faceTaskStartedAt: [UInt8: Date] = [:]
     private var devicePassword: String = TimeFlipConstants.defaultPassword
     private var faceColors: [UInt8: ColorComponents] = [:]
     // Real firmware uses a monotonic counter; timestamp-derived numbers collide
@@ -704,6 +727,79 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         await waitForRadio(configuration.latency.settledWrite)
         guard applyLogin(password: TimeFlipConstants.defaultPassword) else { return false }
         logger.notice("Mock device password reset to default and confirmed")
+        return true
+    }
+
+    // MARK: - Task/pomodoro parameters and device name (0x13, 0x14, 0x15, 0xFE)
+
+    /// Sets a face's task parameters (0x13).
+    @discardableResult
+    func setFaceTaskParameters(_ params: FaceTaskParameters) async -> Bool {
+        await waitForRadio(configuration.latency.write)
+        guard isLoggedIn else { return false }
+        guard TimeFlipConstants.isValidFaceID(params.faceID) else { return false }
+        // Stored without `elapsedSeconds`: 0x13 has no field for it, so a write cannot set it, and
+        // keeping a caller-supplied value would let a test "read back" something never sent.
+        faceTaskParameters[params.faceID] = FaceTaskParameters(
+            faceID: params.faceID,
+            mode: params.mode,
+            limitSeconds: params.limitSeconds
+        )
+        faceTaskStartedAt[params.faceID] = deviceTime()
+        appendEventLog("face_task face=\(params.faceID) mode=\(params.mode.rawValue) limit=\(params.limitSeconds)")
+        return true
+    }
+
+    /// Reads a face's task parameters (0x14).
+    ///
+    /// `elapsedSeconds` is computed from the device's own clock rather than stored, so it advances
+    /// as `setDeviceTime` moves -- a caller polling a running countdown sees it count, which is the
+    /// only reason the field exists on the wire.
+    func readFaceTaskParameters(faceID: UInt8) async -> FaceTaskParameters? {
+        // `write`, not `read`, despite the name: 0x14 is a command (write the opcode, then read the
+        // command-result characteristic), not a plain characteristic read, and it measured
+        // 116-151ms on hardware -- squarely `write`'s 115-152ms range.
+        await waitForRadio(configuration.latency.write)
+        guard isLoggedIn else { return nil }
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return nil }
+        let stored = faceTaskParameters[faceID] ?? .simple(faceID: faceID)
+        let elapsed = faceTaskStartedAt[faceID].map { max(0, deviceTime().timeIntervalSince($0)) } ?? 0
+        return FaceTaskParameters(
+            faceID: stored.faceID,
+            mode: stored.mode,
+            limitSeconds: stored.limitSeconds,
+            elapsedSeconds: UInt32(elapsed)
+        )
+    }
+
+    /// Sets the advertised device name (0x15), rejecting anything the real device would.
+    @discardableResult
+    func setDeviceName(_ name: String) async -> Bool {
+        await waitForRadio(configuration.latency.write)
+        guard isLoggedIn else { return false }
+        guard let ascii = name.data(using: .ascii), !ascii.isEmpty,
+              ascii.count <= TimeFlipBLEDevice.maximumDeviceNameLength else {
+            return false
+        }
+        deviceName = name
+        appendEventLog("device_name=\(name)")
+        return true
+    }
+
+    /// The name the device advertises. Mirrors the real device's Generic Access name, which is what
+    /// a discovery scan shows.
+    private(set) var deviceName: String = "TimeFlip v2.0"
+
+    /// Resets every face's task info (0xFE), and nothing else.
+    @discardableResult
+    func resetTaskInfoToDefault() async -> Bool {
+        await waitForRadio(configuration.latency.write)
+        guard isLoggedIn else { return false }
+        // Deliberately narrow. A test asserting that 0xFE is *not* 0xFF is the point of modelling
+        // it: history, pairing, password, colours and the name all have to survive.
+        faceTaskParameters.removeAll()
+        faceTaskStartedAt.removeAll()
+        appendEventLog("task_info_reset")
         return true
     }
 
