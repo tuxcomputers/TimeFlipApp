@@ -73,6 +73,17 @@ final class HistoryIngestor {
         // Coalesce bursts of triggers.
         if isFetching {
             pending = true
+            // Say so, rather than returning silently. A coalesced trigger otherwise leaves no trace
+            // at all: the fetch it folds into is logged under whichever trigger got here first, and
+            // this one simply never appears. That is what made a real run look like the startup
+            // fetch had never happened -- the periodic timer, which starts at launch and ticks
+            // every 10s on the test database, won the race against a slow connect (6.4s to link,
+            // then notifications, session setup and twelve face-colour writes), so the startup call
+            // arrived mid-flight and vanished. The work still happened, under `trigger=periodic`.
+            DeveloperMode.debugPrint(
+                .histStart,
+                "history fetch deferred: trigger=\(trigger) folded into the fetch already running; re-runs after it"
+            )
             return
         }
         isFetching = true

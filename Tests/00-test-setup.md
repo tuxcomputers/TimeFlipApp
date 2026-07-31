@@ -105,12 +105,12 @@ prompt = "The device hasn't reconnected. Pair it (Device tab -> Scan for Devices
 timeout_seconds = 120
 ```
 - [x] Step 6: Confirm that forced production history fetch actually completed
-(`history fetch complete: trigger=startup`), so real history is fully synced before the switch. Skipped when not recording history.
+so real history is fully synced before the switch. Skipped when not recording history. (Note: matches **any** completed fetch after the restart's login, not `trigger=startup` specifically. The periodic timer starts at app launch and can tick before the startup fetch is reached on a slow connect; the startup call is then folded into the one already in flight and never produces a `trigger=startup` row, so waiting for that name can hang for the full timeout while the sync it is waiting on has already happened under another name. Scoped to the newest `Login accepted` rather than `$prod_before_id`, because that baseline is captured *before* the quit in Step 4 and a periodic fetch completing in the gap would otherwise satisfy this step without the restart's fetch having run at all.)
 ```toml step
 when = '$record_history == y'
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='hist-done' AND message = 'history fetch complete: trigger=startup' AND debug_log_id > $prod_before_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "history fetch complete: trigger=startup"
+query = "SELECT message FROM debug_log WHERE tag='hist-done' AND debug_log_id > COALESCE((SELECT MAX(debug_log_id) FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%'), 0) ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "history fetch complete:"
 timeout_seconds = 60
 ```
 - [x] Step 7: On fresh, just-synced data, confirm the device is **not mid-timing a real activity**

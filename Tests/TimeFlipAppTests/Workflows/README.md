@@ -79,10 +79,10 @@ checklists are not simply un-migrated backlog:
 - **No Accessibility permission.** Every `System Events` step depends on TCC approval that cannot be
   granted non-interactively (see `Methods.md` Method 5), and screenshot steps additionally need Screen
   Recording. So the AppleScript-driven parts of `Bench/03b`–`07b` stay local.
-- **UI that isn't reachable from a test.** The auto-pause stepper's press-and-hold (`Bench/05b`
-  Scenarios C–E) and the LED field commits (`06b`) are AppKit gestures against a real window. Their
-  *logic* is already unit-tested (`AutoPauseStepperTests`, `SettingsPersistenceTests`); the gesture
-  itself is not CI material.
+- **UI that isn't reachable from a test.** The stepper press-and-hold (`Bench/05b` Scenarios C–E,
+  run on auto-pause but shared by every stepper in the window) and the LED field commits (`06b`) are
+  AppKit gestures against a real window. Their *logic* is already unit-tested
+  (`AutoPauseStepperTests`, `SettingsPersistenceTests`); the gesture itself is not CI material.
 - **Genuinely visual, genuinely timed.** `Interactive/07i` Scenario B watches the menu bar flash over
   several seconds. `MenuBarStatusStyleTests` covers the colour *decision*; asserting the rendered
   pixels is feasible (proven separately) but needs the drawing helpers lifted out of

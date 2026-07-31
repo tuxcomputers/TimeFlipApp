@@ -1,19 +1,32 @@
 # Auto-Pause Arrow Stepper Checklist
 
-### Last run - 2026-07-22 on the branch 'feature/projects'
+### Last run - 2026-07-31 on the branch 'feature/uiTweaks'
 
-Covers the auto-pause field's press-and-hold arrow behavior (`AutoPauseStepper`): ticks by 1 until
-passing the *second* multiple-of-5 gridline from the value the hold started at, then by 5, at a
-slower tick rate. This replaced a stock SwiftUI `Stepper` (whose held-repeat rate can't be varied).
-Also covers a fix for a hold whose release event never arrives (window closed while the mouse button
-was still down), which would otherwise keep the repeat loop -- and its device/DB writes -- running
-in the background. Requires Developer Mode enabled and a paired, connected device (the field is
+Covers press-and-hold arrow behavior (`AutoPauseStepper`): ticks by 1 until passing the *second*
+multiple-of-5 gridline from the value the hold started at, then by 5, at a slower tick rate. Also
+covers a fix for a hold whose release event never arrives (window closed while the mouse button was
+still down), which would otherwise keep the repeat loop -- and its device/DB writes -- running in
+the background. Requires Developer Mode enabled and a paired, connected device (the field is
 disabled while unpaired).
+
+**This exercises the arrows for every stepper in the window, not just auto-pause.** They are all one
+control (`SteppedNumberField`) driving one hold loop against one `AutoPauseStepper`, and the window
+holds a single hold at a time (`AppState.steppedFieldHoldKey`), so a second row would re-run the
+same code against a different range. Auto-pause is the row it runs on because it has the widest
+range, which is where the step-1-then-step-5 acceleration is worth having at all. Only the *hold*
+generalises: each row's typed-value persistence is its own path and is checked in that row's own
+checklist (LED in `06b`, double-tap in `03b`, the App tab's rows in `07b`).
+
+(Note: auto-pause had its own bespoke arrows and repeat loop until they were folded into the shared
+control. Scenarios C-E were written against that older implementation -- same `AutoPauseStepper`
+arithmetic and same first-tick-then-repeat shape, so the asserted sequences carry over unchanged,
+but the loop underneath them is different code.)
 
 **Automated coverage:** the full tick sequence and slower-past-the-second-boundary timing are
 unit-tested in `Tests/TimeFlipAppTests/AutoPauseStepperTests.swift`, the `auto_pause_minutes` DB
 round-trip in `SettingsPersistenceTests.swift`, and the hold-cancel-on-window-close in
-`AppStateDeviceTabTests.swift`.
+`AppStateDeviceTabTests.swift` (`testCancelSteppedFieldHoldCancelsAnInFlightHold`, asserting the
+`cancelSteppedFieldHold` that `windowWillClose` actually calls).
 
 This bench file also now covers the press-and-hold acceleration gesture and the
 window-closed-mid-hold case (Scenarios C-E below) -- previously believed to need a person actually
@@ -76,6 +89,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "4"
+        keystroke return
     end tell
 end tell'''
 
@@ -99,6 +113,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "26"
+        keystroke return
     end tell
 end tell'''
 
@@ -122,6 +137,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "0"
+        keystroke return
     end tell
 end tell'''
 
@@ -144,7 +160,7 @@ auto-pause field focusable -- left in place by the previous scenario, which also
 `auto_pause_minutes` at `0`, though this scenario overwrites that value immediately anyway.
 
 - [x] Step 1: Type three distinct values into the field in quick succession
-without tabbing away between them (`tab` shifts focus off the field, breaking the sequence -- select-all + type commits live on every keystroke already, no `tab` needed): `7`, then immediately `70`, then immediately `150`.
+committing each with Return and staying on the field: `7`, then immediately `70`, then immediately `150`. (Note: Return is what commits, and it keeps focus; `tab` would commit too but move focus on, so the next value would land somewhere else. [Method: Number 12](../Methods.md#method-12).)
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -160,10 +176,13 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "7"
+        keystroke return
         keystroke "a" using command down
         keystroke "70"
+        keystroke return
         keystroke "a" using command down
         keystroke "150"
+        keystroke return
     end tell
 end tell'''
 ```
@@ -205,6 +224,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "0"
+        keystroke return
     end tell
 end tell'''
 
@@ -224,6 +244,11 @@ auto-pause field focusable, TimeFlip frontmost before typing ([Method: Number 12
 arrow from it by the stack's pitch -- both stepper `image` elements report that same upper-chevron
 rect, so `image 2` is no use (see the coordinate caveat in the CGEventPost method, `../Methods.md`).
 
+(Note: `image 1` means the auto-pause row's up chevron only because auto-pause is the **first** row
+in the Settings section -- checked by Setup Step 2. Every row now carries its own arrow pair, so the
+group holds several identical-looking `image` elements and the index is the only thing telling them
+apart; a row inserted above auto-pause would silently aim these holds at the wrong control.)
+
 - [x] Step 1: Type `1` directly into the auto-pause text field
 (starting value for the hold).
 ```toml step
@@ -237,6 +262,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "1"
+        keystroke return
     end tell
 end tell'''
 
@@ -296,6 +322,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "26"
+        keystroke return
     end tell
 end tell'''
 
@@ -338,6 +365,10 @@ expect = "{\"minutes\":0}"
 **Preconditions:** same as Scenario C/D -- Preferences open on the Device tab (this scenario closes
 and reopens that window mid-scenario, so it must start open).
 
+The cancel this proves is `AppState.cancelSteppedFieldHold`, called from
+`SettingsWindowController.windowWillClose`. It is one cancel for the whole window rather than one
+per row, so proving it here proves it for every stepper.
+
 - [x] Step 1: Type `50` directly into the auto-pause text field.
 ```toml step
 [[actions]]
@@ -350,6 +381,7 @@ tell application "System Events"
         set focused of e to true
         keystroke "a" using command down
         keystroke "50"
+        keystroke return
     end tell
 end tell'''
 

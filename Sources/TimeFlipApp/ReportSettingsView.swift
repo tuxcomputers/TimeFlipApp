@@ -109,25 +109,23 @@ struct ReportSettingsView: View {
                 ))
                 .labelsHidden()
             }
+            // AM only. A reset in the middle of the afternoon would cut a working day's accounting
+            // in half, so every useful setting sits in the small hours and PM was only ever a way to
+            // pick a wrong one. That makes "AM" a fixed label like `%` or `mins` rather than a second
+            // value to set, which is why this row now has the same shape as every other one: one
+            // field, one suffix, one pair of arrows. It also retires the twelve arrow clicks it used
+            // to take to cross from AM to PM.
             LabeledContent("Daily reset at") {
-                HStack(spacing: SettingsLayoutConstants.Stepper.meridiemGap) {
-                    // The hour is typed or held; AM/PM stays arrows-only, since a two-state value has
-                    // nothing to run through and nothing sensible to type.
-                    SteppedNumberField(
-                        appState: appState,
-                        holdKey: "dailyResetHour",
-                        value: Self.to12Hour(appState.dailyResetHour).hour,
-                        range: 1...12,
-                        suffix: "",
-                        fieldWidth: SettingsLayoutConstants.Stepper.hourFieldWidth,
-                        onCommit: setHour12
-                    )
-                    HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
-                        Text(Self.to12Hour(appState.dailyResetHour).meridiem == .am ? "AM" : "PM")
-                            .frame(width: SettingsLayoutConstants.Stepper.meridiemLabelWidth, alignment: .leading)
-                        stepArrows(up: toggleMeridiem, down: toggleMeridiem)
-                    }
-                }
+                SteppedNumberField(
+                    appState: appState,
+                    holdKey: "dailyResetHour",
+                    value: Self.to12Hour(appState.dailyResetHour).hour,
+                    range: 1...12,
+                    suffix: "AM",
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+                    suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
+                    onCommit: setHour12
+                )
             }
             LabeledContent("Battery warning at") {
                 SteppedNumberField(
@@ -136,10 +134,8 @@ struct ReportSettingsView: View {
                     value: appState.lowBatteryThresholdPercent,
                     range: Int(TimeFlipConstants.minBatteryLevel)...TimeFlipConstants.effectiveMaxLowBatteryWarningPercent,
                     suffix: "%",
-                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
-                        suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth
-                    ),
-                    suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth,
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+                    suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
                     onCommit: { appState.setLowBatteryThreshold($0) }
                 )
             }
@@ -150,43 +146,21 @@ struct ReportSettingsView: View {
                     value: fetchIntervalMinutes,
                     range: fetchIntervalMinutesRange,
                     suffix: fetchIntervalMinutes == 1 ? "min" : "mins",
-                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
-                        suffixWidth: SettingsLayoutConstants.Stepper.minutesSuffixWidth
-                    ),
-                    suffixWidth: SettingsLayoutConstants.Stepper.minutesSuffixWidth,
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+                    suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
                     onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
                 )
             }
         }
     }
 
-    /// The stacked up/down chevron pair used by the auto-pause stepper (see
-    /// `TimeFlipSettingsView.autoPauseStepButton`). Hour/AM-PM ranges are tiny, so a plain tap is
-    /// enough -- no press-and-hold accelerating repeat is needed here.
-    private func stepArrows(up: @escaping () -> Void, down: @escaping () -> Void) -> some View {
-        VStack(spacing: 1) {
-            stepArrow("chevron.up", action: up)
-            stepArrow("chevron.down", action: down)
-        }
-    }
-
-    private func stepArrow(_ systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
-                .frame(width: 16, height: 10)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Applies an hour picked on the 12-hour face, keeping AM/PM as it is. The face value is clamped
-    /// by the control rather than wrapped: with a field to type into, wrapping 12 round to 1 would
-    /// mean a typed 13 silently became 1.
+    /// Applies an hour picked on the 12-hour face. Always AM, since that is the only half of the day
+    /// this setting offers now -- so a value stored as PM before that limit existed is normalised to
+    /// its AM equivalent the first time the row is touched. The face value is clamped by the control
+    /// rather than wrapped: with a field to type into, wrapping 12 round to 1 would mean a typed 13
+    /// silently became 1.
     private func setHour12(_ hour12: Int) {
-        let current = Self.to12Hour(appState.dailyResetHour)
-        let newHour = Self.to24Hour(hour12: hour12, meridiem: current.meridiem)
+        let newHour = Self.to24Hour(hour12: hour12, meridiem: .am)
         guard newHour != appState.dailyResetHour else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Daily reset hour: \(appState.dailyResetHour) -> \(newHour) (24h)")
         appState.setDailyResetTime(hour: newHour, minute: appState.dailyResetMinute)
@@ -206,18 +180,6 @@ struct ReportSettingsView: View {
         let low = TimeFlipConstants.minFetchHistoryIntervalSeconds / perMinute
         let high = TimeFlipConstants.maxFetchHistoryIntervalSeconds / perMinute
         return low...high
-    }
-
-    /// Flips AM<->PM, keeping the hour on the clock face fixed.
-    private func toggleMeridiem() {
-        let current = Self.to12Hour(appState.dailyResetHour)
-        let flipped: Meridiem = current.meridiem == .am ? .pm : .am
-        let newHour = Self.to24Hour(hour12: current.hour, meridiem: flipped)
-        DeveloperMode.debugPrint(.field, "Field changed: Daily reset meridiem: \(current.meridiem == .am ? "AM" : "PM") -> \(flipped == .am ? "AM" : "PM") (hour \(appState.dailyResetHour) -> \(newHour) 24h)")
-        appState.setDailyResetTime(
-            hour: newHour,
-            minute: appState.dailyResetMinute
-        )
     }
 
     /// 24-hour hour (0-23) → 12-hour clock face (1-12) plus AM/PM. 0 → 12 AM, 12 → 12 PM.

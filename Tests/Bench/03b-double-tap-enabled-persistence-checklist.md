@@ -1,6 +1,6 @@
 # Double-Tap Enabled Persistence Checklist
 
-### Last run - 2026-07-22 on the branch 'feature/projects'
+### Last run - 2026-07-31 on the branch 'feature/uiTweaks'
 
 Covers the Double-tap **Disable** checkbox's `enabled` flag moving from UserDefaults to being
 DB-backed via `AppDataStore`/the `double_tap_settings` row -- confirms the flag set in the
@@ -249,7 +249,7 @@ Window:    $dt_window_original
 Do all four match what the app shows?'''
 ```
 - [x] Step 2: Change the threshold field with input
-Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick succession without tabbing away between them: `30`, then immediately `150`, then immediately `200`.
+Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick succession, committing each with Return and staying on the field: `30`, then immediately `150`, then immediately `200`. (Note: Return is what commits, and it keeps focus; `tab` would commit too but move focus on, so the next value would land somewhere else. [Method: Number 12](../Methods.md#method-12).)
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -267,10 +267,13 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "30"
+        keystroke return
         keystroke "a" using command down
         keystroke "150"
+        keystroke return
         keystroke "a" using command down
         keystroke "200"
+        keystroke return
     end tell
 end tell'''
 ```
@@ -315,6 +318,7 @@ tell application "System Events"
         end tell
         keystroke "a" using command down
         keystroke "$dt_threshold_original"
+        keystroke return
     end tell
 end tell'''
 

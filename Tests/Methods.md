@@ -182,10 +182,16 @@ required physical simultaneity, just event ordering.
 
 Get target coordinates from the element's `position`/`size` via accessibility (Read a label or value
 via accessibility, below) -- already in points, no pixel conversion needed. Caveat for a stacked
-arrow pair (the auto-pause stepper): both its `image` elements report the **same** rect, that of the
-upper chevron (a SwiftUI AX quirk collapsing the pair's custom-drawn glyphs onto one frame), so
-`image 2` is no use -- read `image 1` and derive the lower arrow as `image 1`'s center plus the
-stack's pitch (`arrowHeight` + `arrowSpacing` in `SettingsLayoutConstants.Stepper`, 11pt).
+arrow pair (every `SteppedNumberField` has one): both its `image` elements report the **same** rect,
+that of the upper chevron (a SwiftUI AX quirk collapsing the pair's custom-drawn glyphs onto one
+frame), so `image 2` is no use -- read `image 1` and derive the lower arrow as `image 1`'s center
+plus the stack's pitch (`arrowHeight` + `arrowSpacing` in `SettingsLayoutConstants.Stepper`, 11pt).
+
+The pairs are indistinguishable from each other, so **the only thing identifying a row's arrows is
+the index**, counted in layout order down the group. `image 1` of the Device tab's Settings group is
+auto-pause's up chevron because auto-pause is the first row there. Assert that ordering before
+relying on it (`Bench/05b` Setup Step 2 does), or a row inserted above sends the clicks to a
+different control with no error to show for it.
 
 Anchor on the target element itself, never on a hand-measured offset from a neighbour. These arrows
 were once located by offsetting left from the adjacent text field; when the row was restyled to put
@@ -269,21 +275,27 @@ end tell"""
 <a id="method-12"></a>
 ## Method 12: Edit a text field
 
-Focus it, `cmd+A`, type the value -- then **commit it**. Which fields need a commit key differs, and
-getting this wrong fails quietly (see the LED bug in `Bench/06b`'s history):
+Focus it, `cmd+A`, type the value, `keystroke return`. Every typeable value field in the Settings
+window is a **`SteppedNumberField`** -- the Device tab's auto-pause, LED brightness and blink
+interval and the four double-tap params, plus the App tab's daily-reset hour, battery-warning level
+and fetch-history interval -- and they all commit the same way, so one sequence covers all of them.
 
-- The Device tab's **auto-pause** field commits live on every keystroke, so no commit key is needed,
-  and a `tab` between back-to-back edits actively hurts -- it moves focus and the next value lands
-  elsewhere, so omit it for rapid edits on that field.
-- Every **`SteppedNumberField`** -- LED brightness and blink interval, plus the App tab's daily-reset
-  hour, battery-warning level and fetch-history interval -- commits **only** on Return or focus
-  loss, deliberately, so typing `15` isn't clamped to `1` on the way. Typing alone changes nothing:
-  confirmed live, a typed value produced no DB write and no `debug_log` row at all until committed.
-  - `keystroke return` commits and **keeps focus on the field**, so it is the only way to make
-    several rapid edits to one field. Verified live: `10`/`50`/`95` each followed by Return gave
-    three changed+saved pairs and exactly one debounced device write.
-  - `keystroke tab` also commits, but moves focus on -- use it to finish editing a field, never
-    between values.
+- A `SteppedNumberField` commits **only** on Return or focus loss, deliberately, so typing `15`
+  isn't clamped to `1` on the way. Typing alone changes nothing: confirmed live, a typed value
+  produced no DB write and no `debug_log` row at all until committed. Getting this wrong fails
+  quietly -- there is no error, just an assertion that times out on a row that was never written
+  (see the LED bug in `Bench/06b`'s history, and `03b`/`05b` on 2026-07-31).
+- `keystroke return` commits and **keeps focus on the field**, so it works both for a single edit
+  and for several rapid edits to the same field. Use it everywhere rather than picking per case.
+  Verified live: `10`/`50`/`95` each followed by Return gave three changed+saved pairs and exactly
+  one debounced device write.
+- `keystroke tab` also commits, but moves focus on, so it can't be used between values in a rapid
+  sequence. There is no case that needs it -- prefer Return.
+
+**Auto-pause and the double-tap params used to commit live on every keystroke** and their steps
+carried no commit key. They became `SteppedNumberField`s when every stepper in the window was
+unified, which silently turned those steps into no-ops. If a typing step ever stops writing
+anything, this is the first thing to check.
 
 `keystroke` always targets the frontmost app
 regardless of which process the `tell` addresses -- run `tell application "TimeFlip" to activate`
@@ -430,14 +442,20 @@ scripts/use-test-database.sh        # -> test.sqlite (deletes and recreates fres
 scripts/use-production-database.sh  # -> production.sqlite
 ```
 **Pre-flight, every session, before switching:** confirm `db_type` reads `{"type":"production"}`,
-then restart the app and confirm a fresh `history` fetch against production has completed
-(`debug_log`, tag `history`, `"history fetch complete: trigger=startup"`) -- so real device history
-lands in `production.sqlite` first. This is what makes it safe to run anything after, including a
-factory reset, without pausing to confirm with the user. Don't just wait on the periodic fetch timer
-instead (`fetch_history_interval_seconds`, a developer may have set that as long as 15 minutes) --
-restarting forces the fetch immediately via the app's own startup backfill. Match on this exact
-message, not the older `"DB refreshed"` text: that one only ever logs on the branch where nothing
-changed, and never appears at all for a fetch that actually pulls in a real backlog.
+then restart the app and confirm a fresh fetch against production has completed (`debug_log`, tag
+`hist-done`, `"history fetch complete:"`) -- so real device history lands in `production.sqlite`
+first. This is what makes it safe to run anything after, including a factory reset, without pausing
+to confirm with the user. Don't just wait on the periodic fetch timer instead
+(`fetch_history_interval_seconds`, a developer may have set that as long as 15 minutes) --
+restarting forces the fetch immediately via the app's own startup backfill.
+
+Two things to match carefully here. **Don't require `trigger=startup`:** the periodic timer starts
+at launch and can tick before the startup fetch is reached on a slow connect, in which case the
+startup call is folded into the one already running and never logs a `trigger=startup` row at all
+(the work still happens, under the other trigger, followed by a `trigger=debounce` re-run). Scope
+to the newest `Login accepted` instead and accept any completed fetch after it, as
+`00-test-setup.md` Step 6 does. **And don't match the older `"DB refreshed"` text:** that only ever
+logs on the branch where nothing changed, and never appears for a fetch that pulls a real backlog.
 
 Then: quit, run the test-database script, start the app, query `db_type` as the very first Setup
 step -- it must read `{"type":"test"}`; if it reads `production`, **stop immediately**. When done:

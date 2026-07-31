@@ -63,8 +63,9 @@ is active and decide whether to record production history (on production it reco
 it asks whether to switch to production and record first, or skip straight to test -- so a run
 started off-production doesn't hard-fail); when recording, capture production's max
 `debug_log_id`, restart the app to force a fresh history fetch and confirm
-`"history fetch complete: trigger=startup"` (so all real history is recorded before switching --
-the end-of-run factory reset later wipes the device's own counter); then `use-test-database.sh`,
+a `"history fetch complete:"` lands after the restart's login (so all real history is recorded
+before switching -- the end-of-run factory reset later wipes the device's own counter; any trigger
+counts, and DETECTION.md explains why naming `startup` specifically is a race); then `use-test-database.sh`,
 relaunch, confirm reconnect, and confirm `db_type` is now `test`. If any setup step fails the
 whole run aborts before any feature checklist. (`session_setup.py` no longer switches; it just
 holds the warning and mid-timing gates and the end-of-run reset/restore.)

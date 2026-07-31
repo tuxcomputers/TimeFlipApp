@@ -1,6 +1,6 @@
 # History Refresh Checklist
 
-### Last run - 2026-07-21 on the branch 'feature/projects'
+### Last run - 2026-07-31 on the branch 'feature/uiTweaks'
 
 Covers the periodic/live-event history refresh rework: the cheap max-event-number check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see
@@ -137,11 +137,11 @@ use = "method-2"
 use = "method-4"
 since_id = "$before_quit_id"
 ```
-- [x] Step 4: Query `debug_log` for the startup fetch's
-`"history fetch triggered: trigger=startup known_max=<N>"` line and confirm it resumed from the position derived from `device_event` rather than re-fetching from scratch (which would show `known_max=0`).
+- [x] Step 4: Query `debug_log` for the relaunched app's first history fetch
+and confirm it resumed from the position derived from `device_event` (`known_max=<N>`) rather than re-fetching from scratch, which would show `known_max=0`. (Note: matches the first `hist-check` after the restart, deliberately **not** a `trigger=startup` line. The periodic timer starts at launch and ticks every 10s on the test database, so on a slow connect it fires before the startup fetch is reached; the startup call is then coalesced into the one already running and the work is logged under `trigger=periodic`. The resume position is what this step is actually about, and it is the same either way -- confirmed live 2026-07-31, where a 6.4s link plus twelve face-colour writes let the timer win.)
 ```toml step
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='hist-start' AND message LIKE 'history fetch triggered: trigger=startup%' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"
-expect_contains = "history fetch triggered: trigger=startup known_max=$cursor_c"
+query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"
+expect_contains = "known_max=$cursor_c"
 timeout_seconds = 30
 ```
