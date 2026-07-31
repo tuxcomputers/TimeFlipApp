@@ -7,10 +7,10 @@ The tab's behaviour splits three ways, and the split matters more than the indiv
 
 - **Store writes** are reachable today. `AppDataStore`'s category methods take plain arguments and
   hit a real SQLite file, so `TestDBPaths` covers them with no new seams.
-- **Decision logic is not reachable at all.** Name collisions, the rename confirmation, the icon
-  toggle, the daily-limit clamp and the Active partition all live inside `private` types and
-  methods on SwiftUI views. Every one of these is pure, and none can be called from a test. See
-  [Seams needed first](#seams-needed-first).
+- **Decision logic is reachable now.** Name collisions, the rename confirmation, the icon toggle,
+  the daily-limit clamp and the Active partition were all `private` on SwiftUI views, pure but
+  uncallable. They live in `CategoryEditRules` as of this branch. See
+  [Extracted decisions](#extracted-decisions).
 - **Presentation is out of scope** and belongs on a checklist. See [Not CI material](#not-ci-material).
 
 ## Already covered
@@ -82,13 +82,16 @@ aimed at the sentinel must leave it untouched.
     filters retired categories out of the *assignment list*, which is not the same as clearing an
     assignment already made.
 
-## Seams needed first
+## Extracted decisions
 
-Each of these is pure logic with no view state in it, sitting inside a SwiftUI view where no test
-can reach it. Lifting each into a small type or a static function makes the test trivial. I would
-do the extraction before writing the tests rather than reaching for a UI-testing harness.
+All of these now live in `Sources/TimeFlipApp/CategoryEditRules.swift`, moved out of the views
+without changing what they decide. Each test below is a plain call with no SwiftUI involved.
 
-**Create-name collision** (`CategoryCreateControl.save`, `NameConflict`)
+The two collision cases carry both the matched row and the typed name, because they are not
+interchangeable: the lookup is `COLLATE NOCASE`, so "meeting" collides with "Meeting", and the
+alert names the row that exists while the debug line records what was typed.
+
+**Create-name collision** (`CategoryEditRules.createDecision`)
 
 25. A free name inserts, with no alert.
 26. A name held by an active category is a dead end offering no create.
@@ -96,7 +99,7 @@ do the extraction before writing the tests rather than reaching for a UI-testing
     duplicate, plus cancel.
 28. The name is normalised before the lookup, so trailing space cannot dodge a collision.
 
-**Rename collision** (`CategoryRow.requestRename`, `RenameConfirmation`)
+**Rename collision** (`CategoryEditRules.renameDecision`)
 
 29. An unchanged name leaves edit mode with no confirmation raised.
 30. A name that normalises to empty does the same.
@@ -107,18 +110,18 @@ do the extraction before writing the tests rather than reaching for a UI-testing
 33. Colliding with an inactive one offers rename-anyway.
 34. A free name raises the plain history warning.
 
-**Icon grid** (`CategoryIconGrid`)
+**Icon grid** (`CategoryEditRules.iconSelection`)
 
 35. Clicking an unselected icon yields its `icon_id`.
 36. Clicking the already-selected icon yields 0, which is how clearing works with no None cell in
     the grid.
 
-**Daily limit** (`CategoryRow.applyDailyLimit`)
+**Daily limit** (`CategoryEditRules.dailyLimitWrite`)
 
 37. A negative input clamps to 0.
 38. An unchanged value writes nothing. Guards a redundant write and a misleading `debug_log` line.
 
-**List partition and patch-in-place** (`CategoriesSettingsView`)
+**List partition and patch-in-place** (`CategoryEditRules.partitioned` / `.patching`)
 
 39. Unticking Active moves a row from the Active partition to the Inactive one with no re-read.
 40. Ticking it in the Inactive section moves it back.

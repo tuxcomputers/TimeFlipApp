@@ -29,7 +29,7 @@ struct CategoryCreateControl: View {
 
     @State private var isCreating = false
     @State private var newCategoryName = ""
-    @State private var nameConflict: NameConflict?
+    @State private var nameConflict: CategoryNameConflict?
     @FocusState private var isNameFieldFocused: Bool
 
     var body: some View {
@@ -45,42 +45,8 @@ struct CategoryCreateControl: View {
             }
     }
 
-    /// What a Save collided with, and everything the alert needs to describe it.
-    private enum NameConflict: Identifiable {
-        /// The name is already in use by a category still in the Active list -- nothing to decide,
-        /// it is simply there to be found.
-        case active(name: String)
-        /// The name belongs to a retired category. Reinstating it keeps every historical
-        /// time_entry attached to the name; creating a second one does not.
-        case inactive(existing: CategoryRecord, name: String)
-
-        var id: String {
-            switch self {
-            case .active(let name): return "active:\(name)"
-            case .inactive(_, let name): return "inactive:\(name)"
-            }
-        }
-
-        var message: String {
-            switch self {
-            case .active(let name):
-                return """
-                "\(name)" is already in the Active list. Scroll up -- it is right there.
-                """
-            case .inactive(_, let name):
-                return """
-                "\(name)" already exists but has been made inactive.
-
-                Reactivating it keeps all of its history attached. Creating a second category \
-                with the same name leaves you two rows that look identical in reports, and \
-                sorting that out later is on you.
-                """
-            }
-        }
-    }
-
     @ViewBuilder
-    private func conflictButtons(for conflict: NameConflict) -> some View {
+    private func conflictButtons(for conflict: CategoryNameConflict) -> some View {
         switch conflict {
         case .active:
             Button("Ok I am an idiot that needs to open my eyes", role: .cancel) {
@@ -151,22 +117,24 @@ struct CategoryCreateControl: View {
         ActivityLibrary.normalizeCategoryName(newCategoryName)
     }
 
-    /// Checks the name against the whole `category` table -- not just a loaded list, which omits
-    /// the `Unassigned` sentinel -- before inserting anything. The insert itself is unguarded, so
-    /// this is the only thing standing between a typo and a second identically named category.
+    /// Acts on whatever `CategoryEditRules` makes of the typed name. The rule checks it against the
+    /// whole `category` table, not just a loaded list, which omits the `Unassigned` sentinel. The
+    /// insert itself is unguarded, so that check is the only thing standing between a typo and a
+    /// second identically named category.
     private func save() {
-        let name = normalizedNewCategoryName
-        guard !name.isEmpty else { return }
-        DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(name)\"")
-        if let existing = findCategory(name) {
-            DeveloperMode.debugPrint(.field, "Category name collision: \"\(name)\" matches category_id \(existing.id) (active=\(existing.isActive))")
-            nameConflict = existing.isActive
-                ? .active(name: existing.name)
-                : .inactive(existing: existing, name: name)
+        switch CategoryEditRules.createDecision(rawName: newCategoryName, findCategory: findCategory) {
+        case .ignore:
             return
+        case .insert(let name):
+            DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(name)\"")
+            onCreated(createCategory(name))
+            finishCreating()
+        case .conflict(let conflict):
+            let existing = conflict.existing
+            DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(conflict.attemptedName)\"")
+            DeveloperMode.debugPrint(.field, "Category name collision: \"\(conflict.attemptedName)\" matches category_id \(existing.id) (active=\(existing.isActive))")
+            nameConflict = conflict
         }
-        onCreated(createCategory(name))
-        finishCreating()
     }
 
     private func finishCreating() {

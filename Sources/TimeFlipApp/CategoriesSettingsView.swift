@@ -30,7 +30,7 @@ struct CategoriesSettingsView: View {
                 CategorySection(
                     title: "Active",
                     isExpanded: $isActiveExpanded,
-                    categories: categories.filter(\.isActive),
+                    categories: CategoryEditRules.partitioned(categories).active,
                     emptyMessage: "No active categories.",
                     appState: appState,
                     actions: actions
@@ -53,7 +53,7 @@ struct CategoriesSettingsView: View {
                 CategorySection(
                     title: "Inactive",
                     isExpanded: $isInactiveExpanded,
-                    categories: categories.filter { !$0.isActive },
+                    categories: CategoryEditRules.partitioned(categories).inactive,
                     emptyMessage: "No inactive categories.",
                     appState: appState,
                     actions: actions
@@ -98,8 +98,7 @@ struct CategoriesSettingsView: View {
     }
 
     private func patch(_ categoryID: Int, _ transform: (CategoryRecord) -> CategoryRecord) {
-        guard let index = categories.firstIndex(where: { $0.id == categoryID }) else { return }
-        categories[index] = transform(categories[index])
+        categories = CategoryEditRules.patching(categories, id: categoryID, transform)
     }
 }
 
@@ -188,7 +187,7 @@ private struct CategoryRow: View {
     @State private var isEditingName = false
     @State private var draftName = ""
     /// Which confirmation a Save raised, if any. Non-nil is what puts it on screen.
-    @State private var renameConfirmation: RenameConfirmation?
+    @State private var renameConfirmation: CategoryRenameConfirmation?
     @FocusState private var isNameFieldFocused: Bool
 
     /// `nil` for the None icon (icon_id 0), which is a sentinel rather than a bundled asset and so
@@ -273,96 +272,41 @@ private struct CategoryRow: View {
         }
     }
 
-    /// What a Save raised. Mirrors the create flow's collision handling: a name already in use by
-    /// an active category is a dead end, an inactive one is a "are you sure" -- with the plain
-    /// history warning when the name is free.
-    private enum RenameConfirmation: Identifiable {
-        case plain(newName: String)
-        case activeCollision(existingName: String)
-        case inactiveCollision(newName: String)
-
-        var id: String {
-            switch self {
-            case .plain(let name): return "plain:\(name)"
-            case .activeCollision(let name): return "active:\(name)"
-            case .inactiveCollision(let name): return "inactive:\(name)"
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .plain: return "Rename this category?"
-            case .activeCollision, .inactiveCollision: return "That category already exists"
-            }
-        }
-
-        /// The history caveat rides along with the inactive case rather than following it in a
-        /// second dialog: both facts are about the same single decision, and stacking two alerts
-        /// to agree to one rename is worse than one alert that says both.
-        func message(currentName: String) -> String {
-            switch self {
-            case .plain(let newName):
-                return historyWarning(currentName: currentName, newName: newName)
-            case .activeCollision(let existingName):
-                return """
-                "\(existingName)" is already in the Active list, so this name is taken.
-                """
-            case .inactiveCollision(let newName):
-                return """
-                "\(newName)" already exists as an inactive category. Renaming to it leaves two \
-                categories with that name, and sorting them apart in reports later is on you. Do \
-                you really want to do this?
-
-                \(historyWarning(currentName: currentName, newName: newName))
-                """
-            }
-        }
-
-        private func historyWarning(currentName: String, newName: String) -> String {
-            """
-            "\(currentName)" keeps all of its history -- nothing recorded against it is lost.
-
-            But everything links to this category by id rather than by name, so reports covering \
-            time before the rename will show "\(newName)" too, not the name that was in use then.
-            """
-        }
-    }
-
     @ViewBuilder
-    private func renameButtons(for confirmation: RenameConfirmation) -> some View {
+    private func renameButtons(for confirmation: CategoryRenameConfirmation) -> some View {
         switch confirmation {
         case .plain(let newName):
             Button("OK") { commitRename(to: newName) }
             Button("Cancel", role: .cancel) { cancelRename() }
         case .activeCollision:
             Button("Ok I am an idiot that needs to open my eyes", role: .cancel) { cancelRename() }
-        case .inactiveCollision(let newName):
+        case .inactiveCollision(_, let newName):
             Button("Rename anyway") { commitRename(to: newName) }
             Button("Cancel", role: .cancel) { cancelRename() }
         }
     }
 
-    /// Tidied the same way a newly created name is, so a rename cannot introduce the padding or
-    /// doubled spaces that creating would have collapsed. An unchanged or empty name just leaves
-    /// edit mode -- there is nothing to confirm.
-    ///
-    /// The taken-name check skips a hit on this same category: `findCategory` matches
-    /// `COLLATE NOCASE`, so "meeting" -> "Meeting" on the row being renamed finds itself, and
-    /// correcting a name's capitalisation is not a collision.
+    /// Raises whatever `CategoryEditRules` says this name calls for. The tidying, the
+    /// unchanged/empty cases and the collision branches all live there; what is left here is
+    /// putting the alert up and logging what happened.
     private func requestRename() {
-        let name = ActivityLibrary.normalizeCategoryName(draftName)
-        guard !name.isEmpty, name != category.name else {
+        switch CategoryEditRules.renameDecision(
+            rawName: draftName,
+            currentName: category.name,
+            currentID: category.id,
+            findCategory: actions.findCategory
+        ) {
+        case .ignore:
             cancelRename()
-            return
+        case .confirm(let confirmation):
+            if case .activeCollision(let existing, _) = confirmation {
+                DeveloperMode.debugPrint(.field, "Rename collision: \"\(confirmation.attemptedName)\" matches category_id \(existing.id) (active=true)")
+            }
+            if case .inactiveCollision(let existing, _) = confirmation {
+                DeveloperMode.debugPrint(.field, "Rename collision: \"\(confirmation.attemptedName)\" matches category_id \(existing.id) (active=false)")
+            }
+            renameConfirmation = confirmation
         }
-        if let existing = actions.findCategory(name), existing.id != category.id {
-            DeveloperMode.debugPrint(.field, "Rename collision: \"\(name)\" matches category_id \(existing.id) (active=\(existing.isActive))")
-            renameConfirmation = existing.isActive
-                ? .activeCollision(existingName: existing.name)
-                : .inactiveCollision(newName: name)
-            return
-        }
-        renameConfirmation = .plain(newName: name)
     }
 
     private func commitRename(to newName: String) {
@@ -486,8 +430,10 @@ private struct CategoryRow: View {
     }
 
     private func applyDailyLimit(newValue: Int) {
-        let clamped = max(0, newValue)
-        guard clamped != category.dailyLimitMinutes else { return }
+        guard let clamped = CategoryEditRules.dailyLimitWrite(
+            typed: newValue,
+            current: category.dailyLimitMinutes
+        ) else { return }
         DeveloperMode.debugPrint(.field, "Field changed: Category \"\(category.name)\" daily limit: \(category.dailyLimitMinutes)m -> \(clamped)m")
         actions.setDailyLimit(category.id, clamped)
     }
@@ -525,8 +471,10 @@ private struct CategoryIconGrid: View {
                     iconName: option.iconName,
                     isSelected: isSelected
                 ) {
-                    // Re-clicking the selected icon clears it; anything else selects it.
-                    let newIconID = isSelected ? 0 : option.iconId
+                    let newIconID = CategoryEditRules.iconSelection(
+                        clicked: option.iconId,
+                        selected: selectedIconID
+                    )
                     DeveloperMode.debugPrint(.click, "Button clicked: Icon grid cell (\(option.iconName)) -> icon_id \(newIconID)")
                     onPick(newIconID)
                 }
