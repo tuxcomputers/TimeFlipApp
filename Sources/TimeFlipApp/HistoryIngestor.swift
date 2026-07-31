@@ -121,11 +121,51 @@ final class HistoryIngestor {
             return
         }
 
+        // Step 2b: the device's counter is BELOW what we hold, which only happens when the device
+        // was factory reset (its counter restarts at 1) since we last looked. Resume from the
+        // bottom instead of from our stranded cursor.
+        //
+        // Without this the app cannot recover unless it personally witnessed the reset. The live
+        // `.factoryReset` sync-status event calls resetCursors, but only the session that was
+        // running at the time receives it, and only that session's database learns anything. Any
+        // *other* database is left holding a high-water mark the device can no longer reach:
+        // AppDataStore.currentGenerationMaxEventNumber recovers by spotting the counter going
+        // backwards between two rows, HistoryIngestor is the only writer of those rows, and it
+        // resumes above everything the reset device holds -- so the row that would create the
+        // boundary is gated behind the boundary already existing. It never ingests again until the
+        // device counts all the way back past the old maximum, losing every event in between,
+        // silently. Reproduced in Workflows/W08.
+        //
+        // The device-test runner walks straight into this: its end-of-run cleanup resets the cube
+        // while the app is pointed at test.sqlite, so production.sqlite never sees the reset. So
+        // does a user who resets from Settings and quits before the fetch finishes.
+        //
+        // Deliberately NOT resetCursors(): that also purges `logbook`, which is right when this
+        // session watched the device get wiped and wrong here, where the local history is real
+        // data this app has simply not been running to observe. Only the resume position is stale.
+        var resumedFromReset = false
+        if let knownMax, let deviceLastEventNumber, deviceLastEventNumber < knownMax {
+            resumedFromReset = true
+            lastQueuedEventNumber = nil
+            lastCommittedEventNumber = nil
+            lastObservedEventNumber = nil
+            logger.notice("history_ingest counter went backwards device_max=\(deviceLastEventNumber, privacy: .public) known_max=\(knownMax, privacy: .public); treating as factory reset")
+            DeveloperMode.debugPrint(
+                .histCheck,
+                "history fetch: counter went backwards (device=\(deviceLastEventNumber) < known=\(knownMax)) -- device was reset, resuming from the start"
+            )
+        }
+
         // Step 3: different (or unknown) -- fetch history starting AT the last known event
         // (nextStartCursor() resolves to lastCommittedEventNumber + 1, which is the previously
         // still-open entry's own number, not past it) so its complete/updated record comes back
         // too, instead of leaving its state ambiguous.
-        let startCursor = nextStartCursor()
+        //
+        // After a detected reset the cursor is taken as 0 rather than via nextStartCursor(), which
+        // calls ensureCursorLoaded() and would immediately re-derive the same stranded value back
+        // out of `device_event` -- the pre-reset rows are still there, and stay there, until a
+        // post-reset row arrives to mark the generation boundary.
+        let startCursor: UInt32? = resumedFromReset ? 0 : nextStartCursor()
         let rawEntries = await device.fetchHistory(startingFrom: startCursor)
             .filter { $0.eventNumber != nil }
             .sorted { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
