@@ -6,7 +6,8 @@ struct SettingsRootView: View {
     @ObservedObject var authManager: GoogleAuthManager
     let integrationCoordinator: GoogleIntegrationCoordinator
     let loadCategories: () -> [CategoryRecord]
-    let createCategory: (String) -> Void
+    /// Inserts the category and returns its new `category_id`, or `nil` if the insert failed.
+    let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
@@ -26,7 +27,7 @@ struct SettingsRootView: View {
         authManager: GoogleAuthManager,
         integrationCoordinator: GoogleIntegrationCoordinator,
         loadCategories: @escaping () -> [CategoryRecord],
-        createCategory: @escaping (String) -> Void,
+        createCategory: @escaping (String) -> Int?,
         findCategory: @escaping (String) -> CategoryRecord?,
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
@@ -151,7 +152,7 @@ enum SettingsTab: Hashable {
 private struct PaneSetupView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
-    let createCategory: (String) -> Void
+    let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
     let updateCategoryActive: (Int, Bool) -> Void
     let assignCategoryToFace: (UInt8, Int) -> Void
@@ -213,8 +214,7 @@ private struct PaneSetupView: View {
                         colourOptions: appState.colourOptions,
                         // A locked face keeps the category it has, so there is nothing here to
                         // click. The write refuses a locked face too, in case this ever gets past.
-                        canAssign: TimeFlipConstants.isValidFaceID(appState.currentFaceID)
-                            && !appState.isFaceLocked(appState.currentFaceID),
+                        canAssign: canAssignToFaceOnShow,
                         onSelect: { assignCategoryToFace(appState.currentFaceID, $0) }
                     )
 
@@ -227,8 +227,13 @@ private struct PaneSetupView: View {
                         reactivate: { category in
                             updateCategoryActive(category.id, true)
                             categories = loadCategories()
+                            assignToFaceOnShow(category.id)
                         },
-                        onCreated: { categories = loadCategories() }
+                        onCreated: { newCategoryID in
+                            categories = loadCategories()
+                            guard let newCategoryID else { return }
+                            assignToFaceOnShow(newCategoryID)
+                        }
                     )
                 }
                 .frame(width: rightWidth, alignment: .leading)
@@ -247,6 +252,36 @@ private struct PaneSetupView: View {
             .onAppear { categories = loadCategories() }
         }
         // swiftlint:enable closure_body_length
+    }
+
+    /// Whether the face on show will take a category: there has to be a real face up, and a locked
+    /// face keeps the one it already has. Read by the assignment list to decide whether its rows are
+    /// live, and by `assignToFaceOnShow` for the same question, so the two cannot disagree.
+    private var canAssignToFaceOnShow: Bool {
+        TimeFlipConstants.isValidFaceID(appState.currentFaceID)
+            && !appState.isFaceLocked(appState.currentFaceID)
+    }
+
+    /// Puts a just-created category straight onto the face on show. Creating a category on *this*
+    /// tab is done while looking at a particular face, and that face is the reason it is being
+    /// created, so it lands there rather than leaving the user to find the new row in the list below
+    /// and click it. The Categories tab, which has no face in front of it, creates without
+    /// assigning -- which is why this lives here and not in `CategoryCreateControl`.
+    ///
+    /// It overwrites whatever the face held: the face was unlocked and the user asked for a new
+    /// category while on it, which is the same instruction as clicking a row in the list.
+    ///
+    /// Does nothing when the face won't take it -- no face reported yet, or a locked one. Neither
+    /// needs saying twice: the list beside this is already visibly dead and the lock already reads
+    /// red, and the write itself refuses a locked face anyway.
+    private func assignToFaceOnShow(_ categoryID: Int) {
+        let faceID = appState.currentFaceID
+        guard canAssignToFaceOnShow else {
+            DeveloperMode.debugPrint(.click, "New category \(categoryID) left unassigned: face \(faceID) is \(appState.isFaceLocked(faceID) ? "locked" : "not a face")")
+            return
+        }
+        DeveloperMode.debugPrint(.click, "New category \(categoryID) assigned to the top face \(faceID)")
+        assignCategoryToFace(faceID, categoryID)
     }
 }
 

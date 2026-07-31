@@ -13,15 +13,19 @@ struct CategoryCreateControl: View {
     /// Only for the Escape handling: while the name field is open, the window's Close button has to
     /// give up its Escape shortcut -- see `AppState.openCategoryNameFields`.
     @ObservedObject var appState: AppState
-    let createCategory: (String) -> Void
+    /// Inserts the category and returns its new `category_id`, or `nil` if the insert failed.
+    let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
     /// Reinstates a retired category the new name collided with. Taken as a closure because each
     /// tab refreshes its own list differently -- the Categories tab patches the loaded record in
     /// place so the row moves between its Active and Inactive sections, while a tab that only shows
     /// active categories has to re-read.
     let reactivate: (CategoryRecord) -> Void
-    /// Called after a category has been inserted, so the caller can pick the new row up.
-    let onCreated: () -> Void
+    /// Called after a category has been inserted, with its new `category_id`, so the caller can
+    /// pick the new row up and do anything else the tab it is on owes the new category -- the Faces
+    /// tab assigns it to the face on show. `nil` when the insert failed, since there is then no row
+    /// to act on, only a list worth re-reading.
+    let onCreated: (Int?) -> Void
 
     @State private var isCreating = false
     @State private var newCategoryName = ""
@@ -90,8 +94,7 @@ struct CategoryCreateControl: View {
             }
             Button("Create a new category with the same name") {
                 DeveloperMode.debugPrint(.click, "Button clicked: Create duplicate category \"\(name)\"")
-                createCategory(name)
-                onCreated()
+                onCreated(createCategory(name))
                 finishCreating()
             }
             // Not one of the two choices asked for, but without a cancel-role button there is no
@@ -162,8 +165,7 @@ struct CategoryCreateControl: View {
                 : .inactive(existing: existing, name: name)
             return
         }
-        createCategory(name)
-        onCreated()
+        onCreated(createCategory(name))
         finishCreating()
     }
 

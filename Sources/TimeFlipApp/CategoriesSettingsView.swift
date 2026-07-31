@@ -3,7 +3,7 @@ import SwiftUI
 struct CategoriesSettingsView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
-    let createCategory: (String) -> Void
+    let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
@@ -38,7 +38,9 @@ struct CategoriesSettingsView: View {
                     // Patched in place rather than re-read, so the reinstated row moves from the
                     // Inactive section to the Active one straight away.
                     reactivate: { actions.setActive($0.id, true) },
-                    onCreated: { categories = loadCategories() }
+                    // The new category's id is of no use here: this tab has no face in front
+                    // of it to put the category on, unlike the Faces tab's create control.
+                    onCreated: { _ in categories = loadCategories() }
                 )
             }
             Section {
