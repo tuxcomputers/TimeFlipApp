@@ -114,6 +114,8 @@ anywhere in `Sources/`), and any reporting query that groups by `project_id` -- 
 - The user can give the physical TimeFlip its own name.
 - The chosen name is stored in a `setting` row, and checked and restored on app startup, so the
   cube carries the user's name rather than the vendor default.
+- The Scan for Devices list must match **both** the vendor default name and the stored custom
+  name, so a renamed cube is still findable.
 
 (Note: the driver can already write the name -- `TimeFlipBLEDevice.setDeviceName` sends `0x15`
 -- but **nothing in the app calls it**, and there is no `setting` row for it yet. Three things
@@ -136,7 +138,27 @@ ASCII only, while `0x2A00` reads up to 20. `setDeviceName` enforces the write li
 false, so an over-long or non-ASCII stored value would fail silently on every startup with only a
 debug line to show for it. Validate where the setting is written, not just at the BLE call.
 
+**A renamed cube disappears from the filtered scan, and Forget Device is when that bites.** The
+discovery filter is `serviceMatches || nameMatches`, where `nameMatches` is
+`peripheral.name.lowercased().contains("timeflip")`
+(`TimeFlipBLEDevice.centralManager(_:didDiscover:...)`). Its own comment records that the service
+UUID is **not** reliably advertised by this hardware, so in practice the name match is what finds
+the cube. Rename it to something like "Solid cube" and the filtered scan stops listing it. That
+is harmless while the device stays paired, because reconnects go straight to
+`paired_device.uuid` rather than rescanning, but the moment the user forgets the device the only
+way back is a scan, and the name that would match is no longer the one it is advertising.
+
+The **All Devices** tick box (`scanAllDevices`, `TimeFlipSettingsView`) turns the filter off and
+does list it, so this is a recovery path rather than a lockout. But it relies on the user knowing
+to tick it at precisely the moment they have lost the device, which is not a reasonable thing to
+require. So the filter needs to match the stored custom name as well as "timeflip" -- which in
+turn means the custom-name `setting` row **must survive Forget Device**. Clearing it on forget
+would destroy the one piece of information needed to find the cube again, leaving the tick box as
+the only way back.
+
 One useful interaction: `0xFE` (reset task info) deliberately leaves the name untouched, so only a
 full `0xFF` factory reset clears it. A startup restore is therefore exactly what repairs the name
 after the device-test runner's end-of-run factory reset, which is why that leftover needs no
-separate handling once this exists.)
+separate handling once this exists. Note the same fact cuts the other way here: forgetting a
+device does not un-rename it, so the cube keeps the custom name with no app left holding a record
+of it unless that row is deliberately kept.)
