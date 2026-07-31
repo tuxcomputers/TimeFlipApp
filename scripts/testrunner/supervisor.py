@@ -22,11 +22,17 @@ Usage (from repo root, normally via scripts/testrunner/run_tests.sh):
         auto-discovery entirely.
 
 Each unchecked step with a ```toml step block runs via actions.run_step(); the result
-flips its checkbox and appends an "(Automated: ...)"/"(AUTOMATED FAILURE: ...)" note,
-same convention a human/Claude run already leaves. A step with no such block is
-documentation-only and is skipped, not guessed at. Any failed step stops the whole run
-(later steps assume the state earlier ones left), leaving the device in the state that
-failed and skipping end-of-run cleanup so it can be inspected.
+flips its checkbox, which is the sole per-step record kept in the .md (Checklist.mark).
+A step with no such block is documentation-only and is skipped, not guessed at. Any
+failed step stops the whole run (later steps assume the state earlier ones left),
+leaving the device in the state that failed and skipping end-of-run cleanup so it can
+be inspected.
+
+A passing step prints a bare "-> PASS" and nothing else, so a run reads as a clean list
+of outcomes. What each step read goes to the `step_value` table in logs/testruns.sqlite
+instead (run_record.py) -- its own database file, so the values survive test.sqlite
+being reseeded each run and can be compared run to run. A failure still prints its
+Expected/Result on the spot.
 
 Every run writes a full transcript to logs/YYYY-MM-DD_hh.mm.ss.txt regardless of
 outcome, and exits non-zero if anything failed or was skipped -- for CI/scripts to
@@ -50,6 +56,7 @@ from actions import (  # noqa: E402
     run_step,
 )
 from remembered import Remembered  # noqa: E402
+from run_record import RunRecord  # noqa: E402
 from session_setup import (  # noqa: E402
     _latest_debug_log_id,
     confirm_warning,
@@ -144,20 +151,38 @@ class _RunHalted(Exception):
 def _result_lines(result):
     """The console lines for a finished step's result.
 
-    A pass echoes only the value it read, or nothing at all when the step just *did* something:
-        -> PASS: 2059
-        -> PASS
-    A failure puts the two halves a reader wants on their own lines:
+    A pass is a bare `-> PASS` and nothing else, whether or not the step read anything, so a run
+    reads as a clean list of outcomes rather than a wall of interleaved values. The value it read
+    isn't discarded -- every step's goes to the `step_value` table in logs/testruns.sqlite (see
+    run_record.py), which keeps it queryable and comparable across runs, which the console never
+    was.
+
+    A failure still says everything on the spot: that is the moment the detail is wanted, and
+    making someone open a database to find out *why* a run stopped would be a bad trade.
         -> FAIL:
         Expected: 67
         Result: Yep
     A failure with nothing to compare (a shell command's non-zero exit, an exception) has no
     Expected, so it reports what came back on the one line instead: `-> FAIL: exit=1`."""
     if result.success:
-        return [f"-> PASS: {result.value}" if result.value else "-> PASS"]
+        return ["-> PASS"]
     if result.expected is None:
         return [f"-> FAIL: {result.detail}"]
     return ["-> FAIL:", f"Expected: {result.expected}", f"Result: {result.actual}"]
+
+
+def _record(run_record, path, step, desc, status, value=None, expected=None, note=None,
+            verified_by="script"):
+    """One step's row in `step_value`. Every outcome goes in, including SKIP -- an absent row
+    would mean "the run never got here", which is a different thing and the DB should be able to
+    tell them apart. No-op when recording is off."""
+    if run_record is None:
+        return
+    run_record.record_step(
+        checklist=os.path.basename(path), section=step.section, step_number=step.number,
+        description=desc, status=status, value=value, expected=expected, note=note,
+        verified_by=verified_by,
+    )
 
 
 def _handle_failure(path, step, checklist, log_lines, skipped_prose, reason):
@@ -356,7 +381,7 @@ def resolve_rerun_state(checklist_paths, log_lines, auto_yes):
 
 
 def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
-                  initial_vars=None, methods=None):
+                  initial_vars=None, methods=None, run_record=None):
     checklist = Checklist(path)
     methods = methods if methods is not None else {}
     log_lines.append(f"\n=== {_log_path(path)} ===")
@@ -398,7 +423,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
 
         # Which scenario this step is in (for recording captures under it), and -- for a resume
         # that skipped earlier scenarios -- fill any $var this step needs that an earlier scenario
-        # captured, from logs/00-remembered.json. Both no-op for a spec-less (human) step.
+        # captured, from the `captured_value` table. Both no-op for a spec-less (human) step.
         ctx["section"] = step.section
         # Expand any `use = "method-N"` against Tests/Methods.md first, so a shared body's own
         # `$vars` are in the spec before the remembered-value fill and the run see it.
@@ -412,6 +437,8 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
                 print(f"\n{header}")
                 print("-> SKIP: needs human verification; --yes/non-interactive can't ask.")
                 log_lines.append(f"Step {step.number}: SKIP - {desc} (needs human; --yes)")
+                _record(run_record, path, step, desc, "SKIP",
+                        note="needs human verification; --yes/non-interactive can't ask")
                 all_ok = False
                 skipped_prose.add(step.prose)
                 continue
@@ -428,8 +455,11 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
                 checklist.mark(step, True)
                 checklist.save()
                 log_lines.append(f"Step {step.number}: PASS - {desc} (human-verified)")
+                _record(run_record, path, step, desc, "PASS", verified_by="human")
                 continue
             log_lines.append(f"Step {step.number}: FAIL - {desc} (human-verified)")
+            _record(run_record, path, step, desc, "FAIL", verified_by="human",
+                    note="the person answering said it did not match")
             all_ok = False
             _handle_failure(path, step, checklist, log_lines, skipped_prose,
                             "human-verified step did not pass")
@@ -443,6 +473,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
         if cond is not None and not condition_met(cond, ctx):
             print(f"-> SKIP: not needed (when {cond})")
             log_lines.append(f"Step {step.number}: SKIP - {desc} (when {cond} not met)")
+            _record(run_record, path, step, desc, "SKIP", note=f"when {cond} not met")
             checklist.mark(step, True)
             checklist.save()
             continue
@@ -461,14 +492,22 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
         except Exception:  # noqa: BLE001 -- a transient read must not crash the run
             ctx["vars"]["current_log_id"] = 0
         result = run_step(spec, ctx)
-        # A pass shows only what it *read* -- "-> PASS: 2059", or a bare "-> PASS" for a step that
-        # just does something (click, quit, sleep). A fail splits the comparison over its own
+        # A pass is a bare "-> PASS", value or not. A fail splits the comparison over its own
         # "Expected:"/"Result:" lines, falling back to the raw detail when nothing was asserted
-        # (a shell command's non-zero exit, an exception).
+        # (a shell command's non-zero exit, an exception). See _result_lines.
         print("\n".join(_result_lines(result)))
-        # The log mirrors that: a pass that got what it expected needs no detail (the tick + PASS
-        # is enough), a fail records the comparison. (Captured values aren't logged here; they're
-        # recorded in logs/00-remembered.json.)
+        # The value the console no longer shows goes here instead -- one row per step, queryable
+        # and comparable across runs (run_record.py). Recorded before the tick, so a step that
+        # fails still leaves its reading behind for the post-mortem.
+        _record(run_record, path, step, desc,
+                status="PASS" if result.success else "FAIL",
+                value=result.value if result.success else result.actual,
+                expected=None if result.success else result.expected,
+                # On a failure with nothing to compare (a non-zero exit, an exception) there is no
+                # expected/actual pair, and `detail` is the only account of what went wrong.
+                note=None if result.success or result.expected is not None else result.detail)
+        # The log mirrors the console: a pass that got what it expected needs no detail (the tick
+        # + PASS is enough), a fail records the comparison.
         if result.success:
             log_lines.append(f"Step {step.number}: PASS - {desc}")
         else:
@@ -551,9 +590,29 @@ def main():
     log_lines.append("Checklists:")
     log_lines.extend(f"  {_log_path(p)}" for p in checklist_paths)
 
-    # Side-record of values read (recorded) and settings changed (changed, with live current)
-    # this run, keyed by the same timestamp as the .txt log. Populated live as steps capture.
-    remembered = Remembered(os.path.join(log_dir, "00-remembered.json"), timestamp)
+    # Everything this run records: per-step readings (the console just says PASS now) and the
+    # `capture =` values a resume needs. Its own database file, not tables in the app's:
+    # test.sqlite is wiped and reseeded at the start of every run, and debug_log is what the
+    # checklists assert against (see run_record.py for the full reasoning).
+    run_record = RunRecord(os.path.join(log_dir, "testruns.sqlite"), timestamp)
+    if run_record.disabled_reason:
+        print(f"note: run values won't be recorded this run ({run_record.disabled_reason})")
+        log_lines.append(f"Run-value recording disabled: {run_record.disabled_reason}")
+    # Carry over captures from before these moved out of JSON, so the first run after the switch
+    # can still resume an interrupted previous one. Idempotent, and a no-op once the file is gone.
+    legacy_json = os.path.join(log_dir, "00-remembered.json")
+    imported = run_record.import_legacy_remembered(legacy_json)
+    if imported:
+        print(f"note: imported {imported} captured value(s) from {os.path.basename(legacy_json)} "
+              "-- that file is no longer written to and can be deleted.")
+        log_lines.append(f"Imported {imported} captured value(s) from 00-remembered.json")
+
+    # What the run was asked to cover, recorded before it covers any of it -- so a run that halts
+    # early is distinguishable from one that was never asked to go further.
+    run_record.record_checklists([_log_path(p) for p in checklist_paths])
+
+    # The `capture =` values, read back by a resume whose earlier scenarios never ran.
+    remembered = Remembered(run_record)
 
     # The shared step bodies every checklist's `use = "method-N"` refers to. Loaded once, up front,
     # so a typo in Methods.md fails the run here rather than mid-way through a device test.
@@ -624,7 +683,7 @@ def main():
         if not run_checklist(setup_path, db_path, log_lines, args.yes, remembered,
                              initial_vars={"needs_history": needs_history,
                                            "resume": resume, "db_mode": db_mode},
-                             methods=methods):
+                             methods=methods, run_record=run_record):
             print("\nAborted -- test setup failed; not running any checklists.")
             log_lines.append("ABORTED: test setup failed.")
             sys.exit(1)
@@ -641,7 +700,7 @@ def main():
                 overall_ok = False
                 break
             ok = run_checklist(path, db_path, log_lines, args.yes, remembered,
-                               methods=methods)
+                               methods=methods, run_record=run_record)
             overall_ok = overall_ok and ok
     except _RunHalted as halt:
         banner = "!" * 70
@@ -651,11 +710,20 @@ def main():
         print("can inspect the current state. You are most likely still on the TEST database --")
         print("quit the app and run scripts/use-production-database.sh when you're done.")
         print(banner)
+        # The investigation this halt exists for is exactly when the readings matter, and every
+        # row is already committed (run_record commits per step, for this case).
+        run_record.finish_run("HALTED", halt_reason=str(halt))
+        if run_record.value_count():
+            print(f"Everything read up to the failure is in {run_record.path} (run_id "
+                  f"'{timestamp}').")
+        run_record.close()
         log_lines.append(f"\nRUN HALTED: {halt} (end-of-run cleanup skipped)")
         sys.exit(2)
 
     cleanup_ok = reset_device_for_cleanup(db_path)
     log_lines.append(f"\nEnd-of-run device cleanup: {'OK' if cleanup_ok else 'FAILED -- reset/pair the device manually'}")
+    # A run can pass every step and still leave the cube carrying this session's activity.
+    run_record.record_cleanup("OK" if cleanup_ok else "FAILED")
     if not cleanup_ok:
         print(
             "\n!!! Cleanup reset did not complete -- the device may still carry this "
@@ -691,9 +759,19 @@ def main():
 
     log_lines.append(f"\nOverall result: {'PASS' if overall_ok else 'FAIL'}")
 
+    # Say where the values went. The console deliberately doesn't show them any more, so without
+    # this line a developer wanting one has nothing pointing them at the database.
+    run_record.finish_run("PASS" if overall_ok else "FAIL")
+    recorded = run_record.value_count()
+    run_record.close()
+
     print(f"\n{'=' * 60}")
     print(f"Overall result: {'PASS' if overall_ok else 'FAIL'}")
     print(f"Log written to {log_path}")
+    if recorded:
+        print(f"{recorded} step value(s) recorded in {run_record.path}")
+        print(f"  sqlite3 '{run_record.path}' \"SELECT section, step_number, description, value "
+              f"FROM step_value WHERE run_id='{timestamp}' AND value IS NOT NULL;\"")
     sys.exit(0 if overall_ok else 1)
 
 

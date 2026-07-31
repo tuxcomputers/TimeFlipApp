@@ -136,7 +136,7 @@ per-step y/n gate. One line names the step, one reports the result:
 
 ```
 (00 Test setup) Setup - Step 1: Check which database is active.
--> PASS: production
+-> PASS
 ```
 
 The step line is `(<checklist>) [<actor>] <section> - Step <n>: <instruction>`, where the
@@ -144,13 +144,16 @@ instruction is the step's **first line** in the `.md` -- so write that line as t
 imperative sentence and put the rationale/caveats on the wrapped lines under it (see
 `Tests/00-test-setup.md` for the shape). `(You)` appears for a `**(You)**` step.
 
-The result line reports only what the step **read**, so a pass stays scannable:
+A pass is a bare `-> PASS` and nothing else, whether the step read a value or just clicked
+something, so a run reads as a clean list of outcomes:
 
 ```
--> PASS: 2059          a value it read (a single-key JSON object is unwrapped: {"type":"test"} -> test)
--> PASS                a step that just *does* something -- a click, a quit, a sleep
+-> PASS
 -> SKIP: not needed (when $want_switch == y)
 ```
+
+The value it read isn't lost -- it goes to `logs/testruns.sqlite` (see **Recorded step values**
+below), where it's queryable and comparable across runs, which the console never was.
 
 A failure splits the comparison over its own lines, which is what you actually want to read:
 
@@ -290,17 +293,19 @@ your **own** descriptively-named var at that point (`before_reset_id`, `confirme
 `prod_before_id`, ...); it coexists with `current_log_id`, which keeps advancing underneath it. Rule
 of thumb: same-step → `$current_log_id`; spans steps → give it a name.
 
-**Remembering captured values (`logs/00-remembered.json`).** Every `capture =` value is also
-mirrored into `logs/00-remembered.json`, as a tree **run -> test -> scenario -> {capture:
-value}**: the top key is the run's log-file stamp (the same `YYYY-MM-DD_hh.mm.ss` as the `.txt`
-transcript), then the checklist filename, then the `##` scenario, then that scenario's captures
-by name. The file is rewritten after every capture and accumulates runs (each new run adds its
-own top-level key).
+**Remembering captured values (`captured_value`).** Every `capture =` value is also written to
+the `captured_value` table in `logs/testruns.sqlite`, keyed by run stamp, checklist filename and
+`##` scenario, with the capture's name. Rows accumulate across runs. A later capture of the same
+name in the same scenario overwrites it (last write wins).
+
+These lived in `logs/00-remembered.json` until they moved into the database the runner already
+writes step readings to -- same kind of thing, same keys, so one store instead of two. An
+existing `00-remembered.json` is imported automatically on the next run and can then be deleted.
 
 Its main job is **cross-scenario resume**: a value a scenario captures (e.g. `07b` Scenario A's
 `threshold_original`) is needed by a later scenario (Scenario C restores it). On a
 restart-from-scenario resume the earlier scenario is skipped, so its `$var` isn't in the live
-context -- before each step the runner looks up any missing `$var` it references in this tree
+context -- before each step the runner looks up any missing `$var` it references in that table
 (newest run first, then that test's scenarios) and supplies the previous scenario's value. A var
 nothing ever recorded stays unresolved, exactly as before. (JSON-path `$.field` tokens in SQL
 aren't treated as vars.) So a checklist can restore a setting in a later scenario without
@@ -385,7 +390,7 @@ blocking, for CI/non-interactive use.
 
 Restart-from-scenario keeps earlier scenarios' checkboxes but not their live `$vars` (each
 checklist run starts with a fresh var context). That's fine: a value a *previous* scenario
-captured is recovered from `logs/00-remembered.json` when a later scenario references it -- see
+captured is recovered from the `captured_value` table when a later scenario references it -- see
 "Remembering captured values" below.
 
 ### What's recorded where
@@ -413,8 +418,8 @@ The step text is the step's first line in the `.md`, same as the console. A **PA
 what it expected records no detail -- the tick is enough. A **FAIL** records the comparison as
 `  - Expected:` / `  - Result:` lines, or a single `  - Result:` when there was nothing to
 compare (a shell command's non-zero exit, an exception). A **SKIP** shows why (an unmet `when`
-guard, or a human step under `--yes`). Captured values are **not** logged here -- they go to
-`logs/00-remembered.json` (see `remember`/`restores` above). A failure also adds a
+guard, or a human step under `--yes`). Captured values are **not** logged here -- they go to the
+`captured_value` table (see "Remembering captured values" above). A failure also adds a
 `FAILURE LOGGED` line, keyed by the `T<checklist>-<section>-St<n>` id.
 
 ## Failure handling and logs
@@ -440,5 +445,55 @@ a device that isn't there.
 Every run writes `logs/YYYY-MM-DD_hh.mm.ss.txt` (gitignored -- these are run artifacts,
 not source) with a full transcript, and the process exits non-zero if anything failed or
 was skipped. Attach that file when filing an issue, or point CI at it as a build artifact.
-Alongside it, `logs/00-remembered.json` records the values each run read and changed (see
-`remember`/`restores` above) under that same timestamp key.
+Alongside it, `logs/testruns.sqlite` records what each run read, skipped and captured under
+that same timestamp as `run_id` -- see **Recorded step values** below.
+
+### Recorded step values
+
+Since a pass prints only `-> PASS`, what each step read goes to `logs/testruns.sqlite`
+(gitignored) instead. Three tables, all keyed by the same `run_id` timestamp as the `.txt` log:
+`run` (one row per run), `step_value` (one row per step, including SKIPs), and `captured_value`
+(the `capture =` values a resume recovers, which used to be `logs/00-remembered.json`). Columns,
+indexes and what joins to what are in [`ER-diagram.md`](ER-diagram.md); this section is just how
+to use it.
+
+To open it before any run has happened, or to apply columns added since:
+
+```sh
+python3 scripts/testrunner/create_testruns_db.py
+```
+
+```sh
+# everything one run read
+sqlite3 logs/testruns.sqlite "SELECT section, step_number, description, value FROM step_value
+  WHERE run_id='2026-07-31_13.01.08' AND value IS NOT NULL;"
+
+# one step's value across every run, oldest first -- the query the console could never answer
+sqlite3 logs/testruns.sqlite "SELECT run_id, value FROM step_value
+  WHERE checklist LIKE '07b%' AND section='Scenario A' AND step_number=3 ORDER BY run_id;"
+
+# which runs failed, and did the cube get cleaned up afterwards
+sqlite3 logs/testruns.sqlite "SELECT run_id, outcome, cleanup, halt_reason FROM run
+  WHERE outcome <> 'PASS' ORDER BY run_id DESC;"
+
+# what a run skipped, and why -- absent rows mean "never got there", SKIP rows mean "chose not to"
+sqlite3 logs/testruns.sqlite "SELECT checklist, section, step_number, description, note
+  FROM step_value WHERE run_id='2026-07-31_13.01.08' AND status='SKIP';"
+
+# which passes are a person's word rather than an assertion
+sqlite3 logs/testruns.sqlite "SELECT checklist, section, step_number, description FROM step_value
+  WHERE run_id='2026-07-31_13.01.08' AND verified_by='human';"
+```
+
+**Why its own file and not a table in the app's database.** `scripts/use-test-database.sh` wipes
+and reseeds `test.sqlite` at the start of every run, so a table there would lose the previous
+run's values -- and comparing runs is the whole point. `debug_log` is worse still: it's what the
+checklists *assert against* (`method-24.d`/`24.e`, every `wait_for_sql`), so a runner writing
+there would be adding rows to its own evidence and shifting the `MAX(debug_log_id)` baselines
+those assertions scope to. Keeping it under `logs/` also keeps the runner out of the app's
+migrated schema. Recording is best-effort: if the database can't be opened the run says so once
+and carries on, because a side-record must never fail a device test.
+
+Rows are committed per step rather than batched at the end, so a run that halts on a failure
+(which this runner does deliberately) has already written everything it read up to that point --
+which is exactly when you want it.

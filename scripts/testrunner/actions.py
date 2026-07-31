@@ -56,9 +56,10 @@ class StepResult:
     detail: str
     captured: Optional[Any] = None
     # The one thing this action *read* (a db value, a matched log line, a y/n answer), already
-    # console-formatted. None for an action that merely *does* something (a click, a shell
-    # command, a keystroke) -- those have no value worth echoing, so a passing step prints a
-    # bare "-> PASS". `detail` stays the full diagnostic text, used on a failure.
+    # formatted. None for an action that merely *does* something (a click, a shell command, a
+    # keystroke). The console never prints this -- a pass is always a bare "-> PASS" -- it goes
+    # to the `step_value` table instead (run_record.py), which keeps it across runs. `detail`
+    # stays the full diagnostic text, used on a failure.
     value: Optional[str] = None
     # On a failure with an assertion behind it, the two halves the reader actually wants, printed
     # as separate "Expected:"/"Result:" lines. Both None for a failure with nothing to compare
@@ -116,10 +117,10 @@ def _sub(text, ctx):
 
 
 def _remember_capture(spec, ctx, value):
-    """Mirror a just-captured value into logs/00-remembered.json under
-    run -> test -> scenario -> {capture: value}, so a later resume can recover it (see
-    remembered.py). `test`/`section` are put on ctx by the supervisor per step. No-op when no
-    recorder is attached (e.g. unit tests) or the step captures nothing."""
+    """Mirror a just-captured value into the `captured_value` table, keyed by run, checklist and
+    scenario, so a later resume can recover it (see remembered.py). `test`/`section` are put on
+    ctx by the supervisor per step. No-op when no recorder is attached (e.g. unit tests) or the
+    step captures nothing."""
     rec = ctx.get("remembered")
     if rec is not None and spec.get("capture"):
         rec.record(ctx.get("test", "?"), ctx.get("section", "?"), spec["capture"], value)
@@ -740,7 +741,7 @@ def run_step(spec, ctx):
                 # carries the whole sequence for the log.
                 return StepResult(False, " | ".join(details), expected=r.expected, actual=r.actual)
         # Every value the sequence read, in order -- a step that only clicks/sleeps contributes
-        # none and so prints a bare "-> PASS".
+        # none, and its `step_value` row is recorded with a NULL value.
         return StepResult(True, " | ".join(details), last_captured,
                           value=", ".join(values) if values else None)
     return _run_single(spec, ctx)
