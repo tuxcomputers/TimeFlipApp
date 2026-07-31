@@ -270,33 +270,45 @@ final class CategoryStoreTests: XCTestCase {
 
     // MARK: - Cross-table
 
-    /// Retiring is an UPDATE, never a DELETE, and this is the whole reason `active` exists. A
-    /// `time_entry` written before the category was retired still has to resolve to it.
-    ///
-    /// Inserted with raw SQL because nothing writes `time_entry` yet. That makes this a test of the
-    /// schema contract the feature will rest on rather than of app code, which is worth having now:
-    /// the retire path already ships, so the row it must not break should already be protected.
-    func testRetiringACategoryLeavesItsTimeEntriesResolvable() throws {
-        let store = makeStore()
-        let id = try XCTUnwrap(store.createCategory(name: "Historic"))
-        try insertTimeEntry(categoryID: id)
-
-        store.updateCategoryActive(categoryID: id, isActive: false)
-
-        XCTAssertEqual(try resolvedCategoryNameForTimeEntry(), "Historic")
-    }
-
-    /// The behaviour the rename confirmation warns about, asserted rather than assumed: everything
-    /// links by `category_id`, so history recorded before the rename reports the new name too.
-    func testRenamingACategoryChangesWhatItsHistoryReports() throws {
-        let store = makeStore()
-        let id = try XCTUnwrap(store.createCategory(name: "Old name"))
-        try insertTimeEntry(categoryID: id)
-
-        store.updateCategoryName(categoryID: id, name: "New name")
-
-        XCTAssertEqual(try resolvedCategoryNameForTimeEntry(), "New name")
-    }
+    // Waiting on `time_entry`.
+    //
+    // Both of these assert what happens to a category's history when it is retired or renamed, and
+    // nothing writes `time_entry` yet. Reinstate them, and the raw SQL helpers at the foot of the
+    // file, once there is a real writer and reader for that table -- and route them through those
+    // rather than through raw SQL at that point.
+    //
+    // The version that ran here passed, but it only demonstrated that SQLite joins on a foreign
+    // key: no app code put the row there or read it back. Both claims stay worth making, since
+    // retiring being an UPDATE and never a DELETE is the whole reason `active` exists, and a rename
+    // reaching back over old history is exactly what the confirmation dialog warns about.
+    //
+    // /// Retiring is an UPDATE, never a DELETE, and this is the whole reason `active` exists. A
+    // /// `time_entry` written before the category was retired still has to resolve to it.
+    // ///
+    // /// Inserted with raw SQL because nothing writes `time_entry` yet. That makes this a test of the
+    // /// schema contract the feature will rest on rather than of app code, which is worth having now:
+    // /// the retire path already ships, so the row it must not break should already be protected.
+    // func testRetiringACategoryLeavesItsTimeEntriesResolvable() throws {
+    //     let store = makeStore()
+    //     let id = try XCTUnwrap(store.createCategory(name: "Historic"))
+    //     try insertTimeEntry(categoryID: id)
+    //
+    //     store.updateCategoryActive(categoryID: id, isActive: false)
+    //
+    //     XCTAssertEqual(try resolvedCategoryNameForTimeEntry(), "Historic")
+    // }
+    //
+    // /// The behaviour the rename confirmation warns about, asserted rather than assumed: everything
+    // /// links by `category_id`, so history recorded before the rename reports the new name too.
+    // func testRenamingACategoryChangesWhatItsHistoryReports() throws {
+    //     let store = makeStore()
+    //     let id = try XCTUnwrap(store.createCategory(name: "Old name"))
+    //     try insertTimeEntry(categoryID: id)
+    //
+    //     store.updateCategoryName(categoryID: id, name: "New name")
+    //
+    //     XCTAssertEqual(try resolvedCategoryNameForTimeEntry(), "New name")
+    // }
 
     /// The Faces tab drops retired categories from the list it offers for a *new* assignment, which
     /// is not the same as clearing one already made. A face keeps what it was given.
@@ -312,52 +324,56 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertFalse(onFace.isActive, "still assigned, and reported as retired")
     }
 
-    // MARK: - Raw SQL helpers
-
-    /// `time_entry` has no writer in `AppDataStore` yet, so the cross-table tests lay their own row
-    /// down. `device_event_id` points at nothing in particular: foreign keys are not enforced on
-    /// these connections, and what is under test is the category join.
-    private func insertTimeEntry(categoryID: Int) throws {
-        try execute("""
-        INSERT INTO time_entry (category_id, device_event_id, started_at, ended_at, duration_seconds)
-        VALUES (\(categoryID), 1, '2026-07-31T09:00:00Z', '2026-07-31T09:30:00Z', 1800);
-        """)
-    }
-
-    private func resolvedCategoryNameForTimeEntry() throws -> String? {
-        try queryFirstString("""
-        SELECT c.category_name FROM time_entry t
-        JOIN category c ON c.category_id = t.category_id
-        ORDER BY t.time_entry_id DESC LIMIT 1;
-        """)
-    }
-
-    private func openRawConnection() throws -> OpaquePointer {
-        var handle: OpaquePointer?
-        guard sqlite3_open(dbURL.path, &handle) == SQLITE_OK, let handle else {
-            throw XCTSkip("could not open the test database directly")
-        }
-        return handle
-    }
-
-    private func execute(_ sql: String) throws {
-        let handle = try openRawConnection()
-        defer { sqlite3_close(handle) }
-        var error: UnsafeMutablePointer<CChar>?
-        guard sqlite3_exec(handle, sql, nil, nil, &error) == SQLITE_OK else {
-            let message = error.map { String(cString: $0) } ?? "unknown"
-            sqlite3_free(error)
-            return XCTFail("raw exec failed: \(message)")
-        }
-    }
-
-    private func queryFirstString(_ sql: String) throws -> String? {
-        let handle = try openRawConnection()
-        defer { sqlite3_close(handle) }
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return sqlite3_column_text(stmt, 0).map { String(cString: $0) }
-    }
+    // MARK: - Raw SQL helpers (waiting on `time_entry`)
+    //
+    // Used only by the two commented-out tests above, and commented with them so reinstating is one
+    // uncomment rather than a rewrite. `import SQLite3` at the top of the file is for these alone.
+    //
+    //
+    // /// `time_entry` has no writer in `AppDataStore` yet, so the cross-table tests lay their own row
+    // /// down. `device_event_id` points at nothing in particular: foreign keys are not enforced on
+    // /// these connections, and what is under test is the category join.
+    // private func insertTimeEntry(categoryID: Int) throws {
+    //     try execute("""
+    //     INSERT INTO time_entry (category_id, device_event_id, started_at, ended_at, duration_seconds)
+    //     VALUES (\(categoryID), 1, '2026-07-31T09:00:00Z', '2026-07-31T09:30:00Z', 1800);
+    //     """)
+    // }
+    //
+    // private func resolvedCategoryNameForTimeEntry() throws -> String? {
+    //     try queryFirstString("""
+    //     SELECT c.category_name FROM time_entry t
+    //     JOIN category c ON c.category_id = t.category_id
+    //     ORDER BY t.time_entry_id DESC LIMIT 1;
+    //     """)
+    // }
+    //
+    // private func openRawConnection() throws -> OpaquePointer {
+    //     var handle: OpaquePointer?
+    //     guard sqlite3_open(dbURL.path, &handle) == SQLITE_OK, let handle else {
+    //         throw XCTSkip("could not open the test database directly")
+    //     }
+    //     return handle
+    // }
+    //
+    // private func execute(_ sql: String) throws {
+    //     let handle = try openRawConnection()
+    //     defer { sqlite3_close(handle) }
+    //     var error: UnsafeMutablePointer<CChar>?
+    //     guard sqlite3_exec(handle, sql, nil, nil, &error) == SQLITE_OK else {
+    //         let message = error.map { String(cString: $0) } ?? "unknown"
+    //         sqlite3_free(error)
+    //         return XCTFail("raw exec failed: \(message)")
+    //     }
+    // }
+    //
+    // private func queryFirstString(_ sql: String) throws -> String? {
+    //     let handle = try openRawConnection()
+    //     defer { sqlite3_close(handle) }
+    //     var stmt: OpaquePointer?
+    //     defer { sqlite3_finalize(stmt) }
+    //     guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+    //     guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+    //     return sqlite3_column_text(stmt, 0).map { String(cString: $0) }
+    // }
 }

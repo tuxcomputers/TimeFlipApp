@@ -1,6 +1,7 @@
 # CI tests for the Categories tab
 
-**All written.** `CategoryStoreTests` (1-24), `CategoryEditRulesTests` (25-43) and
+**All written except 22 and 23**, which are commented out in place until `time_entry` has a writer.
+`CategoryStoreTests` (1-24), `CategoryEditRulesTests` (25-43) and
 `Workflows/W09-category-lifecycle` (44-49). This file is kept as the map of what is covered and
 why, and as the record of what was deliberately left to a checklist.
 
@@ -81,13 +82,16 @@ aimed at the sentinel must leave it untouched.
 
 **Cross-table**
 
-22. Retiring a category leaves its `time_entry` rows resolvable. This is the entire stated reason
-    for `active` existing instead of a delete. Nothing writes `time_entry` yet, so the test lays a
-    row down with raw SQL: it pins the schema contract the feature will rest on, since the retire
-    path already ships.
-23. Renaming a category changes what historical rows report, since everything links by
-    `category_id`. This is the behaviour the confirmation dialog warns about, and it should be
-    proven true rather than assumed.
+22. **Deferred, commented out in `CategoryStoreTests`.** Retiring a category leaves its
+    `time_entry` rows resolvable. The entire stated reason for `active` existing instead of a
+    delete.
+23. **Deferred, commented out in `CategoryStoreTests`.** Renaming a category changes what
+    historical rows report, since everything links by `category_id`. The behaviour the confirmation
+    dialog warns about.
+
+Both are waiting on a real writer and reader for `time_entry`. The raw-SQL version passed but only
+showed that SQLite joins on a foreign key, with no app code putting the row there or reading it
+back. Reinstate them, and the raw SQL helpers at the foot of that file, when the table is live.
 24. Retiring a category still assigned to a face leaves the face assignment intact. The Faces tab
     filters retired categories out of the *assignment list*, which is not the same as clearing an
     assignment already made.
