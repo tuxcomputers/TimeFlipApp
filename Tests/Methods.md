@@ -430,14 +430,20 @@ scripts/use-test-database.sh        # -> test.sqlite (deletes and recreates fres
 scripts/use-production-database.sh  # -> production.sqlite
 ```
 **Pre-flight, every session, before switching:** confirm `db_type` reads `{"type":"production"}`,
-then restart the app and confirm a fresh `history` fetch against production has completed
-(`debug_log`, tag `history`, `"history fetch complete: trigger=startup"`) -- so real device history
-lands in `production.sqlite` first. This is what makes it safe to run anything after, including a
-factory reset, without pausing to confirm with the user. Don't just wait on the periodic fetch timer
-instead (`fetch_history_interval_seconds`, a developer may have set that as long as 15 minutes) --
-restarting forces the fetch immediately via the app's own startup backfill. Match on this exact
-message, not the older `"DB refreshed"` text: that one only ever logs on the branch where nothing
-changed, and never appears at all for a fetch that actually pulls in a real backlog.
+then restart the app and confirm a fresh fetch against production has completed (`debug_log`, tag
+`hist-done`, `"history fetch complete:"`) -- so real device history lands in `production.sqlite`
+first. This is what makes it safe to run anything after, including a factory reset, without pausing
+to confirm with the user. Don't just wait on the periodic fetch timer instead
+(`fetch_history_interval_seconds`, a developer may have set that as long as 15 minutes) --
+restarting forces the fetch immediately via the app's own startup backfill.
+
+Two things to match carefully here. **Don't require `trigger=startup`:** the periodic timer starts
+at launch and can tick before the startup fetch is reached on a slow connect, in which case the
+startup call is folded into the one already running and never logs a `trigger=startup` row at all
+(the work still happens, under the other trigger, followed by a `trigger=debounce` re-run). Scope
+to the newest `Login accepted` instead and accept any completed fetch after it, as
+`00-test-setup.md` Step 6 does. **And don't match the older `"DB refreshed"` text:** that only ever
+logs on the branch where nothing changed, and never appears for a fetch that pulls a real backlog.
 
 Then: quit, run the test-database script, start the app, query `db_type` as the very first Setup
 step -- it must read `{"type":"test"}`; if it reads `production`, **stop immediately**. When done:

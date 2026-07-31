@@ -81,8 +81,8 @@ an app that's down is started and synced first, *then* its device state is read 
 1. Start the app.
 2. Wait for device connection (a fresh `Login accepted`). If none appears within the timeout, go to
    **Device not paired**.
-3. Wait for history to sync (`history fetch complete: trigger=startup`) -- only now does the latest
-   `device_event` reflect the physical device.
+3. Wait for history to sync (a `history fetch complete:` after that login, any trigger -- see
+   DETECTION.md) -- only now does the latest `device_event` reflect the physical device.
 4. Read the latest event's `paused`:
    - timing → go to **Prod and device is timing**
    - paused → go to **Prod and device is paused**
@@ -103,8 +103,8 @@ an app that's down is started and synced first, *then* its device state is read 
 - Device paused
 
 1. Record production history: capture the baseline max `debug_log_id`, restart the app, wait for the
-   reconnect, then wait for `history fetch complete: trigger=startup` -- so all real device history
-   is on `production.sqlite` before we leave it.
+   reconnect, then wait for a `history fetch complete:` after that login (any trigger) -- so all real
+   device history is on `production.sqlite` before we leave it.
 2. Go to **Switch to test and finalise**.
 
 ## Prod and device not paired

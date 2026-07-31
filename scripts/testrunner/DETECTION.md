@@ -129,6 +129,7 @@ tag so a check for one phase isn't clobbered by a later phase's row sharing a ta
 | tag | message | phase |
 |---|---|---|
 | `hist-start` | `history fetch triggered: trigger=… known_max=…` | fetch begins |
+| `hist-start` | `history fetch deferred: trigger=… folded into the fetch already running` | a trigger arrived mid-fetch |
 | `hist-check` | `history fetch: cheap check device_last_event=… known_max=…` | cheap single-frame read |
 | `hist-result` | `…max_event_number=… unchanged; DB refreshed` / `…live entry ambiguous…` | outcome |
 | `hist-done` | `history fetch complete: trigger=…` | logged on **every** exit path |
@@ -138,11 +139,23 @@ So each phase is a clean `tag='hist-…' ORDER BY debug_log_id DESC LIMIT 1` -- 
 startup fetch completing (used by `00-test-setup.md`):
 
 ```sql
-SELECT debug_log_id FROM debug_log
- WHERE tag = 'hist-done' AND message = 'history fetch complete: trigger=startup'
-   AND debug_log_id > :since
+SELECT message FROM debug_log
+ WHERE tag = 'hist-done'
+   AND debug_log_id > COALESCE((SELECT MAX(debug_log_id) FROM debug_log
+                                WHERE tag = 'TimeFlip' AND message LIKE 'Login accepted%'), 0)
  ORDER BY debug_log_id DESC LIMIT 1;
 ```
+
+**Matching on a specific `trigger=` is a race, and this query still carries it.** The periodic
+timer starts at app launch, before the device connects, and runs every 10s on the test database.
+A slow connect (6.4s to link, then notifications, session setup and twelve face-colour writes is
+enough) lets it tick first, so the startup fetch arrives while one is already in flight, is folded
+into it, and never produces a `trigger=startup` row of its own -- the work is logged under
+`trigger=periodic`, then a `trigger=debounce` re-run follows. Confirmed live 2026-07-31, where it
+failed `01b` Scenario B; that step now matches the resume position on `hist-check` instead, which
+is trigger-agnostic. The `deferred` row above exists so a coalesced trigger at least leaves a
+trace. The `00-test-setup.md` query here is still exposed, and is only unbitten so far because it
+is guarded on `$record_history == y`; prefer a trigger-agnostic marker when touching it.
 
 Other multi-domain tags are split the same way: `led-bright`/`led-blink`, and
 `sync-auto`/`sync-dtap`/`sync-led` (startup device-sync checks). Single-domain tags
