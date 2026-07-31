@@ -1,11 +1,11 @@
 import Foundation
 
-/// Maintains per-facet accumulated active seconds within a sliding "day" window that starts at
+/// Maintains per-face accumulated active seconds within a sliding "day" window that starts at
 /// a configurable local time, defaulting to the `daily_reset_time` setting (seeded to 03:00; see
 /// `database/011_setting.sql` and `AppDataStore.loadDailyResetTime()`). Uses the logbook only on
 /// startup/reset; subsequent updates are fed in-memory to avoid extra I/O.
 @MainActor
-final class DailyFacetTotals {
+final class DailyFaceTotals {
     private let dataStore: AppDataStore
     private let calendar: Calendar
     private(set) var resetHour: Int
@@ -31,7 +31,7 @@ final class DailyFacetTotals {
         let configured = dataStore.loadDailyResetTime()
         self.resetHour = resetHour ?? configured.hour
         self.resetMinute = resetMinute ?? configured.minute
-        self.windowStart = DailyFacetTotals.computeWindowStart(
+        self.windowStart = DailyFaceTotals.computeWindowStart(
             now: now,
             calendar: calendar,
             resetHour: self.resetHour,
@@ -73,14 +73,14 @@ final class DailyFacetTotals {
         let records = dataStore.loadEvents(overlappingSince: windowStart)
         for record in records {
             guard !record.isPaused else { continue }
-            accumulate(start: record.startedAt, duration: record.duration, facetID: record.facetID, now: now)
+            accumulate(start: record.startedAt, duration: record.duration, faceID: record.faceID, now: now)
         }
     }
 
     /// Reset the window to cover the day that contains `now` (using `resetHour`/`resetMinute`)
     /// and repopulate totals from logbook.
     func resetWindow(now: Date = Date()) {
-        windowStart = DailyFacetTotals.computeWindowStart(
+        windowStart = DailyFaceTotals.computeWindowStart(
             now: now,
             calendar: calendar,
             resetHour: resetHour,
@@ -92,14 +92,14 @@ final class DailyFacetTotals {
     /// Add a finalized segment to the accumulator, clipping it to the current window.
     /// Returns the amount of seconds actually added (may be 0 if fully outside window).
     @discardableResult
-    func accumulate(start: Date, duration: TimeInterval, facetID: UInt8, now: Date = Date()) -> TimeInterval {
+    func accumulate(start: Date, duration: TimeInterval, faceID: UInt8, now: Date = Date()) -> TimeInterval {
         let end = start.addingTimeInterval(duration)
         guard end > windowStart else { return 0 }
         let clampedStart = max(start, windowStart)
         let clampedEnd = min(end, now)
         let delta = clampedEnd.timeIntervalSince(clampedStart)
         guard delta > 0 else { return 0 }
-        totals[facetID, default: 0] += delta
+        totals[faceID, default: 0] += delta
         return delta
     }
 }

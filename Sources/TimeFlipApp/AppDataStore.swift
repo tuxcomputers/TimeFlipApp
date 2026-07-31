@@ -5,7 +5,7 @@ import SQLite3
 struct DeviceEventRecord {
     let id: Int64?
     let eventNumber: UInt32
-    let facetID: UInt8
+    let faceID: UInt8
     let startedAt: Date
     let duration: TimeInterval
     let isPaused: Bool
@@ -220,11 +220,11 @@ final class AppDataStore {
     func append(_ event: DeviceEventRecord) -> Bool {
         guard let db else { return false }
         // activity_name is written empty: nothing reads it, and the only thing that used to fill
-        // it was the facet name out of the UserDefaults preferences blob. The column stays because
+        // it was the face name out of the UserDefaults preferences blob. The column stays because
         // logbook is the legacy 000_ table and frozen -- it goes when the table does.
         let sql = """
         INSERT OR REPLACE INTO logbook (
-            event_number, facet_id, started_at_s, duration_s, is_paused, activity_name, created_at
+            event_number, face_id, started_at_s, duration_s, is_paused, activity_name, created_at
         ) VALUES (?, ?, ?, ?, ?, '', COALESCE(?, strftime('%s','now')));
         """
         var success = false
@@ -236,14 +236,14 @@ final class AppDataStore {
                 return
             }
             sqlite3_bind_int64(stmt, 1, sqlite3_int64(event.eventNumber))
-            sqlite3_bind_int(stmt, 2, Int32(event.facetID))
+            sqlite3_bind_int(stmt, 2, Int32(event.faceID))
             sqlite3_bind_double(stmt, 3, event.startedAt.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 4, event.duration)
             sqlite3_bind_int(stmt, 5, event.isPaused ? 1 : 0)
             sqlite3_bind_double(stmt, 6, Date().timeIntervalSince1970)
             if sqlite3_step(stmt) == SQLITE_DONE {
                 success = true
-                logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) facet=\(event.facetID, privacy: .public) dur=\(event.duration, privacy: .public)")
+                logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) face=\(event.faceID, privacy: .public) dur=\(event.duration, privacy: .public)")
             } else {
                 logger.error("logbook_append failed ev=\(event.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
@@ -252,7 +252,7 @@ final class AppDataStore {
         return success
     }
 
-    // MARK: - Device events (new schema; timing segments -- facet flips and pauses)
+    // MARK: - Device events (new schema; timing segments -- face flips and pauses)
 
     /// Looks up an existing `device_event` row by the exact `(event_number, start_epoch)` pair --
     /// the composite key `recordDeviceEvent` uses to recognize "I've already recorded this exact
@@ -290,7 +290,7 @@ final class AppDataStore {
     /// - `start_epoch` alone isn't safe either: the device only reports whole-second timestamps
     ///   (`docs/TimeFlip2 BLE Protocol v4.3.md`'s 0x07/0x08 and the flip-timestamp field are both
     ///   "number of seconds", no finer resolution), so two genuinely different segments -- e.g. a
-    ///   quick flip across a facet while searching for the right one, see the `blip_time` setting
+    ///   quick flip across a face while searching for the right one, see the `blip_time` setting
     ///   -- can legitimately share the same `start_epoch` second.
     /// The combination of both is what's actually unique: the only way two different real segments
     /// collide on `(event_number, start_epoch)` is an exact coincidence of both a device reset AND
@@ -329,7 +329,7 @@ final class AppDataStore {
         isPaused: Bool
     ) -> Bool {
         guard let db else { return false }
-        let eventType = isPaused ? "pause" : "facet_flip"
+        let eventType = isPaused ? "pause" : "face_flip"
         var success = false
         queue.sync {
             let startEpoch = Int64(startedAt.timeIntervalSince1970)
@@ -482,7 +482,7 @@ final class AppDataStore {
     }
 
     /// All rows of the `colour` reference table (`database/005_colour.sql`), ordered by
-    /// `colour_id`. Drives the facet colour picker; see `ActivityLibrary.colorOptions(from:)`.
+    /// `colour_id`. Drives the face colour picker; see `ActivityLibrary.colorOptions(from:)`.
     func loadColours() -> [ColourRecord] {
         guard let db else { return [] }
         var results: [ColourRecord] = []
@@ -570,7 +570,7 @@ final class AppDataStore {
         guard let db else { return }
         let sql = """
         UPDATE face SET locked = ?
-        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxFaceID);
         """
         queue.sync {
             var stmt: OpaquePointer?
@@ -658,8 +658,8 @@ final class AppDataStore {
     /// Assigns a category to a physical face -- the Faces tab's category list. See
     /// `database/008_face.sql`.
     ///
-    /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFacetID`
-    /// sentinel (facet `0`, what `currentFacetID` reads before the device has reported a facet)
+    /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFaceID`
+    /// sentinel (face `0`, what `currentFaceID` reads before the device has reported a face)
     /// can't create a thirteenth row.
     ///
     /// A locked face is refused here as well as in the UI. Locking exists to stop a face being
@@ -669,7 +669,7 @@ final class AppDataStore {
         let sql = """
         UPDATE face SET category_id = ?
         WHERE face_id = ? AND locked = 0
-          AND face_id BETWEEN \(TimeFlipConstants.minFacetID) AND \(TimeFlipConstants.maxFacetID);
+          AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxFaceID);
         """
         queue.sync {
             var stmt: OpaquePointer?
@@ -1272,6 +1272,39 @@ final class AppDataStore {
         return formatter
     }()
 
+    /// `debug_log.logged_at` only: the same local-time ISO 8601 shape as `localTimeFormatter`, to the
+    /// millisecond (`2026-07-16T09:30:00.123`).
+    ///
+    /// `debug_log` is the diagnostic record a test session is reconstructed from, and whole seconds
+    /// are too coarse to time anything the device does. Every BLE round trip this app makes is
+    /// sub-second -- a login is ~260ms, a history fetch ~130ms with nothing new -- so at second
+    /// resolution the only way to recover a duration is statistically, from how often a pair of rows
+    /// happens to straddle a second boundary. That is what had to be done to size
+    /// `MockTimeFlipDevice.Latency`, and it gives one aggregate figure per operation rather than a
+    /// measurement of any individual one.
+    ///
+    /// Applied on every database, not just the test one: the timings worth having are frequently in
+    /// *production* data (the latency figures above came from `real.sqlite`), and one format
+    /// everywhere means a parsing mistake cannot hide in the environment nobody looks at.
+    ///
+    /// Safe to widen because nothing reads these strings back into `Date`s in Swift -- they are
+    /// write-only diagnostics. On the tooling side, `session_setup.py` parses them with Python's
+    /// `datetime.fromisoformat`, which accepts fractional seconds, and `MAX(logged_at)` still orders
+    /// correctly even across a mix of old and new rows, since the fraction sits after the part that
+    /// decides the comparison.
+    ///
+    /// Deliberately *not* used for `device_event.start_time` or `device_notification.start_time`:
+    /// those sit beside `start_epoch`, an INTEGER of whole seconds which is the actual ordering and
+    /// uniqueness key (`UN1_device_event`), and making the text finer-grained than the key next to it
+    /// would invite the two to disagree.
+    private static let debugLogTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+        formatter.timeZone = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
 
     /// Records a point-in-time device notification (double tap, battery level, system state,
     /// device info, event log — see `TimeFlipEvent.deviceNotification`) so what the device sends
@@ -1329,7 +1362,7 @@ final class AppDataStore {
                 sqlite3_finalize(stmt)
                 return
             }
-            sqlite3_bind_text(stmt, 1, AppDataStore.localTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 1, AppDataStore.debugLogTimeFormatter.string(from: loggedAt), -1, SQLITE_TRANSIENT)
             sqlite3_bind_int64(stmt, 2, currentTimezoneID)
             sqlite3_bind_text(stmt, 3, tag, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 4, message, -1, SQLITE_TRANSIENT)
@@ -1347,7 +1380,7 @@ final class AppDataStore {
         guard let db else { return [] }
         var items: [DeviceEventRecord] = []
         let sql = """
-        SELECT rowid, event_number, facet_id, started_at_s, duration_s, is_paused
+        SELECT rowid, event_number, face_id, started_at_s, duration_s, is_paused
         FROM logbook
         WHERE (started_at_s + duration_s) > ?
         ORDER BY rowid ASC;
@@ -1360,7 +1393,7 @@ final class AppDataStore {
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let rowid = sqlite3_column_int64(stmt, 0)
                     let eventNumber = UInt32(sqlite3_column_int64(stmt, 1))
-                    let facet = UInt8(sqlite3_column_int(stmt, 2))
+                    let face = UInt8(sqlite3_column_int(stmt, 2))
                     let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
                     let duration = sqlite3_column_double(stmt, 4)
                     let paused = sqlite3_column_int(stmt, 5) == 1
@@ -1368,7 +1401,7 @@ final class AppDataStore {
                         DeviceEventRecord(
                             id: rowid,
                             eventNumber: eventNumber,
-                            facetID: facet,
+                            faceID: face,
                             startedAt: started,
                             duration: duration,
                             isPaused: paused

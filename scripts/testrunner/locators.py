@@ -35,10 +35,23 @@ def status_item_left_point():
     return x + w * 0.25, y + h / 2
 
 
-def _autopause_text_field_rect():
+# The vertical distance between the two stacked chevrons' centers: `arrowHeight` +
+# `arrowSpacing` from `SettingsLayoutConstants.Stepper`. Keep in step with that enum.
+_AUTOPAUSE_ARROW_PITCH = 11.0
+
+
+def _autopause_up_arrow_rect():
+    """The auto-pause stepper's two `image` elements both report the *upper* chevron's frame -- a
+    SwiftUI quirk collapsing the pair's custom-drawn glyphs onto one frame -- so `image 2` is no
+    use and the lower arrow has to be derived from this rect plus the stack's pitch.
+
+    Anchoring on the arrow itself rather than on a hand-measured offset from the neighbouring text
+    field is deliberate: the arrows used to sit *ahead* of the field and moved to *after* it (and
+    after the `min` suffix) when the row was restyled to match every other stepper in the window,
+    which silently sent the old offset into empty space."""
     script = (
         'tell application "System Events" to tell process "TimeFlip" '
-        'to get {position, size} of text field 1 of group 2 of scroll area 1 of group 1 '
+        'to get {position, size} of image 1 of group 2 of scroll area 1 of group 1 '
         'of window "TimeFlip Settings"'
     )
     out = _osascript(script)
@@ -47,16 +60,13 @@ def _autopause_text_field_rect():
 
 
 def autopause_up_arrow_point():
-    """The stepper's two `image` elements report identical, unusable AX geometry (a SwiftUI
-    quirk collapsing custom-drawn glyphs to their container's frame) -- this offset from the
-    adjacent, reliable text field was derived empirically via a screencapture crop."""
-    x, y, w, h = _autopause_text_field_rect()
-    return x - 16, y + 3
+    x, y, w, h = _autopause_up_arrow_rect()
+    return x + w / 2, y + h / 2
 
 
 def autopause_down_arrow_point():
-    x, y, w, h = _autopause_text_field_rect()
-    return x - 16, y + 14
+    x, y, w, h = _autopause_up_arrow_rect()
+    return x + w / 2, y + h / 2 + _AUTOPAUSE_ARROW_PITCH
 
 
 LOCATORS = {

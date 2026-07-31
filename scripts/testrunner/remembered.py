@@ -1,83 +1,39 @@
-"""`logs/00-remembered.json` -- a per-run record of the values the runner captures.
+"""The `capture =` values a resume needs, in `logs/testruns.sqlite`'s `captured_value` table.
 
-The tree is **run -> test -> scenario -> {capture: value}**:
+These used to live in `logs/00-remembered.json`, as a tree **run -> test -> scenario ->
+{capture: value}**. They are rows now, in the same database the runner already writes each
+step's reading to (`run_record.py`), because they are the same kind of thing -- a per-run record
+keyed by run stamp, checklist and scenario -- and keeping one store instead of two means one
+schema, one place to query, and no chance of the two disagreeing about what a run captured.
 
-```json
-{
-  "2026-07-26_10.30.00": {
-    "07b-battery-low-indicator-checklist.md": {
-      "Scenario A": { "threshold_original": "{\"percent\":5}" },
-      "Scenario C": { "battery_level_c": 14 }
-    }
-  }
-}
-```
+The reason these exist at all is **resume**. When a run is resumed from a later scenario, the
+skipped earlier scenarios never re-run, so their `$vars` aren't in the live context. `lookup()`
+recovers them, searching newest run first, so a value the interrupted prior run captured is
+still found (see `RunRecord.lookup_capture` for the exact ordering, which reproduces what the
+JSON tree did).
 
-- The top key is the run's log-file stamp (the same `YYYY-MM-DD_hh.mm.ss` the `.txt` transcript
-  uses), so a JSON entry ties back to its log. Runs accumulate: each new run adds its own key.
-- Under it, one node per **test** (the checklist filename), then one per **scenario** (the `##`
-  section), then that scenario's captured `capture = ` values by name.
-
-This is written so a **resume** can recover a value a *previous* scenario captured. When the run is
-resumed from a later scenario, the skipped earlier scenarios never re-run, so their `$vars` aren't
-in the live context -- `lookup()` walks this tree (newest run first) to supply them (see
-`Remembered.lookup`). The file is rewritten after every capture, so an interrupted run still leaves
-a complete-so-far record.
+This class is a thin adapter kept for the call sites in `actions.py`
+(`_remember_capture`/`resolve_missing_vars_from_remembered`), which know it as `ctx["remembered"]`
+and use only `record`/`lookup`/`flush`.
 """
-import json
-import os
 
 
 class Remembered:
-    def __init__(self, path, run_key):
-        self.path = path
-        self.run_key = run_key
-        self._doc = self._load()
-
-    def _load(self):
-        """Prior runs' entries, so we add this run's key rather than clobber the file."""
-        if os.path.exists(self.path):
-            try:
-                with open(self.path) as f:
-                    doc = json.load(f)
-                if isinstance(doc, dict):
-                    return doc
-            except (json.JSONDecodeError, OSError):
-                pass
-        return {}
+    def __init__(self, run_record):
+        self._run_record = run_record
 
     def record(self, test, section, capture_name, value):
-        """Store one captured value under run -> test -> scenario -> {capture: value}, then flush.
-        A later capture of the same name in the same scenario overwrites (last write wins)."""
+        """Store one captured value under this run, checklist and scenario. A later capture of
+        the same name in the same scenario overwrites (last write wins)."""
         if not capture_name:
             return
-        run = self._doc.setdefault(self.run_key, {})
-        run.setdefault(test, {}).setdefault(section, {})[capture_name] = value
-        self.flush()
+        self._run_record.record_capture(test, section, capture_name, value)
 
     def lookup(self, test, capture_name):
-        """Resume helper: return `capture_name`'s value for `test`, searching runs newest-first
-        and, within a run, that test's scenarios -- so a value a previous scenario recorded (this
-        run or the interrupted prior run) is found when a later scenario needs it. The current run
-        is newest, but on a scenario resume it won't hold a skipped scenario's capture, so the
-        search falls through to the interrupted prior run that did. Returns None if nothing has
-        recorded it."""
-        for stamp in sorted(self._doc, reverse=True):
-            test_node = self._doc[stamp].get(test)
-            if not isinstance(test_node, dict):
-                continue
-            for section_values in test_node.values():
-                if isinstance(section_values, dict) and capture_name in section_values:
-                    return section_values[capture_name]
-        return None
+        """Resume helper: `capture_name`'s value for `test`, or None if nothing recorded it."""
+        return self._run_record.lookup_capture(test, capture_name)
 
     def flush(self, *_):
-        tmp = self.path + ".tmp"
-        try:
-            with open(tmp, "w") as f:
-                json.dump(self._doc, f, indent=2)
-                f.write("\n")
-            os.replace(tmp, self.path)
-        except OSError:
-            # A device test must not die because the side-record couldn't be written.
-            pass
+        """No-op. Every write is already committed by `RunRecord` as it happens -- the JSON file
+        this replaced needed an explicit rewrite, a database doesn't. Kept so any caller still
+        holding the old contract doesn't break."""

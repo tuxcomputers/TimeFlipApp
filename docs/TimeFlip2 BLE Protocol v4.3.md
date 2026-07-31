@@ -1,4 +1,8 @@
 ﻿> Source: [DI-GROUP/TimeFlip.Docs](https://github.com/DI-GROUP/TimeFlip.Docs/blob/master/Hardware/TimeFlip%20BLE%20protocol%20ver4_02.06.2020.md) — vendor BLE hardware protocol spec for TimeFlip2.
+>
+> Left verbatim as the vendor published it, so it stays trustworthy as the authority `CLAUDE.md`
+> makes it. Note the terminology gap: where this spec says **facet**, the app says **face**
+> (`faceID`, `face_id`, the Faces tab). Same thing, one name on each side of the BLE boundary.
 
 **TIMEFLP2** 
 

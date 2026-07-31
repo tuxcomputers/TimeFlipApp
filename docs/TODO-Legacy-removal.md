@@ -8,10 +8,10 @@ This lists everything that was persisted outside those two at the branch's fork 
 against it is measurable. A box is ticked only when the legacy copy is **gone**, not when the
 database merely has somewhere to put it.
 
-**9 of 13 done.** All four pairing fields, all three Google fields and both the per-facet daily
-limit and colour have moved. What remains is the facet name and icon — blocked on the same missing
+**9 of 13 done.** All four pairing fields, all three Google fields and both the per-face daily
+limit and colour have moved. What remains is the face name and icon — blocked on the same missing
 UI as each other — and the two developer-mode files, which are intentional escape hatches rather
-than oversights. `PreferencesPayload` is now nothing but `facetMappings` — the
+than oversights. `PreferencesPayload` is now nothing but `faceMappings` — the
 `timeflip.preferences` key disappears with them. Two dead paths that needed no migration have also
 been cleared: see [Legacy paths already removed](#legacy-paths-already-removed).
 
@@ -22,38 +22,38 @@ One `UserDefaults` key holds a JSON-encoded `PreferencesPayload`
 Every field below is a member of that one blob, so the key itself only disappears once all of them
 have moved.
 
-### Per-facet mappings (`facetMappings: [FacetMappingRecord]`)
+### Per-face mappings (`faceMappings: [FaceMappingRecord]`)
 
-- [ ] **Facet name** — free text per facet, `""` meaning unassigned.
+- [ ] **Face name** — free text per face, `""` meaning unassigned.
       *DB home:* `face.category_id` → `category.category_name`, which already exists and is what
       the menu bar displays. The Faces tab, which still shows and edits it, is now the **only**
       reader — `HistoryIngestor` no longer derives a name from it (see
       [Legacy paths already removed](#legacy-paths-already-removed)). Removing that last reader
       needs the Faces tab's category-assignment UI (see
       [TODO-features-under-development.md](TODO-features-under-development.md) § Faces).
-- [ ] **Facet icon** — asset name (`ic_meeting`), `""` for none.
+- [ ] **Face icon** — asset name (`ic_meeting`), `""` for none.
       *DB home:* `category.icon_id`, already live for the menu bar and editable on the Categories
       tab. Only the Faces tab still reads the blob field, so the same blocker as the name.
-- [x] **Facet colour** — `ColorComponents` (r/g/b/a). *Done — `category.colour_id` →
+- [x] **Face colour** — `ColorComponents` (r/g/b/a). *Done — `category.colour_id` →
       `colour.device_hex`, which now drives the device LED (BLE `0x11`) and the Faces tab's icon
-      tints.* The write follows `$faceCategories` instead of `$facetMappings`, so recolouring a
+      tints.* The write follows `$faceCategories` instead of `$faceMappings`, so recolouring a
       category or reassigning a face is what changes the light.
 
       **A category with no colour now sends black, i.e. the LED off.** Previously an unset colour
-      left whatever the facet was last lit with, which made "None" mean "unchanged" — invisible on
+      left whatever the face was last lit with, which made "None" mean "unchanged" — invisible on
       the device and impossible to undo from the UI. `0x11` takes an RGB triple with no separate
       enable, so all-zero is how the protocol says off. On screen the same "no colour" resolves to
       `.primary` instead, since a black-on-black icon would just disappear.
-- [x] **Facet daily limit** (`limitMinutes`) — whole minutes, `0` = none. *Done —
+- [x] **Face daily limit** (`limitMinutes`) — whole minutes, `0` = none. *Done —
       `category.daily_limit`, already editable on the Categories tab and now what the menu bar's
       over-limit indicator reads.* The only one of the four that needed no new plumbing:
       `categoryActivity` already resolved the face's `CategoryRecord`, which carries
       `dailyLimitMinutes`, so the value was in hand.
 
-      **The limit is now per category, not per facet** — two facets assigned the same category
+      **The limit is now per category, not per face** — two faces assigned the same category
       share one, where the blob gave each its own and let the pair drift. The Faces tab's Daily
       Limit stepper is gone with the field, leaving the Categories tab as the only place a limit is
-      set. Existing per-facet limits in the blob are discarded rather than migrated. The old
+      set. Existing per-face limits in the blob are discarded rather than migrated. The old
       `0...480` cap went with the stepper; `category.daily_limit` is deliberately uncapped.
 
 ### Google integration
@@ -117,9 +117,9 @@ ticks above have to untangle later.
 - [x] **`logbook.activity_name` was written on every event and read by nothing.**
       `AppState.activity(for:)` — the blob-backed one, as distinct from `categoryActivity(for:)` —
       had exactly one production caller, `HistoryIngestor`, which used only its `name` to fill this
-      column. `logbook` itself is still live (`DailyFacetTotals` reads it via
+      column. `logbook` itself is still live (`DailyFaceTotals` reads it via
       `loadEvents(overlappingSince:)`) but that reader touches only `paused`, `startedAt`,
-      `duration` and `facetID`.
+      `duration` and `faceID`.
       The column is now written empty and `AppState.activity(for:)` is gone, along with
       `DeviceEventRecord.activityName`. The column itself stays until `logbook` does — it is
       `NOT NULL` and the legacy `000_` table is frozen.
@@ -143,4 +143,4 @@ Listed so the boundary of this work is clear.
 - Moving a field is three steps, not one: give it a home in the database, repoint every reader at
   that home, then delete the field from `PreferencesPayload`. Only the third step ticks the box.
 - `PreferencesPayload`, `PreferencesStore`, `UserDefaultsPreferencesStore` and
-  `FacetMappingRecord` all disappear once every box above is ticked.
+  `FaceMappingRecord` all disappear once every box above is ticked.

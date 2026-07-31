@@ -1,11 +1,11 @@
 import SwiftUI
 
-struct FacetMapping: Identifiable {
-    let facetID: UInt8
+struct FaceMapping: Identifiable {
+    let faceID: UInt8
     var name: String
     var iconName: String
 
-    var id: UInt8 { facetID }
+    var id: UInt8 { faceID }
 
     var isAssigned: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -114,7 +114,7 @@ enum ActivityLibrary {
         }
     }
 
-    /// The facet colour-picker options, built from the `colour` reference table
+    /// The face colour-picker options, built from the `colour` reference table
     /// (`AppDataStore.loadColours`). Each option's swatch is the row's `device_hex`; rows without
     /// one (e.g. the `None` colour) are skipped.
     static func colorOptions(from colours: [ColourRecord]) -> [ActivityColorOption] {
@@ -134,7 +134,7 @@ enum ActivityLibrary {
 
     static let validIconNames: Set<String> = Set(iconOptions.map { $0.iconName })
 
-    private static let defaultFacetIcons: [String] = [
+    private static let defaultFaceIcons: [String] = [
         "ic_project",
         "ic_code",
         "ic_meeting",
@@ -149,7 +149,7 @@ enum ActivityLibrary {
         "ic_urgent"
     ]
 
-    private static let defaultFacetNames: [String] = [
+    private static let defaultFaceNames: [String] = [
         "Project",
         "Code",
         "Meetings",
@@ -164,11 +164,11 @@ enum ActivityLibrary {
         "Urgent"
     ]
 
-    static func defaultMappings() -> [FacetMapping] {
-        // Default: every facet starts unassigned with a neutral gray color and no icon.
-        return TimeFlipConstants.facetIDs.map { facetID in
-            FacetMapping(
-                facetID: facetID,
+    static func defaultMappings() -> [FaceMapping] {
+        // Default: every face starts unassigned with a neutral gray color and no icon.
+        return TimeFlipConstants.faceIDs.map { faceID in
+            FaceMapping(
+                faceID: faceID,
                 name: "",
                 iconName: ""
             )

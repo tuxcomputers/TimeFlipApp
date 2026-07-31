@@ -7,7 +7,7 @@ final class HistoryIngestor {
     private let device: TimeFlipSessionManaging
     private let dataStore: AppDataStore
     private let appState: AppState
-    private let dailyTotals: DailyFacetTotals
+    private let dailyTotals: DailyFaceTotals
     private let onNewEvents: (() -> Void)?
     private let onLatestEntry: ((TimeFlipHistoryEntry) -> Void)?
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "history-ingestor")
@@ -29,7 +29,7 @@ final class HistoryIngestor {
         device: TimeFlipSessionManaging,
         dataStore: AppDataStore,
         appState: AppState,
-        dailyTotals: DailyFacetTotals,
+        dailyTotals: DailyFaceTotals,
         onNewEvents: (() -> Void)? = nil,
         onLatestEntry: ((TimeFlipHistoryEntry) -> Void)? = nil
     ) {
@@ -48,7 +48,7 @@ final class HistoryIngestor {
 
     /// Starts a repeating timer (interval from the `fetch_history_interval_seconds` setting) that
     /// re-fetches device history so any entries the device hasn't pushed a live notification for
-    /// yet still get picked up, on top of the fetches already triggered by live facet/pause
+    /// yet still get picked up, on top of the fetches already triggered by live face/pause
     /// events. Safe to call again (e.g. if the setting changes) -- replaces any existing timer.
     func startPeriodicFetchTimer() {
         periodicFetchTimer?.invalidate()
@@ -92,7 +92,7 @@ final class HistoryIngestor {
         DeveloperMode.debugPrint(.histStart, "history fetch triggered: trigger=\(trigger) known_max=\(knownMax ?? 0)")
 
         // Step 2: cheap single-frame read of the device's actual current record. Per the vendor
-        // spec this comes back as a complete History block (facet/start time/duration included,
+        // spec this comes back as a complete History block (face/start time/duration included,
         // not just the event number), so if it turns out nothing changed we can still refresh the
         // DB's duration for that entry below without paying for the full stream. A brand-new
         // pairing has nothing local to compare against, and a failed/timed-out read comes back
@@ -108,7 +108,7 @@ final class HistoryIngestor {
             // Same event -- nothing new, but its duration may have grown since we last saw it.
             dataStore.recordDeviceEvent(
                 eventNumber: deviceLastEventNumber,
-                deviceFace: deviceEntry.facetID,
+                deviceFace: deviceEntry.faceID,
                 startedAt: deviceEntry.startedAt,
                 durationSeconds: deviceEntry.duration,
                 isPaused: deviceEntry.isPaused
@@ -121,11 +121,51 @@ final class HistoryIngestor {
             return
         }
 
+        // Step 2b: the device's counter is BELOW what we hold, which only happens when the device
+        // was factory reset (its counter restarts at 1) since we last looked. Resume from the
+        // bottom instead of from our stranded cursor.
+        //
+        // Without this the app cannot recover unless it personally witnessed the reset. The live
+        // `.factoryReset` sync-status event calls resetCursors, but only the session that was
+        // running at the time receives it, and only that session's database learns anything. Any
+        // *other* database is left holding a high-water mark the device can no longer reach:
+        // AppDataStore.currentGenerationMaxEventNumber recovers by spotting the counter going
+        // backwards between two rows, HistoryIngestor is the only writer of those rows, and it
+        // resumes above everything the reset device holds -- so the row that would create the
+        // boundary is gated behind the boundary already existing. It never ingests again until the
+        // device counts all the way back past the old maximum, losing every event in between,
+        // silently. Reproduced in Workflows/W08.
+        //
+        // The device-test runner walks straight into this: its end-of-run cleanup resets the cube
+        // while the app is pointed at test.sqlite, so production.sqlite never sees the reset. So
+        // does a user who resets from Settings and quits before the fetch finishes.
+        //
+        // Deliberately NOT resetCursors(): that also purges `logbook`, which is right when this
+        // session watched the device get wiped and wrong here, where the local history is real
+        // data this app has simply not been running to observe. Only the resume position is stale.
+        var resumedFromReset = false
+        if let knownMax, let deviceLastEventNumber, deviceLastEventNumber < knownMax {
+            resumedFromReset = true
+            lastQueuedEventNumber = nil
+            lastCommittedEventNumber = nil
+            lastObservedEventNumber = nil
+            logger.notice("history_ingest counter went backwards device_max=\(deviceLastEventNumber, privacy: .public) known_max=\(knownMax, privacy: .public); treating as factory reset")
+            DeveloperMode.debugPrint(
+                .histCheck,
+                "history fetch: counter went backwards (device=\(deviceLastEventNumber) < known=\(knownMax)) -- device was reset, resuming from the start"
+            )
+        }
+
         // Step 3: different (or unknown) -- fetch history starting AT the last known event
         // (nextStartCursor() resolves to lastCommittedEventNumber + 1, which is the previously
         // still-open entry's own number, not past it) so its complete/updated record comes back
         // too, instead of leaving its state ambiguous.
-        let startCursor = nextStartCursor()
+        //
+        // After a detected reset the cursor is taken as 0 rather than via nextStartCursor(), which
+        // calls ensureCursorLoaded() and would immediately re-derive the same stranded value back
+        // out of `device_event` -- the pre-reset rows are still there, and stay there, until a
+        // post-reset row arrives to mark the generation boundary.
+        let startCursor: UInt32? = resumedFromReset ? 0 : nextStartCursor()
         let rawEntries = await device.fetchHistory(startingFrom: startCursor)
             .filter { $0.eventNumber != nil }
             .sorted { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
@@ -204,7 +244,7 @@ final class HistoryIngestor {
         if let latestEventNumber {
             dataStore.recordDeviceEvent(
                 eventNumber: latestEventNumber,
-                deviceFace: latestEntry.facetID,
+                deviceFace: latestEntry.faceID,
                 startedAt: latestEntry.startedAt,
                 durationSeconds: latestEntry.duration,
                 isPaused: latestEntry.isPaused
@@ -246,7 +286,7 @@ final class HistoryIngestor {
             let record = DeviceEventRecord(
                 id: nil,
                 eventNumber: eventNumber,
-                facetID: entry.facetID,
+                faceID: entry.faceID,
                 startedAt: entry.startedAt,
                 duration: entry.duration,
                 isPaused: entry.isPaused
@@ -260,20 +300,20 @@ final class HistoryIngestor {
             // recording above for the in-progress segment.
             dataStore.recordDeviceEvent(
                 eventNumber: eventNumber,
-                deviceFace: entry.facetID,
+                deviceFace: entry.faceID,
                 startedAt: entry.startedAt,
                 durationSeconds: entry.duration,
                 isPaused: entry.isPaused
             )
             // Only accumulate time for active (non-paused) segments
             if !entry.isPaused {
-                let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, facetID: entry.facetID)
+                let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, faceID: entry.faceID)
                 if added > 0 {
-                    appState.incrementDailyTotal(facetID: entry.facetID, by: added)
+                    appState.incrementDailyTotal(faceID: entry.faceID, by: added)
                 }
             }
             maxCommitted = eventNumber
-            logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) facet=\(entry.facetID, privacy: .public)")
+            logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) face=\(entry.faceID, privacy: .public)")
         }
         return maxCommitted
     }

@@ -108,7 +108,7 @@ erDiagram
     logbook {
         INTEGER id PK
         INTEGER event_number
-        INTEGER facet_id
+        INTEGER face_id
         REAL    started_at_s
         REAL    duration_s
         INTEGER is_paused

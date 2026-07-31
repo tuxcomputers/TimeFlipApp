@@ -23,7 +23,7 @@ SELECT 'led_settings', '{"brightness":50,"blink_interval":15}', 'LED settings: b
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'led_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the device pauses itself if the facet hasn''t changed (device cmd 0x05; 0 disables, matching the vendor protocol''s own disabled-by-default behavior; the device itself only supports whole-minute granularity, so this can''t be made finer). The timer resets every time the facet changes.'
+SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the device pauses itself if the face hasn''t changed (device cmd 0x05; 0 disables, matching the vendor protocol''s own disabled-by-default behavior; the device itself only supports whole-minute granularity, so this can''t be made finer). The timer resets every time the face changes.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'auto_pause_minutes');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
@@ -39,7 +39,7 @@ SELECT 'pause_on_lock', '{"enabled":true}', 'enabled: when true, locking the dev
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'pause_on_lock');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'fetch_history_interval_seconds', '{"seconds":10}', 'seconds: how often the app sends a history fetch request (command 0x02) to the device to pick up any entries not yet seen, in addition to the fetches already triggered by live facet/pause events. Stored in seconds; a future Settings UI will expose this in minutes and convert it before saving here.'
+SELECT 'fetch_history_interval_seconds', '{"seconds":10}', 'seconds: how often the app sends a history fetch request (command 0x02) to the device to pick up any entries not yet seen, in addition to the fetches already triggered by live face/pause events. Stored in seconds; a future Settings UI will expose this in minutes and convert it before saving here.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'fetch_history_interval_seconds');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

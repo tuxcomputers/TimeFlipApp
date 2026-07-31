@@ -35,7 +35,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         let fallbackHeight = SettingsLayoutConstants.fallbackMinimumContentHeight(
-            facetCount: appState.facetMappings.count
+            faceCount: appState.faceMappings.count
         )
         self.window = window
         self.appState = appState
@@ -117,7 +117,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     /// Raising `minSize` only stops the user from manually resizing *below* it -- AppKit never
     /// grows a window just because its minimum grew, so a tab that suddenly needs more height
-    /// (e.g. more facets added) would keep silently scrolling its content until the user happened
+    /// (e.g. more faces added) would keep silently scrolling its content until the user happened
     /// to drag the window taller themselves. Grows the window's actual frame to match whenever
     /// the new minimum exceeds the current size, keeping the top-left corner fixed (NSWindow's
     /// origin is its bottom-left corner, so growing downward on screen means *lowering* origin.y)

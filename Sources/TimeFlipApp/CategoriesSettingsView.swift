@@ -149,9 +149,9 @@ private struct CategorySection: View {
 /// meaningful to caption there.
 private struct CategoryColumnHeaderRow: View {
     var body: some View {
-        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+        HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
             Color.clear
-                .frame(width: SettingsLayoutConstants.FacetList.iconSize, height: 1)
+                .frame(width: SettingsLayoutConstants.FaceList.iconSize, height: 1)
             Text("Name")
                 .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
             Text("Colour")
@@ -193,7 +193,7 @@ private struct CategoryRow: View {
     }
 
     var body: some View {
-        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+        HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
             iconButton
             nameField
             colourSwatch
@@ -378,7 +378,7 @@ private struct CategoryRow: View {
                     ActivityIconView(
                         iconName: iconName,
                         tint: .black,
-                        size: SettingsLayoutConstants.FacetList.iconSize
+                        size: SettingsLayoutConstants.FaceList.iconSize
                     )
                 } else {
                     Image(systemName: "nosign")
@@ -386,8 +386,8 @@ private struct CategoryRow: View {
                         .scaledToFit()
                         .foregroundStyle(.secondary)
                         .frame(
-                            width: SettingsLayoutConstants.FacetList.iconSize,
-                            height: SettingsLayoutConstants.FacetList.iconSize
+                            width: SettingsLayoutConstants.FaceList.iconSize,
+                            height: SettingsLayoutConstants.FaceList.iconSize
                         )
                 }
             }

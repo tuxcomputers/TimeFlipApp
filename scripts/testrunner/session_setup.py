@@ -124,14 +124,14 @@ def ensure_not_timing_on_production(db_path):
 
 
 def _app_running():
-    r = subprocess.run(["pgrep", "-f", "TimeFlip.app/Contents/MacOS/TimeFlip"], capture_output=True, text=True)
-    return r.returncode == 0
+    from actions import app_running  # local import, same reason as in restore_production_database
+    return app_running()
 
 
 # Tags the app logs on a ~10s cadence while a device is connected (battery push + periodic history
 # fetch). They fall silent when the device is forgotten/dropped, so their recency is a liveness
-# signal -- see device_appears_connected. logged_at is only second-precision, which is fine here:
-# we're checking recency ("within N seconds of now"), not ordering rows within a second.
+# signal -- see device_appears_connected. logged_at carries milliseconds, which datetime.fromisoformat
+# parses without help; recency ("within N seconds of now") wouldn't need them either way.
 _HEARTBEAT_TAGS = ("battery", "hist-done", "hist-start", "hist-check", "hist-result")
 
 
@@ -174,19 +174,11 @@ def device_appears_connected(db_path, within_seconds=30, poll_seconds=12, interv
 
 
 def _quit_app(timeout=10):
-    """Sends the AppleScript quit, then polls until the process actually disappears --
-    a fixed sleep trusted the quit silently, so a stuck/ignored quit (a dialog waiting
-    on input, an AppleScript error swallowed by capture_output) would fall through to
-    _launch_app() launching a second instance on top of the still-running first one,
-    instead of surfacing the failure. Returns False (without launching anything) if the
-    process is still there after timeout."""
-    subprocess.run(["osascript", "-e", 'tell application "TimeFlip" to quit'], capture_output=True, text=True)
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not _app_running():
-            return True
-        time.sleep(1)
-    return False
+    """Quit and wait for the process to actually disappear -- see actions.act_quit_app, which is
+    the same behaviour every checklist quit now gets (`Method 3`). Returns False (without
+    launching anything) if the process is still there after timeout."""
+    from actions import act_quit_app  # local import, same reason as in restore_production_database
+    return act_quit_app({"timeout_seconds": timeout}, {}).success
 
 
 def _launch_app(repo_root):
@@ -305,7 +297,7 @@ def reset_device_for_cleanup(db_path):
                     "script": (
                         'tell application "System Events"\n'
                         '    tell process "TimeFlip"\n'
-                        '        click radio button 1 of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"\n'
+                        '        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")\n'
                         "    end tell\n"
                         "end tell"
                     ),
@@ -324,16 +316,23 @@ def reset_device_for_cleanup(db_path):
         {
             "action": "applescript",
             "script": (
+                # Addressed by AXIdentifier, not index: `button 2` meant Reset Device only by
+                # position, and its neighbour is Forget Device -- exactly the index-drift failure
+                # Methods.md Method 13 warns about, on the one control that wipes the cube.
+                # Filtering on AXIdentifier is safe over `every button` (all candidates have one);
+                # it is only unsafe over `every UI element`.
                 'tell application "System Events"\n'
                 '    tell process "TimeFlip"\n'
-                '        if exists button 2 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" then\n'
-                '            click button 2 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"\n'
-                "            delay 0.5\n"
-                '            click button 2 of sheet 1 of window "TimeFlip Settings"\n'
-                '            return "clicked"\n'
-                "        else\n"
-                '            return "not_paired"\n'
-                "        end if\n"
+                '        tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"\n'
+                '            if (count of (buttons whose value of attribute "AXIdentifier" is "reset-device")) is 0 then\n'
+                '                return "not_paired"\n'
+                "            end if\n"
+                '            click (first button whose value of attribute "AXIdentifier" is "reset-device")\n'
+                "        end tell\n"
+                "        delay 0.5\n"
+                # The confirmation sheet is an NSAlert, so its buttons carry no identifier.
+                '        click button 2 of sheet 1 of window "TimeFlip Settings"\n'
+                '        return "clicked"\n'
                 "    end tell\n"
                 "end tell"
             ),
@@ -368,9 +367,13 @@ def reset_device_for_cleanup(db_path):
                 {
                     "action": "applescript",
                     "script": (
+                        # Scan for Devices, by identifier rather than `button 1` -- same reason as
+                        # the Reset Device click above.
                         'tell application "System Events"\n'
                         '    tell process "TimeFlip"\n'
-                        '        click button 1 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"\n'
+                        '        tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"\n'
+                        '            click (first button whose value of attribute "AXIdentifier" is "scan-for-devices")\n'
+                        "        end tell\n"
                         "    end tell\n"
                         "end tell"
                     ),
@@ -381,16 +384,36 @@ def reset_device_for_cleanup(db_path):
         ctx,
     )
 
+    run_step({"action": "sql_query", "query": "SELECT MAX(debug_log_id) FROM debug_log;", "capture": "cleanup_repair_id"}, ctx)
+
     r = run_step(
         {
-            "action": "ask_user_or_detect",
-            "prompt": "End-of-run cleanup: click the discovered device's row in Settings to re-pair it (can't be scripted).",
-            # Select debug_log_id (unique, monotonic), not message -- "Login accepted,
-            # code=0x02" repeats verbatim on every login, including the reset
-            # confirmation itself, so comparing text never detects a genuinely new row.
-            "detect_query": "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' "
-            "ORDER BY debug_log_id DESC LIMIT 1;",
-            "timeout_seconds": 120,
+            "actions": [
+                # Same click 02b Step 7 uses: the row is a Text + .onTapGesture, so an AX press
+                # doesn't actuate it and it needs a real coordinate click (Method 9). This used to
+                # be an ask_user_or_detect prompt claiming the click "can't be scripted", written
+                # before cgevent_click_element existed -- 02b has been pairing this way unattended
+                # since 2026-07-25, so the prompt was making the developer do a click the runner
+                # was already capable of.
+                {
+                    "action": "cgevent_click_element",
+                    "element": 'first static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose name contains "TimeFlip"',
+                },
+                # Wait for pairing to *complete*, not just log in. A fresh pair logs in on the
+                # factory-default PIN and then rotates the password about a second later; stopping
+                # at "Login accepted" (which the old detect_query did) returns while the rotation
+                # is still in flight, so the run could switch database or exit mid-rotation.
+                {
+                    "action": "wait_for_sql",
+                    "query": "SELECT message FROM debug_log WHERE tag='TimeFlip' "
+                    "AND message LIKE 'Device password confirmed set to:%' "
+                    "AND debug_log_id > $cleanup_repair_id ORDER BY debug_log_id DESC LIMIT 1;",
+                    "expect_contains": "Device password confirmed set to:",
+                    "prompt": "End-of-run cleanup: re-pairing the device automatically -- if it doesn't "
+                    "complete within a few seconds, click its row in the discovered list yourself.",
+                    "timeout_seconds": 120,
+                },
+            ]
         },
         ctx,
     )

@@ -42,7 +42,7 @@ menu bar under developer mode.)
 
 ## Detecting if the device is paused (vs timing an activity)
 
-`device_event` has one row per timing segment (a facet flip or a pause), with an
+`device_event` has one row per timing segment (a face flip or a pause), with an
 `paused` flag; see [`../../database/003_device_event.sql`](../../database/003_device_event.sql).
 The **most recent** segment's flag is the current state. Order by `start_epoch` (indexed
 Unix seconds), **not** `event_number` -- the device's counter resets on factory reset and
@@ -82,7 +82,8 @@ that it's *still up*. For "is the device connected at this instant" the runner u
 instead: while connected the app logs a `battery`/`hist-*` row every ~10s, and those go silent when
 the device is forgotten or drops. So the newest such row being recent (`logged_at` within ~30s of
 now) means live. This is the one place `logged_at` beats `debug_log_id` -- it's a *recency* test,
-not row ordering, so second-precision is fine. Helper: `device_appears_connected(db_path)`, used as
+not row ordering, so the precision is not the point here (`logged_at` carries milliseconds --
+see `AppDataStore.debugLogTimeFormatter` -- but recency would work without them). Helper: `device_appears_connected(db_path)`, used as
 the runner's pre-checklist gate.
 
 ```sql

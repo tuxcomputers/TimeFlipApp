@@ -17,7 +17,7 @@ struct SettingsRootView: View {
     let assignCategoryToFace: (UInt8, Int) -> Void
     /// Locks or unlocks a physical face: `(face_id, locked)`.
     let setFaceLocked: (UInt8, Bool) -> Void
-    @State private var selectedTab: SettingsTab = .facets
+    @State private var selectedTab: SettingsTab = .faces
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
 
@@ -90,7 +90,7 @@ struct SettingsRootView: View {
                     .tabItem {
                         Text("Faces")
                     }
-                    .tag(SettingsTab.facets)
+                    .tag(SettingsTab.faces)
                 ReportSettingsView(
                     appState: appState,
                     authManager: authManager,
@@ -109,7 +109,7 @@ struct SettingsRootView: View {
             .onChange(of: selectedTab) { _, newValue in
                 DeveloperMode.debugPrint(.tab, "Tab switched to: \(newValue.debugName)")
             }
-            .onPreferenceChange(FacetsColumnHeightPreferenceKey.self) { height in
+            .onPreferenceChange(FacesColumnHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }
                 onMinimumContentHeightChange(height)
             }
@@ -134,7 +134,7 @@ struct SettingsRootView: View {
 enum SettingsTab: Hashable {
     case timeflip
     case categories
-    case facets
+    case faces
     case report
 
     /// Matches the tab's visible title, for the `tab` debug log (see SettingsRootView).
@@ -142,7 +142,7 @@ enum SettingsTab: Hashable {
         switch self {
         case .timeflip: return "Device"
         case .categories: return "Categories"
-        case .facets: return "Faces"
+        case .faces: return "Faces"
         case .report: return "App"
         }
     }
@@ -175,27 +175,27 @@ private struct PaneSetupView: View {
                     Text("Top face")
                         .font(.headline)
 
-                    if let index = appState.mappingIndex(for: appState.currentFacetID) {
+                    if let index = appState.mappingIndex(for: appState.currentFaceID) {
                         let binding = Binding(
-                            get: { appState.facetMappings[index] },
+                            get: { appState.faceMappings[index] },
                             set: { appState.updateMapping($0) }
                         )
-                        TopFacetEditor(
+                        TopFaceEditor(
                             mapping: binding,
-                            litColour: appState.deviceBodyColour(for: appState.currentFacetID),
-                            lineColour: appState.deviceLineColour(for: appState.currentFacetID),
-                            iconName: appState.categoryActivity(for: appState.currentFacetID)?.iconName,
-                            categoryName: appState.categoryActivity(for: appState.currentFacetID)?.name,
-                            isLocked: appState.isFaceLocked(appState.currentFacetID),
+                            litColour: appState.deviceBodyColour(for: appState.currentFaceID),
+                            lineColour: appState.deviceLineColour(for: appState.currentFaceID),
+                            iconName: appState.categoryActivity(for: appState.currentFaceID)?.iconName,
+                            categoryName: appState.categoryActivity(for: appState.currentFaceID)?.name,
+                            isLocked: appState.isFaceLocked(appState.currentFaceID),
                             onToggleLock: {
-                                let facetID = appState.currentFacetID
-                                let locked = !appState.isFaceLocked(facetID)
-                                DeveloperMode.debugPrint(.click, "Button clicked: Face \(facetID) lock -> \(locked ? "locked" : "unlocked")")
-                                setFaceLocked(facetID, locked)
+                                let faceID = appState.currentFaceID
+                                let locked = !appState.isFaceLocked(faceID)
+                                DeveloperMode.debugPrint(.click, "Button clicked: Face \(faceID) lock -> \(locked ? "locked" : "unlocked")")
+                                setFaceLocked(faceID, locked)
                             }
                         )
                     } else {
-                        Text("Flip the device to pick a facet.")
+                        Text("Flip the device to pick a face.")
                             .foregroundStyle(.secondary)
                             .padding(.vertical, SettingsLayoutConstants.Pane.emptyStateVerticalPadding)
                     }
@@ -213,9 +213,9 @@ private struct PaneSetupView: View {
                         colourOptions: appState.colourOptions,
                         // A locked face keeps the category it has, so there is nothing here to
                         // click. The write refuses a locked face too, in case this ever gets past.
-                        canAssign: TimeFlipConstants.isValidFacetID(appState.currentFacetID)
-                            && !appState.isFaceLocked(appState.currentFacetID),
-                        onSelect: { assignCategoryToFace(appState.currentFacetID, $0) }
+                        canAssign: TimeFlipConstants.isValidFaceID(appState.currentFaceID)
+                            && !appState.isFaceLocked(appState.currentFaceID),
+                        onSelect: { assignCategoryToFace(appState.currentFaceID, $0) }
                     )
 
                     CategoryCreateControl(
@@ -235,7 +235,7 @@ private struct PaneSetupView: View {
                 .background(
                     GeometryReader { columnProxy in
                         Color.clear.preference(
-                            key: FacetsColumnHeightPreferenceKey.self,
+                            key: FacesColumnHeightPreferenceKey.self,
                             value: columnProxy.size.height + (verticalPadding * 2)
                         )
                     }
@@ -250,8 +250,8 @@ private struct PaneSetupView: View {
     }
 }
 
-private struct TopFacetEditor: View {
-    @Binding var mapping: FacetMapping
+private struct TopFaceEditor: View {
+    @Binding var mapping: FaceMapping
     /// The colour to light the device in: the colour of the category assigned to this face, or
     /// white when it has none (see `AppState.deviceBodyColour`).
     let litColour: Color
@@ -601,7 +601,7 @@ private struct CategoryAssignmentList: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FacetList.cornerRadius)
+            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FaceList.cornerRadius)
                 .fill(Color(NSColor.textBackgroundColor))
         )
         // The first row takes keyboard focus when the tab appears, and its focus ring reads as a
@@ -630,7 +630,7 @@ private struct CategoryAssignmentRow: View {
     }
 
     private var rowContent: some View {
-        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+        HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
             // A category with no icon still fills the slot, with a hollow black square -- the same
             // way the Categories tab draws a category with no colour -- so it reads as "nothing
             // set" rather than as a gap, and every name in the list lines up either way.
@@ -638,51 +638,51 @@ private struct CategoryAssignmentRow: View {
                 if let iconName {
                     ZStack {
                         RoundedRectangle(
-                            cornerRadius: SettingsLayoutConstants.FacetList.iconBackgroundCornerRadius
+                            cornerRadius: SettingsLayoutConstants.FaceList.iconBackgroundCornerRadius
                         )
                         .fill(colour ?? Color(NSColor.controlBackgroundColor))
                         ActivityIconView(
                             iconName: iconName,
                             tint: iconColour,
-                            size: SettingsLayoutConstants.FacetList.iconSize
+                            size: SettingsLayoutConstants.FaceList.iconSize
                         )
                     }
                 } else {
                     RoundedRectangle(
-                        cornerRadius: SettingsLayoutConstants.FacetList.iconBackgroundCornerRadius
+                        cornerRadius: SettingsLayoutConstants.FaceList.iconBackgroundCornerRadius
                     )
                     .stroke(Color.black)
                 }
             }
             .frame(
-                width: SettingsLayoutConstants.FacetList.iconBackgroundSize,
-                height: SettingsLayoutConstants.FacetList.iconBackgroundSize
+                width: SettingsLayoutConstants.FaceList.iconBackgroundSize,
+                height: SettingsLayoutConstants.FaceList.iconBackgroundSize
             )
 
             Text(category.name)
 
             Spacer()
         }
-        .frame(height: SettingsLayoutConstants.facetRowHeight)
-        .padding(.horizontal, SettingsLayoutConstants.FacetList.horizontalPadding)
+        .frame(height: SettingsLayoutConstants.faceRowHeight)
+        .padding(.horizontal, SettingsLayoutConstants.FaceList.horizontalPadding)
         // Without this the row only responds to clicks that land on the icon or the text, not the
         // gap between them or the empty space the Spacer leaves to the right.
         .contentShape(Rectangle())
     }
 }
 
-private struct FacetMappingList: View {
-    let mappings: [FacetMapping]
-    let currentFacetID: UInt8
+private struct FaceMappingList: View {
+    let mappings: [FaceMapping]
+    let currentFaceID: UInt8
     let tint: (UInt8) -> Color
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(mappings) { mapping in
-                FacetMappingRow(
+                FaceMappingRow(
                     mapping: mapping,
-                    tint: tint(mapping.facetID),
-                    isSelected: mapping.facetID == currentFacetID
+                    tint: tint(mapping.faceID),
+                    isSelected: mapping.faceID == currentFaceID
                 )
                 if mapping.id != mappings.last?.id {
                     Divider()
@@ -690,23 +690,23 @@ private struct FacetMappingList: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FacetList.cornerRadius)
+            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FaceList.cornerRadius)
                 .fill(Color(NSColor.textBackgroundColor))
         )
     }
 }
 
-private struct FacetMappingRow: View {
-    let mapping: FacetMapping
+private struct FaceMappingRow: View {
+    let mapping: FaceMapping
     let tint: Color
     let isSelected: Bool
 
     var body: some View {
-        HStack(spacing: SettingsLayoutConstants.FacetList.rowSpacing) {
+        HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
             ActivityIconView(
                 iconName: mapping.iconName,
                 tint: tint,
-                size: SettingsLayoutConstants.FacetList.iconSize
+                size: SettingsLayoutConstants.FaceList.iconSize
             )
 
             Text(mapping.displayName)
@@ -714,17 +714,17 @@ private struct FacetMappingRow: View {
 
             Spacer()
         }
-        .frame(height: SettingsLayoutConstants.facetRowHeight)
-        .padding(.horizontal, SettingsLayoutConstants.FacetList.horizontalPadding)
+        .frame(height: SettingsLayoutConstants.faceRowHeight)
+        .padding(.horizontal, SettingsLayoutConstants.FaceList.horizontalPadding)
         .background(
             isSelected
-            ? Color.accentColor.opacity(SettingsLayoutConstants.FacetList.selectionOpacity)
+            ? Color.accentColor.opacity(SettingsLayoutConstants.FaceList.selectionOpacity)
             : Color.clear
         )
     }
 }
 
-private struct FacetsColumnHeightPreferenceKey: PreferenceKey {
+private struct FacesColumnHeightPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {

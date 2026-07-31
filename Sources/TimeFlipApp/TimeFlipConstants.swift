@@ -1,11 +1,11 @@
 import Foundation
 
 enum TimeFlipConstants {
-    static let minFacetID: UInt8 = 1
-    static let maxFacetID: UInt8 = 12
-    static let facetCount = Int(maxFacetID - minFacetID + 1)
-    static let facetIDs: [UInt8] = Array(minFacetID...maxFacetID)
-    static let unassignedFacetID: UInt8 = 0
+    static let minFaceID: UInt8 = 1
+    static let maxFaceID: UInt8 = 12
+    static let faceCount = Int(maxFaceID - minFaceID + 1)
+    static let faceIDs: [UInt8] = Array(minFaceID...maxFaceID)
+    static let unassignedFaceID: UInt8 = 0
     static let doubleTapPauseMask: UInt8 = 0x80
     static let minBatteryLevel: UInt8 = 1
     static let maxBatteryLevel: UInt8 = 100
@@ -29,7 +29,7 @@ enum TimeFlipConstants {
     /// Bounds for the periodic history-fetch interval, in **seconds** -- the unit the setting is
     /// stored in and the unit every part of the app works in. Only the App tab's control presents it
     /// as minutes, dividing to display and multiplying to save. An hour is the far end of useful:
-    /// the periodic fetch is a safety net behind the live facet/pause events, not the main path.
+    /// the periodic fetch is a safety net behind the live face/pause events, not the main path.
     static let minFetchHistoryIntervalSeconds: Int = 60
     static let maxFetchHistoryIntervalSeconds: Int = 3600
 
@@ -41,8 +41,8 @@ enum TimeFlipConstants {
     }
     static let defaultPassword = "000000"
 
-    static func isValidFacetID(_ facetID: UInt8) -> Bool {
-        facetID >= minFacetID && facetID <= maxFacetID
+    static func isValidFaceID(_ faceID: UInt8) -> Bool {
+        faceID >= minFaceID && faceID <= maxFaceID
     }
 }
 

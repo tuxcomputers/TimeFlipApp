@@ -13,8 +13,8 @@ enum TimeFlipHistoryParser {
         if rawSide == 66 { return nil } // accelerometer error sentinel from spec
 
         let isPauseEvent = rawSide >= 128
-        let facetID = isPauseEvent ? rawSide &- 128 : rawSide
-        guard TimeFlipConstants.isValidFacetID(facetID) else { return nil }
+        let faceID = isPauseEvent ? rawSide &- 128 : rawSide
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return nil }
 
         let timestamp = UInt64(bigEndianBytes: Array(bytes[5..<13]))
         // Vendor doc v4.3 specifies a 4-byte duration field at bytes 13-16; endianness
@@ -27,7 +27,7 @@ enum TimeFlipHistoryParser {
 
         return TimeFlipHistoryEntry(
             eventNumber: eventNumber,
-            facetID: facetID,
+            faceID: faceID,
             startedAt: startedAt,
             duration: duration,
             isPaused: isPauseEvent

@@ -50,6 +50,15 @@ enum DeveloperMode {
         case histResult = "hist-result"
         case histDone = "hist-done"
         case histGap = "hist-gap"
+        // Elapsed-time markers for the phases of bringing a session up, and for the history
+        // stream's frame arrivals. These exist to be measured, not read: the mock device's
+        // delay ranges (MockTimeFlipDevice.Latency) are calibrated from them, and connect /
+        // enableNotifications / initializeSession had no timing source at all before this.
+        case connPhase = "conn-phase"
+        case histTime = "hist-time"
+        // Task/pomodoro parameters (0x13/0x14/0xFE) and the device name (0x15) -- the spec commands
+        // the driver previously had no implementation for.
+        case faceTask = "face-task"
         case battery = "battery"
         case dbType = "db-type"
         case doubleTap = "double-tap"

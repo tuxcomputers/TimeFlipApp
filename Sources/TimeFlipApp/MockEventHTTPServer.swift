@@ -10,7 +10,7 @@ final class MockEventHTTPServer: @unchecked Sendable {
         static let requestLineMinimumParts: Int = 2
         static let loopbackIPv4 = Data([127, 0, 0, 1])
         static let loopbackIPv6 = Data(repeating: 0, count: 15) + Data([1])
-        static let helpFacetExample: UInt8 = 3
+        static let helpFaceExample: UInt8 = 3
         static let helpAutoPauseMinutesExample: UInt16 = 5
         static let helpBatteryExample: UInt8 = 90
         static let helpEpochExample: TimeInterval = 1_700_000_000
@@ -243,9 +243,9 @@ final class MockEventHTTPServer: @unchecked Sendable {
         }
     }
 
-    private func parseFacetID(_ value: String?) -> UInt8? {
+    private func parseFaceID(_ value: String?) -> UInt8? {
         guard let parsed = parseUInt8(value) else { return nil }
-        return TimeFlipConstants.isValidFacetID(parsed) ? parsed : nil
+        return TimeFlipConstants.isValidFaceID(parsed) ? parsed : nil
     }
 
     private func parseBatteryLevel(_ value: String?) -> UInt8? {
@@ -256,8 +256,8 @@ final class MockEventHTTPServer: @unchecked Sendable {
         return parsed
     }
 
-    private var facetRangeDescription: String {
-        "\(TimeFlipConstants.minFacetID)-\(TimeFlipConstants.maxFacetID)"
+    private var faceRangeDescription: String {
+        "\(TimeFlipConstants.minFaceID)-\(TimeFlipConstants.maxFaceID)"
     }
 
     private var batteryRangeDescription: String {
@@ -269,20 +269,20 @@ final class MockEventHTTPServer: @unchecked Sendable {
     }
 
     private func handleFlip(params: [String: String]) -> Response {
-        guard let facet = parseFacetID(params["facet"]) else {
-            return .badRequest("facet required (\(facetRangeDescription))")
+        guard let face = parseFaceID(params["face"]) else {
+            return .badRequest("face required (\(faceRangeDescription))")
         }
-        performOnMain { self.controller.flip(to: facet) }
-        return .ok("flip facet=\(facet)")
+        performOnMain { self.controller.flip(to: face) }
+        return .ok("flip face=\(face)")
     }
 
     private func handleDoubleTap(params: [String: String]) -> Response {
-        let facet = params["facet"].flatMap(parseFacetID)
+        let face = params["face"].flatMap(parseFaceID)
         if let pause = parseBool(params["pause"]) {
             performOnMain { self.controller.setPaused(pause) }
             return .ok("double_tap pause=\(pause)")
         }
-        performOnMain { self.controller.doubleTap(targetFacetID: facet) }
+        performOnMain { self.controller.doubleTap(targetFaceID: face) }
         return .ok("double_tap")
     }
 
@@ -369,8 +369,8 @@ final class MockEventHTTPServer: @unchecked Sendable {
         [
             "TimeFlip mock HTTP endpoints:",
             "GET /status",
-            "GET /flip?facet=\(Constants.helpFacetExample)",
-            "GET /double-tap?facet=\(Constants.helpFacetExample)",
+            "GET /flip?face=\(Constants.helpFaceExample)",
+            "GET /double-tap?face=\(Constants.helpFaceExample)",
             "GET /pause?on=1",
             "GET /lock?on=1",
             "GET /auto-pause?minutes=\(Constants.helpAutoPauseMinutesExample)",

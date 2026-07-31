@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS category (
   , active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))
 );
 
-ALTER TABLE category ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1));
+-- Migration (run by hand against a database that predates this column, see CLAUDE.md):
+-- ALTER TABLE category ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1));
 
 INSERT INTO category (category_id, category_name, icon_id, colour_id)
 SELECT 0, 'Unassigned', 0, 0

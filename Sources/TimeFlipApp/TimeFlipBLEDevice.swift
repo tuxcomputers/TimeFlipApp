@@ -117,7 +117,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     var onDeviceDiscovered: ((DiscoveredBLEDevice) -> Void)?
     var onDiscoveryScanStopped: (() -> Void)?
     private var snapshotState = TimeFlipDeviceSnapshot(
-        facetID: TimeFlipConstants.unassignedFacetID,
+        faceID: TimeFlipConstants.unassignedFaceID,
         isPaused: true,
         isLocked: false,
         autoPauseMinutes: 0,
@@ -136,7 +136,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private let logger: Logger
     private let requiredCharacteristicUUIDs: Set<CBUUID> = [
         TimeFlipUUIDs.eventsData,
-        TimeFlipUUIDs.facets,
+        TimeFlipUUIDs.faces,
         TimeFlipUUIDs.commandResult,
         TimeFlipUUIDs.command,
         TimeFlipUUIDs.doubleTap,
@@ -245,16 +245,43 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     func connect() async -> Bool {
         do {
             logger.notice("connect() begin")
+            let clock = ContinuousClock()
+            let begin = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect begin")
             stopDiscoveryScan()
+
             try await waitForBluetoothPower()
+            let powered = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect radio powered: \(Self.elapsed(from: begin, to: powered))")
+
             try await scanAndConnect()
+            let connected = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect scan+link established: \(Self.elapsed(from: powered, to: connected))")
+
             try await discoverServicesAndCharacteristics()
+            let discovered = clock.now
+            DeveloperMode.debugPrint(.connPhase, "connect characteristics discovered: \(Self.elapsed(from: connected, to: discovered))")
+
             logger.notice("connect() completed")
+            DeveloperMode.debugPrint(.connPhase, "connect complete, total: \(Self.elapsed(from: begin, to: discovered))")
             return true
         } catch {
             logger.error("BLE connect failed: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.connPhase, "connect failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// Whole milliseconds between two `ContinuousClock` instants, rendered as e.g. `742ms`.
+    ///
+    /// A monotonic clock rather than `Date`, because these spans exist to calibrate the mock's
+    /// delay ranges and a wall-clock adjustment mid-connect would silently corrupt the figure.
+    /// `debug_log` already carries millisecond wall-clock timestamps, so the deltas are only
+    /// logged where the boundary isn't already inferable from two adjacent rows.
+    static func elapsed(from start: ContinuousClock.Instant, to end: ContinuousClock.Instant) -> String {
+        let components = (end - start).components
+        let milliseconds = components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
+        return "\(milliseconds)ms"
     }
 
     /// Connect to a peripheral the user picked from a discovery scan result, verifying it's
@@ -590,18 +617,25 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     func enableNotifications() async {
-        logger.debug("Enabling notifications for facets/doubleTap/system/events/battery")
-        await withNotification(TimeFlipUUIDs.facets, enabled: true)
+        logger.debug("Enabling notifications for faces/doubleTap/system/events/battery")
+        let clock = ContinuousClock()
+        let begin = clock.now
+        DeveloperMode.debugPrint(.connPhase, "enableNotifications begin (5 subscriptions)")
+        await withNotification(TimeFlipUUIDs.faces, enabled: true)
         await withNotification(TimeFlipUUIDs.doubleTap, enabled: true)
         await withNotification(TimeFlipUUIDs.systemState, enabled: true)
         await withNotification(TimeFlipUUIDs.eventsData, enabled: true)
         await withNotification(TimeFlipUUIDs.batteryLevel, enabled: true)
         logger.notice("Notification subscriptions set")
+        DeveloperMode.debugPrint(.connPhase, "enableNotifications complete: \(Self.elapsed(from: begin, to: clock.now))")
     }
 
     func initializeSession(hostTime: Date, desiredAutoPauseMinutes: UInt16) async {
         guard isLoggedIn else { return }
         logger.notice("Initializing session with hostTime \(hostTime.timeIntervalSince1970, privacy: .public)")
+        let clock = ContinuousClock()
+        let begin = clock.now
+        DeveloperMode.debugPrint(.connPhase, "initializeSession begin")
         await setDeviceTime(hostTime)
         await refreshStatus()
         await AutoPauseNormalizer.normalize(
@@ -615,23 +649,24 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         await refreshDeviceInfo()
         await primeSnapshot()
         await readSystemState(context: "post-initialize health check")
+        DeveloperMode.debugPrint(.connPhase, "initializeSession complete: \(Self.elapsed(from: begin, to: clock.now))")
     }
 
-    func setFacetColor(facetID: UInt8, components: ColorComponents) async {
+    func setFaceColor(faceID: UInt8, components: ColorComponents) async {
         guard isLoggedIn else { return }
-        guard TimeFlipConstants.isValidFacetID(facetID) else { return }
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return }
         let (r, g, b) = components.deviceRGB16
         var payload = Data(repeating: 0, count: 8)
         payload[0] = 0x11
-        payload[1] = facetID
+        payload[1] = faceID
         payload[2] = UInt8(r >> 8); payload[3] = UInt8(r & 0xFF)
         payload[4] = UInt8(g >> 8); payload[5] = UInt8(g & 0xFF)
         payload[6] = UInt8(b >> 8); payload[7] = UInt8(b & 0xFF)
         do {
-            logger.debug("Setting color facet=\(facetID, privacy: .public) r=\(r) g=\(g) b=\(b)")
+            logger.debug("Setting color face=\(faceID, privacy: .public) r=\(r) g=\(g) b=\(b)")
             _ = try await performCommand(payload)
         } catch {
-            logger.error("Failed to set color facet=\(facetID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.error("Failed to set color face=\(faceID, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -653,6 +688,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             ? "123456"
             : String(format: "%06d", Int.random(in: 0...999_999))
         DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(generatedRandomPassword)")
+        let clock = ContinuousClock()
+        let begin = clock.now
         let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
         do {
             _ = try await performCommand(payload)
@@ -661,6 +698,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             DeveloperMode.debugPrint(.timeFlip, "Failed to set new device password: \(error.localizedDescription)")
             return nil
         }
+        let written = clock.now
+        DeveloperMode.debugPrint(.connPhase, "password rotate 0x30 write: \(Self.elapsed(from: begin, to: written))")
         do {
             guard try await attemptLogin(with: generatedRandomPassword) else {
                 logger.error("Device rejected re-login with new password; not saving")
@@ -674,6 +713,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
         logger.notice("Device password rotated and confirmed")
         DeveloperMode.debugPrint(.timeFlip, "Device password confirmed set to: \(generatedRandomPassword)")
+        DeveloperMode.debugPrint(
+            .connPhase,
+            "password rotate confirm re-login: \(Self.elapsed(from: written, to: clock.now)), total: \(Self.elapsed(from: begin, to: clock.now))"
+        )
         return generatedRandomPassword
     }
 
@@ -684,6 +727,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     @discardableResult
     func resetDevicePasswordToDefault() async -> Bool {
         guard isLoggedIn else { return false }
+        DeveloperMode.debugPrint(.timeFlip, "Resetting device password to default: \(TimeFlipConstants.defaultPassword)")
+        let clock = ContinuousClock()
+        let begin = clock.now
         let payload = Data([0x30]) + Data(TimeFlipConstants.defaultPassword.utf8)
         do {
             _ = try await performCommand(payload)
@@ -692,6 +738,8 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             DeveloperMode.debugPrint(.timeFlip, "Failed to reset device password to default: \(error.localizedDescription)")
             return false
         }
+        let written = clock.now
+        DeveloperMode.debugPrint(.connPhase, "password reset 0x30 write: \(Self.elapsed(from: begin, to: written))")
         do {
             guard try await attemptLogin(with: TimeFlipConstants.defaultPassword) else {
                 logger.error("Device rejected re-login with default password; reset not confirmed")
@@ -705,10 +753,14 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
         logger.notice("Device password reset to default and confirmed")
         DeveloperMode.debugPrint(.timeFlip, "Device password confirmed reset to default: \(TimeFlipConstants.defaultPassword)")
+        DeveloperMode.debugPrint(
+            .connPhase,
+            "password reset confirm re-login: \(Self.elapsed(from: written, to: clock.now)), total: \(Self.elapsed(from: begin, to: clock.now))"
+        )
         return true
     }
 
-    /// Full factory reset (command 0xFF): erases all flash-stored data on the device -- facet
+    /// Full factory reset (command 0xFF): erases all flash-stored data on the device -- face
     /// colors, task/pomodoro parameters, name, password, everything -- back to factory settings.
     /// Per the vendor spec this is the same command the official app's "Disconnect TimeFlip"
     /// button triggers.
@@ -724,6 +776,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     @discardableResult
     func factoryReset() async -> Bool {
         guard isLoggedIn else { return false }
+        DeveloperMode.debugPrint(.timeFlip, "Factory reset (0xFF) triggered")
+        let clock = ContinuousClock()
+        let begin = clock.now
         let payload = Data([0xFF])
         let result: Data
         do {
@@ -743,6 +798,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         // .debug-level os_log that macOS doesn't persist), but it is NOT a meaningful ack.
         logger.notice("Device factory reset (0xFF) sent; no ack expected, read-back=\(result.hexString(), privacy: .public) (likely stale)")
         DeveloperMode.debugPrint(.timeFlip, "Factory reset (0xFF) sent; device sends no ack, read-back=\(result.hexString()) (likely stale); awaiting device reboot to confirm via default-password login")
+        // Only covers writing 0xFF. The erase-and-reboot the device then performs is deliberately
+        // not waited on here (see above), so this is the command cost, not the reset's true cost --
+        // that one is only observable as the delay before the device reappears on the default
+        // password, which ApplicationDelegate bounds with factoryResetConfirmTimeout.
+        DeveloperMode.debugPrint(.connPhase, "factory reset 0xFF write: \(Self.elapsed(from: begin, to: clock.now))")
         return true
     }
 
@@ -1072,6 +1132,14 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let sentinel20 = Data(repeating: 0, count: 20)
         var cursor = startEvent
 
+        // Frame arrival times, accumulated in memory and emitted as a single line once the stream
+        // ends. Deliberately not one debug_log row per frame: each row is a SQLite insert, which
+        // would add its own latency to the very inter-frame gap being measured. These feed the
+        // mock's `historyRead` (command round trip) and `historyPerRecord` (per-frame) ranges.
+        let clock = ContinuousClock()
+        var lastFrameAt = clock.now
+        var frameGapsMilliseconds: [Int64] = []
+
         let stream = AsyncStream<Data> { continuation in
             historyStreamContinuation = continuation
         }
@@ -1088,6 +1156,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             command.replaceSubrange(1..<5, with: withUnsafeBytes(of: cursor.bigEndian, Array.init))
 
             logger.debug("History stream request startFrom=\(cursor, privacy: .public)")
+            // Reset here, not at declaration: the enable-notification hop above is a real BLE
+            // round trip, and folding it into the first frame's gap would inflate the command
+            // round-trip figure the mock is calibrated against.
+            lastFrameAt = clock.now
             try await write(command, to: TimeFlipUUIDs.history, type: .withResponse)
         } catch {
             logger.error("History stream start failed: \(error.localizedDescription, privacy: .public)")
@@ -1114,6 +1186,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
         for await frame in stream {
             resetIdleWatchdog()
+            let arrivedAt = clock.now
+            let gap = (arrivedAt - lastFrameAt).components
+            frameGapsMilliseconds.append(gap.seconds * 1_000 + gap.attoseconds / 1_000_000_000_000_000)
+            lastFrameAt = arrivedAt
             // Treat any frame with eventNumber==0 as sentinel.
             if frame.count >= 4 {
                 let evNum = frame.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
@@ -1130,7 +1206,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
             if let entry = TimeFlipHistoryParser.parse(frame) {
                 let ev = entry.eventNumber ?? cursor
-                logger.debug("History frame parsed ev=\(ev) facet=\(entry.facetID) dur=\(entry.duration)")
+                logger.debug("History frame parsed ev=\(ev) face=\(entry.faceID) dur=\(entry.duration)")
                 entries.append(entry)
                 cursor = ev &+ 1
             } else {
@@ -1147,12 +1223,30 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
         idleWatchdog?.cancel()
         await withNotification(TimeFlipUUIDs.history, enabled: false)
+
+        if let commandRoundTrip = frameGapsMilliseconds.first {
+            // First gap is the command round trip (write acknowledged -> first frame); the rest are
+            // the device's own per-frame spacing, which is what a mock streaming a backlog has to
+            // reproduce. The trailing sentinel frame is included, so the list is one longer than
+            // the record count.
+            let perFrame = frameGapsMilliseconds.dropFirst()
+            let summary = perFrame.isEmpty
+                ? "none"
+                : "\(perFrame.map(String.init).joined(separator: ",")) (min=\(perFrame.min() ?? 0) max=\(perFrame.max() ?? 0) mean=\(perFrame.reduce(0, +) / Int64(perFrame.count)))"
+            DeveloperMode.debugPrint(
+                .histTime,
+                "history stream from=\(startEvent) records=\(entries.count) frames=\(frameGapsMilliseconds.count) round_trip=\(commandRoundTrip)ms per_frame_ms=\(summary)"
+            )
+        } else {
+            DeveloperMode.debugPrint(.histTime, "history stream from=\(startEvent) received no frames")
+        }
+
         return entries
     }
 
     /// Per the vendor spec, requesting event 0xFFFFFFFF via command 0x01 substitutes the real
     /// last event's complete "History block" frame (same layout a single-event read would
-    /// return -- event number, facet, start time, duration). Unlike 0x02, whose response is
+    /// return -- event number, face, start time, duration). Unlike 0x02, whose response is
     /// explicitly documented as "data flow with notification", 0x01's response isn't described as
     /// a notification at all -- confirmed empirically too: waiting on a notification here reliably
     /// timed out against real hardware, while an explicit read of the characteristic's value right
@@ -1323,6 +1417,115 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
+    // MARK: - Task/pomodoro parameters and device name (0x13, 0x14, 0x15, 0xFE)
+    //
+    // The device runs a per-face countdown on its own and asks the host to push parameters via the
+    // `taskParametersSyncRequired` system-state notification, which this driver decoded and then
+    // ignored because it had no way to answer. These four commands complete the spec's command set.
+
+    /// Sets a face's task parameters (command 0x13).
+    ///
+    /// Face numbers are validated against the app's own range rather than the spec's stated 0-24:
+    /// the protocol document describes a 24-facet variant, while this app targets the 12-face
+    /// TimeFlip2 and `TimeFlipConstants.isValidFaceID` is the single place that decision lives.
+    @discardableResult
+    func setFaceTaskParameters(_ params: FaceTaskParameters) async -> Bool {
+        guard isLoggedIn else { return false }
+        guard TimeFlipConstants.isValidFaceID(params.faceID) else {
+            logger.error("setFaceTaskParameters rejected invalid face \(params.faceID, privacy: .public)")
+            return false
+        }
+        do {
+            DeveloperMode.debugPrint(
+                .faceTask,
+                "Face \(params.faceID) task set to mode=\(params.mode.rawValue) limit=\(params.limitSeconds)s triggered"
+            )
+            _ = try await performCommand(params.commandPayload())
+            DeveloperMode.debugPrint(.faceTask, "Face \(params.faceID) task written")
+            return true
+        } catch {
+            logger.error("Failed to set face task params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Face \(params.faceID) task write failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Reads a face's task parameters (command 0x14), including how long its timer has been running.
+    func readFaceTaskParameters(faceID: UInt8) async -> FaceTaskParameters? {
+        guard isLoggedIn else { return nil }
+        guard TimeFlipConstants.isValidFaceID(faceID) else { return nil }
+        do {
+            let response = try await performCommand(Data([0x14, faceID]))
+            guard let params = FaceTaskParameters.parse(response) else {
+                logger.error("Unexpected 0x14 response len=\(response.count) resp=\(response.hexString(), privacy: .public)")
+                DeveloperMode.debugPrint(.faceTask, "Face \(faceID) task read unexpected: \(response.hexString())")
+                return nil
+            }
+            DeveloperMode.debugPrint(
+                .faceTask,
+                "Face \(faceID) task read mode=\(params.mode.rawValue) limit=\(params.limitSeconds)s elapsed=\(params.elapsedSeconds.map(String.init) ?? "nil")s"
+            )
+            return params
+        } catch {
+            logger.error("Failed to read face task params: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Face \(faceID) task read failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Sets the device's advertised name (command 0x15).
+    ///
+    /// The spec caps the name at 18 ASCII characters and puts the length in the byte after the
+    /// opcode. Non-ASCII is rejected rather than lossily transcoded: the payload is a raw byte count
+    /// and a multi-byte character would make the declared length disagree with the bytes sent,
+    /// which is the kind of thing that bricks a name field rather than failing cleanly.
+    @discardableResult
+    func setDeviceName(_ name: String) async -> Bool {
+        guard isLoggedIn else { return false }
+        guard let ascii = name.data(using: .ascii), !ascii.isEmpty else {
+            logger.error("setDeviceName rejected non-ASCII or empty name")
+            DeveloperMode.debugPrint(.faceTask, "Device name rejected (non-ASCII or empty): \(name)")
+            return false
+        }
+        guard ascii.count <= Self.maximumDeviceNameLength else {
+            logger.error("setDeviceName rejected \(ascii.count, privacy: .public) chars, max \(Self.maximumDeviceNameLength, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Device name rejected (\(ascii.count) chars, max \(Self.maximumDeviceNameLength))")
+            return false
+        }
+        do {
+            DeveloperMode.debugPrint(.faceTask, "Device name set to '\(name)' triggered")
+            _ = try await performCommand(Data([0x15, UInt8(ascii.count)]) + ascii)
+            DeveloperMode.debugPrint(.faceTask, "Device name written: '\(name)'")
+            return true
+        } catch {
+            logger.error("Failed to set device name: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Device name write failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Per the spec, 18 ASCII symbols maximum.
+    static let maximumDeviceNameLength = 18
+
+    /// Resets every face's task info to default (command 0xFE).
+    ///
+    /// Narrower than `factoryReset`: task parameters only. History, pairing, password, colours and
+    /// the device name are untouched, so unlike 0xFF this needs no reboot and no re-pair.
+    @discardableResult
+    func resetTaskInfoToDefault() async -> Bool {
+        guard isLoggedIn else { return false }
+        do {
+            DeveloperMode.debugPrint(.faceTask, "Task info reset (0xFE) triggered")
+            _ = try await performCommand(Data([0xFE]))
+            DeveloperMode.debugPrint(.faceTask, "Task info reset (0xFE) accepted")
+            return true
+        } catch {
+            logger.error("Failed to reset task info: \(error.localizedDescription, privacy: .public)")
+            DeveloperMode.debugPrint(.faceTask, "Task info reset failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     func setAutoPause(minutes: UInt16) async {
         let high = UInt8(minutes >> 8)
         let low = UInt8(minutes & 0xFF)
@@ -1444,10 +1647,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func primeSnapshot() async {
         do {
             _ = await readSystemState(context: "prime snapshot", emitEvent: false)
-            if let facetData = try await read(TimeFlipUUIDs.facets)?.first {
-                snapshotState = snapshotStateUpdating(facetID: facetData)
-                logger.debug("Initial facet \(facetData)")
-                emit(.facetChanged(facetID: facetData))
+            if let faceData = try await read(TimeFlipUUIDs.faces)?.first {
+                snapshotState = snapshotStateUpdating(faceID: faceData)
+                logger.debug("Initial face \(faceData)")
+                emit(.faceChanged(faceID: faceData))
             }
             if let battery = try await read(TimeFlipUUIDs.batteryLevel)?.first {
                 snapshotState = snapshotStateUpdating(batteryLevel: battery)
@@ -1513,11 +1716,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             await setLEDBrightness(percent: defaultLEDBrightness)
         case .blinkIntervalSyncRequired:
             await setBlinkInterval(seconds: defaultBlinkIntervalSeconds)
-        case .facetColorSyncRequired:
+        case .faceColorSyncRequired:
             // Answered a layer up: the colours come from the DB (face -> category -> colour), which
             // this driver has no access to, so ApplicationDelegate handles the emitted
-            // .systemState event and re-sends all 12 facets.
-            logger.notice("SystemState \(system.syncStatus) deferred to app-level facet colour resync [\(context, privacy: .public)]")
+            // .systemState event and re-sends all 12 faces.
+            logger.notice("SystemState \(system.syncStatus) deferred to app-level face colour resync [\(context, privacy: .public)]")
         case .factoryReset, .taskParametersSyncRequired, .unknown:
             // We can't automatically restore task params without persisted data; surface via logs.
             logger.warning("SystemState \(system.syncStatus) needs manual sync [\(context, privacy: .public)]")
@@ -1528,7 +1731,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     }
 
     private func snapshotStateUpdating(
-        facetID: UInt8? = nil,
+        faceID: UInt8? = nil,
         isPaused: Bool? = nil,
         isLocked: Bool? = nil,
         autoPauseMinutes: UInt16? = nil,
@@ -1538,7 +1741,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         deviceInfo: TimeFlipDeviceInfo? = nil
     ) -> TimeFlipDeviceSnapshot {
         TimeFlipDeviceSnapshot(
-            facetID: facetID ?? snapshotState.facetID,
+            faceID: faceID ?? snapshotState.faceID,
             isPaused: isPaused ?? snapshotState.isPaused,
             isLocked: isLocked ?? snapshotState.isLocked,
             autoPauseMinutes: autoPauseMinutes ?? snapshotState.autoPauseMinutes,
@@ -1552,7 +1755,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func emit(_ event: TimeFlipEvent) {
         continuation?.yield(event)
         switch event {
-        case .facetChanged, .doubleTap:
+        case .faceChanged, .doubleTap:
             // Don't update snapshot from events - history is source of truth
             break
         case .autoPauseMinutes(let minutes):
@@ -1800,9 +2003,9 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         }
         guard error == nil, let data = characteristic.value else { return }
         switch uuid {
-        case TimeFlipUUIDs.facets:
-            guard let facet = data.first else { return }
-            emit(.facetChanged(facetID: facet))
+        case TimeFlipUUIDs.faces:
+            guard let face = data.first else { return }
+            emit(.faceChanged(faceID: face))
         case TimeFlipUUIDs.doubleTap:
             guard let raw = data.first else { return }
             emit(.doubleTap(TimeFlipDoubleTapPayload(rawValue: raw)))

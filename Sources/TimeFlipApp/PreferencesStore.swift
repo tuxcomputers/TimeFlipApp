@@ -12,11 +12,11 @@ protocol PreferencesStore {
 }
 
 struct PreferencesPayload: Codable {
-    var facetMappings: [FacetMappingRecord] = []
+    var faceMappings: [FaceMappingRecord] = []
 }
 
-struct FacetMappingRecord: Codable {
-    var facetID: UInt8
+struct FaceMappingRecord: Codable {
+    var faceID: UInt8
     var name: String
     var iconName: String
 }
@@ -28,7 +28,7 @@ struct ColorComponents: Codable, Equatable {
     var alpha: Double
 
     /// The LED off. Command `0x11` takes an RGB triple with no separate enable, so all-zero is the
-    /// only way to say "don't light this facet" -- see `AppState.facetLEDColours`.
+    /// only way to say "don't light this face" -- see `AppState.faceLEDColours`.
     static let off = ColorComponents(red: 0, green: 0, blue: 0, alpha: 1)
 }
 
@@ -116,9 +116,9 @@ extension ColorComponents {
     }
 }
 
-extension FacetMappingRecord {
-    init(mapping: FacetMapping) {
-        self.facetID = mapping.facetID
+extension FaceMappingRecord {
+    init(mapping: FaceMapping) {
+        self.faceID = mapping.faceID
         self.name = mapping.name
         self.iconName = mapping.iconName
     }

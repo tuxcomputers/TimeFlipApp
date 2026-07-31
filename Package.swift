@@ -36,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "TimeFlipAppTests",
-            dependencies: ["TimeFlipApp"]
+            dependencies: ["TimeFlipApp"],
+            // Documentation living beside the tests it describes, not something to compile or bundle.
+            // Without this SwiftPM warns "found 1 file(s) which are unhandled" on every build.
+            exclude: ["Workflows/README.md"]
         )
     ]
 )

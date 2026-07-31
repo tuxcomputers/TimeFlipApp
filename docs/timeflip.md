@@ -4,7 +4,7 @@ This document captures how the TimeFlip2 puck exposes its BLE surface and how th
 
 ## 1. High-level model
 
-- The device is a 12-facet accelerometer-based timer. All state is kept in volatile RAM and resets when the coin-cell is removed (vendor doc v4.3, rev 20.02.2022).
+- The device is a 12-face accelerometer-based timer. All state is kept in volatile RAM and resets when the coin-cell is removed (vendor doc v4.3, rev 20.02.2022).
 - BLE roles: the host is GATT client; the puck exposes one vendor service plus Battery (0x180F) and Device Information (0x180A).
 - Authentication: every connection requires writing a six-ASCII-byte password to the Password characteristic; it resets after each disconnect. Default is `"000000"`.
 - A “session” in the app is the ordered set of steps: radio readiness → discovery/connect → service/characteristic discovery → password write → notifications subscription → host-led initialization (time sync + status read) → steady event stream.
@@ -13,7 +13,7 @@ This document captures how the TimeFlip2 puck exposes its BLE surface and how th
 
 Vendor service `F1196F50-71A4-11E6-BDF4-0800200C9A66` with characteristics:
 - Events data `...51` (ASCII event log, R/N)
-- Facets `...52` (current facet 1–12, 0 if undefined or bad password, R/N)
+- Faces `...52` (current face 1–12, 0 if undefined or bad password, R/N)
 - Command result `...53` (20 B, R)
 - Command `...54` (20 B, R/W; second byte echoes 0x02 on success, 0x01 on failure)
 - Double tap `...55` (N; 1 B payload)
@@ -40,9 +40,9 @@ Opcode summary (from vendor spec and observed firmware):
 - 0x09 LED brightness 1–100 %
 - 0x0A LED blink interval 5–60 s
 - 0x10 status → result bytes: lock (0x01/0x02), pause (0x01/0x02 unless locked), auto-pause minutes (u16)
-- 0x11 set facet color: facet id, then 16-bit R,G,B (Swift uses u16; spec allows up to 24 facets)
-- 0x13 set task parameters: facet, mode (0 simple, 1 pomodoro), pomodoro seconds (u32)
-- 0x14 read task parameters: returns facet, mode, pomodoro limit, and elapsed seconds (Swift picks the minimum of little- vs big-endian interpretations). The elapsed seconds value appears to be a running total (likely since start-of-day or since full history), not just the current interval.
+- 0x11 set face color: face id, then 16-bit R,G,B (Swift uses u16; spec allows up to 24 faces)
+- 0x13 set task parameters: face, mode (0 simple, 1 pomodoro), pomodoro seconds (u32)
+- 0x14 read task parameters: returns face, mode, pomodoro limit, and elapsed seconds (Swift picks the minimum of little- vs big-endian interpretations). The elapsed seconds value appears to be a running total (likely since start-of-day or since full history), not just the current interval.
 - 0x15 set device name (len + ASCII)
 - 0x16/0x17 read/write accelerometer double-tap registers
 - 0x30 set new password (6 B)
@@ -63,11 +63,11 @@ on which command was sent — there's no single mechanism that covers all of the
   requested before treating the change as applied — e.g. after `0x04 0x01` (lock on), send `0x10`
   and check the returned lock byte.
 - **Commands with no read-back defined at all**: 0x09 (LED brightness), 0x0A (blink interval),
-  0x11 (facet color). The vendor spec defines no command that reads these back — the write-ack
+  0x11 (face color). The vendor spec defines no command that reads these back — the write-ack
   is genuinely the only confirmation available for these three. For all three the app is therefore
   the system of record: what it last sent is the only account of what the device holds, and the
   device asks for a value back via the system-state sync-required codes when it has lost one (see
-  §4 and *Facet colours* below).
+  §4 and *Face colours* below).
 - **Commands where a read is impossible by nature**: 0x30 (set password) can't be read back over
   BLE for obvious reasons. Confirmation has to be functional instead — attempt a real login with
   the new password and only treat the rotation as successful if that login succeeds. This is
@@ -91,7 +91,7 @@ these, the change path does two things on every single change:
 
 Writes that aren't a settling value are **not** debounced, and shouldn't be: lock and pause (a
 click that must act at once, including the pause-and-lock-before-quit sequence), device time,
-the password, the device name, and the facet colours pushed on connect or in answer to the device's
+the password, the device name, and the face colours pushed on connect or in answer to the device's
 own resync request. Delaying any of those would either make the UI feel broken or race a teardown.
 
 Booleans are in that group too, since a checkbox has no intermediate values to wait out. The
@@ -112,25 +112,25 @@ only how often the device is bothered:
   write happened, but log "no device read-back available" instead of a verification — there is no
   read command for either, per the matrix above, so nothing to compare against.
 
-### Facet colours
+### Face colours
 
-Facet colours aren't edited as a value of their own: they follow the faces' categories, so what
+Face colours aren't edited as a value of their own: they follow the faces' categories, so what
 changes them is assigning a face a different category or recolouring a category. `ApplicationDelegate`
-subscribes to `appState.$faceCategories` and resolves all 12 facets through
-`AppState.facetLEDColours`, which maps each face's category to its `colour` row's device RGB (a face
+subscribes to `appState.$faceCategories` and resolves all 12 faces through
+`AppState.faceLEDColours`, which maps each face's category to its `colour` row's device RGB (a face
 with no category, or a category with no colour, resolves to black — the protocol's only way to say
 "off").
 
-Everything is logged under the `sync-colour` tag: one line per facet actually written, naming the
+Everything is logged under the `sync-colour` tag: one line per face actually written, naming the
 face, its category, the colour and the hex, plus the `rgb16` values `0x11` carries (hex is 8 bits per
 channel, the command takes 16, so both are logged and a scaling problem shows up rather than having
 to be inferred), then a closing line with the count and the reason. A face lighting up wrong, or not
 at all, can be checked against exactly what went out for it.
 
-Because 0x11 has no read-back, `lastSentFacetColors` is the app's record of what the device is
+Because 0x11 has no read-back, `lastSentFaceColors` is the app's record of what the device is
 showing, and it decides what actually goes out:
 
-- **A category edit** writes only the facets whose colour changed.
+- **A category edit** writes only the faces whose colour changed.
 - **The first connect of a run, and any fresh pairing**, write all 12. Until something has actually
   been sent, the record is only an assumption seeded from the DB by the first `$faceCategories`
   emission — nothing has been read from or written to the device, so it is no evidence at all. A
@@ -140,12 +140,12 @@ showing, and it decides what actually goes out:
   reassigned while the device was away. By then the record is real: those writes went out on this
   run, and the device keeps its colours in flash across a dropped BLE link, which is why the record
   deliberately survives a disconnect.
-- **A device request** (`facetColorSyncRequired`, system state `0x02 0x02`) writes all 12 regardless
+- **A device request** (`faceColorSyncRequired`, system state `0x02 0x02`) writes all 12 regardless
   of the record — the device is saying it no longer has them, so the record can't be trusted. The
   driver can't answer this itself (the colours come from the DB), so `reconcileSystemState` logs it
   and leaves it to the emitted `.systemState` event, which `ApplicationDelegate` handles.
 
-  These requests are **collapsed, not answered one for one** (`requestFacetColourResync`): the first
+  These requests are **collapsed, not answered one for one** (`requestFaceColourResync`): the first
   schedules a resync one debounce delay later, and anything arriving while one is pending, running, or inside a 30s
   cooldown is counted and dropped, with the count logged. The device repeats itself freely — once per
   notification, again per post-reconcile re-read, and again on every reconnect while it is unhappy —
@@ -156,10 +156,10 @@ showing, and it decides what actually goes out:
 
 ## 4. Event and notification semantics
 
-- **Facet (`...52`)**: 1 B facet ID 1–12. `0` indicates undefined or rejected password. App updates active facet and seeds snapshots from this value.
-- **Double tap (`...55`)**: 1 B; `<128` means facet, pause=off. `>=128` means pause=on and facet = value−128. Swift decodes this into `(facet, pause)` via `TimeFlipDoubleTapPayload`.
-- **System state (`...56`)**: 4 B. Bytes 0–1 give sync state: `0000 ok`, `0100 factory reset`, `0201 time sync required`, `0202 facet color`, `0203 LED brightness`, `0204 blink interval`, `0205 task parameters`, `0206 auto-pause`. Bytes 2–3 give hardware status: `0000 ok`, `0201 accelerometer error`, `0202 flash error`, `0203 both`. The app surfaces this via `TimeFlipSystemState`.
-- **Events data (`...51`)**: ASCII log strings (e.g., mock emits “flip facet=5”). Used for diagnostics only.
+- **Face (`...52`)**: 1 B face ID 1–12. `0` indicates undefined or rejected password. App updates active face and seeds snapshots from this value.
+- **Double tap (`...55`)**: 1 B; `<128` means face, pause=off. `>=128` means pause=on and face = value−128. Swift decodes this into `(face, pause)` via `TimeFlipDoubleTapPayload`.
+- **System state (`...56`)**: 4 B. Bytes 0–1 give sync state: `0000 ok`, `0100 factory reset`, `0201 time sync required`, `0202 face color`, `0203 LED brightness`, `0204 blink interval`, `0205 task parameters`, `0206 auto-pause`. Bytes 2–3 give hardware status: `0000 ok`, `0201 accelerometer error`, `0202 flash error`, `0203 both`. The app surfaces this via `TimeFlipSystemState`.
+- **Events data (`...51`)**: ASCII log strings (e.g., mock emits “flip face=5”). Used for diagnostics only.
 - **Battery (`2A19`)**: 1 B percent.
 
 ## 5. History stream (`...58`)
@@ -170,22 +170,22 @@ Commands:
 
 Frame layout (spec v4.3 and observed firmware):
 - Bytes 0–3: event ID (u32 big-endian). `0xFF..FF` asks for last.
-- Byte 4: facet; `>127` means pause event for `(value−128)`; `66` signals accelerometer error; 0 is invalid.
+- Byte 4: face; `>127` means pause event for `(value−128)`; `66` signals accelerometer error; 0 is invalid.
 - Bytes 5–12: flip timestamp, seconds since epoch, big-endian u64.
 - Bytes 13–17: duration seconds, 5-byte little-endian (Swift keeps 5 bytes; some firmware only populates four).
 - Remaining bytes (18–19) may hold previous-event pointer per doc; Swift ignores.
 - Sentinel: all-zero payload (Swift checks first 17 zeros; spec shows 20 zeros).
 
-Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at 2048 frames, and stops on sentinel or parse failure. Parsed into `TimeFlipHistoryEntry {eventNumber?, facetID, startedAt, duration, isPaused}`.
+Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at 2048 frames, and stops on sentinel or parse failure. Parsed into `TimeFlipHistoryEntry {eventNumber?, faceID, startedAt, duration, isPaused}`.
 
 ### Live-record semantics (observed)
-- The **last frame in every history dump is the current interval snapshot**, even when paused; its facet byte is `>=128` when paused (facet = byte−128).
+- The **last frame in every history dump is the current interval snapshot**, even when paused; its face byte is `>=128` when paused (face = byte−128).
 - The device **reuses the same event number for the current interval** and refreshes its duration roughly every 5 s. That means duration updates arrive on the same `event_number`.
 - Because of that reuse, the host **must not advance its cursor past the last frame**; otherwise refreshed durations for the in-progress interval would be missed.
 
 ### Host-side ingestion rules (macOS driver)
 - On startup: derive the resume position from `device_event` (the highest finalised `event_number` in the device's current counter generation — see `AppDataStore.latestCommittedDeviceEventNumber()`), fetch history starting at that `+1`, **withhold the last frame**, write all prior frames to the logbook, and use the withheld frame to set menu/UI state. There is no stored cursor: a saved high-water mark can't follow the device's counter back down through a factory reset.
-- On live facet/pause events: re-fetch history from the cursor, write all but the last frame to the logbook, and use the last for UI so repeated refreshes pick up duration/paused updates on the same event number.
+- On live face/pause events: re-fetch history from the cursor, write all but the last frame to the logbook, and use the last for UI so repeated refreshes pick up duration/paused updates on the same event number.
 - Cursor advancement:
   - Device cursor (identifier `device-history`) stays event-number based and advances only through the highest **written** (non-live) frame; keeps one interval behind the live record.
   - Integration cursors use logbook rowids (PK) to track delivery progress independently of device event numbers.
@@ -200,27 +200,27 @@ Sequence in `TimeFlipBLEDevice`:
    - On discovery, connect and discover services `TimeFlip`, `Battery`, `DeviceInfo`; then discover required characteristics (`...51–58`, battery, device info).
    - Returns `false` on any failure so the app can abort before login/initialization.
 3) `login(password)` writes 6 bytes to Password. Accepts 0x01 or 0x02 in `command_result`; falls back to default password if user-provided fails.
-4) `enableNotifications()` subscribes to facets, double tap, system state, events data, and battery.
+4) `enableNotifications()` subscribes to faces, double tap, system state, events data, and battery.
 5) `initializeSession(hostTime, desiredAutoPauseMinutes)` (only after successful login):
    - set device time via 0x08 to host wall clock,
    - refresh status (0x10) to seed lock/pause/autopause, and read system state,
    - normalize auto-pause to the host’s desired minutes (app preference, default 0),
    - refresh Device Info service fields,
-   - `primeSnapshot()` reads system state, facet, and battery once.
+   - `primeSnapshot()` reads system state, face, and battery once.
 6) Steady state: `CBPeripheralDelegate` translates characteristic updates into `TimeFlipEvent` cases and maintains `TimeFlipDeviceSnapshot`. Disconnection triggers `onDisconnect` so the app can auto-retry.
 
 ## 7. Entities in the app layer
 
-- `TimeFlipEvent` (facetChanged, doubleTap, autoPauseMinutes, batteryLevel, systemState, deviceInfo, eventLog).
-- `TimeFlipDeviceSnapshot` keeps the latest facet, pause/lock flags, auto-pause minutes, battery, system state, device time, and optional device info; serializable to JSON for debug.
+- `TimeFlipEvent` (faceChanged, doubleTap, autoPauseMinutes, batteryLevel, systemState, deviceInfo, eventLog).
+- `TimeFlipDeviceSnapshot` keeps the latest face, pause/lock flags, auto-pause minutes, battery, system state, device time, and optional device info; serializable to JSON for debug.
 - `TimeFlipHistoryEntry` models a history frame (eventNumber optional because the device can send zero).
 
 These structures mirror the BLE payloads and are shared by the real and mock implementations.
 
 ## 8. Operational guidance
 
-- Always write the password immediately after connecting; many commands silently fail otherwise, and facet notifications may return `0`.
-- After any factory reset (`system_state` 0x0100) run the full sync: set time, push facet colors/LED settings, tasks, auto-pause.
+- Always write the password immediately after connecting; many commands silently fail otherwise, and face notifications may return `0`.
+- After any factory reset (`system_state` 0x0100) run the full sync: set time, push face colors/LED settings, tasks, auto-pause.
 - Treat accelerometer error sentinel (`side=66`) as a hard fault; app should surface it.
 - When reading elapsed seconds via 0x14, prefer the non-zero value among little- and big-endian interpretations; firmware is inconsistent.
 - History dumps can be large; enforce a frame cap (Swift uses 2048) and stop on all-zero frames (full 20-byte zero frame per vendor doc) to avoid hangs.
@@ -237,9 +237,9 @@ These structures mirror the BLE payloads and are shared by the real and mock imp
 1) Scan (broad, then filtered) → connect; abort setup if `connect()` returns false.
 2) Discover services/characteristics; require all TimeFlip chars.
 3) Write password (`000000` fallback).
-4) Subscribe to facet, double-tap, system-state, event log, battery.
+4) Subscribe to face, double-tap, system-state, event log, battery.
 5) Set device time (0x08), read status (0x10), normalize auto-pause, read device info, prime snapshot.
-6) Stream notifications; on facet change, emit `facetChanged`; on double tap emit pause toggle; react to system/battery updates.
+6) Stream notifications; on face change, emit `faceChanged`; on double tap emit pause toggle; react to system/battery updates.
 7) On demand, read history starting at cursor, stop on sentinel.
 
 This flow matches the production driver (`TimeFlipBLEDevice.swift`) and the vendor v4.3 protocol notes.

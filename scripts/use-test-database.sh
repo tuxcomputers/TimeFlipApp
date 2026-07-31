@@ -15,6 +15,7 @@ TEST_DB="$DB_DIR/test.sqlite"
 # arg) starts fresh, the default for a normal run.
 MODE="${1:-fresh}"
 
+
 if [ ! -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
   echo "error: $APPDATA does not exist yet -- launch the app at least once first," \
     "so it can create the symlink and production.sqlite." >&2
@@ -48,11 +49,40 @@ else
   echo "Creating $TEST_DB..."
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   # Same DDL files, same filename-sorted order AppDataStore.runDatabaseDDL() runs at every launch,
-  # with foreign keys enforced during seeding to match the app's own connection.
+  # with foreign keys enforced during seeding to match the app's own connection. The files hold no
+  # live ALTER TABLE (see database/CLAUDE.md: migrations are commented out and run by hand), so
+  # every statement here applies cleanly to an empty database. A live one would fail this script
+  # under `set -e`, which is the right outcome: it breaks that rule.
   for sql_file in "$SCRIPT_DIR"/database/*.sql; do
     { echo "PRAGMA foreign_keys = ON;"; cat "$sql_file"; } | sqlite3 "$TEST_DB"
   done
   sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
+
+  # Carry the pairing across from production. Which device this Mac is paired to (`paired_device`)
+  # and whether it is paired at all (`paired`) are per-database rows, so a freshly seeded
+  # test.sqlite reads as never-paired and the app would have to pair from scratch -- against a
+  # device whose PIN is no longer the factory default, because the earlier production pairing
+  # rotated it. Copying these two rows lets the app simply connect, using the password it already
+  # has (a dev build's config.json PIN, otherwise the Keychain), neither of which lives in the
+  # database. Pairing itself is 02b's subject, not setup's.
+  #
+  # The stored `uuid` does not have to be current: the app finds the device by scanning for its
+  # name or service and connects to that (see TimeFlipBLEDevice.scanAndConnect), which is why
+  # production keeps working with a peripheral id from an earlier pairing.
+  if [ -e "$PRODUCTION" ]; then
+    for setting_name in paired paired_device; do
+      # quote() returns the value as a ready-escaped SQL literal, quotes included, so a device name
+      # containing an apostrophe cannot break the UPDATE below.
+      literal="$(sqlite3 -readonly "$PRODUCTION" \
+        "SELECT quote(setting_value) FROM setting WHERE setting_name = '$setting_name';")"
+      if [ -n "$literal" ]; then
+        sqlite3 "$TEST_DB" \
+          "UPDATE setting SET setting_value = $literal WHERE setting_name = '$setting_name';"
+      fi
+    done
+    echo "Copied the pairing (paired, paired_device) from production.sqlite, so the app connects" \
+      "to the already-paired device instead of pairing again."
+  fi
 fi
 
 rm -f "$APPDATA"

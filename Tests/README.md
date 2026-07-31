@@ -111,7 +111,7 @@ step opening Preferences would actually do) opened a real window visible to Syst
 standard `tab group` element (`click radio button "Device" of tab group 1 of window ...`) -- that
 failed with `"Can't get tab group 1 ... Invalid index."`, because SwiftUI's `.tabItem`-style picker
 here doesn't expose as a `tab group` at all. Dumping `entire contents` of the window and grepping
-for `tab`/`radio`/`Device`/`Facets`/`Report` found the real structure: a `radio group 1 of group 1
+for `tab`/`radio`/`Device`/`Faces`/`Report` found the real structure: a `radio group 1 of group 1
 of toolbar 1`, containing three `radio button`s. Asking for `title` of those buttons returned
 `missing value` for all three -- unhelpful -- but `description` returned the actual label
 (`"Device"`, etc.), which is the attribute that actually identifies which button is which.
@@ -287,7 +287,7 @@ also drive the Reset Device button and its destructive-action confirmation dialo
 `Bench/02b-reset-device-checklist.md` -- and briefly tempting to just convert that step to fully
 unattended `(Claude)`, like everything else in Bench.
 
-That was deliberately not done. A factory reset erases the physical device's facet colors, task
+That was deliberately not done. A factory reset erases the physical device's face colors, task
 settings, name, and password, and cannot be undone -- a meaningfully bigger and more consequential
 action than a database mutation in `test.sqlite`, even though the *mechanism* for triggering it
 (a scripted click) is now identical to clicking a checkbox. The resolution: keep it in Bench as a
@@ -307,7 +307,7 @@ before Accessibility-based text reads were available.
 That conversion required its own mid-session correction: a first attempt at driving Preferences to
 a specific tab, for screenshot purposes, used a debug env-var hook (`TF_DEBUG_OPEN_SETTINGS`) read
 in `applicationDidFinishLaunching` -- but a real bug surfaced along the way. `SettingsRootView`'s
-`selectedTab` is a plain `@State` defaulting to `.facets`, and the `.onChange(of:
+`selectedTab` is a plain `@State` defaulting to `.faces`, and the `.onChange(of:
 appState.pendingSettingsTab)` modifier that's supposed to jump it to a specific tab does not fire on
 the very first mount if `pendingSettingsTab` was already set to that value *before* the view was
 created (SwiftUI's `onChange` only fires on a transition, not an already-true initial value). So the

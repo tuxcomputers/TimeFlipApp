@@ -1,4 +1,8 @@
 > Source: [DI-GROUP/TimeFlip.Docs](https://github.com/DI-GROUP/TimeFlip.Docs/blob/master/Hardware/BLE_device_commutication_protocol_v3.0_en.md) — vendor BLE hardware protocol spec for the original TimeFlip (v1).
+>
+> Left verbatim as the vendor published it. Note the terminology gap: where this spec says
+> **facet**, the app says **face** (`faceID`, `face_id`, the Faces tab). Same thing, one name on
+> each side of the BLE boundary.
 
 # DATA TRANSFER PROTOCOL 
 

@@ -3,8 +3,8 @@ import Foundation
 /// High-level events surfaced by the TimeFlip2 BLE characteristics.
 /// "Notifications about events in TimeFlip, saved to events log. Sent in ASCI text format."
 enum TimeFlipEvent: Equatable, Sendable {
-    /// "ID of a notified facet (1 - 12)"
-    case facetChanged(facetID: UInt8)
+    /// "ID of a notified face (1 - 12)"
+    case faceChanged(faceID: UInt8)
     /// "When double-tap is detected (recognized) by the device, it sets tracking on pause and sends notification to the mobile app."
     case doubleTap(TimeFlipDoubleTapPayload)
     /// Auto-pause timer duration, in minutes, reported from status read (command 0x10).
@@ -20,9 +20,9 @@ enum TimeFlipEvent: Equatable, Sendable {
     /// "Notifications about events in TimeFlip, saved to events log. Sent in ASCI text format."
     case eventLog(String)
 
-    var isFacetOrPauseChange: Bool {
+    var isFaceOrPauseChange: Bool {
         switch self {
-        case .facetChanged, .doubleTap:
+        case .faceChanged, .doubleTap:
             return true
         default:
             return false
@@ -31,30 +31,30 @@ enum TimeFlipEvent: Equatable, Sendable {
 }
 
 /// Double-tap payload encoding.
-/// "If the received value is less than 128, then it is the facet ID and pause is "off"."
+/// "If the received value is less than 128, then it is the face ID and pause is "off"."
 struct TimeFlipDoubleTapPayload: Equatable, Sendable {
-    let facetID: UInt8
+    let faceID: UInt8
     let pauseOn: Bool
 
-    init(facetID: UInt8, pauseOn: Bool) {
-        self.facetID = facetID
+    init(faceID: UInt8, pauseOn: Bool) {
+        self.faceID = faceID
         self.pauseOn = pauseOn
     }
 
-    /// "If the received value is less than 128, then it is the facet ID and pause is "off"."
+    /// "If the received value is less than 128, then it is the face ID and pause is "off"."
     init(rawValue: UInt8) {
         if rawValue >= TimeFlipConstants.doubleTapPauseMask {
-            self.facetID = rawValue &- TimeFlipConstants.doubleTapPauseMask
+            self.faceID = rawValue &- TimeFlipConstants.doubleTapPauseMask
             self.pauseOn = true
         } else {
-            self.facetID = rawValue
+            self.faceID = rawValue
             self.pauseOn = false
         }
     }
 
-    /// "Otherwise, 128 shall be subtracted from the received value to yield actual facet ID with the pause "on"."
+    /// "Otherwise, 128 shall be subtracted from the received value to yield actual face ID with the pause "on"."
     var rawValue: UInt8 {
-        pauseOn ? facetID &+ TimeFlipConstants.doubleTapPauseMask : facetID
+        pauseOn ? faceID &+ TimeFlipConstants.doubleTapPauseMask : faceID
     }
 }
 
@@ -64,7 +64,7 @@ struct TimeFlipSystemState: Equatable, Sendable {
         case ok
         case factoryReset
         case timeSyncRequired
-        case facetColorSyncRequired
+        case faceColorSyncRequired
         case ledBrightnessSyncRequired
         case blinkIntervalSyncRequired
         case taskParametersSyncRequired
@@ -115,7 +115,7 @@ extension TimeFlipSystemState.SyncStatus {
         case 0x0201:
             self = .timeSyncRequired
         case 0x0202:
-            self = .facetColorSyncRequired
+            self = .faceColorSyncRequired
         case 0x0203:
             self = .ledBrightnessSyncRequired
         case 0x0204:
@@ -149,16 +149,16 @@ extension TimeFlipSystemState.HardwareStatus {
 
 extension TimeFlipEvent {
     /// The `event_type` name and decoded payload to record in `device_notification` for this
-    /// event, or `nil` for events that don't belong there. `facetChanged` is the live "Facets"
-    /// characteristic value, not the history-stream-derived `facet_flip` event_type (which
+    /// event, or `nil` for events that don't belong there. `faceChanged` is the live "Faces"
+    /// characteristic value, not the history-stream-derived `face_flip` event_type (which
     /// belongs in `device_event` instead) — see docs/database-design.md and
     /// docs/operation-spec.md for the full classification.
     var deviceNotification: (eventType: String, payload: String?)? {
         switch self {
-        case .facetChanged:
+        case .faceChanged:
             return nil
         case .doubleTap(let payload):
-            return ("double_tap", "facet=\(payload.facetID) pauseOn=\(payload.pauseOn)")
+            return ("double_tap", "face=\(payload.faceID) pauseOn=\(payload.pauseOn)")
         case .autoPauseMinutes(let minutes):
             return ("auto_pause_minutes", "\(minutes)")
         case .batteryLevel(let level):
@@ -185,10 +185,10 @@ extension TimeFlipEvent {
 extension TimeFlipEvent: CustomStringConvertible {
     var description: String {
         switch self {
-        case .facetChanged(let facetID):
-            return "facetChanged(\(facetID))"
+        case .faceChanged(let faceID):
+            return "faceChanged(\(faceID))"
         case .doubleTap(let payload):
-            return "doubleTap(facet=\(payload.facetID), pauseOn=\(payload.pauseOn))"
+            return "doubleTap(face=\(payload.faceID), pauseOn=\(payload.pauseOn))"
         case .autoPauseMinutes(let minutes):
             return "autoPauseMinutes(\(minutes))"
         case .batteryLevel(let level):
@@ -218,8 +218,8 @@ extension TimeFlipSystemState.SyncStatus: CustomStringConvertible {
             return "factoryReset"
         case .timeSyncRequired:
             return "timeSyncRequired"
-        case .facetColorSyncRequired:
-            return "facetColorSyncRequired"
+        case .faceColorSyncRequired:
+            return "faceColorSyncRequired"
         case .ledBrightnessSyncRequired:
             return "ledBrightnessSyncRequired"
         case .blinkIntervalSyncRequired:

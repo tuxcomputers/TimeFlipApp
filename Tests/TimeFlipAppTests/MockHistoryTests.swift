@@ -59,7 +59,7 @@ final class MockHistoryTests: XCTestCase {
         }
     }
 
-    func testFacetFlipFinalizesPriorSessionWithMonotonicEventNumber() {
+    func testFaceFlipFinalizesPriorSessionWithMonotonicEventNumber() {
         let mock = MockTimeFlipDevice()
         mock.setDeviceTime(baseDate)
         // Start a fresh active session at the synchronized time.
@@ -73,9 +73,9 @@ final class MockHistoryTests: XCTestCase {
         let entries = mock.history
         XCTAssertGreaterThanOrEqual(entries.count, 3) // seeded entries + finalized sessions
         guard let finalized = entries.first(where: {
-            $0.facetID == 2 && abs($0.startedAt.timeIntervalSince(baseDate)) < 0.5
+            $0.faceID == 2 && abs($0.startedAt.timeIntervalSince(baseDate)) < 0.5
         }) else {
-            XCTFail("no finalized entry for facet 2 found")
+            XCTFail("no finalized entry for face 2 found")
             return
         }
         // Event numbers are a monotonic counter: unique and increasing in append order.
@@ -92,7 +92,7 @@ final class MockHistoryTests: XCTestCase {
             let start = baseDate.addingTimeInterval(spacing * TimeInterval(index))
             return TimeFlipHistoryEntry(
                 eventNumber: UInt32(start.timeIntervalSince1970),
-                facetID: UInt8(1 + index),
+                faceID: UInt8(1 + index),
                 startedAt: start,
                 duration: 6,
                 isPaused: false

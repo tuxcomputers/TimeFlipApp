@@ -6,8 +6,8 @@ BASE_URL="${TIMEFLIP_MOCK_URL:-http://127.0.0.1:8765}"
 if [ "$#" -lt 1 ]; then
   echo "Usage: $0 <command> [args]"
   echo "Commands:"
-  echo "  flip <facet>"
-  echo "  double-tap <facet> [pause]"
+  echo "  flip <face>"
+  echo "  double-tap <face> [pause]"
   echo "  pause <on|off>"
   echo "  lock <on|off>"
   echo "  auto-pause <minutes>"
@@ -25,16 +25,16 @@ shift
 
 case "$cmd" in
   flip)
-    facet="${1:?facet required}"
-    curl -fsS "$BASE_URL/flip?facet=$facet"
+    face="${1:?face required}"
+    curl -fsS "$BASE_URL/flip?face=$face"
     ;;
   double-tap)
-    facet="${1:?facet required}"
+    face="${1:?face required}"
     pause="${2:-}"
     if [ -n "$pause" ]; then
-      curl -fsS "$BASE_URL/double-tap?facet=$facet&pause=$pause"
+      curl -fsS "$BASE_URL/double-tap?face=$face&pause=$pause"
     else
-      curl -fsS "$BASE_URL/double-tap?facet=$facet"
+      curl -fsS "$BASE_URL/double-tap?face=$face"
     fi
     ;;
   pause)

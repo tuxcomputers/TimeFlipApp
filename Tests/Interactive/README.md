@@ -1,7 +1,7 @@
 # Interactive Test Checklists
 
 The human-in-the-loop half of the device tests: every `(You)` step here needs a real person -- a
-physical action on the cube (facet flip, double-tap), a sustained press-and-hold mouse gesture
+physical action on the cube (face flip, double-tap), a sustained press-and-hold mouse gesture
 (System Events can click a control but not hold a mouse button down over time), a status-item
 gesture unverified via script (see "Status-item click gesture" in `../Methods.md`), or multiple
 elements that must be confirmed changing in lockstep with each other -- a claim two screenshots

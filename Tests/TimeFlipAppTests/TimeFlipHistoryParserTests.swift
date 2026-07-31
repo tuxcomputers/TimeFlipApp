@@ -5,37 +5,37 @@ import XCTest
 final class TimeFlipHistoryParserTests: XCTestCase {
     func testParsesStandardHistoryFrame() {
         let eventNumber: UInt32 = 42
-        let facet: UInt8 = 5
+        let face: UInt8 = 5
         let timestamp: UInt64 = 1_710_000_000
         let duration: UInt64 = 120
 
         var frame = Data(repeating: 0, count: 20)
         frame.replaceSubrange(0..<4, with: withUnsafeBytes(of: eventNumber.bigEndian, Array.init))
-        frame[4] = facet
+        frame[4] = face
         frame.replaceSubrange(5..<13, with: withUnsafeBytes(of: timestamp.bigEndian, Array.init))
         frame.replaceSubrange(13..<18, with: littleEndianFiveBytes(from: duration))
 
         let entry = TimeFlipHistoryParser.parse(frame)
         XCTAssertNotNil(entry)
         XCTAssertEqual(entry?.eventNumber, eventNumber)
-        XCTAssertEqual(entry?.facetID, facet)
+        XCTAssertEqual(entry?.faceID, face)
         XCTAssertEqual(entry?.isPaused, false)
         XCTAssertEqual(entry?.duration, TimeInterval(duration))
         XCTAssertEqual(entry?.startedAt, Date(timeIntervalSince1970: TimeInterval(timestamp)))
     }
 
     func testParsesPauseEvent() {
-        let pauseFacet: UInt8 = 2
+        let pauseFace: UInt8 = 2
         var frame = Data(repeating: 0, count: 20)
         let eventNumber: UInt32 = 2
         frame.replaceSubrange(0..<4, with: withUnsafeBytes(of: eventNumber.bigEndian, Array.init))
-        frame[4] = pauseFacet &+ 128
+        frame[4] = pauseFace &+ 128
         frame.replaceSubrange(5..<13, with: withUnsafeBytes(of: UInt64(1_700_000_000).bigEndian, Array.init))
         frame.replaceSubrange(13..<18, with: littleEndianFiveBytes(from: 5))
 
         let entry = TimeFlipHistoryParser.parse(frame)
         XCTAssertEqual(entry?.eventNumber, eventNumber)
-        XCTAssertEqual(entry?.facetID, pauseFacet)
+        XCTAssertEqual(entry?.faceID, pauseFace)
         XCTAssertTrue(entry?.isPaused ?? false)
     }
 
@@ -58,7 +58,7 @@ final class TimeFlipHistoryParserTests: XCTestCase {
         XCTAssertEqual(entry?.duration, 522)
     }
 
-    func testSkipsInvalidFacet() {
+    func testSkipsInvalidFace() {
         var frame = Data(repeating: 0, count: 20)
         frame[4] = 66 // accelerometer error sentinel
         frame.replaceSubrange(5..<13, with: withUnsafeBytes(of: UInt64(1).bigEndian, Array.init))

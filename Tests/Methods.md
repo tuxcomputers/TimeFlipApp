@@ -24,10 +24,14 @@ file holds only reusable step-execution techniques.
 `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
 
 <a id="method-2"></a>
-## Method 2: Launch the app for a Claude-driven step
+## Method 2: Launch the app
 
 Invoke the built binary directly (inherits the shell's env vars, needed for debug hooks) --
 `scripts/run.sh` doesn't reliably pass them through.
+```toml method
+action = "shell"
+command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+```
 
 <a id="method-3"></a>
 ## Method 3: Quit the app
@@ -35,6 +39,17 @@ Invoke the built binary directly (inherits the shell's env vars, needed for debu
 `osascript -e 'tell application "TimeFlip" to quit'`. Never `pkill`/`kill` for a real test step --
 skips `applicationWillTerminate` (e.g. `pause_on_lock`-on-quit never fires). `pkill` is fine only as
 last-resort cleanup.
+
+**Sending the quit is not the same as the app having exited.** `osascript` returns once the app
+*acknowledges* the event, and with `pause_on_lock` on the app then pauses and locks the device over
+BLE in `applicationWillTerminate` before terminating -- so a step that quits and relaunches can
+start a second instance on top of the first. The runnable form therefore polls until the process is
+really gone (and fails the step if it never goes, e.g. a modal dialog holding the app open). It also
+no-ops when the app isn't running, which a raw `tell ... to quit` does not: AppleScript will *launch*
+the app to deliver the event.
+```toml method
+action = "quit_app"
+```
 
 <a id="method-4"></a>
 ## Method 4: Confirm device reconnect
@@ -44,6 +59,16 @@ user.
 ```
 sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
   "SELECT logged_at, message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
+```
+Runnable form: `since_id` scopes it to a row *this* restart produced -- pass the baseline the step
+captured before quitting (`since_id = "$before_quit_id"`); it defaults to `$current_log_id`, the max
+log id as of the start of this step.
+```toml method
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $since_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Login accepted"
+since_id = "$current_log_id"
+timeout_seconds = 30
 ```
 
 <a id="method-5"></a>
@@ -76,6 +101,11 @@ Read names first (`name of every menu item of menu 1`) to check current state. `
 dismisses (Escape), same block. **Never split read and click across two `osascript` calls** -- the
 menu stays open and the next call collides and hangs (~2 min stall, easily misread as an
 Accessibility problem; a real permission denial errors instantly with `-1719`, it doesn't hang).
+The runner does all of that inside one `osascript` call, so a step only names the item:
+```toml method
+action = "click_menu_item"
+item = "$item"
+```
 
 <a id="method-7"></a>
 ## Method 7: Simulate a real click, double-click, or held press via CGEventPost
@@ -87,13 +117,29 @@ synthetic AX/coordinate clicks simply never arrive (no effect, and -- once the `
 print existed to check -- no log line either).
 
 A raw `CGEventPost` (e.g. via Python's `pyobjc`/`Quartz`) *does* arrive correctly, but only if
-`kCGMouseEventClickState` is set explicitly on both the down and up events -- omitting it makes
-macOS treat every event as a fresh single click (`clickCount` always `1`), which is the actual root
-cause behind "synthetic double-clicks don't work" (not click speed, a missing metadata field):
+**both** of the following hold. Each was found the hard way, and each fails silently.
+
+1. `kCGMouseEventClickState` is set explicitly on the down and up events -- omitting it makes macOS
+   treat every event as a fresh single click (`clickCount` always `1`), which is the actual root
+   cause behind "synthetic double-clicks don't work" (not click speed, a missing metadata field).
+2. A `kCGEventMouseMoved` is posted to the target point **first**. A down/up pair carries
+   coordinates, but without a preceding move the click is delivered against wherever the window
+   server still believes the pointer is -- so it lands on whatever is under the *old* position.
+   Confirmed live 2026-07-31 while pairing repeatedly: with no move, one click actuated `Stop Scan`
+   instead of the device row 80pt below it, and a later one produced no effect and no `click`-tagged
+   log line at all. Adding the move made seven consecutive pairings reliable. Raise the target window
+   too (`set frontmost to true`, then `perform action "AXRaise"`), since the click goes to whatever
+   window owns that screen point, not to the app you meant.
 
 ```python
 import Quartz, time
 X, Y = <screen point x>, <screen point y>
+
+# (2) Move first -- not optional; see above.
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(
+    None, Quartz.kCGEventMouseMoved, (X, Y), Quartz.kCGMouseButtonLeft))
+time.sleep(0.3)
+
 def post(kind, click_state):
     e = Quartz.CGEventCreateMouseEvent(None, kind, (X, Y), Quartz.kCGMouseButtonLeft)
     Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, click_state)
@@ -135,12 +181,17 @@ exactly 1 -- the control wasn't left in a stuck "held" state. Two independent sy
 required physical simultaneity, just event ordering.
 
 Get target coordinates from the element's `position`/`size` via accessibility (Read a label or value
-via accessibility, below) -- already in points, no pixel conversion needed. Caveat: this failed for
-the auto-pause stepper's own two `image` elements specifically -- both reported identical
-`position`/`size` (a SwiftUI AX quirk collapsing custom-drawn glyphs to their container's frame, not
-their own) -- so for that control, derive the coordinates instead from the adjacent text field's
-reliable `position`/`size` (real `AXTextField`) plus a `screencapture -R` crop to visually place the
-arrows relative to it (pixel-based, 2x retina -- halve to convert back to point space).
+via accessibility, below) -- already in points, no pixel conversion needed. Caveat for a stacked
+arrow pair (the auto-pause stepper): both its `image` elements report the **same** rect, that of the
+upper chevron (a SwiftUI AX quirk collapsing the pair's custom-drawn glyphs onto one frame), so
+`image 2` is no use -- read `image 1` and derive the lower arrow as `image 1`'s center plus the
+stack's pitch (`arrowHeight` + `arrowSpacing` in `SettingsLayoutConstants.Stepper`, 11pt).
+
+Anchor on the target element itself, never on a hand-measured offset from a neighbour. These arrows
+were once located by offsetting left from the adjacent text field; when the row was restyled to put
+the arrows *after* the value (matching every other stepper in the window) the offset silently
+pointed into empty space, and the clicks that stopped landing were invisible to any step that didn't
+assert the value actually moved.
 
 <a id="method-8"></a>
 ## Method 8: Status-item click gesture
@@ -162,16 +213,39 @@ it. A raw **CGEventPost mouse click at the row's centre** *does* actuate it (con
 2026-07-25: paired a freshly factory-reset device start to finish this way). The runner's
 `cgevent_click_element` action does exactly that -- it reads the element's `position`+`size` via
 accessibility, then CGEvent-clicks the middle -- so this is a normal script/`(Claude)` step now, not
-an ad-hoc "ask the user to click" one. Locate the row with `first static text ... whose name
-contains "TimeFlip"` (skips the "Click a device below to pair with it." header); see
+an ad-hoc "ask the user to click" one. Locate the row by its `AXIdentifier`, `discovered-device-row`
+(Method 13), which doesn't depend on the cube being named "TimeFlip"; locating it as `first static
+text ... whose name contains "TimeFlip"` also works and skips the "Click a device below to pair with
+it." header. Either way the click itself needs Method 7's preceding `kCGEventMouseMoved`, without
+which it lands on whatever was under the pointer before. See
 `Bench/02b-reset-device-checklist.md` Step 7.
 
 <a id="method-10"></a>
 ## Method 10: Switch Settings-window tabs
 
-`click radio button <N> of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"`
-(1/2/3 = Device/Facets/Report). A radio button's `title` is always `missing value` -- use
-`description`.
+Address the tab by **name**, never by index. Both `title` and `name` read `missing value` on these
+buttons, but `description` holds the visible label (`Device`, `Categories`, `Faces`, `App`), so:
+
+`click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
+whose description is "<name>")`
+
+Indices were the original approach and broke silently when the `Categories` tab was inserted second:
+every `radio button 2` quietly became Categories rather than Faces, and `3` became Faces rather than
+App, so steps went on selecting *a* tab and passing while testing the wrong one. A name that doesn't
+match errors `-1719 Invalid index` instead, which is the point -- though note `act_applescript`
+retries, so a mistyped name spends the full `timeout_seconds` before reporting it.
+
+Pass the tab name as `tab`. The click retries until the Settings window actually exists, so no
+fixed sleep is needed after opening it:
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "$tab")
+    end tell
+end tell"""
+```
 
 <a id="method-11"></a>
 ## Method 11: Read a label or value via accessibility
@@ -179,13 +253,39 @@ contains "TimeFlip"` (skips the "Click a device below to pair with it." header);
 Read any label/value via accessibility (`static text`/control `value`) -- no screenshot needed. Dump
 `entire contents` of the window to find an element's path; re-derive each time, since indices shift
 with which disclosures are expanded.
+Reading which Settings tab is selected is common enough to share -- `tab` is the tab's name (see
+Method 10 on why these are addressed by name, not index), and it returns `1` when that tab is the
+selected one:
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        return value of (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "$tab")
+    end tell
+end tell"""
+```
 
 <a id="method-12"></a>
 ## Method 12: Edit a text field
 
-Focus it, `cmd+A`, type the value -- it commits live on every keystroke; `keystroke tab` is optional
-and only moves focus (a `tab` between rapid edits on the same field misdirects the next value
-elsewhere, so omit it for back-to-back edits). `keystroke` always targets the frontmost app
+Focus it, `cmd+A`, type the value -- then **commit it**. Which fields need a commit key differs, and
+getting this wrong fails quietly (see the LED bug in `Bench/06b`'s history):
+
+- The Device tab's **auto-pause** field commits live on every keystroke, so no commit key is needed,
+  and a `tab` between back-to-back edits actively hurts -- it moves focus and the next value lands
+  elsewhere, so omit it for rapid edits on that field.
+- Every **`SteppedNumberField`** -- LED brightness and blink interval, plus the App tab's daily-reset
+  hour, battery-warning level and fetch-history interval -- commits **only** on Return or focus
+  loss, deliberately, so typing `15` isn't clamped to `1` on the way. Typing alone changes nothing:
+  confirmed live, a typed value produced no DB write and no `debug_log` row at all until committed.
+  - `keystroke return` commits and **keeps focus on the field**, so it is the only way to make
+    several rapid edits to one field. Verified live: `10`/`50`/`95` each followed by Return gave
+    three changed+saved pairs and exactly one debounced device write.
+  - `keystroke tab` also commits, but moves focus on -- use it to finish editing a field, never
+    between values.
+
+`keystroke` always targets the frontmost app
 regardless of which process the `tell` addresses -- run `tell application "TimeFlip" to activate`
 before every sequence and confirm with `name of first process whose frontmost is true`. A plain
 `click` on a field doesn't reliably set focus either -- follow with `set focused of e to true` and
@@ -197,6 +297,43 @@ across calls).
 
 `click button "..."` / `set value of checkbox ... to true` -- confirm each via `debug_log`/DB the
 first time it's actually used.
+
+**A SwiftUI `Button` in the Settings window exposes no readable name at all.** Not merely empty:
+`AXTitle`, `AXDescription` and `AXHelp` are absent from the element's attribute list entirely, and
+it has no children to read either, so `button "Forget Device"` matches nothing and only the index
+works. Addressing by index is what silently broke the tab steps when a tab was inserted (Method 10),
+and here the two adjacent candidates are Forget Device and Reset Device, one of which wipes the cube.
+
+The fix is to name the control, not to work around it -- but **`.accessibilityLabel` does not work
+here**. Verified against the device 2026-07-31: with the label applied, `AXDescription` still never
+appears. `.accessibilityIdentifier` does work; it adds `AXIdentifier`, which System Events can
+filter on:
+
+```applescript
+tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
+    click (first button whose value of attribute "AXIdentifier" is "forget-device")
+end tell
+```
+
+Identifiers in the pairing section (`TimeFlipSettingsView.swift`): `forget-device`, `reset-device`,
+`scan-for-devices` (one identifier for both titles -- read `title` or the debug log to tell which
+mode it's in), and `discovered-device-row` on every result row.
+
+Two traps when filtering on `AXIdentifier`:
+
+- A `whose value of attribute "AXIdentifier" is ...` clause over `every UI element` **errors**
+  (`-1728`) as soon as it meets a sibling lacking the attribute -- checkboxes and progress
+  indicators here do. Iterate with a `try` inside instead. It's safe over `every button`, where all
+  the candidates have one.
+- An identifier makes an element *findable*, not *clickable*. The discovered-device row still needs
+  a real CGEvent click (Method 9).
+
+**If a control you need can't be addressed by name, add an identifier to the source** rather than
+reaching for an index.
+
+Whatever the selector, the app logs `Button clicked: <name>` under the `click` tag, so a step can
+prove the intended control fired instead of assuming it -- worth doing on anything destructive even
+when addressing by identifier.
 
 <a id="method-14"></a>
 ## Method 14: Auto-pause stepper arrows
@@ -326,7 +463,7 @@ Expanding it shows the four fields already at the live device values (auto-synce
 active, so snapshot/restore it separately:
 
 1. Record the four field values before the first change -- **capture** them from
-   `double_tap_settings` so they're saved to `logs/00-remembered.json` under the running scenario
+   `double_tap_settings` so they're captured under the running scenario
    (see `scripts/testrunner/README.md`), and restore from there at the end. (`03b` Scenario B
    Step 1 does exactly this: four `sql_query` captures of `clickThreshold`/`limit`/`latency`/
    `window`.)
@@ -353,7 +490,114 @@ tell application "System Events"
     end tell
 end tell
 ```
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        if exists window "TimeFlip Settings" then click button 1 of window "TimeFlip Settings"
+    end tell
+end tell"""
+```
 
 A checklist that opens the Settings window closes it again at the end (or whenever the following
 steps no longer need it) so the next checklist starts with no stray window open -- the window
 otherwise persists for the whole run, since each reopen just re-shows the already-open window.
+
+<a id="method-24"></a>
+## Method 24: Query the DB
+
+The reads and writes checklists make over and over, in one place. A step names the variant it wants
+(`Method 24.a`) and supplies the parameter, so `use = "method-24.a"` + `setting = "db_type"` reads
+that setting. Sub-blocks are parameterised where the only difference between call sites is a name --
+one entry per literal query would be twenty near-identical copies of the same `SELECT`.
+
+Every sub-block is a plain `sql_query` (read now, once). A step that needs to *wait* for the value
+adds `action = "wait_for_sql"` plus `expect`/`expect_contains`, which overrides the action while
+keeping the query -- that's how the same SQL serves both an immediate read and a poll.
+
+- **a** -- a setting's raw `setting_value` (`setting`), e.g. `db_type`, `auto_pause_minutes`,
+  `pause_on_lock`, `low_battery_level`.
+- **b** -- the current max `debug_log_id`, the baseline a later step scopes its search to.
+- **c** -- one column of the latest `device_event` row (`column`), by `device_event_id DESC` -- e.g.
+  `paused`, `event_number`, `duration_seconds`. Never `MAX(event_number)`: the device's counter isn't
+  unique across a factory reset (see Method 20).
+- **d** -- the latest `debug_log` message for a tag (`tag`).
+- **e** -- the latest `debug_log` message for a tag (`tag`) newer than a baseline (`since_id`), i.e.
+  a row *this* step or scenario produced rather than a stale one from earlier in the run.
+- **f** -- one JSON field of a setting (`setting`, `field`), e.g. `clickThreshold` of
+  `double_tap_settings`.
+- **g** -- the live battery `level`, flap-robust: the **higher of the two most-frequent** readings,
+  since the device's reported level oscillates by 1-2% between samples.
+- **h** -- the face the device is *not* currently resting on, as a name (`Break`/`Meeting`) -- what
+  to ask a person to flip to.
+- **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`.
+- **j** -- the latest *real* `battery` row, skipping the `level=nil` placeholder the app logs before
+  the first reading arrives.
+
+```toml method
+[a]
+action = "sql_query"
+query = "SELECT setting_value FROM setting WHERE setting_name='$setting';"
+
+[b]
+action = "sql_query"
+query = "SELECT MAX(debug_log_id) FROM debug_log;"
+
+[c]
+action = "sql_query"
+query = "SELECT $column FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
+
+[d]
+action = "sql_query"
+query = "SELECT message FROM debug_log WHERE tag='$tag' ORDER BY debug_log_id DESC LIMIT 1;"
+
+[e]
+action = "sql_query"
+query = "SELECT message FROM debug_log WHERE tag='$tag' AND debug_log_id > $since_id ORDER BY debug_log_id DESC LIMIT 1;"
+since_id = "$current_log_id"
+
+[f]
+action = "sql_query"
+query = "SELECT json_extract(setting_value, '$.$field') FROM setting WHERE setting_name='$setting';"
+
+[g]
+action = "sql_query"
+query = "SELECT bl FROM (SELECT CAST(substr(message, 7, instr(message, ' threshold') - 7) AS INTEGER) AS bl, COUNT(*) AS n FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' GROUP BY bl ORDER BY n DESC LIMIT 2) ORDER BY bl DESC LIMIT 1;"
+
+[h]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1) = 8 THEN 'Meeting' ELSE 'Break' END;"
+
+[i]
+action = "sql_exec"
+query = "UPDATE setting SET setting_value = '$value' WHERE setting_name = '$setting';"
+
+[j]
+action = "sql_query"
+query = "SELECT message FROM debug_log WHERE tag='battery' AND message NOT LIKE 'level=nil%' ORDER BY debug_log_id DESC LIMIT 1;"
+```
+
+<a id="method-25"></a>
+## Method 25: Read the status-item menu's item names
+
+What the dropdown currently offers, which is how the device's live state is read from the UI:
+`Lock` vs `Unlock` and `Pause` vs `Resume` are mutually-exclusive labels reflecting it. Opens the
+menu, reads every item name, and dismisses with `key code 53` -- all in one `tell` block, for the
+reason Method 6 gives. A step asserts against the returned comma-separated list, e.g.
+`expect_contains = "Unlock"` to confirm the device reads as locked.
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to name of every menu item of menu 1
+        end tell
+        key code 53
+    end tell
+end tell
+return names"""
+```
