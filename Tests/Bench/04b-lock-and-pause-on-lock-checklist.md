@@ -66,8 +66,7 @@ use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":true}"
 ```
-- [x] Step 2: Check the menu bar shows the play icon (▶)
-      -- device not already paused.
+- [x] Step 2: Confirm the device is not already paused (latest `device_event` has `paused = 0`).
 ```toml step
 use = "method-24.c"
 column = "paused"
@@ -93,7 +92,7 @@ use = "method-24.c"
 column = "paused"
 expect = "1"
 ```
-- [x] Step 5: Check the menu bar shows the lock badge the pause (⏸).
+- [x] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
       [Method: Number 17](../Methods.md#method-17).
 - [x] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 ```toml step
@@ -159,13 +158,12 @@ timeout_seconds = 30
 ## Scenario B -- Quit pauses and locks the device when pause_on_lock is enabled; disabled it does nothing extra
 
 **Preconditions:** `pause_on_lock=true`, device connected, unlocked, unpaused -- the clean state
-Scenario A's own last two steps (Unlock, Resume) leave behind. Check via the query/menu bar
+Scenario A's own last two steps (Unlock, Resume) leave behind. Check via the query in Step 1
 below; if it doesn't match (a locked/paused leftover from an interrupted prior run, e.g.), resolve
 it the same way Setup does above (Unlock/Resume via the menu, set `pause_on_lock=true`) before
 continuing.
 
-- [x] Step 1: Confirm `pause_on_lock` is still `true`
-      Check the menu bar: no lock badge, play icon (▶).
+- [x] Step 1: Confirm `pause_on_lock` is still `true` and the device is unpaused (`paused = 0`).
 ```toml step
 [[actions]]
 use = "method-24.a"
@@ -216,7 +214,7 @@ column = "paused"
 expect = "1"
 timeout_seconds = 30
 ```
-- [x] Step 6: Check the menu bar shows the lock badge the pause (⏸).
+- [x] Step 6: Check the menu bar shows the lock badge and the pause icon (⏸).
  [Method: Number 17](../Methods.md#method-17).
 - [x] Step 7: Confirm menu reads "Unlock" and the Pause item is disabled.
 ```toml step
@@ -320,7 +318,7 @@ expect_contains = "Lock"
 value -- the clean state Scenario B's own last step leaves behind. Check via the step below;
 if it doesn't match, resolve the same way as Scenario B's own precondition above before continuing.
 
-- [x] Step 1: Check the menu bar: no lock badge, and the icon shows the play icon (▶).
+- [x] Step 1: Confirm the device is unpaused (latest `device_event` has `paused = 0`).
 ```toml step
 use = "method-24.c"
 column = "paused"
@@ -366,7 +364,10 @@ use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":false}"
 ```
-- [x] Step 2: Confirm the menu bar shows no lock badge and a play icon (unlocked, unpaused).
+- [x] Step 2: Confirm the menu reads "Lock", i.e. the device is unlocked.
+      The dropdown, not the menu-bar badge -- `Lock`/`Unlock` are mutually-exclusive labels
+      ([Method: Number 25](../Methods.md#method-25)), and the badge itself is only checked visually
+      in Step 7 below.
 ```toml step
 use = "method-25"
 expect_contains = "Lock"
@@ -435,11 +436,12 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
 timeout_seconds = 30
 ```
-- [x] Step 7: Confirm the menu bar shows no lock badge again.
-```toml step
-use = "method-25"
-expect_contains = "Lock"
-```
+- [x] Step 7: Check the menu bar: the lock badge is gone and the icon shows the play icon (▶).
+      [Method: Number 17](../Methods.md#method-17). The only visual check of the *cleared* badge in
+      this file -- Scenario A's Steps 5 and 9 both look at the locked rendering, and every other
+      "unlocked" step here reads the DB or the dropdown instead, neither of which can see the badge.
+      Step 6 above already proved the state itself (`requested=OFF actual=OFF`), so what this step
+      adds is that the status item actually repainted to match.
 - [x] Step 8: Restore `pause_on_lock` to `true`
 and confirm the device is unlocked, unpaused -- clean for the next scenario.
 ```toml step
@@ -462,8 +464,8 @@ menu item instead of the gesture -- the two lock triggers are independent code p
 "Running a checklist" rule 5 in `/CLAUDE.md`).
 
 **Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=true` -- Scenario D's own
-last step leaves this behind; check via the menu bar and resolve via Unlock/Resume from the menu if
-it doesn't match.
+last step leaves this behind; check via the dropdown's item names ([Method: Number
+25](../Methods.md#method-25)) and resolve via Unlock/Resume from the menu if it doesn't match.
 
 - [x] Step 1: Click the "Lock" menu item.
       Confirm `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`
