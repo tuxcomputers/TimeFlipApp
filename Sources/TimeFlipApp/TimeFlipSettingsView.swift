@@ -1,6 +1,13 @@
 import SwiftUI
 
 struct TimeFlipSettingsView: View {
+    /// The device's own ceiling on the auto-pause delay, named so the stepper's range and
+    /// `applyAutoPause`'s clamp cannot drift apart -- and so the row's label, which states the
+    /// limit to the user, has something to be checked against.
+    static let maximumAutoPauseMinutes = 240
+    /// The 0-255 range every double-tap register accepts, per the vendor spec's 0x16 command.
+    static let doubleTapRegisterRange = 0...255
+
     @ObservedObject var appState: AppState
     @State private var autoPauseValue: Int = 0
     @State private var lastAppliedAutoPause: UInt16 = 0
@@ -265,10 +272,8 @@ struct TimeFlipSettingsView: View {
             value: ledBrightnessValue,
             range: 1...100,
             suffix: "%",
-            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
-                suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth
-            ),
-            suffixWidth: SettingsLayoutConstants.Stepper.percentSuffixWidth,
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+            suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
             onCommit: { applyLEDBrightness(newValue: $0) }
         )
     }
@@ -280,41 +285,28 @@ struct TimeFlipSettingsView: View {
             value: blinkIntervalValue,
             range: 5...60,
             suffix: "sec",
-            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth(
-                suffixWidth: SettingsLayoutConstants.Stepper.secondsSuffixWidth
-            ),
-            suffixWidth: SettingsLayoutConstants.Stepper.secondsSuffixWidth,
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+            suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
             onCommit: { applyBlinkInterval(newValue: $0) }
         )
     }
 
-    // Field, then suffix, then arrows -- the order every other stepper in the window uses
-    // (SteppedNumberField), so the arrows sit on the right of the row rather than ahead of the value.
+    /// Was a bespoke field, suffix and arrow pair of its own: a 50pt box, a `min` label that sized
+    /// itself, and buttons driving a private repeat loop. It is a `SteppedNumberField` like every
+    /// other value in the window now. Nothing is lost by that -- the accelerating hold this row
+    /// used to be the only one with is what the shared control does for all of them now -- and what
+    /// is gained is that it stops being the one row that looks and behaves unlike its neighbours.
     private var autoPauseControls: some View {
-        HStack(spacing: SettingsLayoutConstants.Stepper.itemSpacing) {
-            TextField(
-                "",
-                value: Binding(
-                    get: { autoPauseValue },
-                    set: { applyAutoPause(newValue: $0) }
-                ),
-                format: .number
-            )
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 50)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            .monospacedDigit()
-            Text("min")
-                .foregroundStyle(.secondary)
-            // A plain SwiftUI Stepper's press-and-hold repeat runs at a fixed system rate we
-            // can't vary, so the accelerating-then-slower behavior (see AutoPauseStepper) needs
-            // custom buttons driving our own repeat loop instead.
-            VStack(spacing: SettingsLayoutConstants.Stepper.arrowSpacing) {
-                autoPauseStepButton(direction: 1, systemImage: "chevron.up")
-                autoPauseStepButton(direction: -1, systemImage: "chevron.down")
-            }
-        }
+        SteppedNumberField(
+            appState: appState,
+            holdKey: "autoPause",
+            value: autoPauseValue,
+            range: 0...Self.maximumAutoPauseMinutes,
+            suffix: "min",
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+            suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
+            onCommit: { applyAutoPause(newValue: $0) }
+        )
     }
 
     private func autoPauseStepButton(direction: Int, systemImage: String) -> some View {
@@ -350,6 +342,7 @@ struct TimeFlipSettingsView: View {
                 Text("Threshold")
                 doubleTapFieldCaption("Lower number = lighter tap needed (0-255 scale)")
                 numericField(
+                    holdKey: "doubleTap.clickThreshold",
                     value: Binding(
                         get: { doubleTapParams.clickThreshold },
                         set: { doubleTapParams.clickThreshold = $0 }
@@ -360,6 +353,7 @@ struct TimeFlipSettingsView: View {
                 Text("Limit")
                 doubleTapFieldCaption("Lower number = sharper, quicker tap needed (0-255 scale)")
                 numericField(
+                    holdKey: "doubleTap.limit",
                     value: Binding(
                         get: { doubleTapParams.limit },
                         set: { doubleTapParams.limit = $0 }
@@ -370,6 +364,7 @@ struct TimeFlipSettingsView: View {
                 Text("Latency")
                 doubleTapFieldCaption("Lower number = sooner it starts listening for the 2nd tap (0-255 scale)")
                 numericField(
+                    holdKey: "doubleTap.latency",
                     value: Binding(
                         get: { doubleTapParams.latency },
                         set: { doubleTapParams.latency = $0 }
@@ -380,6 +375,7 @@ struct TimeFlipSettingsView: View {
                 Text("Window")
                 doubleTapFieldCaption("Lower number = less time to land the 2nd tap once listening (0-255 scale)")
                 numericField(
+                    holdKey: "doubleTap.window",
                     value: Binding(
                         get: { doubleTapParams.window },
                         set: { doubleTapParams.window = $0 }
@@ -400,31 +396,33 @@ struct TimeFlipSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// One double-tap register. A `SteppedNumberField` like every other value in the window, so
+    /// these gain the arrows they never had: 0-255 is a long way to travel by typing, and it is the
+    /// range the accelerating hold was built for.
+    ///
+    /// No suffix -- these are raw register values with no unit to name -- but the slot is still
+    /// reserved (`suffixWidth`), so the arrows line up with the stepper rows above rather than
+    /// sliding left into the empty space.
+    ///
+    /// `holdKey` has to differ per field, or two of them would share one hold and the second press
+    /// would be taken for the first still being down (see `AppState.steppedFieldHoldKey`).
     private func numericField(
+        holdKey: String,
         value: Binding<UInt8>
     ) -> some View {
-        TextField(
-            "",
-            value: Binding(
-                get: { Int(value.wrappedValue) },
-                set: { newValue in
-                    let clamped = UInt8(max(0, min(255, newValue)))
-                    value.wrappedValue = clamped
-                    applyDoubleTapParameters(doubleTapParams)
-                }
-            ),
-            format: .number
+        SteppedNumberField(
+            appState: appState,
+            holdKey: holdKey,
+            value: Int(value.wrappedValue),
+            range: Self.doubleTapRegisterRange,
+            suffix: "",
+            fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+            suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
+            onCommit: { newValue in
+                value.wrappedValue = UInt8(clamping: newValue)
+                applyDoubleTapParameters(doubleTapParams)
+            }
         )
-        // Same look as every other typeable field in the window (see SteppedNumberField): without the
-        // border these read as plain labels, which hides that they can be typed into at all.
-        .textFieldStyle(.roundedBorder)
-        // The same block width every other value control in the window occupies, so these fields end
-        // on the same right edge as the steppers' arrows above them. They carry no suffix and no
-        // arrows of their own, so the whole width goes to the field.
-        .frame(width: SettingsLayoutConstants.Stepper.rowWidth)
-        .labelsHidden()
-        .multilineTextAlignment(.trailing)
-        .monospacedDigit()
     }
 
     // MARK: - Helpers
@@ -444,7 +442,7 @@ struct TimeFlipSettingsView: View {
 
     private func applyAutoPause(newValue: Int) {
         guard appState.isConnected else { return }
-        let clamped = max(0, min(240, newValue))
+        let clamped = max(0, min(Self.maximumAutoPauseMinutes, newValue))
         autoPauseValue = clamped
         let minutes = UInt16(clamped)
         guard minutes != lastAppliedAutoPause else { return }

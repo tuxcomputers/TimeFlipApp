@@ -90,30 +90,29 @@ enum SettingsLayoutConstants {
         static let arrowSpacing: CGFloat = 1
         static let arrowPointSize: CGFloat = 8
 
-        // The App tab's daily-reset row sets the width every other stepper row matches, on both tabs:
-        // an hour field with arrows, a gap, then AM/PM with its own arrows. It is the one row whose
-        // width isn't free to change, since AM/PM has to fit.
-        static let hourFieldWidth: CGFloat = 34
-        static let meridiemLabelWidth: CGFloat = 30
-        static let meridiemGap: CGFloat = 16
-        // Fixed slots for the suffixes. Held here rather than left to size themselves, because the
-        // field widths are worked out from them -- a suffix that sized to its own text would move the
-        // arrows after it by however wide that text rendered.
-        static let percentSuffixWidth: CGFloat = 16
-        static let minutesSuffixWidth: CGFloat = 34
-        static let secondsSuffixWidth: CGFloat = 30
+        /// Every typeable value field in the window is this wide, on both tabs: the daily-reset
+        /// hour, the battery warning, the fetch interval, LED brightness and the blink interval.
+        /// One width for all of them, so the boxes read as a column rather than as five sizes.
+        ///
+        /// Wider than the digits need, deliberately. It takes the space the daily-reset row's AM/PM
+        /// label and its second pair of arrows used to occupy, which keeps `rowWidth` where it was
+        /// so nothing else in the window moves.
+        static let fieldWidth: CGFloat = 90
 
-        /// Where every row's arrows finish, measured from the row's left edge.
+        /// The slot between a row's field and its arrows, holding the suffix. Sized to the longest
+        /// suffix there is (`mins`), so every row's arrows land in the same column no matter which
+        /// word sits in front of them.
+        ///
+        /// Fixed rather than sized to its own text: a suffix that sized itself would move the arrows
+        /// after it by however wide that text rendered, and `min` vs `mins` would shift them as the
+        /// value changed. Sized to the longest one rather than to whatever `rowWidth` had left over,
+        /// which is what previously left `%` sitting 46pt away from its arrows.
+        static let suffixWidth: CGFloat = 34
+
+        /// Where every row's arrows finish, measured from the row's left edge. Every row is now the
+        /// same shape -- field, suffix, arrows -- so this is just their sum.
         static var rowWidth: CGFloat {
-            hourFieldWidth + itemSpacing + arrowsWidth
-                + meridiemGap
-                + meridiemLabelWidth + itemSpacing + arrowsWidth
-        }
-
-        /// The field width that leaves `suffixWidth` of suffix and a set of arrows finishing exactly at
-        /// `rowWidth`, so a row with a suffix still lines its arrows up with the AM/PM ones.
-        static func fieldWidth(suffixWidth: CGFloat) -> CGFloat {
-            rowWidth - arrowsWidth - itemSpacing * 2 - suffixWidth
+            fieldWidth + itemSpacing + suffixWidth + itemSpacing + arrowsWidth
         }
     }
 
