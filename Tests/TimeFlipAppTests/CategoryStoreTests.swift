@@ -283,6 +283,32 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertEqual(store.findCategory(named: "Standup")?.id, firstID)
     }
 
+    // MARK: - findCategories
+
+    /// The lookup the create flow needs: every match, so it can tell one retired namesake from
+    /// several. Ordered like `findCategory`'s single answer -- active first, then oldest.
+    func testFindCategoriesReturnsEveryMatchActiveFirstThenOldest() throws {
+        let store = makeStore()
+        let olderRetiredID = try XCTUnwrap(store.createCategory(name: "Email"))
+        store.updateCategoryActive(categoryID: olderRetiredID, isActive: false)
+        let newerRetiredID = try XCTUnwrap(store.createCategory(name: "Email"))
+        store.updateCategoryActive(categoryID: newerRetiredID, isActive: false)
+        let activeID = try XCTUnwrap(store.createCategory(name: "Email"))
+
+        let matches = store.findCategories(named: "email")
+
+        XCTAssertEqual(matches.map(\.id), [activeID, olderRetiredID, newerRetiredID])
+        XCTAssertEqual(store.findCategory(named: "email")?.id, matches.first?.id, "the two lookups must agree on the best match")
+    }
+
+    func testFindCategoriesReturnsEmptyForANameNobodyHolds() {
+        XCTAssertTrue(makeStore().findCategories(named: "Nothing called this").isEmpty)
+    }
+
+    func testFindCategoriesReturnsEmptyForAnEmptyName() {
+        XCTAssertTrue(makeStore().findCategories(named: "").isEmpty)
+    }
+
     // MARK: - One active category per name (UN1_category)
 
     /// The partial unique index: `category_name COLLATE NOCASE` where `active = 1`.

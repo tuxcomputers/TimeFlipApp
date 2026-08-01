@@ -67,6 +67,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         loadCategories: { [dataStore] in dataStore.loadCategories() },
         createCategory: { [dataStore] name in dataStore.createCategory(name: name) },
         findCategory: { [dataStore] name in dataStore.findCategory(named: name) },
+        findCategories: { [dataStore] name in dataStore.findCategories(named: name) },
         updateCategoryColour: { [weak self, dataStore] categoryID, colourID in
             dataStore.updateCategoryColour(categoryID: categoryID, colourID: colourID)
             self?.refreshFaceCategories()

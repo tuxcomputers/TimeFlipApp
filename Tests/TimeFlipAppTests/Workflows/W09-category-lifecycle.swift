@@ -61,7 +61,7 @@ struct W09CategoryLifecycleWorkflow {
         try await harness.step("2-create") {
             let decision = CategoryEditRules.createDecision(
                 rawName: "  \(Self.originalName)  ",
-                findCategory: harness.dataStore.findCategory(named:)
+                findCategories: harness.dataStore.findCategories(named:)
             )
             // The padding is normalised away before the lookup, so this is a clean insert.
             try #require(decision == .insert(name: Self.originalName), "got \(decision)")
@@ -160,7 +160,7 @@ struct W09CategoryLifecycleWorkflow {
 
             let decision = CategoryEditRules.createDecision(
                 rawName: Self.renamedName,
-                findCategory: harness.dataStore.findCategory(named:)
+                findCategories: harness.dataStore.findCategories(named:)
             )
             guard case .conflict(.inactive(let existing, let name)) = decision else {
                 Issue.record("expected the reinstate choice, got \(decision)")

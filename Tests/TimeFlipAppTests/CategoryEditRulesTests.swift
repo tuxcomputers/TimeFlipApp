@@ -8,8 +8,17 @@ import XCTest
 /// these are the first tests the behaviour has ever had rather than a re-check of something already
 /// covered elsewhere.
 ///
-/// `findCategory` is a closure on every rule, which is what makes them testable at all: the real one
-/// hits SQLite `COLLATE NOCASE`, and the stub here matches case-insensitively for the same reason.
+/// The lookups are closures on every rule, which is what makes them testable at all: the real ones
+/// hit SQLite `COLLATE NOCASE`, and the stubs here match case-insensitively for the same reason.
+
+/// Case-insensitive like the SQL, and ordered like `findCategories`: active first, then oldest.
+private func matching(_ rows: [CategoryRecord], _ name: String) -> [CategoryRecord] {
+    rows.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        .sorted { lhs, rhs in
+            lhs.isActive == rhs.isActive ? lhs.id < rhs.id : lhs.isActive
+        }
+}
+
 final class CategoryEditRulesTests: XCTestCase {
     private func category(
         id: Int,
@@ -30,22 +39,29 @@ final class CategoryEditRulesTests: XCTestCase {
 
     /// Stands in for `AppDataStore.findCategory(named:)`, matching case-insensitively as that does.
     private func lookup(_ rows: [CategoryRecord]) -> (String) -> CategoryRecord? {
-        { name in rows.first { $0.name.caseInsensitiveCompare(name) == .orderedSame } }
+        { name in matching(rows, name).first }
+    }
+
+    /// Stands in for `AppDataStore.findCategories(named:)`, in the same order: the active row
+    /// first, then the retired ones oldest first.
+    private func lookupAll(_ rows: [CategoryRecord]) -> (String) -> [CategoryRecord] {
+        { name in matching(rows, name) }
     }
 
     private let findsNothing: (String) -> CategoryRecord? = { _ in nil }
+    private let findsNone: (String) -> [CategoryRecord] = { _ in [] }
 
     // MARK: - Creating
 
     func testAFreeNameInserts() {
-        let decision = CategoryEditRules.createDecision(rawName: "Deep work", findCategory: findsNothing)
+        let decision = CategoryEditRules.createDecision(rawName: "Deep work", findCategories: findsNone)
 
         XCTAssertEqual(decision, .insert(name: "Deep work"))
     }
 
     func testAnEmptyNameDoesNothing() {
         XCTAssertEqual(
-            CategoryEditRules.createDecision(rawName: "   ", findCategory: findsNothing),
+            CategoryEditRules.createDecision(rawName: "   ", findCategories: findsNone),
             .ignore
         )
     }
@@ -57,7 +73,7 @@ final class CategoryEditRulesTests: XCTestCase {
 
         let decision = CategoryEditRules.createDecision(
             rawName: "Meeting",
-            findCategory: lookup([existing])
+            findCategories: lookupAll([existing])
         )
 
         XCTAssertEqual(decision, .conflict(.active(existing: existing, name: "Meeting")))
@@ -68,7 +84,7 @@ final class CategoryEditRulesTests: XCTestCase {
 
         let decision = CategoryEditRules.createDecision(
             rawName: "Standup",
-            findCategory: lookup([existing])
+            findCategories: lookupAll([existing])
         )
 
         XCTAssertEqual(decision, .conflict(.inactive(existing: existing, name: "Standup")))
@@ -80,7 +96,7 @@ final class CategoryEditRulesTests: XCTestCase {
 
         let decision = CategoryEditRules.createDecision(
             rawName: "  Meeting  ",
-            findCategory: lookup([existing])
+            findCategories: lookupAll([existing])
         )
 
         XCTAssertEqual(decision, .conflict(.active(existing: existing, name: "Meeting")))
@@ -93,14 +109,54 @@ final class CategoryEditRulesTests: XCTestCase {
 
         let decision = CategoryEditRules.createDecision(
             rawName: "meeting",
-            findCategory: lookup([existing])
+            findCategories: lookupAll([existing])
         )
 
         guard case .conflict(let conflict) = decision else {
             return XCTFail("expected a conflict, got \(decision)")
         }
-        XCTAssertEqual(conflict.existing.name, "Meeting")
+        XCTAssertEqual(conflict.existing?.name, "Meeting")
         XCTAssertEqual(conflict.attemptedName, "meeting")
+    }
+
+    /// Several retired namesakes and no active one. Reinstating cannot be offered: the alert has
+    /// nothing to tell the rows apart by, so a single "reactivate" button would bring back whichever
+    /// the query sorted first without saying so.
+    func testSeveralRetiredNamesakesCannotBeReinstatedFromHere() {
+        let older = category(id: 7, "Email", active: false)
+        let newer = category(id: 9, "Email", active: false)
+
+        let decision = CategoryEditRules.createDecision(
+            rawName: "Email",
+            findCategories: lookupAll([older, newer])
+        )
+
+        XCTAssertEqual(decision, .conflict(.ambiguousInactive(retired: [older, newer], name: "Email")))
+    }
+
+    /// An active namesake outranks any number of retired ones: the name is simply taken, and that is
+    /// the dead end, not the ambiguity.
+    func testAnActiveNamesakeWinsOverRetiredOnes() {
+        let active = category(id: 4, "Email")
+        let retired = [category(id: 7, "Email", active: false), category(id: 9, "Email", active: false)]
+
+        let decision = CategoryEditRules.createDecision(
+            rawName: "Email",
+            findCategories: lookupAll(retired + [active])
+        )
+
+        XCTAssertEqual(decision, .conflict(.active(existing: active, name: "Email")))
+    }
+
+    /// The ambiguous case has no single row to name, unlike the other two.
+    func testTheAmbiguousConflictNamesNoSingleRow() {
+        let retired = [category(id: 7, "Email", active: false), category(id: 9, "Email", active: false)]
+        let conflict = CategoryNameConflict.ambiguousInactive(retired: retired, name: "Email")
+
+        XCTAssertNil(conflict.existing)
+        XCTAssertEqual(conflict.attemptedName, "Email")
+        XCTAssertTrue(conflict.message.contains("2 inactive categories"), conflict.message)
+        XCTAssertTrue(conflict.message.contains("Inactive list"), conflict.message)
     }
 
     // MARK: - Renaming

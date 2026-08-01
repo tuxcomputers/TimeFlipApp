@@ -11,6 +11,7 @@ struct CategoriesSettingsView: View {
     let loadCategories: () -> [CategoryRecord]
     let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
+    let findCategories: (String) -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
     let updateCategoryActive: (Int, Bool) -> Bool
@@ -40,7 +41,7 @@ struct CategoriesSettingsView: View {
                 CategoryCreateControl(
                     appState: appState,
                     createCategory: createCategory,
-                    findCategory: findCategory,
+                    findCategories: findCategories,
                     // Patched in place rather than re-read, so the reinstated row moves from the
                     // Inactive section to the Active one straight away.
                     reactivate: { actions.setActive($0.id, true) },

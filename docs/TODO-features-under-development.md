@@ -28,6 +28,34 @@
 already share a category with no schema change. The new work is the `active` column plus the
 create-if-missing and active-filtered-dropdown behavior.)
 
+### Telling retired namesakes apart
+
+`UN1_category` allows one *active* category per name and any number of retired ones, so several
+retired categories can end up sharing a name, each owning its own history. They are then hard to
+tell apart, and two pieces of work follow from that. Neither is done.
+
+The create flow no longer guesses between them: typing a name that matches more than one retired
+category drops the reinstate button and points at the Inactive list, where each is at least a
+separate row. That much is built. What is missing is any way to know *which* row is which.
+
+- **Show what distinguishes them on the row.** The reason to reinstate a category is the history
+  attached to it, so what the user actually needs is which one holds their data: total time
+  recorded against it, and when it was last used. That needs `time_entry`, which has no writer yet
+  (the same dependency parking two tests in `CategoryStoreTests`). Until then the cheapest
+  meaningful signal is when it was retired -- a `retired_at` column, shown as "Retired 3 Mar 2026"
+  on each inactive row. Per `database/CLAUDE.md` that is two columns, since every timestamp needs
+  its `timezone_id` FK.
+- **Then offer a picker.** With rows that can be told apart, the create flow can list the matches
+  and let the user choose, instead of sending them elsewhere. Strictly downstream of the point
+  above: without labels it is a column of identical buttons, which is the blind pick again with
+  more steps.
+
+A third option was considered and rejected: forbidding duplicate names among *retired* categories
+too, by requiring a rename when retiring onto a namesake. It would make the whole problem
+disappear, but each retired row owns distinct history, so they are not interchangeable and merging
+them is not automatically safe. Worth revisiting only if the duplicates turn out not to be worth
+keeping.
+
 ## Faces
 
 - Any **active** category can be assigned to a face.

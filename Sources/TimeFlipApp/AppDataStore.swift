@@ -734,6 +734,45 @@ final class AppDataStore {
         }
     }
 
+    /// Every category carrying this name, best match first: the active one if there is any, then
+    /// the retired ones oldest first. At most one can be active (`UN1_category`), so this is one
+    /// row plus however many retired namesakes have built up behind it.
+    ///
+    /// `findCategory(named:)` answers the same question with `LIMIT 1`, which is all most callers
+    /// want. This exists because the create flow has to know when there is more than one retired
+    /// row to reinstate: with only the first, it would offer to bring one back and silently pick.
+    func findCategories(named name: String) -> [CategoryRecord] {
+        guard let db, !name.isEmpty else { return [] }
+        var results: [CategoryRecord] = []
+        let sql = """
+        SELECT category_id, category_name, icon_id, colour_id, active, daily_limit
+        FROM category
+        WHERE category_name = ? COLLATE NOCASE
+        ORDER BY active DESC, category_id ASC;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category find-all prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                results.append(CategoryRecord(
+                    id: Int(sqlite3_column_int64(stmt, 0)),
+                    name: sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "",
+                    iconID: Int(sqlite3_column_int64(stmt, 2)),
+                    colourID: Int(sqlite3_column_int64(stmt, 3)),
+                    isActive: sqlite3_column_int64(stmt, 4) != 0,
+                    dailyLimitMinutes: Int(sqlite3_column_int64(stmt, 5))
+                ))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
     /// The category carrying this name, if any. Matched `COLLATE NOCASE`: someone typing
     /// "meeting" when "Meeting" exists has made exactly the mistake this lookup is meant to catch,
     /// so case is not what should distinguish them.

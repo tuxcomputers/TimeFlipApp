@@ -19,18 +19,23 @@ enum CategoryEditRules {
     ///
     /// The name is normalised before the lookup, so a trailing space cannot slip a duplicate past
     /// the collision check.
+    ///
+    /// Takes every match rather than the first, because how many there are changes the answer. One
+    /// retired namesake can be offered back; several cannot, since nothing on screen says which is
+    /// which and picking for the user would mean reinstating whichever the query happened to sort
+    /// first. That case sends them to the Inactive list, where the rows are individually tickable.
     static func createDecision(
         rawName: String,
-        findCategory: (String) -> CategoryRecord?
+        findCategories: (String) -> [CategoryRecord]
     ) -> CategoryCreateDecision {
         let name = ActivityLibrary.normalizeCategoryName(rawName)
         guard !name.isEmpty else { return .ignore }
-        guard let existing = findCategory(name) else { return .insert(name: name) }
-        return .conflict(
-            existing.isActive
-                ? .active(existing: existing, name: name)
-                : .inactive(existing: existing, name: name)
-        )
+        let matches = findCategories(name)
+        guard let first = matches.first else { return .insert(name: name) }
+        // At most one match can be active, and `findCategories` sorts it first.
+        if first.isActive { return .conflict(.active(existing: first, name: name)) }
+        if matches.count > 1 { return .conflict(.ambiguousInactive(retired: matches, name: name)) }
+        return .conflict(.inactive(existing: first, name: name))
     }
 
     // MARK: - Renaming
@@ -128,11 +133,17 @@ enum CategoryNameConflict: Equatable, Identifiable {
     /// The name belongs to a retired category. Reinstating it keeps every historical `time_entry`
     /// attached to the name; creating a second one does not.
     case inactive(existing: CategoryRecord, name: String)
+    /// The name belongs to *several* retired categories. Creating another is still allowed, since
+    /// only one active row per name is barred, but reinstating cannot be offered here: the alert
+    /// has nothing to tell the rows apart by, so choosing one would mean choosing blind.
+    case ambiguousInactive(retired: [CategoryRecord], name: String)
 
-    /// The row the typed name collided with.
-    var existing: CategoryRecord {
+    /// The row the typed name collided with, when there is a single one to name. `nil` for
+    /// `ambiguousInactive`, which is that case precisely because there is not.
+    var existing: CategoryRecord? {
         switch self {
         case .active(let existing, _), .inactive(let existing, _): return existing
+        case .ambiguousInactive: return nil
         }
     }
 
@@ -141,7 +152,8 @@ enum CategoryNameConflict: Equatable, Identifiable {
     /// debug lines record what was actually typed.
     var attemptedName: String {
         switch self {
-        case .active(_, let name), .inactive(_, let name): return name
+        case .active(_, let name), .inactive(_, let name), .ambiguousInactive(_, let name):
+            return name
         }
     }
 
@@ -149,6 +161,7 @@ enum CategoryNameConflict: Equatable, Identifiable {
         switch self {
         case .active(let existing, _): return "active:\(existing.name)"
         case .inactive(_, let name): return "inactive:\(name)"
+        case .ambiguousInactive(let retired, let name): return "ambiguous:\(name):\(retired.count)"
         }
     }
 
@@ -165,6 +178,14 @@ enum CategoryNameConflict: Equatable, Identifiable {
             Reactivating it keeps all of its history attached. Creating a second category \
             with the same name leaves you two rows that look identical in reports, and \
             sorting that out later is on you.
+            """
+        case .ambiguousInactive(let retired, let name):
+            return """
+            \(retired.count) inactive categories are called "\(name)", each with its own history, \
+            so this cannot offer to bring one back without guessing which you meant.
+
+            To reinstate a particular one, tick its Active box in the Inactive list. Creating a \
+            new category with this name is still fine.
             """
         }
     }

@@ -9,6 +9,7 @@ struct SettingsRootView: View {
     /// Inserts the category and returns its new `category_id`, or `nil` if the insert failed.
     let createCategory: (String) -> Int?
     let findCategory: (String) -> CategoryRecord?
+    let findCategories: (String) -> [CategoryRecord]
     let updateCategoryColour: (Int, Int) -> Void
     let updateCategoryDailyLimit: (Int, Int) -> Void
     let updateCategoryActive: (Int, Bool) -> Bool
@@ -29,6 +30,7 @@ struct SettingsRootView: View {
         loadCategories: @escaping () -> [CategoryRecord],
         createCategory: @escaping (String) -> Int?,
         findCategory: @escaping (String) -> CategoryRecord?,
+        findCategories: @escaping (String) -> [CategoryRecord],
         updateCategoryColour: @escaping (Int, Int) -> Void,
         updateCategoryDailyLimit: @escaping (Int, Int) -> Void,
         updateCategoryActive: @escaping (Int, Bool) -> Bool,
@@ -45,6 +47,7 @@ struct SettingsRootView: View {
         self.loadCategories = loadCategories
         self.createCategory = createCategory
         self.findCategory = findCategory
+        self.findCategories = findCategories
         self.updateCategoryColour = updateCategoryColour
         self.updateCategoryDailyLimit = updateCategoryDailyLimit
         self.updateCategoryActive = updateCategoryActive
@@ -69,6 +72,7 @@ struct SettingsRootView: View {
                     loadCategories: loadCategories,
                     createCategory: createCategory,
                     findCategory: findCategory,
+                    findCategories: findCategories,
                     updateCategoryColour: updateCategoryColour,
                     updateCategoryDailyLimit: updateCategoryDailyLimit,
                     updateCategoryActive: updateCategoryActive,
@@ -83,7 +87,7 @@ struct SettingsRootView: View {
                     appState: appState,
                     loadCategories: loadCategories,
                     createCategory: createCategory,
-                    findCategory: findCategory,
+                    findCategories: findCategories,
                     updateCategoryActive: updateCategoryActive,
                     assignCategoryToFace: assignCategoryToFace,
                     setFaceLocked: setFaceLocked
@@ -153,7 +157,7 @@ private struct PaneSetupView: View {
     @ObservedObject var appState: AppState
     let loadCategories: () -> [CategoryRecord]
     let createCategory: (String) -> Int?
-    let findCategory: (String) -> CategoryRecord?
+    let findCategories: (String) -> [CategoryRecord]
     let updateCategoryActive: (Int, Bool) -> Bool
     let assignCategoryToFace: (UInt8, Int) -> Void
     let setFaceLocked: (UInt8, Bool) -> Void
@@ -221,7 +225,7 @@ private struct PaneSetupView: View {
                     CategoryCreateControl(
                         appState: appState,
                         createCategory: createCategory,
-                        findCategory: findCategory,
+                        findCategories: findCategories,
                         // Re-read rather than patched: this list only shows active categories, so a
                         // reinstated one has to appear in it.
                         reactivate: { category in

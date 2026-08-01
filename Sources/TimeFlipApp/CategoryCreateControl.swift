@@ -15,7 +15,9 @@ struct CategoryCreateControl: View {
     @ObservedObject var appState: AppState
     /// Inserts the category and returns its new `category_id`, or `nil` if the insert failed.
     let createCategory: (String) -> Int?
-    let findCategory: (String) -> CategoryRecord?
+    /// Every category holding a name, best match first. Not `findCategory`: the decision turns on
+    /// how many retired namesakes there are, and the first row alone cannot say.
+    let findCategories: (String) -> [CategoryRecord]
     /// Reinstates a retired category the new name collided with, reporting whether it took. Taken
     /// as a closure because each tab refreshes its own list differently -- the Categories tab
     /// patches the loaded record in place so the row moves between its Active and Inactive
@@ -93,6 +95,16 @@ struct CategoryCreateControl: View {
             // Not one of the two choices asked for, but without a cancel-role button there is no
             // way out of the alert except by picking one of them, and Esc does nothing.
             Button("Cancel", role: .cancel) {}
+        case .ambiguousInactive(_, let name):
+            // No reinstate button: which of the retired rows to bring back is the user's to decide,
+            // from the Inactive list where they are at least separate rows. Creating is still on
+            // offer, since only an *active* namesake would bar it.
+            Button("Create a new category with the same name") {
+                DeveloperMode.debugPrint(.click, "Button clicked: Create alongside retired namesakes \"\(name)\"")
+                insert(name)
+                finishCreating()
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -149,7 +161,7 @@ struct CategoryCreateControl: View {
     /// insert itself is unguarded, so that check is the only thing standing between a typo and a
     /// second identically named category.
     private func save() {
-        switch CategoryEditRules.createDecision(rawName: newCategoryName, findCategory: findCategory) {
+        switch CategoryEditRules.createDecision(rawName: newCategoryName, findCategories: findCategories) {
         case .ignore:
             return
         case .insert(let name):
@@ -157,9 +169,12 @@ struct CategoryCreateControl: View {
             insert(name)
             finishCreating()
         case .conflict(let conflict):
-            let existing = conflict.existing
             DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(conflict.attemptedName)\"")
-            DeveloperMode.debugPrint(.field, "Category name collision: \"\(conflict.attemptedName)\" matches category_id \(existing.id) (active=\(existing.isActive))")
+            if let existing = conflict.existing {
+                DeveloperMode.debugPrint(.field, "Category name collision: \"\(conflict.attemptedName)\" matches category_id \(existing.id) (active=\(existing.isActive))")
+            } else if case .ambiguousInactive(let retired, let name) = conflict {
+                DeveloperMode.debugPrint(.field, "Category name collision: \"\(name)\" matches \(retired.count) inactive categories (\(retired.map { String($0.id) }.joined(separator: ", "))); not offering a reinstate")
+            }
             nameConflict = conflict
         }
     }

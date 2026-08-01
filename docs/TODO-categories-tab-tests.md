@@ -122,9 +122,15 @@ alert names the row that exists while the debug line records what was typed.
 
 25. A free name inserts, with no alert.
 26. A name held by an active category is a dead end offering no create.
-27. A name held by an inactive category offers exactly two real choices, reactivate or create a
+27. A name held by *one* inactive category offers exactly two real choices, reactivate or create a
     duplicate, plus cancel.
 28. The name is normalised before the lookup, so trailing space cannot dodge a collision.
+28a. A name held by *several* inactive categories offers no reinstate at all, since nothing on
+     screen tells them apart. Creating alongside them is still allowed, because only an active
+     namesake bars it. See `docs/TODO-features-under-development.md` for what would let the flow
+     offer a real choice here.
+28b. An active namesake outranks any number of retired ones: the name is simply taken.
+28c. The ambiguous conflict names no single row, unlike the other two.
 
 **Rename collision** (`CategoryEditRules.renameDecision`)
 
