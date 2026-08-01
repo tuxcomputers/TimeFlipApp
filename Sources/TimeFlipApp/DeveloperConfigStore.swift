@@ -67,6 +67,10 @@ enum DeveloperMode {
         // rather than silently dropped. Both are shorter than the longest tag, so no re-padding.
         case bleTx = "ble-tx"
         case bleRx = "ble-rx"
+        // What a scan saw and whether it was listed. Its own tag rather than ble-rx so a scan can
+        // be read on its own: what appeared in the list, and what was rejected, is a different
+        // question from what a connected device sent.
+        case scan = "scan"
         case battery = "battery"
         case dbType = "db-type"
         case doubleTap = "double-tap"

@@ -106,6 +106,42 @@ final class DeviceNameRulesTests: XCTestCase {
         XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "Cube", remembered: "Cube"))
     }
 
+    func testAStaleCachedNameIsRescuedByTheAdvertisedOne() {
+        // The exact state after a rename, reported 2026-08-01: CBPeripheral.name is a connection
+        // behind, so it holds the name from *before* the rename and matches neither "timeflip" nor
+        // the new remembered name. Only the advertised name, which this cube never changes, finds
+        // it. The discovery scan checked one and not the other, so a renamed cube could be
+        // connected to but not scanned for.
+        XCTAssertFalse(
+            DeviceNameRules.matchesKnownDevice(peripheralName: "Wobble", remembered: "Dibby"),
+            "the stale cached name alone cannot match, which is what made this a bug"
+        )
+        XCTAssertTrue(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: "Wobble",
+                advertisedName: "TimeFlip v2.0",
+                remembered: "Dibby"
+            )
+        )
+    }
+
+    func testEitherNameAloneIsEnough() {
+        // Whichever half is current, the device is found.
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "Dibby", advertisedName: nil, remembered: "Dibby"))
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: nil, advertisedName: "TimeFlip v2.0", remembered: nil))
+    }
+
+    func testTwoNamesThatBothMissStillDoNotMatch() {
+        // Checking a second name must widen the net for the paired cube, not start claiming others.
+        XCTAssertFalse(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: "Someone's Headphones",
+                advertisedName: "Someone's Headphones",
+                remembered: "Dibby"
+            )
+        )
+    }
+
     func testMatchingIgnoresCase() {
         XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "HAZZA", remembered: "hazza"))
         XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "timeflip v2.0", remembered: nil))

@@ -114,6 +114,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // can be connected to directly rather than re-scanning and grabbing the first match.
     private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
     var onDisconnect: (() -> Void)?
+    /// Fires when CoreBluetooth notices the connected peripheral's GAP name has changed, which is
+    /// the only authoritative signal this app gets that a rename actually took. Confirmed working
+    /// on this hardware -- see `peripheralDidUpdateName`.
+    var onDeviceNameChanged: ((String?) -> Void)?
     var onDeviceDiscovered: ((DiscoveredBLEDevice) -> Void)?
     var onDiscoveryScanStopped: (() -> Void)?
     private var snapshotState = TimeFlipDeviceSnapshot(
@@ -976,11 +980,26 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// every launch -- which is exactly what happened on 2026-08-01 with a cube renamed "Hazza".
     var rememberedDeviceName: String?
 
-    /// Whether a discovered peripheral's name says it is a device worth connecting to. The rule
-    /// itself lives in `DeviceNameRules`, where it can be tested without a CoreBluetooth scan.
-    private func nameMatchesAKnownDevice(_ peripheralName: String?) -> Bool {
+    /// Whether a discovered advertisement is from a device worth listing or connecting to.
+    ///
+    /// **Both filter sites go through this one function on purpose.** They used to inline the test
+    /// separately, and the copies drifted: the connect path learned to check the advertised name
+    /// while the discovery scan was left checking only `peripheral.name`, so a renamed cube could
+    /// be connected to but not found by a scan. The rule itself lives in `DeviceNameRules`, where
+    /// it can be tested without a CoreBluetooth scan.
+    /// One line describing a scanned advertisement, naming **both** names it carries plus what the
+    /// app is currently looking for. All three are needed to explain a match or a miss: the two
+    /// names routinely disagree after a rename, and which one matched is the difference between a
+    /// device being findable and not.
+    private func describe(_ peripheral: CBPeripheral, _ advertisementData: [String: Any]) -> String {
+        let advertised = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        return "name=\(peripheral.name ?? "nil") advert=\(advertised ?? "nil") looking-for=\(rememberedDeviceName ?? "nil")"
+    }
+
+    private func isKnownDevice(_ peripheral: CBPeripheral, _ advertisementData: [String: Any]) -> Bool {
         DeviceNameRules.matchesKnownDevice(
-            peripheralName: peripheralName,
+            peripheralName: peripheral.name,
+            advertisedName: advertisementData[CBAdvertisementDataLocalNameKey] as? String,
             remembered: rememberedDeviceName
         )
     }
@@ -1526,6 +1545,23 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             DeveloperMode.debugPrint(.faceTask, "Device name set to '\(name)' triggered")
             _ = try await performCommand(Data([0x15, UInt8(ascii.count)]) + ascii)
             DeveloperMode.debugPrint(.faceTask, "Device name written: '\(name)'")
+            // DIAGNOSTIC, present only in the build used to gather the evidence in
+            // docs/timeflip2-firmware-observations.md. Remove before shipping: it delays every
+            // rename by nearly four seconds.
+            //
+            // It answers one question and is the only thing that can: does commandResult ever go
+            // fresh for 0x15, or never? performCommand reads it ~50ms after the write, before the
+            // device has finished (its eventsData narration arrives ~230ms later), so that read
+            // always returns the previous command's response. Re-reading on a ladder distinguishes
+            // "we read too early" from "the device never answers this command".
+            for delayMilliseconds in [250, 500, 1000, 2000] {
+                try? await Task.sleep(nanoseconds: UInt64(delayMilliseconds) * 1_000_000)
+                let late = try? await read(TimeFlipUUIDs.commandResult)
+                DeveloperMode.debugPrint(
+                    .faceTask,
+                    "0x15 commandResult re-read at +\(delayMilliseconds)ms: \(late?.hexString() ?? "nil")"
+                )
+            }
             return true
         } catch {
             logger.error("Failed to set device name: \(error.localizedDescription, privacy: .public)")
@@ -1847,15 +1883,34 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
         if isDiscoveryScanning {
             if discoveryFilterToTimeFlip {
                 // The service UUID isn't reliably present in this device's advertisement packet,
-                // so fall back to matching on the (now-confirmed-reliable) advertised name too.
-                guard serviceMatches || nameMatchesAKnownDevice(peripheral.name) else {
+                // so fall back to matching on the names too. See `isKnownDevice` for why both are
+                // checked, and why this branch checking only one of them was a real bug.
+                guard serviceMatches || isKnownDevice(peripheral, advertisementData) else {
                     logger.debug("Discovery scan: skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
+                    DeveloperMode.debugPrint(.scan, "skipped: \(describe(peripheral, advertisementData))")
                     return
                 }
             }
+            // Both names, always, because the scan list is exactly where they disagree: the label
+            // comes from `peripheral.name`, which lags a connection behind a rename, while the
+            // advertised name never changes at all. A list showing a name the user did not choose
+            // is explicable from this line and guesswork without it.
+            DeveloperMode.debugPrint(
+                .scan,
+                "listed: \(describe(peripheral, advertisementData))\(serviceMatches ? " serviceMatch" : "")"
+            )
             discoveredPeripherals[peripheral.identifier] = peripheral
+            // `peripheral.name` first: it is the name the user actually set, even when the cache is
+            // a connection behind. The advertised name is a fallback rather than the primary,
+            // because on this hardware it never changes, so preferring it would show every renamed
+            // cube as "TimeFlip v2.0".
             onDeviceDiscovered?(
-                DiscoveredBLEDevice(id: peripheral.identifier, name: peripheral.name ?? "Unknown Device")
+                DiscoveredBLEDevice(
+                    id: peripheral.identifier,
+                    name: peripheral.name
+                        ?? (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
+                        ?? "Unknown Device"
+                )
             )
             return
         }
@@ -1870,13 +1925,13 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             // 2026-08-01, where a cube whose `peripheral.name` read "Hazza cuber" was still
             // advertising "TimeFlip v2.0". Matching only `peripheral.name` is therefore what made a
             // renamed cube undiscoverable.
-            guard serviceMatches
-                || nameMatchesAKnownDevice(peripheral.name)
-                || nameMatchesAKnownDevice(advertisementData[CBAdvertisementDataLocalNameKey] as? String) else {
+            guard serviceMatches || isKnownDevice(peripheral, advertisementData) else {
                 logger.debug("Skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
+                DeveloperMode.debugPrint(.scan, "connect scan skipped: \(describe(peripheral, advertisementData))")
                 return
             }
         }
+        DeveloperMode.debugPrint(.scan, "connect scan matched: \(describe(peripheral, advertisementData))")
         self.peripheral = peripheral
         peripheral.delegate = self
         central.stopScan()
@@ -1948,6 +2003,28 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
 
 @MainActor
 extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
+    /// CoreBluetooth telling us the peripheral's GAP name changed underneath us.
+    ///
+    /// The only authoritative confirmation available that a `0x15` write took effect. Reading
+    /// `CBPeripheral.name` straight after the write cannot do it: that value is cached and refreshes
+    /// only on the next connection, so immediately after a rename it still reports the previous
+    /// name (measured 2026-08-01).
+    ///
+    /// **This does fire on the real hardware**, about two seconds into the connection *after* a
+    /// rename, once CoreBluetooth has re-read GAP and seen the difference. Observed on all three of
+    /// three renames on 2026-08-01. It cannot fire during the connection the rename happened on,
+    /// which is why a 30-second poll in that session saw nothing and briefly suggested it never
+    /// fired at all.
+    ///
+    /// That timing makes it load-bearing rather than decorative: a first pairing adopts whatever
+    /// name the peripheral reports, which is the stale cached one, and this is what corrects it.
+    func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
+        guard peripheral === self.peripheral else { return }
+        logger.notice("Peripheral name updated to \(peripheral.name ?? "nil", privacy: .public)")
+        DeveloperMode.debugPrint(.deviceName, "device reported a new name: \(peripheral.name ?? "nil")")
+        onDeviceNameChanged?(peripheral.name)
+    }
+
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let probe = activeProbe, peripheral === probe.peripheral {
             if let error {

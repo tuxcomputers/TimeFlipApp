@@ -595,6 +595,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             bleDevice.onDisconnect = { [weak self] in
                 self?.handleDeviceDisconnect()
             }
+            // The one authoritative "the cube really is called this now" signal, so it outranks the
+            // stored name that `confirmConnected` otherwise keeps -- unlike a connect-time read,
+            // this fires *because* the name changed rather than reporting a cached one.
+            bleDevice.onDeviceNameChanged = { [weak self] name in
+                guard let self, let name, !name.isEmpty else { return }
+                self.appState.deviceName = name
+                self.appState.pairedDeviceName = name
+                bleDevice.rememberedDeviceName = name
+            }
             // Before the connect below, because the connect IS the scan: a cube renamed off
             // "timeflip" matches on this name or on nothing at all.
             bleDevice.rememberedDeviceName = appState.deviceName

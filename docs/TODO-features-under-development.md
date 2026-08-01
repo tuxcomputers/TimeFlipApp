@@ -232,7 +232,7 @@ see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs
   and the reconnect-by-remembered-name fix are all still unverified against the device. The
   reconnect one is the priority, since its failure mode is losing the cube entirely.
 - Verifying a rename actually took. `setDeviceName` waits for the device's own command
-  acknowledgement (`0x15 0x02`), which is a real confirmation, but nothing reads `0x2A00` back
+  acknowledgement, which turns out not to exist for `0x15` at all, and nothing reads `0x2A00` back
   afterwards. A naive read-back would not work today either: `deviceName` is `CBPeripheral.name`,
   which CoreBluetooth caches, and `peripheralDidUpdateName(_:)` is not implemented, so the value
   read straight after a write is likely the old one. The honest options are to implement that
@@ -244,12 +244,32 @@ see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs
 but **nothing in the app calls it**. Four things shape what is left, all confirmed against the
 vendor spec and the hardware:
 
-**The name has a real read-back, unlike LED brightness and blink interval.** The spec lists Device
-Name / `0x2A00` as a readable Generic Access characteristic, so a rename can compare before writing
-instead of the write-blind approach `0x09`/`0x0A` are stuck with. The read is already wired:
-`TimeFlipDevice.deviceName` returns `CBPeripheral.name`, which on Apple platforms *is* the
-platform's reading of `0x2A00` -- the Generic Access service (`0x1800`) is not exposed to apps for
-discovery, so there is no characteristic to discover and nothing more to build.
+**There is no usable read-back within the session that renamed the device, despite `0x2A00` being
+readable.** Measured on the hardware 2026-08-01: after a rename the app polled
+`TimeFlipDevice.deviceName` (which is `CBPeripheral.name`, the platform's own reading of `0x2A00`)
+**120 times over 30 seconds** and it never moved off the previous name. The value refreshes only
+when CoreBluetooth next connects and re-reads GAP, so it is connection-gated, not time-gated: no
+wait, however long, will see the change from within the same connection.
+
+**The next connection does report it, and does so actively.** `peripheralDidUpdateName(_:)` fires
+about two seconds into the following connection, on all three of three renames tested. An earlier
+version of this note said it had "never fired once" -- that was concluded from the 30-second poll
+alone, which by definition could not observe a callback that only arrives after a reconnect. It is
+wired up and is what corrects the name a first pairing adopts from the stale cache.
+
+So a rename gets **no confirmation at all** at the time it is made. The device never updates the
+command result characteristic for `0x15`, and `performCommand`'s check does not notice because a
+stale response from an unrelated command is neither one nor two bytes long and so skips validation
+entirely (see `docs/timeflip2-firmware-observations.md`, finding 2). Everything the app needs the
+name for -- the stored
+`device_name`, the Device tab, and the scan filter -- is updated from what was written rather than
+from a read. Forcing a disconnect/reconnect purely to refresh the cached value was considered and
+rejected: it costs a session drop, a re-login and a history re-sync to learn something already
+known.
+
+Note this cuts against an earlier claim in this file that the name "has a real read-back, unlike LED
+brightness and blink interval". Readable in the GATT sense, yes; useful for confirming a write you
+just made, no.
 
 **The displayed name now comes from the device.** It used to be a literal: `ApplicationDelegate`
 called `appState.confirmConnected(name: "TimeFlip", uuid: nil)` with the string spelled out in the
@@ -285,4 +305,20 @@ true anyway, since that state shows Forget/Reset instead of Scan.
 One useful interaction: `0xFE` (reset task info) deliberately leaves the name untouched, so only a
 full `0xFF` factory reset clears it -- which is why `0xFE` touches neither row and `0xFF` clears
 both. The device-test runner's end-of-run factory reset therefore returns the cube to the vendor
-name and empties `device_name` with it, leaving nothing to repair afterwards.)
+name and empties `device_name` with it, leaving nothing to repair afterwards.
+
+**The firmware is inconsistent with itself about the name, and the spec does not mention it.** The
+`0x15` entry in `docs/TimeFlip2 BLE Protocol v4.3.md` is two lines -- a length byte and "18 symbols
+MAX. ASCII coding" -- and says nothing about when a rename takes effect or where it shows. What the
+hardware actually does, all measured on 2026-08-01:
+
+- The GAP Device Name (`0x2A00`, what `CBPeripheral.name` reports) **does** change.
+- The advertised local name **does not**: a cube whose GAP name read "Hazza cuber" was still
+  advertising `TimeFlip v2.0`, across three successive renames.
+- The change is not observable until the central reconnects, at which point CoreBluetooth notices
+  it and fires `peripheralDidUpdateName(_:)`.
+
+The two names disagreeing is what made a renamed cube unfindable, and the advertised name never
+changing is what makes it findable again, so both halves matter. Whether the cube applies a rename
+immediately or defers it is **not determinable from macOS**, since the host only re-reads GAP on
+connect; answering that needs a second central with no cache of this device.)

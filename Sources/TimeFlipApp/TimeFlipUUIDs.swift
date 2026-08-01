@@ -33,6 +33,9 @@ enum TimeFlipUUIDs {
     /// vendor spec.
     static func name(for uuid: CBUUID) -> String {
         switch uuid {
+        case service: return "timeFlipService"
+        case batteryService: return "batteryService"
+        case deviceInfoService: return "deviceInfoService"
         case eventsData: return "eventsData"
         case faces: return "faces"
         case commandResult: return "commandResult"

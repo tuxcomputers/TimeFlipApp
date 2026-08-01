@@ -184,6 +184,47 @@ final class AppStateDeviceTabTests: XCTestCase {
         XCTAssertEqual(appState.pairedDeviceName, "Not paired")
     }
 
+    func testAReconnectDoesNotOverwriteTheStoredNameWithAStaleOne() {
+        // Measured on the device 2026-08-01: `CBPeripheral.name` is cached and refreshes only on
+        // the next connection, so the connect after a rename reports the name from *before* it.
+        // Adopting that reverted the correct stored name for a whole session -- and since the scan
+        // filter matches on the stored name, it spent that session hunting a name the cube had
+        // stopped answering to.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Dibby", uuid: "uuid")
+        appState.deviceName = "Plopper"
+        appState.pairedDeviceName = "Plopper"
+
+        // A reconnect, reporting the pre-rename name.
+        appState.confirmConnected(name: "Dibby", uuid: "uuid")
+
+        XCTAssertEqual(appState.deviceName, "Plopper", "the name we wrote and got an ack for must win over a cached read")
+        XCTAssertEqual(appState.pairedDeviceName, "Plopper")
+    }
+
+    func testAFirstPairingDoesTakeTheNameTheCubeReports() {
+        // The one moment the cube's answer beats ours: nothing is stored, and a peripheral this Mac
+        // has not connected to before has nothing cached to be stale.
+        let appState = makeAppState()
+
+        appState.confirmConnected(name: "TimeFlip v2.0", uuid: "uuid")
+
+        XCTAssertEqual(appState.deviceName, "TimeFlip v2.0")
+    }
+
+    func testPairingADifferentCubeAfterAForgetTakesTheNewCubesName() {
+        // Forget Device keeps `deviceName` on purpose, so "adopt only when nothing is stored" would
+        // make a second cube inherit the first one's name forever.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Dibby", uuid: "uuid-1")
+        appState.forgetDevice()
+        XCTAssertEqual(appState.deviceName, "Dibby", "forget keeps the name; that is what makes this case possible")
+
+        appState.confirmConnected(name: "Someone else's cube", uuid: "uuid-2")
+
+        XCTAssertEqual(appState.deviceName, "Someone else's cube")
+    }
+
     func testReconnectingWithoutANameShowsTheRememberedOne() {
         // `confirmConnected` is called with whatever the peripheral has told us, which can be nil
         // before the name is known. That must not leave the tab on the placeholder a previous

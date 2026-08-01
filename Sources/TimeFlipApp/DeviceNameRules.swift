@@ -84,6 +84,32 @@ enum DeviceNameRules {
     /// - A remembered name is matched **exactly**. It is a specific string this app wrote to a
     ///   specific cube, so there is nothing to be liberal about, and a short user-chosen name like
     ///   "Cube" used as a substring would start claiming other people's hardware.
+    /// Whether an advertisement is from a device this app should list or connect to, judged on
+    /// **both** names it carries.
+    ///
+    /// They are genuinely different values on this hardware, and each is the only usable one in
+    /// cases the other fails:
+    ///
+    /// - `peripheralName` is `CBPeripheral.name`, the GAP Device Name, which a rename changes but
+    ///   which macOS caches and refreshes only on the next connection. Straight after a rename it
+    ///   still reports the previous name, so it can match neither "timeflip" nor the new remembered
+    ///   name and the device vanishes from a filtered scan.
+    /// - `advertisedName` is the advertisement's local name, which this cube never changes: it
+    ///   still reads `TimeFlip v2.0` on a device renamed to something else entirely. That makes it
+    ///   the one value that always finds the hardware, at the cost of never showing the user's name.
+    ///
+    /// Checking one and not the other is exactly the bug this replaced: the connect path checked
+    /// both while the discovery scan checked only the peripheral name, so a renamed cube connected
+    /// fine but could not be found by a scan (reported 2026-08-01).
+    static func matchesKnownDevice(
+        peripheralName: String?,
+        advertisedName: String?,
+        remembered: String?
+    ) -> Bool {
+        matchesKnownDevice(peripheralName: peripheralName, remembered: remembered)
+            || matchesKnownDevice(peripheralName: advertisedName, remembered: remembered)
+    }
+
     static func matchesKnownDevice(peripheralName: String?, remembered: String?) -> Bool {
         let name = (peripheralName ?? "").lowercased()
         guard !name.isEmpty else { return false }

@@ -656,12 +656,23 @@ final class AppState: ObservableObject {
                 DeveloperMode.debugPrint(.field, "Device rename failed to write: \"\(name)\"")
                 return .writeFailed
             }
+            // Nothing confirms this write at the time it is made, and the app cannot pretend
+            // otherwise. The device never updates the command result characteristic for 0x15 (a
+            // re-read ladder at +250ms, +500ms, +1s and +2s found the previous command's response
+            // still sitting there every time), and `CBPeripheral.name` does not refresh until the
+            // next connection. See docs/timeflip2-firmware-observations.md.
+            //
+            // So the new name is adopted on the strength of the write not having failed, and two
+            // later signals correct it if that was wrong: the device narrates "Neme set" on the
+            // events characteristic within ~250ms, and `peripheralDidUpdateName` reports the real
+            // name about two seconds into the next connection.
             deviceName = name
             pairedDeviceName = name
             DeveloperMode.debugPrint(.field, "Device renamed to \"\(name)\"")
             return nil
         }
     }
+
 
     /// Unpairs: forgets which device the app talks to and returns it to the never-paired state.
     /// **This is the only thing that clears `isPaired`** -- reached from the Forget Device button
@@ -899,27 +910,61 @@ final class AppState: ObservableObject {
     }
 
 
+    /// Whether the name the cube just reported should replace the one already stored.
+    ///
+    /// Only on a first pairing, or when nothing is stored at all. On a routine reconnect the stored
+    /// name wins, which is the opposite of what "mirror the device" would suggest, and it is the
+    /// hardware that forces it: the reported name is `CBPeripheral.name`, which macOS caches and
+    /// refreshes only when it next connects and re-reads `0x2A00`, so straight after a rename it is
+    /// **one connection behind**.
+    ///
+    /// Measured on 2026-08-01. The cube was renamed to `Plopper` at 22:44:43; the next connect
+    /// reported `Dibby`, the name from before that rename, and overwrote the correct stored value;
+    /// the connect after that reported `Plopper` and overwrote it back. So a rename was followed by
+    /// exactly one session showing and storing the previous name.
+    ///
+    /// That window is not cosmetic: `device_name` is what the scan filter matches a renamed cube
+    /// on, so during it the app hunts for a name the device stopped answering to. Only the cube's
+    /// unchanged advertised name kept reconnects working at all.
+    ///
+    /// A first pairing is the one moment the cube's answer genuinely beats ours, because we have no
+    /// answer of our own, and a peripheral this Mac has not connected to before has nothing cached
+    /// to be stale. It also has to be the rule rather than "adopt when nothing is stored", because
+    /// Forget Device deliberately keeps `deviceName`: pairing a *different* cube afterwards must
+    /// take the new cube's name rather than inherit the old one's.
+    ///
+    /// The cost is that a rename made in some other app is not noticed until this one re-pairs.
+    /// That is the better failure: it leaves a name merely out of date, where trusting the cache
+    /// silently reverts a name the user just set.
+    private func shouldAdoptReportedName(wasPaired: Bool) -> Bool {
+        !wasPaired || deviceName == nil
+    }
+
     /// The device is reachable and talking to us. Called on every successful connect, so it runs
     /// both at the end of a first pairing and after each routine reconnect.
     ///
     /// Pairing is the part that only happens once: `isPaired` is set unconditionally because
     /// reaching a device is proof the app is paired to it, but `onPairingChange` fires only on the
     /// false -> true edge, so a reconnect reports a connection and not a fresh pairing.
-    /// `name` is what the cube reports carrying (`TimeFlipDevice.deviceName`). `nil` when the
-    /// peripheral has not told us yet, which keeps whatever was last known rather than replacing a
-    /// real name with a placeholder -- the remembered name exists precisely to have something to
-    /// show when the device cannot be asked.
+    /// `name` is what the cube reports carrying (`TimeFlipDevice.deviceName`), and it is trusted
+    /// **only on a first pairing**. See `shouldAdoptReportedName`.
     func confirmConnected(name: String?, uuid: String?) {
         let wasPaired = isPaired
         isPaired = true
         connectionStatus = .connected
-        if let name, !name.isEmpty {
-            deviceName = name
-            pairedDeviceName = name
-        } else if let remembered = deviceName {
-            // Reconnecting to a device whose name we already know: the placeholder Forget Device
-            // left behind is not what to show now that there is a pairing again.
-            pairedDeviceName = remembered
+        let reported = (name?.isEmpty == false) ? name : nil
+        if let reported, shouldAdoptReportedName(wasPaired: wasPaired) {
+            deviceName = reported
+        } else if let reported, reported != deviceName {
+            DeveloperMode.debugPrint(
+                .deviceName,
+                "keeping stored name \"\(deviceName ?? "nil")\" over reported \"\(reported)\" (reconnect, reported name lags by one connection)"
+            )
+        }
+        // The stored name first, the reported one only as a fallback for a device we have never
+        // been told the name of.
+        if let known = deviceName ?? reported {
+            pairedDeviceName = known
         }
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
         if let id = pendingPairingDeviceID {

@@ -79,6 +79,11 @@ CLAUDE.md; if you read a CLAUDE.md and it is missing, add it.)
   over `docs/timeflip.md` (a developer-written summary of this codebase's BLE driver) whenever
   the two disagree.
 - If the official spec doesn't cover something, fall back to `docs/timeflip.md`.
+- `docs/timeflip2-firmware-observations.md` records behavior **measured on the real device** where
+  the spec is silent or wrong, with `docs/timeflip2-firmware-evidence.sqlite` holding the debug log
+  rows behind each claim. Measurements beat the spec, so check it before trusting the spec on
+  anything to do with the device name, or with whether a command is acknowledged. Add to it only
+  from an actual device run, citing the evidence rows, and never from reasoning about the protocol.
 
 ## Debug print messages
 
