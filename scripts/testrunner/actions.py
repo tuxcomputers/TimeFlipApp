@@ -471,9 +471,27 @@ def act_cgevent_hold_interrupted_by_key(spec, ctx):
 def act_cgevent_key(spec, ctx):
     """Post a raw keydown/keyup for a key code via CGEvent (default 53 = Escape). Used to dismiss a
     modal status-item dropdown menu a synthetic click opened, without an osascript call that would
-    collide with the open menu and hang (see Method 6's warning)."""
+    collide with the open menu and hang (see Method 6's warning).
+
+    **The event goes to whatever app is frontmost**, exactly like AppleScript `keystroke` -- it is
+    posted to the HID tap, not delivered to a process. That is a real trap in a checklist: any step
+    after an `ask_user` runs with the *terminal* frontmost, because the tester just typed y there,
+    so the key lands in the terminal and the app never sees it. Cost a live failure on 2026-08-01,
+    where an Escape meant for a rename field echoed `^[` into the terminal instead.
+
+    Pass `activate = "TimeFlip"` to bring that app forward first. Left off by default because the
+    status-item case must NOT do it: an osascript call while that menu is open is the collision the
+    docstring above warns about, and there the click that opened the menu has already made the app
+    frontmost anyway."""
     import Quartz
     keycode = spec.get("keycode", 53)
+    activate = spec.get("activate")
+    if activate:
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{activate}" to activate'],
+            capture_output=True, text=True,
+        )
+        time.sleep(0.4)
     down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
     up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
