@@ -619,3 +619,36 @@ tell application "System Events"
 end tell
 return names"""
 ```
+
+<a id="method-26"></a>
+## Method 26: Pick an item from a right-click context menu
+
+A SwiftUI `.contextMenu` is **invisible to accessibility**, so none of the usual approaches work.
+Established live on 2026-08-01 against the Categories tab's name column:
+
+- The element advertises `AXShowMenu` in `name of every action`, and `perform action "AXShowMenu"`
+  **returns success while opening nothing**. A failure you cannot detect from its return value.
+- After a real `CGEventPost` right-click, `count of menus` reports **0** on the element, **0** on the
+  process, and no new window appears. The menu is nonetheless on screen -- proven by
+  `screencapture` -- so an AX-based check would call it absent and be wrong.
+
+So it is driven purely by coordinate. Right-click the element, wait for the menu to draw, then
+left-click at an offset from that same point: the menu's top-left lands where you clicked.
+
+```toml method
+action = "cgevent_context_menu_pick"
+element = "$element"
+```
+
+`anchor` (default `0.9`) is where across the element's width to right-click. Near the right-hand end
+is deliberate: on a fixed-width column a short label leaves most of the column bare, and that bare
+part is the hit area a `contentShape(Rectangle())` exists to claim -- clicking there proves the hit
+area as well as the menu. `item_dx`/`item_dy` (default `30`/`12`) reach the first item; a menu with
+more needs the offset stepped by its row height, which has to be **measured, not assumed**.
+
+Verified end to end: right-click a category name, click Edit, and the row's `text field` count goes
+from 2 to 3 as the inline rename field replaces the name, focused and pre-filled.
+
+**Do not reach for `screencapture` to confirm a context menu opened in a step** -- capture proves it
+to a human reading a transcript, but the step itself should assert the *consequence* (the field that
+appeared, the value that changed), which is readable.

@@ -183,8 +183,18 @@ way to reach it in the app.
 
 ## Not CI material
 
-Belongs on a Bench or Interactive checklist, for the reasons in
-`Tests/TimeFlipAppTests/Workflows/README.md`.
+All of it is now in `Tests/Bench/08b-categories-tab-checklist.md`, and
+`Tests/Interactive/08i-categories-tab-checklist.md` is a stub.
+
+The rename flow was going to be the Interactive half, on the grounds that no right-click had been
+scripted in this suite. Driving the app on 2026-08-01 showed the context menu is reachable after
+all, by coordinate rather than by accessibility: it is invisible to AX, but a `CGEventPost`
+right-click followed by a left click at an offset opens it and picks an item. See
+`Tests/Methods.md` Method 26. Same outcome as `05i`.
+
+Two checks still need an eye rather than a hand, and stay as `ask_user` steps inside `08b`: the
+popover contents, and the **Active**/**Inactive** section labels, which accessibility does not
+expose at all.
 
 - The right-click context menu that opens Edit.
 - Popover presentation for the colour and icon pickers.

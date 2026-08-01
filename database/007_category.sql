@@ -28,9 +28,9 @@ SELECT 0, 'Unassigned', 0, 0
 WHERE NOT EXISTS (SELECT 1 FROM category WHERE category_name = 'Unassigned');
 
 INSERT INTO category (category_name, icon_id, colour_id)
-SELECT 'Break', (SELECT icon_id FROM icon WHERE icon_name = 'ic_break'), 0
+SELECT 'Break', (SELECT icon_id FROM icon WHERE icon_name = 'ic_break'), 1
 WHERE NOT EXISTS (SELECT 1 FROM category WHERE category_name = 'Break');
 
 INSERT INTO category (category_name, icon_id, colour_id)
-SELECT 'Meeting', (SELECT icon_id FROM icon WHERE icon_name = 'ic_meeting'), 0
+SELECT 'Meeting', (SELECT icon_id FROM icon WHERE icon_name = 'ic_meeting'), 13
 WHERE NOT EXISTS (SELECT 1 FROM category WHERE category_name = 'Meeting');

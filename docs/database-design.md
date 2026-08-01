@@ -310,6 +310,10 @@ Foreign keys:
 Constraints:
 - Seeded with all 12 faces pointing at the `Unassigned` category, except face `2` (`Meeting`) and
   face `8` (`Break`).
+- Those same two faces are the only ones seeded **locked**. They are the two the physical test cube
+  carries stickers for, and the two the `locked` column exists for: a face whose meaning is printed
+  on the cube cannot be reassigned without the sticker becoming a lie. Every other face seeds
+  unlocked, since `Unassigned` is exactly the face you would want to reassign.
 - `locked` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
 
 ### `time_entry` (`database/009_time_entry.sql`)
