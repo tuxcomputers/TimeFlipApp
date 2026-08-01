@@ -24,4 +24,33 @@ enum TimeFlipUUIDs {
     static let hardwareRevision = CBUUID(string: "2A27")
     static let firmwareRevision = CBUUID(string: "2A26")
     static let systemID = CBUUID(string: "2A23")
+
+    /// A readable name for a characteristic, for the raw comms log.
+    ///
+    /// Falls back to the bare UUID rather than "unknown", because the whole point of logging every
+    /// characteristic is to see traffic this app has no handler for: a UUID that appears here
+    /// unnamed is a genuine finding, and it needs to be printed in full to be looked up in the
+    /// vendor spec.
+    static func name(for uuid: CBUUID) -> String {
+        switch uuid {
+        case service: return "timeFlipService"
+        case batteryService: return "batteryService"
+        case deviceInfoService: return "deviceInfoService"
+        case eventsData: return "eventsData"
+        case faces: return "faces"
+        case commandResult: return "commandResult"
+        case command: return "command"
+        case doubleTap: return "doubleTap"
+        case systemState: return "systemState"
+        case password: return "password"
+        case history: return "history"
+        case batteryLevel: return "batteryLevel"
+        case manufacturerName: return "manufacturerName"
+        case modelNumber: return "modelNumber"
+        case hardwareRevision: return "hardwareRevision"
+        case firmwareRevision: return "firmwareRevision"
+        case systemID: return "systemID"
+        default: return uuid.uuidString
+        }
+    }
 }

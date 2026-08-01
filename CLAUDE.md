@@ -27,6 +27,21 @@ CLAUDE.md; if you read a CLAUDE.md and it is missing, add it.)
   `swift test` (the hermetic unit suite) -- "run the device tests" means the checklists, not
   `swift test`.
 
+## Ask for the device whenever you need it
+
+- **Any time confirming something needs the physical device, just ask.** Say what you want to
+  check and ask me to keep my hands off the keyboard, and I'll clear the way. This is standing
+  permission to ask, not permission to launch: the warning-and-all-clear protocol in the next
+  section still applies every time.
+- Don't leave device-dependent behavior unverified because interrupting me seems expensive. The
+  unit suite is hermetic and never touches a radio, so a feature can be entirely green and still
+  be broken on hardware. That is not hypothetical: the device rename shipped with every test
+  passing and made the cube unreachable on the next launch, because reconnecting is a **scan** and
+  nothing in `swift test` scans (2026-08-01, see the Device rename section of
+  `docs/TODO-features-under-development.md`).
+- So when a change touches how the app finds, connects to, or writes to the device, say plainly
+  whether it has been confirmed on hardware. If it hasn't, ask, rather than reporting it as done.
+
 ## Running the app interactively for visual verification (screenshots, driving the UI)
 
 - This launches a real window on the user's actual screen -- it is not an isolated/headless
@@ -64,6 +79,11 @@ CLAUDE.md; if you read a CLAUDE.md and it is missing, add it.)
   over `docs/timeflip.md` (a developer-written summary of this codebase's BLE driver) whenever
   the two disagree.
 - If the official spec doesn't cover something, fall back to `docs/timeflip.md`.
+- `docs/timeflip2-firmware-observations.md` records behavior **measured on the real device** where
+  the spec is silent or wrong, with `docs/timeflip2-firmware-evidence.sqlite` holding the debug log
+  rows behind each claim. Measurements beat the spec, so check it before trusting the spec on
+  anything to do with the device name, or with whether a command is acknowledged. Add to it only
+  from an actual device run, citing the evidence rows, and never from reasoning about the protocol.
 
 ## Debug print messages
 

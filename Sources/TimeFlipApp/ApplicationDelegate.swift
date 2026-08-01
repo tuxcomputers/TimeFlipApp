@@ -21,8 +21,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // Pairing survives a quit: the app comes back up still paired to whatever it was paired to,
         // and only Forget Device changes that.
         isPaired: dataStore.loadPaired(),
-        pairedDeviceName: dataStore.loadPairedDevice().name,
-        pairedDeviceUUID: dataStore.loadPairedDevice().uuid,
+        deviceName: dataStore.loadDeviceName(),
+        pairedDeviceUUID: dataStore.loadDeviceUUID(),
         displaySecondsEnabled: dataStore.loadDisplaySecondsEnabled(),
         pauseOnLockEnabled: dataStore.loadPauseOnLockEnabled(),
         lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent(),
@@ -319,6 +319,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self.scheduleReconnect()
             return true
         }
+        appState.onDeviceRenameRequest = { [weak self] name in
+            // Against the protocol rather than `as? TimeFlipBLEDevice`, so the mock can drive this
+            // path too -- the same reason onFactoryResetRequest is written that way.
+            guard let device = self?.device as? TimeFlipSessionManaging else { return false }
+            guard await device.setDeviceName(name) else { return false }
+            // The scan filter has to learn the new name in the same breath as the device does.
+            // Leave it until the next launch and a drop in between would be unrecoverable: the
+            // reconnect scan would still be looking for the name the cube no longer answers to.
+            (device as? TimeFlipBLEDevice)?.rememberedDeviceName = name
+            return true
+        }
         appState.onCurrentFaceMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
         }
@@ -453,12 +464,18 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self?.dataStore.recordGoogleClientID(trimmed.isEmpty ? nil : trimmed)
             }
             .store(in: &cancellables)
-        Publishers.CombineLatest(appState.$pairedDeviceName, appState.$pairedDeviceUUID)
-            .sink { [weak self] name, uuid in
-                guard let self else { return }
-                // The placeholder is a display default, not a remembered device -- storing it
-                // would make a never-paired app look like it remembers one called "Not paired".
-                self.dataStore.recordPairedDevice(name: name == "Not paired" ? nil : name, uuid: uuid)
+        // Two rows, not one, because the two have different lifetimes: Forget Device clears the
+        // uuid and leaves the name (see AppState.forgetDevice). Persisted from `deviceName` rather
+        // than the Device tab's `pairedDeviceName`, so the "Not paired" placeholder never reaches
+        // the database as if it were a device called that.
+        appState.$deviceName
+            .sink { [weak self] name in
+                self?.dataStore.recordDeviceName(name)
+            }
+            .store(in: &cancellables)
+        appState.$pairedDeviceUUID
+            .sink { [weak self] uuid in
+                self?.dataStore.recordDeviceUUID(uuid)
             }
             .store(in: &cancellables)
         seedDailyTotals()
@@ -578,6 +595,18 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             bleDevice.onDisconnect = { [weak self] in
                 self?.handleDeviceDisconnect()
             }
+            // The one authoritative "the cube really is called this now" signal, so it outranks the
+            // stored name that `confirmConnected` otherwise keeps -- unlike a connect-time read,
+            // this fires *because* the name changed rather than reporting a cached one.
+            bleDevice.onDeviceNameChanged = { [weak self] name in
+                guard let self, let name, !name.isEmpty else { return }
+                self.appState.deviceName = name
+                self.appState.pairedDeviceName = name
+                bleDevice.rememberedDeviceName = name
+            }
+            // Before the connect below, because the connect IS the scan: a cube renamed off
+            // "timeflip" matches on this name or on nothing at all.
+            bleDevice.rememberedDeviceName = appState.deviceName
         }
         eventTaskGeneration += 1
         let generation = eventTaskGeneration
@@ -664,7 +693,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                         try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
                     }
                     await MainActor.run {
-                        self.appState.forgetDevice()
+                        // 0xFF wipes the name along with everything else, so the remembered one is
+                        // discarded here rather than kept the way Forget Device keeps it.
+                        self.appState.forgetDevice(deviceWasWiped: true)
                     }
                 } else {
                     // Logged in, but with the OLD password -- the wipe hasn't taken yet. Tear down
@@ -1003,7 +1034,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         appState.update(from: event)
         if awaitingInitialStatus, case .faceChanged = event {
             awaitingInitialStatus = false
-            appState.confirmConnected(name: "TimeFlip", uuid: nil)
+            // The cube's own name, not a literal. It used to be spelled "TimeFlip" here, which
+            // meant the Info panel reported that whatever the device was actually called: the
+            // scan showed "TimeFlip v2.0" and this replaced it on the first face event.
+            //
+            // Logged because this read is the one that can overwrite `device_name`, and it is
+            // `CBPeripheral.name`, which macOS caches: on 2026-08-01 it reported the name as of the
+            // *previous* connection, one rename behind. Both values are printed so a run can be
+            // read for whether the device agrees with what the app last wrote, rather than that
+            // disagreement only surfacing later as a device nothing can find.
+            let reportedName = device?.deviceName
+            DeveloperMode.debugPrint(
+                .deviceName,
+                "device name read on connect: device=\(reportedName ?? "nil") stored=\(appState.deviceName ?? "nil")"
+            )
+            appState.confirmConnected(name: reportedName, uuid: nil)
         }
         if case .systemState(let state) = event {
             switch state.syncStatus {

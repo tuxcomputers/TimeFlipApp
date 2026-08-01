@@ -59,6 +59,18 @@ enum DeveloperMode {
         // Task/pomodoro parameters (0x13/0x14/0xFE) and the device name (0x15) -- the spec commands
         // the driver previously had no implementation for.
         case faceTask = "face-task"
+        // What the cube says it is called, read on every connect. Exactly 11 characters, matching
+        // the longest existing tag, so adding it re-pads nothing.
+        case deviceName = "device-name"
+        // Every byte over the BLE link, in both directions, logged at the transport itself rather
+        // than per feature -- so a characteristic this app has no handler for is still recorded
+        // rather than silently dropped. Both are shorter than the longest tag, so no re-padding.
+        case bleTx = "ble-tx"
+        case bleRx = "ble-rx"
+        // What a scan saw and whether it was listed. Its own tag rather than ble-rx so a scan can
+        // be read on its own: what appeared in the list, and what was rejected, is a different
+        // question from what a connected device sent.
+        case scan = "scan"
         case battery = "battery"
         case dbType = "db-type"
         case doubleTap = "double-tap"
