@@ -239,6 +239,11 @@ struct TimeFlipSettingsView: View {
                     // `.accessibilityLabel` does NOT fix this here -- verified on the device
                     // 2026-07-31, AXDescription still never appears. `.accessibilityIdentifier`
                     // does: it adds AXIdentifier, which System Events can filter on.
+                    // No confirmation here, deliberately. Forgetting cannot leave the device on a
+                    // PIN nobody knows: `resetAndForgetDevice` writes the factory default over
+                    // 0x30, logs in again with that default to prove the device took it, and only
+                    // then unpairs. A failed reset leaves the device paired and says so, so there
+                    // is no state to warn the user about in advance.
                     Button("Forget Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
                         Task { await appState.resetAndForgetDevice() }

@@ -227,10 +227,18 @@ see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs
 
 ### Still to build
 
-- The scan filter matching the stored `device_name` as well as `"timeflip"`, which is what the row
-  split exists to make possible. Until that lands the durable row is not yet doing its job.
-- Bench/Interactive checklists for the rename, which nothing covers on real hardware yet: the unit
-  tests stop at `AppState`, so the `0x15` write and what the cube then advertises are unverified.
+- Bench/Interactive checklists for the rename. Nothing covers it on real hardware: the unit tests
+  stop at `AppState` and at `DeviceNameRules`, so the `0x15` write, what the cube then advertises,
+  and the reconnect-by-remembered-name fix are all still unverified against the device. The
+  reconnect one is the priority, since its failure mode is losing the cube entirely.
+- Verifying a rename actually took. `setDeviceName` waits for the device's own command
+  acknowledgement (`0x15 0x02`), which is a real confirmation, but nothing reads `0x2A00` back
+  afterwards. A naive read-back would not work today either: `deviceName` is `CBPeripheral.name`,
+  which CoreBluetooth caches, and `peripheralDidUpdateName(_:)` is not implemented, so the value
+  read straight after a write is likely the old one. The honest options are to implement that
+  delegate method and find out on the bench whether the hardware fires it, or to treat the name read
+  at the next connect as the confirmation. Until then a rename is reconciled at the next connection
+  rather than immediately.
 
 (Note: the driver can already write the name -- `TimeFlipBLEDevice.setDeviceName` sends `0x15` --
 but **nothing in the app calls it**. Four things shape what is left, all confirmed against the
@@ -254,20 +262,25 @@ ASCII only, while `0x2A00` reads up to 20. `setDeviceName` enforces the write li
 false, so an over-long or non-ASCII name would fail with only a debug line to show for it. Validate
 in the rename UI, not just at the BLE call.
 
-**A renamed cube disappears from the filtered scan, and Forget Device is when that bites.** The
-discovery filter is `serviceMatches || nameMatches`, where `nameMatches` is
-`peripheral.name.lowercased().contains("timeflip")`
-(`TimeFlipBLEDevice.centralManager(_:didDiscover:...)`). Its own comment records that the service
-UUID is **not** reliably advertised by this hardware, so in practice the name match is what finds
-the cube. Rename it to something like "Solid cube" and the filtered scan stops listing it. That is
-harmless while the device stays paired, because reconnects go straight to the stored `device_uuid`
-rather than rescanning, but the moment the user forgets the device the only way back is a scan, and
-the name that would match is no longer the one it is advertising.
+**A renamed cube disappears from the scan, and that loses it on the very next launch.**
+Reconnecting is a **scan**, not a lookup of the stored `device_uuid`: `connect()` calls
+`scanAndConnect()`, and nothing in `TimeFlipBLEDevice` ever calls
+`retrievePeripherals(withIdentifiers:)`. The filter is `serviceMatches || nameMatches`, and the
+code's own comment records that the service UUID is **not** reliably advertised by this hardware,
+so the name match is in practice the only thing that finds the cube.
 
-The **All Devices** tick box (`scanAllDevices`, `TimeFlipSettingsView`) turns the filter off and
-does list it, so this is a recovery path rather than a lockout. But it relies on the user knowing
-to tick it at precisely the moment they have lost the device, which is not a reasonable thing to
-require. Hence the filter work above, and hence `device_name` surviving Forget Device.
+An earlier version of this note claimed the opposite -- that a rename was "harmless while the
+device stays paired, because reconnects go straight to the stored uuid". That was wrong, and it is
+why the scan work was filed as later rather than as a prerequisite. Renaming a cube to "Hazza" on
+2026-08-01 made every reconnect time out from the next launch onwards; the log shows `connect begin`,
+`connect radio powered`, and then nothing. **Fixed** by `DeviceNameRules.matchesKnownDevice`, which
+also matches the remembered `device_name`, fed to the driver as `rememberedDeviceName` before every
+connect and again the instant a rename lands.
+
+The **All Devices** tick box (`scanAllDevices`, `TimeFlipSettingsView`) turns the filter off
+entirely and remains the manual way back if a cube is ever renamed by something other than this app
+-- but it is a backstop now, not the recovery path, and it was never reachable while `isPaired` was
+true anyway, since that state shows Forget/Reset instead of Scan.
 
 One useful interaction: `0xFE` (reset task info) deliberately leaves the name untouched, so only a
 full `0xFF` factory reset clears it -- which is why `0xFE` touches neither row and `0xFF` clears

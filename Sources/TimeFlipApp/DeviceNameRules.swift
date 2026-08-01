@@ -67,6 +67,31 @@ enum DeviceNameRules {
         return .write(name)
     }
 
+    // MARK: - Finding the device again
+
+    /// Whether a scanned peripheral's name says it is a device this app should connect to.
+    ///
+    /// This is load-bearing in a way a name match usually is not. Reconnecting to the paired device
+    /// is a **scan**, not a lookup of the stored peripheral uuid, and this hardware does not
+    /// reliably advertise its service UUID, so the name is in practice the only thing that finds
+    /// the cube. A name that matches nothing means every scan times out, on every launch, with no
+    /// route back except Forget Device and a broad rescan.
+    ///
+    /// Two matches, deliberately different shapes:
+    ///
+    /// - The vendor default is a **substring** test. The hardware ships as "TimeFlip v2.0" and the
+    ///   names around it all contain the word, so an exact test would miss most of the family.
+    /// - A remembered name is matched **exactly**. It is a specific string this app wrote to a
+    ///   specific cube, so there is nothing to be liberal about, and a short user-chosen name like
+    ///   "Cube" used as a substring would start claiming other people's hardware.
+    static func matchesKnownDevice(peripheralName: String?, remembered: String?) -> Bool {
+        let name = (peripheralName ?? "").lowercased()
+        guard !name.isEmpty else { return false }
+        if name.contains("timeflip") { return true }
+        guard let remembered = remembered?.lowercased(), !remembered.isEmpty else { return false }
+        return name == remembered
+    }
+
     /// Printable ASCII, `0x20` to `0x7E`.
     ///
     /// The ASCII part is the spec's: the `0x15` entry in `docs/TimeFlip2 BLE Protocol v4.3.md`

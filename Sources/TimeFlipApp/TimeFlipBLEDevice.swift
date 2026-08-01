@@ -967,6 +967,24 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
+    /// The name the app last saw this Mac's device carrying, from the `device_name` setting. Set by
+    /// `ApplicationDelegate` at startup and whenever a rename lands.
+    ///
+    /// Without it a renamed cube is simply lost: reconnecting is a **scan**, not a lookup of the
+    /// stored peripheral uuid, so the only thing standing between the app and its device is a name
+    /// match. Renaming to anything not containing "timeflip" then makes every scan time out, on
+    /// every launch -- which is exactly what happened on 2026-08-01 with a cube renamed "Hazza".
+    var rememberedDeviceName: String?
+
+    /// Whether a discovered peripheral's name says it is a device worth connecting to. The rule
+    /// itself lives in `DeviceNameRules`, where it can be tested without a CoreBluetooth scan.
+    private func nameMatchesAKnownDevice(_ peripheralName: String?) -> Bool {
+        DeviceNameRules.matchesKnownDevice(
+            peripheralName: peripheralName,
+            remembered: rememberedDeviceName
+        )
+    }
+
     private func scanAndConnect() async throws {
         // Broad scan first: real hardware doesn't reliably advertise the TimeFlip service UUID
         // (confirmed via the diagnostic scan), so the OS-level service-filtered scan below would
@@ -1068,6 +1086,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func write(_ data: Data, to uuid: CBUUID, type: CBCharacteristicWriteType) async throws {
         let characteristic = try characteristic(for: uuid)
         logger.debug("Write \(data.hexString(), privacy: .public) to \(uuid.uuidString, privacy: .public)")
+        DeveloperMode.debugPrint(
+            .bleTx,
+            "write \(TimeFlipUUIDs.name(for: uuid)) \(type == .withResponse ? "ack" : "no-ack") <- \(data.hexString())"
+        )
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             if continuations.writes[uuid] != nil {
                 logger.error("Write already pending for \(uuid.uuidString, privacy: .public); rejecting overlapping write")
@@ -1087,6 +1109,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     private func read(_ uuid: CBUUID) async throws -> Data? {
         let characteristic = try characteristic(for: uuid)
         logger.debug("Read request for \(uuid.uuidString, privacy: .public)")
+        DeveloperMode.debugPrint(.bleTx, "read request \(TimeFlipUUIDs.name(for: uuid))")
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
             if continuations.reads[uuid] != nil {
                 logger.error("Read already pending for \(uuid.uuidString, privacy: .public); rejecting overlapping read")
@@ -1825,8 +1848,7 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             if discoveryFilterToTimeFlip {
                 // The service UUID isn't reliably present in this device's advertisement packet,
                 // so fall back to matching on the (now-confirmed-reliable) advertised name too.
-                let nameMatches = (peripheral.name ?? "").lowercased().contains("timeflip")
-                guard serviceMatches || nameMatches else {
+                guard serviceMatches || nameMatchesAKnownDevice(peripheral.name) else {
                     logger.debug("Discovery scan: skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
                     return
                 }
@@ -1841,8 +1863,16 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
         if allowBroadDiscovery {
             // Service UUID isn't reliably advertised by real hardware (confirmed via the
             // diagnostic scan), so also accept a name match to actually find the device.
-            let nameMatches = (peripheral.name ?? "").lowercased().contains("timeflip")
-            guard serviceMatches || nameMatches else {
+            //
+            // Both names are checked, and the advertised one is the load-bearing half. A rename
+            // (0x15) changes the GAP Device Name that `peripheral.name` reflects, but this hardware
+            // goes on advertising `TimeFlip v2.0` in its packet regardless -- measured live on
+            // 2026-08-01, where a cube whose `peripheral.name` read "Hazza cuber" was still
+            // advertising "TimeFlip v2.0". Matching only `peripheral.name` is therefore what made a
+            // renamed cube undiscoverable.
+            guard serviceMatches
+                || nameMatchesAKnownDevice(peripheral.name)
+                || nameMatchesAKnownDevice(advertisementData[CBAdvertisementDataLocalNameKey] as? String) else {
                 logger.debug("Skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
                 return
             }
@@ -1945,6 +1975,15 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         didDiscoverCharacteristicsFor service: CBService,
         error: Error?
     ) {
+        // Names every characteristic the cube actually exposes, including any this app never
+        // touches -- the inventory that says what traffic is even possible, alongside the traffic
+        // itself. An unnamed UUID here is one the vendor spec should be checked for.
+        DeveloperMode.debugPrint(
+            .bleRx,
+            "characteristics on \(TimeFlipUUIDs.name(for: service.uuid)): "
+                + ((service.characteristics ?? []).map { TimeFlipUUIDs.name(for: $0.uuid) }.joined(separator: ", "))
+                + (error.map { " ERROR \($0.localizedDescription)" } ?? "")
+        )
         if let probe = activeProbe, peripheral === probe.peripheral {
             if let chars = service.characteristics {
                 for characteristic in chars {
@@ -1988,6 +2027,16 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         error: Error?
     ) {
         let uuid = characteristic.uuid
+        // Logged here, at the top, before the probe branch and before any dispatch below: this is
+        // the single point every inbound byte passes through, so anything the app has no handler
+        // for is still recorded rather than silently dropped a few lines further down.
+        let isProbe = activeProbe.map { peripheral === $0.peripheral } ?? false
+        DeveloperMode.debugPrint(
+            .bleRx,
+            "\(TimeFlipUUIDs.name(for: uuid)) -> \(characteristic.value?.hexString() ?? "nil")"
+                + (isProbe ? " (probe)" : "")
+                + (error.map { " ERROR \($0.localizedDescription)" } ?? "")
+        )
         if let probe = activeProbe, peripheral === probe.peripheral {
             if let continuation = probe.reads.removeValue(forKey: uuid) {
                 if error != nil {
@@ -2049,6 +2098,14 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
         error: Error?
     ) {
         let uuid = characteristic.uuid
+        // The device's acknowledgement of a write. Logged for the same reason as the inbound values
+        // above: it is traffic, and a write that is never acked looks identical to one that was
+        // until the timeout fires.
+        DeveloperMode.debugPrint(
+            .bleRx,
+            "write ack \(TimeFlipUUIDs.name(for: uuid))"
+                + (error.map { " ERROR \($0.localizedDescription)" } ?? "")
+        )
         if let probe = activeProbe, peripheral === probe.peripheral {
             if let continuation = probe.writes.removeValue(forKey: uuid) {
                 if error != nil {
@@ -2078,6 +2135,11 @@ extension TimeFlipBLEDevice: @preconcurrency CBPeripheralDelegate {
     ) {
         let uuid = characteristic.uuid
         logger.debug("didUpdateNotificationState uuid=\(uuid.uuidString, privacy: .public) notifying=\(characteristic.isNotifying) err=\(String(describing: error))")
+        DeveloperMode.debugPrint(
+            .bleRx,
+            "notify \(characteristic.isNotifying ? "on" : "off") \(TimeFlipUUIDs.name(for: uuid))"
+                + (error.map { " ERROR \($0.localizedDescription)" } ?? "")
+        )
         if let continuation = continuations.notification.removeValue(forKey: uuid) {
             cancelTimeout("notify:\(uuid.uuidString)")
             if error != nil {

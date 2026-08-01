@@ -328,12 +328,22 @@ final class AppState: ObservableObject {
         devicePassword = config.devicePassword ?? devicePassword
     }
 
+    /// Writes the Google keys back to `config.json`, **passing the PIN through from whatever is
+    /// already on disk** rather than from memory.
+    ///
+    /// `config.json` is a file the developer maintains by hand, and the PIN in it is an input: it
+    /// says what password to present to a cube this app has not paired with yet. The app writing
+    /// its own current password over that turns the file into a race between the developer's editor
+    /// and whatever state the app happens to hold, which the app always wins and never announces.
+    ///
+    /// Read from disk rather than simply omitted, because omitting it would encode the key as
+    /// absent and delete the developer's PIN instead of leaving it alone.
     private func persistDeveloperConfig() {
         developerConfigStore.save(
             DeveloperConfigPayload(
                 googleClientID: sanitizedClientID(),
                 googleClientSecret: googleClientSecret.isEmpty ? nil : googleClientSecret,
-                devicePassword: devicePassword
+                devicePassword: developerConfigStore.load()?.devicePassword
             )
         )
     }
@@ -680,6 +690,10 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         deviceInfo = nil
+        // Correct in memory, and deliberately not persisted anywhere in developer mode: Forget
+        // Device sends 0x30 to reset the cube first, so the factory default really is the password
+        // the *next* pairing attempt should present. See `persistDevicePassword` for why that no
+        // longer reaches `config.json`.
         devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }
@@ -849,10 +863,19 @@ final class AppState: ObservableObject {
     }
 
     private func persistDevicePassword(_ password: String) {
-        if isDeveloperConfigActive {
-            persistDeveloperConfig()
-            return
-        }
+        // Developer mode persists nothing here, on purpose. The PIN lives in `config.json`, which
+        // the developer maintains by hand and the app only ever reads (see `persistDeveloperConfig`).
+        //
+        // This used to rewrite that file with the app's current password, which is how a Forget
+        // Device came to stamp "000000" over a hand-set PIN on 2026-08-01: the re-pair then rotated
+        // the cube to 123456, the file still said 000000, and every launch afterwards was refused
+        // at login with nothing pointing back at the forget. A file that is edited by hand and
+        // silently rewritten by the app cannot be relied on by either.
+        //
+        // Nothing is lost by not storing it: in developer mode the rotation target is the fixed
+        // `DeveloperMode.devicePassword`, which is also where a dev build starts, so the two agree
+        // across launches without anything being written down.
+        if isDeveloperConfigActive { return }
         do {
             try devicePasswordStore.savePassword(password)
         } catch {

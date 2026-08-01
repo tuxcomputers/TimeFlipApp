@@ -25,3 +25,21 @@ final class InMemoryDevicePasswordStore: TimeFlipDevicePasswordStoring, @uncheck
     func loadPassword() throws -> String? { password }
     func savePassword(_ password: String?) throws { self.password = password }
 }
+
+/// Stands in for the real `config.json`. Records every save so a test can assert not just what the
+/// file ends up holding, but whether the app wrote to it at all.
+final class InMemoryDeveloperConfigStore: DeveloperConfigStoring, @unchecked Sendable {
+    private(set) var stored: DeveloperConfigPayload?
+    private(set) var saves: [DeveloperConfigPayload] = []
+
+    init(stored: DeveloperConfigPayload? = nil) {
+        self.stored = stored
+    }
+
+    func load() -> DeveloperConfigPayload? { stored }
+
+    func save(_ payload: DeveloperConfigPayload) {
+        saves.append(payload)
+        stored = payload
+    }
+}

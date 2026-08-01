@@ -323,7 +323,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // Against the protocol rather than `as? TimeFlipBLEDevice`, so the mock can drive this
             // path too -- the same reason onFactoryResetRequest is written that way.
             guard let device = self?.device as? TimeFlipSessionManaging else { return false }
-            return await device.setDeviceName(name)
+            guard await device.setDeviceName(name) else { return false }
+            // The scan filter has to learn the new name in the same breath as the device does.
+            // Leave it until the next launch and a drop in between would be unrecoverable: the
+            // reconnect scan would still be looking for the name the cube no longer answers to.
+            (device as? TimeFlipBLEDevice)?.rememberedDeviceName = name
+            return true
         }
         appState.onCurrentFaceMappingChange = { [weak self] in
             self?.menuBarController.refreshFromState()
@@ -590,6 +595,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             bleDevice.onDisconnect = { [weak self] in
                 self?.handleDeviceDisconnect()
             }
+            // Before the connect below, because the connect IS the scan: a cube renamed off
+            // "timeflip" matches on this name or on nothing at all.
+            bleDevice.rememberedDeviceName = appState.deviceName
         }
         eventTaskGeneration += 1
         let generation = eventTaskGeneration
@@ -1020,7 +1028,18 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // The cube's own name, not a literal. It used to be spelled "TimeFlip" here, which
             // meant the Info panel reported that whatever the device was actually called: the
             // scan showed "TimeFlip v2.0" and this replaced it on the first face event.
-            appState.confirmConnected(name: device?.deviceName, uuid: nil)
+            //
+            // Logged because this read is the one that can overwrite `device_name`, and it is
+            // `CBPeripheral.name`, which macOS caches: on 2026-08-01 it reported the name as of the
+            // *previous* connection, one rename behind. Both values are printed so a run can be
+            // read for whether the device agrees with what the app last wrote, rather than that
+            // disagreement only surfacing later as a device nothing can find.
+            let reportedName = device?.deviceName
+            DeveloperMode.debugPrint(
+                .deviceName,
+                "device name read on connect: device=\(reportedName ?? "nil") stored=\(appState.deviceName ?? "nil")"
+            )
+            appState.confirmConnected(name: reportedName, uuid: nil)
         }
         if case .systemState(let state) = event {
             switch state.syncStatus {

@@ -83,6 +83,45 @@ final class DeviceNameRulesTests: XCTestCase {
         XCTAssertEqual(DeviceNameRules.renameDecision(typed: typed, current: nil), .write(typed))
     }
 
+    // MARK: - finding the device again after a rename
+
+    func testARenamedCubeIsFoundByItsRememberedName() {
+        // The regression this exists for: renaming a cube "Hazza" made every reconnect scan time
+        // out, on every launch, because the only name test was `contains("timeflip")`. Reconnecting
+        // is a scan, not a uuid lookup, so a name that matches nothing loses the device outright.
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "Hazza", remembered: "Hazza"))
+    }
+
+    func testTheVendorNameStillMatchesWithNothingRemembered() {
+        // A never-paired app has no remembered name, and must still find a cube out of the box.
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "TimeFlip v2.0", remembered: nil))
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "TimeFlip", remembered: nil))
+    }
+
+    func testTheVendorNameMatchesOnASubstringButARememberedNameDoesNot() {
+        // "TimeFlip v2.0" has to match the family, so that one is a substring test. A remembered
+        // name is exact: "Cube" as a substring would claim someone else's "Cube Companion".
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "My TimeFlip 2", remembered: nil))
+        XCTAssertFalse(DeviceNameRules.matchesKnownDevice(peripheralName: "Cube Companion", remembered: "Cube"))
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "Cube", remembered: "Cube"))
+    }
+
+    func testMatchingIgnoresCase() {
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "HAZZA", remembered: "hazza"))
+        XCTAssertTrue(DeviceNameRules.matchesKnownDevice(peripheralName: "timeflip v2.0", remembered: nil))
+    }
+
+    func testAnUnrelatedDeviceIsNotClaimed() {
+        XCTAssertFalse(DeviceNameRules.matchesKnownDevice(peripheralName: "Someone's AirPods", remembered: "Hazza"))
+        XCTAssertFalse(DeviceNameRules.matchesKnownDevice(peripheralName: nil, remembered: "Hazza"))
+        XCTAssertFalse(DeviceNameRules.matchesKnownDevice(peripheralName: "", remembered: "Hazza"))
+    }
+
+    func testAnEmptyRememberedNameMatchesNothingExtra() {
+        // An empty stored name must not degrade into "match everything".
+        XCTAssertFalse(DeviceNameRules.matchesKnownDevice(peripheralName: "Someone's Speaker", remembered: ""))
+    }
+
     // MARK: - what the refusals tell the user
 
     func testARefusalNamesTheLimitTheAllowanceAndWhoseRuleItIs() {
