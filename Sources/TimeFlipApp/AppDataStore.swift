@@ -734,6 +734,45 @@ final class AppDataStore {
         }
     }
 
+    /// Every category carrying this name, best match first: the active one if there is any, then
+    /// the retired ones oldest first. At most one can be active (`UN1_category`), so this is one
+    /// row plus however many retired namesakes have built up behind it.
+    ///
+    /// `findCategory(named:)` answers the same question with `LIMIT 1`, which is all most callers
+    /// want. This exists because the create flow has to know when there is more than one retired
+    /// row to reinstate: with only the first, it would offer to bring one back and silently pick.
+    func findCategories(named name: String) -> [CategoryRecord] {
+        guard let db, !name.isEmpty else { return [] }
+        var results: [CategoryRecord] = []
+        let sql = """
+        SELECT category_id, category_name, icon_id, colour_id, active, daily_limit
+        FROM category
+        WHERE category_name = ? COLLATE NOCASE
+        ORDER BY active DESC, category_id ASC;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category find-all prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                results.append(CategoryRecord(
+                    id: Int(sqlite3_column_int64(stmt, 0)),
+                    name: sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "",
+                    iconID: Int(sqlite3_column_int64(stmt, 2)),
+                    colourID: Int(sqlite3_column_int64(stmt, 3)),
+                    isActive: sqlite3_column_int64(stmt, 4) != 0,
+                    dailyLimitMinutes: Int(sqlite3_column_int64(stmt, 5))
+                ))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
+    }
+
     /// The category carrying this name, if any. Matched `COLLATE NOCASE`: someone typing
     /// "meeting" when "Meeting" exists has made exactly the mistake this lookup is meant to catch,
     /// so case is not what should distinguish them.
@@ -743,10 +782,16 @@ final class AppDataStore {
     func findCategory(named name: String) -> CategoryRecord? {
         guard let db, !name.isEmpty else { return nil }
         var result: CategoryRecord?
+        // An active row always wins, then the oldest. Only one active row can hold a name
+        // (`UN1_category`), but inactive namesakes may sit alongside it, and answering with one of
+        // those would have the tab offer to reinstate a category whose name is already taken --
+        // which the index then refuses. Ordering also makes the answer stable, since the callers
+        // act on whichever row comes back.
         let sql = """
         SELECT category_id, category_name, icon_id, colour_id, active, daily_limit
         FROM category
         WHERE category_name = ? COLLATE NOCASE
+        ORDER BY active DESC, category_id ASC
         LIMIT 1;
         """
         queue.sync {
@@ -862,8 +907,16 @@ final class AppDataStore {
     /// Sets `active` on a category -- the Categories tab's own Active checkbox. Same
     /// `category_id >= 1` guard as the other category writers: the `Unassigned` sentinel is
     /// always active and must never be retired. See `database/007_category.sql`.
-    func updateCategoryActive(categoryID: Int, isActive: Bool) {
-        guard let db else { return }
+    ///
+    /// Returns whether the row now holds the requested state. Reinstating can legitimately fail:
+    /// `UN1_category` allows only one *active* category per name, so a retired row whose name an
+    /// active one has since taken cannot come back under it. The caller has to know, because the
+    /// Categories tab patches its loaded list rather than re-reading, and patching a write that was
+    /// refused would leave the checkbox ticked over a row that is still retired.
+    @discardableResult
+    func updateCategoryActive(categoryID: Int, isActive: Bool) -> Bool {
+        guard let db else { return false }
+        var succeeded = false
         let sql = "UPDATE category SET active = ? WHERE category_id = ? AND category_id >= 1;"
         queue.sync {
             var stmt: OpaquePointer?
@@ -874,11 +927,14 @@ final class AppDataStore {
             }
             sqlite3_bind_int64(stmt, 1, isActive ? 1 : 0)
             sqlite3_bind_int64(stmt, 2, Int64(categoryID))
-            if sqlite3_step(stmt) != SQLITE_DONE {
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                succeeded = true
+            } else {
                 logger.error("category active update exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
             sqlite3_finalize(stmt)
         }
+        return succeeded
     }
 
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the

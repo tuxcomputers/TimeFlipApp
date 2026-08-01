@@ -33,6 +33,9 @@ Deliberately close to `Tests/CLAUDE.md`'s rules for the scripted checklists, so 
 | `W04-history-resume` | the cheap skip path when nothing is new; a relaunch re-deriving its position from `device_event` without re-ingesting or skipping | `Bench/01b` Scenarios A and B |
 | `W05-pairing` | scan, pick a result, connect, log in, pair; the PIN rotation that follows and Forget putting the factory default back | the app's half of the pairing flow in `Bench/02b` Setup |
 | `W06-factory-reset` | 0xFF acknowledges nothing; the reboot window where the cube still answers to its **old** PIN and not yet the default; then wipe, counter restart, never-paired | the app's half of `Bench/02b` |
+| `W07-debounced-device-writes` | a value changing many times per second reaches the device once, per setting, after it settles | the substance of `Bench/03b` B, `05b` B-C and `06b` B |
+| `W08-post-reset-production-resume` | ingestion recovering after a factory reset it never witnessed, where the device's counter has gone backwards below what the database already holds | nothing: this covers a bug no checklist could reach |
+| `W09-category-lifecycle` | a category created, put on a face, renamed, budgeted, retired and reinstated, and what survives each step | nothing: the Categories tab has no checklist |
 
 ## Coverage map: what CI took over, and what each checklist still uniquely proves
 

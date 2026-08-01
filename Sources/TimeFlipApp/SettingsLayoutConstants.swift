@@ -141,12 +141,11 @@ enum SettingsLayoutConstants {
         // Wide enough for the "Colour" caption above it, so the daily-limit column that follows
         // starts at the same x in both the header row and the category rows.
         static let colourColumnWidth: CGFloat = 46
-        // Sized to the "Daily limit (0 = disabled)" caption rather than to the field itself: the
-        // caption is the widest thing in the column, and the Active column after it has to start
-        // clear of it in both rows.
-        static let limitColumnWidth: CGFloat = 140
-        static let limitFieldWidth: CGFloat = 50
-        static let limitFieldSpacing: CGFloat = 4
+        // The daily-limit control is a SteppedNumberField like every other typeable value in the
+        // window, so the column is exactly one of those wide. That also clears the "Daily limit
+        // (0 = disabled)" caption, which is the widest thing in the column and previously set this
+        // width at 140.
+        static var limitColumnWidth: CGFloat { Stepper.rowWidth }
         // 6 wide lays the 42 seeded icons out as an even 6x7 with no partial last row and no
         // scrolling -- see database/004_icon.sql.
         static let iconGridColumns = 6

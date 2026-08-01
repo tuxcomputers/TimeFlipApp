@@ -471,9 +471,27 @@ def act_cgevent_hold_interrupted_by_key(spec, ctx):
 def act_cgevent_key(spec, ctx):
     """Post a raw keydown/keyup for a key code via CGEvent (default 53 = Escape). Used to dismiss a
     modal status-item dropdown menu a synthetic click opened, without an osascript call that would
-    collide with the open menu and hang (see Method 6's warning)."""
+    collide with the open menu and hang (see Method 6's warning).
+
+    **The event goes to whatever app is frontmost**, exactly like AppleScript `keystroke` -- it is
+    posted to the HID tap, not delivered to a process. That is a real trap in a checklist: any step
+    after an `ask_user` runs with the *terminal* frontmost, because the tester just typed y there,
+    so the key lands in the terminal and the app never sees it. Cost a live failure on 2026-08-01,
+    where an Escape meant for a rename field echoed `^[` into the terminal instead.
+
+    Pass `activate = "TimeFlip"` to bring that app forward first. Left off by default because the
+    status-item case must NOT do it: an osascript call while that menu is open is the collision the
+    docstring above warns about, and there the click that opened the menu has already made the app
+    frontmost anyway."""
     import Quartz
     keycode = spec.get("keycode", 53)
+    activate = spec.get("activate")
+    if activate:
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{activate}" to activate'],
+            capture_output=True, text=True,
+        )
+        time.sleep(0.4)
     down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
     up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
@@ -680,6 +698,71 @@ end tell'''
     return StepResult(True, f"cgevent-clicked element center ({cx:.0f},{cy:.0f})")
 
 
+def act_cgevent_context_menu_pick(spec, ctx):
+    """Right-click an accessibility element, then click an item in the context menu it opens.
+
+    A SwiftUI `.contextMenu` is **invisible to accessibility**: the element advertises an
+    `AXShowMenu` action that performs without error and opens nothing, and once a real right-click
+    has opened the menu, `count of menus` still reports 0 on both the element and the process. The
+    menu is genuinely on screen -- confirmed by screenshot on 2026-08-01 against the Categories tab's
+    name column -- so the only way to drive it is by coordinate.
+
+    The menu's top-left lands at the click point, so an item is reached by offsetting from there:
+    `item_dx`/`item_dy` default to the first item of a single-item menu. A menu with more items
+    needs the offset stepped by its row height, which has to be measured rather than assumed.
+
+    `anchor` picks where in the element to right-click, as a fraction of its width: the default
+    0.9 lands near the right-hand end, which is the part of a fixed-width column a short label does
+    not cover -- the hit area a `contentShape(Rectangle())` exists to claim.
+    """
+    import Quartz
+
+    element = _sub(spec["element"], ctx)
+    process = spec.get("process", "TimeFlip")
+    frame_script = f"""tell application "System Events"
+    tell process "{process}"
+        set el to {element}
+        set p to position of el
+        set s to size of el
+        return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text) & "," & (item 2 of s as text)
+    end tell
+end tell"""
+    r = _run_osascript_with_retry(frame_script)
+    if r.returncode != 0:
+        return StepResult(
+            False,
+            f"couldn't locate element {element!r}: {r.stderr.strip()}",
+            expected=f"element {element} to exist",
+            actual="not found",
+        )
+    try:
+        x, y, w, h = (float(v) for v in r.stdout.strip().split(","))
+    except ValueError:
+        return StepResult(False, f"unexpected element frame: {r.stdout.strip()!r}")
+
+    anchor = float(spec.get("anchor", 0.9))
+    ax, ay = x + w * anchor, y + h / 2
+
+    def post(kind, point, button):
+        e = Quartz.CGEventCreateMouseEvent(None, kind, point, button)
+        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, 1)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+        time.sleep(0.08)
+
+    post(Quartz.kCGEventRightMouseDown, (ax, ay), Quartz.kCGMouseButtonRight)
+    post(Quartz.kCGEventRightMouseUp, (ax, ay), Quartz.kCGMouseButtonRight)
+    time.sleep(float(spec.get("menu_delay", 1.0)))
+
+    item = (ax + float(spec.get("item_dx", 30)), ay + float(spec.get("item_dy", 12)))
+    post(Quartz.kCGEventMouseMoved, item, 0)
+    post(Quartz.kCGEventLeftMouseDown, item, Quartz.kCGMouseButtonLeft)
+    post(Quartz.kCGEventLeftMouseUp, item, Quartz.kCGMouseButtonLeft)
+    return StepResult(
+        True,
+        f"right-clicked ({ax:.0f},{ay:.0f}), picked menu item at ({item[0]:.0f},{item[1]:.0f})",
+    )
+
+
 ACTIONS = {
     "shell": act_shell,
     "quit_app": act_quit_app,
@@ -689,6 +772,7 @@ ACTIONS = {
     "wait_for_sql": act_wait_for_sql,
     "cgevent_click": act_cgevent_click,
     "cgevent_click_element": act_cgevent_click_element,
+    "cgevent_context_menu_pick": act_cgevent_context_menu_pick,
     "cgevent_hold_interrupted_by_key": act_cgevent_hold_interrupted_by_key,
     "cgevent_key": act_cgevent_key,
     "click_menu_item": act_click_menu_item,

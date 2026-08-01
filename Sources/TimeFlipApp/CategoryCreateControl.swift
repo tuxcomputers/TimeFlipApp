@@ -15,12 +15,17 @@ struct CategoryCreateControl: View {
     @ObservedObject var appState: AppState
     /// Inserts the category and returns its new `category_id`, or `nil` if the insert failed.
     let createCategory: (String) -> Int?
-    let findCategory: (String) -> CategoryRecord?
-    /// Reinstates a retired category the new name collided with. Taken as a closure because each
-    /// tab refreshes its own list differently -- the Categories tab patches the loaded record in
-    /// place so the row moves between its Active and Inactive sections, while a tab that only shows
-    /// active categories has to re-read.
-    let reactivate: (CategoryRecord) -> Void
+    /// Every category holding a name, best match first. Not `findCategory`: the decision turns on
+    /// how many retired namesakes there are, and the first row alone cannot say.
+    let findCategories: (String) -> [CategoryRecord]
+    /// Reinstates a retired category the new name collided with, reporting whether it took. Taken
+    /// as a closure because each tab refreshes its own list differently -- the Categories tab
+    /// patches the loaded record in place so the row moves between its Active and Inactive
+    /// sections, while a tab that only shows active categories has to re-read.
+    ///
+    /// It can be refused. Only one active category may hold a name, and the retired row's name may
+    /// have been taken by an active one since it was retired.
+    let reactivate: (CategoryRecord) -> Bool
     /// Called after a category has been inserted, with its new `category_id`, so the caller can
     /// pick the new row up and do anything else the tab it is on owes the new category -- the Faces
     /// tab assigns it to the face on show. `nil` when the insert failed, since there is then no row
@@ -29,7 +34,10 @@ struct CategoryCreateControl: View {
 
     @State private var isCreating = false
     @State private var newCategoryName = ""
-    @State private var nameConflict: NameConflict?
+    @State private var nameConflict: CategoryNameConflict?
+    /// Set when a reinstate or an insert was refused by the database, which puts the reason on
+    /// screen instead of the field simply closing with nothing to show for it.
+    @State private var writeRefused: String?
     @FocusState private var isNameFieldFocused: Bool
 
     var body: some View {
@@ -43,44 +51,19 @@ struct CategoryCreateControl: View {
             } message: { conflict in
                 Text(conflict.message)
             }
-    }
-
-    /// What a Save collided with, and everything the alert needs to describe it.
-    private enum NameConflict: Identifiable {
-        /// The name is already in use by a category still in the Active list -- nothing to decide,
-        /// it is simply there to be found.
-        case active(name: String)
-        /// The name belongs to a retired category. Reinstating it keeps every historical
-        /// time_entry attached to the name; creating a second one does not.
-        case inactive(existing: CategoryRecord, name: String)
-
-        var id: String {
-            switch self {
-            case .active(let name): return "active:\(name)"
-            case .inactive(_, let name): return "inactive:\(name)"
+            .alert(
+                "That name is already in use",
+                isPresented: Binding(get: { writeRefused != nil }, set: { if !$0 { writeRefused = nil } }),
+                presenting: writeRefused
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { reason in
+                Text(reason)
             }
-        }
-
-        var message: String {
-            switch self {
-            case .active(let name):
-                return """
-                "\(name)" is already in the Active list. Scroll up -- it is right there.
-                """
-            case .inactive(_, let name):
-                return """
-                "\(name)" already exists but has been made inactive.
-
-                Reactivating it keeps all of its history attached. Creating a second category \
-                with the same name leaves you two rows that look identical in reports, and \
-                sorting that out later is on you.
-                """
-            }
-        }
     }
 
     @ViewBuilder
-    private func conflictButtons(for conflict: NameConflict) -> some View {
+    private func conflictButtons(for conflict: CategoryNameConflict) -> some View {
         switch conflict {
         case .active:
             Button("Ok I am an idiot that needs to open my eyes", role: .cancel) {
@@ -89,16 +72,38 @@ struct CategoryCreateControl: View {
         case .inactive(let existing, let name):
             Button("Reactivate the old category") {
                 DeveloperMode.debugPrint(.click, "Button clicked: Reactivate existing category \"\(existing.name)\"")
-                reactivate(existing)
+                let succeeded = reactivate(existing)
                 finishCreating()
+                guard !succeeded else { return }
+                // Deferred a runloop turn: this alert replaces the one whose button was just
+                // tapped, and SwiftUI drops a second alert raised while the first is still going
+                // down.
+                DispatchQueue.main.async {
+                    writeRefused = """
+                    "\(existing.name)" could not be reinstated, because an active category is \
+                    already using that name.
+                    """
+                }
             }
+            // The duplicate this creates is active while the one it collided with is retired, which
+            // is allowed: only one *active* category may hold a name.
             Button("Create a new category with the same name") {
                 DeveloperMode.debugPrint(.click, "Button clicked: Create duplicate category \"\(name)\"")
-                onCreated(createCategory(name))
+                insert(name)
                 finishCreating()
             }
             // Not one of the two choices asked for, but without a cancel-role button there is no
             // way out of the alert except by picking one of them, and Esc does nothing.
+            Button("Cancel", role: .cancel) {}
+        case .ambiguousInactive(_, let name):
+            // No reinstate button: which of the retired rows to bring back is the user's to decide,
+            // from the Inactive list where they are at least separate rows. Creating is still on
+            // offer, since only an *active* namesake would bar it.
+            Button("Create a new category with the same name") {
+                DeveloperMode.debugPrint(.click, "Button clicked: Create alongside retired namesakes \"\(name)\"")
+                insert(name)
+                finishCreating()
+            }
             Button("Cancel", role: .cancel) {}
         }
     }
@@ -151,22 +156,44 @@ struct CategoryCreateControl: View {
         ActivityLibrary.normalizeCategoryName(newCategoryName)
     }
 
-    /// Checks the name against the whole `category` table -- not just a loaded list, which omits
-    /// the `Unassigned` sentinel -- before inserting anything. The insert itself is unguarded, so
-    /// this is the only thing standing between a typo and a second identically named category.
+    /// Acts on whatever `CategoryEditRules` makes of the typed name. The rule checks it against the
+    /// whole `category` table, not just a loaded list, which omits the `Unassigned` sentinel. The
+    /// insert itself is unguarded, so that check is the only thing standing between a typo and a
+    /// second identically named category.
     private func save() {
-        let name = normalizedNewCategoryName
-        guard !name.isEmpty else { return }
-        DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(name)\"")
-        if let existing = findCategory(name) {
-            DeveloperMode.debugPrint(.field, "Category name collision: \"\(name)\" matches category_id \(existing.id) (active=\(existing.isActive))")
-            nameConflict = existing.isActive
-                ? .active(name: existing.name)
-                : .inactive(existing: existing, name: name)
+        switch CategoryEditRules.createDecision(rawName: newCategoryName, findCategories: findCategories) {
+        case .ignore:
             return
+        case .insert(let name):
+            DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(name)\"")
+            insert(name)
+            finishCreating()
+        case .conflict(let conflict):
+            DeveloperMode.debugPrint(.click, "Button clicked: Save new category \"\(conflict.attemptedName)\"")
+            if let existing = conflict.existing {
+                DeveloperMode.debugPrint(.field, "Category name collision: \"\(conflict.attemptedName)\" matches category_id \(existing.id) (active=\(existing.isActive))")
+            } else if case .ambiguousInactive(let retired, let name) = conflict {
+                DeveloperMode.debugPrint(.field, "Category name collision: \"\(name)\" matches \(retired.count) inactive categories (\(retired.map { String($0.id) }.joined(separator: ", "))); not offering a reinstate")
+            }
+            nameConflict = conflict
         }
-        onCreated(createCategory(name))
-        finishCreating()
+    }
+
+    /// Inserts and reports the outcome. A refusal here means the database saw a name the check
+    /// above did not -- the check reads the table, the insert writes it, and nothing holds a lock
+    /// between the two -- so it is rare rather than impossible, and it must not look like success.
+    private func insert(_ name: String) {
+        let newCategoryID = createCategory(name)
+        onCreated(newCategoryID)
+        guard newCategoryID == nil else { return }
+        DeveloperMode.debugPrint(.field, "Category \"\(name)\" was not created: the insert was refused")
+        // Deferred for the same reason as the reinstate case above: this can follow the collision
+        // alert closing.
+        DispatchQueue.main.async {
+            writeRefused = """
+            "\(name)" could not be created. An active category is already using that name.
+            """
+        }
     }
 
     private func finishCreating() {

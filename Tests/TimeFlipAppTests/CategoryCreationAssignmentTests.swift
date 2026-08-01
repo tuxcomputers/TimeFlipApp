@@ -5,10 +5,14 @@ import XCTest
 /// looking at" behaviour rests on: `createCategory` has to hand back the `category_id` it just
 /// inserted, and that id has to be assignable to a face.
 ///
-/// The duplicate-name case is the one that actually justifies the return value. The Faces tab could
-/// otherwise create the category and then look it up by name, but a name is not a key -- creating a
-/// second category with an inactive one's name is a supported choice -- and a name lookup would find
-/// the older row, quietly assigning the wrong category to the face.
+/// The duplicate-name case is why the return value exists. A name is not a key: creating a second
+/// category with an inactive one's name is a supported choice, so the Faces tab cannot create a
+/// category and then find it by name.
+///
+/// It is no longer the *hazard* it once was. `findCategory` now prefers the active row and
+/// `UN1_category` allows only one of those per name, so a lookup straight after a create does find
+/// the new row. What remains is that the id is the only answer that is right by construction rather
+/// than by two rules lining up.
 final class CategoryCreationAssignmentTests: XCTestCase {
     private var directory: URL!
     private var dbURL: URL!
@@ -61,7 +65,7 @@ final class CategoryCreationAssignmentTests: XCTestCase {
         let secondID = try XCTUnwrap(store.createCategory(name: "Standup"))
 
         XCTAssertNotEqual(secondID, firstID)
-        XCTAssertEqual(store.findCategory(named: "Standup")?.id, firstID, "the name lookup still finds the older row, which is why the insert reports its own id")
+        XCTAssertEqual(store.findCategory(named: "Standup")?.id, secondID, "the lookup prefers the active row, which is the one just created")
     }
 
     func testANewlyCreatedCategoryCanBeAssignedToAnUnlockedFace() throws {

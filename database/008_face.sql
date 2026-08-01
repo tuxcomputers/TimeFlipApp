@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS face (
 
 INSERT INTO face (face_id, category_id)
 SELECT 1, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 1);
-INSERT INTO face (face_id, category_id)
-SELECT 2, (SELECT category_id FROM category WHERE category_name = 'Meeting') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 2);
+INSERT INTO face (face_id, category_id, locked)
+SELECT 2, (SELECT category_id FROM category WHERE category_name = 'Meeting'), 1 WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 2);
 INSERT INTO face (face_id, category_id)
 SELECT 3, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 3);
 INSERT INTO face (face_id, category_id)
@@ -24,8 +24,8 @@ INSERT INTO face (face_id, category_id)
 SELECT 6, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 6);
 INSERT INTO face (face_id, category_id)
 SELECT 7, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 7);
-INSERT INTO face (face_id, category_id)
-SELECT 8, (SELECT category_id FROM category WHERE category_name = 'Break') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 8);
+INSERT INTO face (face_id, category_id, locked)
+SELECT 8, (SELECT category_id FROM category WHERE category_name = 'Break'), 1 WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 8);
 INSERT INTO face (face_id, category_id)
 SELECT 9, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 9);
 INSERT INTO face (face_id, category_id)
