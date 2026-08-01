@@ -58,8 +58,9 @@ else
   done
   sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
 
-  # Carry the pairing across from production. Which device this Mac is paired to (`paired_device`)
-  # and whether it is paired at all (`paired`) are per-database rows, so a freshly seeded
+  # Carry the pairing across from production. Which device this Mac is paired to (`device_uuid`,
+  # plus the name it is carrying in `device_name`) and whether it is paired at all (`paired`) are
+  # per-database rows, so a freshly seeded
   # test.sqlite reads as never-paired and the app would have to pair from scratch -- against a
   # device whose PIN is no longer the factory default, because the earlier production pairing
   # rotated it. Copying these two rows lets the app simply connect, using the password it already
@@ -70,7 +71,7 @@ else
   # name or service and connects to that (see TimeFlipBLEDevice.scanAndConnect), which is why
   # production keeps working with a peripheral id from an earlier pairing.
   if [ -e "$PRODUCTION" ]; then
-    for setting_name in paired paired_device; do
+    for setting_name in paired device_uuid device_name; do
       # quote() returns the value as a ready-escaped SQL literal, quotes included, so a device name
       # containing an apostrophe cannot break the UPDATE below.
       literal="$(sqlite3 -readonly "$PRODUCTION" \
@@ -80,7 +81,7 @@ else
           "UPDATE setting SET setting_value = $literal WHERE setting_name = '$setting_name';"
       fi
     done
-    echo "Copied the pairing (paired, paired_device) from production.sqlite, so the app connects" \
+    echo "Copied the pairing (paired, device_uuid, device_name) from production.sqlite, so the app connects" \
       "to the already-paired device instead of pairing again."
   fi
 fi

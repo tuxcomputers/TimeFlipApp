@@ -44,7 +44,18 @@ final class AppState: ObservableObject {
     /// which device the app is paired to, they only stop it reaching that device right now. That
     /// transient side is `connectionStatus`; see `isConnected` for the two combined.
     @Published var isPaired: Bool
+    /// What the Device tab shows in its Name row: the device name while paired, the "Not paired"
+    /// placeholder otherwise. Display only -- it is never persisted, because the placeholder is a
+    /// rendering of "no device", not a device called that. The stored name is `deviceName`.
     @Published var pairedDeviceName: String
+    /// The name the cube itself is carrying (its GAP Device Name `0x2A00`), read from the
+    /// peripheral on each connect and persisted to the `device_name` setting.
+    ///
+    /// **Outlives Forget Device**, unlike `pairedDeviceUUID`: forgetting does not un-rename the
+    /// cube, so this stays the only string the filtered scan can match a renamed device on. It is
+    /// cleared only by a confirmed factory reset, which reverts the cube to the vendor name.
+    /// `nil` until the app has actually connected to a device and been told a name.
+    @Published var deviceName: String?
     @Published var faceMappings: [FaceMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
@@ -156,6 +167,9 @@ final class AppState: ObservableObject {
     var onCancelPairingAttempt: (() -> Void)?
     var onResetDevicePasswordRequest: (() async -> Bool)?
     var onFactoryResetRequest: (() async -> Bool)?
+    /// Writes a new name to the device (command `0x15`), reporting whether the write landed. The
+    /// name is already validated by `DeviceNameRules` before this is called.
+    var onDeviceRenameRequest: ((String) async -> Bool)?
     var onCurrentFaceMappingChange: (() -> Void)?
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
@@ -216,7 +230,7 @@ final class AppState: ObservableObject {
         googleCalendarName: String? = nil,
         googleClientID: String? = nil,
         isPaired: Bool = false,
-        pairedDeviceName: String? = nil,
+        deviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
         displaySecondsEnabled: Bool = true,
         pauseOnLockEnabled: Bool = true,
@@ -241,9 +255,10 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         self.isPaired = isPaired
-        // "Not paired" is the placeholder the Device tab shows when no device is remembered;
-        // the stored value is absent rather than that string.
-        self.pairedDeviceName = pairedDeviceName ?? "Not paired"
+        self.deviceName = deviceName
+        // A remembered name survives Forget Device, so it is not on its own reason to show one --
+        // the Device tab reads "Not paired" until there is a pairing for that name to belong to.
+        self.pairedDeviceName = (isPaired ? deviceName : nil) ?? "Not paired"
         faceMappings = ActivityLibrary.defaultMappings()
         self.googleCalendarID = googleCalendarID
         self.googleCalendarName = googleCalendarName
@@ -609,15 +624,53 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Renames the physical device, and adopts the new name locally only once the write lands.
+    ///
+    /// The order matters: the name shown on the Device tab and stored in `device_name` is meant to
+    /// be what the cube is actually carrying, so a failed write must leave both saying what the
+    /// cube still answers to. Getting this backwards would be worse than cosmetic -- `device_name`
+    /// is what a scan filter matches a renamed device on, so a name the device never took would be
+    /// a name nothing can be found by.
+    ///
+    /// Returns the problem to show, or `nil` when the rename was applied or there was nothing to do.
+    @discardableResult
+    func renameDevice(to typed: String) async -> DeviceNameProblem? {
+        switch DeviceNameRules.renameDecision(typed: typed, current: deviceName) {
+        case .ignore:
+            return nil
+        case .refuse(let problem):
+            DeveloperMode.debugPrint(.field, "Device rename refused: \(problem.id) for \"\(typed)\"")
+            return problem
+        case .write(let name):
+            guard await onDeviceRenameRequest?(name) == true else {
+                DeveloperMode.debugPrint(.field, "Device rename failed to write: \"\(name)\"")
+                return .writeFailed
+            }
+            deviceName = name
+            pairedDeviceName = name
+            DeveloperMode.debugPrint(.field, "Device renamed to \"\(name)\"")
+            return nil
+        }
+    }
+
     /// Unpairs: forgets which device the app talks to and returns it to the never-paired state.
     /// **This is the only thing that clears `isPaired`** -- reached from the Forget Device button
     /// and from the end of a confirmed factory reset, both of which are the user deciding they no
     /// longer want this device. Nothing else may set `isPaired = false`; a dropped connection, a
     /// rejected password or a quit all leave the pairing intact and only change `connectionStatus`.
-    func forgetDevice() {
+    ///
+    /// - Parameter deviceWasWiped: whether the device itself has been factory reset (cmd `0xFF`),
+    ///   which reverts its name to the vendor default and so makes the remembered `deviceName`
+    ///   wrong -- that gets discarded too. Plain Forget Device passes false and **keeps** the name:
+    ///   forgetting does not un-rename the cube, so a renamed one still answers only to the name it
+    ///   was given, and throwing that string away is throwing away the way to find it again.
+    func forgetDevice(deviceWasWiped: Bool = false) {
         isPaired = false
         pairedDeviceName = "Not paired"
         pairedDeviceUUID = nil
+        if deviceWasWiped {
+            deviceName = nil
+        }
         connectionStatus = .disconnected
         currentFaceID = TimeFlipConstants.unassignedFaceID
         isPaused = true
@@ -829,11 +882,22 @@ final class AppState: ObservableObject {
     /// Pairing is the part that only happens once: `isPaired` is set unconditionally because
     /// reaching a device is proof the app is paired to it, but `onPairingChange` fires only on the
     /// false -> true edge, so a reconnect reports a connection and not a fresh pairing.
-    func confirmConnected(name: String, uuid: String?) {
+    /// `name` is what the cube reports carrying (`TimeFlipDevice.deviceName`). `nil` when the
+    /// peripheral has not told us yet, which keeps whatever was last known rather than replacing a
+    /// real name with a placeholder -- the remembered name exists precisely to have something to
+    /// show when the device cannot be asked.
+    func confirmConnected(name: String?, uuid: String?) {
         let wasPaired = isPaired
         isPaired = true
         connectionStatus = .connected
-        pairedDeviceName = name
+        if let name, !name.isEmpty {
+            deviceName = name
+            pairedDeviceName = name
+        } else if let remembered = deviceName {
+            // Reconnecting to a device whose name we already know: the placeholder Forget Device
+            // left behind is not what to show now that there is a pairing again.
+            pairedDeviceName = remembered
+        }
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
         if let id = pendingPairingDeviceID {
             deviceStatusMessages[id] = nil

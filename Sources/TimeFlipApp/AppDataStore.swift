@@ -1036,26 +1036,36 @@ final class AppDataStore {
         loadSettingJSON(name: "paired")?["paired"] as? Bool ?? false
     }
 
-    /// The remembered device: the name shown while disconnected, and the CoreBluetooth peripheral
-    /// identifier used to reconnect to the same device rather than rediscovering. Both are durable
-    /// alongside `paired` and change only on pairing or forgetting.
+    /// The CoreBluetooth peripheral identifier of the paired device, used to reconnect to the same
+    /// device rather than rediscovering it. Durable alongside `paired` and changing only on pairing
+    /// or forgetting.
     /// `nil` is written as JSON null rather than skipped, so forgetting a device actually clears
     /// the stored value instead of leaving the previous one in place.
-    func recordPairedDevice(name: String?, uuid: String?) {
-        saveSettingJSON(name: "paired_device", merging: [
-            "name": name.map { $0 as Any } ?? NSNull(),
-            "uuid": uuid.map { $0 as Any } ?? NSNull()
-        ])
+    func recordDeviceUUID(_ uuid: String?) {
+        saveSettingJSON(name: "device_uuid", merging: ["uuid": uuid.map { $0 as Any } ?? NSNull()])
     }
 
-    /// Restores the remembered device at launch. Both default to absent, matching a database that
-    /// has never seen a pairing.
-    func loadPairedDevice() -> (name: String?, uuid: String?) {
-        let json = loadSettingJSON(name: "paired_device")
-        return (
-            name: json?["name"] as? String,
-            uuid: json?["uuid"] as? String
-        )
+    /// Restores the paired device's peripheral identifier at launch. Absent in a database that has
+    /// never seen a pairing.
+    func loadDeviceUUID() -> String? {
+        loadSettingJSON(name: "device_uuid")?["uuid"] as? String
+    }
+
+    /// The name the cube is carrying (its GAP Device Name, `0x2A00`), mirrored here from the
+    /// peripheral on every connect.
+    ///
+    /// Stored separately from `device_uuid` because the two have different lifetimes: forgetting a
+    /// device clears the uuid but **not** the name, since forgetting does not un-rename the cube
+    /// and that string is what the filtered scan needs to find it again. Only a confirmed factory
+    /// reset clears this, the cube having reverted to the vendor name.
+    func recordDeviceName(_ name: String?) {
+        saveSettingJSON(name: "device_name", merging: ["name": name.map { $0 as Any } ?? NSNull()])
+    }
+
+    /// Restores the remembered device name at launch. Absent until the first connection, since the
+    /// name is read from the device rather than guessed.
+    func loadDeviceName() -> String? {
+        loadSettingJSON(name: "device_name")?["name"] as? String
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,

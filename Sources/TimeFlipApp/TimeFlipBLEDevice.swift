@@ -806,6 +806,13 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         return true
     }
 
+    /// See `TimeFlipDevice.deviceName`. CoreBluetooth refreshes this from the peripheral's GAP name
+    /// once connected, so after a rename it reports the new name without the app re-reading
+    /// anything.
+    var deviceName: String? {
+        peripheral?.name
+    }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         snapshotState
     }
@@ -1504,8 +1511,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
-    /// Per the spec, 18 ASCII symbols maximum.
-    static let maximumDeviceNameLength = 18
+    /// Per the spec, 18 ASCII symbols maximum. Defers to `DeviceNameRules`, which the rename field
+    /// also limits itself by, so the field cannot allow a name this write would then refuse.
+    static let maximumDeviceNameLength = DeviceNameRules.maximumLength
 
     /// Resets every face's task info to default (command 0xFE).
     ///

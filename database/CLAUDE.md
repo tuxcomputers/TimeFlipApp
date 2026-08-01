@@ -130,10 +130,28 @@
   -- Migration (run by hand against a database that predates this column):
   -- ALTER TABLE colour ADD COLUMN white_lines INTEGER NOT NULL DEFAULT 0 CHECK (white_lines IN (0,1));
   ```
-- **The developer runs those `ALTER`s by hand** against any existing database, until the automated
-  migration feature exists (the planned `099`-script plus a `database_version` setting). Nothing
-  applies them automatically, so a schema change does not reach an existing database on its own.
-  `scripts/compare-database-to-ddl.sh` reports exactly which ones a database is still missing.
+  The statement stays commented **in the file** for the reason below -- a live one breaks every
+  fresh database -- but that is about where it lives, not about when it runs. It is the exact text
+  to apply, and applying it is the next step, not a later one.
+- **Apply the change to `production.sqlite` as part of making it, not later.** A DDL change is not
+  finished when the `.sql` file is edited; it is finished when the production database matches.
+  Nothing applies these automatically, so a schema change that stops at the file leaves production
+  silently behind, and the gap only surfaces the next time someone runs the comparison, by which
+  point several changes have piled up and nobody remembers which mattered.
+
+  Run the commented statement against production, then confirm with
+  `scripts/compare-database-to-ddl.sh`, which reports exactly what a database is still missing and
+  must come back clean before the change is done. This holds for every DDL change, not only column
+  additions: new indexes and new tables are the same deal.
+
+  Seed rows are the exception that needs no action: they are live `INSERT ... WHERE NOT EXISTS`
+  statements that run on every open, so they reach an existing database on their own. Only opening
+  the app against it is required, and the comparison script does not track them.
+
+  (This replaces the earlier convention of deferring these to "the developer runs them by hand
+  eventually, once the automated migration feature exists". That feature -- the planned `099`
+  script plus a `database_version` setting -- is still worth building, but waiting for it meant
+  production drifting from the DDL in the meantime.)
 - Why they cannot be live: sqlite has no conditional DDL (no `ADD COLUMN IF NOT EXISTS`), and a
   failed statement abandons the rest of the file, taking that table's indexes and seed rows with
   it. An unconditional `ALTER` therefore breaks every **fresh** database, because the `CREATE TABLE`

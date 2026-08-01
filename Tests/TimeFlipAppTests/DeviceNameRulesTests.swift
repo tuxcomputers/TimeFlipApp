@@ -1,0 +1,130 @@
+@testable import TimeFlipApp
+import XCTest
+
+/// The device's limits on its own name, checked without a device.
+///
+/// These matter more than a normal field's validation because the failure they guard against is
+/// nearly invisible: `setDeviceName` refuses an over-long or non-ASCII name by returning false, so
+/// getting this wrong means a rename that appears to work, logs one line, and leaves the cube
+/// called what it was called.
+final class DeviceNameRulesTests: XCTestCase {
+
+    // MARK: - what the field may hold while typing
+
+    func testInputIsHeldToTheDeviceLimit() {
+        let typed = String(repeating: "a", count: 25)
+        XCTAssertEqual(DeviceNameRules.truncatedInput(typed).count, DeviceNameRules.maximumLength)
+    }
+
+    func testInputExactlyAtTheLimitIsUntouched() {
+        let typed = String(repeating: "a", count: DeviceNameRules.maximumLength)
+        XCTAssertEqual(DeviceNameRules.truncatedInput(typed), typed)
+    }
+
+    func testTypingIsNotCharacterFiltered() {
+        // Deliberate: an emoji that vanished as it was typed would look like a broken keyboard.
+        // It is left visible and refused at submit, where there is somewhere to say why.
+        XCTAssertEqual(DeviceNameRules.truncatedInput("Cube 🎲"), "Cube 🎲")
+        XCTAssertEqual(DeviceNameRules.truncatedInput("Café"), "Café")
+    }
+
+    // MARK: - what a submitted name does
+
+    func testAPlainNameIsWritten() {
+        XCTAssertEqual(
+            DeviceNameRules.renameDecision(typed: "Solid cube", current: "TimeFlip v2.0"),
+            .write("Solid cube")
+        )
+    }
+
+    func testInteriorSpacesSurviveButSurroundingOnesDoNot() {
+        XCTAssertEqual(
+            DeviceNameRules.renameDecision(typed: "  Solid cube  ", current: nil),
+            .write("Solid cube")
+        )
+    }
+
+    func testTheNameItAlreadyHasWritesNothing() {
+        // Every visit to the field would otherwise spend a BLE write to change nothing.
+        XCTAssertEqual(DeviceNameRules.renameDecision(typed: "Solid cube", current: "Solid cube"), .ignore)
+        XCTAssertEqual(DeviceNameRules.renameDecision(typed: " Solid cube ", current: "Solid cube"), .ignore)
+    }
+
+    func testAnEmptyNameWritesNothing() {
+        XCTAssertEqual(DeviceNameRules.renameDecision(typed: "", current: "Solid cube"), .ignore)
+        XCTAssertEqual(DeviceNameRules.renameDecision(typed: "   ", current: "Solid cube"), .ignore)
+    }
+
+    func testNonASCIIIsRefusedRatherThanStripped() {
+        // Stripping would write "Cube " -- a name the user did not ask for, and one they would
+        // have no reason to expect.
+        XCTAssertEqual(
+            DeviceNameRules.renameDecision(typed: "Cube 🎲", current: nil),
+            .refuse(.unwritableCharacters)
+        )
+        XCTAssertEqual(
+            DeviceNameRules.renameDecision(typed: "Café", current: nil),
+            .refuse(.unwritableCharacters)
+        )
+    }
+
+    func testAnOverLongNameIsRefusedRatherThanTruncated() {
+        // The field holds typing to 18, so this stands between the device and a paste path that
+        // outruns it, or any caller that does not come through the field at all.
+        let typed = String(repeating: "a", count: 19)
+        XCTAssertEqual(
+            DeviceNameRules.renameDecision(typed: typed, current: nil),
+            .refuse(.tooLong(count: 19))
+        )
+    }
+
+    func testANameExactlyAtTheLimitIsAccepted() {
+        let typed = String(repeating: "a", count: DeviceNameRules.maximumLength)
+        XCTAssertEqual(DeviceNameRules.renameDecision(typed: typed, current: nil), .write(typed))
+    }
+
+    // MARK: - what the refusals tell the user
+
+    func testARefusalNamesTheLimitTheAllowanceAndWhoseRuleItIs() {
+        // All three are requirements, not phrasing. A limit with no owner reads as the app being
+        // fussy; a refusal with no allowance leaves the user guessing at a rule they cannot see.
+        for problem in [DeviceNameProblem.tooLong(count: 21), .unwritableCharacters] {
+            let message = problem.message
+            XCTAssertTrue(
+                message.contains("TimeFlip"),
+                "\(problem.id) should put the limit on the device's makers: \(message)"
+            )
+            XCTAssertTrue(
+                message.contains("not something this app has decided"),
+                "\(problem.id) should say the limit is not the app's: \(message)"
+            )
+            XCTAssertTrue(
+                message.contains("\(DeviceNameRules.maximumLength) characters"),
+                "\(problem.id) should say what length is allowed: \(message)"
+            )
+            XCTAssertTrue(
+                message.contains("letters, numbers"),
+                "\(problem.id) should say what characters are allowed: \(message)"
+            )
+        }
+    }
+
+    func testTooLongSaysHowLongTheNameActuallyWas() {
+        XCTAssertTrue(DeviceNameProblem.tooLong(count: 21).message.contains("21"))
+    }
+
+    func testAFailedWriteIsNotDressedUpAsARefusedName() {
+        // The device not answering is a different problem from a name it cannot hold, and pointing
+        // the user at the character rules when the real issue is the connection wastes their time.
+        let message = DeviceNameProblem.writeFailed.message
+        XCTAssertFalse(message.contains("letters, numbers"))
+        XCTAssertTrue(message.contains("connected"))
+        XCTAssertEqual(DeviceNameProblem.writeFailed.title, "The device didn't accept the new name")
+    }
+
+    func testTheLimitIsTheSpecs18() {
+        // Pinned against the vendor spec's cap on 0x15 rather than left to drift: the driver takes
+        // its own limit from this value, so a change here silently changes what the device is sent.
+        XCTAssertEqual(DeviceNameRules.maximumLength, 18)
+    }
+}

@@ -99,4 +99,46 @@ final class SettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(reopened.loadDoubleTapParameters(), custom)
         XCTAssertFalse(reopened.loadDoubleTapEnabled())
     }
+
+    // MARK: - pairing: device_uuid and device_name
+
+    func testDeviceUUIDAndNameSurviveRestart() {
+        let store = reopenedStore()
+        store.recordDeviceUUID("CBDFFEFE-C6F4-4977-A5C3-D40F3CA6E561")
+        store.recordDeviceName("Solid cube")
+
+        let reopened = reopenedStore()
+        XCTAssertEqual(reopened.loadDeviceUUID(), "CBDFFEFE-C6F4-4977-A5C3-D40F3CA6E561")
+        XCTAssertEqual(reopened.loadDeviceName(), "Solid cube")
+    }
+
+    func testClearingTheDeviceUUIDLeavesTheNameStanding() {
+        // The reason they are two rows rather than one: Forget Device clears the uuid and keeps the
+        // name, because forgetting does not un-rename the cube and that name is the only thing the
+        // filtered scan can match a renamed device on. A single row would take both together.
+        let store = reopenedStore()
+        store.recordDeviceUUID("CBDFFEFE-C6F4-4977-A5C3-D40F3CA6E561")
+        store.recordDeviceName("Solid cube")
+
+        store.recordDeviceUUID(nil)
+
+        let reopened = reopenedStore()
+        XCTAssertNil(reopened.loadDeviceUUID())
+        XCTAssertEqual(reopened.loadDeviceName(), "Solid cube")
+    }
+
+    func testClearingBothLeavesNeitherBehind() {
+        // A confirmed factory reset (0xFF) reverts the cube to the vendor name, so the remembered
+        // one is wrong and goes with the uuid.
+        let store = reopenedStore()
+        store.recordDeviceUUID("CBDFFEFE-C6F4-4977-A5C3-D40F3CA6E561")
+        store.recordDeviceName("Solid cube")
+
+        store.recordDeviceUUID(nil)
+        store.recordDeviceName(nil)
+
+        let reopened = reopenedStore()
+        XCTAssertNil(reopened.loadDeviceUUID())
+        XCTAssertNil(reopened.loadDeviceName())
+    }
 }
