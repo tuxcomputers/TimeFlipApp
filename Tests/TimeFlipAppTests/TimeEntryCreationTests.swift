@@ -242,6 +242,64 @@ final class TimeEntryCreationTests: XCTestCase {
         XCTAssertTrue(converted.contains(300), "while still converting the segment that just closed out")
     }
 
+    // MARK: - logging must not happen while the store's queue is held
+
+    /// Regression test for a crash on launch (2026-08-03, exit status 5).
+    ///
+    /// `DeveloperMode.debugPrint` runs `logSink`, the app points `logSink` at
+    /// `AppDataStore.recordDebugLog`, and that takes the store's serial queue. So a `debugPrint`
+    /// issued from inside `queue.sync` re-enters a serial queue and traps. The conversion did
+    /// exactly that, and died on the first entry it created against a real database.
+    ///
+    /// Every other test here missed it because `logSink` is only wired in
+    /// `applicationDidFinishLaunching`, so under `swift test` it is nil and `debugPrint` never
+    /// reaches the database. Twelve passing tests and a crash on the first real launch. These two
+    /// wire the sink the way the app does, which is the only thing that makes the hazard reachable.
+    private func withAppStyleLogSink(_ store: AppDataStore, _ body: () -> Void) {
+        let previousSink = DeveloperMode.logSink
+        let previousDebugSetting = DeveloperMode.isDebugSettingEnabled
+        DeveloperMode.isDebugSettingEnabled = true
+        DeveloperMode.logSink = { [weak store] tag, message in
+            store?.recordDebugLog(tag: tag.rawValue, message: message)
+        }
+        defer {
+            DeveloperMode.logSink = previousSink
+            DeveloperMode.isDebugSettingEnabled = previousDebugSetting
+        }
+        body()
+    }
+
+    func testConvertingWithTheAppsLogSinkAttachedDoesNotDeadlock() {
+        let store = AppDataStore(databaseURL: databaseURL)
+        withAppStyleLogSink(store) {
+            record(store, event: 1, face: 2, at: 1_700_000_000, duration: 600)
+            record(store, event: 2, face: 8, at: 1_700_000_600, duration: 300)
+        }
+        XCTAssertEqual(entries().count, 1, "reaching this line at all is most of the test")
+        XCTAssertGreaterThan(
+            scalar("SELECT COUNT(*) FROM debug_log WHERE tag = 'time-entry';"), 0,
+            "and the message really did go through the sink, so the hazard was genuinely exercised"
+        )
+    }
+
+    func testSweepingWithTheAppsLogSinkAttachedDoesNotDeadlock() {
+        // The launch path specifically: sweepTimeEntries runs straight after the sink is wired in
+        // applicationDidFinishLaunching, which is where the crash actually happened.
+        let store = AppDataStore(databaseURL: databaseURL)
+        record(store, event: 1, face: 2, at: 1_700_000_000, duration: 600)
+        record(store, event: 2, face: 8, at: 1_700_000_600, duration: 300)
+        execute("DELETE FROM time_entry;")
+        execute("UPDATE device_event SET processed = 1;")
+
+        withAppStyleLogSink(store) {
+            XCTAssertEqual(store.sweepTimeEntries(trigger: .launch), 1)
+        }
+        XCTAssertGreaterThan(
+            scalar("SELECT COUNT(*) FROM debug_log WHERE tag = 'time-entry' AND message LIKE '%REPAIRED%';"), 0,
+            "the repair line is the one the crashing launch was mid-way through writing"
+        )
+    }
+
     // MARK: - the face-remap trigger
 
     /// Two closed-out segments on different faces, plus a third left open as the live frame.

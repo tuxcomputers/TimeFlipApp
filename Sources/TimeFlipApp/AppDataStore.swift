@@ -354,6 +354,7 @@ final class AppDataStore {
         guard let db else { return false }
         let eventType = isPaused ? "pause" : "face_flip"
         var success = false
+        var conversion = ConversionOutcome()
         queue.sync {
             let startEpoch = Int64(startedAt.timeIntervalSince1970)
 
@@ -430,8 +431,10 @@ final class AppDataStore {
                 }
                 sqlite3_finalize(stmt)
             }
-            createTimeEntriesForFinalisedEvents()
+            conversion = createTimeEntriesForFinalisedEvents()
         }
+        // Outside the lock: see ConversionOutcome for why this cannot happen where it is produced.
+        emit(conversion)
         return success
     }
 
@@ -449,11 +452,8 @@ final class AppDataStore {
     /// flag is a marker of work already done, so skipping those rows skips almost the whole table.
     /// The cost of trusting the flag is that a row wrongly marked is invisible here, and that is
     /// exactly what `sweepTimeEntries(trigger:)` exists to find.
-    private func createTimeEntriesForFinalisedEvents() {
-        convertEligibleEvents(
-            extraConditions: "AND de.processed = 0",
-            label: "finalised"
-        )
+    private func createTimeEntriesForFinalisedEvents() -> ConversionOutcome {
+        convertEligibleEvents(extraConditions: "AND de.processed = 0", label: "finalised")
     }
 
     /// Finds and fixes `device_event` rows that should have a `time_entry` and do not, **including
@@ -475,11 +475,34 @@ final class AppDataStore {
     /// should have, and the debug log names each one.
     @discardableResult
     func sweepTimeEntries(trigger: TimeEntrySweepTrigger) -> Int {
-        var repaired = 0
+        var outcome = ConversionOutcome()
         queue.sync {
-            repaired = convertEligibleEvents(extraConditions: "", label: "sweep/\(trigger.rawValue)")
+            outcome = convertEligibleEvents(extraConditions: "", label: "sweep/\(trigger.rawValue)")
         }
-        return repaired
+        emit(outcome)
+        return outcome.created
+    }
+
+    /// What a conversion pass did, carried back out of the lock so it can be logged from outside.
+    ///
+    /// **The messages cannot be logged where they are produced.** `DeveloperMode.debugPrint` runs
+    /// `logSink`, which the app points at `recordDebugLog`, which takes `queue` -- so logging from
+    /// inside `queue.sync` re-enters a serial queue and traps. It did: the app died on launch with
+    /// exit status 5 immediately after the first entry was created (2026-08-03).
+    ///
+    /// The unit suite could not have caught it. `logSink` is only wired in
+    /// `applicationDidFinishLaunching`, so under `swift test` it is nil and `debugPrint` returns
+    /// without touching the database. Twelve passing tests and a crash on the first real launch.
+    private struct ConversionOutcome {
+        var created = 0
+        var messages: [String] = []
+    }
+
+    /// Logs a pass's messages. Call **after** `queue.sync` has returned, never inside it.
+    private func emit(_ outcome: ConversionOutcome) {
+        for message in outcome.messages {
+            DeveloperMode.debugPrint(.timeEntry, message)
+        }
     }
 
     /// The conversion both paths share, differing only in how much of the table they look at.
@@ -493,9 +516,9 @@ final class AppDataStore {
     ///
     /// A paused segment is never converted and so keeps `processed = 0` for as long as it exists.
     /// The flag means "has a time entry", a pause never gets one, and there is nothing to mark.
-    @discardableResult
-    private func convertEligibleEvents(extraConditions: String, label: String) -> Int {
-        guard let db else { return 0 }
+    private func convertEligibleEvents(extraConditions: String, label: String) -> ConversionOutcome {
+        var outcome = ConversionOutcome()
+        guard let db else { return outcome }
 
         // Row by row rather than one INSERT ... SELECT, so each conversion can be logged against
         // the event it came from. At these volumes the difference is unmeasurable, and a log line
@@ -540,11 +563,10 @@ final class AppDataStore {
             }
         } else {
             logger.error("time_entry select failed (\(label, privacy: .public)): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-            DeveloperMode.debugPrint(.timeEntry, "\(label): select failed: \(String(cString: sqlite3_errmsg(db)))")
+            outcome.messages.append("\(label): select failed: \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(selectStmt)
 
-        var created = 0
         for row in pending {
             // `ended_at` is start + duration converted back to local time, carrying the segment's
             // start zone: the device reports a start and a length, never an end, so nothing here
@@ -571,25 +593,23 @@ final class AppDataStore {
             sqlite3_bind_int64(stmt, 6, row.timezoneID)
             sqlite3_bind_double(stmt, 7, row.durationSeconds)
             if sqlite3_step(stmt) == SQLITE_DONE {
-                created += 1
+                outcome.created += 1
                 // A row already marked processed had no entry, which nothing upstream should ever
                 // leave behind. Logged loudly and separately, because it is a defect report rather
                 // than a routine conversion.
                 if row.wasMarkedProcessed {
                     logger.error("time_entry REPAIRED ev=\(row.eventNumber, privacy: .public): marked processed with no entry")
-                    DeveloperMode.debugPrint(
-                        .timeEntry,
+                    outcome.messages.append(
                         "\(label): REPAIRED ev=\(row.eventNumber) face=\(row.deviceFace) dur=\(row.durationSeconds)s -- was marked processed with no entry"
                     )
                 } else {
-                    DeveloperMode.debugPrint(
-                        .timeEntry,
+                    outcome.messages.append(
                         "\(label): created ev=\(row.eventNumber) face=\(row.deviceFace) dur=\(row.durationSeconds)s cat=\(row.categoryID)"
                     )
                 }
             } else {
                 logger.error("time_entry insert failed ev=\(row.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-                DeveloperMode.debugPrint(.timeEntry, "\(label): insert failed ev=\(row.eventNumber): \(String(cString: sqlite3_errmsg(db)))")
+                outcome.messages.append("\(label): insert failed ev=\(row.eventNumber): \(String(cString: sqlite3_errmsg(db)))")
             }
             sqlite3_finalize(stmt)
         }
@@ -603,7 +623,7 @@ final class AppDataStore {
         """
         if sqlite3_exec(db, markProcessed, nil, nil, nil) != SQLITE_OK {
             logger.error("device_event processed update failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-            DeveloperMode.debugPrint(.timeEntry, "\(label): processed update failed: \(String(cString: sqlite3_errmsg(db)))")
+            outcome.messages.append("\(label): processed update failed: \(String(cString: sqlite3_errmsg(db)))")
         }
 
         // Stamped whether or not anything was created: it records when the check last ran, and one
@@ -619,9 +639,10 @@ final class AppDataStore {
             logger.error("time_entry_check stamp failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
         }
 
-        guard created > 0 else { return 0 }
-        logger.notice("time_entry \(label, privacy: .public) created=\(created, privacy: .public)")
-        return created
+        if outcome.created > 0 {
+            logger.notice("time_entry \(label, privacy: .public) created=\(outcome.created, privacy: .public)")
+        }
+        return outcome
     }
 
     /// Development-only consistency check: re-derives `MAX(start_epoch)` directly from the
