@@ -6,6 +6,9 @@ import XCTest
 @MainActor
 final class FakeDevice: TimeFlipSessionManaging {
     var events: AsyncStream<TimeFlipEvent> { AsyncStream { _ in } }
+    /// Nothing here reads the name; it exists to satisfy `TimeFlipDevice`. `nil` is the honest
+    /// value for a double that has no peripheral behind it.
+    var deviceName: String?
     private(set) var history: [TimeFlipHistoryEntry] = []
     private(set) var fetchHistoryCallCount = 0
     /// Overrides what readLastEvent() reports, decoupled from `history`, so tests can simulate a

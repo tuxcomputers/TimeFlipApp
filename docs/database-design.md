@@ -480,18 +480,29 @@ Seeded rows:
   - `quit_request` — when the app was last asked to quit.
   - The three timestamps exist so an observer can tell *connected now* from *lost the device* from
     *quit deliberately*, rather than inferring it from a single boolean.
-- `paired` = `{"paired":false}` and `paired_device` = `{}` — **pairing**: whether the app knows
-  which device to talk to, and which one that is. Both are durable (see
-  [Pairing vs connection](#pairing-vs-connection) below).
+- `paired` = `{"paired":false}`, `device_uuid` = `{}` and `device_name` = `{}` — **pairing**:
+  whether the app knows which device to talk to, which one that is, and what that one is called.
+  All three are durable (see [Pairing vs connection](#pairing-vs-connection) below).
   - `paired` answers *whether*. True from a successful first pairing until the user forgets the
     device — Forget Device, or the end of a confirmed factory reset. Nothing else clears it.
     Restored at launch, where it decides whether a connection is worth attempting at all.
-  - `paired_device` answers *which*: `name` is the remembered device name shown while
-    disconnected, `uuid` the CoreBluetooth peripheral identifier used to reconnect to that same
-    device rather than rediscovering it. Both absent until a first pairing, and cleared on forget.
-  - Split across two rows only because a boolean and a device identity change for different
-    reasons; they always move together.
-
+  - `device_uuid` answers *which*: the CoreBluetooth peripheral identifier used to reconnect to
+    that same device rather than rediscovering it. Absent until a first pairing, and cleared on
+    forget. The identifier is assigned by this Mac's CoreBluetooth stack rather than by the device,
+    so it means nothing on another machine and is not the device's BLE address.
+  - `device_name` answers *what it is called*: the name the cube itself is carrying, its GAP Device
+    Name `0x2A00`, which is what device command `0x15` writes and what a scan sees. Read from the
+    peripheral on every connect and mirrored here, so it follows the device rather than leading it.
+    Absent until the first connection, since the name is read rather than guessed.
+  - **The name and the uuid have deliberately different lifetimes, which is why they are two rows
+    rather than one.** Forget Device clears `device_uuid` and **keeps** `device_name`: forgetting
+    does not un-rename the cube, and once a device has been renamed off "TimeFlip" that string is
+    the only thing the filtered scan can match it on, so discarding it would discard the way back
+    to the device. A confirmed factory reset (`0xFF`) clears **both**, the cube having reverted to
+    the vendor name. `0xFE` (reset task info) leaves the name alone and so touches neither.
+  - The Device tab's "Not paired" placeholder is a rendering of `paired` being false, not a stored
+    value: `AppState.pairedDeviceName` is display-only and never persisted, so a forgotten-but-
+    remembered name is held in `device_name` without the tab claiming a pairing that is gone.
 #### Pairing vs connection
 
 Two distinct things, and the schema keeps them apart because conflating them is what made an
@@ -499,7 +510,8 @@ out-of-band device reset look like nothing had happened:
 
 | | Row | Lifetime | Changed by |
 |---|---|---|---|
-| **Pairing** | `paired`, `paired_device` | Durable | Pairing a device; Forget Device |
+| **Pairing** | `paired`, `device_uuid` | Durable | Pairing a device; Forget Device |
+| **Device name** | `device_name` | Durable, and outlives Forget Device | Connecting (mirrored from the cube); factory reset clears it |
 | **Connection** | `connection` | Transient | Every connect, drop, retry, quit |
 
 Connection is **gated by pairing**: an app that isn't paired has no device to be connected to, so

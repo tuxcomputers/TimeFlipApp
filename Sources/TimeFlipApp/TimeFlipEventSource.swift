@@ -10,6 +10,18 @@ protocol TimeFlipEventSource: AnyObject {
 
 @MainActor
 protocol TimeFlipDevice: TimeFlipEventSource {
+    /// The name the cube itself is carrying -- its GAP Device Name, `0x2A00`, which is what command
+    /// `0x15` writes.
+    ///
+    /// Read through `CBPeripheral.name` rather than by discovering the characteristic: Apple does
+    /// not expose the Generic Access service (`0x1800`) to apps at all, so there is nothing to
+    /// discover and `name` is the platform's own reading of `0x2A00`. `nil` before a peripheral is
+    /// known.
+    ///
+    /// Not part of `TimeFlipDeviceSnapshot`, which is per-event device *state*; this changes only
+    /// when the cube is renamed.
+    var deviceName: String? { get }
+
     func snapshot() -> TimeFlipDeviceSnapshot
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry]
     /// Cheap single-frame read of the device's actual current record (history characteristic

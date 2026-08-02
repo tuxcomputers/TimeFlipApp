@@ -266,9 +266,12 @@ read/write difference predicts. Command direction doesn't matter; connection age
 `settledWrite` are very likely the same quantity measured twice.
 
 - [ ] Consider merging `read` into `settledWrite`; needs re-deciding what each existing caller charges
-- [ ] The driver still never reads Generic Access `0x2A00`, so it has no idea what the cube is
-      actually called -- `paired_device.name` holds `"TimeFlip"` while the cube advertises
-      `"TimeFlip v2.0"`. Not a command, but the same class of gap.
+- [x] The driver had no idea what the cube was actually called: the stored name held
+      `"TimeFlip"` (a literal in `ApplicationDelegate`) while the cube advertised `"TimeFlip v2.0"`.
+      *Done — `TimeFlipDevice.deviceName` exposes it, via `CBPeripheral.name`, which on Apple
+      platforms is the platform's own reading of `0x2A00`; the Generic Access service `0x1800` is
+      never exposed to apps, so there is no characteristic to discover.* The mock implements it
+      too, so parity holds.
 
 **Tests for these four are written but commented out** in `MockDeviceParityTests.swift`: the app has
 no task/pomodoro or device-name feature, so asserting behaviour now would pin down decisions nobody

@@ -595,6 +595,13 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         logger.debug("Mock set color face=\(faceID, privacy: .public) r=\(components.red) g=\(components.green) b=\(components.blue)")
     }
 
+    /// See `TimeFlipDevice.deviceName`. Whatever the configuration was given, or whatever a
+    /// `setDeviceName` write has since changed it to -- the mock stands in for the cube, so a
+    /// rename has to be visible here the way it is on real hardware.
+    var deviceName: String? {
+        mockDeviceName
+    }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         applyFactoryResetIfDue()
         return stateWithUpdatedDeviceTime()
@@ -781,14 +788,17 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
               ascii.count <= TimeFlipBLEDevice.maximumDeviceNameLength else {
             return false
         }
-        deviceName = name
+        mockDeviceName = name
         appendEventLog("device_name=\(name)")
         return true
     }
 
     /// The name the device advertises. Mirrors the real device's Generic Access name, which is what
     /// a discovery scan shows.
-    private(set) var deviceName: String = "TimeFlip v2.0"
+    /// The name the mock cube is carrying. Surfaced through the protocol's optional `deviceName`
+    /// just below, since a real peripheral has none until it is known. Seeded with what the
+    /// hardware ships advertising.
+    private(set) var mockDeviceName: String = "TimeFlip v2.0"
 
     /// Resets every face's task info (0xFE), and nothing else.
     @discardableResult

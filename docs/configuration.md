@@ -157,6 +157,48 @@ reset is actually confirmed), so the device isn't left behind on a password nobo
 
 ![Preferences - Device](../image/preferences-device.png)
 
+### Renaming Your Device
+
+On the Device tab, **right-click the "Name" row** and choose **Rename**. The row turns into a text
+field: type the new name, press **Return** to apply it or **Escape** to cancel. The device must be
+connected, since the name lives on the device rather than in the app.
+
+Names are limited to **18 characters** of plain, unaccented text (letters, numbers, spaces and
+ordinary punctuation). That is the TimeFlip's own limit, not this app's: the vendor's protocol
+defines the name field as "18 symbols MAX. ASCII coding", so an emoji or an accented letter cannot
+be sent to the device at all. The field stops at 18 characters as you type, and a name containing
+something the device cannot store is refused with an explanation rather than being silently
+mangled.
+
+#### The new name takes a while to show up everywhere
+
+The device accepts the rename immediately, but it keeps announcing itself under the old name for a
+while, and there is nothing this app can do about it. Two separate reasons, both measured on real
+hardware (see [firmware observations](timeflip2-firmware-observations.md)):
+
+- The name the TimeFlip broadcasts while advertising **never changes at all**. Any Bluetooth scan,
+  in this app or any other, goes on listing it as `TimeFlip v2.0` forever.
+- The name it reports once connected is only read at connect time and is never pushed to a Mac
+  that is already connected, so macOS can hand out the previous name for a reconnect or two before
+  it catches up.
+
+The app tells you this with a note under the Name row after a rename, and the note disappears by
+itself once the device is reporting the name you gave it.
+
+#### Making the new name appear now
+
+If you would rather not wait, this forces the device to be re-read straight away:
+
+1. **Rename** the device as above
+2. Click **Forget Device**
+3. Click **Scan for Devices**
+4. Click the device in the results list, which will still be showing the **old** name
+5. Once it pairs, the Name row shows the **new** name
+
+Step 4 is the confusing part and it is expected: the scan list can only show the name the device is
+still handing out. Clicking it pairs with the same physical cube regardless, and the connection is
+what refreshes the name.
+
 ### Configuring Activities
 
 1. In Preferences > "Faces" tab

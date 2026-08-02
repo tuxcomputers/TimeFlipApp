@@ -740,8 +740,13 @@ end tell"""
     except ValueError:
         return StepResult(False, f"unexpected element frame: {r.stdout.strip()!r}")
 
+    # `anchor_dx` is a pixel offset applied after the anchor, for a target that is not inside any
+    # element at all: the bare middle of a `LabeledContent` row, which belongs to the row's
+    # `contentShape` and is exposed to accessibility only as the label and value either side of it.
+    # Expressing that as a fraction of the label's width would be a number that changes whenever the
+    # label's text does.
     anchor = float(spec.get("anchor", 0.9))
-    ax, ay = x + w * anchor, y + h / 2
+    ax, ay = x + w * anchor + float(spec.get("anchor_dx", 0)), y + h / 2
 
     def post(kind, point, button):
         e = Quartz.CGEventCreateMouseEvent(None, kind, point, button)

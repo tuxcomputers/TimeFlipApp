@@ -33,6 +33,12 @@ action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 ```
 
+**Pair it with Method 3 unless you know the app is down.** Nothing here checks for a running
+instance, and `Tests/00-test-setup.md` leaves the app running before any feature checklist starts,
+so a step that only launches gets a **second** instance: two status items in the menu bar, two BLE
+clients competing for the device. Quit first (Method 3 no-ops when nothing is running, so the pair
+restarts and cold-starts alike). Confirmed on 2026-08-02, when `09b` inlined a bare launch.
+
 <a id="method-3"></a>
 ## Method 3: Quit the app
 
@@ -662,6 +668,19 @@ is deliberate: on a fixed-width column a short label leaves most of the column b
 part is the hit area a `contentShape(Rectangle())` exists to claim -- clicking there proves the hit
 area as well as the menu. `item_dx`/`item_dy` (default `30`/`12`) reach the first item; a menu with
 more needs the offset stepped by its row height, which has to be **measured, not assumed**.
+
+`anchor_dx` (default `0`) adds a pixel offset after the anchor, for a target inside no element at
+all. A `LabeledContent` row is the case: accessibility exposes only the label and the value, and the
+gap between them -- which is most of the row, and the part its `contentShape(Rectangle())` exists to
+claim -- belongs to neither. Anchor off the label and step right by pixels; expressing that as a
+fraction of the label's width would be a number that changes with the label's text.
+
+**Selectable text takes the right-click before any of this.** A `LabeledContent` value is selectable
+on macOS, and selectable text hands its right-click to AppKit, which answers with "Look Up",
+"Translate", "Search With Google" and never opens the SwiftUI menu at all. Adding a `.contextMenu`
+to the text does not win that fight; `.textSelection(.disabled)` has to come first. Measured on the
+Device tab's name on 2026-08-02, screenshotted with the name highlighted blue under the system menu.
+If a right-click on a *label* works and the same right-click on its *value* does not, this is why.
 
 Verified end to end: right-click a category name, click Edit, and the row's `text field` count goes
 from 2 to 3 as the inline rename field replaces the name, focused and pre-filled.

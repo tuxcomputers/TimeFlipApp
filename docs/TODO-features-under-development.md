@@ -140,53 +140,185 @@ anywhere in `Sources/`), and any reporting query that groups by `project_id` -- 
 ## Device rename
 
 - The user can give the physical TimeFlip its own name.
-- The chosen name is stored in a `setting` row, and checked and restored on app startup, so the
-  cube carries the user's name rather than the vendor default.
 - The Scan for Devices list must match **both** the vendor default name and the stored custom
   name, so a renamed cube is still findable.
 
-(Note: the driver can already write the name -- `TimeFlipBLEDevice.setDeviceName` sends `0x15`
--- but **nothing in the app calls it**, and there is no `setting` row for it yet. Three things
-that shape the work, all confirmed against the vendor spec and the hardware:
+### Storage: `device_uuid` and `device_name` (done)
 
-**The name has a real read-back, unlike LED brightness and blink interval.** The spec lists
-Device Name / `0x2A00` as a readable Generic Access characteristic. So "checked and restored" can
-genuinely compare before writing, instead of the write-blind approach `0x09`/`0x0A` are stuck
-with. But the driver has no reference to `0x2A00` anywhere, so that read is a prerequisite; until
-it exists the restore can only write unconditionally on every startup.
+The old single `paired_device` row held the peripheral uuid and the name together, under one
+lifetime. It is now **two rows**, because the two need different ones:
 
-**Do not reuse `paired_device.name`.** That row is the *advertised* name the app remembers so it
-can show something while disconnected, and it is not the same string: it currently reads
-`TimeFlip` while the cube advertises `TimeFlip v2.0`. Driving a rename from it would make the app
-quietly rename the cube to its own display label. (Caught during a live probe on 2026-07-31,
-before it ran.)
+| Row | Forget Device | Factory reset (`0xFF`) |
+|---|---|---|
+| `device_uuid` | cleared | cleared |
+| `device_name` | **kept** | cleared |
+
+The name outliving Forget Device is the whole point of the split. Forgetting a device does not
+un-rename the cube, so a cube called e.g. `Solid cube` goes on advertising that and nothing else;
+if the app throws the string away at exactly the moment it needs to scan again, the filtered scan
+cannot find it and the **All Devices** tick box is the only way back. A factory reset is the
+opposite case: the cube really has reverted to the vendor name, so the remembered one is now wrong
+and keeping it would make the filter match a name that no longer exists.
+
+`device_name` mirrors the cube rather than recording a wish: it is re-read from the peripheral on
+every connect. That is deliberate, and it means the row cannot be used to *restore* a name after a
+factory reset -- there is nothing left saying what the user had chosen. Reverting to the vendor
+name when the device is wiped is the honest outcome, and is why factory reset clears the row rather
+than trying to reinstate from it.
+
+`AppState.pairedDeviceName` stays display-only and is no longer persisted, so the Device tab's
+"Not paired" placeholder cannot reach the database as if it were a device called that -- which is
+what let the name survive a forget without the tab claiming a pairing that is gone.
+
+### The rename UI (done)
+
+Right-clicking the **Name** row on the Device tab offers **Rename**, which turns the value into an
+inline field. Return submits, Escape abandons it. The same shape as the Categories tab's rename,
+which is how this app already renames things.
+
+The menu item is disabled while the device is unreachable: the cube is what holds the name, and
+`0x15` would only fail on the driver's not-logged-in guard.
+
+**What the device actually accepts.** The `0x15` entry in `docs/TimeFlip2 BLE Protocol v4.3.md`:
+`0xZZ … 0xZZ - name (18 symbols MAX. ASCII coding)`. Both limits are the device's, not choices this
+app made. The app adds one restriction of its own on top: control characters are excluded as well,
+leaving printable ASCII `0x20`-`0x7E`, since a tab or a NUL in a name that appears in every nearby
+device's scan list is a rendering problem for no gain. Note `0x2A00` reads up to 20 bytes, so only
+the *write* is capped at 18.
+
+**Where the 18-character limit is enforced, and why in more than one place.** `DeviceNameRules`
+owns the number; `TimeFlipBLEDevice.maximumDeviceNameLength` now defers to it, so the field and the
+write cannot come to disagree.
+
+- *While typing*, the field truncates at 18. What is on screen is what will be written.
+- *At submit*, the length is **checked** rather than truncated. From the field that is unreachable,
+  which is the point: it stands between the device and a paste that outruns the truncation, or any
+  later caller that does not come through this field.
+- *At the write*, `setDeviceName` refuses over-18 and non-ASCII by returning false.
+
+Characters are deliberately **not** filtered as they are typed. An emoji that vanished on the
+keystroke reads as a broken keyboard, with nothing to say why. It is left visible, refused at
+submit, and the alert names the reason -- and **the field stays open with the text still in it**,
+so a rejected name can be fixed rather than retyped from the context menu.
+
+**What the refusal alerts must say**, all three parts required rather than stylistic:
+
+1. That the **TimeFlip** cannot store the name, naming the device rather than the app.
+2. That this is TimeFlip's limit, "not something this app has decided". A limit with no owner
+   reads as the app being fussy, and leaves the user thinking some other app would allow an emoji.
+   The attribution is also simply true: the vendor's own spec defines the field, and a name outside
+   it cannot reach the device at all.
+3. What **will** work -- up to 18 characters of letters, numbers, spaces and ordinary punctuation.
+   Being told a name is wrong without being told what is right is guessing at an invisible rule.
+
+A failed *write* is deliberately excluded from all of that: the device not answering is a different
+problem from a name it cannot hold, and quoting the character rules at a connection fault sends the
+user looking in the wrong place. `DeviceNameRulesTests` asserts each of these.
+
+The name is adopted locally only once the device confirms the write. A failed write leaves both the
+Device tab and `device_name` saying what the cube still answers to, which matters beyond cosmetics:
+`device_name` is what the scan filter is to match a renamed cube on, so a name the device never
+took would be a name nothing could be found by.
+
+**Note for the device checklists**: a SwiftUI `.contextMenu` is invisible to accessibility -- it
+reports zero menus and `AXShowMenu` opens nothing (established while building the Categories tab,
+see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs
+`act_cgevent_context_menu_pick` in `scripts/testrunner/actions.py`, which exists and works.
+
+### Still to build
+
+- Bench/Interactive checklists for the rename. Nothing covers it on real hardware: the unit tests
+  stop at `AppState` and at `DeviceNameRules`, so the `0x15` write, what the cube then advertises,
+  and the reconnect-by-remembered-name fix are all still unverified against the device. The
+  reconnect one is the priority, since its failure mode is losing the cube entirely.
+- Verifying a rename actually took. `setDeviceName` waits for the device's own command
+  acknowledgement, which turns out not to exist for `0x15` at all, and nothing reads `0x2A00` back
+  afterwards. A naive read-back would not work today either: `deviceName` is `CBPeripheral.name`,
+  which CoreBluetooth caches, and `peripheralDidUpdateName(_:)` is not implemented, so the value
+  read straight after a write is likely the old one. The honest options are to implement that
+  delegate method and find out on the bench whether the hardware fires it, or to treat the name read
+  at the next connect as the confirmation. Until then a rename is reconciled at the next connection
+  rather than immediately.
+
+(Note: the driver can already write the name -- `TimeFlipBLEDevice.setDeviceName` sends `0x15` --
+but **nothing in the app calls it**. Four things shape what is left, all confirmed against the
+vendor spec and the hardware:
+
+**There is no usable read-back within the session that renamed the device, despite `0x2A00` being
+readable.** Measured on the hardware 2026-08-01: after a rename the app polled
+`TimeFlipDevice.deviceName` (which is `CBPeripheral.name`, the platform's own reading of `0x2A00`)
+**120 times over 30 seconds** and it never moved off the previous name. The value refreshes only
+when CoreBluetooth next connects and re-reads GAP, so it is connection-gated, not time-gated: no
+wait, however long, will see the change from within the same connection.
+
+**The next connection does report it, and does so actively.** `peripheralDidUpdateName(_:)` fires
+about two seconds into the following connection, on all three of three renames tested. An earlier
+version of this note said it had "never fired once" -- that was concluded from the 30-second poll
+alone, which by definition could not observe a callback that only arrives after a reconnect. It is
+wired up and is what corrects the name a first pairing adopts from the stale cache.
+
+So a rename gets **no confirmation at all** at the time it is made. The device never updates the
+command result characteristic for `0x15`, and `performCommand`'s check does not notice because a
+stale response from an unrelated command is neither one nor two bytes long and so skips validation
+entirely (see `docs/timeflip2-firmware-observations.md`, finding 2). Everything the app needs the
+name for -- the stored
+`device_name`, the Device tab, and the scan filter -- is updated from what was written rather than
+from a read. Forcing a disconnect/reconnect purely to refresh the cached value was considered and
+rejected: it costs a session drop, a re-login and a history re-sync to learn something already
+known.
+
+Note this cuts against an earlier claim in this file that the name "has a real read-back, unlike LED
+brightness and blink interval". Readable in the GATT sense, yes; useful for confirming a write you
+just made, no.
+
+**The displayed name now comes from the device.** It used to be a literal: `ApplicationDelegate`
+called `appState.confirmConnected(name: "TimeFlip", uuid: nil)` with the string spelled out in the
+source, so the Device tab read `TimeFlip` no matter what the cube was called, while the scan showed
+`TimeFlip v2.0` from `peripheral.name`. That call now passes `device?.deviceName`, so the tab, the
+in-memory state and `device_name` all agree with the cube (fixed 2026-08-01, confirmed live).
 
 **18 ASCII characters, and the two limits differ.** The spec caps the `0x15` write at 18 symbols,
 ASCII only, while `0x2A00` reads up to 20. `setDeviceName` enforces the write limit by returning
-false, so an over-long or non-ASCII stored value would fail silently on every startup with only a
-debug line to show for it. Validate where the setting is written, not just at the BLE call.
+false, so an over-long or non-ASCII name would fail with only a debug line to show for it. Validate
+in the rename UI, not just at the BLE call.
 
-**A renamed cube disappears from the filtered scan, and Forget Device is when that bites.** The
-discovery filter is `serviceMatches || nameMatches`, where `nameMatches` is
-`peripheral.name.lowercased().contains("timeflip")`
-(`TimeFlipBLEDevice.centralManager(_:didDiscover:...)`). Its own comment records that the service
-UUID is **not** reliably advertised by this hardware, so in practice the name match is what finds
-the cube. Rename it to something like "Solid cube" and the filtered scan stops listing it. That
-is harmless while the device stays paired, because reconnects go straight to
-`paired_device.uuid` rather than rescanning, but the moment the user forgets the device the only
-way back is a scan, and the name that would match is no longer the one it is advertising.
+**A renamed cube disappears from the scan, and that loses it on the very next launch.**
+Reconnecting is a **scan**, not a lookup of the stored `device_uuid`: `connect()` calls
+`scanAndConnect()`, and nothing in `TimeFlipBLEDevice` ever calls
+`retrievePeripherals(withIdentifiers:)`. The filter is `serviceMatches || nameMatches`, and the
+code's own comment records that the service UUID is **not** reliably advertised by this hardware,
+so the name match is in practice the only thing that finds the cube.
 
-The **All Devices** tick box (`scanAllDevices`, `TimeFlipSettingsView`) turns the filter off and
-does list it, so this is a recovery path rather than a lockout. But it relies on the user knowing
-to tick it at precisely the moment they have lost the device, which is not a reasonable thing to
-require. So the filter needs to match the stored custom name as well as "timeflip" -- which in
-turn means the custom-name `setting` row **must survive Forget Device**. Clearing it on forget
-would destroy the one piece of information needed to find the cube again, leaving the tick box as
-the only way back.
+An earlier version of this note claimed the opposite -- that a rename was "harmless while the
+device stays paired, because reconnects go straight to the stored uuid". That was wrong, and it is
+why the scan work was filed as later rather than as a prerequisite. Renaming a cube to "Hazza" on
+2026-08-01 made every reconnect time out from the next launch onwards; the log shows `connect begin`,
+`connect radio powered`, and then nothing. **Fixed** by `DeviceNameRules.matchesKnownDevice`, which
+also matches the remembered `device_name`, fed to the driver as `rememberedDeviceName` before every
+connect and again the instant a rename lands.
+
+The **All Devices** tick box (`scanAllDevices`, `TimeFlipSettingsView`) turns the filter off
+entirely and remains the manual way back if a cube is ever renamed by something other than this app
+-- but it is a backstop now, not the recovery path, and it was never reachable while `isPaired` was
+true anyway, since that state shows Forget/Reset instead of Scan.
 
 One useful interaction: `0xFE` (reset task info) deliberately leaves the name untouched, so only a
-full `0xFF` factory reset clears it. A startup restore is therefore exactly what repairs the name
-after the device-test runner's end-of-run factory reset, which is why that leftover needs no
-separate handling once this exists. Note the same fact cuts the other way here: forgetting a
-device does not un-rename it, so the cube keeps the custom name with no app left holding a record
-of it unless that row is deliberately kept.)
+full `0xFF` factory reset clears it -- which is why `0xFE` touches neither row and `0xFF` clears
+both. The device-test runner's end-of-run factory reset therefore returns the cube to the vendor
+name and empties `device_name` with it, leaving nothing to repair afterwards.
+
+**The firmware is inconsistent with itself about the name, and the spec does not mention it.** The
+`0x15` entry in `docs/TimeFlip2 BLE Protocol v4.3.md` is two lines -- a length byte and "18 symbols
+MAX. ASCII coding" -- and says nothing about when a rename takes effect or where it shows. What the
+hardware actually does, all measured on 2026-08-01:
+
+- The GAP Device Name (`0x2A00`, what `CBPeripheral.name` reports) **does** change.
+- The advertised local name **does not**: a cube whose GAP name read "Hazza cuber" was still
+  advertising `TimeFlip v2.0`, across three successive renames.
+- The change is not observable until the central reconnects, at which point CoreBluetooth notices
+  it and fires `peripheralDidUpdateName(_:)`.
+
+The two names disagreeing is what made a renamed cube unfindable, and the advertised name never
+changing is what makes it findable again, so both halves matter. Whether the cube applies a rename
+immediately or defers it is **not determinable from macOS**, since the host only re-reads GAP on
+connect; answering that needs a second central with no cache of this device.)

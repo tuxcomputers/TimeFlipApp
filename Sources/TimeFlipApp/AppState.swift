@@ -44,7 +44,24 @@ final class AppState: ObservableObject {
     /// which device the app is paired to, they only stop it reaching that device right now. That
     /// transient side is `connectionStatus`; see `isConnected` for the two combined.
     @Published var isPaired: Bool
+    /// What the Device tab shows in its Name row: the device name while paired, the "Not paired"
+    /// placeholder otherwise. Display only -- it is never persisted, because the placeholder is a
+    /// rendering of "no device", not a device called that. The stored name is `deviceName`.
     @Published var pairedDeviceName: String
+    /// The name the cube itself is carrying (its GAP Device Name `0x2A00`), read from the
+    /// peripheral on each connect and persisted to the `device_name` setting.
+    ///
+    /// **Outlives Forget Device**, unlike `pairedDeviceUUID`: forgetting does not un-rename the
+    /// cube, so this stays the only string the filtered scan can match a renamed device on. It is
+    /// cleared only by a confirmed factory reset, which reverts the cube to the vendor name.
+    /// `nil` until the app has actually connected to a device and been told a name.
+    @Published var deviceName: String?
+    /// Set the moment a rename is written, and shown under the Name row until the device next
+    /// connects, which is when the lag it describes ends. In memory only and deliberately not
+    /// persisted: it is a note about something that just happened in this session, and a relaunch
+    /// is a reconnect, which is exactly the event that clears it. See
+    /// `DeviceNameRules.renameLagNotice` for what it says and why the app says anything.
+    @Published var renameLagNotice: String?
     @Published var faceMappings: [FaceMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
@@ -156,6 +173,9 @@ final class AppState: ObservableObject {
     var onCancelPairingAttempt: (() -> Void)?
     var onResetDevicePasswordRequest: (() async -> Bool)?
     var onFactoryResetRequest: (() async -> Bool)?
+    /// Writes a new name to the device (command `0x15`), reporting whether the write landed. The
+    /// name is already validated by `DeviceNameRules` before this is called.
+    var onDeviceRenameRequest: ((String) async -> Bool)?
     var onCurrentFaceMappingChange: (() -> Void)?
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
@@ -216,7 +236,7 @@ final class AppState: ObservableObject {
         googleCalendarName: String? = nil,
         googleClientID: String? = nil,
         isPaired: Bool = false,
-        pairedDeviceName: String? = nil,
+        deviceName: String? = nil,
         pairedDeviceUUID: String? = nil,
         displaySecondsEnabled: Bool = true,
         pauseOnLockEnabled: Bool = true,
@@ -241,9 +261,10 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         self.isPaired = isPaired
-        // "Not paired" is the placeholder the Device tab shows when no device is remembered;
-        // the stored value is absent rather than that string.
-        self.pairedDeviceName = pairedDeviceName ?? "Not paired"
+        self.deviceName = deviceName
+        // A remembered name survives Forget Device, so it is not on its own reason to show one --
+        // the Device tab reads "Not paired" until there is a pairing for that name to belong to.
+        self.pairedDeviceName = (isPaired ? deviceName : nil) ?? "Not paired"
         faceMappings = ActivityLibrary.defaultMappings()
         self.googleCalendarID = googleCalendarID
         self.googleCalendarName = googleCalendarName
@@ -313,12 +334,22 @@ final class AppState: ObservableObject {
         devicePassword = config.devicePassword ?? devicePassword
     }
 
+    /// Writes the Google keys back to `config.json`, **passing the PIN through from whatever is
+    /// already on disk** rather than from memory.
+    ///
+    /// `config.json` is a file the developer maintains by hand, and the PIN in it is an input: it
+    /// says what password to present to a cube this app has not paired with yet. The app writing
+    /// its own current password over that turns the file into a race between the developer's editor
+    /// and whatever state the app happens to hold, which the app always wins and never announces.
+    ///
+    /// Read from disk rather than simply omitted, because omitting it would encode the key as
+    /// absent and delete the developer's PIN instead of leaving it alone.
     private func persistDeveloperConfig() {
         developerConfigStore.save(
             DeveloperConfigPayload(
                 googleClientID: sanitizedClientID(),
                 googleClientSecret: googleClientSecret.isEmpty ? nil : googleClientSecret,
-                devicePassword: devicePassword
+                devicePassword: developerConfigStore.load()?.devicePassword
             )
         )
     }
@@ -609,15 +640,74 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Renames the physical device, and adopts the new name locally only once the write lands.
+    ///
+    /// The order matters: the name shown on the Device tab and stored in `device_name` is meant to
+    /// be what the cube is actually carrying, so a failed write must leave both saying what the
+    /// cube still answers to. Getting this backwards would be worse than cosmetic -- `device_name`
+    /// is what a scan filter matches a renamed device on, so a name the device never took would be
+    /// a name nothing can be found by.
+    ///
+    /// Returns the problem to show, or `nil` when the rename was applied or there was nothing to do.
+    @discardableResult
+    func renameDevice(to typed: String) async -> DeviceNameProblem? {
+        switch DeviceNameRules.renameDecision(typed: typed, current: deviceName) {
+        case .ignore:
+            return nil
+        case .refuse(let problem):
+            DeveloperMode.debugPrint(.field, "Device rename refused: \(problem.id) for \"\(typed)\"")
+            return problem
+        case .write(let name):
+            guard await onDeviceRenameRequest?(name) == true else {
+                DeveloperMode.debugPrint(.field, "Device rename failed to write: \"\(name)\"")
+                return .writeFailed
+            }
+            // Nothing confirms this write at the time it is made, and the app cannot pretend
+            // otherwise. The device never updates the command result characteristic for 0x15 (a
+            // re-read ladder at +250ms, +500ms, +1s and +2s found the previous command's response
+            // still sitting there every time), and `CBPeripheral.name` does not refresh until the
+            // next connection. See docs/timeflip2-firmware-observations.md.
+            //
+            // So the new name is adopted on the strength of the write not having failed, and two
+            // later signals correct it if that was wrong: the device narrates "Neme set" on the
+            // events characteristic within ~250ms, and `peripheralDidUpdateName` reports the real
+            // name about two seconds into the next connection.
+            // Captured before the overwrite: the notice quotes the name the device will go on
+            // reporting for the rest of this connection, which is the one being replaced here.
+            let reportedUntilReconnect = deviceName
+            deviceName = name
+            pairedDeviceName = name
+            renameLagNotice = DeviceNameRules.renameLagNotice(
+                newName: name,
+                previousName: reportedUntilReconnect
+            )
+            DeveloperMode.debugPrint(.field, "Device renamed to \"\(name)\"")
+            return nil
+        }
+    }
+
+
     /// Unpairs: forgets which device the app talks to and returns it to the never-paired state.
     /// **This is the only thing that clears `isPaired`** -- reached from the Forget Device button
     /// and from the end of a confirmed factory reset, both of which are the user deciding they no
     /// longer want this device. Nothing else may set `isPaired = false`; a dropped connection, a
     /// rejected password or a quit all leave the pairing intact and only change `connectionStatus`.
-    func forgetDevice() {
+    ///
+    /// - Parameter deviceWasWiped: whether the device itself has been factory reset (cmd `0xFF`),
+    ///   which reverts its name to the vendor default and so makes the remembered `deviceName`
+    ///   wrong -- that gets discarded too. Plain Forget Device passes false and **keeps** the name:
+    ///   forgetting does not un-rename the cube, so a renamed one still answers only to the name it
+    ///   was given, and throwing that string away is throwing away the way to find it again.
+    func forgetDevice(deviceWasWiped: Bool = false) {
         isPaired = false
         pairedDeviceName = "Not paired"
         pairedDeviceUUID = nil
+        // Nothing left for it to describe: the Name row is back to "Not paired", and a factory
+        // reset has taken the rename with it.
+        renameLagNotice = nil
+        if deviceWasWiped {
+            deviceName = nil
+        }
         connectionStatus = .disconnected
         currentFaceID = TimeFlipConstants.unassignedFaceID
         isPaused = true
@@ -627,6 +717,10 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         deviceInfo = nil
+        // Correct in memory, and deliberately not persisted anywhere in developer mode: Forget
+        // Device sends 0x30 to reset the cube first, so the factory default really is the password
+        // the *next* pairing attempt should present. See `persistDevicePassword` for why that no
+        // longer reaches `config.json`.
         devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }
@@ -796,10 +890,19 @@ final class AppState: ObservableObject {
     }
 
     private func persistDevicePassword(_ password: String) {
-        if isDeveloperConfigActive {
-            persistDeveloperConfig()
-            return
-        }
+        // Developer mode persists nothing here, on purpose. The PIN lives in `config.json`, which
+        // the developer maintains by hand and the app only ever reads (see `persistDeveloperConfig`).
+        //
+        // This used to rewrite that file with the app's current password, which is how a Forget
+        // Device came to stamp "000000" over a hand-set PIN on 2026-08-01: the re-pair then rotated
+        // the cube to 123456, the file still said 000000, and every launch afterwards was refused
+        // at login with nothing pointing back at the forget. A file that is edited by hand and
+        // silently rewritten by the app cannot be relied on by either.
+        //
+        // Nothing is lost by not storing it: in developer mode the rotation target is the fixed
+        // `DeveloperMode.devicePassword`, which is also where a dev build starts, so the two agree
+        // across launches without anything being written down.
+        if isDeveloperConfigActive { return }
         do {
             try devicePasswordStore.savePassword(password)
         } catch {
@@ -823,17 +926,85 @@ final class AppState: ObservableObject {
     }
 
 
+    /// Whether the name the cube just reported should replace the one already stored.
+    ///
+    /// Only on a first pairing, or when nothing is stored at all. On a routine reconnect the stored
+    /// name wins, which is the opposite of what "mirror the device" would suggest, and it is the
+    /// hardware that forces it: the reported name is `CBPeripheral.name`, which macOS caches and
+    /// refreshes only when it next connects and re-reads `0x2A00`, so straight after a rename it is
+    /// **one connection behind**.
+    ///
+    /// Measured on 2026-08-01. The cube was renamed to `Plopper` at 22:44:43; the next connect
+    /// reported `Dibby`, the name from before that rename, and overwrote the correct stored value;
+    /// the connect after that reported `Plopper` and overwrote it back. So a rename was followed by
+    /// exactly one session showing and storing the previous name.
+    ///
+    /// That window is not cosmetic: `device_name` is what the scan filter matches a renamed cube
+    /// on, so during it the app hunts for a name the device stopped answering to. Only the cube's
+    /// unchanged advertised name kept reconnects working at all.
+    ///
+    /// A first pairing is the one moment the cube's answer genuinely beats ours, because we have no
+    /// answer of our own, and a peripheral this Mac has not connected to before has nothing cached
+    /// to be stale. It also has to be the rule rather than "adopt when nothing is stored", because
+    /// Forget Device deliberately keeps `deviceName`: pairing a *different* cube afterwards must
+    /// take the new cube's name rather than inherit the old one's.
+    ///
+    /// The cost is that a rename made in some other app is not noticed until this one re-pairs.
+    /// That is the better failure: it leaves a name merely out of date, where trusting the cache
+    /// silently reverts a name the user just set.
+    private func shouldAdoptReportedName(wasPaired: Bool) -> Bool {
+        !wasPaired || deviceName == nil
+    }
+
+    /// The device has told us what it is actually called, from `peripheralDidUpdateName` -- the one
+    /// signal that fires *because* the name changed rather than reporting a cached one, so it
+    /// outranks the stored name `confirmConnected` otherwise keeps.
+    func adoptReportedDeviceName(_ name: String) {
+        deviceName = name
+        pairedDeviceName = name
+        clearRenameLagNoticeIfCaughtUp(reported: name)
+    }
+
+    /// Drops the post-rename notice once the device is reporting the name it was given, because at
+    /// that point the lag the notice describes is over and it would be describing nothing.
+    ///
+    /// Keyed on the names agreeing rather than on "a connection happened", because one connection
+    /// is not reliably enough. Measured 2026-08-01: a cube renamed to `Plopper` reported `Dibby` on
+    /// the next connect and only `Plopper` on the one after, so clearing on the first reconnect
+    /// would retire the notice while the stale name was still exactly what the user would find.
+    private func clearRenameLagNoticeIfCaughtUp(reported: String?) {
+        guard renameLagNotice != nil, let reported, reported == deviceName else { return }
+        renameLagNotice = nil
+        DeveloperMode.debugPrint(.deviceName, "rename lag notice cleared: device now reports \"\(reported)\"")
+    }
+
     /// The device is reachable and talking to us. Called on every successful connect, so it runs
     /// both at the end of a first pairing and after each routine reconnect.
     ///
     /// Pairing is the part that only happens once: `isPaired` is set unconditionally because
     /// reaching a device is proof the app is paired to it, but `onPairingChange` fires only on the
     /// false -> true edge, so a reconnect reports a connection and not a fresh pairing.
-    func confirmConnected(name: String, uuid: String?) {
+    /// `name` is what the cube reports carrying (`TimeFlipDevice.deviceName`), and it is trusted
+    /// **only on a first pairing**. See `shouldAdoptReportedName`.
+    func confirmConnected(name: String?, uuid: String?) {
         let wasPaired = isPaired
         isPaired = true
         connectionStatus = .connected
-        pairedDeviceName = name
+        let reported = (name?.isEmpty == false) ? name : nil
+        if let reported, shouldAdoptReportedName(wasPaired: wasPaired) {
+            deviceName = reported
+        } else if let reported, reported != deviceName {
+            DeveloperMode.debugPrint(
+                .deviceName,
+                "keeping stored name \"\(deviceName ?? "nil")\" over reported \"\(reported)\" (reconnect, reported name lags by one connection)"
+            )
+        }
+        // The stored name first, the reported one only as a fallback for a device we have never
+        // been told the name of.
+        if let known = deviceName ?? reported {
+            pairedDeviceName = known
+        }
+        clearRenameLagNoticeIfCaughtUp(reported: reported)
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
         if let id = pendingPairingDeviceID {
             deviceStatusMessages[id] = nil

@@ -80,11 +80,12 @@ have moved.
       being cleared on every transient disconnect, which lost the intent across a quit while the
       device was out of range. With `paired` made durable (see below) the two say the same thing,
       and a second flag to keep in step with the first is a bug waiting to happen.
-- [x] **`pairedDeviceName`** — remembered device name, shown while disconnected. *Done — the
-      `name` key on `paired_device`.* The "Not paired" placeholder is a display default and is
-      stored as absent rather than as that string.
+- [x] **`pairedDeviceName`** — the device name. *Done — the `name` key on the `device_name`
+      setting, written from `AppState.deviceName`.* `pairedDeviceName` itself stayed behind as the
+      Device tab's display value and is no longer persisted at all: the "Not paired" placeholder is
+      a rendering of "no pairing", not a name, and `device_name` deliberately outlives a forget.
 - [x] **`pairedDeviceUUID`** — CoreBluetooth peripheral identifier, used to reconnect to the same
-      device rather than rediscovering. *Done — the `uuid` key on `paired_device`.*
+      device rather than rediscovering. *Done — the `uuid` key on the `device_uuid` setting.*
 
   Moving these turned up a pre-existing muddle rather than causing one: the app treated pairing as
   something that lapsed whenever the device went out of range, which is what let a device reset

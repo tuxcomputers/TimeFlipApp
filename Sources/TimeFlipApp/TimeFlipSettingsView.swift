@@ -18,6 +18,10 @@ struct TimeFlipSettingsView: View {
     @State private var doubleTapParams: DoubleTapParameters = .default
     @State private var scanAllDevices: Bool = false
     @State private var showingFactoryResetConfirmation: Bool = false
+    @State private var isEditingDeviceName: Bool = false
+    @State private var draftDeviceName: String = ""
+    @State private var deviceNameProblem: DeviceNameProblem?
+    @FocusState private var isDeviceNameFieldFocused: Bool
 
     var body: some View {
         Form {
@@ -51,8 +55,40 @@ struct TimeFlipSettingsView: View {
     private var deviceSection: some View {
         Section("Info") {
             LabeledContent("Name") {
-                Text(appState.pairedDeviceName)
-                    .foregroundStyle(infoValueColor)
+                deviceNameValue
+            }
+            // On the whole LabeledContent, not just the value: the right-click target is the row,
+            // so the "Name" label and the gap between it and the value open the menu too. The
+            // content shape is what makes that gap hittable -- without it the menu only opens over
+            // the glyphs themselves, which on a short name is a small target.
+            .contentShape(Rectangle())
+            .contextMenu { renameMenuItems }
+            // Title from the problem itself, the same way the Categories tab titles its rename
+            // alert: "the cube cannot hold this" and "the cube did not answer" are different
+            // problems and a single heading covering both would misdirect one of them.
+            .alert(
+                deviceNameProblem?.title ?? "",
+                isPresented: Binding(
+                    get: { deviceNameProblem != nil },
+                    set: { if !$0 { deviceNameProblem = nil } }
+                ),
+                presenting: deviceNameProblem
+            ) { _ in
+                Button("OK", role: .cancel) { deviceNameProblem = nil }
+            } message: { problem in
+                Text(problem.message)
+            }
+            // Set by a rename and cleared once the device reports the new name, so it is on screen
+            // for exactly as long as the app and the device disagree about what the cube is called.
+            // A caption under the row rather than an alert: a successful rename should not need
+            // dismissing, and this is most useful sitting there while the user goes and looks at a
+            // scan list showing the old name. See DeviceNameRules.renameLagNotice.
+            if let notice = appState.renameLagNotice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("rename-lag-notice")
             }
             LabeledContent("Connection") {
                 Text(statusText)
@@ -87,6 +123,84 @@ struct TimeFlipSettingsView: View {
                 }
             }
         }
+    }
+
+    /// Read-only until Rename is chosen from the row's right-click menu, then an inline field.
+    /// Return submits, Escape abandons the edit. Mirrors the Categories tab's inline rename, which
+    /// is the pattern this app already renames things by.
+    @ViewBuilder
+    private var deviceNameValue: some View {
+        if isEditingDeviceName {
+            TextField("", text: $draftDeviceName)
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .focused($isDeviceNameFieldFocused)
+                .onAppear {
+                    // Deferred a runloop turn: at onAppear the field is not yet in the window's
+                    // responder chain, so focusing it synchronously is dropped.
+                    DispatchQueue.main.async { isDeviceNameFieldFocused = true }
+                }
+                // Holds the field to what command 0x15 can carry. Length only -- a character the
+                // device cannot take is left visible and refused on submit, so the user is told
+                // why rather than watching a keystroke vanish (see DeviceNameRules).
+                .onChange(of: draftDeviceName) { _, typed in
+                    let truncated = DeviceNameRules.truncatedInput(typed)
+                    if truncated != typed { draftDeviceName = truncated }
+                }
+                .onSubmit(submitDeviceName)
+                .onExitCommand(perform: cancelDeviceNameEdit)
+                .frame(width: 180)
+        } else {
+            Text(appState.pairedDeviceName)
+                .foregroundStyle(infoValueColor)
+                // `LabeledContent` makes its value selectable on macOS, and selectable text hands
+                // its right-click to AppKit: the glyphs got "Look Up", "Translate", "Search With
+                // Google" and the row's Rename never appeared. Screenshotted on 2026-08-02 with
+                // the name highlighted blue under the menu. An inner `.contextMenu` alone does not
+                // win that fight; the selection has to go first, and then it does.
+                //
+                // The cost is that the name can no longer be selected and copied. Worth it: it is
+                // a short string the user typed, and the row's one job here is renaming.
+                .textSelection(.disabled)
+                // The same menu again, on the name itself. It has to be repeated rather than
+                // inherited from the row, because the row's `.contentShape` claims the bare part
+                // of the row and not the glyphs. Matches the Categories tab's name column.
+                .contextMenu { renameMenuItems }
+        }
+    }
+
+    /// One definition, applied to both the row and the name inside it, so the two right-click
+    /// targets cannot drift into offering different menus.
+    @ViewBuilder
+    private var renameMenuItems: some View {
+        Button("Rename") {
+            DeveloperMode.debugPrint(.click, "Button clicked: Rename device")
+            draftDeviceName = appState.deviceName ?? ""
+            isEditingDeviceName = true
+        }
+        // The device is what holds the name, so there is nothing to rename while it cannot be
+        // reached; 0x15 would just fail on the not-logged-in guard.
+        .disabled(!appState.isConnected)
+    }
+
+    /// Applies the typed name, and **leaves the field open if it could not be applied**: an alert
+    /// that closed the editor would take the rejected text with it, so fixing a name the device
+    /// refused would mean typing the whole thing again from the context menu.
+    private func submitDeviceName() {
+        let typed = draftDeviceName
+        Task { @MainActor in
+            if let problem = await appState.renameDevice(to: typed) {
+                deviceNameProblem = problem
+                isDeviceNameFieldFocused = true
+            } else {
+                cancelDeviceNameEdit()
+            }
+        }
+    }
+
+    private func cancelDeviceNameEdit() {
+        isEditingDeviceName = false
+        draftDeviceName = ""
     }
 
     private var settingsSection: some View {
@@ -155,6 +269,11 @@ struct TimeFlipSettingsView: View {
                     // `.accessibilityLabel` does NOT fix this here -- verified on the device
                     // 2026-07-31, AXDescription still never appears. `.accessibilityIdentifier`
                     // does: it adds AXIdentifier, which System Events can filter on.
+                    // No confirmation here, deliberately. Forgetting cannot leave the device on a
+                    // PIN nobody knows: `resetAndForgetDevice` writes the factory default over
+                    // 0x30, logs in again with that default to prove the device took it, and only
+                    // then unpairs. A failed reset leaves the device paired and says so, so there
+                    // is no state to warn the user about in advance.
                     Button("Forget Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
                         Task { await appState.resetAndForgetDevice() }
