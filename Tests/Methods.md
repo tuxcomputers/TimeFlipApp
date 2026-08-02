@@ -33,6 +33,12 @@ action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 ```
 
+**Pair it with Method 3 unless you know the app is down.** Nothing here checks for a running
+instance, and `Tests/00-test-setup.md` leaves the app running before any feature checklist starts,
+so a step that only launches gets a **second** instance: two status items in the menu bar, two BLE
+clients competing for the device. Quit first (Method 3 no-ops when nothing is running, so the pair
+restarts and cold-starts alike). Confirmed on 2026-08-02, when `09b` inlined a bare launch.
+
 <a id="method-3"></a>
 ## Method 3: Quit the app
 

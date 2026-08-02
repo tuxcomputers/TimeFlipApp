@@ -48,15 +48,24 @@ a `LabeledContent` value, which is selectable on macOS, and selectable text answ
 with macOS's "Look Up" menu unless selection is turned off. That is exactly what it did before
 `.textSelection(.disabled)` was added.
 
-- [x] Step 1: Connect, open Settings on the Device tab, and confirm the cube is not already called
-      `Chomper`.
-      The last step of Scenario C renames it back, so a run that starts on `Chomper` means the
-      previous one did not finish. Catching that here matters because renaming to the name the
-      device already has is a deliberate no-op, so Scenario B would pass while writing nothing.
+- [x] Step 1: Restart the app, open Settings on the Device tab, and confirm the cube is not already
+      called `Chomper`.
+      The quit has to come first. `Tests/00-test-setup.md` leaves the app running, so a step that
+      only launches starts a **second** instance: two status items, two BLE clients. That is
+      exactly what an inlined launch here did on 2026-08-02. The quit no-ops when nothing is
+      running, so this both restarts and cold-starts. Methods:
+      [Number 3](../Methods.md#method-3) to quit, [Number 2](../Methods.md#method-2) to start.
+
+      The `Chomper` check is here because Scenario C's last step renames the cube back, so a run
+      that starts on `Chomper` means the previous one did not finish. It matters because renaming
+      to the name the device already has is a deliberate no-op: Scenario B would pass while
+      writing nothing.
 ```toml step
 [[actions]]
-action = "shell"
-command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
+use = "method-3"
+
+[[actions]]
+use = "method-2"
 
 [[actions]]
 action = "wait_for_sql"
