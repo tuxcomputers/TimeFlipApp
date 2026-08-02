@@ -1,10 +1,8 @@
 # TimeFlip2 firmware observations
 
-Behaviour measured on real hardware that the vendor spec does not describe, and in one case
-contradicts. Everything here was observed directly, with the debug log rows to prove it; nothing is inferred from the protocol document.
+Behaviour measured on real hardware that the vendor spec does not describe, and in one case contradicts. Everything here was observed directly, with the debug log rows to prove it; nothing is inferred from the protocol document.
 
-This is the third source in the hierarchy set out in the root `CLAUDE.md`:
-`docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
+This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
 **Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02.
 
