@@ -313,8 +313,8 @@ final class AppDataStore {
     /// - `start_epoch` alone isn't safe either: the device only reports whole-second timestamps
     ///   (`docs/TimeFlip2 BLE Protocol v4.3.md`'s 0x07/0x08 and the flip-timestamp field are both
     ///   "number of seconds", no finer resolution), so two genuinely different segments -- e.g. a
-    ///   quick flip across a face while searching for the right one -- can legitimately share the
-    ///   same `start_epoch` second.
+    ///   quick flip across a face while searching for the right one, see the `blip_time` setting
+    ///   -- can legitimately share the same `start_epoch` second.
     /// The combination of both is what's actually unique: the only way two different real segments
     /// collide on `(event_number, start_epoch)` is an exact coincidence of both a device reset AND
     /// the reused event_number landing in the same wall-clock second as the old segment it

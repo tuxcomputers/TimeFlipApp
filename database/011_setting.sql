@@ -27,6 +27,10 @@ SELECT 'auto_pause_minutes', '{"minutes":0}', 'minutes: delay after which the de
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'auto_pause_minutes');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
+SELECT 'blip_time', '{"seconds":5}', 'NOT YET IMPLEMENTED -- the conversion in AppDataStore converts every eligible segment, blips included. seconds: while picking up and turning the device to find the desired face, it can pass over other faces briefly, creating unwanted entries for them. Any device_event segment shorter than this is intended to be merged into the following segment instead of becoming its own time_entry. Seeded to 5 to match the vendor spec, which is where the number comes from -- but note what that 5 actually governs: the spec says the 0x02 history stream carries "all intervals that lasted for at least 5 sec", and that is a property of THAT READ ONLY. The device stores short intervals and returns them to a single-event 0x01 read (confirmed on hardware, see TimeFlipBLEDevice.fillHistoryGaps), and they reach this app regardless via the live path -- each flip triggers a fetch that writes the current segment, and the next flip closes it out. 13 of 63 production segments were under 5s on 2026-08-02. This row was deleted once on the belief that the device already handled it; see docs/operation-spec.md.'
+WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'blip_time');
+
+INSERT INTO setting (setting_name, setting_value, setting_description)
 SELECT 'firmware_check', '{"last_alert":"' || date('now', 'localtime') || '","interval_months":2}', 'last_alert (local date, YYYY-MM-DD) is when the firmware-update alert was last shown/acknowledged, seeded to the date this row was first inserted. interval_months is how many calendar months after last_alert before the user is prompted again to connect the device to the official TimeFlip app and check for a firmware update -- there is no documented way for this app to check the firmware version itself, see docs/timeflip.md. The Settings button that dismisses the alert resets last_alert to today regardless of whether the user actually checked, pushing the next alert out by interval_months either way.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'firmware_check');
 
@@ -75,7 +79,7 @@ SELECT 'device_name', '{}', 'name: the name the cube itself is carrying -- its G
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'device_name');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'time_entry_check', '{"last_check":"' || strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime') || '"}', 'last_check (local date-time, YYYY-MM-DDTHH:MM:SS) is when the app last swept device_event for segments to turn into time_entry rows, seeded to when this row was created so the first sweep has a starting point rather than a null. A segment is eligible when finalised = 1, paused = 0, processed = 0, and its device_event_id is not already in time_entry -- that last condition is guaranteed by UN1_time_entry rather than merely checked, so a double sweep cannot double-count. See docs/operation-spec.md § 3.'
+SELECT 'time_entry_check', '{"last_check":"' || strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime') || '"}', 'last_check (local date-time, YYYY-MM-DDTHH:MM:SS) is when the app last swept device_event for segments to turn into time_entry rows, seeded to when this row was created so the first sweep has a starting point rather than a null. A segment is eligible when finalised = 1, paused = 0, processed = 0, and its device_event_id is not already in time_entry -- that last condition is guaranteed by UN1_time_entry rather than merely checked, so a double sweep cannot double-count. See docs/operation-spec.md § 3, and note that a segment shorter than blip_time is merged into the following one instead of becoming its own entry, so an eligible segment does not always produce a row.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'time_entry_check');
 
 -- Migration (run by hand against a database that predates these two rows, see CLAUDE.md).
@@ -88,9 +92,3 @@ WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'time_entry_check')
 -- UPDATE setting SET setting_value = json_object('uuid', json_extract((SELECT setting_value FROM setting WHERE setting_name = 'paired_device'), '$.uuid')) WHERE setting_name = 'device_uuid';
 -- UPDATE setting SET setting_value = json_object('name', json_extract((SELECT setting_value FROM setting WHERE setting_name = 'paired_device'), '$.name')) WHERE setting_name = 'device_name';
 -- DELETE FROM setting WHERE setting_name = 'paired_device';
-
--- Migration (run by hand against a database that predates the removal of blip_time).
--- The device applies its own sub-5-second filter before an event ever reaches this app, so a
--- second one here had nothing left to catch. A removed seed row does not disappear on its own:
--- the guarded inserts above only add, so it survives every launch until deleted.
--- DELETE FROM setting WHERE setting_name = 'blip_time';

@@ -37,11 +37,25 @@ When the app receives a decoded event from the BLE driver (`TimeFlipEvent` today
 
 ## 3. Turning a finalized segment into a `time_entry`
 
-A `device_event` row becomes a `time_entry` once its segment is finalized (i.e. it's no longer the device's in-progress last frame — a later event has closed it out). Precisely, a row is eligible when `finalised = 1`, `paused = 0`, `processed = 0`, and its `device_event_id` is not already in `time_entry` — that last one enforced by `UN1_time_entry` rather than merely tested, so a sweep is safe to re-run. `setting.time_entry_check` records when the last sweep ran.
+A `device_event` row becomes a `time_entry` once its segment is finalized (i.e. it's no longer the device's in-progress last frame — a later event has closed it out). Precisely, a row is eligible when `finalised = 1`, `paused = 0`, `processed = 0`, and its `device_event_id` is not already in `time_entry` — that last one enforced by `UN1_time_entry` rather than merely tested, so a sweep is safe to re-run. `setting.time_entry_check` records when the last sweep ran. `AppDataStore.createTimeEntriesForFinalisedEvents` is that conversion, and `sweepTimeEntries(trigger:)` is the wider pass that drops the `processed` condition in order to find rows wrongly marked done.
 
 1. Resolve which `category` the segment belongs to: look up `face.category_id` for the `device_event.device_face` value **as it was mapped at the time the segment occurred** — if the user re-maps a face to a different category later, already-created `time_entry` rows keep their original `category_id` rather than retroactively changing.
 2. Insert a `time_entry` row: `category_id`, `device_event_id` (the `device_event` row it came from), `started_at`/`started_at_timezone` (copied from the `device_event` row), `ended_at`/`ended_at_timezone` (`started_at` + `duration_seconds`, converted back to local time), `duration_seconds`, and `synced_to_google_calendar = 0`.
-3. Not every `device_event` row necessarily becomes a `time_entry` — a segment that is paused, or not yet finalized, has nothing to record.
+3. Not every `device_event` row necessarily becomes a `time_entry` — see applying `blip_time` below.
+
+### Applying `blip_time`
+
+**NOT YET IMPLEMENTED.** The conversion described above currently converts every eligible segment, blips included. This section is the intent; the code does not honour it yet.
+
+While picking the device up and turning it to find the desired face, it can briefly pass over other faces, creating short, unwanted `device_event` segments for them before landing on the intended one. The `blip_time` setting (see [Database Design § `setting`](database-design.md), seeded to `5` seconds) filters these out:
+
+- When a segment is finalized (step 3 above), compare its `duration_seconds` to `blip_time`.
+- If `duration_seconds < blip_time`, don't create a `time_entry` for it — instead, merge it into the *following* segment: that next segment's `time_entry` should start from the short segment's `started_at` rather than its own, so the accidental blip's duration counts toward whichever face the user actually settled on, rather than being recorded against the momentarily-passed-over face or lost entirely.
+- The `device_event` row for the merged-away segment is still kept as-is (per the "decoded, not raw" principle nothing there is deleted) — only `time_entry` creation is affected.
+
+**The device does not do this for us, and it looks as though it does.** The vendor spec's "the history will be sent with all intervals that lasted for at least 5 sec" is a property of the `0x02` stream alone, not of what the cube records: it keeps short intervals and returns them happily to a single-event `0x01` read, and `fillHistoryGaps` relies on exactly that. Blips reach this app anyway, by the live path rather than the stream — every flip triggers a history fetch, which writes the now-current segment with the duration it has at that instant, and the next flip closes it out. On 2026-08-02, 13 of 63 finalized unpaused production segments were under 5 seconds and 8 of them read `0.0`. That reasoning removed this section once already; it is written down here so it does not remove it a second time.
+
+Note also that a blip's recorded `duration_seconds` is not trustworthy. It is whatever the last fetch saw, so a segment the following event shows to have lasted 3 seconds can be stored as `0.0` (production `device_event` 28 and 29). Anything built on top of this should treat a sub-`blip_time` duration as "short", not as a measurement.
 
 ## 4. Recording a point-in-time notification (`device_notification`)
 
