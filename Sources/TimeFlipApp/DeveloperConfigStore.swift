@@ -86,6 +86,9 @@ enum DeveloperMode {
         // brightness-log check can't be clobbered by an interleaved blink-interval message.
         case ledBright = "led-bright"
         case ledBlink = "led-blink"
+        // Turning finalised device_event rows into time_entry rows. Ten characters, one short of
+        // the longest tag, so adding it re-pads nothing.
+        case timeEntry = "time-entry"
         case click = "click"
         case field = "field"
         case menu = "menu"

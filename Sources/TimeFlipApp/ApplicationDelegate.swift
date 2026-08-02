@@ -198,6 +198,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         let dbType = dataStore.loadDbType()
         appState.dbType = dbType
         DeveloperMode.debugPrint(.dbType, "Database type: \(dbType)")
+        // Before anything can add to the backlog: converts whatever the last run left behind, and
+        // reports any device_event marked processed with no time_entry to show for it. Runs after
+        // the log sink is wired above so a repair actually reaches debug_log.
+        dataStore.sweepTimeEntries(trigger: .launch)
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in

@@ -11,6 +11,29 @@ struct DeviceEventRecord {
     let isPaused: Bool
 }
 
+/// What set a `time_entry` sweep going. Carried only so the debug log can say why a sweep ran:
+/// the sweep itself behaves identically whichever it is, because it works out what needs doing by
+/// asking the database rather than by being told.
+///
+/// Adding a case is how a new trigger joins in. Nothing coordinates them, and nothing needs to:
+/// sweeping when there is nothing to convert costs one query, so a trigger that fires too often is
+/// wasteful rather than wrong, and one that never fires only delays the work to the next trigger.
+enum TimeEntrySweepTrigger: String {
+    /// A face is about to be remapped to a different category, and the sweep runs **before** the
+    /// remap. The one trigger where the ordering is load-bearing rather than incidental: an entry
+    /// records the category the face was mapped to at the time, and that mapping is what is about
+    /// to change, so anything still unconverted has to be converted while the old mapping is still
+    /// the truth. See `updateFaceCategory`.
+    case faceCategoryChange = "face-category-change"
+    /// A batch of history finished ingesting. A backstop: `recordDeviceEvent` already converts as
+    /// it goes, so this normally finds nothing, and is here to catch a row some future path
+    /// finalises without going through it.
+    case historyIngest = "history-ingest"
+    /// App launch, which catches anything a previous run left unconverted, whether through a crash
+    /// or through simply not having had this code yet.
+    case launch = "launch"
+}
+
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
 /// "#rrggbb" LED value, `nil` for the `None` colour.
 struct ColourRecord: Equatable, Sendable {
@@ -407,8 +430,198 @@ final class AppDataStore {
                 }
                 sqlite3_finalize(stmt)
             }
+            createTimeEntriesForFinalisedEvents()
         }
         return success
+    }
+
+    /// Turns newly finalised segments into `time_entry` rows. The normal path, run at the end of
+    /// every `recordDeviceEvent`, which is where finalising actually happens and happens three
+    /// different ways: the in-place update flipping a row's `finalised` to 1, the close-out
+    /// `UPDATE ... WHERE finalised != 1` when a newer segment arrives, and an out-of-order segment
+    /// inserted already finalised. Rather than hooking each, this asks the question they all lead
+    /// to, so a fourth path added later cannot forget to call it.
+    ///
+    /// **Must be called on `queue`**, and is, from inside `recordDeviceEvent`'s `queue.sync`. It
+    /// deliberately does not take the lock itself: `queue` is serial, so re-entering would deadlock.
+    ///
+    /// Scoped by `processed = 0`, which is what makes it cheap enough to run on every event: the
+    /// flag is a marker of work already done, so skipping those rows skips almost the whole table.
+    /// The cost of trusting the flag is that a row wrongly marked is invisible here, and that is
+    /// exactly what `sweepTimeEntries(trigger:)` exists to find.
+    private func createTimeEntriesForFinalisedEvents() {
+        convertEligibleEvents(
+            extraConditions: "AND de.processed = 0",
+            label: "finalised"
+        )
+    }
+
+    /// Finds and fixes `device_event` rows that should have a `time_entry` and do not, **including
+    /// ones already marked `processed`**.
+    ///
+    /// A different job from `createTimeEntriesForFinalisedEvents`, despite converting the same way.
+    /// That one trusts `processed` so it can run constantly for almost nothing; this one ignores it
+    /// on purpose, because a row marked done with no entry to show for it is a broken record, and
+    /// the only way to find one is to look where the flag says not to. Its time is otherwise
+    /// missing from every total, silently and permanently -- nothing else would ever notice.
+    ///
+    /// Safe to call from anywhere, as often as anything likes: it asks the database what is wrong
+    /// rather than being told, so a caller needs to know only that *something* happened, never
+    /// which rows. Firing when there is nothing to fix costs one query. That is what lets the
+    /// trigger list grow without any of the triggers having to coordinate.
+    ///
+    /// Returns how many entries it created, which for this function is a defect count rather than
+    /// a throughput figure: anything above zero means something upstream failed to convert a row it
+    /// should have, and the debug log names each one.
+    @discardableResult
+    func sweepTimeEntries(trigger: TimeEntrySweepTrigger) -> Int {
+        var repaired = 0
+        queue.sync {
+            repaired = convertEligibleEvents(extraConditions: "", label: "sweep/\(trigger.rawValue)")
+        }
+        return repaired
+    }
+
+    /// The conversion both paths share, differing only in how much of the table they look at.
+    /// **Must be called on `queue`.**
+    ///
+    /// The base test is `paused = 0`, `finalised = 1`, and not already in `time_entry`. Membership
+    /// of `time_entry` is the single source of truth for whether an event has been converted, and
+    /// `UN1_time_entry` enforces it, so `processed` records the outcome rather than deciding it and
+    /// is allowed to be wrong. `extraConditions` is how the cheap path narrows that to rows the
+    /// flag has not already claimed.
+    ///
+    /// A paused segment is never converted and so keeps `processed = 0` for as long as it exists.
+    /// The flag means "has a time entry", a pause never gets one, and there is nothing to mark.
+    @discardableResult
+    private func convertEligibleEvents(extraConditions: String, label: String) -> Int {
+        guard let db else { return 0 }
+
+        // Row by row rather than one INSERT ... SELECT, so each conversion can be logged against
+        // the event it came from. At these volumes the difference is unmeasurable, and a log line
+        // naming the event and face is worth more than the lower statement count.
+        let selectSQL = """
+        SELECT de.device_event_id, de.event_number, de.device_face, de.start_time, de.timezone_id,
+               de.start_epoch, de.duration_seconds, de.processed, f.category_id
+        FROM device_event de
+        JOIN face f ON f.face_id = de.device_face
+        WHERE de.paused = 0
+          AND de.finalised = 1
+          AND de.device_event_id NOT IN (SELECT device_event_id FROM time_entry)
+          \(extraConditions)
+        ORDER BY de.device_event_id;
+        """
+        struct Convertible {
+            let deviceEventID: Int64
+            let eventNumber: Int64
+            let deviceFace: Int32
+            let startTime: String
+            let timezoneID: Int64
+            let startEpoch: Int64
+            let durationSeconds: Double
+            let wasMarkedProcessed: Bool
+            let categoryID: Int64
+        }
+        var pending: [Convertible] = []
+        var selectStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK {
+            while sqlite3_step(selectStmt) == SQLITE_ROW {
+                pending.append(Convertible(
+                    deviceEventID: sqlite3_column_int64(selectStmt, 0),
+                    eventNumber: sqlite3_column_int64(selectStmt, 1),
+                    deviceFace: sqlite3_column_int(selectStmt, 2),
+                    startTime: String(cString: sqlite3_column_text(selectStmt, 3)),
+                    timezoneID: sqlite3_column_int64(selectStmt, 4),
+                    startEpoch: sqlite3_column_int64(selectStmt, 5),
+                    durationSeconds: sqlite3_column_double(selectStmt, 6),
+                    wasMarkedProcessed: sqlite3_column_int(selectStmt, 7) == 1,
+                    categoryID: sqlite3_column_int64(selectStmt, 8)
+                ))
+            }
+        } else {
+            logger.error("time_entry select failed (\(label, privacy: .public)): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            DeveloperMode.debugPrint(.timeEntry, "\(label): select failed: \(String(cString: sqlite3_errmsg(db)))")
+        }
+        sqlite3_finalize(selectStmt)
+
+        var created = 0
+        for row in pending {
+            // `ended_at` is start + duration converted back to local time, carrying the segment's
+            // start zone: the device reports a start and a length, never an end, so nothing here
+            // could tell us the zone changed mid-segment. The bound value is an integer because
+            // duration is REAL while the column stores whole seconds.
+            let insertSQL = """
+            INSERT INTO time_entry (
+                category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds
+            ) VALUES (
+                ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', ?, 'unixepoch', 'localtime'), ?, ?
+            );
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, insertSQL, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("time_entry insert prepare failed ev=\(row.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                continue
+            }
+            sqlite3_bind_int64(stmt, 1, row.categoryID)
+            sqlite3_bind_int64(stmt, 2, row.deviceEventID)
+            sqlite3_bind_text(stmt, 3, row.startTime, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 4, row.timezoneID)
+            sqlite3_bind_int64(stmt, 5, row.startEpoch + Int64(row.durationSeconds))
+            sqlite3_bind_int64(stmt, 6, row.timezoneID)
+            sqlite3_bind_double(stmt, 7, row.durationSeconds)
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                created += 1
+                // A row already marked processed had no entry, which nothing upstream should ever
+                // leave behind. Logged loudly and separately, because it is a defect report rather
+                // than a routine conversion.
+                if row.wasMarkedProcessed {
+                    logger.error("time_entry REPAIRED ev=\(row.eventNumber, privacy: .public): marked processed with no entry")
+                    DeveloperMode.debugPrint(
+                        .timeEntry,
+                        "\(label): REPAIRED ev=\(row.eventNumber) face=\(row.deviceFace) dur=\(row.durationSeconds)s -- was marked processed with no entry"
+                    )
+                } else {
+                    DeveloperMode.debugPrint(
+                        .timeEntry,
+                        "\(label): created ev=\(row.eventNumber) face=\(row.deviceFace) dur=\(row.durationSeconds)s cat=\(row.categoryID)"
+                    )
+                }
+            } else {
+                logger.error("time_entry insert failed ev=\(row.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                DeveloperMode.debugPrint(.timeEntry, "\(label): insert failed ev=\(row.eventNumber): \(String(cString: sqlite3_errmsg(db)))")
+            }
+            sqlite3_finalize(stmt)
+        }
+
+        // Driven off `time_entry` rather than off what this pass just inserted, so an event whose
+        // flag an interrupted run never set is brought back into step here.
+        let markProcessed = """
+        UPDATE device_event SET processed = 1
+        WHERE processed = 0
+          AND device_event_id IN (SELECT device_event_id FROM time_entry);
+        """
+        if sqlite3_exec(db, markProcessed, nil, nil, nil) != SQLITE_OK {
+            logger.error("device_event processed update failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            DeveloperMode.debugPrint(.timeEntry, "\(label): processed update failed: \(String(cString: sqlite3_errmsg(db)))")
+        }
+
+        // Stamped whether or not anything was created: it records when the check last ran, and one
+        // that found nothing still ran. Stamping only on success would make "working, nothing to
+        // do" indistinguishable from "not running at all", which is the question this row exists to
+        // answer.
+        let stamp = """
+        UPDATE setting
+        SET setting_value = json_set(setting_value, '$.last_check', strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'))
+        WHERE setting_name = 'time_entry_check';
+        """
+        if sqlite3_exec(db, stamp, nil, nil, nil) != SQLITE_OK {
+            logger.error("time_entry_check stamp failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+        }
+
+        guard created > 0 else { return 0 }
+        logger.notice("time_entry \(label, privacy: .public) created=\(created, privacy: .public)")
+        return created
     }
 
     /// Development-only consistency check: re-derives `MAX(start_epoch)` directly from the
@@ -664,8 +877,17 @@ final class AppDataStore {
     ///
     /// A locked face is refused here as well as in the UI. Locking exists to stop a face being
     /// reassigned by accident, and a guard the UI alone enforces is one a stale view can walk past.
+    ///
+    /// **Sweeps first, and the order is the whole point.** A `time_entry` records the category the
+    /// face was mapped to *when the segment happened* (`docs/operation-spec.md` § 3), and the only
+    /// place that mapping is written down is this row, which is about to change. Any segment still
+    /// waiting to be converted would be converted against the new category and recorded as time
+    /// spent on something the user was not doing. Converting everything pending before the write
+    /// closes that window: afterwards the entries are already made and carry the old category, and
+    /// only segments that happen from now on take the new one.
     func updateFaceCategory(faceID: UInt8, categoryID: Int) {
         guard let db else { return }
+        sweepTimeEntries(trigger: .faceCategoryChange)
         let sql = """
         UPDATE face SET category_id = ?
         WHERE face_id = ? AND locked = 0

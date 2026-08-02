@@ -270,6 +270,11 @@ final class HistoryIngestor {
         // doesn't spam the console with one line per record.
         dataStore.verifyMaxKnownStartEpochConsistency()
 
+        // Backstop rather than the main path: recordDeviceEvent already sweeps, so by here there is
+        // normally nothing left. It costs one query and covers a batch that finalises rows through
+        // some route that does not go through recordDeviceEvent.
+        dataStore.sweepTimeEntries(trigger: .historyIngest)
+
         DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
         await finishFetch()
     }
