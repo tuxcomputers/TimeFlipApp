@@ -1,26 +1,18 @@
 # TimeFlip2 firmware observations
 
-Behaviour measured on real hardware that the vendor spec does not describe, and in one case
-contradicts. Everything here was observed directly, with the debug log rows to prove it; nothing is inferred from the protocol document.
+Behaviour measured on real hardware that the vendor spec does not describe, and in one case contradicts. Everything here was observed directly, with the debug log rows to prove it; nothing is inferred from the protocol document.
 
-This is the third source in the hierarchy set out in the root `CLAUDE.md`:
-`docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
+This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
 **Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02.
 
 ## The evidence file
 
-[`timeflip2-firmware-evidence.sqlite`](timeflip2-firmware-evidence.sqlite) sits beside this document
-and holds the debug log rows every claim below rests on. Every row id quoted here is a row in it.
+[`timeflip2-firmware-evidence.sqlite`](timeflip2-firmware-evidence.sqlite) sits beside this document and holds the debug log rows every claim below rests on. Every row id quoted here is a row in it.
 
-**One clean run, start to finish.** 643 rows over 7m44s on 2026-08-02, from a database created empty
-moments before, produced by the harness on this repo's `timeflip2-firmware-diagnosis` branch at
-commit `0fa253d` with no code changes during the run. An earlier version of this file cited a
-longer capture taken while the code was still being edited; it was replaced precisely because a
-claim about firmware is worth less when the client was a moving target.
+**One clean run, start to finish.** 643 rows over 7m44s on 2026-08-02, from a database created empty moments before, produced by the harness on this repo's `timeflip2-firmware-diagnosis` branch at commit `0fa253d` with no code changes during the run. An earlier version of this file cited a longer capture taken while the code was still being edited; it was replaced precisely because a claim about firmware is worth less when the client was a moving target.
 
-Original `debug_log_id` values and timestamps are carried over unchanged, so ordering by id is true
-chronological order (the extract script verifies this rather than asserting it).
+Original `debug_log_id` values and timestamps are carried over unchanged, so ordering by id is true chronological order (the extract script verifies this rather than asserting it).
 
 ```
 sqlite3 docs/timeflip2-firmware-evidence.sqlite \
@@ -36,16 +28,7 @@ sqlite3 docs/timeflip2-firmware-evidence.sqlite \
 | `scan` | one scanned advertisement: both names it carried, and the name being searched for |
 | `device-name` | the name read on connect, and the name the device later reported |
 
-To reproduce it, or to retest after a firmware update, see
-[`FIRMWARE-DIAGNOSIS.md`](../FIRMWARE-DIAGNOSIS.md) on that branch.
-
----|---|
-| `ble-tx` | bytes written to the device |
-| `ble-rx` | bytes received from it |
-| `face-task` | the app's own rename lifecycle |
-| `field` / `click` | the user action that started it |
-| `scan` | one scanned advertisement: both names it carried, and the name being searched for |
-| `device-name` | the name read on connect, and the name the device later reported |
+To reproduce it, or to retest after a firmware update, see [`FIRMWARE-DIAGNOSIS.md`](../FIRMWARE-DIAGNOSIS.md) on that branch.
 
 Checked in deliberately, at 60 KB. These measurements cost an evening of device time and several wrong conclusions along the way, and a claim about firmware behaviour is worth little without the trace behind it.
 
@@ -53,9 +36,7 @@ Checked in deliberately, at 60 KB. These measurements cost an evening of device 
 
 ## 1. Renaming changes the GAP name but not the advertised name
 
-Command `0x15` changes the GAP Device Name (`0x2A00`). It does **not** change the advertised local
-name, which stays `TimeFlip v2.0` permanently. Seen on every rename tested, over two sessions and
-eight different names.
+Command `0x15` changes the GAP Device Name (`0x2A00`). It does **not** change the advertised local name, which stays `TimeFlip v2.0` permanently. Seen on every rename tested, over two sessions and eight different names.
 
 In the clean run, before any rename, with nothing remembered (id 18):
 
@@ -69,17 +50,12 @@ and after renaming that same device to `Wibble` (ids 585 to 651):
 listed: name=Zonker advert=TimeFlip v2.0 looking-for=Wibble
 ```
 
-`name=` is the GAP name and `advert=` the advertisement's local name. The advertised one is still
-the factory string, and the GAP one is still the name from *before* the rename (see below).
+`name=` is the GAP name and `advert=` the advertisement's local name. The advertised one is still the factory string, and the GAP one is still the name from *before* the rename (see below).
 
-That split is the single most consequential fact about renaming, because the two names are what a
-scan matches on:
+That split is the single most consequential fact about renaming, because the two names are what a scan matches on:
 
-- Matching **only the GAP name** loses the device the moment it is renamed off "TimeFlip". On Apple
-  platforms `CBPeripheral.name` is that value, so it is the obvious thing to filter on, and doing so
-  is what made a renamed cube undiscoverable here (fixed; see `DeviceNameRules.matchesKnownDevice`).
-- Matching **only the advertised name** always finds the hardware but can never show the user the
-  name they chose.
+- Matching **only the GAP name** loses the device the moment it is renamed off "TimeFlip". On Apple   platforms `CBPeripheral.name` is that value, so it is the obvious thing to filter on, and doing so is what made a renamed cube undiscoverable here (fixed; see `DeviceNameRules.matchesKnownDevice`).
+- Matching **only the advertised name** always finds the hardware but can never show the user the  name they chose.
 
 So both are needed, for different jobs. `DeviceNameRules.matchesKnownDevice` checks both.
 
@@ -87,16 +63,14 @@ So both are needed, for different jobs. `DeviceNameRules.matchesKnownDevice` che
 
 `CBPeripheral.name` is cached by macOS and refreshed only when CoreBluetooth next connects and re-reads GAP. Straight after a rename it still reports the previous name. Polling it 120 times over 30 seconds within the same connection never saw it change.
 
-The next connection does report it: `peripheralDidUpdateName(_:)` fires a second or two in, on
-every rename tested. Ids 873 and 883 of the clean run are the whole mechanism in two lines:
+The next connection does report it: `peripheralDidUpdateName(_:)` fires a second or two in, on every rename tested. Ids 873 and 883 of the clean run are the whole mechanism in two lines:
 
 ```
 09:20:01.788  device name read on connect: device=Zonker stored=Wibble
 09:20:02.964  device reported a new name: Wibble
 ```
 
-The connect-time read is the stale one and is correctly not adopted; the callback arrives 1.2s later
-with the truth.
+The connect-time read is the stale one and is correctly not adopted; the callback arrives 1.2s later with the truth.
 
 **Consequence for this app:** a name the app has written and the device has confirmed beats a connect-time read, because the read is the stale one. `AppState.shouldAdoptReportedName` implements that, taking the reported name only on a first pairing.
 
@@ -120,17 +94,11 @@ The spec describes the command result characteristic as carrying `0xXX 0xYY`, th
 | `0x11` face colour | `set color` | **never updated** |
 | `0x15` set name | `Neme set` | **never updated** |
 
-`0x08` and `0x30` are write-only and *do* answer, so "write-only commands do not answer" is not the
-rule. Which commands answer looks arbitrary.
+`0x08` and `0x30` are write-only and *do* answer, so "write-only commands do not answer" is not the rule. Which commands answer looks arbitrary.
 
-The table was re-derived from the clean run rather than carried over, and reproduced exactly. One
-detail confirms the reading: the stale payload sitting behind `0x09`, `0x0A` and `0x11` was
-`01 02 …` in the first capture and `01 01 …` in the second, differing only in the lock byte, which
-is what the leftover `0x10` status response should do.
+The table was re-derived from the clean run rather than carried over, and reproduced exactly. One detail confirms the reading: the stale payload sitting behind `0x09`, `0x0A` and `0x11` was `01 02 …` in the first capture and `01 01 …` in the second, differing only in the lock byte, which is what the leftover `0x10` status response should do.
 
-For `0x15` this was checked exhaustively rather than assumed. It looked like a timing race, since the
-client reads the result ~50 ms after the write while the device only narrates completion ~230 ms
-later, so the read was repeated on a ladder. Clean run, ids 518 to 535:
+For `0x15` this was checked exhaustively rather than assumed. It looked like a timing race, since the client reads the result ~50 ms after the write while the device only narrates completion ~230 ms later, so the read was repeated on a ladder. Clean run, ids 518 to 535:
 
 ```
 09:19:12.898  write command ack <- 15 06 57 69 62 62 6C 65
@@ -142,9 +110,7 @@ later, so the read was repeated on a ladder. Clean run, ids 518 to 535:
 09:19:17.048  0x15 commandResult re-read at +2000ms: 17 3A 5A 3B 14 ...
 ```
 
-`17 3A 5A 3B 14 3C 32 3D 32` is the response to `0x17` (read double-tap parameters), issued during
-session setup six minutes earlier. It is still there two seconds after the rename and well after the
-device has announced completion. It is not a race.
+`17 3A 5A 3B 14 3C 32 3D 32` is the response to `0x17` (read double-tap parameters), issued during session setup six minutes earlier. It is still there two seconds after the rename and well after the device has announced completion. It is not a race.
 
 **Consequence for this app, and it is a real defect.** `TimeFlipBLEDevice.performCommand` writes, reads the command result, and validates it only when the response is one or two bytes long:
 
@@ -182,10 +148,6 @@ The spec documents this characteristic as carrying event data, not command narra
 
 ## Raising it with the vendor
 
-Findings 1 to 3 are to be reported against `DI-GROUP/TimeFlip.Docs`. **Not yet filed** -- update this
-line with the issue link once it is.
+Findings 1 to 3 are to be reported against `DI-GROUP/TimeFlip.Docs`. **Not yet filed** -- update this line with the issue link once it is.
 
-The request is that the spec describe the behaviour, not that the behaviour change. A guaranteed
-stable advertised name is genuinely useful for scan filtering once documented rather than merely
-observed, and the events-data narration would be a perfectly good completion signal if it were
-supported rather than incidental.
+The request is that the spec describe the behaviour, not that the behaviour change. A guaranteed stable advertised name is genuinely useful for scan filtering once documented rather than merely observed, and the events-data narration would be a perfectly good completion signal if it were supported rather than incidental.
