@@ -76,5 +76,4 @@ swiftlint --fix
 
 ## Next Steps
 
-Once the app is running, head over to the [Configuration guide](configuration.md) to set up Google
-Calendar integration and pair your TimeFlip device.
+Once the app is running, head over to the [Configuration guide](configuration.md) to set up Google Calendar integration and pair your TimeFlip device.
