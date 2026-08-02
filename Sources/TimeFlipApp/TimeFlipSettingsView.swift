@@ -62,16 +62,7 @@ struct TimeFlipSettingsView: View {
             // content shape is what makes that gap hittable -- without it the menu only opens over
             // the glyphs themselves, which on a short name is a small target.
             .contentShape(Rectangle())
-            .contextMenu {
-                Button("Rename") {
-                    DeveloperMode.debugPrint(.click, "Button clicked: Rename device")
-                    draftDeviceName = appState.deviceName ?? ""
-                    isEditingDeviceName = true
-                }
-                // The device is what holds the name, so there is nothing to rename while it cannot
-                // be reached; 0x15 would just fail on the not-logged-in guard.
-                .disabled(!appState.isConnected)
-            }
+            .contextMenu { renameMenuItems }
             // Title from the problem itself, the same way the Categories tab titles its rename
             // alert: "the cube cannot hold this" and "the cube did not answer" are different
             // problems and a single heading covering both would misdirect one of them.
@@ -162,7 +153,34 @@ struct TimeFlipSettingsView: View {
         } else {
             Text(appState.pairedDeviceName)
                 .foregroundStyle(infoValueColor)
+                // `LabeledContent` makes its value selectable on macOS, and selectable text hands
+                // its right-click to AppKit: the glyphs got "Look Up", "Translate", "Search With
+                // Google" and the row's Rename never appeared. Screenshotted on 2026-08-02 with
+                // the name highlighted blue under the menu. An inner `.contextMenu` alone does not
+                // win that fight; the selection has to go first, and then it does.
+                //
+                // The cost is that the name can no longer be selected and copied. Worth it: it is
+                // a short string the user typed, and the row's one job here is renaming.
+                .textSelection(.disabled)
+                // The same menu again, on the name itself. It has to be repeated rather than
+                // inherited from the row, because the row's `.contentShape` claims the bare part
+                // of the row and not the glyphs. Matches the Categories tab's name column.
+                .contextMenu { renameMenuItems }
         }
+    }
+
+    /// One definition, applied to both the row and the name inside it, so the two right-click
+    /// targets cannot drift into offering different menus.
+    @ViewBuilder
+    private var renameMenuItems: some View {
+        Button("Rename") {
+            DeveloperMode.debugPrint(.click, "Button clicked: Rename device")
+            draftDeviceName = appState.deviceName ?? ""
+            isEditingDeviceName = true
+        }
+        // The device is what holds the name, so there is nothing to rename while it cannot be
+        // reached; 0x15 would just fail on the not-logged-in guard.
+        .disabled(!appState.isConnected)
     }
 
     /// Applies the typed name, and **leaves the field open if it could not be applied**: an alert
