@@ -1544,24 +1544,14 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         do {
             DeveloperMode.debugPrint(.faceTask, "Device name set to '\(name)' triggered")
             _ = try await performCommand(Data([0x15, UInt8(ascii.count)]) + ascii)
+            // "Written", not "accepted": the device never updates the command result characteristic
+            // for 0x15, so `performCommand` returning is proof the bytes went out and nothing more.
+            // Established rather than assumed -- a re-read ladder at +250ms, +500ms, +1s and +2s
+            // found the previous command's response still sitting there every time, so it is not a
+            // race that waiting longer would win. That ladder lives on the
+            // `timeflip2-firmware-diagnosis` branch, which is where it belongs: it added four
+            // seconds to every rename. See docs/timeflip2-firmware-observations.md.
             DeveloperMode.debugPrint(.faceTask, "Device name written: '\(name)'")
-            // DIAGNOSTIC, present only in the build used to gather the evidence in
-            // docs/timeflip2-firmware-observations.md. Remove before shipping: it delays every
-            // rename by nearly four seconds.
-            //
-            // It answers one question and is the only thing that can: does commandResult ever go
-            // fresh for 0x15, or never? performCommand reads it ~50ms after the write, before the
-            // device has finished (its eventsData narration arrives ~230ms later), so that read
-            // always returns the previous command's response. Re-reading on a ladder distinguishes
-            // "we read too early" from "the device never answers this command".
-            for delayMilliseconds in [250, 500, 1000, 2000] {
-                try? await Task.sleep(nanoseconds: UInt64(delayMilliseconds) * 1_000_000)
-                let late = try? await read(TimeFlipUUIDs.commandResult)
-                DeveloperMode.debugPrint(
-                    .faceTask,
-                    "0x15 commandResult re-read at +\(delayMilliseconds)ms: \(late?.hexString() ?? "nil")"
-                )
-            }
             return true
         } catch {
             logger.error("Failed to set device name: \(error.localizedDescription, privacy: .public)")

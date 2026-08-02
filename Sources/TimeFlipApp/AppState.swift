@@ -56,6 +56,12 @@ final class AppState: ObservableObject {
     /// cleared only by a confirmed factory reset, which reverts the cube to the vendor name.
     /// `nil` until the app has actually connected to a device and been told a name.
     @Published var deviceName: String?
+    /// Set the moment a rename is written, and shown under the Name row until the device next
+    /// connects, which is when the lag it describes ends. In memory only and deliberately not
+    /// persisted: it is a note about something that just happened in this session, and a relaunch
+    /// is a reconnect, which is exactly the event that clears it. See
+    /// `DeviceNameRules.renameLagNotice` for what it says and why the app says anything.
+    @Published var renameLagNotice: String?
     @Published var faceMappings: [FaceMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
@@ -666,8 +672,15 @@ final class AppState: ObservableObject {
             // later signals correct it if that was wrong: the device narrates "Neme set" on the
             // events characteristic within ~250ms, and `peripheralDidUpdateName` reports the real
             // name about two seconds into the next connection.
+            // Captured before the overwrite: the notice quotes the name the device will go on
+            // reporting for the rest of this connection, which is the one being replaced here.
+            let reportedUntilReconnect = deviceName
             deviceName = name
             pairedDeviceName = name
+            renameLagNotice = DeviceNameRules.renameLagNotice(
+                newName: name,
+                previousName: reportedUntilReconnect
+            )
             DeveloperMode.debugPrint(.field, "Device renamed to \"\(name)\"")
             return nil
         }
@@ -689,6 +702,9 @@ final class AppState: ObservableObject {
         isPaired = false
         pairedDeviceName = "Not paired"
         pairedDeviceUUID = nil
+        // Nothing left for it to describe: the Name row is back to "Not paired", and a factory
+        // reset has taken the rename with it.
+        renameLagNotice = nil
         if deviceWasWiped {
             deviceName = nil
         }
@@ -940,6 +956,28 @@ final class AppState: ObservableObject {
         !wasPaired || deviceName == nil
     }
 
+    /// The device has told us what it is actually called, from `peripheralDidUpdateName` -- the one
+    /// signal that fires *because* the name changed rather than reporting a cached one, so it
+    /// outranks the stored name `confirmConnected` otherwise keeps.
+    func adoptReportedDeviceName(_ name: String) {
+        deviceName = name
+        pairedDeviceName = name
+        clearRenameLagNoticeIfCaughtUp(reported: name)
+    }
+
+    /// Drops the post-rename notice once the device is reporting the name it was given, because at
+    /// that point the lag the notice describes is over and it would be describing nothing.
+    ///
+    /// Keyed on the names agreeing rather than on "a connection happened", because one connection
+    /// is not reliably enough. Measured 2026-08-01: a cube renamed to `Plopper` reported `Dibby` on
+    /// the next connect and only `Plopper` on the one after, so clearing on the first reconnect
+    /// would retire the notice while the stale name was still exactly what the user would find.
+    private func clearRenameLagNoticeIfCaughtUp(reported: String?) {
+        guard renameLagNotice != nil, let reported, reported == deviceName else { return }
+        renameLagNotice = nil
+        DeveloperMode.debugPrint(.deviceName, "rename lag notice cleared: device now reports \"\(reported)\"")
+    }
+
     /// The device is reachable and talking to us. Called on every successful connect, so it runs
     /// both at the end of a first pairing and after each routine reconnect.
     ///
@@ -966,6 +1004,7 @@ final class AppState: ObservableObject {
         if let known = deviceName ?? reported {
             pairedDeviceName = known
         }
+        clearRenameLagNoticeIfCaughtUp(reported: reported)
         pairedDeviceUUID = uuid ?? pairedDeviceUUID ?? UUID().uuidString
         if let id = pendingPairingDeviceID {
             deviceStatusMessages[id] = nil

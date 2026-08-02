@@ -87,6 +87,18 @@ struct TimeFlipSettingsView: View {
             } message: { problem in
                 Text(problem.message)
             }
+            // Set by a rename and cleared once the device reports the new name, so it is on screen
+            // for exactly as long as the app and the device disagree about what the cube is called.
+            // A caption under the row rather than an alert: a successful rename should not need
+            // dismissing, and this is most useful sitting there while the user goes and looks at a
+            // scan list showing the old name. See DeviceNameRules.renameLagNotice.
+            if let notice = appState.renameLagNotice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("rename-lag-notice")
+            }
             LabeledContent("Connection") {
                 Text(statusText)
                     .foregroundStyle(infoValueColor)

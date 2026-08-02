@@ -600,8 +600,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // this fires *because* the name changed rather than reporting a cached one.
             bleDevice.onDeviceNameChanged = { [weak self] name in
                 guard let self, let name, !name.isEmpty else { return }
-                self.appState.deviceName = name
-                self.appState.pairedDeviceName = name
+                self.appState.adoptReportedDeviceName(name)
                 bleDevice.rememberedDeviceName = name
             }
             // Before the connect below, because the connect IS the scan: a cube renamed off

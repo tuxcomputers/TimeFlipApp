@@ -53,6 +53,20 @@ The next connection does report it: `peripheralDidUpdateName(_:)` fires about tw
 
 **Unresolved.** Whether the device applies a rename immediately or defers it cannot be determined from macOS, since the host only re-reads GAP on connect. Answering it needs a second BLE central with no cached record of the device.
 
+### Forcing the new name to appear
+
+There is no way to make the device advertise the new name, but the reported name can be refreshed on demand rather than waited out, by deliberately spending the connection that refreshes it:
+
+1. Rename the device.
+2. **Forget Device**, which drops the connection.
+3. **Scan for Devices**.
+4. Click the row, which is **still showing the old name** (the list renders `peripheral.name`, the stale GAP value, falling back to the advertised name only when that is absent).
+5. Once paired, the Name row shows the new name.
+
+Step 4 is the step that looks wrong and is not: the peripheral identifier is the same cube whatever name is against it, so the connection proceeds and `peripheralDidUpdateName` then delivers the real name a second or two in.
+
+This is written up for users under "Renaming Your Device" in [`configuration.md`](configuration.md). It is a workaround for the device's behaviour, not a fix, and it should stay in the documentation until a firmware release makes it unnecessary.
+
 ---
 
 ## 2. Only some commands update the command result characteristic

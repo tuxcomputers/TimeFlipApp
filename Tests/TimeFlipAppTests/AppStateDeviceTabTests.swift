@@ -153,6 +153,76 @@ final class AppStateDeviceTabTests: XCTestCase {
         XCTAssertEqual(writes, 0)
     }
 
+    // MARK: - telling the user why a rename does not look like it worked
+
+    func testASuccessfulRenamePostsTheLagNoticeNamingBothNames() async {
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Pibble", uuid: "uuid")
+        appState.onDeviceRenameRequest = { _ in true }
+
+        _ = await appState.renameDevice(to: "Chomper")
+
+        let notice = appState.renameLagNotice ?? ""
+        // Both names, because the notice is read while looking at a scan list showing the old one.
+        XCTAssertTrue(notice.contains("Chomper"), notice)
+        XCTAssertTrue(notice.contains("Pibble"), notice)
+    }
+
+    func testARefusedOrFailedRenamePostsNoNotice() async {
+        // The notice says the device has taken the name. Nothing took it here.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Pibble", uuid: "uuid")
+        appState.onDeviceRenameRequest = { _ in false }
+
+        _ = await appState.renameDevice(to: "Chomper")
+        XCTAssertNil(appState.renameLagNotice)
+
+        _ = await appState.renameDevice(to: "Cube 🎲")
+        XCTAssertNil(appState.renameLagNotice)
+    }
+
+    func testTheLagNoticeSurvivesTheReconnectThatStillReportsTheOldName() async {
+        // The measured behaviour this notice exists for: a cube renamed to Plopper reported Dibby
+        // on the next connect and Plopper only on the one after. Clearing on "a connect happened"
+        // would retire the notice while the stale name was still exactly what a scan would show.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Dibby", uuid: "uuid")
+        appState.onDeviceRenameRequest = { _ in true }
+        _ = await appState.renameDevice(to: "Plopper")
+
+        appState.confirmConnected(name: "Dibby", uuid: "uuid")
+        XCTAssertNotNil(appState.renameLagNotice, "the device is still reporting the old name")
+
+        appState.confirmConnected(name: "Plopper", uuid: "uuid")
+        XCTAssertNil(appState.renameLagNotice, "the names agree, so there is no lag left to describe")
+    }
+
+    func testALiveNameChangeFromTheDeviceClearsTheLagNotice() async {
+        // peripheralDidUpdateName about two seconds into the connection after a rename, which is
+        // the earliest the app ever hears the new name back from the cube.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Dibby", uuid: "uuid")
+        appState.onDeviceRenameRequest = { _ in true }
+        _ = await appState.renameDevice(to: "Plopper")
+
+        appState.adoptReportedDeviceName("Plopper")
+
+        XCTAssertNil(appState.renameLagNotice)
+        XCTAssertEqual(appState.deviceName, "Plopper")
+        XCTAssertEqual(appState.pairedDeviceName, "Plopper")
+    }
+
+    func testForgetDeviceDropsTheLagNotice() async {
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Dibby", uuid: "uuid")
+        appState.onDeviceRenameRequest = { _ in true }
+        _ = await appState.renameDevice(to: "Plopper")
+
+        appState.forgetDevice()
+
+        XCTAssertNil(appState.renameLagNotice, "the Name row reads 'Not paired'; there is no rename to explain")
+    }
+
     // MARK: - the device name outliving a forget
 
     func testForgetDeviceKeepsTheDeviceNameAndDropsTheUUID() {

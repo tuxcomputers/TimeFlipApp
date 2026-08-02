@@ -67,6 +67,41 @@ enum DeviceNameRules {
         return .write(name)
     }
 
+    // MARK: - What the user sees after a rename
+
+    /// What to tell the user once a rename has gone out, and why they are told anything at all.
+    ///
+    /// The rename does take effect, but for a while nothing looks like it did, in two separate
+    /// ways, both measured rather than inferred (see `docs/timeflip2-firmware-observations.md`):
+    ///
+    /// - The name in the device's advertisements never changes at all. A Bluetooth scan, in this
+    ///   app or any other, goes on listing the cube under its original TimeFlip name permanently.
+    /// - The name it reports once connected (`0x2A00`, the GAP Device Name) is not pushed to a
+    ///   connected Mac, only read at connect time, so the old name can survive a reconnect. A cube
+    ///   renamed to `Plopper` reported `Dibby` on the next connect and `Plopper` only on the one
+    ///   after that.
+    ///
+    /// Without saying this, the user renames the device, goes looking for the new name in a scan,
+    /// finds the old one and reasonably concludes the rename silently failed and that this app
+    /// broke it. So the notice leads with the rename having worked, and attributes the lag, for
+    /// the same reason `DeviceNameProblem` attributes its limits rather than just stating them.
+    ///
+    /// The attribution is worded to match what is actually established. The unchanging advertised
+    /// name is squarely the device's. The stale reported name is the device offering no way to be
+    /// told a name changed, plus macOS caching what it last read, and there is no way to separate
+    /// those two from a Mac -- so it is described as something the app cannot change rather than
+    /// pinned on the firmware alone.
+    static func renameLagNotice(newName: String, previousName: String?) -> String {
+        let stillReported = previousName.map { "“\($0)”" } ?? "the old name"
+        return """
+        Renamed to “\(newName)”. The device has taken the name, but its firmware goes on \
+        advertising the original TimeFlip name in a Bluetooth scan, and macOS can keep reporting \
+        \(stillReported) for a reconnect or two before it catches up. Neither is something this \
+        app can change. To refresh it now, use Forget Device, scan, and pair again with the row \
+        still showing the old name.
+        """
+    }
+
     // MARK: - Finding the device again
 
     /// Whether a scanned peripheral's name says it is a device this app should connect to.
