@@ -134,7 +134,7 @@ timeout_seconds = 0
 poll_interval = 3
 ```
 - [x] **(Claude)** Step 6: Confirm the disconnected-flip backlog synced on reconnect
-poll until at least **2** new `device_event` rows exist above the pre-disconnect baseline, i.e. the intermediate flips arrived as their own segments once the connection came back. (No-gap ordering and the final open row matching the resting face are visual/interpretive -- a gap can be legitimate: a sub-`blip_time` quick pass-over gets merged into the surrounding segment and logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's own filter"`, so confirm any gap is explained that way before treating it as missing data.)
+poll until at least **2** new `device_event` rows exist above the pre-disconnect baseline, i.e. the intermediate flips arrived as their own segments once the connection came back. (No-gap ordering and the final open row matching the resting face are visual/interpretive -- a gap can be legitimate: the device applies its own sub-5-second filter, so a quick pass-over never reaches the app and is logged as `debug_log`'s `"history gap explained: ev=<N> dur=<s>s under 5s, device's own filter"`, so confirm any gap is explained that way before treating it as missing data.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT CASE WHEN (SELECT COUNT(DISTINCT event_number) FROM device_event WHERE event_number > $n_before_disconnect) >= 2 THEN 'synced' ELSE 'waiting' END;"
