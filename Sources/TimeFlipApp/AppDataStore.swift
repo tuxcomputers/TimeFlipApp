@@ -498,6 +498,29 @@ final class AppDataStore {
         var messages: [String] = []
     }
 
+    /// `blip_time` in seconds, read **while `queue` is already held**.
+    ///
+    /// Deliberately not `loadBlipTimeSeconds()`, which goes through `loadSettingJSON` and takes the
+    /// queue: calling that from inside the lock would re-enter a serial queue and trap, the same way
+    /// logging from in here did. Clamped like the public loader, so a hand-edited row cannot make
+    /// the conversion discard more than the App tab is willing to set.
+    private func blipTimeSecondsLocked() -> Int {
+        guard let db else { return TimeFlipConstants.defaultBlipTimeSeconds }
+        var seconds = TimeFlipConstants.defaultBlipTimeSeconds
+        var stmt: OpaquePointer?
+        let sql = "SELECT json_extract(setting_value, '$.seconds') FROM setting WHERE setting_name = 'blip_time';"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK,
+           sqlite3_step(stmt) == SQLITE_ROW,
+           sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+            seconds = Int(sqlite3_column_int(stmt, 0))
+        }
+        sqlite3_finalize(stmt)
+        return max(
+            TimeFlipConstants.minBlipTimeSeconds,
+            min(TimeFlipConstants.maxBlipTimeSeconds, seconds)
+        )
+    }
+
     /// Logs a pass's messages. Call **after** `queue.sync` has returned, never inside it.
     private func emit(_ outcome: ConversionOutcome) {
         for message in outcome.messages {
@@ -515,10 +538,30 @@ final class AppDataStore {
     /// flag has not already claimed.
     ///
     /// A paused segment is never converted and so keeps `processed = 0` for as long as it exists.
-    /// The flag means "has a time entry", a pause never gets one, and there is nothing to mark.
+    /// The flag means "the conversion has dealt with this", a pause is never something it deals
+    /// with, and there is nothing to mark.
+    ///
+    /// **Blips are skipped, not merged.** A segment shorter than `blip_time` is the cube being
+    /// turned past a face rather than time spent on it, so it gets no entry and is marked
+    /// `processed = 1` -- which is what keeps the eligible set draining instead of growing a
+    /// permanent tail of rows every pass has to re-examine. The `time_entry` insert happens after
+    /// this test, so a skipped blip can never be mistaken for the "marked processed with no entry"
+    /// defect the sweep hunts for.
+    ///
+    /// The spec once called for merging a blip's duration into the following segment instead. That
+    /// is deliberately not done: it needs a `duration_seconds` this data does not reliably have (a
+    /// segment the next event proves ran three seconds can be stored as `0.0`, see production
+    /// `device_event` 28), and losing a handful of seconds per pass-over is the cheaper mistake.
+    ///
+    /// One consequence worth knowing. **Lowering `blip_time` makes previously-skipped segments
+    /// convert**, since they are still `NOT IN time_entry` and the sweep ignores `processed` -- and
+    /// they will be reported as REPAIRED, because from here that is indistinguishable from the real
+    /// defect. Raising it changes nothing: entries already made stay made.
     private func convertEligibleEvents(extraConditions: String, label: String) -> ConversionOutcome {
         var outcome = ConversionOutcome()
         guard let db else { return outcome }
+
+        let blipTimeSeconds = blipTimeSecondsLocked()
 
         // Row by row rather than one INSERT ... SELECT, so each conversion can be logged against
         // the event it came from. At these volumes the difference is unmeasurable, and a log line
@@ -567,7 +610,22 @@ final class AppDataStore {
         }
         sqlite3_finalize(selectStmt)
 
+        var skippedAsBlips: [Int64] = []
         for row in pending {
+            // 0 disables the filter, so nothing is ever short enough. Strictly less than, so a
+            // segment exactly as long as the threshold is kept -- the setting reads "ignore flips
+            // under N", and a 5-second segment is not under 5.
+            if blipTimeSeconds > 0, row.durationSeconds < Double(blipTimeSeconds) {
+                skippedAsBlips.append(row.deviceEventID)
+                // Only on the first pass to see it. Marking it processed below is what stops this
+                // repeating, since every later pass finds it already flagged.
+                if !row.wasMarkedProcessed {
+                    outcome.messages.append(
+                        "\(label): skipped ev=\(row.eventNumber) face=\(row.deviceFace) dur=\(row.durationSeconds)s -- under blip_time=\(blipTimeSeconds)s"
+                    )
+                }
+                continue
+            }
             // `ended_at` is start + duration converted back to local time, carrying the segment's
             // start zone: the device reports a start and a length, never an end, so nothing here
             // could tell us the zone changed mid-segment. The bound value is an integer because
@@ -612,6 +670,17 @@ final class AppDataStore {
                 outcome.messages.append("\(label): insert failed ev=\(row.eventNumber): \(String(cString: sqlite3_errmsg(db)))")
             }
             sqlite3_finalize(stmt)
+        }
+
+        // Skipped blips are marked too, so they stop being re-examined. Done as one statement over
+        // the ids collected above rather than by re-deriving the duration test in SQL, so the rule
+        // lives in exactly one place.
+        if !skippedAsBlips.isEmpty {
+            let ids = skippedAsBlips.map(String.init).joined(separator: ",")
+            if sqlite3_exec(db, "UPDATE device_event SET processed = 1 WHERE device_event_id IN (\(ids));", nil, nil, nil) != SQLITE_OK {
+                logger.error("blip processed update failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                outcome.messages.append("\(label): blip processed update failed: \(String(cString: sqlite3_errmsg(db)))")
+            }
         }
 
         // Driven off `time_entry` rather than off what this pass just inserted, so an event whose

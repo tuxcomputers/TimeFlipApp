@@ -204,6 +204,85 @@ final class TimeEntryCreationTests: XCTestCase {
         )
     }
 
+    // MARK: - blips
+
+    private func setBlipTime(_ seconds: Int) {
+        execute("UPDATE setting SET setting_value = json_set(setting_value, '$.seconds', \(seconds)) WHERE setting_name = 'blip_time';")
+    }
+
+    func testASegmentShorterThanBlipTimeGetsNoEntryAndIsMarkedProcessed() {
+        // Turning the cube to the face you want drags it across the others and the device reports
+        // each pass-over as a real segment. Marking it processed is what keeps it out of every later
+        // pass; leaving it unprocessed would grow a permanent tail of rows nothing can ever resolve.
+        let store = AppDataStore(databaseURL: databaseURL)
+        setBlipTime(5)
+        record(store, event: 1, face: 2, at: 1_700_000_000, duration: 2)
+        record(store, event: 2, face: 8, at: 1_700_000_002, duration: 300)
+
+        XCTAssertTrue(entries().isEmpty, "a 2 second pass-over is not time spent on that face")
+        XCTAssertEqual(
+            scalar("SELECT processed FROM device_event WHERE event_number = 1;"), 1,
+            "and it is marked dealt with, so it stops being re-examined"
+        )
+    }
+
+    func testASegmentExactlyAtBlipTimeIsKept() {
+        // The label reads "ignore flips under N", so N itself is not under N. Worth pinning: an
+        // off-by-one here silently discards a whole second of real activity at the boundary.
+        let store = AppDataStore(databaseURL: databaseURL)
+        setBlipTime(5)
+        record(store, event: 1, face: 2, at: 1_700_000_000, duration: 5)
+        record(store, event: 2, face: 8, at: 1_700_000_005, duration: 300)
+
+        XCTAssertEqual(entries().count, 1)
+        XCTAssertEqual(entries().first?.duration, 5)
+    }
+
+    func testZeroBlipTimeConvertsEverything() {
+        // 0 is the off switch, the same way auto_pause_minutes uses it. A zero-length segment is the
+        // real test: with the filter off even that has to become an entry.
+        let store = AppDataStore(databaseURL: databaseURL)
+        setBlipTime(0)
+        record(store, event: 1, face: 2, at: 1_700_000_000, duration: 0)
+        record(store, event: 2, face: 8, at: 1_700_000_001, duration: 300)
+
+        XCTAssertEqual(entries().count, 1, "nothing is shorter than zero, so nothing is filtered")
+        XCTAssertEqual(entries().first?.duration, 0)
+    }
+
+    func testASkippedBlipIsNotReportedAsABrokenRecord() {
+        // The collision this design has to avoid. A skipped blip is processed = 1 with no entry,
+        // which is exactly the shape of the defect the sweep hunts for -- so the blip test has to
+        // come first, or every pass-over would be reported as data corruption.
+        let store = AppDataStore(databaseURL: databaseURL)
+        setBlipTime(5)
+        record(store, event: 1, face: 2, at: 1_700_000_000, duration: 2)
+        record(store, event: 2, face: 8, at: 1_700_000_002, duration: 300)
+
+        withAppStyleLogSink(store) {
+            XCTAssertEqual(store.sweepTimeEntries(trigger: .launch), 0, "nothing to convert, nothing to repair")
+        }
+        XCTAssertEqual(
+            scalar("SELECT COUNT(*) FROM debug_log WHERE message LIKE '%REPAIRED%';"), 0,
+            "a blip is not a broken record"
+        )
+    }
+
+    func testLoweringBlipTimeConvertsPreviouslySkippedSegments() {
+        // Skipped blips stay NOT IN time_entry, and the sweep ignores processed, so a lower
+        // threshold picks them up with no migration. That is the whole reason for filtering at the
+        // entry rather than refusing to record the device_event: the data is still there.
+        let store = AppDataStore(databaseURL: databaseURL)
+        setBlipTime(5)
+        record(store, event: 1, face: 2, at: 1_700_000_000, duration: 4)
+        record(store, event: 2, face: 8, at: 1_700_000_004, duration: 300)
+        XCTAssertTrue(entries().isEmpty)
+
+        setBlipTime(3)
+        XCTAssertEqual(store.sweepTimeEntries(trigger: .launch), 1)
+        XCTAssertEqual(entries().first?.duration, 4)
+    }
+
     // MARK: - the sweep, which is a different job
 
     func testTheSweepFindsAnEventMarkedProcessedThatHasNoEntry() {
