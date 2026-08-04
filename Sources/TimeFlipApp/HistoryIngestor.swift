@@ -20,6 +20,10 @@ final class HistoryIngestor {
     // recognizes "the open segment hasn't moved on either" as "nothing new" instead of always
     // treating the open segment's own number as unseen.
     private var lastObservedEventNumber: UInt32?
+    /// The resume position read from `device_event` at the start of the session, used until this
+    /// session has committed something of its own. See `ensureCursorLoaded`.
+    private var hydratedResumeEventNumber: UInt32?
+    private var hasHydratedResumePosition = false
     private var isFetching = false
     private var pending = false
     private let debounceInterval: UInt64 = 250_000_000 // 250ms
@@ -94,9 +98,9 @@ final class HistoryIngestor {
         // falls back to the committed cursor on a fresh session for an already-paired device, so
         // the check below still applies rather than silently skipping it until the first
         // observation happens to land. ensureCursorLoaded() must run first: on a session's very
-        // first refresh, lastCommittedEventNumber is still nil in memory even though a persisted
-        // cursor exists on disk, and without loading it here, knownMax would read as nil (forcing
-        // a full fetch) on every app launch regardless of whether anything actually changed.
+        // first refresh nothing is in memory yet even though history exists on disk, and without
+        // reading it here knownMax would be nil (forcing a full fetch) on every launch regardless
+        // of whether anything actually changed.
         ensureCursorLoaded()
         let knownMax = lastObservedEventNumber ?? lastCommittedEventNumber
         logger.debug("history_ingest trigger=\(trigger, privacy: .public) known_max=\(knownMax ?? 0)")
@@ -162,6 +166,9 @@ final class HistoryIngestor {
             lastQueuedEventNumber = nil
             lastCommittedEventNumber = nil
             lastObservedEventNumber = nil
+            // And the position read from disk, or nextStartCursor() would hand straight back the
+            // stranded pre-reset number it was just decided to abandon.
+            hydratedResumeEventNumber = nil
             logger.notice("history_ingest counter went backwards device_max=\(deviceLastEventNumber, privacy: .public) known_max=\(knownMax, privacy: .public); treating as factory reset")
             DeveloperMode.debugPrint(
                 .histCheck,
@@ -337,6 +344,8 @@ final class HistoryIngestor {
         lastQueuedEventNumber = nil
         lastCommittedEventNumber = nil
         lastObservedEventNumber = nil
+        hydratedResumeEventNumber = nil
+        hasHydratedResumePosition = false
         // Cursors only. This used to purge `logbook` as well, which is how a factory reset zeroed
         // the day's totals; `device_event` is never purged (its rows are real recorded time, and
         // `time_entry` has a foreign key into them), so a reset no longer discards them. The cube
@@ -353,26 +362,43 @@ final class HistoryIngestor {
     /// `device_event` is the source of truth for where the fetch resumes; there is no separate
     /// stored cursor. See `AppDataStore.latestCommittedDeviceEventNumber()` for why -- in short,
     /// a stored value cannot follow the device's counter back down through a factory reset.
+    /// Reads the resume position out of `device_event` once per session: the newest segment
+    /// recorded, open or not (`AppDataStore.latestRecordedEventNumber`).
+    ///
+    /// Two positions used to be hydrated here, the highest finalised number and the highest
+    /// including the open row, from two generation-aware walks. One row answers both, because both
+    /// were asking what the app last saw.
+    ///
+    /// **`lastQueued`/`lastCommitted` are deliberately left alone.** They mean "already written as
+    /// finalised", and the row this reads is normally the open segment, whose closing write has yet
+    /// to arrive. Setting them from it would make the entry filter in `writeFinalisedEntries` skip
+    /// that very segment on the next batch: the row would then be closed out by the newer event's
+    /// blanket `finalised = 1` update while keeping the too-short duration it had when the app last
+    /// looked. Leaving them nil is what makes the first batch of a session write it properly.
     private func ensureCursorLoaded() {
-        guard lastCommittedEventNumber == nil else { return }
-        if let committed = dataStore.latestCommittedDeviceEventNumber() {
-            let asUInt32 = UInt32(clamping: committed)
-            lastCommittedEventNumber = asUInt32
-            lastQueuedEventNumber = asUInt32
-        }
-        // Hydrate the observed maximum separately: it includes the still-open row, which the
-        // committed position deliberately excludes. Without this, a fresh session's cheap check
-        // compares the device's max against the *committed* number, sees the open segment as
-        // unseen, and streams the whole history on every launch.
-        if lastObservedEventNumber == nil, let observed = dataStore.latestDeviceEventNumber() {
-            lastObservedEventNumber = UInt32(clamping: observed)
+        guard !hasHydratedResumePosition else { return }
+        hasHydratedResumePosition = true
+        guard let latest = dataStore.latestRecordedEventNumber() else { return }
+        let asUInt32 = UInt32(clamping: latest)
+        hydratedResumeEventNumber = asUInt32
+        // The cheap "has anything changed?" check compares against this, so a device sitting on one
+        // face reads as "nothing new" rather than looking perpetually unseen.
+        if lastObservedEventNumber == nil {
+            lastObservedEventNumber = asUInt32
         }
     }
 
     private func nextStartCursor() -> UInt32? {
         ensureCursorLoaded()
+        // In-session, resume past the last segment written as finalised: `+ 1` lands on the segment
+        // that was open when it was written, which is exactly the one to re-read.
         if let cached = lastCommittedEventNumber {
             return cached &+ 1
+        }
+        // On the session's first fetch, resume *at* the newest recorded segment, with no `+ 1`. It
+        // is the open one, and asking for it is how its finished duration comes back.
+        if let hydrated = hydratedResumeEventNumber {
+            return hydrated
         }
         return 0
     }

@@ -1799,63 +1799,46 @@ final class AppDataStore {
 
     // MARK: - Device history position
 
-    /// The highest **finalised** `device_event.event_number` in the device's *current* counter
-    /// generation -- the position the history fetch resumes from.
+    /// The event number of the **most recent segment recorded**, which is where the history fetch
+    /// resumes. `nil` for a database with no history at all.
     ///
-    /// Open (unfinalised) rows are excluded on purpose: the newest event is still growing, and
-    /// re-reading it on the next fetch is what keeps its duration current. Use
-    /// `latestDeviceEventNumber()` for the "has anything changed at all?" check, which does need
-    /// to count the open row.
-    func latestCommittedDeviceEventNumber() -> Int64? {
-        currentGenerationMaxEventNumber(finalisedOnly: true)
-    }
-
-    /// The highest `device_event.event_number` in the device's *current* counter generation,
-    /// including the still-open row. This is what the cheap "device max unchanged" check compares
-    /// against, so a device sitting on one face reads as "nothing new" rather than perpetually
-    /// looking unseen.
-    func latestDeviceEventNumber() -> Int64? {
-        currentGenerationMaxEventNumber(finalisedOnly: false)
-    }
-
-    /// Both positions above are derived from `device_event` rather than stored in a cursor table,
-    /// because a stored high-water mark cannot survive a factory reset: the device restarts its
-    /// counter at 1, so a saved value stays stranded above the live one and the fetch skips every
-    /// new event until the counter climbs back past it.
+    /// The newest row, not the highest number. Those are different questions and only the first one
+    /// is useful: event numbers restart at 1 after a factory reset, so `MAX(event_number)` returns
+    /// a stranded value from a dead counter generation. On the development database today it returns
+    /// 38, from a generation the cube abandoned, while the newest segment is event 10.
     ///
-    /// A reset is therefore detected as the counter going *backwards*. `device_event` is walked in
-    /// chronological order (`start_epoch`, then insertion order) and the last position where
-    /// `event_number` dropped below its predecessor begins the current generation; only rows at or
-    /// after that boundary count. Event numbers repeat across generations, which is exactly why
-    /// this can't be a plain `MAX(event_number)` over the whole table.
-    private func currentGenerationMaxEventNumber(finalisedOnly: Bool) -> Int64? {
+    /// This replaced a window-function walk that ordered every row, found the last point where
+    /// `event_number` dropped below its predecessor, and took the maximum at or after that boundary.
+    /// It computed the right answer, but only as a way of making `MAX` safe, and it could not do
+    /// what it looked like it did: straight after a reset there is no post-reset row for the counter
+    /// to have dropped between, so it still returned the stranded value. Recovery came from
+    /// elsewhere either way (`HistoryIngestor` compares the device's own reported last event number
+    /// and treats lower-than-known as a reset), and once a single post-reset row exists this query
+    /// follows the device down on its own.
+    ///
+    /// **Includes the open row, deliberately**, which is what makes the fetch resume *at* the live
+    /// segment rather than past it, so its duration comes back updated. The caller must not treat
+    /// this as "already finalised": the closing write for that segment has yet to arrive.
+    ///
+    /// Ordered by `start_epoch` rather than by `device_event_id` alone. They agree today (checked:
+    /// zero rows in production were inserted out of chronological order, because a batch is sorted
+    /// by event number before it is written), but a gap recovered in a later batch would be inserted
+    /// after newer rows, and insertion order would then name an old segment as the newest.
+    func latestRecordedEventNumber() -> Int64? {
         guard let db else { return nil }
         let sql = """
-        WITH ordered AS (
-            SELECT device_event_id,
-                   event_number,
-                   finalised,
-                   LAG(event_number) OVER (ORDER BY start_epoch, device_event_id) AS prev_event_number
-            FROM device_event
-        )
-        SELECT MAX(event_number) FROM ordered
-        WHERE (? = 0 OR finalised = 1)
-          AND device_event_id >= COALESCE(
-              (SELECT MAX(device_event_id) FROM ordered
-               WHERE prev_event_number IS NOT NULL AND event_number < prev_event_number),
-              0
-          );
+        SELECT event_number FROM device_event
+        ORDER BY start_epoch DESC, device_event_id DESC
+        LIMIT 1;
         """
         var result: Int64?
         queue.sync {
             var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int(stmt, 1, finalisedOnly ? 1 : 0)
-                if sqlite3_step(stmt) == SQLITE_ROW,
-                   sqlite3_column_type(stmt, 0) != SQLITE_NULL {
-                    let ev = sqlite3_column_int64(stmt, 0)
-                    if ev > 0 { result = ev }
-                }
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK,
+               sqlite3_step(stmt) == SQLITE_ROW,
+               sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+                let ev = sqlite3_column_int64(stmt, 0)
+                if ev > 0 { result = ev }
             }
             sqlite3_finalize(stmt)
         }

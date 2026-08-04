@@ -111,9 +111,10 @@ final class HistoryIngestorTests: XCTestCase {
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
-        // Verify cursor advanced only through completed events (excludes live last entry).
-        let cursor = dataStore.latestCommittedDeviceEventNumber()
-        XCTAssertEqual(cursor, 10)
+        // The resume position is the newest segment recorded, which is the live entry 11, not the
+        // last finalised one. Resuming *at* it is the point: that is how its finished duration comes
+        // back on the next fetch.
+        XCTAssertEqual(dataStore.latestRecordedEventNumber(), 11)
 
         // Event 11 is the live entry and stays open, so 10 is the only finalised segment.
         let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
@@ -167,8 +168,10 @@ final class HistoryIngestorTests: XCTestCase {
         // includes it.
         let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
         XCTAssertEqual(finalised.map(\.eventNumber), [5], "Nothing new should be committed; 6 is still open.")
-        let cursor = dataStore.latestCommittedDeviceEventNumber()
-        XCTAssertEqual(cursor, 5, "Cursor should remain at last committed event.")
+        XCTAssertEqual(
+            dataStore.latestRecordedEventNumber(), 6,
+            "The resume position is the seeded open segment 6, which this refresh had nothing to add to."
+        )
     }
 
     func testLatestEntryIsSurfacedButNotQueued() async {
@@ -208,8 +211,10 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(latest?.eventNumber, 20, "Latest entry should be passed through for UI updates.")
         let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
         XCTAssertTrue(stored.isEmpty, "The live entry is the open segment, so nothing is finalised yet.")
-        let cursor = dataStore.latestCommittedDeviceEventNumber()
-        XCTAssertNil(cursor, "Cursor should not advance when only a live entry is present.")
+        XCTAssertEqual(
+            dataStore.latestRecordedEventNumber(), 20,
+            "The live entry is recorded as the open segment, so it is the resume position; nothing is finalised."
+        )
     }
 
     func testSkipsStreamOnFirstRefreshOfSessionWhenPersistedCursorAlreadyMatchesDevice() async {
@@ -330,20 +335,19 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(storedEventNumbers(), [10])
         XCTAssertTrue(
             dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0)).isEmpty,
-            "and nothing is finalised, which is why the derived position below reads nil"
+            "and nothing is finalised: 11 was withheld, so nothing arrived to close 10 out"
         )
-        // Event 10 is committed to device_event but is still the newest row there, because
-        // the ambiguous entry 11 was withheld and so never recorded to close it out. The derived
-        // position counts only finalised rows, so it reads nil here and the next fetch re-streams
-        // from the start rather than resuming -- redundant, but not lossy (re-ingest dedupes), and
-        // it resolves itself as soon as any later event closes 10 out.
-        XCTAssertNil(
-            dataStore.latestCommittedDeviceEventNumber(),
-            "Withheld live entry leaves the last committed event open, so there's no finalised position yet."
-        )
+        // Event 10 is committed but still open, having no successor to close it. The resume position
+        // is that row, so the next fetch carries on from 10.
+        //
+        // This is where the old position hurt. It counted finalised rows only, so with nothing
+        // finalised it read nil, and the next fetch re-streamed the whole history from 0 -- not
+        // lossy, since re-ingest dedupes, but a full stream every time until some later event
+        // happened to close 10 out. Asking for the newest row instead has no such state to get
+        // stuck in.
         XCTAssertEqual(
-            dataStore.latestDeviceEventNumber(), 10,
-            "The open row is still observable, so the cheap check knows the device reached 10."
+            dataStore.latestRecordedEventNumber(), 10,
+            "the newest recorded segment is the resume position, finalised or not"
         )
 
         // Event 11's status is ambiguous (stream didn't reach the device's real last event, 15),

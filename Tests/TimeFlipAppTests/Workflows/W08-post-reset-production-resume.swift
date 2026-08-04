@@ -62,7 +62,7 @@ struct W08PostResetProductionResumeWorkflow {
                     isPaused: false
                 )
             }
-            let known = try #require(store.latestDeviceEventNumber(), "history should be readable")
+            let known = try #require(store.latestRecordedEventNumber(), "history should be readable")
             try #require(known == Int64(Self.preResetEventCount),
                          "the whole table is one generation, so the max is the last event")
         }
@@ -99,7 +99,7 @@ struct W08PostResetProductionResumeWorkflow {
 
             // The pre-reset rows are never deleted -- they are real history. What changes is which
             // generation counts, so the reported max drops to the post-reset counter.
-            let after = try #require(store.latestDeviceEventNumber(),
+            let after = try #require(store.latestRecordedEventNumber(),
                                      "the store should still report a position")
             #expect(after == Int64(deviceNow),
                     "the post-reset events should have been ingested, moving the position down to the cube's own counter rather than leaving it stranded at \(Self.preResetEventCount)")
@@ -112,14 +112,14 @@ struct W08PostResetProductionResumeWorkflow {
         try harness.requirePreviousStepsPassed()
         try await harness.step("4-normal-service-resumes") {
             let store = harness.dataStore
-            let before = try #require(store.latestDeviceEventNumber())
+            let before = try #require(store.latestRecordedEventNumber())
 
             for face in 0..<20 {
                 harness.device.flip(to: face.isMultiple(of: 2) ? 8 : 2)
             }
             await harness.ingestor.refreshHistory(trigger: "periodic")
 
-            let after = try #require(store.latestDeviceEventNumber())
+            let after = try #require(store.latestRecordedEventNumber())
             #expect(after > before,
                     "once the generation boundary exists the ordinary resume path works again, so these flips should land without another reset being inferred")
             let deviceNow = try #require(await harness.device.readLastEvent()?.eventNumber)

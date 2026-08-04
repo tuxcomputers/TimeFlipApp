@@ -44,13 +44,13 @@ struct W04HistoryResumeWorkflow {
         try harness.requirePreviousStepsPassed()
         try await harness.step("2-cheap-skip-path") {
             let before = harness.storedEventNumbers()
-            let committedBefore = harness.dataStore.latestCommittedDeviceEventNumber()
+            let committedBefore = harness.dataStore.latestRecordedEventNumber()
 
             await harness.ingestHistory(trigger: "test")
 
             #expect(harness.storedEventNumbers() == before, "no new rows when the device has nothing new")
             #expect(
-                harness.dataStore.latestCommittedDeviceEventNumber() == committedBefore,
+                harness.dataStore.latestRecordedEventNumber() == committedBefore,
                 "and the committed cursor should not move"
             )
         }
@@ -72,7 +72,7 @@ struct W04HistoryResumeWorkflow {
         try harness.requirePreviousStepsPassed()
         try await harness.step("4-relaunch") {
             let storedBefore = harness.storedEventNumbers()
-            let committedBefore = harness.dataStore.latestCommittedDeviceEventNumber()
+            let committedBefore = harness.dataStore.latestRecordedEventNumber()
             try #require(committedBefore != nil, "there should be a committed cursor on disk to resume from")
 
             harness.simulateRelaunch()
@@ -107,16 +107,20 @@ struct W04HistoryResumeWorkflow {
         }
     }
 
-    @Test func step6_theCursorTrailsTheOpenSegmentAfterResuming() async throws {
+    @Test func step6_theResumePositionIsTheOpenSegmentAfterResuming() async throws {
         try harness.requirePreviousStepsPassed()
-        try await harness.step("6-cursor-trails-open") {
+        try await harness.step("6-resume-position-is-open-segment") {
             #expect(harness.openEventCount() == 1, "exactly one segment in progress")
 
             let open = try #require(harness.openEventNumber(), "a segment should be open")
-            let committed = harness.dataStore.latestCommittedDeviceEventNumber()
+            let resume = harness.dataStore.latestRecordedEventNumber()
+            // This assertion used to be the opposite: the position had to differ from the open
+            // segment, because it counted finalised rows only and the fetch added 1 to it to land
+            // on the open one. The position is now the open segment itself and the fetch starts
+            // there, which is the same request expressed without the indirection.
             #expect(
-                committed != open,
-                "the open segment is still growing, so it must never be the committed cursor"
+                resume == open,
+                "the resume position is the still-growing segment, so the next fetch re-reads it and gets its updated duration"
             )
             let newest = try #require(harness.storedEventNumbers().last, "there should be stored events")
             #expect(Int64(newest) == open, "and the open segment is the newest row")
