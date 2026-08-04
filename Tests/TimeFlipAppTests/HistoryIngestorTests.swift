@@ -1,3 +1,4 @@
+import SQLite3
 @testable import TimeFlipApp
 import XCTest
 
@@ -114,10 +115,10 @@ final class HistoryIngestorTests: XCTestCase {
         let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertEqual(cursor, 10)
 
-        // Verify only completed events stored
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stored.count, 1)
-        XCTAssertEqual(stored.first?.eventNumber, 10)
+        // Event 11 is the live entry and stays open, so 10 is the only finalised segment.
+        let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(finalised.count, 1)
+        XCTAssertEqual(finalised.first?.eventNumber, 10)
     }
 
     func testSkipsAlreadyCommittedEvents() async {
@@ -160,8 +161,12 @@ final class HistoryIngestorTests: XCTestCase {
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stored.count, 0, "Live last entry should not be stored yet.")
+        // Only the seeded 5 is finalised: 6 is still the open segment and this refresh committed
+        // nothing new. Asserted as the exact set rather than a count of zero, which is what it read
+        // when this went through the legacy logbook -- the seed writes device_event, so a count here
+        // includes it.
+        let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(finalised.map(\.eventNumber), [5], "Nothing new should be committed; 6 is still open.")
         let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertEqual(cursor, 5, "Cursor should remain at last committed event.")
     }
@@ -202,7 +207,7 @@ final class HistoryIngestorTests: XCTestCase {
 
         XCTAssertEqual(latest?.eventNumber, 20, "Latest entry should be passed through for UI updates.")
         let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(stored.isEmpty, "Live entry should not be stored in the logbook.")
+        XCTAssertTrue(stored.isEmpty, "The live entry is the open segment, so nothing is finalised yet.")
         let cursor = dataStore.latestCommittedDeviceEventNumber()
         XCTAssertNil(cursor, "Cursor should not advance when only a live entry is present.")
     }
@@ -320,10 +325,14 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         // Event 10 is definitely closed (11 follows it in the same batch) so it's safe to commit.
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stored.count, 1)
-        XCTAssertEqual(stored.first?.eventNumber, 10)
-        // Event 10 is committed to the logbook but is still the newest device_event row, because
+        // Read from device_event directly: it is committed but not finalised, so the finalised-only
+        // reader cannot see it, and this test is about the commit having happened.
+        XCTAssertEqual(storedEventNumbers(), [10])
+        XCTAssertTrue(
+            dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0)).isEmpty,
+            "and nothing is finalised, which is why the derived position below reads nil"
+        )
+        // Event 10 is committed to device_event but is still the newest row there, because
         // the ambiguous entry 11 was withheld and so never recorded to close it out. The derived
         // position counts only finalised rows, so it reads nil here and the next fetch re-streams
         // from the start rather than resuming -- redundant, but not lossy (re-ingest dedupes), and
@@ -348,6 +357,28 @@ final class HistoryIngestorTests: XCTestCase {
     /// row but the last ends up finalised and the last stays open -- mirroring a real device,
     /// whose newest segment is always still growing. Pass rows matching what the fake device
     /// reports, or the ingestor will insert a second row for the same event number.
+    /// Every `device_event` row's event number, oldest first, whether finalised or not.
+    ///
+    /// Deliberately not `AppDataStore.loadEvents(overlappingSince:)`: that one returns finalised
+    /// segments only, and an entry the device has moved past can still be the newest row this app
+    /// holds, so it would report a committed row as missing.
+    private func storedEventNumbers() -> [UInt32] {
+        var numbers: [UInt32] = []
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(historyIngestorTestDBURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            return numbers
+        }
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT event_number FROM device_event ORDER BY start_epoch ASC;", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                numbers.append(UInt32(sqlite3_column_int64(stmt, 0)))
+            }
+        }
+        sqlite3_finalize(stmt)
+        sqlite3_close(db)
+        return numbers
+    }
+
     private func seedDeviceEvents(_ dataStore: AppDataStore, _ rows: [(event: UInt32, at: Date)]) {
         for row in rows {
             _ = dataStore.recordDeviceEvent(

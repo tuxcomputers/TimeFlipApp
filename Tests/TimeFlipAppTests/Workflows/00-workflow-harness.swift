@@ -261,10 +261,11 @@ final class WorkflowHarness {
 
     /// Event numbers of every `device_event` row, in `start_epoch` order.
     ///
-    /// Read straight from `device_event` rather than via `AppDataStore.loadEvents`, which queries the
-    /// **legacy `logbook`** table (see `docs/TODO-Legacy-removal.md`) and so omits the still-open
-    /// segment -- using it here silently hid the newest row and made "the newest event is the open
-    /// one" look false.
+    /// Read straight from `device_event` rather than via `AppDataStore.loadEvents`, which returns
+    /// finalised segments only and so omits the still-open one -- using it here silently hid the
+    /// newest row and made "the newest event is the open one" look false. (That method read the
+    /// legacy `logbook` table when this was written; the reason it is the wrong tool here survived
+    /// the table's removal, since `logbook` held exactly the finalised segments.)
     func storedEventNumbers() -> [UInt32] {
         var numbers: [UInt32] = []
         withReadOnlyDatabase { db in

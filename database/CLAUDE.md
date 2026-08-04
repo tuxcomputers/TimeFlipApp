@@ -2,13 +2,11 @@
 
 ## Legacy tables (`000_*`)
 
-- The `000_`-numbered file (`000_logbook.sql`) is a **legacy** pre-redesign table, kept only
-  until the code that still reads it is migrated onto the `device_event`/`time_entry` schema.
-  It will eventually be deleted from the repo, as `000_integration_event_cursors.sql` already
-  has been — the history resume position is now derived from `device_event` instead.
-- Treat them as **out of scope for these conventions** — don't reformat them, renumber them, or
-  bring them into line with the rules below (naming, primary keys, seeds, etc.), and don't count
-  them when reasoning about the schema. Leave them exactly as they are until they're removed.
+There are none left. `000_logbook.sql` and `000_integration_event_cursors.sql` have both been
+deleted: the history resume position is derived from `device_event`, and the daily totals are seeded
+from it too. The convention stands in case another pre-redesign table ever needs parking here: a
+`000_`-numbered file is out of scope for the rules below, so don't reformat, renumber or align it,
+and don't count it when reasoning about the schema.
 
 ## Comments in DDL files
 
@@ -19,7 +17,6 @@
   rows are for -- goes in [`../docs/database-design.md`](../docs/database-design.md), which
   describes every table in DDL order. One home for the prose keeps the two from drifting apart, and
   the DDL stays readable as pure schema.
-- `000_logbook.sql` is the one exception, per the legacy rule above -- leave its header as it is.
 
 ## Table naming
 

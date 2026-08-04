@@ -58,9 +58,38 @@ One `UserDefaults` key held a JSON-encoded `PreferencesPayload` (`Sources/TimeFl
 
 ## Legacy paths already removed
 
-Neither of these ticked a box on its own — the fields they touch still have other readers — but both were dead weight removable independently of any migration, and clearing them shrinks what the ticks above have to untangle later.
+None of these ticked a box above, since the blob is what those boxes track, but each was legacy storage removable on its own terms.
 
-- [x] **`logbook.activity_name` was written on every event and read by nothing.** `AppState.activity(for:)` — the blob-backed one, as distinct from `categoryActivity(for:)` — had exactly one production caller, `HistoryIngestor`, which used only its `name` to fill this column. `logbook` itself is still live (`DailyFaceTotals` reads it via `loadEvents(overlappingSince:)`) but that reader touches only `paused`, `startedAt`, `duration` and `faceID`. The column is now written empty and `AppState.activity(for:)` is gone, along with `DeviceEventRecord.activityName`. The column itself stays until `logbook` does — it is `NOT NULL` and the legacy `000_` table is frozen.
+- [x] **`logbook.activity_name` was written on every event and read by nothing.** `AppState.activity(for:)` — the blob-backed one, as distinct from `categoryActivity(for:)` — had exactly one production caller, `HistoryIngestor`, which used only its `name` to fill this column. The column was written empty and `AppState.activity(for:)` deleted, along with `DeviceEventRecord.activityName`; the column itself has now gone with the table.
+- [x] **The `logbook` table is retired.** `database/000_logbook.sql` is deleted and no Swift refers to the table. It was still live before this: written on every committed segment by `AppDataStore.append`, read by `DailyFaceTotals` for its daily seed, and purged by `resetCursors` after a factory reset.
+
+      **What replaced each use.** The writer is gone outright, since every caller wrote the same
+      segment to `device_event` on the next line. `loadEvents(overlappingSince:)` now reads
+      `device_event` with `finalised = 1`, which is what carries the old behaviour across rather
+      than a detail of the new query: `logbook` only ever held segments the device had closed out,
+      because `HistoryIngestor` committed all but the last frame of a batch. The open segment's
+      elapsed time is added separately by the menu bar, so counting it in the seed would count it
+      twice. `purgeAllEvents` is deleted with nothing in its place.
+
+      **One deliberate behaviour change.** A factory reset no longer zeroes the day's totals.
+      Purging `logbook` was what did that, and `device_event` is never purged: its rows are real
+      recorded time, and `time_entry` holds a foreign key into them. The cube restarting its event
+      counter says nothing about time already spent, so keeping them is the more defensible answer,
+      but it is a change and not a like-for-like port.
+
+      **`finalised = 1` is not an exact translation, which surfaced in two tests.** An entry the
+      device has moved past can still be the newest row this app holds, when a history stream is cut
+      short before the frame that would close it out. `logbook` called such a row committed;
+      `device_event` calls it open. Two `HistoryIngestorTests` cases were using `loadEvents` as a
+      proxy for "what got stored" and now read `device_event` directly for that question, which is
+      the more honest assertion either way.
+
+      **Migration, not yet applied:** `DROP TABLE logbook;` against `production.sqlite` and
+      `test.sqlite`. Nothing is lost by it, checked rather than assumed: all 34 rows in production
+      have an exact `device_event` counterpart on `(event_number, start_epoch)`, with the same face
+      and the same duration to within half a second. (Matching on `event_number` alone appears to
+      show 42 mismatches, which is the join fanning out: an event number repeats across counter
+      generations, so it is not a like-for-like key.)
 - [x] **`AppDataStore.loadEvents(after:limit:)` had no production callers**, only tests — dead code kept alive by its own coverage. Deleted; the four assertions that used it now read through `loadEvents(overlappingSince:)` with an epoch-zero cutoff, which returns the same rows.
 
 ## Already in the right place — not in scope

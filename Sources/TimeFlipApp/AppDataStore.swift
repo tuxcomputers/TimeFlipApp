@@ -237,44 +237,6 @@ final class AppDataStore {
         sqlite3_close(db)
     }
 
-    // MARK: - Logbook (event-number keyed)
-
-    @discardableResult
-    func append(_ event: DeviceEventRecord) -> Bool {
-        guard let db else { return false }
-        // activity_name is written empty: nothing reads it, and the only thing that used to fill
-        // it was the face name out of the UserDefaults preferences blob. The column stays because
-        // logbook is the legacy 000_ table and frozen -- it goes when the table does.
-        let sql = """
-        INSERT OR REPLACE INTO logbook (
-            event_number, face_id, started_at_s, duration_s, is_paused, activity_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, '', COALESCE(?, strftime('%s','now')));
-        """
-        var success = false
-        queue.sync {
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                logger.error("logbook_append prepare failed ev=\(event.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-                sqlite3_finalize(stmt)
-                return
-            }
-            sqlite3_bind_int64(stmt, 1, sqlite3_int64(event.eventNumber))
-            sqlite3_bind_int(stmt, 2, Int32(event.faceID))
-            sqlite3_bind_double(stmt, 3, event.startedAt.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 4, event.duration)
-            sqlite3_bind_int(stmt, 5, event.isPaused ? 1 : 0)
-            sqlite3_bind_double(stmt, 6, Date().timeIntervalSince1970)
-            if sqlite3_step(stmt) == SQLITE_DONE {
-                success = true
-                logger.debug("logbook_append ev=\(event.eventNumber, privacy: .public) face=\(event.faceID, privacy: .public) dur=\(event.duration, privacy: .public)")
-            } else {
-                logger.error("logbook_append failed ev=\(event.eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-            }
-            sqlite3_finalize(stmt)
-        }
-        return success
-    }
-
     // MARK: - Device events (new schema; timing segments -- face flips and pauses)
 
     /// Looks up an existing `device_event` row by the exact `(event_number, start_epoch)` pair --
@@ -1788,14 +1750,23 @@ final class AppDataStore {
         return success
     }
 
+    /// Every **finalised** segment still running at or after `cutoff`, oldest first. Feeds
+    /// `DailyFaceTotals.seedFromHistory`.
+    ///
+    /// Read from `logbook` until that legacy table was retired. The `finalised = 1` test is what
+    /// carries its behaviour across rather than a detail of the new query: `logbook` only ever held
+    /// segments the device had closed out, because `HistoryIngestor` committed all but the last
+    /// frame of a batch. `device_event` keeps the open one too, and the caller adds the live
+    /// segment's own elapsed time on top, so counting it here would count it twice.
     func loadEvents(overlappingSince cutoff: Date) -> [DeviceEventRecord] {
         guard let db else { return [] }
         var items: [DeviceEventRecord] = []
         let sql = """
-        SELECT rowid, event_number, face_id, started_at_s, duration_s, is_paused
-        FROM logbook
-        WHERE (started_at_s + duration_s) > ?
-        ORDER BY rowid ASC;
+        SELECT device_event_id, event_number, device_face, start_epoch, duration_seconds, paused
+        FROM device_event
+        WHERE finalised = 1
+          AND (start_epoch + duration_seconds) > ?
+        ORDER BY start_epoch ASC;
         """
         let cutoffSeconds = cutoff.timeIntervalSince1970
         queue.sync {
@@ -1889,13 +1860,6 @@ final class AppDataStore {
             sqlite3_finalize(stmt)
         }
         return result
-    }
-
-    func purgeAllEvents() {
-        guard let db else { return }
-        queue.sync {
-            _ = sqlite3_exec(db, "DELETE FROM logbook;", nil, nil, nil)
-        }
     }
 
     // MARK: - Helpers

@@ -26,9 +26,10 @@ import Testing
 /// So `refreshHistory` now also treats *the device reporting a lower event number than we hold*
 /// as a reset in its own right, and resumes from the start.
 ///
-/// **What it does not cover:** the reset being witnessed live, which `W06` covers, and the
-/// `logbook` purge that path performs -- deliberately not done here, because this database's
-/// history is real data the app simply wasn't running to observe.
+/// **What it does not cover:** the reset being witnessed live, which `W06` covers. That path used to
+/// purge the legacy `logbook` too, deliberately not done here because this database's history is
+/// real data the app simply wasn't running to observe. The table is gone and nothing is purged on
+/// either path now, so the two differ only in where they resume from.
 @Suite(.serialized)
 @MainActor
 struct W08PostResetProductionResumeWorkflow {
