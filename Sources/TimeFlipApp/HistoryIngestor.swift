@@ -228,7 +228,7 @@ final class HistoryIngestor {
         // frame that's actually already closed, with more (unfetched) history beyond it that we
         // simply haven't received yet. Only trust and surface this frame as "current" once it
         // matches the device's own last event number read in step 2 AND everything ahead of it
-        // actually made it into the logbook; otherwise leave it untouched (neither committed nor
+        // actually got committed; otherwise leave it untouched (neither recorded nor
         // displayed) so the next refresh resumes from the same point and resolves the ambiguity,
         // instead of showing a stale or premature "current" activity.
         let latestEventNumber = latestEntry.eventNumber
