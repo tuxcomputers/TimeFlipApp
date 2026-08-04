@@ -204,6 +204,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // the log sink is wired above so a repair actually reaches debug_log.
         dataStore.sweepTimeEntries(trigger: .launch)
         removeLegacyPreferencesBlob()
+        // The `icon` table is the only say in which icons exist, so a row naming artwork that isn't
+        // bundled has to be complained about rather than quietly filtered out. Same reason this runs
+        // after the log sink: the complaint belongs in debug_log where it can be read after the fact.
+        ActivityLibrary.reportUnresolvableIcons(appState.iconOptions)
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in

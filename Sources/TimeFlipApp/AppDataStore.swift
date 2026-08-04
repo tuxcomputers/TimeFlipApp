@@ -1246,7 +1246,7 @@ final class AppDataStore {
     /// stored value survives untouched and a developer's 10s keeps working.
     func loadFetchHistoryIntervalSeconds() -> TimeInterval {
         guard let seconds = loadSettingJSON(name: "fetch_history_interval_seconds")?["seconds"] as? Int else {
-            return 10
+            return TimeInterval(TimeFlipConstants.defaultFetchHistoryIntervalSeconds)
         }
         guard !DeveloperMode.isEnabled else { return TimeInterval(seconds) }
         return TimeInterval(max(TimeFlipConstants.minFetchHistoryIntervalSeconds, seconds))

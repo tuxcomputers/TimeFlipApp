@@ -93,6 +93,10 @@ enum DeveloperMode {
         // ApplicationDelegate.removeLegacyPreferencesBlob). Six characters, well short of the
         // longest tag, so adding it re-pads nothing.
         case legacy = "legacy"
+        // `icon` rows whose artwork is missing from the bundle, reported once at launch now that the
+        // table is the only say in which icons exist (ActivityLibrary.reportUnresolvableIcons). Five
+        // characters, well short of the longest tag, so adding it re-pads nothing.
+        case icons = "icons"
         case click = "click"
         case field = "field"
         case menu = "menu"

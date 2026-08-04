@@ -113,6 +113,8 @@ Constraints:
 - `icon_name` is `UNIQUE` — each icon asset is only represented by one row.
 - Seeded with a `None` row (`icon_id = 0`) representing "no icon assigned", alongside the real icon assets (`icon_id` 1-42) — so `category.icon_id` can stay a `NOT NULL` foreign key instead of allowing `NULL`.
 
+**This table is the only say in which icons exist.** Adding one is a row here plus its SVG under `Resources/Icons/Activities`, and no code change: `ActivityLibrary.iconOptions(from:)` offers every row but the `None` sentinel, in this table's order. A hardcoded 42-name Swift array used to filter it, so a row the array didn't list vanished from the grid with nothing said; it is gone. What replaced it is a complaint rather than a filter — `ActivityLibrary.reportUnresolvableIcons` logs any row whose SVG will not load, at launch, under the `icons` tag, and the row is still offered so the failure shows up as a placeholder glyph in the grid rather than as a row that silently does not exist. `IconPaletteTests` asserts every row this DDL seeds resolves to bundled artwork.
+
 ### `colour` (`database/005_colour.sql`)
 
 Reference table of the colours available to assign to a category.
