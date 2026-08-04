@@ -13,8 +13,14 @@ import SwiftUI
 ///
 /// Typing is committed on Return or when the field loses focus, never per keystroke -- a
 /// keystroke-by-keystroke commit would clamp "1" on the way to "15" and fight the user. The draft is
-/// resynced from the value whenever the arrows move it, and clamped locally on commit so an
-/// out-of-range entry snaps back to what was actually stored rather than sitting there as typed.
+/// resynced from the value whenever the arrows move it, including while the field still has focus,
+/// and clamped locally on commit so an out-of-range entry snaps back to what was actually stored
+/// rather than sitting there as typed.
+///
+/// **An arrow steps from the number on screen, not from the number in storage.** Type 20 into a
+/// field holding 5, click up without pressing Return, and you get 21: the visible text is what the
+/// user believes the value to be, so treating it as a waypoint is the only reading that matches the
+/// screen. `stepBase(draft:storedValue:range:)` is that rule, and it is unit tested on its own.
 struct SteppedNumberField: View {
     @ObservedObject var appState: AppState
     /// Distinguishes this control's arrows from the other rows' -- see `AppState.steppedFieldHoldKey`.
@@ -50,7 +56,9 @@ struct SteppedNumberField: View {
                     }
                 }
                 .onChange(of: value) { _, newValue in
-                    // Don't overwrite what is being typed; the commit path resyncs instead.
+                    // Don't overwrite what is being typed. This only suppresses changes arriving
+                    // from elsewhere (another view writing the same setting); an arrow resyncs the
+                    // draft itself, in `commit`, so it stays visible while the field holds focus.
                     guard !isFocused else { return }
                     draft = "\(newValue)"
                 }
@@ -86,8 +94,18 @@ struct SteppedNumberField: View {
                     appState.steppedFieldHoldKey = key
                     // The value the hold began at, kept for the whole hold: `AutoPauseStepper`
                     // measures its step-1-then-step-5 boundary from there, not from wherever the
-                    // value has since reached.
-                    let holdStartValue = value
+                    // value has since reached. Taken from the field's text rather than from
+                    // `value`, so a hold begun after typing accelerates from where the user can
+                    // see it is starting.
+                    let holdStartValue = Self.stepBase(draft: draft, storedValue: value, range: range)
+                    // The typed number is a choice the user made, so store it before stepping off
+                    // it. Skipped when it already matches, which is every press on a field nobody
+                    // has typed into. It matters when the step cannot move: type 30 into a field
+                    // capped at 30 and press up, and without this the 30 would sit on screen
+                    // unstored until the field lost focus.
+                    if holdStartValue != value {
+                        onCommit(holdStartValue)
+                    }
                     let afterFirstTick = step(delta, from: holdStartValue)
                     beginHold(delta: delta, holdStartValue: holdStartValue, from: afterFirstTick)
                 } else if appState.steppedFieldHoldKey == key {
@@ -96,8 +114,21 @@ struct SteppedNumberField: View {
             }, perform: {})
     }
 
-    /// One tick of 1, stepping from `current` rather than from the draft, so a half-typed entry
-    /// can't be used as the starting point.
+    /// Where an arrow press counts from: the field's own text when that is a number, clamped to
+    /// `range`, and the stored value when it is not.
+    ///
+    /// The two disagree only while the field has focus and the typed entry is uncommitted, since a
+    /// blurred field's draft is kept in step with the value. Garbage falls back to the stored value
+    /// rather than to zero, matching `commitDraft`, which reverts an unparseable entry for the same
+    /// reason: the last number the user actually chose beats one invented from nothing. Clamping
+    /// here is what makes the arrows work at all after an out-of-range entry -- typing 99 into a
+    /// field capped at 30 and pressing down has to go to 29, not to 98.
+    static func stepBase(draft: String, storedValue: Int, range: ClosedRange<Int>) -> Int {
+        guard let typed = Int(draft.trimmingCharacters(in: .whitespaces)) else { return storedValue }
+        return min(range.upperBound, max(range.lowerBound, typed))
+    }
+
+    /// One tick of 1 from `current`, which the caller has already resolved through `stepBase`.
     @discardableResult
     private func step(_ delta: Int, from current: Int) -> Int {
         commit(current + delta, from: current)
@@ -108,6 +139,12 @@ struct SteppedNumberField: View {
     @discardableResult
     private func commit(_ target: Int, from current: Int) -> Int {
         let clamped = min(range.upperBound, max(range.lowerBound, target))
+        // Before the early return, not after, and this is the whole bug this control had: an arrow
+        // pressed while the field held focus moved the value and left the text saying what it said
+        // before, because the only resync was an onChange that steps aside for a focused field.
+        // Unconditional also covers the arrow that cannot move: type 99 into a field capped at 30,
+        // press up, and the text still has to fall back to 30 rather than sit there reading 99.
+        draft = "\(clamped)"
         guard clamped != current else { return current }
         onCommit(clamped)
         return clamped
