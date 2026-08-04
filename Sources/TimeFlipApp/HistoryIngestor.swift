@@ -270,9 +270,12 @@ final class HistoryIngestor {
         // doesn't spam the console with one line per record.
         dataStore.verifyMaxKnownStartEpochConsistency()
 
-        // Backstop rather than the main path: recordDeviceEvent already sweeps, so by here there is
-        // normally nothing left. It costs one query and covers a batch that finalises rows through
-        // some route that does not go through recordDeviceEvent.
+        // Backstop rather than the main path: every recordDeviceEvent call above has already run the
+        // narrow conversion (createTimeEntriesForFinalisedEvents), so by here there is normally
+        // nothing left to convert. This is the wider pass, the one that drops the processed
+        // condition, and it earns its one query two ways: it catches a batch that finalises rows by
+        // some route not going through recordDeviceEvent, and it reports any row left marked
+        // processed with no time_entry to show for it, which the narrow conversion cannot see.
         dataStore.sweepTimeEntries(trigger: .historyIngest)
 
         DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
