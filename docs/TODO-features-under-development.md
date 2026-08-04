@@ -2,11 +2,11 @@
 
 - [x] Categories
 - [x] Faces
-- [ ] Time logs
+- [x] Time logs
 - [ ] Calendar sync
 - [ ] Sync to TimeFlip cloud
 - [ ] Projects
-- [ ] Device rename
+- [x] Device rename
 
 ## Categories
 
@@ -50,7 +50,11 @@ A third option was considered and rejected: forbidding duplicate names among *re
 - The new row's `category_id` is the category the face was linked to **at that time** — captured at creation, not looked up later. If the face's category assignment changes afterward, past `time_entry` rows keep pointing at the category they were actually logged against.
 - Every other `time_entry` column is calculated at creation time: `started_at`/`ended_at` (from the `device_event`'s start and the point it closed), `duration_seconds`, `total_cost` (from the category's `cost`), etc. -- nothing is backfilled or recalculated after the fact.
 
-(Note: `time_entry` (`009_time_entry.sql`) already has exactly this shape -- `category_id`, `device_event_id`, `started_at`/`ended_at` + timezones, `duration_seconds`, `total_cost` -- but nothing currently writes to it; there's no `INSERT INTO time_entry` anywhere in `Sources/`. This is the feature that wires the table up: the finalised-`device_event` trigger point, the capture-category-at-the-time behavior, and the start/end/duration/cost calculation are all new.)
+Built on `bugfix/stepperArrowDisplay`'s parent, `feature/timeEntry` (PR #43). `AppDataStore.createTimeEntriesForFinalisedEvents` runs at the end of every `recordDeviceEvent`, so an entry appears as the following flip closes a segment out. `sweepTimeEntries(trigger:)` is the wider pass that drops the `processed` condition to find rows wrongly marked done, triggered on launch, on history ingest, and before a face changes category -- before, so the entry can still resolve the face-to-category link as it was when the time was spent. `UN1_time_entry` makes one entry per `device_event` a constraint rather than a convention. See [Operation Spec § 3](operation-spec.md).
+
+Segments shorter than `blip_time` get no entry and are marked `processed`, which is the cube being turned past a face rather than time spent on it.
+
+(Note: one bullet above is **not** built. `total_cost` is never calculated from the category's `cost` -- the insert omits the column and takes the schema's `DEFAULT 0`, so every entry so far reads zero. Left until there is something that reads it, since nothing charges for time yet; the cost-at-creation rule is the part to preserve when it is added, because a rate change afterwards must not silently reprice history.)
 
 ## Calendar sync
 
@@ -125,12 +129,17 @@ The name is adopted locally only once the device confirms the write. A failed wr
 
 **Note for the device checklists**: a SwiftUI `.contextMenu` is invisible to accessibility -- it reports zero menus and `AXShowMenu` opens nothing (established while building the Categories tab, see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs `act_cgevent_context_menu_pick` in `scripts/testrunner/actions.py`, which exists and works.
 
-### Still to build
+### Confirmation, which the device makes impossible (done as far as it can be)
 
-- Bench/Interactive checklists for the rename. Nothing covers it on real hardware: the unit tests stop at `AppState` and at `DeviceNameRules`, so the `0x15` write, what the cube then advertises, and the reconnect-by-remembered-name fix are all still unverified against the device. The reconnect one is the priority, since its failure mode is losing the cube entirely.
-- Verifying a rename actually took. `setDeviceName` waits for the device's own command acknowledgement, which turns out not to exist for `0x15` at all, and nothing reads `0x2A00` back afterwards. A naive read-back would not work today either: `deviceName` is `CBPeripheral.name`, which CoreBluetooth caches, and `peripheralDidUpdateName(_:)` is not implemented, so the value read straight after a write is likely the old one. The honest options are to implement that delegate method and find out on the bench whether the hardware fires it, or to treat the name read at the next connect as the confirmation. Until then a rename is reconciled at the next connection rather than immediately.
+Both items that stood here are closed.
 
-(Note: the driver can already write the name -- `TimeFlipBLEDevice.setDeviceName` sends `0x15` -- but **nothing in the app calls it**. Four things shape what is left, all confirmed against the vendor spec and the hardware:
+**The checklists exist.** `Tests/Bench/09b-device-rename-checklist.md` covers the whole feature and was last run against the cube on 2026-08-02; `Tests/Interactive/09i` is a stub, because renaming needs the device switched on but never a hand on it. That run is what verified the part whose failure mode was losing the cube entirely: a renamed device is still found on the next launch, by the remembered `device_name` rather than by the vendor default.
+
+**A rename cannot be confirmed at the time it is made, and the app now says so instead of pretending otherwise.** There is no acknowledgement for `0x15` and no useful read-back within the session, both measured (see the note below). `peripheralDidUpdateName(_:)` is implemented and fires about two seconds into the *following* connection, which is the confirmation, so a rename is reconciled at the next connect. What the app adds on top is honesty about the gap: `DeviceNameRules.renameLagNotice` puts a caption on the Device tab saying the new name is stored and that the cube will keep advertising the old one until it reconnects, and `AppState.clearRenameLagNoticeIfCaughtUp(reported:)` drops the caption once the two names agree. The wording blames the firmware for the advertised name only, not for the rename, because the rename itself does work.
+
+For a user who wants the new name to appear now rather than at the next reconnect, [Configuration § renaming](configuration.md) has the forget-and-rescan sequence.
+
+(Note: the four findings below are what shaped the feature, all confirmed against the vendor spec and the hardware. They are kept because each one contradicts something this file previously asserted, and the corrections are worth more than the space:
 
 **There is no usable read-back within the session that renamed the device, despite `0x2A00` being readable.** Measured on the hardware 2026-08-01: after a rename the app polled `TimeFlipDevice.deviceName` (which is `CBPeripheral.name`, the platform's own reading of `0x2A00`) **120 times over 30 seconds** and it never moved off the previous name. The value refreshes only when CoreBluetooth next connects and re-reads GAP, so it is connection-gated, not time-gated: no wait, however long, will see the change from within the same connection.
 
