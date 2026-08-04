@@ -113,6 +113,9 @@ final class AppState: ObservableObject {
     // How often history is re-fetched, in seconds, matching the stored setting. The App tab's
     // control is the only thing that turns this into minutes, for display.
     @Published var fetchHistoryIntervalSeconds: Int
+    /// How short a segment has to be before it counts as the cube being turned past a face rather
+    /// than time spent on it (the `blip_time` setting). `0` disables the filter.
+    @Published var blipTimeSeconds: Int
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
@@ -185,6 +188,7 @@ final class AppState: ObservableObject {
     var onLowBatteryThresholdChange: ((Int) -> Void)?
     /// Passes seconds, like everything outside the App tab's own control.
     var onFetchHistoryIntervalChange: ((Int) -> Void)?
+    var onBlipTimeChange: ((Int) -> Void)?
     var onAutoPauseChange: ((UInt16) -> Void)?
     var onLEDBrightnessChange: ((UInt8) -> Void)?
     var onBlinkIntervalChange: ((UInt8) -> Void)?
@@ -242,6 +246,7 @@ final class AppState: ObservableObject {
         pauseOnLockEnabled: Bool = true,
         lowBatteryThresholdPercent: Int = TimeFlipConstants.defaultLowBatteryWarningPercent,
         fetchHistoryIntervalSeconds: Int = 60,
+        blipTimeSeconds: Int = TimeFlipConstants.defaultBlipTimeSeconds,
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
@@ -298,6 +303,12 @@ final class AppState: ObservableObject {
         self.fetchHistoryIntervalSeconds = min(
             TimeFlipConstants.maxFetchHistoryIntervalSeconds,
             max(1, fetchHistoryIntervalSeconds)
+        )
+        // Clamped on the way in as well as out, so a hand-edited row cannot surface a value the
+        // App tab would then refuse to set.
+        self.blipTimeSeconds = max(
+            TimeFlipConstants.minBlipTimeSeconds,
+            min(TimeFlipConstants.maxBlipTimeSeconds, blipTimeSeconds)
         )
         // Clamped on the way in as well as on the way out, so a stale or hand-edited
         // `low_battery_level` row can't surface as a threshold the UI would then refuse to set.
@@ -801,6 +812,19 @@ final class AppState: ObservableObject {
         guard clamped != fetchHistoryIntervalSeconds else { return }
         fetchHistoryIntervalSeconds = clamped
         onFetchHistoryIntervalChange?(clamped)
+    }
+
+    /// Updates `blip_time` from the App-tab stepper and fires `onBlipTimeChange` so it is
+    /// persisted. Nothing is re-armed or re-evaluated: the value is read when a segment is
+    /// converted, so a change applies to the next conversion without anything being kept in sync.
+    func setBlipTimeSeconds(_ seconds: Int) {
+        let clamped = max(
+            TimeFlipConstants.minBlipTimeSeconds,
+            min(TimeFlipConstants.maxBlipTimeSeconds, seconds)
+        )
+        guard clamped != blipTimeSeconds else { return }
+        blipTimeSeconds = clamped
+        onBlipTimeChange?(clamped)
     }
 
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {

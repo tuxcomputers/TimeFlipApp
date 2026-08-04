@@ -13,3 +13,5 @@ CREATE TABLE IF NOT EXISTS time_entry (
   , total_cost                INTEGER NOT NULL DEFAULT 0
   , synced_to_google_calendar INTEGER NOT NULL DEFAULT 0 CHECK (synced_to_google_calendar IN (0,1))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_time_entry ON time_entry(device_event_id);

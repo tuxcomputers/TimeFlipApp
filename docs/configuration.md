@@ -191,9 +191,16 @@ The device recognizes a double-tap in two stages: a quick knock (checked against
 
 All four are raw accelerometer register values (0-255), not a real-world unit like seconds -- there's no documented conversion, so treat them as a relative scale and adjust by feel.
 
-The following settings affect device behavior but don't have Preferences UI yet — they can only be changed by editing the `setting` table directly in the local SQLite database (see [Database Design](database-design.md)):
-- **Pause on Lock** (`pause_on_lock`, default on): whether locking the device also pauses it. Also applies when quitting the app — if enabled, the app pauses and locks the device before exiting, so it isn't left running/trackable with nothing controlling it; if disabled, quitting doesn't touch the device at all
-- **Low Battery Threshold** (`low_battery_level`, default 10%): the battery percentage at/below which the menu bar activity text starts blinking red/white (see Status Indicators above). Once triggered, it only clears again after the battery climbs 5 points above the threshold, so a reading wobbling right around the threshold doesn't flicker the warning on and off. Takes effect on the next app launch after being changed.
+### App Settings
+
+The **App** tab, under "App settings". Every numeric row here is the same control: type a value or hold the arrows to step it, and it commits on Return or when focus leaves.
+
+- **Show seconds in the menu bar** (`display_seconds`, default on): whether the duration reads `H:MM:SS` and ticks every second, or `H:MM` and refreshes each minute.
+- **Pause the device when locking it** (`pause_on_lock`, default on): whether locking the device also pauses it. Also applies when quitting the app — if enabled, the app pauses and locks the device before exiting, so it isn't left running with nothing controlling it; if disabled, quitting doesn't touch the device at all.
+- **Daily reset at** (`daily_reset_time`, default 3 AM): when each category's daily total rolls over. AM only, deliberately — a reset in the middle of the afternoon would cut a working day's accounting in half.
+- **Battery warning at** (`low_battery_level`, default 10%): the battery percentage at or below which the menu bar activity text starts blinking red/white (see Status Indicators above). Once triggered it only clears again after the battery climbs 5 points above the threshold, so a reading wobbling around the threshold doesn't flicker the warning on and off.
+- **Fetch history every** (`fetch_history_interval_seconds`, default 10 seconds, edited in whole minutes): how often the app asks the device for anything it hasn't seen, as a safety net behind the live flip notifications.
+- **Ignore flips under** (`blip_time`, default 5 seconds, max 30, `0` disables): how short a segment has to be before it counts as the cube being turned past a face rather than time spent on it. Turning the cube to the face you want drags it across the others, and the device reports each pass-over as a real segment — measured ones run 0 to 3 seconds. The default matches the vendor protocol's own 5-second figure. A segment under the threshold is recorded in the device history as normal but gets no time entry, so it never reaches a report or your calendar. Lowering the value later brings previously-ignored segments back, since nothing was thrown away.
 
 ## Usage
 
