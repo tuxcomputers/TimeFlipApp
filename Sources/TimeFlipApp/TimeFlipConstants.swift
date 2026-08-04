@@ -33,6 +33,21 @@ enum TimeFlipConstants {
     static let minFetchHistoryIntervalSeconds: Int = 60
     static let maxFetchHistoryIntervalSeconds: Int = 3600
 
+    /// Bounds for `blip_time`, in seconds -- how short a segment has to be before it is treated as
+    /// the cube being turned past a face rather than time spent on it.
+    ///
+    /// `0` disables the filter, the same way `auto_pause_minutes` uses `0`, so every segment counts.
+    /// The default of 5 is the vendor's own number: the spec's `0x02` history stream carries "all
+    /// intervals that lasted for at least 5 sec", so matching it means this app discards exactly
+    /// what a bulk history read would never have shown it in the first place.
+    ///
+    /// The ceiling is deliberately low. Measured blips are 0 to 3 seconds, so anything much beyond
+    /// the default is discarding real work, and a mistyped 90 that silently threw away a
+    /// minute-and-a-half of tracked time would be a bad thing to have to notice later.
+    static let minBlipTimeSeconds: Int = 0
+    static let maxBlipTimeSeconds: Int = 30
+    static let defaultBlipTimeSeconds: Int = 5
+
     /// The low-battery ceiling actually enforced. Developer mode lifts it to the full reportable
     /// range so a warning can be forced on a healthy battery for testing, which is also why a
     /// stored value above the cap is left alone while developer mode is on.

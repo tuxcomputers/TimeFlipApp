@@ -1,4 +1,5 @@
 @testable import TimeFlipApp
+import SQLite3
 import XCTest
 
 /// Automates the DB-round-trip core of the Device-tab persistence bench checklists (05 auto-pause,
@@ -29,6 +30,16 @@ final class SettingsPersistenceTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Writes a `setting` row directly, bypassing `AppDataStore` entirely -- the only way to model
+    /// a hand-edited row, which is what the load-side clamps exist for.
+    private func writeRawSetting(name: String, value: String) {
+        _ = reopenedStore() // ensures the file and schema exist before opening it raw
+        var db: OpaquePointer?
+        guard sqlite3_open(dbURL.path, &db) == SQLITE_OK, let db else { return }
+        sqlite3_exec(db, "UPDATE setting SET setting_value = '\(value)' WHERE setting_name = '\(name)';", nil, nil, nil)
+        sqlite3_close(db)
+    }
+
     /// A fresh store on the same file -- models quitting and relaunching the app.
     private func reopenedStore() -> AppDataStore {
         AppDataStore(databaseURL: dbURL)
@@ -46,6 +57,35 @@ final class SettingsPersistenceTests: XCTestCase {
         store.saveAutoPauseMinutes(26)
         store.saveAutoPauseMinutes(0)
         XCTAssertEqual(reopenedStore().loadAutoPauseMinutes(), 0)
+    }
+
+    // MARK: - blip time
+
+    func testBlipTimeSurvivesRestart() {
+        reopenedStore().saveBlipTimeSeconds(3)
+        XCTAssertEqual(reopenedStore().loadBlipTimeSeconds(), 3)
+    }
+
+    func testBlipTimeCanBeTurnedOff() {
+        // 0 is the off switch, the same way auto_pause_minutes uses it, so it has to round-trip
+        // rather than being mistaken for "missing, fall back to the default".
+        let store = reopenedStore()
+        store.saveBlipTimeSeconds(5)
+        store.saveBlipTimeSeconds(0)
+        XCTAssertEqual(reopenedStore().loadBlipTimeSeconds(), 0)
+    }
+
+    func testBlipTimeIsClampedOnTheWayInAndOut() {
+        // A hand-edited row must not make the app discard more time than the App tab would let
+        // anyone set -- the load clamps, so the stored value cannot outrun the control.
+        reopenedStore().saveBlipTimeSeconds(9_999)
+        XCTAssertEqual(reopenedStore().loadBlipTimeSeconds(), TimeFlipConstants.maxBlipTimeSeconds)
+
+        writeRawSetting(name: "blip_time", value: "{\"seconds\":9999}")
+        XCTAssertEqual(
+            reopenedStore().loadBlipTimeSeconds(), TimeFlipConstants.maxBlipTimeSeconds,
+            "even a value written straight into the row, bypassing the save clamp, is clamped on read"
+        )
     }
 
     // MARK: - 06 LED

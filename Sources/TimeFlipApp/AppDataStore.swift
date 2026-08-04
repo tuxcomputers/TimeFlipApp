@@ -1196,6 +1196,20 @@ final class AppDataStore {
         return TimeInterval(max(TimeFlipConstants.minFetchHistoryIntervalSeconds, seconds))
     }
 
+    /// How short a segment has to be before it counts as a blip rather than tracked time (the
+    /// `blip_time` setting, seeded to 5; see `database/011_setting.sql`). Falls back to the seeded
+    /// default if the row is missing or malformed, and clamps, so a hand-edited value cannot make
+    /// the app discard more than the App tab is willing to set.
+    func loadBlipTimeSeconds() -> Int {
+        guard let seconds = loadSettingJSON(name: "blip_time")?["seconds"] as? Int else {
+            return TimeFlipConstants.defaultBlipTimeSeconds
+        }
+        return max(
+            TimeFlipConstants.minBlipTimeSeconds,
+            min(TimeFlipConstants.maxBlipTimeSeconds, seconds)
+        )
+    }
+
     /// Whether locking the device via the app should also pause it first if it isn't already
     /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
@@ -1508,6 +1522,16 @@ final class AppDataStore {
         saveSettingJSON(name: "daily_reset_time", merging: [
             "hour": max(0, min(23, hour)),
             "minute": max(0, min(59, minute))
+        ])
+    }
+
+    /// Persists `blip_time`, in seconds.
+    func saveBlipTimeSeconds(_ seconds: Int) {
+        saveSettingJSON(name: "blip_time", merging: [
+            "seconds": max(
+                TimeFlipConstants.minBlipTimeSeconds,
+                min(TimeFlipConstants.maxBlipTimeSeconds, seconds)
+            )
         ])
     }
 

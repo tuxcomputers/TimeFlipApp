@@ -151,6 +151,22 @@ struct ReportSettingsView: View {
                     onCommit: { appState.setFetchHistoryIntervalSeconds($0 * Int(TimeConstants.secondsPerMinute)) }
                 )
             }
+            // Turning the cube to the face you want drags it past the others, and each pass-over is
+            // a real segment the device reports. This is how short one has to be to be treated as
+            // part of getting there rather than as time spent. 0 turns that off, so everything the
+            // device reports is counted.
+            LabeledContent("Ignore flips under") {
+                SteppedNumberField(
+                    appState: appState,
+                    holdKey: "blipTime",
+                    value: appState.blipTimeSeconds,
+                    range: TimeFlipConstants.minBlipTimeSeconds...TimeFlipConstants.maxBlipTimeSeconds,
+                    suffix: appState.blipTimeSeconds == 1 ? "sec" : "secs",
+                    fieldWidth: SettingsLayoutConstants.Stepper.fieldWidth,
+                    suffixWidth: SettingsLayoutConstants.Stepper.suffixWidth,
+                    onCommit: { appState.setBlipTimeSeconds($0) }
+                )
+            }
         }
     }
 

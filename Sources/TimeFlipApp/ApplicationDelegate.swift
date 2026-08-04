@@ -27,6 +27,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         pauseOnLockEnabled: dataStore.loadPauseOnLockEnabled(),
         lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent(),
         fetchHistoryIntervalSeconds: Int(dataStore.loadFetchHistoryIntervalSeconds()),
+        blipTimeSeconds: dataStore.loadBlipTimeSeconds(),
         dailyResetHour: dataStore.loadDailyResetTime().hour,
         dailyResetMinute: dataStore.loadDailyResetTime().minute
     )
@@ -357,6 +358,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // Re-reads the setting and replaces the existing timer, so the new interval applies now
             // rather than at the next launch.
             self.historyIngestor?.startPeriodicFetchTimer()
+        }
+        appState.onBlipTimeChange = { [weak self] seconds in
+            guard let self else { return }
+            DeveloperMode.debugPrint(.field, "Field changed: Blip time: \(seconds)s")
+            self.dataStore.saveBlipTimeSeconds(seconds)
+            // Nothing to re-arm: the value is read when a segment is converted, so the next
+            // conversion picks it up on its own.
         }
         appState.onLowBatteryThresholdChange = { [weak self] percent in
             guard let self else { return }
