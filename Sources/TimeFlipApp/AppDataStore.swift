@@ -2,15 +2,6 @@ import Foundation
 import OSLog
 import SQLite3
 
-struct DeviceEventRecord {
-    let id: Int64?
-    let eventNumber: UInt32
-    let faceID: UInt8
-    let startedAt: Date
-    let duration: TimeInterval
-    let isPaused: Bool
-}
-
 /// A `time_entry` row reduced to what a daily total needs: which category the time counts against,
 /// when it began, and how long it ran. `startedAt` comes from the joined `device_event.start_epoch`
 /// rather than `time_entry.started_at`, which is local text carrying no offset.
@@ -1833,50 +1824,6 @@ final class AppDataStore {
                 }
             } else {
                 logger.error("time_entry window load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
-            }
-            sqlite3_finalize(stmt)
-        }
-        return items
-    }
-
-    /// Every **finalised** segment still running at or after `cutoff`, oldest first.
-    ///
-    /// Reads `device_event`, so it counts blips and pauses and knows nothing about categories. Kept as
-    /// the "what segments got stored" reader the tests assert against; the day's totals moved to
-    /// `loadTimeEntries(overlappingSince:)` when they moved to being per category.
-    func loadEvents(overlappingSince cutoff: Date) -> [DeviceEventRecord] {
-        guard let db else { return [] }
-        var items: [DeviceEventRecord] = []
-        let sql = """
-        SELECT device_event_id, event_number, device_face, start_epoch, duration_seconds, paused
-        FROM device_event
-        WHERE finalised = 1
-          AND (start_epoch + duration_seconds) > ?
-        ORDER BY start_epoch ASC;
-        """
-        let cutoffSeconds = cutoff.timeIntervalSince1970
-        queue.sync {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_double(stmt, 1, cutoffSeconds)
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let rowid = sqlite3_column_int64(stmt, 0)
-                    let eventNumber = UInt32(sqlite3_column_int64(stmt, 1))
-                    let face = UInt8(sqlite3_column_int(stmt, 2))
-                    let started = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
-                    let duration = sqlite3_column_double(stmt, 4)
-                    let paused = sqlite3_column_int(stmt, 5) == 1
-                    items.append(
-                        DeviceEventRecord(
-                            id: rowid,
-                            eventNumber: eventNumber,
-                            faceID: face,
-                            startedAt: started,
-                            duration: duration,
-                            isPaused: paused
-                        )
-                    )
-                }
             }
             sqlite3_finalize(stmt)
         }

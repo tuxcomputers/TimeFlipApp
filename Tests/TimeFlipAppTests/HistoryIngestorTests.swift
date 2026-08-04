@@ -117,9 +117,7 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(dataStore.latestRecordedEvent()?.eventNumber, 11)
 
         // Event 11 is the live entry and stays open, so 10 is the only finalised segment.
-        let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(finalised.count, 1)
-        XCTAssertEqual(finalised.first?.eventNumber, 10)
+        XCTAssertEqual(finalisedEventNumbers(), [10])
     }
 
     func testSkipsAlreadyCommittedEvents() async {
@@ -166,8 +164,7 @@ final class HistoryIngestorTests: XCTestCase {
         // nothing new. Asserted as the exact set rather than a count of zero, which is what it read
         // when this went through the legacy logbook -- the seed writes device_event, so a count here
         // includes it.
-        let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(finalised.map(\.eventNumber), [5], "Nothing new should be committed; 6 is still open.")
+        XCTAssertEqual(finalisedEventNumbers(), [5], "Nothing new should be committed; 6 is still open.")
         XCTAssertEqual(
             dataStore.latestRecordedEvent()?.eventNumber, 6,
             "The resume position is the seeded open segment 6, which this refresh had nothing to add to."
@@ -208,8 +205,7 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         XCTAssertEqual(latest?.eventNumber, 20, "Latest entry should be passed through for UI updates.")
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(stored.isEmpty, "The live entry is the open segment, so nothing is finalised yet.")
+        XCTAssertEqual(finalisedEventNumbers(), [], "The live entry is the open segment, so nothing is finalised yet.")
         XCTAssertEqual(
             dataStore.latestRecordedEvent()?.eventNumber, 20,
             "The live entry is recorded as the open segment, so it is the resume position; nothing is finalised."
@@ -325,11 +321,11 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         // Event 10 is definitely closed (11 follows it in the same batch) so it's safe to commit.
-        // Read from device_event directly: it is committed but not finalised, so the finalised-only
-        // reader cannot see it, and this test is about the commit having happened.
+        // Asserted against every stored row, not the finalised ones: 10 is committed but still open,
+        // and this test is about the commit having happened.
         XCTAssertEqual(storedEventNumbers(), [10])
-        XCTAssertTrue(
-            dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0)).isEmpty,
+        XCTAssertEqual(
+            finalisedEventNumbers(), [],
             "and nothing is finalised: 11 was withheld, so nothing arrived to close 10 out"
         )
         // Event 10 is committed but still open, having no successor to close it. The resume position
@@ -495,25 +491,34 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(storedEventNumbers(), [1, 2, 3], "and no segment is stored twice")
     }
 
-    /// Seeds `device_event` with the given rows, oldest first, exactly as the ingestor would.
-    ///
-    /// `recordDeviceEvent` closes out earlier rows when a newer `start_epoch` arrives, so every
-    /// row but the last ends up finalised and the last stays open -- mirroring a real device,
-    /// whose newest segment is always still growing. Pass rows matching what the fake device
-    /// reports, or the ingestor will insert a second row for the same event number.
     /// Every `device_event` row's event number, oldest first, whether finalised or not.
-    ///
-    /// Deliberately not `AppDataStore.loadEvents(overlappingSince:)`: that one returns finalised
-    /// segments only, and an entry the device has moved past can still be the newest row this app
-    /// holds, so it would report a committed row as missing.
     private func storedEventNumbers() -> [UInt32] {
+        eventNumbers(where: nil)
+    }
+
+    /// Just the closed ones: the segments the device has moved past and this app has written as
+    /// final. The open segment is excluded, which is the distinction most of these tests turn on.
+    ///
+    /// Read straight from `device_event` rather than through an `AppDataStore` reader. There used to
+    /// be one -- `loadEvents(overlappingSince:)`, which returned `finalised = 1` rows inside a time
+    /// window -- and it survived its last production caller by exactly one commit, once the day's
+    /// totals moved to `time_entry`. Every test using it passed an epoch-zero cutoff, so the window
+    /// was never exercised, and every one of them looked only at event numbers. A production method
+    /// whose only callers want less than it offers is the "dead code kept alive by its own coverage"
+    /// that `docs/TODO-Legacy-removal.md` records deleting once already.
+    private func finalisedEventNumbers() -> [UInt32] {
+        eventNumbers(where: "finalised = 1")
+    }
+
+    private func eventNumbers(where condition: String?) -> [UInt32] {
         var numbers: [UInt32] = []
         var db: OpaquePointer?
         guard sqlite3_open_v2(historyIngestorTestDBURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             return numbers
         }
+        let clause = condition.map { " WHERE \($0)" } ?? ""
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT event_number FROM device_event ORDER BY start_epoch ASC;", -1, &stmt, nil) == SQLITE_OK {
+        if sqlite3_prepare_v2(db, "SELECT event_number FROM device_event\(clause) ORDER BY start_epoch ASC;", -1, &stmt, nil) == SQLITE_OK {
             while sqlite3_step(stmt) == SQLITE_ROW {
                 numbers.append(UInt32(sqlite3_column_int64(stmt, 0)))
             }
@@ -523,6 +528,12 @@ final class HistoryIngestorTests: XCTestCase {
         return numbers
     }
 
+    /// Seeds `device_event` with the given rows, oldest first, exactly as the ingestor would.
+    ///
+    /// `recordDeviceEvent` closes out earlier rows when a newer `start_epoch` arrives, so every row
+    /// but the last ends up finalised and the last stays open -- mirroring a real device, whose
+    /// newest segment is always still growing. Pass rows matching what the fake device reports, or
+    /// the ingestor will insert a second row for the same event number.
     private func seedDeviceEvents(_ dataStore: AppDataStore, _ rows: [(event: UInt32, at: Date)]) {
         for row in rows {
             _ = dataStore.recordDeviceEvent(

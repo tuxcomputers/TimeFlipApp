@@ -259,13 +259,14 @@ final class WorkflowHarness {
 
     // MARK: - Database assertions
 
-    /// Event numbers of every `device_event` row, in `start_epoch` order.
+    /// Event numbers of every `device_event` row, in `start_epoch` order -- **including the open
+    /// one**, which several of these workflows exist to make assertions about.
     ///
-    /// Read straight from `device_event` rather than via `AppDataStore.loadEvents`, which returns
-    /// finalised segments only and so omits the still-open one -- using it here silently hid the
-    /// newest row and made "the newest event is the open one" look false. (That method read the
-    /// legacy `logbook` table when this was written; the reason it is the wrong tool here survived
-    /// the table's removal, since `logbook` held exactly the finalised segments.)
+    /// Read straight from sqlite. This used to go through `AppDataStore.loadEvents`, which returned
+    /// finalised rows only and so silently hid the newest one, making "the newest event is the open
+    /// one" look false. That method has since been deleted outright; by the end it had no production
+    /// caller at all, and every remaining test wanted exactly this -- event numbers, no window, open
+    /// rows included.
     func storedEventNumbers() -> [UInt32] {
         var numbers: [UInt32] = []
         withReadOnlyDatabase { db in
@@ -281,9 +282,9 @@ final class WorkflowHarness {
         return numbers
     }
 
-    /// How many rows are still open (`finalised = 0`). Read straight from sqlite: `finalised` drives
-    /// the cursor logic but isn't exposed on `DeviceEventRecord`, and a workflow's whole point is to
-    /// assert that exactly one segment is left in progress.
+    /// How many rows are still open (`finalised = 0`). Read straight from sqlite, since `finalised` is
+    /// a column no `AppDataStore` reader returns, and a workflow's whole point is to assert that
+    /// exactly one segment is left in progress.
     func openEventCount() -> Int {
         countRows("SELECT COUNT(*) FROM device_event WHERE finalised = 0;")
     }

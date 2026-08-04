@@ -64,12 +64,13 @@ None of these ticked a box above, since the blob is what those boxes track, but 
 - [x] **The `logbook` table is retired.** `database/000_logbook.sql` is deleted and no Swift refers to the table. It was still live before this: written on every committed segment by `AppDataStore.append`, read by `DailyFaceTotals` for its daily seed, and purged by `resetCursors` after a factory reset.
 
       **What replaced each use.** The writer is gone outright, since every caller wrote the same
-      segment to `device_event` on the next line. `loadEvents(overlappingSince:)` now reads
-      `device_event` with `finalised = 1`, which is what carries the old behaviour across rather
-      than a detail of the new query: `logbook` only ever held segments the device had closed out,
-      because `HistoryIngestor` committed all but the last frame of a batch. The open segment's
-      elapsed time is added separately by the menu bar, so counting it in the seed would count it
-      twice. `purgeAllEvents` is deleted with nothing in its place.
+      segment to `device_event` on the next line. The daily seed moved to a `loadEvents(overlappingSince:)`
+      reading `device_event` with `finalised = 1`, which is what carried the old behaviour across
+      rather than being a detail of the new query: `logbook` only ever held segments the device had
+      closed out, because `HistoryIngestor` committed all but the last frame of a batch. The open
+      segment's elapsed time is added separately by the menu bar, so counting it in the seed would
+      count it twice. (That reader has since gone too — see the last item below.) `purgeAllEvents`
+      is deleted with nothing in its place.
 
       **One deliberate behaviour change.** A factory reset no longer zeroes the day's totals.
       Purging `logbook` was what did that, and `device_event` is never purged: its rows are real
@@ -91,7 +92,19 @@ None of these ticked a box above, since the blob is what those boxes track, but 
       `(event_number, start_epoch)`, with the same face and the same duration to within half a second.
       (Matching on `event_number` alone appeared to show 42 mismatches, which is the join fanning out:
       an event number repeats across counter generations, so it is not a like-for-like key.)
-- [x] **`AppDataStore.loadEvents(after:limit:)` had no production callers**, only tests — dead code kept alive by its own coverage. Deleted; the four assertions that used it now read through `loadEvents(overlappingSince:)` with an epoch-zero cutoff, which returns the same rows.
+- [x] **`AppDataStore.loadEvents(after:limit:)` had no production callers**, only tests — dead code kept alive by its own coverage. Deleted; the four assertions that used it were repointed at `loadEvents(overlappingSince:)` with an epoch-zero cutoff, which returned the same rows.
+- [x] **`AppDataStore.loadEvents(overlappingSince:)` went the same way, for the same reason.** Its last production caller was the daily seed, which moved to `loadTimeEntries(overlappingSince:)` when the day's totals became per category — leaving a `finalised = 1`-plus-time-window reader whose only remaining callers were the four assertions above, every one of them passing an epoch-zero cutoff (so the window was never exercised) and reading nothing but event numbers.
+
+      Deleted, and `DeviceEventRecord` with it: that struct existed solely as this method's return
+      type, and nothing else ever constructed or read one. The assertions now use a
+      `finalisedEventNumbers()` helper next to the `storedEventNumbers()` already in that file,
+      which is what they were reaching for. Three of the four got stronger on the way — an exact
+      array comparison instead of a count plus a peek at the first element.
+
+      Worth noting as a pattern rather than an incident: this is the second reader on this table to
+      be kept alive purely by the tests that used it, and both times the tests wanted something
+      narrower than the production API offered. A test-only assertion helper is the honest home for
+      that, not `AppDataStore`.
 
 ## Already in the right place — not in scope
 
