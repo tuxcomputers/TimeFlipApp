@@ -98,7 +98,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -142,7 +141,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -182,7 +180,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -218,7 +215,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -251,7 +247,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -305,7 +300,6 @@ final class HistoryIngestorTests: XCTestCase {
         )
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,

@@ -9,7 +9,6 @@ import XCTest
 final class AppStateDeviceTabTests: XCTestCase {
     private func makeAppState() -> AppState {
         AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -314,7 +313,6 @@ final class AppStateDeviceTabTests: XCTestCase {
         // The state after Forget Device + quit: device_name is still in the database, but there is
         // no pairing for it to belong to, so the tab must not present it as the paired device.
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,

@@ -203,6 +203,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // reports any device_event marked processed with no time_entry to show for it. Runs after
         // the log sink is wired above so a repair actually reaches debug_log.
         dataStore.sweepTimeEntries(trigger: .launch)
+        removeLegacyPreferencesBlob()
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
@@ -334,9 +335,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // reconnect scan would still be looking for the name the cube no longer answers to.
             (device as? TimeFlipBLEDevice)?.rememberedDeviceName = name
             return true
-        }
-        appState.onCurrentFaceMappingChange = { [weak self] in
-            self?.menuBarController.refreshFromState()
         }
         appState.onDisplaySecondsChange = { [weak self] enabled in
             guard let self else { return }
@@ -1096,6 +1094,26 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     /// Re-reads `face` joined to `category` after a Categories tab edit, so a renamed, recoloured
     /// or re-iconed category reaches the menu bar straight away instead of at the next launch.
     /// Both tables are tiny and this only runs on an explicit user edit.
+    /// Deletes the app's one and only `UserDefaults` key, left behind by the removed preferences
+    /// blob (`timeflip.preferences`).
+    ///
+    /// Without this the goal in `docs/TODO-Legacy-removal.md` is only half met: nothing reads the
+    /// key any more, but the state is still on disk, and `UserDefaults` never forgets a key on its
+    /// own. What goes with it is any face names and icons typed before faces were assigned
+    /// categories; those cannot be migrated, since a name is not a category and guessing which
+    /// category a name meant would invent data. The per-face daily limits went the same way when
+    /// that field moved. In practice there was nothing to lose: the blob on the development machine
+    /// held 12 faces, every one of them with an empty name and icon.
+    ///
+    /// Safe to delete this method once every install has launched a build containing it. Costs one
+    /// `UserDefaults` read per launch until then, and nothing after.
+    private func removeLegacyPreferencesBlob() {
+        let key = "timeflip.preferences"
+        guard UserDefaults.standard.object(forKey: key) != nil else { return }
+        UserDefaults.standard.removeObject(forKey: key)
+        DeveloperMode.debugPrint(.legacy, "Removed the legacy UserDefaults preferences blob (\(key))")
+    }
+
     private func refreshFaceCategories() {
         appState.faceCategories = dataStore.loadFaceCategories()
         appState.faceLocks = dataStore.loadFaceLocks()

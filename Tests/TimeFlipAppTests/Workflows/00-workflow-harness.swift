@@ -72,7 +72,6 @@ final class WorkflowHarness {
             )
         )
         self.appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,

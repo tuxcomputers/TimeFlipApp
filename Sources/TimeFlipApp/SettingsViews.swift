@@ -180,13 +180,8 @@ private struct PaneSetupView: View {
                     Text("Top face")
                         .font(.headline)
 
-                    if let index = appState.mappingIndex(for: appState.currentFaceID) {
-                        let binding = Binding(
-                            get: { appState.faceMappings[index] },
-                            set: { appState.updateMapping($0) }
-                        )
+                    if TimeFlipConstants.isValidFaceID(appState.currentFaceID) {
                         TopFaceEditor(
-                            mapping: binding,
                             litColour: appState.deviceBodyColour(for: appState.currentFaceID),
                             lineColour: appState.deviceLineColour(for: appState.currentFaceID),
                             iconName: appState.categoryActivity(for: appState.currentFaceID)?.iconName,
@@ -294,7 +289,6 @@ private struct PaneSetupView: View {
 }
 
 private struct TopFaceEditor: View {
-    @Binding var mapping: FaceMapping
     /// The colour to light the device in: the colour of the category assigned to this face, or
     /// white when it has none (see `AppState.deviceBodyColour`).
     let litColour: Color
@@ -711,59 +705,6 @@ private struct CategoryAssignmentRow: View {
         // Without this the row only responds to clicks that land on the icon or the text, not the
         // gap between them or the empty space the Spacer leaves to the right.
         .contentShape(Rectangle())
-    }
-}
-
-private struct FaceMappingList: View {
-    let mappings: [FaceMapping]
-    let currentFaceID: UInt8
-    let tint: (UInt8) -> Color
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(mappings) { mapping in
-                FaceMappingRow(
-                    mapping: mapping,
-                    tint: tint(mapping.faceID),
-                    isSelected: mapping.faceID == currentFaceID
-                )
-                if mapping.id != mappings.last?.id {
-                    Divider()
-                }
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: SettingsLayoutConstants.FaceList.cornerRadius)
-                .fill(Color(NSColor.textBackgroundColor))
-        )
-    }
-}
-
-private struct FaceMappingRow: View {
-    let mapping: FaceMapping
-    let tint: Color
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
-            ActivityIconView(
-                iconName: mapping.iconName,
-                tint: tint,
-                size: SettingsLayoutConstants.FaceList.iconSize
-            )
-
-            Text(mapping.displayName)
-                .foregroundStyle(mapping.isAssigned ? .primary : .secondary)
-
-            Spacer()
-        }
-        .frame(height: SettingsLayoutConstants.faceRowHeight)
-        .padding(.horizontal, SettingsLayoutConstants.FaceList.horizontalPadding)
-        .background(
-            isSelected
-            ? Color.accentColor.opacity(SettingsLayoutConstants.FaceList.selectionOpacity)
-            : Color.clear
-        )
     }
 }
 

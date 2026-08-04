@@ -4,7 +4,6 @@ import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
-    private let preferencesStore: PreferencesStore
     private let googleClientSecretStore: GoogleClientSecretStore
     private let devicePasswordStore: TimeFlipDevicePasswordStoring
     private let developerConfigStore: DeveloperConfigStoring // Developer mode; see DeveloperConfigStore.swift
@@ -24,10 +23,6 @@ final class AppState: ObservableObject {
     private var preferencesCancellables: Set<AnyCancellable> = []
     private var isApplyingPreferences = false
     private var hasLoadedClientSecret = false
-    // Set when a stored preferences blob existed but failed to decode, so the very next
-    // debounced persist (which would otherwise fire from incidental startup state changes,
-    // before the user has made any real edit) doesn't silently clobber it with defaults.
-    private var suppressNextPersist = false
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "app-state")
 
     @Published var currentFaceID: UInt8
@@ -62,7 +57,6 @@ final class AppState: ObservableObject {
     /// is a reconnect, which is exactly the event that clears it. See
     /// `DeviceNameRules.renameLagNotice` for what it says and why the app says anything.
     @Published var renameLagNotice: String?
-    @Published var faceMappings: [FaceMapping]
     @Published var googleCalendarID: String?
     @Published var googleCalendarName: String?
     /// The signed-in account's calendars, as last listed from Google. Held here rather than on the
@@ -179,7 +173,6 @@ final class AppState: ObservableObject {
     /// Writes a new name to the device (command `0x15`), reporting whether the write landed. The
     /// name is already validated by `DeviceNameRules` before this is called.
     var onDeviceRenameRequest: ((String) async -> Bool)?
-    var onCurrentFaceMappingChange: (() -> Void)?
     // Fired with the new daily-reset time (24-hour hour, minute) when the App-tab picker changes it,
     // so the setting can be persisted and the running day-window/timer re-armed (see ApplicationDelegate).
     var onDailyResetTimeChange: ((_ hour: Int, _ minute: Int) -> Void)?
@@ -223,7 +216,6 @@ final class AppState: ObservableObject {
     }
 
     init(
-        preferencesStore: PreferencesStore = UserDefaultsPreferencesStore(),
         googleClientSecretStore: GoogleClientSecretStore = KeychainGoogleClientSecretStore(),
         devicePasswordStore: TimeFlipDevicePasswordStoring = TimeFlipDevicePasswordStore.shared,
         developerConfigStore: DeveloperConfigStoring = DeveloperConfigStore.shared,
@@ -250,7 +242,6 @@ final class AppState: ObservableObject {
         dailyResetHour: Int = 3,
         dailyResetMinute: Int = 0
     ) {
-        self.preferencesStore = preferencesStore
         self.googleClientSecretStore = googleClientSecretStore
         self.devicePasswordStore = devicePasswordStore
         self.developerConfigStore = developerConfigStore
@@ -270,7 +261,6 @@ final class AppState: ObservableObject {
         // A remembered name survives Forget Device, so it is not on its own reason to show one --
         // the Device tab reads "Not paired" until there is a pairing for that name to belong to.
         self.pairedDeviceName = (isPaired ? deviceName : nil) ?? "Not paired"
-        faceMappings = ActivityLibrary.defaultMappings()
         self.googleCalendarID = googleCalendarID
         self.googleCalendarName = googleCalendarName
         // Developer mode's config.json can override this in applyDeveloperConfig below, which runs
@@ -321,7 +311,6 @@ final class AppState: ObservableObject {
         self.dailyResetHour = dailyResetHour
         self.dailyResetMinute = dailyResetMinute
 
-        applyPreferences()
         if DeveloperMode.isEnabled { applyDeveloperConfig() }
         loadClientSecretOnce()
         loadDevicePassword()
@@ -331,7 +320,7 @@ final class AppState: ObservableObject {
     // MARK: - Developer mode
     // To remove developer mode: delete this section, the `isDeveloperConfigLoaded` property,
     // the `developerConfigStore` property/init param, and every other `DeveloperMode.isEnabled`
-    // call site below (in persistGoogleClientSecret, persistDevicePassword, persistPreferences).
+    // call site below (in persistGoogleClientSecret and persistDevicePassword).
 
     private var isDeveloperConfigActive: Bool {
         DeveloperMode.isEnabled && isDeveloperConfigLoaded
@@ -412,8 +401,8 @@ final class AppState: ObservableObject {
     }
 
     /// What the menu bar shows for a face: the name, icon and daily limit of the category the
-    /// `face` table assigns it, rather than the face's own `FaceMapping` (whose fields live in
-    /// the UserDefaults preferences blob and describe the face, not a category).
+    /// `face` table assigns it. A face used to carry its own name and icon in a UserDefaults blob,
+    /// independently of any category; that blob is gone and this is the only answer left.
     ///
     /// All three come from the one `CategoryRecord`, which is the point: a limit belongs to the
     /// thing being measured. Two faces assigned the same category share its limit, where the blob
@@ -500,20 +489,6 @@ final class AppState: ObservableObject {
             resolved[faceID] = colourOptions.first { $0.colourId == colourID }?.components ?? .off
         }
         return resolved
-    }
-
-    func mappingIndex(for faceID: UInt8) -> Int? {
-        faceMappings.firstIndex { $0.faceID == faceID }
-    }
-
-    func updateMapping(_ mapping: FaceMapping) {
-        guard let index = mappingIndex(for: mapping.faceID) else { return }
-        var updated = faceMappings
-        updated[index] = mapping
-        faceMappings = updated
-        if mapping.faceID == currentFaceID {
-            onCurrentFaceMappingChange?()
-        }
     }
 
     func startDeviceScan(filterToTimeFlip: Bool) {
@@ -736,28 +711,6 @@ final class AppState: ObservableObject {
         onPairingChange?(false)
     }
 
-    private func applyPreferences() {
-        guard let payload = preferencesStore.load() else {
-            if preferencesStore.hasStoredPayload() {
-                logger.error("Stored preferences failed to decode; keeping in-memory defaults for this session without overwriting the stored blob")
-                suppressNextPersist = true
-            }
-            return
-        }
-        isApplyingPreferences = true
-        let mappings = payload.faceMappings.map { record in
-            FaceMapping(
-                faceID: record.faceID,
-                name: ActivityLibrary.sanitizeActivityName(record.name),
-                iconName: ActivityLibrary.sanitizeIconName(record.iconName)
-            )
-        }
-        if !mappings.isEmpty {
-            faceMappings = mappings.sorted { $0.faceID < $1.faceID }
-        }
-        isApplyingPreferences = false
-    }
-
     func setDailyWindowStart(_ date: Date) {
         dailyWindowStart = date
     }
@@ -837,20 +790,10 @@ final class AppState: ObservableObject {
     }
 
     private func observePreferences() {
-        // Coalesce all preference changes into a single debounced sink
-        // to avoid cascading persistence calls and reduce disk I/O
-        Publishers.MergeMany([
-            $faceMappings.map { _ in () }.eraseToAnyPublisher()
-        ])
-        .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
-        .sink { [weak self] in
-            self?.persistPreferences()
-        }
-        .store(in: &preferencesCancellables)
-
-        // Google client secret has its own persistence mechanism, but still needs debouncing
-        // like the general preferences pipeline above — otherwise every keystroke while editing
-        // it in Settings triggers its own Keychain write.
+        // Debounced because it is edited by typing: without it every keystroke in the Settings
+        // field triggers its own Keychain write. This used to be one of three sinks merged into a
+        // shared debounce, alongside the UserDefaults blob's; the blob is gone and the other two
+        // are what remain.
         $googleClientSecret
             .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
             .sink { [weak self] secret in
@@ -866,32 +809,6 @@ final class AppState: ObservableObject {
                 self.persistDevicePassword(password)
             }
             .store(in: &preferencesCancellables)
-    }
-
-    private func persistPreferences() {
-        guard !isApplyingPreferences else {
-            return
-        }
-        if suppressNextPersist {
-            suppressNextPersist = false
-            logger.warning("Skipped one persist after a failed preferences decode to avoid clobbering the stored blob")
-            return
-        }
-        let records = faceMappings.map { mapping -> FaceMappingRecord in
-            let sanitizedName = ActivityLibrary.sanitizeActivityName(mapping.name)
-            let sanitizedIcon = ActivityLibrary.sanitizeIconName(mapping.iconName)
-            let sanitized = FaceMapping(
-                faceID: mapping.faceID,
-                name: sanitizedName,
-                iconName: sanitizedIcon
-            )
-            return FaceMappingRecord(mapping: sanitized)
-        }
-        let payload = PreferencesPayload(faceMappings: records)
-        preferencesStore.save(payload)
-        if isDeveloperConfigActive {
-            persistDeveloperConfig()
-        }
     }
 
     private func sanitizedClientID() -> String? {
@@ -1039,7 +956,6 @@ final class AppState: ObservableObject {
         if !wasPaired {
             onPairingChange?(true)
         }
-        persistPreferences()
     }
 
     /// A pairing attempt failed: the user picked a device and the app could not get as far as
@@ -1054,7 +970,6 @@ final class AppState: ObservableObject {
             pendingPairingDeviceName = nil
         }
         onPairingChange?(false)
-        persistPreferences()
     }
 
     /// A connection to an already-paired device failed in a way that retrying will not fix -- in

@@ -1,26 +1,12 @@
 import AppKit
-import OSLog
 import SwiftUI
 
-protocol PreferencesStore {
-    func load() -> PreferencesPayload?
-    func save(_ payload: PreferencesPayload)
-    /// True if a preferences blob is present, regardless of whether `load()` could decode it —
-    /// lets callers tell "nothing stored yet" (fine to persist defaults) apart from "stored data
-    /// existed but failed to decode" (should not be silently clobbered with defaults).
-    func hasStoredPayload() -> Bool
-}
-
-struct PreferencesPayload: Codable {
-    var faceMappings: [FaceMappingRecord] = []
-}
-
-struct FaceMappingRecord: Codable {
-    var faceID: UInt8
-    var name: String
-    var iconName: String
-}
-
+/// An RGBA colour in the form the device wants it, and the conversions either side.
+///
+/// Lived in `PreferencesStore.swift` until the UserDefaults blob was removed, because a face's
+/// colour used to be stored there as one of these. It has nothing to do with preferences now: the
+/// colours come from the `colour` reference table, and this is what carries one from a row to the
+/// LED (`0x11`) and to the screen.
 struct ColorComponents: Codable, Equatable {
     var red: Double
     var green: Double
@@ -30,44 +16,6 @@ struct ColorComponents: Codable, Equatable {
     /// The LED off. Command `0x11` takes an RGB triple with no separate enable, so all-zero is the
     /// only way to say "don't light this face" -- see `AppState.faceLEDColours`.
     static let off = ColorComponents(red: 0, green: 0, blue: 0, alpha: 1)
-}
-
-final class UserDefaultsPreferencesStore: PreferencesStore {
-    private let defaults: UserDefaults
-    private let key = "timeflip.preferences"
-    private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "preferences-store")
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    func load() -> PreferencesPayload? {
-        if let data = defaults.data(forKey: key), let payload = decode(data) {
-            return payload
-        }
-
-        return nil
-    }
-
-    func hasStoredPayload() -> Bool {
-        defaults.data(forKey: key) != nil
-    }
-
-    func save(_ payload: PreferencesPayload) {
-        guard let data = try? JSONEncoder().encode(payload) else {
-            return
-        }
-        defaults.set(data, forKey: key)
-    }
-
-    private func decode(_ data: Data) -> PreferencesPayload? {
-        do {
-            return try JSONDecoder().decode(PreferencesPayload.self, from: data)
-        } catch {
-            logger.error("Failed to decode stored preferences: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
 }
 
 extension ColorComponents {
@@ -113,13 +61,5 @@ extension ColorComponents {
             max(0, min(255, Int((channel * 255).rounded())))
         }
         return String(format: "#%02x%02x%02x", scale(red), scale(green), scale(blue))
-    }
-}
-
-extension FaceMappingRecord {
-    init(mapping: FaceMapping) {
-        self.faceID = mapping.faceID
-        self.name = mapping.name
-        self.iconName = mapping.iconName
     }
 }

@@ -22,9 +22,10 @@ final class CategoryNameNormalizationTests: XCTestCase {
         XCTAssertEqual(ActivityLibrary.normalizeCategoryName("   "), "")
     }
 
-    func testKeepsPunctuationThatSanitizeActivityNameWouldStrip() {
-        // The reason this is not sanitizeActivityName: ticket-style names have to survive intact.
+    func testKeepsTicketStylePunctuation() {
+        // Normalizing deliberately does not filter characters. The face-name sanitizer that did
+        // (and would have made this "ACME123") went with the UserDefaults blob it policed, so the
+        // contrast it used to be asserted against is gone; the requirement it protected is not.
         XCTAssertEqual(ActivityLibrary.normalizeCategoryName(" ACME-123 "), "ACME-123")
-        XCTAssertEqual(ActivityLibrary.sanitizeActivityName("ACME-123"), "ACME123")
     }
 }

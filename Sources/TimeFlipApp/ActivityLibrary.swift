@@ -1,21 +1,5 @@
 import SwiftUI
 
-struct FaceMapping: Identifiable {
-    let faceID: UInt8
-    var name: String
-    var iconName: String
-
-    var id: UInt8 { faceID }
-
-    var isAssigned: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var displayName: String {
-        isAssigned ? name : "Unassigned"
-    }
-}
-
 struct ActivityIconOption: Identifiable {
     let name: String
     let iconName: String
@@ -50,10 +34,6 @@ struct ActivityColorOption: Identifiable {
 }
 
 enum ActivityLibrary {
-    private static let allowedNameCharacters = CharacterSet.alphanumerics
-        .union(.whitespaces)
-        .union(CharacterSet(charactersIn: "?!"))
-
     static let iconNames: [String] = [
         "ic_admin",
         "ic_agile",
@@ -134,68 +114,16 @@ enum ActivityLibrary {
 
     static let validIconNames: Set<String> = Set(iconOptions.map { $0.iconName })
 
-    private static let defaultFaceIcons: [String] = [
-        "ic_project",
-        "ic_code",
-        "ic_meeting",
-        "ic_emails",
-        "ic_calls",
-        "ic_design",
-        "ic_admin",
-        "ic_reading",
-        "ic_fitness",
-        "ic_marketing",
-        "ic_support",
-        "ic_urgent"
-    ]
-
-    private static let defaultFaceNames: [String] = [
-        "Project",
-        "Code",
-        "Meetings",
-        "Emails",
-        "Calls",
-        "Design",
-        "Admin",
-        "Reading",
-        "Fitness",
-        "Marketing",
-        "Support",
-        "Urgent"
-    ]
-
-    static func defaultMappings() -> [FaceMapping] {
-        // Default: every face starts unassigned with a neutral gray color and no icon.
-        return TimeFlipConstants.faceIDs.map { faceID in
-            FaceMapping(
-                faceID: faceID,
-                name: "",
-                iconName: ""
-            )
-        }
-    }
-
     /// Tidies a typed category name: leading and trailing whitespace removed, and any internal run
-    /// of whitespace collapsed to a single space. Deliberately not `sanitizeActivityName` -- that
-    /// one strips everything outside letters, digits, spaces, `?` and `!`, which would turn a
-    /// ticket-style name like `ACME-123` into `ACME123`.
+    /// of whitespace collapsed to a single space. Deliberately does **not** filter characters: a
+    /// ticket-style name like `ACME-123` has to survive intact. The face-name sanitizer that did
+    /// filter (and would have made that `ACME123`) went with the UserDefaults blob it policed.
     ///
     /// Collapsing matters beyond tidiness: it happens before the already-exists check, so
     /// `"Client  work"` is recognised as the `"Client work"` that already exists rather than
     /// quietly becoming a second category that looks identical in a list.
     static func normalizeCategoryName(_ value: String) -> String {
         value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    }
-
-    static func sanitizeActivityName(_ value: String) -> String {
-        let filteredScalars = value.unicodeScalars.filter { allowedNameCharacters.contains($0) }
-        return String(String.UnicodeScalarView(filteredScalars))
-    }
-
-    static func sanitizeIconName(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-        return validIconNames.contains(trimmed) ? trimmed : ""
     }
 
     private static func displayName(for iconName: String) -> String {
