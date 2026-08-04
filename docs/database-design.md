@@ -155,7 +155,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `None` colour) if no real colour is assigned. |
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
 | `daily_limit`| INTEGER | Whole minutes of tracked time allowed against this category per day (`0` = no limit). Minutes rather than the seconds convention used by `duration_seconds` elsewhere (e.g. `time_entry`): a limit is a coarse user-set budget, and nobody sets one to the nearest 30 seconds. The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
-| `cost`       | INTEGER | Cost associated with this category, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing reads it yet — groundwork for a planned cost/billing feature. |
+| `cost`       | INTEGER | What an hour of this category costs, as a whole number of **cents** (e.g. `250` = $2.50 per hour) to avoid floating-point money; the UI formats it for display as `$x.xx`. **A rate per hour, not a flat charge per entry** — so a `time_entry`'s `total_cost` is a function of its duration. `NOT NULL`, defaults to `0`. Nothing reads or sets it yet — groundwork for [Cost time entry](TODO-features-under-development.md#cost-time-entry). |
 | `active`     | INTEGER | `1` while the category is in use, `0` once it has been retired. Retiring is an `UPDATE`, never a `DELETE`, so historical `time_entry` rows and any face still holding the category keep resolving; a retired category simply stops being offered for new assignments. `NOT NULL`, defaults to `1`, constrained to `0`/`1`. |
 
 Foreign keys — all three parents are seeded with an id-`0` sentinel row, which is what lets these columns be `NOT NULL` and still allow "nothing assigned":
@@ -202,7 +202,7 @@ A single tracked time span, linked to the category it was logged against.
 | `ended_at`                   | TEXT    | When the entry ended, as a local-time ISO 8601 timestamp with no UTC offset. |
 | `end_timezone_id`       | INTEGER | References `timezone.timezone_id` — the IANA zone `ended_at` was recorded in.          |
 | `duration_seconds`           | REAL    | How long the entry lasted, in seconds.                                 |
-| `total_cost`                 | INTEGER | Total cost of this entry, stored as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. `NOT NULL`, defaults to `0`. Nothing computes it yet — groundwork alongside `category.cost` for a planned cost/billing feature. |
+| `total_cost`                 | INTEGER | What this entry cost, as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. Its category's hourly `cost` applied to this entry's `duration_seconds`, captured when the row is created and never recalculated, so re-rating a category leaves history priced as it was actually logged. `NOT NULL`, defaults to `0`. Nothing computes it yet, so every existing row reads `0` — see [Cost time entry](TODO-features-under-development.md#cost-time-entry). |
 | `synced_to_google_calendar`  | INTEGER | `1` if this entry has been synced to Google Calendar, `0` otherwise.  |
 
 Foreign keys:

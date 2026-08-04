@@ -84,17 +84,15 @@ Segments shorter than `blip_time` get no entry and are marked `processed`, which
 
 ## Cost time entry
 
-- A `time_entry`'s `total_cost` is calculated when the row is created, from the `cost` of the category it was logged against.
+- A category's `cost` is a rate **per hour**, not a flat charge per entry. So a `time_entry`'s `total_cost` is that rate applied to its `duration_seconds`: `cost * duration_seconds / 3600`, both sides in whole cents.
 - It is captured, not looked up later: changing a category's `cost` afterwards must leave every existing `time_entry` exactly as it was, the same way `category_id` is captured rather than resolved at read time.
 - Reporting can total cost, per category and (with Projects) per project.
 
 (Note: the column exists and is written by nobody. `time_entry.total_cost` is `INTEGER NOT NULL DEFAULT 0` and the insert in `AppDataStore.convertEligibleEvents` omits it, so every entry created so far reads zero -- this was split out of Time logs, whose spec called for it, rather than left as a footnote there. `category.cost` is likewise `INTEGER NOT NULL DEFAULT 0` and there is no UI anywhere that sets it, so the input side is missing too.
 
-Units are already decided: both columns are **whole cents**, per [Database Design](database-design.md) (`250` = $2.50), so money never touches a float. Two things are still open:
+Both columns are **whole cents**, per [Database Design](database-design.md) (`250` = $2.50), so money never touches a float, and `cost` is a rate per hour. That leaves one thing open:
 
-**What `category.cost` is the cost *of*.** A rate per hour is the obvious reading and the only one that makes `total_cost` a function of duration, but nothing says so, and a flat charge per entry fits the column just as well. It has to be written down beside the column before anything computes with it: the two are indistinguishable once the numbers are stored, and a wrong guess misprices history silently.
-
-**How the result rounds.** If it is a rate, `cost * duration_seconds / 3600` will rarely land on a whole cent, so every row is a rounding decision. That rule belongs in the spec rather than being whatever the first implementation happens to do, since a report that totals the rows and a report that recomputes from the durations will otherwise disagree by a few cents and neither will be wrong.
+**How the result rounds.** `cost * duration_seconds / 3600` will rarely land on a whole cent, and at these durations the remainder is most of the value: a two-minute segment at $60/hour is 200 cents exactly, but at $55/hour it is 183.33. Rounding to the nearest cent per row is the obvious rule and is what to implement absent a reason otherwise. Worth writing down rather than leaving to the first implementation, because a report that sums the stored `total_cost` values and one that recomputes from the durations will otherwise disagree by a few cents with neither being wrong, and the fix then has to pick a winner retrospectively. The safe convention: **the stored value is the price**, and anything reporting on it sums rows rather than re-deriving them.
 
 No currency column exists anywhere, which is fine for one user with one currency and worth knowing before a second one turns up.)
 
