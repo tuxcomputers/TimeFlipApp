@@ -202,7 +202,7 @@ A single tracked time span, linked to the category it was logged against.
 | `ended_at`                   | TEXT    | When the entry ended, as a local-time ISO 8601 timestamp with no UTC offset. |
 | `end_timezone_id`       | INTEGER | References `timezone.timezone_id` — the IANA zone `ended_at` was recorded in.          |
 | `duration_seconds`           | REAL    | How long the entry lasted, in seconds.                                 |
-| `total_cost`                 | INTEGER | What this entry cost, as a whole number of **cents** (e.g. `250` = $2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. Its category's hourly `cost` applied to this entry's `duration_seconds`, captured when the row is created and never recalculated, so re-rating a category leaves history priced as it was actually logged. `NOT NULL`, defaults to `0`. Nothing computes it yet, so every existing row reads `0` — see [Cost time entry](TODO-features-under-development.md#cost-time-entry). |
+| `total_cost`                 | INTEGER | What this entry cost, as a whole number of **cents** (e.g. `250` = \$2.50) to avoid floating-point money; the UI formats it for display as `$x.xx`. Its category's hourly `cost` applied to this entry's `duration_seconds`, captured when the row is created and never recalculated, so re-rating a category leaves history priced as it was actually logged. `NOT NULL`, defaults to `0`. Nothing computes it yet, so every existing row reads `0` — see [Cost time entry](TODO-features-under-development.md#cost-time-entry). |
 | `synced_to_google_calendar`  | INTEGER | `1` if this entry has been synced to Google Calendar, `0` otherwise.  |
 
 Foreign keys:
