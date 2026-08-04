@@ -780,13 +780,13 @@ final class AppState: ObservableObject {
         onBlipTimeChange?(clamped)
     }
 
+    /// Publishes the day's per-face totals. The only way they are set: they are always a whole set
+    /// re-derived from `device_event` (`DailyFaceTotals.seedFromHistory`), never a running tally
+    /// nudged one segment at a time. An `incrementDailyTotal(faceID:by:)` used to exist for the
+    /// latter and was removed with it -- a figure the database cannot be asked to confirm is one
+    /// that can quietly drift from the rows it is supposed to be summarising.
     func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {
         dailyFaceDurations = totals
-    }
-
-    func incrementDailyTotal(faceID: UInt8, by delta: TimeInterval) {
-        guard delta > 0 else { return }
-        dailyFaceDurations[faceID, default: 0] += delta
     }
 
     private func observePreferences() {

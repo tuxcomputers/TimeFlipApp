@@ -11,6 +11,31 @@ struct DeviceEventRecord {
     let isPaused: Bool
 }
 
+/// Which segment a `device_event` row is, in the only terms that identify one: the device's own
+/// event number for it, plus the `start_epoch` saying which run of that counter it belongs to.
+///
+/// Both halves are needed because the number alone is ambiguous. A factory reset restarts the
+/// counter at 1, so the same number names a different segment in each generation -- production holds
+/// four of them, with event 3 appearing in three. `start_epoch` is what tells them apart, which is
+/// why `UN1_device_event` is a composite index over the pair rather than a `UNIQUE` on the number.
+struct RecordedEvent: Equatable {
+    let eventNumber: UInt32
+    /// Whole seconds since 1970, matching `device_event.start_epoch` -- the device reports whole
+    /// seconds and nothing finer (`docs/TimeFlip2 BLE Protocol v4.3.md`).
+    let startEpoch: Int64
+
+    /// Whether a frame the device has just reported is the segment this row already holds, rather
+    /// than a different segment that happens to reuse its number after a reset.
+    ///
+    /// Comparing the number alone would call a post-reset event 10 the same thing as a pre-reset
+    /// event 10 and skip the fetch that would bring the intervening events in.
+    func isSameSegment(as entry: TimeFlipHistoryEntry) -> Bool {
+        guard let eventNumber = entry.eventNumber else { return false }
+        return eventNumber == self.eventNumber
+            && Int64(entry.startedAt.timeIntervalSince1970) == startEpoch
+    }
+}
+
 /// What set a `time_entry` sweep going. Carried only so the debug log can say why a sweep ran:
 /// the sweep itself behaves identically whichever it is, because it works out what needs doing by
 /// asking the database rather than by being told.
@@ -1799,22 +1824,19 @@ final class AppDataStore {
 
     // MARK: - Device history position
 
-    /// The event number of the **most recent segment recorded**, which is where the history fetch
-    /// resumes. `nil` for a database with no history at all.
+    /// The **most recent segment recorded**, which is where the history fetch resumes. `nil` for a
+    /// database with no history at all.
     ///
     /// The newest row, not the highest number. Those are different questions and only the first one
     /// is useful: event numbers restart at 1 after a factory reset, so `MAX(event_number)` returns
-    /// a stranded value from a dead counter generation. On the development database today it returns
+    /// a stranded value from a dead counter generation. On the production database today it returns
     /// 38, from a generation the cube abandoned, while the newest segment is event 10.
     ///
     /// This replaced a window-function walk that ordered every row, found the last point where
     /// `event_number` dropped below its predecessor, and took the maximum at or after that boundary.
     /// It computed the right answer, but only as a way of making `MAX` safe, and it could not do
     /// what it looked like it did: straight after a reset there is no post-reset row for the counter
-    /// to have dropped between, so it still returned the stranded value. Recovery came from
-    /// elsewhere either way (`HistoryIngestor` compares the device's own reported last event number
-    /// and treats lower-than-known as a reset), and once a single post-reset row exists this query
-    /// follows the device down on its own.
+    /// to have dropped between, so it still returned the stranded value.
     ///
     /// **Includes the open row, deliberately**, which is what makes the fetch resume *at* the live
     /// segment rather than past it, so its duration comes back updated. The caller must not treat
@@ -1824,21 +1846,26 @@ final class AppDataStore {
     /// zero rows in production were inserted out of chronological order, because a batch is sorted
     /// by event number before it is written), but a gap recovered in a later batch would be inserted
     /// after newer rows, and insertion order would then name an old segment as the newest.
-    func latestRecordedEventNumber() -> Int64? {
+    func latestRecordedEvent() -> RecordedEvent? {
         guard let db else { return nil }
         let sql = """
-        SELECT event_number FROM device_event
+        SELECT event_number, start_epoch FROM device_event
         ORDER BY start_epoch DESC, device_event_id DESC
         LIMIT 1;
         """
-        var result: Int64?
+        var result: RecordedEvent?
         queue.sync {
             var stmt: OpaquePointer?
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK,
                sqlite3_step(stmt) == SQLITE_ROW,
                sqlite3_column_type(stmt, 0) != SQLITE_NULL {
                 let ev = sqlite3_column_int64(stmt, 0)
-                if ev > 0 { result = ev }
+                if ev > 0 {
+                    result = RecordedEvent(
+                        eventNumber: UInt32(clamping: ev),
+                        startEpoch: sqlite3_column_int64(stmt, 1)
+                    )
+                }
             }
             sqlite3_finalize(stmt)
         }

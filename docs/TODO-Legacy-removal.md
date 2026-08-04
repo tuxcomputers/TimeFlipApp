@@ -84,12 +84,13 @@ None of these ticked a box above, since the blob is what those boxes track, but 
       proxy for "what got stored" and now read `device_event` directly for that question, which is
       the more honest assertion either way.
 
-      **Migration, not yet applied:** `DROP TABLE logbook;` against `production.sqlite` and
-      `test.sqlite`. Nothing is lost by it, checked rather than assumed: all 34 rows in production
-      have an exact `device_event` counterpart on `(event_number, start_epoch)`, with the same face
-      and the same duration to within half a second. (Matching on `event_number` alone appears to
-      show 42 mismatches, which is the join fanning out: an event number repeats across counter
-      generations, so it is not a like-for-like key.)
+      **Migration applied.** `DROP TABLE logbook;` has been run against both `production.sqlite` and
+      `test.sqlite`; neither holds the table or its index any more, and
+      `scripts/compare-database-to-ddl.sh` reports no differences. Nothing was lost by it, checked
+      before rather than assumed: all 34 rows in production had an exact `device_event` counterpart on
+      `(event_number, start_epoch)`, with the same face and the same duration to within half a second.
+      (Matching on `event_number` alone appeared to show 42 mismatches, which is the join fanning out:
+      an event number repeats across counter generations, so it is not a like-for-like key.)
 - [x] **`AppDataStore.loadEvents(after:limit:)` had no production callers**, only tests — dead code kept alive by its own coverage. Deleted; the four assertions that used it now read through `loadEvents(overlappingSince:)` with an epoch-zero cutoff, which returns the same rows.
 
 ## Already in the right place — not in scope

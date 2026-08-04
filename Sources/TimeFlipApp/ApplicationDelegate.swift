@@ -1062,7 +1062,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         if case .systemState(let state) = event {
             switch state.syncStatus {
             case .factoryReset:
-                historyIngestor?.resetCursors(reason: "factory_reset_event")
+                // Just refresh. There is no cursor to clear first: the resume position is read out
+                // of `device_event` and capped at the number the cube itself reports, so a counter
+                // back at the bottom is followed down without being told a reset happened. A cube
+                // straight after one holds no history at all, so this finds nothing until the first
+                // flip -- which is why the same path recovers a reset this session never saw.
                 Task { [weak self] in
                     await self?.historyIngestor?.refreshHistory(trigger: "factory_reset")
                 }
