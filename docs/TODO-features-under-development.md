@@ -6,6 +6,7 @@
 - [ ] Calendar sync
 - [ ] Sync to TimeFlip cloud
 - [ ] Projects
+- [ ] Cost time entry
 - [x] Device rename
 
 ## Categories
@@ -54,7 +55,7 @@ Built on `bugfix/stepperArrowDisplay`'s parent, `feature/timeEntry` (PR #43). `A
 
 Segments shorter than `blip_time` get no entry and are marked `processed`, which is the cube being turned past a face rather than time spent on it.
 
-(Note: one bullet above is **not** built. `total_cost` is never calculated from the category's `cost` -- the insert omits the column and takes the schema's `DEFAULT 0`, so every entry so far reads zero. Left until there is something that reads it, since nothing charges for time yet; the cost-at-creation rule is the part to preserve when it is added, because a rate change afterwards must not silently reprice history.)
+(Note: one bullet above is **not** built and has been split out as [Cost time entry](#cost-time-entry) rather than left as a footnote here. `total_cost` is never calculated from the category's `cost`: the insert omits the column and takes the schema's `DEFAULT 0`, so every entry so far reads zero. Everything else in this section is built.)
 
 ## Calendar sync
 
@@ -80,6 +81,22 @@ Segments shorter than `blip_time` get no entry and are marked `processed`, which
 - Reporting can be grouped by project.
 
 (Note: `project` (`006_project.sql`) is currently id/name only -- "for now", per its own comment -- and `category.project_id` already links many categories to one project, so that part of the association is already schema-supported; each category's own `cost` is what rolls up under the project. What's missing: any project create/manage UI at all (no `Project`-named view exists anywhere in `Sources/`), and any reporting query that groups by `project_id` -- today's reports (`ReportSettingsView.swift`) don't reference `project` at all.)
+
+## Cost time entry
+
+- A `time_entry`'s `total_cost` is calculated when the row is created, from the `cost` of the category it was logged against.
+- It is captured, not looked up later: changing a category's `cost` afterwards must leave every existing `time_entry` exactly as it was, the same way `category_id` is captured rather than resolved at read time.
+- Reporting can total cost, per category and (with Projects) per project.
+
+(Note: the column exists and is written by nobody. `time_entry.total_cost` is `INTEGER NOT NULL DEFAULT 0` and the insert in `AppDataStore.convertEligibleEvents` omits it, so every entry created so far reads zero -- this was split out of Time logs, whose spec called for it, rather than left as a footnote there. `category.cost` is likewise `INTEGER NOT NULL DEFAULT 0` and there is no UI anywhere that sets it, so the input side is missing too.
+
+Units are already decided: both columns are **whole cents**, per [Database Design](database-design.md) (`250` = $2.50), so money never touches a float. Two things are still open:
+
+**What `category.cost` is the cost *of*.** A rate per hour is the obvious reading and the only one that makes `total_cost` a function of duration, but nothing says so, and a flat charge per entry fits the column just as well. It has to be written down beside the column before anything computes with it: the two are indistinguishable once the numbers are stored, and a wrong guess misprices history silently.
+
+**How the result rounds.** If it is a rate, `cost * duration_seconds / 3600` will rarely land on a whole cent, so every row is a rounding decision. That rule belongs in the spec rather than being whatever the first implementation happens to do, since a report that totals the rows and a report that recomputes from the durations will otherwise disagree by a few cents and neither will be wrong.
+
+No currency column exists anywhere, which is fine for one user with one currency and worth knowing before a second one turns up.)
 
 ## Device rename
 
