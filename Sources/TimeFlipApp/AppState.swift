@@ -9,10 +9,34 @@ final class AppState: ObservableObject {
     private let developerConfigStore: DeveloperConfigStoring // Developer mode; see DeveloperConfigStore.swift
     /// The face colour-picker palette, loaded once from the `colour` reference table at launch
     /// (see `ActivityLibrary.colorOptions(from:)`). Fixed for the session — no UI edits it.
+    ///
+    /// An array because the picker grid draws it in order. Every *lookup* goes through
+    /// `colourOptionsByID` instead.
     let colourOptions: [ActivityColorOption]
     /// The Categories tab's icon-grid palette, loaded once from the `icon` reference table at
     /// launch (see `ActivityLibrary.iconOptions(from:)`). Fixed for the session -- no UI edits it.
+    ///
+    /// Ordered for the same reason as `colourOptions`, and looked up through `iconNamesByID`.
     let iconOptions: [CategoryIconOption]
+    /// `colourOptions` keyed by `colour.colour_id`, built once in `init`.
+    ///
+    /// Both palettes are rows of a reference table, so the thing every caller has in hand is an id --
+    /// `category.colour_id` or `category.icon_id`. Five callers were each scanning the array for it
+    /// with `first { $0.colourId == ... }`, one of them (`faceLEDColours`) inside a twelve-face loop,
+    /// so a colour resync scanned the list twelve times over. Indexing once turns each of them into
+    /// the single lookup the id was always for.
+    ///
+    /// It also makes the miss explicit. Those scans compared an `Int` id against an `Int?`, which
+    /// Swift promotes and then quietly finds no match for when the optional is nil -- right answer,
+    /// reached by accident. A `flatMap` into a dictionary says "no category, no colour" outright.
+    ///
+    /// Not every id is present, deliberately: `colour_id` 0 (`None`) has no `device_hex` and never
+    /// enters the palette, and `icon_id` 0 is a sentinel rather than an asset. A missing key is how
+    /// "no colour" and "no icon" arrive here, and each caller decides what that renders as.
+    private let colourOptionsByID: [Int: ActivityColorOption]
+    /// The asset name for each `icon.icon_id`, built once in `init`. Same reasoning as
+    /// `colourOptionsByID`; only the name is kept, since that is all any lookup wants.
+    private let iconNamesByID: [Int: String]
     /// Each face's assigned category, keyed by face id, from the `face` table
     /// (`database/008_face.sql`). This is what the menu bar shows -- see `categoryActivity(for:)`.
     /// Published so an edit on the Categories tab reaches the menu bar without a relaunch.
@@ -251,6 +275,9 @@ final class AppState: ObservableObject {
         self.developerConfigStore = developerConfigStore
         self.colourOptions = colourOptions
         self.iconOptions = iconOptions
+        // Both palettes indexed by the id they came in on, once. See the properties for why.
+        colourOptionsByID = Dictionary(colourOptions.map { ($0.colourId, $0) }, uniquingKeysWith: { first, _ in first })
+        iconNamesByID = Dictionary(iconOptions.map { ($0.iconId, $0.iconName) }, uniquingKeysWith: { first, _ in first })
         self.faceCategories = faceCategories
         self.faceLocks = faceLocks
         currentFaceID = TimeFlipConstants.minFaceID
@@ -408,9 +435,19 @@ final class AppState: ObservableObject {
     /// `face` table assigns it. A face used to carry its own name and icon in a UserDefaults blob,
     /// independently of any category; that blob is gone and this is the only answer left.
     ///
-    /// All three come from the one `CategoryRecord`, which is the point: a limit belongs to the
+    /// All four come from the one `CategoryRecord`, which is the point: a limit belongs to the
     /// thing being measured. Two faces assigned the same category share its limit, where the blob
     /// gave each face its own and let the pair drift apart.
+    ///
+    /// **Deliberately a narrower value than the record it comes from**, rather than handing the
+    /// `CategoryRecord` straight to the menu bar. `Activity` holds exactly what gets drawn, so
+    /// `Activity` equality means "would this look different" -- which is what
+    /// `MenuBarController.syncActivityFromState` uses to decide whether to redraw at all. Compared as
+    /// whole records instead, a colour edit or a retirement would fail that test and be reported as a
+    /// newly selected activity, having changed nothing on screen. The two transformations it applies
+    /// are the reason it is not just a projection: `icon_id` resolves to an asset name, and the limit
+    /// is clamped at zero (`daily_limit` has no `CHECK`, so a hand-edited row can be negative even
+    /// though `updateCategoryDailyLimit` will not write one).
     ///
     /// `categories` is passed in rather than read off `self` so a Combine sink can supply the value
     /// it was handed: `@Published` publishes in `willSet`, so the property itself is still the old
@@ -420,11 +457,10 @@ final class AppState: ObservableObject {
         in categories: [UInt8: CategoryRecord]
     ) -> Activity? {
         guard let category = categories[faceID] else { return nil }
-        let iconName = iconOptions.first { $0.iconId == category.iconID }?.iconName
         return Activity(
             categoryID: category.id,
             name: category.name,
-            iconName: iconName,
+            iconName: iconNamesByID[category.iconID],
             limitMinutes: max(0, category.dailyLimitMinutes)
         )
     }
@@ -438,8 +474,7 @@ final class AppState: ObservableObject {
     /// foreground colour", which is not the same answer as the LED's (see `faceLEDColours`, where
     /// no colour means dark): an icon drawn black-on-black would just vanish.
     func faceCategoryColour(for faceID: UInt8) -> Color {
-        let colourID = faceCategories[faceID]?.colourID
-        return colourOptions.first { $0.colourId == colourID }?.color ?? .primary
+        colour(forFace: faceID)?.color ?? .primary
     }
 
     /// The colour to draw the on-screen device in for a face: its category's colour, or **white**
@@ -452,8 +487,7 @@ final class AppState: ObservableObject {
     /// `.primary` so it stays legible, the LED falls back to dark because that's off on the
     /// hardware, and the drawn body falls back to white because an unlit device is white plastic.
     func deviceBodyColour(for faceID: UInt8) -> Color {
-        let colourID = faceCategories[faceID]?.colourID
-        return colourOptions.first { $0.colourId == colourID }?.color ?? .white
+        colour(forFace: faceID)?.color ?? .white
     }
 
     /// The colour to draw the device's inner lines and centre icon in for a face: white when the
@@ -464,9 +498,27 @@ final class AppState: ObservableObject {
     /// The device's outer outline is not this colour: it stays black whatever the face is lit in,
     /// so the shape still reads against the window behind it.
     func deviceLineColour(for faceID: UInt8) -> Color {
-        let colourID = faceCategories[faceID]?.colourID
-        let usesWhiteLines = colourOptions.first { $0.colourId == colourID }?.usesWhiteLines ?? false
-        return usesWhiteLines ? .white : .black
+        (colour(forFace: faceID)?.usesWhiteLines ?? false) ? .white : .black
+    }
+
+    /// The palette row for a `category.colour_id`, or `nil` when there is none -- `colour_id` `0`
+    /// (`None`) has no `device_hex` and so never enters the palette. Callers decide what a `nil`
+    /// renders as; the three helpers above each answer it differently on purpose.
+    func colourOption(forColourID colourID: Int) -> ActivityColorOption? {
+        colourOptionsByID[colourID]
+    }
+
+    /// The asset name for a `category.icon_id`, or `nil` for the `None` sentinel at `0` and for any
+    /// row naming an asset that isn't bundled.
+    func iconName(forIconID iconID: Int) -> String? {
+        iconNamesByID[iconID]
+    }
+
+    /// The palette row for whatever colour a face's category carries, `nil` when there is nothing to
+    /// resolve -- either the face has no category or that category has no colour. The one lookup the
+    /// three drawing helpers above share.
+    private func colour(forFace faceID: UInt8) -> ActivityColorOption? {
+        faceCategories[faceID].flatMap { colourOptionsByID[$0.colourID] }
     }
 
     /// Whether a face keeps the category it has. Unknown faces read as unlocked, which is also
@@ -490,8 +542,8 @@ final class AppState: ObservableObject {
     func faceLEDColours(in categories: [UInt8: CategoryRecord]) -> [UInt8: ColorComponents] {
         var resolved: [UInt8: ColorComponents] = [:]
         for faceID in TimeFlipConstants.faceIDs {
-            let colourID = categories[faceID]?.colourID
-            resolved[faceID] = colourOptions.first { $0.colourId == colourID }?.components ?? .off
+            let option = categories[faceID].flatMap { colourOptionsByID[$0.colourID] }
+            resolved[faceID] = option?.components ?? .off
         }
         return resolved
     }

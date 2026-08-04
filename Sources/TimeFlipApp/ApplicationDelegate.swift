@@ -1019,7 +1019,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     ) {
         let category = categories[faceID]
         let categoryName = category?.name ?? "no category"
-        let colourName = appState.colourOptions.first { $0.colourId == category?.colourID }?.name
+        let colourName = category.flatMap { appState.colourOption(forColourID: $0.colourID) }?.name
             // A face with no category, or one whose colour didn't resolve, is sent black. Naming it
             // "off" rather than leaving it blank keeps the reason for an unlit face on the line.
             ?? (components == .off ? "off" : "unknown colour")
