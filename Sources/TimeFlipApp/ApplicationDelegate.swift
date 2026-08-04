@@ -99,7 +99,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self?.refreshFaceCategories()
         }
     )
-    private lazy var dailyTotals = DailyFaceTotals(dataStore: dataStore)
+    private lazy var dailyTotals = DailyCategoryTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(
         appState: appState,
         settingsWindowController: settingsWindowController,

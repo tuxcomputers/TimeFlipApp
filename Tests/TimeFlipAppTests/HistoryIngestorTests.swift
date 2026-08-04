@@ -107,7 +107,7 @@ final class HistoryIngestorTests: XCTestCase {
             doubleTapParameters: .default,
             isDoubleTapEnabled: true
         )
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
@@ -158,7 +158,7 @@ final class HistoryIngestorTests: XCTestCase {
             (event: 5, at: now.addingTimeInterval(-300)),
             (event: 6, at: now.addingTimeInterval(-100))
         ])
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
@@ -198,7 +198,7 @@ final class HistoryIngestorTests: XCTestCase {
         )
         var latest: TimeFlipHistoryEntry?
 
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,
@@ -235,7 +235,7 @@ final class HistoryIngestorTests: XCTestCase {
         // Simulates a fresh app launch reconnecting to a device it already has history for: the row
         // in device_event is the very segment the device is sitting on, same number and same start.
         seedDeviceEvents(dataStore, [(event: 20, at: now.addingTimeInterval(-10))])
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
 
         // The very first refresh of a session has to read the position off disk, or it reads as
@@ -263,7 +263,7 @@ final class HistoryIngestorTests: XCTestCase {
             isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,
@@ -315,7 +315,7 @@ final class HistoryIngestorTests: XCTestCase {
             isDoubleTapEnabled: true
         )
         var latest: TimeFlipHistoryEntry?
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,
@@ -440,7 +440,7 @@ final class HistoryIngestorTests: XCTestCase {
             doubleTapParameters: .default,
             isDoubleTapEnabled: true
         )
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "startup")
 
@@ -457,9 +457,12 @@ final class HistoryIngestorTests: XCTestCase {
         )
     }
 
-    /// The day's totals are re-derived from `device_event` on every batch rather than added up as
+    /// The day's totals are re-derived from `time_entry` on every batch rather than added up as
     /// segments are written, so re-ingesting the same history must not inflate them. This is what the
     /// dropped event-number filter used to protect by suppressing the second write.
+    ///
+    /// Keyed by category, so the faces here matter for what they are mapped to in the seeded schema:
+    /// face 2 is `Meeting` (id 2) and face 3 is `Unassigned` (id 0).
     func testReIngestingDoesNotInflateTheDayTotals() async {
         let now = Date()
         let history: [TimeFlipHistoryEntry] = [
@@ -478,17 +481,17 @@ final class HistoryIngestorTests: XCTestCase {
             doubleTapParameters: .default,
             isDoubleTapEnabled: true
         )
-        let dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        let dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
 
         await ingestor.refreshHistory(trigger: "startup")
-        let afterFirst = appState.dailyFaceDurations
-        XCTAssertEqual(afterFirst[2], 300, "face 2's one finalised segment, with event 3 still open and counted live instead")
-        XCTAssertEqual(afterFirst[3], 300)
+        let afterFirst = appState.dailyCategoryDurations
+        XCTAssertEqual(afterFirst[2], 300, "Meeting's one finalised segment; event 3 is still open, so the menu bar counts it live instead")
+        XCTAssertEqual(afterFirst[0], 300, "and Unassigned's, from face 3")
 
         await ingestor.refreshHistory(trigger: "periodic")
         await ingestor.refreshHistory(trigger: "periodic")
-        XCTAssertEqual(appState.dailyFaceDurations, afterFirst, "two more passes over the same history change nothing")
+        XCTAssertEqual(appState.dailyCategoryDurations, afterFirst, "two more passes over the same history change nothing")
         XCTAssertEqual(storedEventNumbers(), [1, 2, 3], "and no segment is stored twice")
     }
 

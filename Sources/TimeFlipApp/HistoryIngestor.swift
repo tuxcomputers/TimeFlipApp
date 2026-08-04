@@ -7,7 +7,7 @@ final class HistoryIngestor {
     private let device: TimeFlipSessionManaging
     private let dataStore: AppDataStore
     private let appState: AppState
-    private let dailyTotals: DailyFaceTotals
+    private let dailyTotals: DailyCategoryTotals
     private let onLatestEntry: ((TimeFlipHistoryEntry) -> Void)?
     private let logger = Logger(subsystem: AppIdentifiers.subsystem, category: "history-ingestor")
 
@@ -20,7 +20,7 @@ final class HistoryIngestor {
         device: TimeFlipSessionManaging,
         dataStore: AppDataStore,
         appState: AppState,
-        dailyTotals: DailyFaceTotals,
+        dailyTotals: DailyCategoryTotals,
         onLatestEntry: ((TimeFlipHistoryEntry) -> Void)? = nil
     ) {
         self.device = device
@@ -210,9 +210,6 @@ final class HistoryIngestor {
         // Update UI with latest entry AFTER accumulating deliverable entries
         onLatestEntry?(latestEntry)
 
-        // The day's totals, re-read from the rows just written rather than added up as they went.
-        refreshDailyTotals()
-
         // Once per batch (not once per recordDeviceEvent call above) so a backlog of history
         // doesn't spam the console with one line per record.
         dataStore.verifyMaxKnownStartEpochConsistency()
@@ -224,6 +221,11 @@ final class HistoryIngestor {
         // some route not going through recordDeviceEvent, and it reports any row left marked
         // processed with no time_entry to show for it, which the narrow conversion cannot see.
         dataStore.sweepTimeEntries(trigger: .historyIngest)
+
+        // Last, because the totals are read out of `time_entry` and everything above is what puts
+        // rows there. Seeding before the sweep would leave a segment the sweep repaired out of the
+        // day's figure until the next refresh.
+        refreshDailyTotals()
 
         DeveloperMode.debugPrint(.histDone, "history fetch complete: trigger=\(trigger)")
         await finishFetch()
@@ -269,7 +271,7 @@ final class HistoryIngestor {
         return true
     }
 
-    /// Re-reads the day's per-face totals from `device_event` and publishes them.
+    /// Re-reads the day's per-category totals from `time_entry` and publishes them.
     ///
     /// Each committed segment used to be added to a running in-memory tally as it was written,
     /// which only stayed right for as long as no segment was ever written twice. That held because
@@ -277,9 +279,8 @@ final class HistoryIngestor {
     /// does without: a re-delivered segment is re-written, deliberately, because the database is
     /// what decides whether it is new. Adding its duration a second time would inflate the day.
     ///
-    /// So the totals are derived rather than accumulated. `device_event` already holds every
-    /// segment's duration, `seedFromHistory` sums the ones overlapping the current window, and a
-    /// figure re-derived from the rows cannot drift from them.
+    /// So the totals are derived rather than accumulated. `seedFromHistory` sums the entries
+    /// overlapping the current window, and a figure re-derived from the rows cannot drift from them.
     private func refreshDailyTotals() {
         dailyTotals.seedFromHistory()
         appState.replaceDailyTotals(dailyTotals.totals)

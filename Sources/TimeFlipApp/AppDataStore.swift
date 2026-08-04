@@ -11,6 +11,15 @@ struct DeviceEventRecord {
     let isPaused: Bool
 }
 
+/// A `time_entry` row reduced to what a daily total needs: which category the time counts against,
+/// when it began, and how long it ran. `startedAt` comes from the joined `device_event.start_epoch`
+/// rather than `time_entry.started_at`, which is local text carrying no offset.
+struct TimeEntryRecord {
+    let categoryID: Int
+    let startedAt: Date
+    let duration: TimeInterval
+}
+
 /// Which segment a `device_event` row is, in the only terms that identify one: the device's own
 /// event number for it, plus the `start_epoch` saying which run of that counter it belongs to.
 ///
@@ -1775,14 +1784,66 @@ final class AppDataStore {
         return success
     }
 
-    /// Every **finalised** segment still running at or after `cutoff`, oldest first. Feeds
-    /// `DailyFaceTotals.seedFromHistory`.
+    /// Every tracked time entry still running at or after `cutoff`, oldest first. Feeds
+    /// `DailyCategoryTotals.seedFromHistory`.
     ///
-    /// Read from `logbook` until that legacy table was retired. The `finalised = 1` test is what
-    /// carries its behaviour across rather than a detail of the new query: `logbook` only ever held
-    /// segments the device had closed out, because `HistoryIngestor` committed all but the last
-    /// frame of a batch. `device_event` keeps the open one too, and the caller adds the live
-    /// segment's own elapsed time on top, so counting it here would count it twice.
+    /// **Reads `time_entry`, not `device_event`**, and that is the point rather than a detail. The
+    /// day's totals are measured per category, because that is what a `daily_limit` is set on, and
+    /// `time_entry.category_id` is the only place the category is recorded. Deriving it instead by
+    /// joining `device_event` to `face` would use the mapping as it stands *now*, so reassigning a
+    /// face would retroactively move yesterday's time to whichever category it points at today --
+    /// exactly what `updateFaceCategory` sweeps before remapping in order to prevent.
+    ///
+    /// Two things follow from the source, both wanted:
+    /// - A segment shorter than `blip_time` never became an entry, so it does not count. That is what
+    ///   the setting is for: turning the cube past a face is not time spent on it.
+    /// - A paused segment is never converted either, so pauses do not count towards the day.
+    ///
+    /// The open segment has no entry yet, so it is absent here and the caller adds its elapsed time
+    /// on top; counting it in both places would count it twice. That was true of the `finalised = 1`
+    /// test this replaced, and before that of the legacy `logbook` table, which only ever held
+    /// segments the device had closed out.
+    ///
+    /// `start_epoch` comes from the joined `device_event` row rather than from `time_entry.started_at`,
+    /// which is local text with no offset in it. The join is one-to-one: `device_event_id` is
+    /// `NOT NULL` and carries `UN1_time_entry`.
+    func loadTimeEntries(overlappingSince cutoff: Date) -> [TimeEntryRecord] {
+        guard let db else { return [] }
+        var items: [TimeEntryRecord] = []
+        let sql = """
+        SELECT te.category_id, de.start_epoch, te.duration_seconds
+        FROM time_entry te
+        JOIN device_event de ON de.device_event_id = te.device_event_id
+        WHERE (de.start_epoch + te.duration_seconds) > ?
+        ORDER BY de.start_epoch ASC;
+        """
+        let cutoffSeconds = cutoff.timeIntervalSince1970
+        queue.sync {
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_double(stmt, 1, cutoffSeconds)
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    items.append(
+                        TimeEntryRecord(
+                            categoryID: Int(sqlite3_column_int64(stmt, 0)),
+                            startedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                            duration: sqlite3_column_double(stmt, 2)
+                        )
+                    )
+                }
+            } else {
+                logger.error("time_entry window load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
+        return items
+    }
+
+    /// Every **finalised** segment still running at or after `cutoff`, oldest first.
+    ///
+    /// Reads `device_event`, so it counts blips and pauses and knows nothing about categories. Kept as
+    /// the "what segments got stored" reader the tests assert against; the day's totals moved to
+    /// `loadTimeEntries(overlappingSince:)` when they moved to being per category.
     func loadEvents(overlappingSince cutoff: Date) -> [DeviceEventRecord] {
         guard let db else { return [] }
         var items: [DeviceEventRecord] = []

@@ -145,9 +145,9 @@ final class MenuBarController: NSObject {
                 self?.handleConnectionStatusChange(status)
             }
             .store(in: &cancellables)
-        appState.$dailyFaceDurations
+        appState.$dailyCategoryDurations
             .sink { [weak self] durations in
-                self?.updateStatusView(dailyFaceDurationsOverride: durations)
+                self?.updateStatusView(dailyCategoryDurationsOverride: durations)
             }
             .store(in: &cancellables)
         appState.$dailyWindowStart
@@ -243,7 +243,7 @@ final class MenuBarController: NSObject {
 
     private func updateStatusView(
         force: Bool = false,
-        dailyFaceDurationsOverride: [UInt8: TimeInterval]? = nil,
+        dailyCategoryDurationsOverride: [Int: TimeInterval]? = nil,
         dailyWindowStartOverride: Date? = nil
     ) {
         if connectionStatusSnapshot == .pairing {
@@ -262,7 +262,7 @@ final class MenuBarController: NSObject {
         guard let button = statusItem?.button else { return }
         let activityLabel = currentActivity?.name ?? "Idle"
         let duration = formattedDuration(
-            dailyFaceDurationsOverride: dailyFaceDurationsOverride,
+            dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         )
         let iconName = currentActivity?.iconName
@@ -270,7 +270,7 @@ final class MenuBarController: NSObject {
         // so it can't disagree with the name and icon drawn beside it.
         let limitMinutes = currentActivity?.limitMinutes ?? 0
         let overLimit = limitMinutes > 0 && currentDuration(
-            dailyFaceDurationsOverride: dailyFaceDurationsOverride,
+            dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         ) >= Double(limitMinutes) * 60
         let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
@@ -405,11 +405,11 @@ final class MenuBarController: NSObject {
     }
 
     private func formattedDuration(
-        dailyFaceDurationsOverride: [UInt8: TimeInterval]? = nil,
+        dailyCategoryDurationsOverride: [Int: TimeInterval]? = nil,
         dailyWindowStartOverride: Date? = nil
     ) -> String {
         let totalSeconds = Int(currentDuration(
-            dailyFaceDurationsOverride: dailyFaceDurationsOverride,
+            dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         ))
         let hours = totalSeconds / Int(TimeConstants.secondsPerHour)
@@ -422,12 +422,23 @@ final class MenuBarController: NSObject {
         return String(format: "%d:%02d", hours, minutes)
     }
 
+    /// The figure the menu bar draws, and the one the daily limit is tested against: the current
+    /// **category's** tracked time today, plus the segment still running.
+    ///
+    /// Keyed off `currentActivity.categoryID`, not `appState.currentFaceID`. Two faces assigned the
+    /// same category share its `daily_limit`, so their time has to add up to spend it -- keyed by
+    /// face, 40 minutes on one and 40 on another never reached a 60-minute limit. Reading the key off
+    /// the activity rather than resolving the face again also keeps this number in step with the name
+    /// and limit drawn beside it, which came from that same record.
+    ///
+    /// No activity means no category to total, so the base is 0 -- the right answer for the "Idle"
+    /// placeholder that renders in exactly that state.
     private func currentDuration(
-        dailyFaceDurationsOverride: [UInt8: TimeInterval]? = nil,
+        dailyCategoryDurationsOverride: [Int: TimeInterval]? = nil,
         dailyWindowStartOverride: Date? = nil
     ) -> TimeInterval {
-        let durations = dailyFaceDurationsOverride ?? appState.dailyFaceDurations
-        let base = durations[appState.currentFaceID] ?? 0
+        let durations = dailyCategoryDurationsOverride ?? appState.dailyCategoryDurations
+        let base = currentActivity.flatMap { durations[$0.categoryID] } ?? 0
         // Paused time doesn't count toward active duration
         guard !isPaused else { return base }
         let windowStart = dailyWindowStartOverride ?? appState.dailyWindowStart

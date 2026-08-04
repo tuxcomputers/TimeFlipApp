@@ -7,7 +7,7 @@ import Testing
 /// checklists under `Tests/Bench/`.
 ///
 /// A workflow test drives a whole sequence through the real object graph (`AppDataStore`,
-/// `HistoryIngestor`, `DailyFaceTotals`, `AppState`) with `MockTimeFlipDevice` standing in for the
+/// `HistoryIngestor`, `DailyCategoryTotals`, `AppState`) with `MockTimeFlipDevice` standing in for the
 /// hardware, then asserts what landed in the database. Each *step* is its own `@Test` inside a
 /// `@Suite(.serialized)`, which swift-testing runs in **declaration order** -- verified, unlike
 /// XCTest's incidental alphabetical ordering, which is why these are swift-testing suites and the
@@ -35,7 +35,7 @@ final class WorkflowHarness {
     let dataStore: AppDataStore
     let device: MockTimeFlipDevice
     let appState: AppState
-    let dailyTotals: DailyFaceTotals
+    let dailyTotals: DailyCategoryTotals
     /// Replaced by `simulateRelaunch()`, which is why this isn't a `let`.
     private(set) var ingestor: HistoryIngestor
 
@@ -80,7 +80,7 @@ final class WorkflowHarness {
             doubleTapParameters: .default,
             isDoubleTapEnabled: true
         )
-        self.dailyTotals = DailyFaceTotals(dataStore: dataStore)
+        self.dailyTotals = DailyCategoryTotals(dataStore: dataStore)
         self.ingestor = HistoryIngestor(
             device: device,
             dataStore: dataStore,

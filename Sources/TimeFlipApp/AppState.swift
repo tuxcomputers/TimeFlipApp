@@ -85,7 +85,11 @@ final class AppState: ObservableObject {
     // send them to the device with `window` forced to 0 (which makes the accelerometer's
     // double-tap gesture unrecognizable) instead of the real value. See effectiveDoubleTapParameters.
     @Published var isDoubleTapEnabled: Bool
-    @Published var dailyFaceDurations: [UInt8: TimeInterval]
+    /// Seconds of tracked time in the current day window, keyed by `category.category_id` -- the key
+    /// a `daily_limit` is set against, so two faces sharing a category share one figure. Keyed by
+    /// face until this branch, which is what let a shared limit go unnoticed; see
+    /// `DailyCategoryTotals`.
+    @Published var dailyCategoryDurations: [Int: TimeInterval]
     @Published var dailyWindowStart: Date
     // Local time (24-hour) at which each category's daily accounting rolls over, mirroring the
     // `daily_reset_time` setting. The App-tab stepper edits it in whole hours + AM/PM, but the
@@ -283,7 +287,7 @@ final class AppState: ObservableObject {
         self.blinkIntervalSeconds = blinkIntervalSeconds
         self.doubleTapParameters = doubleTapParameters
         self.isDoubleTapEnabled = isDoubleTapEnabled
-        dailyFaceDurations = [:]
+        dailyCategoryDurations = [:]
         dailyWindowStart = Date()
         self.displaySecondsEnabled = displaySecondsEnabled
         self.pauseOnLockEnabled = pauseOnLockEnabled
@@ -418,6 +422,7 @@ final class AppState: ObservableObject {
         guard let category = categories[faceID] else { return nil }
         let iconName = iconOptions.first { $0.iconId == category.iconID }?.iconName
         return Activity(
+            categoryID: category.id,
             name: category.name,
             iconName: iconName,
             limitMinutes: max(0, category.dailyLimitMinutes)
@@ -781,12 +786,12 @@ final class AppState: ObservableObject {
     }
 
     /// Publishes the day's per-face totals. The only way they are set: they are always a whole set
-    /// re-derived from `device_event` (`DailyFaceTotals.seedFromHistory`), never a running tally
+    /// re-derived from `device_event` (`DailyCategoryTotals.seedFromHistory`), never a running tally
     /// nudged one segment at a time. An `incrementDailyTotal(faceID:by:)` used to exist for the
     /// latter and was removed with it -- a figure the database cannot be asked to confirm is one
     /// that can quietly drift from the rows it is supposed to be summarising.
-    func replaceDailyTotals(_ totals: [UInt8: TimeInterval]) {
-        dailyFaceDurations = totals
+    func replaceDailyTotals(_ totals: [Int: TimeInterval]) {
+        dailyCategoryDurations = totals
     }
 
     private func observePreferences() {

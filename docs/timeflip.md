@@ -148,7 +148,7 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 - Cursors:
   - There is no cursor, stored or in memory. The resume position is the `device_event` query above, re-read on every refresh.
   - There are no integration cursors either. They tracked delivery progress by legacy `logbook` rowid; both the cursor table and `logbook` are gone, and `time_entry.synced_to_google_calendar` is the flag that replaced them.
-- The day's per-face totals are **derived, not accumulated**: after each batch `DailyFaceTotals.seedFromHistory` re-sums the `device_event` rows overlapping the current window and the result replaces `AppState.dailyFaceDurations` wholesale. Adding each segment's duration as it was written only stayed right while the event-number filter suppressed second writes; with segments deliberately re-written, a running tally would double-count.
+- The day's totals are **per category, and derived rather than accumulated**: after each batch `DailyCategoryTotals.seedFromHistory` re-sums the `time_entry` rows overlapping the current window and the result replaces `AppState.dailyCategoryDurations` wholesale. Per category because that is what a `daily_limit` is set on, and from `time_entry` because that is the only place the category a segment counted against is recorded — see [Operation Spec § 6](operation-spec.md). Adding each segment's duration as it was written only stayed right while the event-number filter suppressed second writes; with segments deliberately re-written, a running tally would double-count. Seeded after `sweepTimeEntries`, since that is what puts the rows there.
 
 ## 6. Connection and session lifecycle (macOS driver)
 
