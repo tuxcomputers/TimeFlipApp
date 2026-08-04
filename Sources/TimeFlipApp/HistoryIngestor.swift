@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-/// Fetches device history, writes completed entries to the logbook, and updates UI with the live frame.
+/// Fetches device history, writes completed segments to `device_event`, and updates UI with the live frame.
 @MainActor
 final class HistoryIngestor {
     private let device: TimeFlipSessionManaging
@@ -20,6 +20,10 @@ final class HistoryIngestor {
     // recognizes "the open segment hasn't moved on either" as "nothing new" instead of always
     // treating the open segment's own number as unseen.
     private var lastObservedEventNumber: UInt32?
+    /// The resume position read from `device_event` at the start of the session, used until this
+    /// session has committed something of its own. See `ensureCursorLoaded`.
+    private var hydratedResumeEventNumber: UInt32?
+    private var hasHydratedResumePosition = false
     private var isFetching = false
     private var pending = false
     private let debounceInterval: UInt64 = 250_000_000 // 250ms
@@ -94,9 +98,9 @@ final class HistoryIngestor {
         // falls back to the committed cursor on a fresh session for an already-paired device, so
         // the check below still applies rather than silently skipping it until the first
         // observation happens to land. ensureCursorLoaded() must run first: on a session's very
-        // first refresh, lastCommittedEventNumber is still nil in memory even though a persisted
-        // cursor exists on disk, and without loading it here, knownMax would read as nil (forcing
-        // a full fetch) on every app launch regardless of whether anything actually changed.
+        // first refresh nothing is in memory yet even though history exists on disk, and without
+        // reading it here knownMax would be nil (forcing a full fetch) on every launch regardless
+        // of whether anything actually changed.
         ensureCursorLoaded()
         let knownMax = lastObservedEventNumber ?? lastCommittedEventNumber
         logger.debug("history_ingest trigger=\(trigger, privacy: .public) known_max=\(knownMax ?? 0)")
@@ -151,15 +155,20 @@ final class HistoryIngestor {
         // while the app is pointed at test.sqlite, so production.sqlite never sees the reset. So
         // does a user who resets from Settings and quits before the fetch finishes.
         //
-        // Deliberately NOT resetCursors(): that also purges `logbook`, which is right when this
-        // session watched the device get wiped and wrong here, where the local history is real
-        // data this app has simply not been running to observe. Only the resume position is stale.
+        // Deliberately NOT resetCursors(), which used to also purge `logbook` -- right when this
+        // session watched the device get wiped, wrong here, where the local history is real data
+        // this app has simply not been running to observe. Only the resume position is stale.
+        // (`logbook` is gone; resetCursors now only moves the resume position, so the distinction
+        // is smaller than it was, but this path still wants the narrower of the two.)
         var resumedFromReset = false
         if let knownMax, let deviceLastEventNumber, deviceLastEventNumber < knownMax {
             resumedFromReset = true
             lastQueuedEventNumber = nil
             lastCommittedEventNumber = nil
             lastObservedEventNumber = nil
+            // And the position read from disk, or nextStartCursor() would hand straight back the
+            // stranded pre-reset number it was just decided to abandon.
+            hydratedResumeEventNumber = nil
             logger.notice("history_ingest counter went backwards device_max=\(deviceLastEventNumber, privacy: .public) known_max=\(knownMax, privacy: .public); treating as factory reset")
             DeveloperMode.debugPrint(
                 .histCheck,
@@ -187,7 +196,7 @@ final class HistoryIngestor {
             return
         }
 
-        // Step 5: insert the rest -- deliver all but the last entry to the logbook; the last entry
+        // Step 5: insert the rest -- deliver all but the last entry as finalised; the last entry
         // is handled separately below (step 4) since it's the live/current one, not a closed one.
         // Must run BEFORE the live-entry recordDeviceEvent call below: AppDataStore.recordDeviceEvent
         // tracks the highest start_epoch it's seen so it can pick UPDATE vs INSERT without an
@@ -207,10 +216,10 @@ final class HistoryIngestor {
                 return ev > lastQueuedEventNumber
             }
             if !newEntries.isEmpty {
-                if let maxEv = await writeToLogbook(newEntries) {
+                if let maxEv = await writeFinalisedEntries(newEntries) {
                     lastQueuedEventNumber = max(lastQueuedEventNumber ?? 0, maxEv)
                     lastCommittedEventNumber = max(lastCommittedEventNumber ?? 0, maxEv)
-                    logger.notice("history_ingest logbook advanced_event_to=\(maxEv, privacy: .public)")
+                    logger.notice("history_ingest advanced_event_to=\(maxEv, privacy: .public)")
                     allDeliverableCommitted = maxEv == newEntries.last?.eventNumber
                 } else {
                     logger.error("history_ingest no entries committed this batch; cursor unchanged")
@@ -226,7 +235,7 @@ final class HistoryIngestor {
         // frame that's actually already closed, with more (unfetched) history beyond it that we
         // simply haven't received yet. Only trust and surface this frame as "current" once it
         // matches the device's own last event number read in step 2 AND everything ahead of it
-        // actually made it into the logbook; otherwise leave it untouched (neither committed nor
+        // actually got committed; otherwise leave it untouched (neither recorded nor
         // displayed) so the next refresh resumes from the same point and resolves the ambiguity,
         // instead of showing a stale or premature "current" activity.
         let latestEventNumber = latestEntry.eventNumber
@@ -294,36 +303,30 @@ final class HistoryIngestor {
         }
     }
 
-    /// Writes entries to the logbook in order, stopping at the first write failure so the
+    /// Writes entries to `device_event` in order, stopping at the first write failure so the
     /// device cursor (advanced by the caller based on the returned value) never skips past an
     /// uncommitted event — the failed event is retried on the next fetch instead of being lost.
+    ///
+    /// Every entry here is one the device has moved past (a later event closed it out), so each
+    /// write is the finalising one for its `event_number` -- see the live-entry recording above for
+    /// the in-progress segment. This used to write the legacy `logbook` first and take *its* result
+    /// as the halt signal, with the `device_event` write following unchecked; with that table gone
+    /// the remaining write is the one that decides.
     @discardableResult
-    private func writeToLogbook(_ entries: [TimeFlipHistoryEntry]) async -> UInt32? {
+    private func writeFinalisedEntries(_ entries: [TimeFlipHistoryEntry]) async -> UInt32? {
         var maxCommitted: UInt32?
         for entry in entries {
             guard let eventNumber = entry.eventNumber else { continue }
-            let record = DeviceEventRecord(
-                id: nil,
-                eventNumber: eventNumber,
-                faceID: entry.faceID,
-                startedAt: entry.startedAt,
-                duration: entry.duration,
-                isPaused: entry.isPaused
-            )
-            guard dataStore.append(record) else {
-                logger.error("logbook_commit_failed ev=\(eventNumber, privacy: .public); halting batch")
-                break
-            }
-            // Only reached for entries the device has moved past (a later event closed them out),
-            // so this is always the finalising write for this event_number -- see the live-entry
-            // recording above for the in-progress segment.
-            dataStore.recordDeviceEvent(
+            guard dataStore.recordDeviceEvent(
                 eventNumber: eventNumber,
                 deviceFace: entry.faceID,
                 startedAt: entry.startedAt,
                 durationSeconds: entry.duration,
                 isPaused: entry.isPaused
-            )
+            ) else {
+                logger.error("device_event_commit_failed ev=\(eventNumber, privacy: .public); halting batch")
+                break
+            }
             // Only accumulate time for active (non-paused) segments
             if !entry.isPaused {
                 let added = dailyTotals.accumulate(start: entry.startedAt, duration: entry.duration, faceID: entry.faceID)
@@ -332,7 +335,7 @@ final class HistoryIngestor {
                 }
             }
             maxCommitted = eventNumber
-            logger.debug("logbook_commit ev=\(eventNumber, privacy: .public) face=\(entry.faceID, privacy: .public)")
+            logger.debug("device_event_commit ev=\(eventNumber, privacy: .public) face=\(entry.faceID, privacy: .public)")
         }
         return maxCommitted
     }
@@ -341,7 +344,12 @@ final class HistoryIngestor {
         lastQueuedEventNumber = nil
         lastCommittedEventNumber = nil
         lastObservedEventNumber = nil
-        dataStore.purgeAllEvents()
+        hydratedResumeEventNumber = nil
+        hasHydratedResumePosition = false
+        // Cursors only. This used to purge `logbook` as well, which is how a factory reset zeroed
+        // the day's totals; `device_event` is never purged (its rows are real recorded time, and
+        // `time_entry` has a foreign key into them), so a reset no longer discards them. The cube
+        // restarting its event counter says nothing about time already spent.
         logger.notice("history_ingest cursors reset reason=\(reason, privacy: .public)")
     }
 
@@ -354,26 +362,43 @@ final class HistoryIngestor {
     /// `device_event` is the source of truth for where the fetch resumes; there is no separate
     /// stored cursor. See `AppDataStore.latestCommittedDeviceEventNumber()` for why -- in short,
     /// a stored value cannot follow the device's counter back down through a factory reset.
+    /// Reads the resume position out of `device_event` once per session: the newest segment
+    /// recorded, open or not (`AppDataStore.latestRecordedEventNumber`).
+    ///
+    /// Two positions used to be hydrated here, the highest finalised number and the highest
+    /// including the open row, from two generation-aware walks. One row answers both, because both
+    /// were asking what the app last saw.
+    ///
+    /// **`lastQueued`/`lastCommitted` are deliberately left alone.** They mean "already written as
+    /// finalised", and the row this reads is normally the open segment, whose closing write has yet
+    /// to arrive. Setting them from it would make the entry filter in `writeFinalisedEntries` skip
+    /// that very segment on the next batch: the row would then be closed out by the newer event's
+    /// blanket `finalised = 1` update while keeping the too-short duration it had when the app last
+    /// looked. Leaving them nil is what makes the first batch of a session write it properly.
     private func ensureCursorLoaded() {
-        guard lastCommittedEventNumber == nil else { return }
-        if let committed = dataStore.latestCommittedDeviceEventNumber() {
-            let asUInt32 = UInt32(clamping: committed)
-            lastCommittedEventNumber = asUInt32
-            lastQueuedEventNumber = asUInt32
-        }
-        // Hydrate the observed maximum separately: it includes the still-open row, which the
-        // committed position deliberately excludes. Without this, a fresh session's cheap check
-        // compares the device's max against the *committed* number, sees the open segment as
-        // unseen, and streams the whole history on every launch.
-        if lastObservedEventNumber == nil, let observed = dataStore.latestDeviceEventNumber() {
-            lastObservedEventNumber = UInt32(clamping: observed)
+        guard !hasHydratedResumePosition else { return }
+        hasHydratedResumePosition = true
+        guard let latest = dataStore.latestRecordedEventNumber() else { return }
+        let asUInt32 = UInt32(clamping: latest)
+        hydratedResumeEventNumber = asUInt32
+        // The cheap "has anything changed?" check compares against this, so a device sitting on one
+        // face reads as "nothing new" rather than looking perpetually unseen.
+        if lastObservedEventNumber == nil {
+            lastObservedEventNumber = asUInt32
         }
     }
 
     private func nextStartCursor() -> UInt32? {
         ensureCursorLoaded()
+        // In-session, resume past the last segment written as finalised: `+ 1` lands on the segment
+        // that was open when it was written, which is exactly the one to re-read.
         if let cached = lastCommittedEventNumber {
             return cached &+ 1
+        }
+        // On the session's first fetch, resume *at* the newest recorded segment, with no `+ 1`. It
+        // is the open one, and asking for it is how its finished duration comes back.
+        if let hydrated = hydratedResumeEventNumber {
+            return hydrated
         }
         return 0
     }

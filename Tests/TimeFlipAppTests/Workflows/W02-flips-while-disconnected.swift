@@ -122,10 +122,12 @@ struct FlipsWhileDisconnectedWorkflowTests {
                 Int64(newest) == open,
                 "the open segment must be the newest row, not an older one left unfinalised"
             )
-            // The committed cursor deliberately trails the open row: it's still growing.
+            // And it is the resume position, so the next fetch asks for it again and picks up the
+            // duration it finished on. (This asserted the opposite while the position counted
+            // finalised rows only and the fetch added 1 to reach the open one.)
             #expect(
-                harness.dataStore.latestCommittedDeviceEventNumber() != open,
-                "the still-open segment must not be counted as committed"
+                harness.dataStore.latestRecordedEventNumber() == open,
+                "the open segment is where the next fetch resumes"
             )
         }
     }

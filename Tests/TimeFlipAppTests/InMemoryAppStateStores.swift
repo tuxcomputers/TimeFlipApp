@@ -1,16 +1,9 @@
 import Foundation
 @testable import TimeFlipApp
 
-/// In-memory stand-ins for AppState's Keychain/UserDefaults-backed stores, so tests exercise
-/// AppState without touching real UserDefaults or Keychain (which is slow and stateful across
-/// test runs in a sandboxed test environment).
-final class InMemoryPreferencesStore: PreferencesStore, @unchecked Sendable {
-    private var stored: PreferencesPayload?
-
-    func load() -> PreferencesPayload? { stored }
-    func save(_ payload: PreferencesPayload) { stored = payload }
-    func hasStoredPayload() -> Bool { stored != nil }
-}
+/// In-memory stand-ins for AppState's Keychain-backed stores, so tests exercise AppState without
+/// touching a real Keychain (which is slow and stateful across test runs in a sandboxed test
+/// environment). There was a UserDefaults stand-in here too until the preferences blob was removed.
 
 final class InMemoryGoogleClientSecretStore: GoogleClientSecretStore, @unchecked Sendable {
     private var secret: String?

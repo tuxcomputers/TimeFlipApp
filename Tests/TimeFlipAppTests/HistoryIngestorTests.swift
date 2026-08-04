@@ -1,3 +1,4 @@
+import SQLite3
 @testable import TimeFlipApp
 import XCTest
 
@@ -98,7 +99,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -111,14 +111,15 @@ final class HistoryIngestorTests: XCTestCase {
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
-        // Verify cursor advanced only through completed events (excludes live last entry).
-        let cursor = dataStore.latestCommittedDeviceEventNumber()
-        XCTAssertEqual(cursor, 10)
+        // The resume position is the newest segment recorded, which is the live entry 11, not the
+        // last finalised one. Resuming *at* it is the point: that is how its finished duration comes
+        // back on the next fetch.
+        XCTAssertEqual(dataStore.latestRecordedEventNumber(), 11)
 
-        // Verify only completed events stored
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stored.count, 1)
-        XCTAssertEqual(stored.first?.eventNumber, 10)
+        // Event 11 is the live entry and stays open, so 10 is the only finalised segment.
+        let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(finalised.count, 1)
+        XCTAssertEqual(finalised.first?.eventNumber, 10)
     }
 
     func testSkipsAlreadyCommittedEvents() async {
@@ -142,7 +143,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -162,10 +162,16 @@ final class HistoryIngestorTests: XCTestCase {
         let ingestor = HistoryIngestor(device: device, dataStore: dataStore, appState: appState, dailyTotals: dailyTotals)
         await ingestor.refreshHistory(trigger: "test")
 
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stored.count, 0, "Live last entry should not be stored yet.")
-        let cursor = dataStore.latestCommittedDeviceEventNumber()
-        XCTAssertEqual(cursor, 5, "Cursor should remain at last committed event.")
+        // Only the seeded 5 is finalised: 6 is still the open segment and this refresh committed
+        // nothing new. Asserted as the exact set rather than a count of zero, which is what it read
+        // when this went through the legacy logbook -- the seed writes device_event, so a count here
+        // includes it.
+        let finalised = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(finalised.map(\.eventNumber), [5], "Nothing new should be committed; 6 is still open.")
+        XCTAssertEqual(
+            dataStore.latestRecordedEventNumber(), 6,
+            "The resume position is the seeded open segment 6, which this refresh had nothing to add to."
+        )
     }
 
     func testLatestEntryIsSurfacedButNotQueued() async {
@@ -182,7 +188,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -205,9 +210,11 @@ final class HistoryIngestorTests: XCTestCase {
 
         XCTAssertEqual(latest?.eventNumber, 20, "Latest entry should be passed through for UI updates.")
         let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(stored.isEmpty, "Live entry should not be stored in the logbook.")
-        let cursor = dataStore.latestCommittedDeviceEventNumber()
-        XCTAssertNil(cursor, "Cursor should not advance when only a live entry is present.")
+        XCTAssertTrue(stored.isEmpty, "The live entry is the open segment, so nothing is finalised yet.")
+        XCTAssertEqual(
+            dataStore.latestRecordedEventNumber(), 20,
+            "The live entry is recorded as the open segment, so it is the resume position; nothing is finalised."
+        )
     }
 
     func testSkipsStreamOnFirstRefreshOfSessionWhenPersistedCursorAlreadyMatchesDevice() async {
@@ -218,7 +225,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -251,7 +257,6 @@ final class HistoryIngestorTests: XCTestCase {
         let device = FakeDevice(history: entries)
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -305,7 +310,6 @@ final class HistoryIngestorTests: XCTestCase {
         )
         let dataStore = AppDataStore(databaseURL: historyIngestorTestDBURL)
         let appState = AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             autoPauseMinutes: 0,
@@ -326,21 +330,24 @@ final class HistoryIngestorTests: XCTestCase {
         await ingestor.refreshHistory(trigger: "test")
 
         // Event 10 is definitely closed (11 follows it in the same batch) so it's safe to commit.
-        let stored = dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stored.count, 1)
-        XCTAssertEqual(stored.first?.eventNumber, 10)
-        // Event 10 is committed to the logbook but is still the newest device_event row, because
-        // the ambiguous entry 11 was withheld and so never recorded to close it out. The derived
-        // position counts only finalised rows, so it reads nil here and the next fetch re-streams
-        // from the start rather than resuming -- redundant, but not lossy (re-ingest dedupes), and
-        // it resolves itself as soon as any later event closes 10 out.
-        XCTAssertNil(
-            dataStore.latestCommittedDeviceEventNumber(),
-            "Withheld live entry leaves the last committed event open, so there's no finalised position yet."
+        // Read from device_event directly: it is committed but not finalised, so the finalised-only
+        // reader cannot see it, and this test is about the commit having happened.
+        XCTAssertEqual(storedEventNumbers(), [10])
+        XCTAssertTrue(
+            dataStore.loadEvents(overlappingSince: Date(timeIntervalSince1970: 0)).isEmpty,
+            "and nothing is finalised: 11 was withheld, so nothing arrived to close 10 out"
         )
+        // Event 10 is committed but still open, having no successor to close it. The resume position
+        // is that row, so the next fetch carries on from 10.
+        //
+        // This is where the old position hurt. It counted finalised rows only, so with nothing
+        // finalised it read nil, and the next fetch re-streamed the whole history from 0 -- not
+        // lossy, since re-ingest dedupes, but a full stream every time until some later event
+        // happened to close 10 out. Asking for the newest row instead has no such state to get
+        // stuck in.
         XCTAssertEqual(
-            dataStore.latestDeviceEventNumber(), 10,
-            "The open row is still observable, so the cheap check knows the device reached 10."
+            dataStore.latestRecordedEventNumber(), 10,
+            "the newest recorded segment is the resume position, finalised or not"
         )
 
         // Event 11's status is ambiguous (stream didn't reach the device's real last event, 15),
@@ -354,6 +361,28 @@ final class HistoryIngestorTests: XCTestCase {
     /// row but the last ends up finalised and the last stays open -- mirroring a real device,
     /// whose newest segment is always still growing. Pass rows matching what the fake device
     /// reports, or the ingestor will insert a second row for the same event number.
+    /// Every `device_event` row's event number, oldest first, whether finalised or not.
+    ///
+    /// Deliberately not `AppDataStore.loadEvents(overlappingSince:)`: that one returns finalised
+    /// segments only, and an entry the device has moved past can still be the newest row this app
+    /// holds, so it would report a committed row as missing.
+    private func storedEventNumbers() -> [UInt32] {
+        var numbers: [UInt32] = []
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(historyIngestorTestDBURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            return numbers
+        }
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT event_number FROM device_event ORDER BY start_epoch ASC;", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                numbers.append(UInt32(sqlite3_column_int64(stmt, 0)))
+            }
+        }
+        sqlite3_finalize(stmt)
+        sqlite3_close(db)
+        return numbers
+    }
+
     private func seedDeviceEvents(_ dataStore: AppDataStore, _ rows: [(event: UInt32, at: Date)]) {
         for row in rows {
             _ = dataStore.recordDeviceEvent(

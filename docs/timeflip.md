@@ -119,11 +119,27 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 - Because of that reuse, the host **must not advance its cursor past the last frame**; otherwise refreshed durations for the in-progress interval would be missed.
 
 ### Host-side ingestion rules (macOS driver)
-- On startup: derive the resume position from `device_event` (the highest finalised `event_number` in the device's current counter generation — see `AppDataStore.latestCommittedDeviceEventNumber()`), fetch history starting at that `+1`, **withhold the last frame**, write all prior frames to the logbook, and use the withheld frame to set menu/UI state. There is no stored cursor: a saved high-water mark can't follow the device's counter back down through a factory reset.
-- On live face/pause events: re-fetch history from the cursor, write all but the last frame to the logbook, and use the last for UI so repeated refreshes pick up duration/paused updates on the same event number.
+- On startup: derive the resume position from `device_event` as **the event number of the newest segment recorded**, open or not, and fetch history starting *at* it. `AppDataStore.latestRecordedEventNumber()` is one row:
+
+  ```sql
+  SELECT event_number FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;
+  ```
+
+  Starting at that number rather than past it is deliberate: the newest row is normally the device's still-open segment, and asking for it again is how its finished duration comes back. All but the last returned frame are then written as closed, the last as the new open segment. There is no stored cursor: a saved high-water mark cannot follow the device's counter back down through a factory reset.
+
+  **The newest row, not the highest number.** Those are different questions and only the first is useful. Event numbers restart at 1 after a factory reset, so `MAX(event_number)` returns a stranded value from a counter generation the cube has abandoned: on the development database it returns 38, from a dead generation, while the newest segment is event 10.
+
+  This replaced a window-function walk that ordered every row, found the last point where `event_number` dropped below its predecessor, and took the maximum at or after that boundary. It computed the right answer, but only as a way of making `MAX` safe, and it could not do what it appeared to: straight after a reset there is no post-reset row for the counter to have dropped between, so it still returned the stranded value and the fetch still asked for events the cube no longer had. Reproduced in `Tests/TimeFlipAppTests/Workflows/W08-post-reset-production-resume.swift`.
+
+  **What recovers from a reset is a separate check, and it is a live read rather than anything derived.** `HistoryIngestor.refreshHistory` asks the device for its own last event number and compares: lower than what this app holds means the cube was reset, so the cursors are cleared and the stream is re-read from 0. That, not any query, is what makes the first launch after a reset recoverable. Once a single post-reset row exists, the query above follows the cube down on its own, which is what the walk was there for.
+
+  **Known gap.** The check only fires on the counter reading *lower*. A cube reset while this app is not running, which then records more events than the old maximum before the next launch, reports a *higher* number, so nothing looks backwards and nothing looks wrong. The two generations merge and the new generation's first events, up to the old maximum, are never ingested. Detection is by counter direction, not by timestamp, so the later `start_epoch` on those rows does not help. Not currently handled.
+- On live face/pause events: re-fetch history from the cursor and write **every** frame to `device_event`, including the last. The distinction is `finalised`, not whether the row exists: all but the last are written as closed (`finalised = 1`), and the last is written as the open segment (`finalised = 0`), whose `duration_seconds` grows on each refresh until a later event closes it out. The same frame is what drives the UI, so repeated refreshes pick up duration/paused updates on the same event number.
+
+  The one case where the last frame is **not** written is an ambiguous one: a stream cut short by a dropped connection can end on a frame that is really already closed, with unfetched history beyond it. The app only trusts the last frame as "current" when its event number is at least the device's own reported last event number *and* every frame ahead of it committed. Failing either, the frame is withheld entirely, neither recorded nor displayed, so the next refresh resumes from the same point and resolves it rather than showing a stale or premature activity. See `HistoryIngestor.refreshHistory`, step 4.
 - Cursor advancement:
   - Device cursor (identifier `device-history`) stays event-number based and advances only through the highest **written** (non-live) frame; keeps one interval behind the live record.
-  - Integration cursors use logbook rowids (PK) to track delivery progress independently of device event numbers.
+  - There are no integration cursors. They tracked delivery progress by legacy `logbook` rowid; both the cursor table and `logbook` are gone, and `time_entry.synced_to_google_calendar` is the flag that replaced them.
 
 ## 6. Connection and session lifecycle (macOS driver)
 

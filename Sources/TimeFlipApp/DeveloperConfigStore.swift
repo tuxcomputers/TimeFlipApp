@@ -89,6 +89,10 @@ enum DeveloperMode {
         // Turning finalised device_event rows into time_entry rows. Ten characters, one short of
         // the longest tag, so adding it re-pads nothing.
         case timeEntry = "time-entry"
+        // One-time cleanups of storage the app has stopped using (see
+        // ApplicationDelegate.removeLegacyPreferencesBlob). Six characters, well short of the
+        // longest tag, so adding it re-pads nothing.
+        case legacy = "legacy"
         case click = "click"
         case field = "field"
         case menu = "menu"

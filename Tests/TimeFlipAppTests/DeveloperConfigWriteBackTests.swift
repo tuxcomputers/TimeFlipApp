@@ -16,7 +16,6 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         configStore: InMemoryDeveloperConfigStore
     ) -> AppState {
         AppState(
-            preferencesStore: InMemoryPreferencesStore(),
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
             developerConfigStore: configStore,

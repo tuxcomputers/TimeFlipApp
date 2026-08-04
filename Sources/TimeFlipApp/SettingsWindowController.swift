@@ -36,7 +36,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         let fallbackHeight = SettingsLayoutConstants.fallbackMinimumContentHeight(
-            faceCount: appState.faceMappings.count
+            faceCount: TimeFlipConstants.faceIDs.count
         )
         self.window = window
         self.appState = appState

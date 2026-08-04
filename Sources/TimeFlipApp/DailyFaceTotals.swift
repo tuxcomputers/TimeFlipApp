@@ -2,8 +2,8 @@ import Foundation
 
 /// Maintains per-face accumulated active seconds within a sliding "day" window that starts at
 /// a configurable local time, defaulting to the `daily_reset_time` setting (seeded to 03:00; see
-/// `database/011_setting.sql` and `AppDataStore.loadDailyResetTime()`). Uses the logbook only on
-/// startup/reset; subsequent updates are fed in-memory to avoid extra I/O.
+/// `database/011_setting.sql` and `AppDataStore.loadDailyResetTime()`). Reads `device_event` only
+/// on startup/reset; subsequent updates are fed in-memory to avoid extra I/O.
 @MainActor
 final class DailyFaceTotals {
     private let dataStore: AppDataStore
@@ -67,8 +67,11 @@ final class DailyFaceTotals {
             ?? windowStart.addingTimeInterval(TimeConstants.secondsPerHour * 24)
     }
 
-    /// Re-seed the in-memory totals from the logbook for the current window.
-    func seedFromLogbook(now: Date = Date()) {
+    /// Re-seed the in-memory totals from recorded history for the current window.
+    ///
+    /// Only finalised segments come back from `loadEvents(overlappingSince:)`; the open one's
+    /// elapsed time is added by `accumulate` instead, which is what stops it counting twice.
+    func seedFromHistory(now: Date = Date()) {
         totals = [:]
         let records = dataStore.loadEvents(overlappingSince: windowStart)
         for record in records {
@@ -78,7 +81,7 @@ final class DailyFaceTotals {
     }
 
     /// Reset the window to cover the day that contains `now` (using `resetHour`/`resetMinute`)
-    /// and repopulate totals from logbook.
+    /// and repopulate totals from recorded history.
     func resetWindow(now: Date = Date()) {
         windowStart = DailyFaceTotals.computeWindowStart(
             now: now,
@@ -86,7 +89,7 @@ final class DailyFaceTotals {
             resetHour: resetHour,
             resetMinute: resetMinute
         )
-        seedFromLogbook(now: now)
+        seedFromHistory(now: now)
     }
 
     /// Add a finalized segment to the accumulator, clipping it to the current window.
