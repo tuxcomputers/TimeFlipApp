@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-01 on the branch 'test/categories'
+### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the

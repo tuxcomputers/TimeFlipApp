@@ -8,6 +8,7 @@
 #   scripts/testrunner/run_tests.sh -s reset                 # substring match works by name too
 #   scripts/testrunner/run_tests.sh -f Bench -s reset         # combine both
 #   scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md   # explicit paths, exact order
+#   scripts/testrunner/run_tests.sh --keep-db                 # run everything against the EXISTING test.sqlite, don't rebuild it
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
