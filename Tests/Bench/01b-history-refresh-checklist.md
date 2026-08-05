@@ -1,8 +1,8 @@
 # History Refresh Checklist
 
-### Last run - 2026-07-31 on the branch 'feature/uiTweaks'
+### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
 
-Covers the periodic/live-event history refresh rework: the cheap max-event-number check, the
+Covers the periodic/live-event history refresh rework: the cheap last-event check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see
 `HistoryIngestor.refreshHistory`). Requires a paired physical TimeFlip device and the app running
 with Developer Mode enabled and the `debug` setting's `enabled` field `true` (see
@@ -16,8 +16,8 @@ flipping the device (a normal flip, and the out-of-range backlog) live in
 `Tests/Interactive/01i-history-refresh-checklist.md`, run after the whole Bench phase.
 
 **Runs before `02b-reset-device-checklist.md`, deliberately** -- `02b`'s factory reset wipes the
-device's own onboard event counter, and `HistoryIngestor.nextStartCursor()` starts a fresh
-`test.sqlite`'s first fetch at event 0 (no persisted cursor yet), so that first fetch pulls in
+device's own onboard event counter, and `HistoryIngestor.resumeCursor(recorded:deviceLast:)` starts a
+fresh `test.sqlite`'s first fetch at event 0 (nothing recorded to resume from), so that first fetch pulls in
 however much real history the device still has onboard. Running this checklist first, while that
 real history is still intact, is what gives Scenario A (an already-open, growing row) and Scenario
 B (an existing persisted cursor) something real to check against, without depending on any flip
@@ -73,12 +73,12 @@ capture = "refresh_interval"
 action = "shell"
 command = "sleep 15"
 ```
-- [x] Step 3: Query `debug_log` and confirm a `history` row logged
-`"history fetch: device  max_event_number=<event_number> unchanged; DB refreshed"`  the cheap-check skip path was taken, not a full stream fetch.
+- [x] Step 3: Query `debug_log` and confirm a `hist-result` row logged
+`"history fetch: device event=<event_number> unchanged; DB refreshed"` -- the cheap-check skip path was taken, not a full stream fetch.
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-result' ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "history fetch: device max_event_number=$event_number_d0 unchanged; DB refreshed"
+expect_contains = "history fetch: device event=$event_number_d0 unchanged; DB refreshed"
 timeout_seconds = 30
 ```
 - [x] Step 4: Re-query the same `device_event` row.
@@ -105,17 +105,19 @@ There is no cursor table: the resume position is derived from `device_event` on 
 nothing separate has to have been written first. If `device_event` is somehow empty, this scenario
 isn't verifiable this run -- note that plainly and move on rather than forcing it.
 
-(Note: event numbers repeat across factory resets, so the position is **not** a plain
-`MAX(event_number)` over the whole table. The query below first finds the current generation --
-the rows after the last point where the counter went *backwards* -- and takes the maximum within
-it. On a database spanning resets the two answers differ.)
+(Note: the position is the **newest recorded segment**, not the highest `event_number` --
+`AppDataStore.latestRecordedEvent()` orders by `start_epoch DESC, device_event_id DESC`. Event
+numbers repeat across factory resets, so on a database spanning resets those two answers differ,
+and the start epoch is what tells the generations apart. It is carried in the log line alongside
+the number for that reason, so the step below asserts both halves.)
 
-- [x] Step 1: Query `device_event` for the current generation's highest `event_number`.
-That is the value the app derives its resume position from.
+- [x] Step 1: Query `device_event` for the newest recorded segment.
+That is the position the app resumes from, as `event_number@start_epoch` -- both halves, since the
+resume decision compares the epoch as well as the number.
 ```toml step
 action = "sql_query"
-query = "WITH ordered AS (SELECT device_event_id, event_number, LAG(event_number) OVER (ORDER BY start_epoch, device_event_id) AS prev FROM device_event) SELECT MAX(event_number) FROM ordered WHERE device_event_id >= COALESCE((SELECT MAX(device_event_id) FROM ordered WHERE prev IS NOT NULL AND event_number < prev), 0);"
-capture = "cursor_c"
+query = "SELECT event_number || '@' || start_epoch FROM device_event WHERE event_number > 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
+capture = "recorded_c"
 ```
 - [x] Step 2: Quit the app.
 [Method: Number 3](../Methods.md#method-3).
@@ -138,10 +140,10 @@ use = "method-4"
 since_id = "$before_quit_id"
 ```
 - [x] Step 4: Query `debug_log` for the relaunched app's first history fetch
-and confirm it resumed from the position derived from `device_event` (`known_max=<N>`) rather than re-fetching from scratch, which would show `known_max=0`. (Note: matches the first `hist-check` after the restart, deliberately **not** a `trigger=startup` line. The periodic timer starts at launch and ticks every 10s on the test database, so on a slow connect it fires before the startup fetch is reached; the startup call is then coalesced into the one already running and the work is logged under `trigger=periodic`. The resume position is what this step is actually about, and it is the same either way -- confirmed live 2026-07-31, where a 6.4s link plus twelve face-colour writes let the timer win.)
+and confirm it read its resume position out of `device_event` (`recorded_ev=<N>@<epoch>`, matching Step 1) rather than starting from scratch, which would show `recorded_ev=nil`. (Note: matches the first `hist-check` after the restart, deliberately **not** a `trigger=startup` line. The periodic timer starts at launch, so on a slow connect it fires before the startup fetch is reached; the startup call is then coalesced into the one already running and the work is logged under `trigger=periodic`. The resume position is what this step is actually about, and it is the same either way -- confirmed live 2026-07-31, where a 6.4s link plus twelve face-colour writes let the timer win.)
 ```toml step
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='hist-check' AND debug_log_id > $before_quit_id ORDER BY debug_log_id ASC LIMIT 1;"
-expect_contains = "known_max=$cursor_c"
+expect_contains = "recorded_ev=$recorded_c"
 timeout_seconds = 30
 ```

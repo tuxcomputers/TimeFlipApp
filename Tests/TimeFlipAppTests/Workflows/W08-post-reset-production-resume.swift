@@ -13,7 +13,7 @@ import Testing
 /// `test.sqlite`, so `production.sqlite` never records the reset -- it still ends at the high
 /// event number it held beforehand, in one unbroken counter generation.
 ///
-/// That used to strand it permanently. `AppDataStore.currentGenerationMaxEventNumber` recovers
+/// That used to strand it permanently. `AppDataStore.currentGenerationMaxEventNumber` recovered
 /// from a reset by spotting the counter going *backwards* between two rows, which needs a
 /// post-reset row in that same database; `HistoryIngestor` is the only writer of `device_event`
 /// (live flips don't write rows) and it resumed from `lastCommittedEventNumber + 1`, above
@@ -21,15 +21,17 @@ import Testing
 /// boundary already existing, so the app silently ingested nothing until the cube's counter
 /// climbed back past the old maximum.
 ///
-/// The live `.factoryReset` sync-status event calls `resetCursors` and is the escape hatch, but
-/// only for the session that receives it -- here that was the test-database session, days ago.
-/// So `refreshHistory` now also treats *the device reporting a lower event number than we hold*
-/// as a reset in its own right, and resumes from the start.
+/// What recovers it now is `HistoryIngestor.resumeCursor`: the stored position is used only if the
+/// device's own last event is at or after it in both the counter and the clock, and a reset cube
+/// fails the first test, so the stream starts from the bottom. No reset is detected as such and no
+/// cursor is invalidated -- there is nothing held between refreshes to invalidate. `W06` covers the
+/// reset being witnessed live, and the two paths now differ only in that one of them also gets a
+/// `.factoryReset` notification; both resume the same way.
 ///
-/// **What it does not cover:** the reset being witnessed live, which `W06` covers. That path used to
-/// purge the legacy `logbook` too, deliberately not done here because this database's history is
-/// real data the app simply wasn't running to observe. The table is gone and nothing is purged on
-/// either path now, so the two differ only in where they resume from.
+/// **What it does not cover:** a reset that has already counted back up to the *same* number the
+/// database holds, where only the start times differ. That is the case production's event 10 is
+/// perfectly placed to expose and it needs no device at all, so it lives in
+/// `HistoryIngestorTests.testAResetThatCountedBackToTheSameEventNumberStillIngests`.
 @Suite(.serialized)
 @MainActor
 struct W08PostResetProductionResumeWorkflow {
@@ -62,7 +64,7 @@ struct W08PostResetProductionResumeWorkflow {
                     isPaused: false
                 )
             }
-            let known = try #require(store.latestRecordedEventNumber(), "history should be readable")
+            let known = try #require(store.latestRecordedEvent()?.eventNumber, "history should be readable")
             try #require(known == Int64(Self.preResetEventCount),
                          "the whole table is one generation, so the max is the last event")
         }
@@ -99,7 +101,7 @@ struct W08PostResetProductionResumeWorkflow {
 
             // The pre-reset rows are never deleted -- they are real history. What changes is which
             // generation counts, so the reported max drops to the post-reset counter.
-            let after = try #require(store.latestRecordedEventNumber(),
+            let after = try #require(store.latestRecordedEvent()?.eventNumber,
                                      "the store should still report a position")
             #expect(after == Int64(deviceNow),
                     "the post-reset events should have been ingested, moving the position down to the cube's own counter rather than leaving it stranded at \(Self.preResetEventCount)")
@@ -112,14 +114,14 @@ struct W08PostResetProductionResumeWorkflow {
         try harness.requirePreviousStepsPassed()
         try await harness.step("4-normal-service-resumes") {
             let store = harness.dataStore
-            let before = try #require(store.latestRecordedEventNumber())
+            let before = try #require(store.latestRecordedEvent()?.eventNumber)
 
             for face in 0..<20 {
                 harness.device.flip(to: face.isMultiple(of: 2) ? 8 : 2)
             }
             await harness.ingestor.refreshHistory(trigger: "periodic")
 
-            let after = try #require(store.latestRecordedEventNumber())
+            let after = try #require(store.latestRecordedEvent()?.eventNumber)
             #expect(after > before,
                     "once the generation boundary exists the ordinary resume path works again, so these flips should land without another reset being inferred")
             let deviceNow = try #require(await harness.device.readLastEvent()?.eventNumber)

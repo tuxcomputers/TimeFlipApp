@@ -195,6 +195,46 @@ def _latest_debug_log_id(db_path):
         conn.close()
 
 
+# The cadence a fresh test.sqlite is seeded with (database/011_setting.sql). Several checklists
+# assume it: `device_appears_connected` treats the history tags as a ~10s liveness heartbeat, and
+# `01b` Scenario A sleeps 15s expecting a periodic fetch inside that window.
+FRESH_FETCH_INTERVAL_SECONDS = 10
+
+
+def normalise_fetch_interval(db_path, seconds=FRESH_FETCH_INTERVAL_SECONDS):
+    """Force `fetch_history_interval_seconds` in test.sqlite to the fresh-seed cadence.
+
+    Only needed under `--keep-db`, where a hand-seeded database keeps whatever interval it was
+    carrying. A developer may have set that to minutes (Method 21 warns about exactly this), and a
+    long interval silences the history tags -- which `device_appears_connected` reads as the device
+    having dropped, aborting the whole run before the first checklist against a device that is in
+    fact connected and answering BLE commands. Measured live 2026-08-05: a seeded database carrying
+    600s left the newest heartbeat 61s old and cost a full run plus a needless factory reset.
+
+    Returns the previous value (or None if unchanged/absent), for the caller to log.
+    """
+    test_db = _sibling_db_path(db_path, "test.sqlite")
+    if not os.path.exists(test_db):
+        return None
+    conn = sqlite3.connect(test_db)
+    try:
+        row = conn.execute(
+            "SELECT json_extract(setting_value, '$.seconds') FROM setting "
+            "WHERE setting_name = 'fetch_history_interval_seconds';"
+        ).fetchone()
+        previous = row[0] if row else None
+        if previous is None or int(previous) == int(seconds):
+            return None
+        conn.execute(
+            "UPDATE setting SET setting_value = ? WHERE setting_name = 'fetch_history_interval_seconds';",
+            (f'{{"seconds":{int(seconds)}}}',),
+        )
+        conn.commit()
+        return previous
+    finally:
+        conn.close()
+
+
 def _sibling_db_path(db_path, filename):
     """db_path is the appdata.sqlite symlink; resolves to one of the actual files it can
     point at (production.sqlite/test.sqlite), directly, regardless of what the symlink

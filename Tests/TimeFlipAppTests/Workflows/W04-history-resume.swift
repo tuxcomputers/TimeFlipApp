@@ -44,13 +44,13 @@ struct W04HistoryResumeWorkflow {
         try harness.requirePreviousStepsPassed()
         try await harness.step("2-cheap-skip-path") {
             let before = harness.storedEventNumbers()
-            let committedBefore = harness.dataStore.latestRecordedEventNumber()
+            let committedBefore = harness.dataStore.latestRecordedEvent()?.eventNumber
 
             await harness.ingestHistory(trigger: "test")
 
             #expect(harness.storedEventNumbers() == before, "no new rows when the device has nothing new")
             #expect(
-                harness.dataStore.latestRecordedEventNumber() == committedBefore,
+                harness.dataStore.latestRecordedEvent()?.eventNumber == committedBefore,
                 "and the committed cursor should not move"
             )
         }
@@ -72,7 +72,7 @@ struct W04HistoryResumeWorkflow {
         try harness.requirePreviousStepsPassed()
         try await harness.step("4-relaunch") {
             let storedBefore = harness.storedEventNumbers()
-            let committedBefore = harness.dataStore.latestRecordedEventNumber()
+            let committedBefore = harness.dataStore.latestRecordedEvent()?.eventNumber
             try #require(committedBefore != nil, "there should be a committed cursor on disk to resume from")
 
             harness.simulateRelaunch()
@@ -113,7 +113,7 @@ struct W04HistoryResumeWorkflow {
             #expect(harness.openEventCount() == 1, "exactly one segment in progress")
 
             let open = try #require(harness.openEventNumber(), "a segment should be open")
-            let resume = harness.dataStore.latestRecordedEventNumber()
+            let resume = harness.dataStore.latestRecordedEvent().map { Int64($0.eventNumber) }
             // This assertion used to be the opposite: the position had to differ from the open
             // segment, because it counted finalised rows only and the fetch added 1 to it to land
             // on the open one. The position is now the open segment itself and the fetch starts

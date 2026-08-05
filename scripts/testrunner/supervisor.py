@@ -62,6 +62,7 @@ from session_setup import (  # noqa: E402
     confirm_warning,
     device_appears_connected,
     ensure_not_timing_on_production,
+    normalise_fetch_interval,
     reset_device_for_cleanup,
     restore_production_database,
 )
@@ -562,6 +563,14 @@ def main():
         action="store_true",
         help="Skip the interactive confirmation prompt (still prints the warning) -- for CI/non-interactive runs only.",
     )
+    parser.add_argument(
+        "--keep-db",
+        action="store_true",
+        help="Run against the EXISTING test.sqlite instead of rebuilding it: passes 'keep' to "
+        "use-test-database.sh even on a from-the-top run. For a test database seeded by hand "
+        "(e.g. device_event rows copied from production, so the 10-event history gate is already "
+        "satisfied) that a fresh rebuild would delete. A resume (`s`) already implies this.",
+    )
     args = parser.parse_args()
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -679,7 +688,22 @@ def main():
         # rebuild it. `db_mode` is passed straight to use-test-database.sh; `resume` gates the
         # production round-trip prompt in Step 1.
         resume = "y" if run_mode == "resume" else "n"
-        db_mode = "keep" if run_mode == "resume" else "fresh"
+        # `--keep-db` preserves a hand-seeded test database on a from-the-top run, where the default
+        # would delete it. Only `db_mode` is forced, deliberately not `resume`: that gates Step 1's
+        # production round-trip prompt, and the developer should still be asked whether to record
+        # real history first rather than have that skipped as a side effect of keeping the file.
+        db_mode = "keep" if (run_mode == "resume" or args.keep_db) else "fresh"
+        if args.keep_db:
+            print("--keep-db: running against the existing test.sqlite; it will not be rebuilt.")
+            log_lines.append("--keep-db passed: existing test.sqlite preserved (db_mode=keep).")
+            # A kept database brings its own fetch interval, and a long one silences the heartbeat
+            # the pre-checklist connection gate reads. See normalise_fetch_interval.
+            was = normalise_fetch_interval(db_path)
+            if was is not None:
+                msg = (f"--keep-db: fetch_history_interval_seconds was {was}s in the kept test.sqlite; "
+                       "reset to 10s so the connected-heartbeat gate and 01b's timing hold.")
+                print(msg)
+                log_lines.append(msg)
         if not run_checklist(setup_path, db_path, log_lines, args.yes, remembered,
                              initial_vars={"needs_history": needs_history,
                                            "resume": resume, "db_mode": db_mode},

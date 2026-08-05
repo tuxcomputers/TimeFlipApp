@@ -67,8 +67,15 @@ sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite \
   "SELECT logged_at, message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' ORDER BY debug_log_id DESC LIMIT 1;"
 ```
 Runnable form: `since_id` scopes it to a row *this* restart produced -- pass the baseline the step
-captured before quitting (`since_id = "$before_quit_id"`); it defaults to `$current_log_id`, the max
-log id as of the start of this step.
+captured before quitting (`since_id = "$before_quit_id"`), or `since_id = "$current_log_id"` for
+"since this step began".
+
+**A step must pass `since_id` itself.** The `since_id` line in the method body below is documentation
+of the shape, not a working default: `methods._merge` fills a method's `$placeholders` from the
+**step's** keys only, so a step that omits it leaves `$since_id` literal in the SQL, where SQLite
+reads it as a named parameter and the step dies with `Incorrect number of bindings supplied. The
+current statement uses 1, and there are 0 supplied.` Every call site passes it explicitly; this was
+found the hard way on 2026-08-05 by the one that did not.
 ```toml method
 action = "wait_for_sql"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $since_id ORDER BY debug_log_id DESC LIMIT 1;"
@@ -688,3 +695,34 @@ from 2 to 3 as the inline rename field replaces the name, focused and pre-filled
 **Do not reach for `screencapture` to confirm a context menu opened in a step** -- capture proves it
 to a human reading a transcript, but the step itself should assert the *consequence* (the field that
 appeared, the value that changed), which is readable.
+
+<a id="method-27"></a>
+## Method 27: Read the status item's rendered title
+
+The status item's **text** is accessibility-readable, even though its custom-drawn glyphs are not
+(Method 17 covers those). `MenuBarController.updateStatusView` assigns `button.attributedTitle`, and
+`AXTitle` carries the resulting string, so the activity name and the duration beside it can be
+asserted directly instead of screenshotted. Confirmed live 2026-08-05: the read returned
+`TEST  Meeting   0:00:00`.
+
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        return title of menu bar item 1 of menu bar 2
+    end tell
+end tell"""
+```
+
+What the string holds, in order: the database badge (`TEST`, present only on the test database), the
+activity label (the current face's **category** name, or `Idle`), and the duration. Separators are
+runs of spaces, so match a substring (`expect_contains = "5:00:00"`) rather than the whole title.
+
+**Pause the device before asserting a duration.** `MenuBarController.currentDuration` returns the
+category total alone while paused and adds the running segment's elapsed seconds otherwise, so an
+unpaused read drifts between the query and the comparison and only ever supports a loose match.
+Paused, the rendered figure is exactly the total and an exact string assertion holds.
+
+Still unreadable, and still needing Method 17: the pause/play icon, the red lock badge, and the
+over-limit colouring, none of which are text.

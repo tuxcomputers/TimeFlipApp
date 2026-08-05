@@ -126,7 +126,7 @@ struct FlipsWhileDisconnectedWorkflowTests {
             // duration it finished on. (This asserted the opposite while the position counted
             // finalised rows only and the fetch added 1 to reach the open one.)
             #expect(
-                harness.dataStore.latestRecordedEventNumber() == open,
+                harness.dataStore.latestRecordedEvent().map { Int64($0.eventNumber) } == open,
                 "the open segment is where the next fetch resumes"
             )
         }

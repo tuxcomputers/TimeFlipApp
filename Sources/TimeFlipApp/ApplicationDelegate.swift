@@ -99,7 +99,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             self?.refreshFaceCategories()
         }
     )
-    private lazy var dailyTotals = DailyFaceTotals(dataStore: dataStore)
+    private lazy var dailyTotals = DailyCategoryTotals(dataStore: dataStore)
     private lazy var menuBarController = MenuBarController(
         appState: appState,
         settingsWindowController: settingsWindowController,
@@ -204,6 +204,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // the log sink is wired above so a repair actually reaches debug_log.
         dataStore.sweepTimeEntries(trigger: .launch)
         removeLegacyPreferencesBlob()
+        // The `icon` table is the only say in which icons exist, so a row naming artwork that isn't
+        // bundled has to be complained about rather than quietly filtered out. Same reason this runs
+        // after the log sink: the complaint belongs in debug_log where it can be read after the fact.
+        ActivityLibrary.reportUnresolvableIcons(appState.iconOptions)
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
         appState.onPairingChange = { [weak self] paired in
@@ -1019,7 +1023,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     ) {
         let category = categories[faceID]
         let categoryName = category?.name ?? "no category"
-        let colourName = appState.colourOptions.first { $0.colourId == category?.colourID }?.name
+        let colourName = category.flatMap { appState.colourOption(forColourID: $0.colourID) }?.name
             // A face with no category, or one whose colour didn't resolve, is sent black. Naming it
             // "off" rather than leaving it blank keeps the reason for an unlit face on the line.
             ?? (components == .off ? "off" : "unknown colour")
@@ -1062,7 +1066,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         if case .systemState(let state) = event {
             switch state.syncStatus {
             case .factoryReset:
-                historyIngestor?.resetCursors(reason: "factory_reset_event")
+                // Just refresh. There is no cursor to clear first: the resume position is read out
+                // of `device_event` and capped at the number the cube itself reports, so a counter
+                // back at the bottom is followed down without being told a reset happened. A cube
+                // straight after one holds no history at all, so this finds nothing until the first
+                // flip -- which is why the same path recovers a reset this session never saw.
                 Task { [weak self] in
                     await self?.historyIngestor?.refreshHistory(trigger: "factory_reset")
                 }

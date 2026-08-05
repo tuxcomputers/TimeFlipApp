@@ -1,6 +1,6 @@
 # History Refresh Checklist (Interactive)
 
-### Last run - 2026-07-31 on the branch 'feature/uiTweaks'
+### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
 
 The physical-flip parts of the history refresh test. Run **after the whole Bench phase**
 (`Tests/Bench/01b-history-refresh-checklist.md` and, since then, `02b-reset-device-checklist.md`

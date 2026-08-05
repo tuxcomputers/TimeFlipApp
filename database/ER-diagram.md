@@ -19,7 +19,7 @@ Foreign keys (referencing → referenced):
 - `time_entry.end_timezone_id` → `timezone`
 - `debug_log.timezone_id` → `timezone`
 
-Standalone tables with no foreign keys — `logbook`, `setting` — are shown but unconnected.
+`setting` is the one table with no foreign keys, so it is shown but unconnected.
 
 ```mermaid
 erDiagram
@@ -103,17 +103,6 @@ erDiagram
         REAL    duration_seconds
         INTEGER total_cost
         INTEGER synced_to_google_calendar
-    }
-
-    logbook {
-        INTEGER id PK
-        INTEGER event_number
-        INTEGER face_id
-        REAL    started_at_s
-        REAL    duration_s
-        INTEGER is_paused
-        TEXT    activity_name
-        REAL    created_at
     }
 
     setting {

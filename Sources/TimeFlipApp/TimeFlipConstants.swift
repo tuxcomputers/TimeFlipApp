@@ -33,6 +33,17 @@ enum TimeFlipConstants {
     static let minFetchHistoryIntervalSeconds: Int = 60
     static let maxFetchHistoryIntervalSeconds: Int = 3600
 
+    /// Where the periodic fetch sits until someone changes it, matching the
+    /// `fetch_history_interval_seconds` seed in `database/011_setting.sql`. Named for the same reason
+    /// as `defaultLowBatteryWarningPercent` and `defaultBlipTimeSeconds`: the loader needs a value
+    /// when the row is missing or malformed, and a bare literal there is a copy of the seed that
+    /// nothing links back to it. It was one, until this.
+    ///
+    /// Below `minFetchHistoryIntervalSeconds` deliberately -- sub-minute polling makes history arrive
+    /// quickly while testing, so the seed is a developer's value and production floors it. See
+    /// `AppDataStore.loadFetchHistoryIntervalSeconds`.
+    static let defaultFetchHistoryIntervalSeconds: Int = 10
+
     /// Bounds for `blip_time`, in seconds -- how short a segment has to be before it is treated as
     /// the cube being turned past a face rather than time spent on it.
     ///

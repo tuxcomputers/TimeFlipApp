@@ -14,7 +14,26 @@ scripts/testrunner/run_tests.sh -s 01                   # both folders, filename
 scripts/testrunner/run_tests.sh -s reset                # substring match works by name too, not just number
 scripts/testrunner/run_tests.sh -f Bench -s reset       # combine both
 scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist.md   # explicit paths, exact order
+scripts/testrunner/run_tests.sh --keep-db              # everything, against the EXISTING test.sqlite (not rebuilt)
 ```
+
+`--keep-db` passes `keep` to `use-test-database.sh` even on a from-the-top run, so an existing
+`test.sqlite` survives instead of being deleted and reseeded. It exists for a test database
+**seeded by hand** -- `device_event` rows copied in from production, which satisfy
+`00-test-setup.md` Step 14's ≥10-event gate immediately and save flipping the cube ten times to
+build history that already exists. Without the flag a full run wipes exactly that work. It forces
+only `db_mode`, not `resume`, so Step 1 still asks whether to record production history first
+rather than skipping that as a side effect. A resume (`s`) already keeps the database anyway.
+
+It also **resets `fetch_history_interval_seconds` to 10s** (the fresh-seed value in
+`database/011_setting.sql`) in the kept database, reporting the old value when it changes one. A
+kept database brings whatever interval it was carrying, and a long one is not a harmless
+preference: the history tags *are* the ~10s heartbeat `device_appears_connected` reads, so at a
+long interval the gate sees a silent database and aborts the run before the first checklist --
+against a device that is connected and answering BLE commands. `01b` Scenario A also sleeps 15s
+expecting a periodic fetch inside that window. Confirmed live 2026-08-05: a seeded database
+carrying `600` left the newest heartbeat 61s old, which cost a whole run and a needless
+end-of-run factory reset before the cause was found.
 
 With no arguments (or just `-f`/`-s`), checklists are auto-discovered from
 `Tests/Bench/`/`Tests/Interactive/` (matching `*-checklist.md`, sorted by filename --

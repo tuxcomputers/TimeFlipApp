@@ -39,7 +39,8 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **ApplicationDelegate**: App lifecycle and device management
 - **MenuBarController**: Menu bar UI and timer display
 - **TimeFlipBLEDevice**: Bluetooth Low Energy device driver
-- **HistoryIngestor**: Event processing and logbook management
+- **HistoryIngestor**: Turns the device's history stream into `device_event` rows
+- **AppDataStore**: The SQLite store, and where `time_entry` rows are made
 - **GoogleIntegrationCoordinator**: Syncs data to Google Calendar
 - **AppState**: Application state and user preferences
 
@@ -50,20 +51,21 @@ TimeFlip Device (BLE)
     ↓
 Device History Events
     ↓
-Logbook Database (SQLite)
-    ↓
-├─> Google Calendar Events
-└─> Menu Bar UI + Daily Stats
+device_event (SQLite) ──> time_entry (SQLite)
+    ↓                         ↓
+Menu Bar UI + Daily Stats   Google Calendar Events
 ```
 
 ### Event Pipeline
 
 1. Device sends notifications on face changes or pause events
-2. Driver fetches complete history from device
-3. History ingested into local SQLite logbook (all but last frame)
-4. Last frame (live interval) drives UI only, never persisted
-5. Integrations read from logbook using cursor-based sync
-6. Each integration maintains its own sync cursor
+2. Driver fetches complete history from the device, resuming at the newest segment already recorded
+3. Every frame is written to `device_event`; all but the last as closed (`finalised = 1`), the last as the open segment whose duration grows until a later event closes it out
+4. Closing a segment out converts it to a `time_entry` row against the category its face is mapped to, unless it was shorter than `blip_time`
+5. The menu bar reads `device_event` for the day's totals; Google Calendar sync reads `time_entry` and flags each row with `synced_to_google_calendar`
+
+There are no sync cursors. The device resume position is a query against `device_event`, and delivery
+progress is the flag on each `time_entry` row.
 
 ## License
 
