@@ -4,11 +4,14 @@
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
-window, controls disabled on a retired row, and the right-click rename.
+window, controls disabled on a retired row or by a locked face, the right-click rename, and the face
+a retire clears.
 
 **None of this needs the cube.** The tab is app state and database, so every scenario here would run
 against a device sitting in a drawer. It is a Bench checklist because it drives the real window, not
-because it drives the device -- and `Tests/Interactive/08i` is a stub for the same reason.
+because it drives the device. Only the *unlock* that lifts a locked face's bar on retiring is on the
+Interactive side (`Tests/Interactive/08i`), because the lock control belongs to the face the cube is
+resting on.
 
 **Automated coverage, deliberately not repeated here:** every decision this tab makes is unit-tested
 in `CategoryEditRulesTests` (which name collides with what, the icon toggle, the daily-limit clamp,
@@ -825,9 +828,168 @@ query = "SELECT COUNT(*) FROM category WHERE daily_limit != 0 AND NOT (category_
 expect = "0"
 ```
 
+## Scenario I -- retiring clears the face, and a locked face bars it
+
+Retiring takes the category off every face holding it, so no face is left drawing one that has
+stopped being offered anywhere. A **locked** face bars the retire instead of being cleared by it:
+that face has been told to keep what it has, and the Active box is disabled rather than the app
+picking which of the two instructions wins.
+
+Both halves are reachable with the cube in a drawer, because the seed locks faces 2 (`Meeting`) and
+8 (`Break`): two categories that cannot be retired, sitting beside one that can.
+
+**Preconditions:** Settings open on the Categories tab. Step 1 rebuilds the rows the steps below
+address, since the scenarios before this leave the list in a state of their own.
+
+- [ ] Step 1: Seed one category on an unlocked face, put the seeds back on their locked ones, and
+      restart the app.
+      The restart is the point: face and lock state are read at launch and refreshed only by the
+      app's own writes, so SQL alone leaves the window disagreeing with the database. Methods:
+      [Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2),
+      [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
+```toml step
+[[actions]]
+action = "sql_exec"
+query = "UPDATE category SET active = CASE WHEN category_name IN ('Break','Meeting') THEN 1 ELSE 0 END WHERE category_id >= 1;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO category (category_name, active) SELECT 'Face test', 1 WHERE NOT EXISTS (SELECT 1 FROM category WHERE category_name = 'Face test');"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE category SET active = 1 WHERE category_name = 'Face test';"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = (SELECT MIN(category_id) FROM category WHERE category_name = 'Meeting' AND active = 1), locked = 1 WHERE face_id = 2;"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = (SELECT MIN(category_id) FROM category WHERE category_name = 'Break' AND active = 1), locked = 1 WHERE face_id = 8;"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = (SELECT category_id FROM category WHERE category_name = 'Face test'), locked = 0 WHERE face_id = 3;"
+
+[[actions]]
+use = "method-3"
+
+[[actions]]
+use = "method-2"
+
+[[actions]]
+use = "method-6"
+item = "Settings..."
+
+[[actions]]
+use = "method-10"
+tab = "Categories"
+```
+- [ ] Step 2: Confirm the Active box is dead on the two locked-face rows and live on the third.
+      Names as well as states, because the whole claim is which row is which: the section holds
+      `Break`, `Face test`, `Meeting` in that order, and row *k*'s name is `static text (2k + 3)`
+      after the four column headers.
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell group 1 of scroll area 1 of group 1 of window "TimeFlip Settings"
+            set out to ""
+            repeat with k from 1 to 3
+                set out to out & (value of static text (2 * k + 3)) & "=" & (enabled of checkbox k as string) & " "
+            end repeat
+            return out
+        end tell
+    end tell
+end tell'''
+expect_contains = "Break=false Face test=true Meeting=false"
+```
+- [ ] Step 3: Confirm the disabled box explains itself.
+      The row gives no clue which face is in the way, and a dead control with no reason is the
+      failure this tooltip exists to prevent. [Method: Number 17](../Methods.md#method-17).
+```toml step
+action = "ask_user"
+prompt = "On the Categories tab, hover the pointer over the greyed-out **Active** checkbox on the **Break** row. Does a tooltip appear naming face 8 and saying to unlock it on the Faces tab?"
+```
+- [ ] Step 4: Retire `Face test` from its Active box; confirm the face it was on is back on
+      `Unassigned`.
+      The database is the assertion, not the row moving: `face.category_id` 0 is the `Unassigned`
+      sentinel every unassigned face points at.
+```toml step
+[[actions]]
+action = "applescript"
+script = '''
+tell application "TimeFlip" to activate
+tell application "System Events"
+    tell process "TimeFlip"
+        click checkbox 2 of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings"
+        delay 1.5
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT active FROM category WHERE category_name = 'Face test';"
+expect = "0"
+timeout_seconds = 30
+
+[[actions]]
+action = "sql_query"
+query = "SELECT category_id FROM face WHERE face_id = 3;"
+expect = "0"
+```
+- [ ] Step 5: Confirm the clear was reported, naming the face it touched.
+      [Method: Number 24.d](../Methods.md#method-24), the `face-clear` tag.
+```toml step
+use = "method-24.d"
+tag = "face-clear"
+expect_contains = "face 3 back to Unassigned"
+```
+- [ ] Step 6: Confirm the two locked-face rows are all that is left in the Active section.
+      The retired row moved to Inactive, and neither category on a locked face went with it.
+```toml step
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        return "active_rows=" & ((count of checkboxes of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
+    end tell
+end tell'''
+expect_contains = "active_rows=2"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT COUNT(*) FROM category WHERE category_name IN ('Break','Meeting') AND active = 1;"
+expect = "2"
+```
+The refusal the disabled box stands in for has no step here, and cannot have one: the UI will not
+raise it (that is what the disabling is), and `sql_exec` bypasses the app entirely. It is covered in
+`CategoryStoreTests`, and the unlock that lifts it is `Tests/Interactive/08i`, which needs the cube
+on the locked face to reach the Faces tab's lock control.
+
 ## Cleanup
 
-- [x] Step 1: Remove the categories this checklist created.
+- [ ] Step 1: Put face 3 back on `Unassigned` and drop the category Scenario I put there.
+      A face still pointing at the row would make the delete below fail on the foreign key rather
+      than leaving anything behind.
+```toml step
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = 0 WHERE face_id = 3;"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM category WHERE category_name = 'Face test';"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT COUNT(*) FROM category WHERE category_name = 'Face test';"
+expect = "0"
+```
+- [x] Step 2: Remove the categories this checklist created.
       They exist only to make the alerts reachable, and leaving them behind would change what the
       next run of Scenario C sees.
 ```toml step
@@ -840,7 +1002,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name IN ('Email','EMAIL','Client work','Discovery category');"
 expect = "0"
 ```
-- [x] Step 2: Reinstate the seeded categories Scenario F retired.
+- [x] Step 3: Reinstate the seeded categories Scenario F retired.
       `Break` and `Meeting` are the two faces the physical cube carries stickers for, so the whole
       Interactive phase that follows expects them active. Leaving them retired would be this
       checklist quietly changing the ones after it.
@@ -854,7 +1016,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name IN ('Break','Meeting') AND active = 1;"
 expect = "2"
 ```
-- [x] Step 3: Close the Settings window.
+- [x] Step 4: Close the Settings window.
       [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
