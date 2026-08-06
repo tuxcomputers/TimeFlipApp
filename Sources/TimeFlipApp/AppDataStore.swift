@@ -1207,6 +1207,25 @@ final class AppDataStore {
     /// `category_id >= 1` guard as the other category writers: the `Unassigned` sentinel is
     /// always active and must never be retired. See `database/007_category.sql`.
     ///
+    /// **Retiring also takes the category off every face holding it**, putting those faces back on
+    /// the `Unassigned` sentinel. Retiring removes a category from every list that offers one, so a
+    /// face left pointing at a retired row goes on showing it -- on the Faces tab, on the device's
+    /// LED and in the menu bar -- as a category the user can no longer pick and cannot clear except
+    /// by assigning something else over it.
+    ///
+    /// Locked faces are cleared too. The lock exists to stop a face being *reassigned* by accident,
+    /// and retiring is neither accidental nor a reassignment: what the face was locked to is no
+    /// longer a category anything can choose. The lock itself is left on, so the face still refuses
+    /// a new category until it is unlocked.
+    ///
+    /// The sweep before that write is the load-bearing ordering `updateFaceCategory` documents: a
+    /// `time_entry` records the category the face was mapped to when the segment happened, so
+    /// anything still unconverted has to be converted while the old mapping is still the truth.
+    /// It only runs when there is actually a face to clear, since otherwise no mapping changes.
+    ///
+    /// Reinstating does **not** put the category back on the face it came off. Nothing records
+    /// which face that was, and re-assigning is one click on the Faces tab.
+    ///
     /// Returns whether the row now holds the requested state. Reinstating can legitimately fail:
     /// `UN1_category` allows only one *active* category per name, so a retired row whose name an
     /// active one has since taken cannot come back under it. The caller has to know, because the
@@ -1215,6 +1234,10 @@ final class AppDataStore {
     @discardableResult
     func updateCategoryActive(categoryID: Int, isActive: Bool) -> Bool {
         guard let db else { return false }
+        let facesToClear = isActive ? [] : facesAssigned(to: categoryID)
+        if !facesToClear.isEmpty {
+            sweepTimeEntries(trigger: .faceCategoryChange)
+        }
         var succeeded = false
         let sql = "UPDATE category SET active = ? WHERE category_id = ? AND category_id >= 1;"
         queue.sync {
@@ -1233,7 +1256,69 @@ final class AppDataStore {
             }
             sqlite3_finalize(stmt)
         }
+        // Only once the retire itself took: clearing faces for a category still marked active would
+        // leave the user with a blank face and the category exactly where it was.
+        if succeeded, !facesToClear.isEmpty {
+            clearFaces(assignedTo: categoryID)
+            let faces = facesToClear.map(String.init).joined(separator: ", ")
+            let label = facesToClear.count == 1 ? "face" : "faces"
+            DeveloperMode.debugPrint(.faceClear, "Category \(categoryID) retired: \(label) \(faces) back to Unassigned")
+        }
         return succeeded
+    }
+
+    /// Which faces currently hold a category, by `face_id` (`database/008_face.sql`). Read before a
+    /// retire so the clear -- and the sweep that has to precede it -- is skipped entirely when the
+    /// category is on no face, and so the faces that were cleared can be named in the debug line.
+    ///
+    /// The `category_id >= 1` guard matches the writers: id 0 is the `Unassigned` sentinel a cleared
+    /// face lands on, which is never itself retired, so "which faces hold it" is not a question with
+    /// anything to do here.
+    private func facesAssigned(to categoryID: Int) -> [UInt8] {
+        guard let db, categoryID >= 1 else { return [] }
+        var faceIDs: [UInt8] = []
+        let sql = "SELECT face_id FROM face WHERE category_id = ? ORDER BY face_id;"
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face assignment load prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(categoryID))
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                faceIDs.append(UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0)))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return faceIDs
+    }
+
+    /// Puts every face holding `categoryID` back on the `Unassigned` sentinel. Only ever called from
+    /// `updateCategoryActive`, which documents why this happens at all, why locked faces are included
+    /// and why the sweep runs first.
+    ///
+    /// No `locked` or `face_id` clause: the rows this can reach are exactly the faces the category
+    /// was found on, and `category_id` alone selects them.
+    private func clearFaces(assignedTo categoryID: Int) {
+        guard let db, categoryID >= 1 else { return }
+        let sql = """
+        UPDATE face SET category_id = \(TimeFlipConstants.unassignedCategoryID)
+        WHERE category_id = ?;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("face clear prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_int64(stmt, 1, Int64(categoryID))
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                logger.error("face clear exec failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(stmt)
+        }
     }
 
     /// How often `HistoryIngestor` should re-fetch device history on a repeating timer (the

@@ -133,9 +133,10 @@ struct W09CategoryLifecycleWorkflow {
         }
     }
 
-    /// Retiring drops it from what the tab offers for a new assignment. It does not clear an
-    /// assignment already made, and it does not remove the row.
-    @Test func step6_retiredMeansHiddenFromTheListButStillOnItsFace() async throws {
+    /// Retiring drops it from what the tab offers for a new assignment, and takes it off the face it
+    /// was on -- a face cannot be left showing a category nothing can pick. The row itself stays, so
+    /// the history recorded against it still resolves.
+    @Test func step6_retiredMeansHiddenFromTheListAndOffItsFace() async throws {
         try harness.requirePreviousStepsPassed()
         try await harness.step("6-retired-still-resolves") {
             let category = try current(Self.renamedName)
@@ -145,8 +146,7 @@ struct W09CategoryLifecycleWorkflow {
             #expect(split.inactive.contains { $0.id == category.id }, "still listed as retired")
 
             let onFace = try #require(harness.dataStore.loadFaceCategories()[Self.faceID])
-            #expect(onFace.id == category.id, "the face keeps what it was given")
-            #expect(onFace.isActive == false)
+            #expect(onFace.id == TimeFlipConstants.unassignedCategoryID, "the face is back on the sentinel")
         }
     }
 
@@ -177,7 +177,10 @@ struct W09CategoryLifecycleWorkflow {
             #expect(restored.isActive)
             #expect(restored.dailyLimitMinutes == Self.dailyLimit, "its budget came back with it")
             #expect(restored.colourID == Self.colourID)
-            #expect(harness.dataStore.loadFaceCategories()[Self.faceID]?.id == retired.id)
+            #expect(
+                harness.dataStore.loadFaceCategories()[Self.faceID]?.id == TimeFlipConstants.unassignedCategoryID,
+                "what it carried comes back; the face it came off does not, since nothing recorded which one"
+            )
             #expect(
                 harness.dataStore.loadCategories().filter { $0.name == Self.renamedName }.count == 1,
                 "reinstating must not leave a duplicate behind"

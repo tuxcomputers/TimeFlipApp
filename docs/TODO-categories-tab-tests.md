@@ -68,7 +68,7 @@ Not to be redone. Listed so the gaps below read as gaps rather than as the whole
 23. **Deferred, commented out in `CategoryStoreTests`.** Renaming a category changes what historical rows report, since everything links by `category_id`. The behaviour the confirmation dialog warns about.
 
 Both are waiting on a real writer and reader for `time_entry`. The raw-SQL version passed but only showed that SQLite joins on a foreign key, with no app code putting the row there or reading it back. Reinstate them, and the raw SQL helpers at the foot of that file, when the table is live.
-24. Retiring a category still assigned to a face leaves the face assignment intact. The Faces tab filters retired categories out of the *assignment list*, which is not the same as clearing an assignment already made.
+24. Retiring a category takes it off every face holding it, leaving those faces on the `Unassigned` sentinel: a locked face too (the lock stops accidental *reassignment*, which retiring is not, and the lock survives), every face when it sat on several, and no face that held something else. Reinstating does not put it back, since nothing records which face it came off. Retiring a category no face holds changes nothing, and skips the `time_entry` sweep the clear would otherwise need.
 
 ## Extracted decisions
 

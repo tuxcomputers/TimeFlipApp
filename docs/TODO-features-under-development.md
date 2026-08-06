@@ -17,6 +17,7 @@
 - Assignment is done by picking from a list (dropdown) of existing categories.
 - New `active` column on the `category` table. An inactive (deactivated) category:
   - No longer appears in the assignment dropdown.
+  - Comes off any face it was assigned to, which go back to `Unassigned` -- otherwise a face keeps showing a category the dropdown no longer offers, and nothing but assigning something else over it can clear that.
   - Can still be reported against, same as an active one.
   - Rationale: categories like a JIRA ticket accumulate time against them but eventually stop being used — deactivating hides them from future assignment without losing their history.
 

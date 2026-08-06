@@ -97,6 +97,10 @@ enum DeveloperMode {
         // table is the only say in which icons exist (ActivityLibrary.reportUnresolvableIcons). Five
         // characters, well short of the longest tag, so adding it re-pads nothing.
         case icons = "icons"
+        // Faces put back on the `Unassigned` sentinel because the category they held was retired
+        // (AppDataStore.updateCategoryActive). Ten characters, one short of the longest tag, so
+        // adding it re-pads nothing.
+        case faceClear = "face-clear"
         case click = "click"
         case field = "field"
         case menu = "menu"

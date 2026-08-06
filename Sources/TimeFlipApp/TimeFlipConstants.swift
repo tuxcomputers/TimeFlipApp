@@ -6,6 +6,10 @@ enum TimeFlipConstants {
     static let faceCount = Int(maxFaceID - minFaceID + 1)
     static let faceIDs: [UInt8] = Array(minFaceID...maxFaceID)
     static let unassignedFaceID: UInt8 = 0
+    /// The `Unassigned` sentinel category seeded at `category_id` 0 (`database/007_category.sql`).
+    /// What a face points at when it has nothing on it, and so what a face is put back on when the
+    /// category it held is retired (see `AppDataStore.updateCategoryActive`).
+    static let unassignedCategoryID = 0
     static let doubleTapPauseMask: UInt8 = 0x80
     static let minBatteryLevel: UInt8 = 1
     static let maxBatteryLevel: UInt8 = 100
