@@ -374,9 +374,10 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertEqual(store.loadCategories().first { $0.id == retiredID }?.isActive, false, "still retired")
     }
 
-    /// Retiring is never refused: the index only constrains active rows, so leaving is always
-    /// possible even when coming back would not be.
-    func testRetiringIsAlwaysAllowed() throws {
+    /// The name index never refuses a retire: it only constrains active rows, so leaving is always
+    /// possible even when coming back would not be. (A locked face does refuse one, for a reason
+    /// that has nothing to do with names -- see the cross-table section.)
+    func testTheNameIndexNeverRefusesARetire() throws {
         let store = makeStore()
         let id = try XCTUnwrap(store.createCategory(name: "Email"))
 
@@ -425,9 +426,9 @@ final class CategoryStoreTests: XCTestCase {
     //     XCTAssertEqual(try resolvedCategoryNameForTimeEntry(), "New name")
     // }
 
-    /// The Faces tab drops retired categories from the list it offers for a *new* assignment, which
-    /// is not the same as clearing one already made. A face keeps what it was given.
-    func testRetiringACategoryLeavesAFaceStillAssignedToIt() throws {
+    /// Retiring drops the category from every list that offers one, so a face left holding it would
+    /// go on drawing a category nothing can pick and nothing can clear. The retire takes it off.
+    func testRetiringACategoryTakesItOffTheFaceItWasOn() throws {
         let store = makeStore()
         let id = try XCTUnwrap(store.createCategory(name: "Was on a face"))
         store.updateFaceCategory(faceID: 3, categoryID: id)
@@ -435,8 +436,108 @@ final class CategoryStoreTests: XCTestCase {
         store.updateCategoryActive(categoryID: id, isActive: false)
 
         let onFace = try XCTUnwrap(store.loadFaceCategories()[3])
-        XCTAssertEqual(onFace.id, id)
-        XCTAssertFalse(onFace.isActive, "still assigned, and reported as retired")
+        XCTAssertEqual(onFace.id, TimeFlipConstants.unassignedCategoryID, "back on the sentinel")
+        XCTAssertEqual(onFace.name, "Unassigned")
+    }
+
+    /// One category can sit on several faces, and retiring it has to reach all of them -- while
+    /// leaving every face that held something else exactly as it was.
+    func testRetiringACategoryClearsEveryFaceHoldingItAndNoOthers() throws {
+        let store = makeStore()
+        let retired = try XCTUnwrap(store.createCategory(name: "On two faces"))
+        let kept = try XCTUnwrap(store.createCategory(name: "On one face"))
+        store.updateFaceCategory(faceID: 3, categoryID: retired)
+        store.updateFaceCategory(faceID: 5, categoryID: retired)
+        store.updateFaceCategory(faceID: 6, categoryID: kept)
+
+        store.updateCategoryActive(categoryID: retired, isActive: false)
+
+        let faces = store.loadFaceCategories()
+        XCTAssertEqual(faces[3]?.id, TimeFlipConstants.unassignedCategoryID)
+        XCTAssertEqual(faces[5]?.id, TimeFlipConstants.unassignedCategoryID)
+        XCTAssertEqual(faces[6]?.id, kept, "a face holding a different category is untouched")
+    }
+
+    /// A locked face keeps what it has, and retiring would take it off. The two instructions
+    /// contradict each other, so the retire is refused whole rather than half-applied: the category
+    /// stays active and the face keeps it, until the user unlocks the face themselves.
+    func testRetiringIsRefusedWhileALockedFaceHoldsTheCategory() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "Locked on"))
+        store.updateFaceCategory(faceID: 4, categoryID: id)
+        store.updateFaceLocked(faceID: 4, locked: true)
+
+        XCTAssertFalse(store.updateCategoryActive(categoryID: id, isActive: false))
+
+        XCTAssertEqual(store.loadCategories().first { $0.id == id }?.isActive, true, "still active")
+        XCTAssertEqual(store.loadFaceCategories()[4]?.id, id, "and still on the locked face")
+    }
+
+    /// The refusal is all or nothing. Clearing the unlocked faces and leaving the locked one would
+    /// be the worst of both: the category still active, but off half the faces that held it.
+    func testARefusedRetireLeavesTheUnlockedFacesAloneToo() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "On two faces"))
+        store.updateFaceCategory(faceID: 3, categoryID: id)
+        store.updateFaceCategory(faceID: 4, categoryID: id)
+        store.updateFaceLocked(faceID: 4, locked: true)
+
+        XCTAssertFalse(store.updateCategoryActive(categoryID: id, isActive: false))
+
+        XCTAssertEqual(store.loadFaceCategories()[3]?.id, id, "the unlocked face is untouched")
+    }
+
+    /// Unlocking is the way through, and the same retire then goes ahead.
+    func testRetiringSucceedsOnceTheLockedFaceIsUnlocked() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "Locked on"))
+        store.updateFaceCategory(faceID: 4, categoryID: id)
+        store.updateFaceLocked(faceID: 4, locked: true)
+        XCTAssertFalse(store.updateCategoryActive(categoryID: id, isActive: false))
+
+        store.updateFaceLocked(faceID: 4, locked: false)
+
+        XCTAssertTrue(store.updateCategoryActive(categoryID: id, isActive: false))
+        XCTAssertEqual(store.loadFaceCategories()[4]?.id, TimeFlipConstants.unassignedCategoryID)
+    }
+
+    /// Only retiring is barred. A database predating this rule can hold a retired category on a
+    /// locked face, and reinstating it puts nothing on any face, so nothing about the lock is in
+    /// the way of coming back.
+    func testALockedFaceDoesNotBlockReinstating() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "Locked on"))
+        store.updateCategoryActive(categoryID: id, isActive: false)
+        store.updateFaceCategory(faceID: 4, categoryID: id)
+        store.updateFaceLocked(faceID: 4, locked: true)
+
+        XCTAssertTrue(store.updateCategoryActive(categoryID: id, isActive: true))
+    }
+
+    /// Nothing records which face a category came off, so reinstating cannot put it back. The Faces
+    /// tab's reactivate path assigns to the face on show itself; this one is the Categories tab's,
+    /// which has no face in front of it.
+    func testReinstatingACategoryDoesNotPutItBackOnItsOldFace() throws {
+        let store = makeStore()
+        let id = try XCTUnwrap(store.createCategory(name: "Came back"))
+        store.updateFaceCategory(faceID: 3, categoryID: id)
+        store.updateCategoryActive(categoryID: id, isActive: false)
+
+        XCTAssertTrue(store.updateCategoryActive(categoryID: id, isActive: true))
+
+        XCTAssertEqual(store.loadFaceCategories()[3]?.id, TimeFlipConstants.unassignedCategoryID)
+    }
+
+    /// Retiring a category no face holds changes no mapping at all, so the faces the seed laid down
+    /// are still exactly where they were.
+    func testRetiringACategoryOnNoFaceLeavesEveryFaceAlone() throws {
+        let store = makeStore()
+        let before = store.loadFaceCategories().mapValues(\.id)
+        let id = try XCTUnwrap(store.createCategory(name: "Never assigned"))
+
+        store.updateCategoryActive(categoryID: id, isActive: false)
+
+        XCTAssertEqual(store.loadFaceCategories().mapValues(\.id), before)
     }
 
     // MARK: - Raw SQL helpers (waiting on `time_entry`)

@@ -158,7 +158,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
 | `daily_limit`| INTEGER | Whole minutes of tracked time allowed against this category per day (`0` = no limit). Minutes rather than the seconds convention used by `duration_seconds` elsewhere (e.g. `time_entry`): a limit is a coarse user-set budget, and nobody sets one to the nearest 30 seconds. The day boundary is the `setting` table's `daily_reset_time`, not midnight. `NOT NULL`, defaults to `0`. |
 | `cost`       | INTEGER | What an hour of this category costs, as a whole number of **cents** (e.g. `250` = \$2.50 per hour) to avoid floating-point money; the UI formats it for display as `$x.xx`. **A rate per hour, not a flat charge per entry** — so a `time_entry`'s `total_cost` is a function of its duration. `NOT NULL`, defaults to `0`. Nothing reads or sets it yet — groundwork for [Cost time entry](TODO-features-under-development.md#cost-time-entry). |
-| `active`     | INTEGER | `1` while the category is in use, `0` once it has been retired. Retiring is an `UPDATE`, never a `DELETE`, so historical `time_entry` rows and any face still holding the category keep resolving; a retired category simply stops being offered for new assignments. `NOT NULL`, defaults to `1`, constrained to `0`/`1`. |
+| `active`     | INTEGER | `1` while the category is in use, `0` once it has been retired. Retiring is an `UPDATE`, never a `DELETE`, so historical `time_entry` rows keep resolving; the category simply stops being offered for new assignments. It is also taken **off every face holding it** (`AppDataStore.updateCategoryActive`), since a face left on a retired category would go on showing one nothing can pick -- and is **refused outright while a `locked` face holds it**, that face having been told to keep what it has. `NOT NULL`, defaults to `1`, constrained to `0`/`1`. |
 
 Foreign keys — all three parents are seeded with an id-`0` sentinel row, which is what lets these columns be `NOT NULL` and still allow "nothing assigned":
 - The `icon_id` column references the PK of the table `icon` described above. `NOT NULL DEFAULT 0` (the `None` icon), so a new category can be inserted without specifying one.
@@ -180,7 +180,7 @@ The 12 physical faces of the TimeFlip device, each linked to the category curren
 |---------------|---------|-----------------------------------------------------------------------|
 | `face_id`     | INTEGER | Primary key, `1`-`12` (matches the device's face numbering).         |
 | `category_id` | INTEGER | References `category.category_id` — the category currently assigned to this face. |
-| `locked`      | INTEGER | `1` to pin this face's category so it can't be reassigned by accident (a face the user wants permanent, e.g. Break or Meeting), `0` if it can be reassigned freely. `NOT NULL`, defaults to `0`. |
+| `locked`      | INTEGER | `1` to pin this face's category so it can't be reassigned by accident (a face the user wants permanent, e.g. Break or Meeting), `0` if it can be reassigned freely. Also blocks the *category* being retired while this face holds it, since retiring would take it off (see `active` above). `NOT NULL`, defaults to `0`. |
 
 Foreign keys:
 - The `category_id` column references the PK of the table `category` described above. `NOT NULL`.

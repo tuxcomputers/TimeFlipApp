@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 Covers renaming the cube: the three right-click targets that open the menu, the write itself, the
 notice that explains why the new name does not show up everywhere, and the documented workaround

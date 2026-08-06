@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 The half of the day-totals feature that needs a hand on the cube. `Bench/10b` proves the sum from
 inserted rows with the device held still; this proves it from real flips, which is the case a user
@@ -108,10 +108,17 @@ action = "shell"
 command = "sleep 60"
 ```
 - [x] **(Claude)** Step 5: Pause the device and read the exact combined figure.
-Pausing is what makes the reading exact rather than drifting (see `Bench/10b`). Methods:
-[Number 6](../Methods.md#method-6), [Number 25](../Methods.md#method-25),
+Pausing is what makes the reading exact rather than drifting (see `Bench/10b`). The resolver runs
+first because the cube may already be paused by the time this step is reached: handling it for
+Step 3's flip can register as a physical double-tap, which the firmware pauses on unconditionally
+([Method: Number 22](../Methods.md#method-22)) -- and clicking `Pause` on a menu that is showing
+`Resume` fails with `-1728`, since the item genuinely isn't there. Measured on 2026-08-06, one
+flip in. Methods: [Number 6](../Methods.md#method-6), [Number 25](../Methods.md#method-25),
 [Number 27](../Methods.md#method-27).
 ```toml step
+[[actions]]
+action = "ensure_unlocked_unpaused"
+
 [[actions]]
 use = "method-6"
 item = "Pause"
@@ -124,6 +131,9 @@ expect_contains = "Resume"
 use = "method-27"
 capture = "title_after_flip"
 ```
+### Bugs found and fixed - branch 'bugfix/deactivateCategory'
+2026-08-06 - Clicking `Pause` died with `-1728` because handling the cube for Step 3's flip had
+already double-tapped it into a pause. Resolved to unlocked/unpaused first.
 - [x] **(Claude)** Step 6: Compute what the shared category has recorded today from `time_entry`.
 The same window and the same table `DailyCategoryTotals.seedFromHistory` reads, so this is the figure
 the menu bar must be showing -- derived independently of it rather than read back off the screen.

@@ -60,7 +60,7 @@ Not to be redone. Listed so the gaps below read as gaps rather than as the whole
 
 **One active category per name (`UN1_category`).** Added after the tests above, when the partial unique index went in. See `docs/database-design.md` for why the index is partial.
 
-21a. A second *active* category cannot take an active name. 21b. The name is taken case-insensitively, matching `findCategory`. 21c. Any number of *inactive* categories may share a name. 21d. One active may sit alongside its retired namesakes. 21e. Reinstating succeeds when no active category holds the name. 21f. Reinstating is refused, and reports it, when one does. The case that makes `updateCategoryActive`'s return value necessary: the tab patches rather than re-reads, so a refusal reported as success would tick the box over a row that is still retired. 21g. Retiring is never refused. The index only constrains active rows, so leaving is always possible even when coming back would not be.
+21a. A second *active* category cannot take an active name. 21b. The name is taken case-insensitively, matching `findCategory`. 21c. Any number of *inactive* categories may share a name. 21d. One active may sit alongside its retired namesakes. 21e. Reinstating succeeds when no active category holds the name. 21f. Reinstating is refused, and reports it, when one does. The case that makes `updateCategoryActive`'s return value necessary: the tab patches rather than re-reads, so a refusal reported as success would tick the box over a row that is still retired. 21g. The name index never refuses a retire. It only constrains active rows, so leaving is always possible even when coming back would not be. (A locked face does refuse one, for a reason that has nothing to do with names -- see 24a.)
 
 **Cross-table**
 
@@ -68,7 +68,11 @@ Not to be redone. Listed so the gaps below read as gaps rather than as the whole
 23. **Deferred, commented out in `CategoryStoreTests`.** Renaming a category changes what historical rows report, since everything links by `category_id`. The behaviour the confirmation dialog warns about.
 
 Both are waiting on a real writer and reader for `time_entry`. The raw-SQL version passed but only showed that SQLite joins on a foreign key, with no app code putting the row there or reading it back. Reinstate them, and the raw SQL helpers at the foot of that file, when the table is live.
-24. Retiring a category still assigned to a face leaves the face assignment intact. The Faces tab filters retired categories out of the *assignment list*, which is not the same as clearing an assignment already made.
+24. Retiring a category takes it off every face holding it, leaving those faces on the `Unassigned` sentinel: every face when it sat on several, and no face that held something else. Reinstating does not put it back, since nothing records which face it came off. Retiring a category no face holds changes nothing, and skips the `time_entry` sweep the clear would otherwise need.
+
+24a. A **locked** face refuses the retire outright, and refuses it whole: the category stays active and every face it was on, locked or not, keeps it. Unlocking the face lets the same retire through. Reinstating is never blocked by a lock, since it puts nothing on any face -- which matters for a database predating this rule, where a retired category can already be sitting on a locked face.
+
+24b. `AppState.lockedFacesHolding(categoryID:)` is what the Active box disables on, so it is tested for the three answers the tab acts on: the locked faces holding this category, in face order; nothing, when the locked face holds a different one; and nothing, when the faces holding it are unlocked.
 
 ## Extracted decisions
 

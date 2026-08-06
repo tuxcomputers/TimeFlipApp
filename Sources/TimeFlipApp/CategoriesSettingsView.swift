@@ -430,20 +430,37 @@ private struct CategoryRow: View {
     /// Ticking can be refused: only one *active* category may hold a name, so a retired row whose
     /// name an active one has taken since cannot come back under it. Nothing moves in that case and
     /// the alert says why, rather than the box appearing to tick and silently springing back.
+    ///
+    /// Unticking is barred outright while a locked face holds this category. Retiring takes the
+    /// category off every face it is on, and a locked face is one the user has said keeps what it
+    /// has, so the two instructions contradict each other and the app does not get to pick which
+    /// wins. The user does, by unlocking the face on the Faces tab first. Disabled rather than
+    /// refused with an alert: the box would otherwise offer an edit that can never be taken.
+    ///
+    /// Only *this* direction is barred. A retired category on a locked face -- which a database
+    /// predating this rule can hold -- must still be reinstatable, and reinstating puts nothing on
+    /// any face.
     private var activeCheckbox: some View {
-        Toggle("", isOn: Binding(
-            get: { category.isActive },
-            set: { newValue in
-                DeveloperMode.debugPrint(.click, "Button clicked: Category \"\(category.name)\" active -> \(newValue)")
-                guard actions.setActive(category.id, newValue) else {
-                    DeveloperMode.debugPrint(.field, "Category \"\(category.name)\" could not be reinstated: the name is taken by an active category")
-                    reinstateRefused = true
-                    return
+        // The tooltip is on the container, outside `.disabled()`: a disabled control stops taking
+        // mouse events, and a help tag it never sees is no use on the one row that needs one.
+        HStack(spacing: 0) {
+            Toggle("", isOn: Binding(
+                get: { category.isActive },
+                set: { newValue in
+                    DeveloperMode.debugPrint(.click, "Button clicked: Category \"\(category.name)\" active -> \(newValue)")
+                    guard actions.setActive(category.id, newValue) else {
+                        DeveloperMode.debugPrint(.field, "Category \"\(category.name)\" could not be reinstated: the name is taken by an active category")
+                        reinstateRefused = true
+                        return
+                    }
                 }
-            }
-        ))
-        .toggleStyle(.checkbox)
-        .labelsHidden()
+            ))
+            .toggleStyle(.checkbox)
+            .labelsHidden()
+            .disabled(category.isActive && !lockedFacesHoldingThis.isEmpty)
+        }
+        // The row gives no clue which face is in the way, so the tooltip names it.
+        .help(lockedFaceHelp)
         .alert("That name is already in use", isPresented: $reinstateRefused) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -454,6 +471,24 @@ private struct CategoryRow: View {
             Rename one of them first, then try again.
             """)
         }
+    }
+
+    /// The locked faces standing in the way of retiring this category, read live from `appState` so
+    /// unlocking a face on the Faces tab re-enables the box here with no re-read.
+    private var lockedFacesHoldingThis: [UInt8] {
+        appState.lockedFacesHolding(categoryID: category.id)
+    }
+
+    /// Names the faces blocking the Active box, or `""` when nothing is -- SwiftUI draws no help tag
+    /// for an empty string, so an ordinary row keeps its bare checkbox.
+    private var lockedFaceHelp: String {
+        let faces = lockedFacesHoldingThis
+        guard category.isActive, !faces.isEmpty else { return "" }
+        let list = faces.map(String.init).joined(separator: ", ")
+        guard faces.count > 1 else {
+            return "Face \(list) is locked to this category. Unlock it on the Faces tab to deactivate this category."
+        }
+        return "Faces \(list) are locked to this category. Unlock them on the Faces tab to deactivate this category."
     }
 
     private func applyDailyLimit(newValue: Int) {
