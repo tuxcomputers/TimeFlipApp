@@ -527,6 +527,22 @@ final class AppState: ObservableObject {
         faceLocks[faceID] ?? false
     }
 
+    /// The locked faces a category is sitting on, lowest face id first, empty when there are none.
+    ///
+    /// This is what stops a category being retired: retiring takes it off every face it is on (see
+    /// `AppDataStore.updateCategoryActive`), and a locked face is one the user has said keeps what
+    /// it has. The Categories tab reads this to disable the Active box and to say which face is in
+    /// the way, so the answer has to name the faces rather than just count them.
+    ///
+    /// Read from the two published dictionaries rather than the database, so unlocking a face on the
+    /// Faces tab re-enables the box on the Categories tab with no re-read in between.
+    func lockedFacesHolding(categoryID: Int) -> [UInt8] {
+        faceCategories
+            .filter { $0.value.id == categoryID && isFaceLocked($0.key) }
+            .keys
+            .sorted()
+    }
+
     /// What the device's LED should show for each face: the `device_hex` of the colour assigned to
     /// the face's category, resolved through `colourOptions`.
     ///

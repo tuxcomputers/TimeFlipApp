@@ -40,8 +40,10 @@ final class FaceCategoryResolutionTests: XCTestCase {
         ]
     }
 
-    /// - Parameter faces: face id → the category it is assigned.
-    private func makeState(faces: [UInt8: CategoryRecord]) -> AppState {
+    /// - Parameters:
+    ///   - faces: face id → the category it is assigned.
+    ///   - locks: face id → whether it is locked. Omitted faces read as unlocked.
+    private func makeState(faces: [UInt8: CategoryRecord], locks: [UInt8: Bool] = [:]) -> AppState {
         AppState(
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
@@ -52,7 +54,8 @@ final class FaceCategoryResolutionTests: XCTestCase {
             isDoubleTapEnabled: true,
             colourOptions: Fixture.colours,
             iconOptions: Fixture.icons,
-            faceCategories: faces
+            faceCategories: faces,
+            faceLocks: locks
         )
     }
 
@@ -175,5 +178,32 @@ final class FaceCategoryResolutionTests: XCTestCase {
         XCTAssertEqual(resolved[8], ColorComponents(hex: Fixture.lemonHex))
         XCTAssertEqual(resolved[5], .off, "a category with no colour means the LED off, not unchanged")
         XCTAssertEqual(resolved[11], .off, "and so does a face with no category")
+    }
+
+    // MARK: - lockedFacesHolding
+
+    /// What the Categories tab disables its Active box on: retiring a category takes it off every
+    /// face, which a locked face will not allow, so the box has to know before it is clicked.
+    func testALockedFaceHoldingTheCategoryIsReported() {
+        let state = makeState(faces: [2: category(id: 4), 8: category(id: 4)], locks: [8: true])
+
+        XCTAssertEqual(state.lockedFacesHolding(categoryID: 4), [8], "only the locked one is in the way")
+    }
+
+    func testALockedFaceHoldingADifferentCategoryIsNotInTheWay() {
+        let state = makeState(faces: [2: category(id: 4), 8: category(id: 9)], locks: [2: false, 8: true])
+
+        XCTAssertEqual(state.lockedFacesHolding(categoryID: 4), [], "face 8 is locked to a different category")
+    }
+
+    /// Several locked faces can hold one category, and the tooltip names them, so the order has to
+    /// be the face order rather than whatever the dictionary happened to iterate in.
+    func testEveryLockedFaceIsReportedInFaceOrder() {
+        let state = makeState(
+            faces: [2: category(id: 4), 5: category(id: 4), 8: category(id: 4)],
+            locks: [8: true, 5: true]
+        )
+
+        XCTAssertEqual(state.lockedFacesHolding(categoryID: 4), [5, 8])
     }
 }

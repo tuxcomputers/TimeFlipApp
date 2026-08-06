@@ -1213,12 +1213,14 @@ final class AppDataStore {
     /// LED and in the menu bar -- as a category the user can no longer pick and cannot clear except
     /// by assigning something else over it.
     ///
-    /// Locked faces are cleared too. The lock exists to stop a face being *reassigned* by accident,
-    /// and retiring is neither accidental nor a reassignment: what the face was locked to is no
-    /// longer a category anything can choose. The lock itself is left on, so the face still refuses
-    /// a new category until it is unlocked.
+    /// **A locked face refuses the retire outright**, rather than being cleared with the rest. The
+    /// lock says this face keeps what it has, and clearing it would be the app overriding that on
+    /// the user's behalf. Unlocking is a deliberate act on the Faces tab, so the order is theirs to
+    /// choose: unlock the face, then retire. The Categories tab disables the Active box for exactly
+    /// this case, so nothing reaches this refusal through the UI -- it is the backstop a stale view
+    /// could otherwise walk past, the same one `updateFaceCategory` keeps for the same reason.
     ///
-    /// The sweep before that write is the load-bearing ordering `updateFaceCategory` documents: a
+    /// The sweep before the clear is the load-bearing ordering `updateFaceCategory` documents: a
     /// `time_entry` records the category the face was mapped to when the segment happened, so
     /// anything still unconverted has to be converted while the old mapping is still the truth.
     /// It only runs when there is actually a face to clear, since otherwise no mapping changes.
@@ -1226,15 +1228,24 @@ final class AppDataStore {
     /// Reinstating does **not** put the category back on the face it came off. Nothing records
     /// which face that was, and re-assigning is one click on the Faces tab.
     ///
-    /// Returns whether the row now holds the requested state. Reinstating can legitimately fail:
-    /// `UN1_category` allows only one *active* category per name, so a retired row whose name an
-    /// active one has since taken cannot come back under it. The caller has to know, because the
-    /// Categories tab patches its loaded list rather than re-reading, and patching a write that was
-    /// refused would leave the checkbox ticked over a row that is still retired.
+    /// Returns whether the row now holds the requested state, which either direction can refuse.
+    /// Reinstating fails when `UN1_category`, which allows only one *active* category per name,
+    /// would be broken by a retired row coming back under a name an active one has since taken;
+    /// retiring fails on the locked face above. The caller has to know, because the Categories tab
+    /// patches its loaded list rather than re-reading, and patching a write that was refused would
+    /// leave the checkbox showing a state the row is not in.
     @discardableResult
     func updateCategoryActive(categoryID: Int, isActive: Bool) -> Bool {
         guard let db else { return false }
-        let facesToClear = isActive ? [] : facesAssigned(to: categoryID)
+        let held = isActive ? [] : facesAssigned(to: categoryID)
+        let lockedFaces = held.filter(\.isLocked).map(\.faceID)
+        guard lockedFaces.isEmpty else {
+            let faces = lockedFaces.map(String.init).joined(separator: ", ")
+            let label = lockedFaces.count == 1 ? "face" : "faces"
+            DeveloperMode.debugPrint(.faceClear, "Category \(categoryID) not retired: locked \(label) \(faces) still holds it")
+            return false
+        }
+        let facesToClear = held.map(\.faceID)
         if !facesToClear.isEmpty {
             sweepTimeEntries(trigger: .faceCategoryChange)
         }
@@ -1267,17 +1278,18 @@ final class AppDataStore {
         return succeeded
     }
 
-    /// Which faces currently hold a category, by `face_id` (`database/008_face.sql`). Read before a
-    /// retire so the clear -- and the sweep that has to precede it -- is skipped entirely when the
-    /// category is on no face, and so the faces that were cleared can be named in the debug line.
+    /// Which faces currently hold a category, and whether each is locked (`database/008_face.sql`).
+    /// Read before a retire, which needs all three answers from it: a locked face refuses the retire
+    /// outright, no face at all means the clear and its sweep are skipped, and the ids name the
+    /// faces in the debug line either way.
     ///
     /// The `category_id >= 1` guard matches the writers: id 0 is the `Unassigned` sentinel a cleared
     /// face lands on, which is never itself retired, so "which faces hold it" is not a question with
     /// anything to do here.
-    private func facesAssigned(to categoryID: Int) -> [UInt8] {
+    private func facesAssigned(to categoryID: Int) -> [(faceID: UInt8, isLocked: Bool)] {
         guard let db, categoryID >= 1 else { return [] }
-        var faceIDs: [UInt8] = []
-        let sql = "SELECT face_id FROM face WHERE category_id = ? ORDER BY face_id;"
+        var faces: [(faceID: UInt8, isLocked: Bool)] = []
+        let sql = "SELECT face_id, locked FROM face WHERE category_id = ? ORDER BY face_id;"
         queue.sync {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -1287,19 +1299,21 @@ final class AppDataStore {
             }
             sqlite3_bind_int64(stmt, 1, Int64(categoryID))
             while sqlite3_step(stmt) == SQLITE_ROW {
-                faceIDs.append(UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0)))
+                faces.append((
+                    faceID: UInt8(truncatingIfNeeded: sqlite3_column_int64(stmt, 0)),
+                    isLocked: sqlite3_column_int64(stmt, 1) != 0
+                ))
             }
             sqlite3_finalize(stmt)
         }
-        return faceIDs
+        return faces
     }
 
     /// Puts every face holding `categoryID` back on the `Unassigned` sentinel. Only ever called from
-    /// `updateCategoryActive`, which documents why this happens at all, why locked faces are included
-    /// and why the sweep runs first.
+    /// `updateCategoryActive`, which documents why this happens at all and why the sweep runs first.
     ///
-    /// No `locked` or `face_id` clause: the rows this can reach are exactly the faces the category
-    /// was found on, and `category_id` alone selects them.
+    /// No `locked` clause is needed, because there is nothing for it to exclude: a locked face makes
+    /// the caller refuse the retire before it gets here, so every face this can reach is unlocked.
     private func clearFaces(assignedTo categoryID: Int) {
         guard let db, categoryID >= 1 else { return }
         let sql = """
