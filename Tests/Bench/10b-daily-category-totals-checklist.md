@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 Covers the menu bar's day figure being a **category** total rather than a face total: the number
 drawn beside the activity name, and the `daily_limit` tested against it, both key off

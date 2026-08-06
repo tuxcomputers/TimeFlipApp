@@ -1,6 +1,6 @@
 # Lock / pause_on_lock Checklist (Interactive)
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 Run **after** `Tests/Bench/04b-lock-and-pause-on-lock-checklist.md`. Everything that used to live
 here -- the status-item's own single/double-click-right-half gesture -- moved to that file's

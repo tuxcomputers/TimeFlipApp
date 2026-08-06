@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
@@ -841,7 +841,7 @@ Both halves are reachable with the cube in a drawer, because the seed locks face
 **Preconditions:** Settings open on the Categories tab. Step 1 rebuilds the rows the steps below
 address, since the scenarios before this leave the list in a state of their own.
 
-- [ ] Step 1: Seed one category on an unlocked face, put the seeds back on their locked ones, and
+- [x] Step 1: Seed one category on an unlocked face, put the seeds back on their locked ones, and
       restart the app.
       The restart is the point: face and lock state are read at launch and refreshed only by the
       app's own writes, so SQL alone leaves the window disagreeing with the database. Methods:
@@ -886,7 +886,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Categories"
 ```
-- [ ] Step 2: Confirm the Active box is dead on the two locked-face rows and live on the third.
+- [x] Step 2: Confirm the Active box is dead on the two locked-face rows and live on the third.
       Names as well as states, because the whole claim is which row is which: the section holds
       `Break`, `Face test`, `Meeting` in that order, and row *k*'s name is `static text (2k + 3)`
       after the four column headers.
@@ -906,14 +906,28 @@ tell application "System Events"
 end tell'''
 expect_contains = "Break=false Face test=true Meeting=false"
 ```
-- [ ] Step 3: Confirm the disabled box explains itself.
-      The row gives no clue which face is in the way, and a dead control with no reason is the
-      failure this tooltip exists to prevent. [Method: Number 17](../Methods.md#method-17).
+- [x] Step 3: Confirm the disabled box explains itself, naming the face in the way.
+      The row gives no clue which face it is, and a dead control with no reason is the failure this
+      tooltip exists to prevent. Read as `AXHelp` rather than by hovering: the help tag lands on the
+      checkbox itself even though `.help` is applied to the container around it, so the text is
+      assertable without a mouse. (A synthetic `kCGEventMouseMoved` onto the control does **not**
+      raise the visible tag -- AppKit wants real tracking-area movement -- so a hover-and-screenshot
+      version of this step would fail on something that works. That the tag does render for a real
+      pointer was confirmed by eye on 2026-08-06.)
 ```toml step
-action = "ask_user"
-prompt = "On the Categories tab, hover the pointer over the greyed-out **Active** checkbox on the **Break** row. Does a tooltip appear naming face 8 and saying to unlock it on the Faces tab?"
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        return help of checkbox 1 of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+expect = "Face 8 is locked to this category. Unlock it on the Faces tab to deactivate this category."
 ```
-- [ ] Step 4: Retire `Face test` from its Active box; confirm the face it was on is back on
+### Bugs found and fixed - branch 'bugfix/deactivateCategory'
+2026-08-06 - This step was written as a hover-and-look `ask_user`; a synthetic `kCGEventMouseMoved`
+never raises the help tag, so it would have failed on behaviour that works. Reads `AXHelp` instead.
+- [x] Step 4: Retire `Face test` from its Active box; confirm the face it was on is back on
       `Unassigned`.
       The database is the assertion, not the row moving: `face.category_id` 0 is the `Unassigned`
       sentinel every unassigned face points at.
@@ -940,14 +954,14 @@ action = "sql_query"
 query = "SELECT category_id FROM face WHERE face_id = 3;"
 expect = "0"
 ```
-- [ ] Step 5: Confirm the clear was reported, naming the face it touched.
+- [x] Step 5: Confirm the clear was reported, naming the face it touched.
       [Method: Number 24.d](../Methods.md#method-24), the `face-clear` tag.
 ```toml step
 use = "method-24.d"
 tag = "face-clear"
 expect_contains = "face 3 back to Unassigned"
 ```
-- [ ] Step 6: Confirm the two locked-face rows are all that is left in the Active section.
+- [x] Step 6: Confirm the two locked-face rows are all that is left in the Active section.
       The retired row moved to Inactive, and neither category on a locked face went with it.
 ```toml step
 [[actions]]
@@ -972,7 +986,7 @@ on the locked face to reach the Faces tab's lock control.
 
 ## Cleanup
 
-- [ ] Step 1: Put face 3 back on `Unassigned` and drop the category Scenario I put there.
+- [x] Step 1: Put face 3 back on `Unassigned` and drop the category Scenario I put there.
       A face still pointing at the row would make the delete below fail on the foreign key rather
       than leaving anything behind.
 ```toml step

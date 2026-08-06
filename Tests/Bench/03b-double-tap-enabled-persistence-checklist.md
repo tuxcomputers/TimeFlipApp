@@ -1,6 +1,6 @@
 # Double-Tap Enabled Persistence Checklist
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 Covers the Double-tap **Disable** checkbox's `enabled` flag moving from UserDefaults to being
 DB-backed via `AppDataStore`/the `double_tap_settings` row -- confirms the flag set in the

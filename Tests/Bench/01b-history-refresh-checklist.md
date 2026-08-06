@@ -1,6 +1,6 @@
 # History Refresh Checklist
 
-### Last run - 2026-08-05 on the branch 'chore/newDesignRefactor'
+### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
 
 Covers the periodic/live-event history refresh rework: the cheap last-event check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see
