@@ -469,7 +469,9 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
 
         # Optional `when` guard: a step only applies under some condition on a captured var
         # (e.g. "flip to build history" only `when $start_event_id < 10`). If the guard isn't
-        # met the step isn't needed -- tick it and move on without running or asking.
+        # met the step isn't needed -- tick it and move on without running or asking. Checked
+        # before the banner decision below: a guard that will skip the step means no person is
+        # actually needed, so nothing about it should ask like one is.
         #
         # A step that will put a question straight to a person gets the same shape as the
         # human-verified branch above: banner, then the step, then the nudge the action itself
@@ -477,15 +479,16 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
         # fires after the grace period, which raises its own banner (with this header inside it)
         # if and when it does.
         ctx["step_header"] = header
-        ctx["banner_shown"] = step_asks_immediately(spec)
+        cond = spec.get("when")
+        guard_unmet = cond is not None and not condition_met(cond, ctx)
+        ctx["banner_shown"] = step_asks_immediately(spec) and not guard_unmet
         if ctx["banner_shown"]:
             print()
             print_action_banner()
             print(header)
         else:
             print(f"\n{header}")
-        cond = spec.get("when")
-        if cond is not None and not condition_met(cond, ctx):
+        if guard_unmet:
             print(f"-> SKIP: not needed (when {cond})")
             log_lines.append(f"Step {step.number}: SKIP - {desc} (when {cond} not met)")
             _record(run_record, path, step, desc, "SKIP", note=f"when {cond} not met")
