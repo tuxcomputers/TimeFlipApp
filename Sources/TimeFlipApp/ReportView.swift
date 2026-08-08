@@ -162,26 +162,19 @@ struct ReportView: View {
         )
     }
 
-    /// `H:MM`, or `H:MM:SS` when "Show seconds in the menu bar" is on -- the same format the menu bar
-    /// itself uses (`MenuBarController.formattedDuration`), driven by the same setting, so a span
-    /// never reads one way there and another way here.
+    /// `H:MM`, or `H:MM:SS` when "Show seconds in the menu bar" is on -- `DurationFormat`, the same
+    /// helper the menu bar itself uses (`MenuBarController.formattedDuration`), driven by the same
+    /// setting, so a span never reads one way there and another way here.
     ///
     /// That setting also earns its keep on this screen rather than merely being obeyed by it: at
     /// `H:MM` every total under a minute reads `0:00`, which is indistinguishable from a category
     /// that was opened and left. Turning seconds on is what tells those apart.
     ///
-    /// Hours are never dropped: a category with 7 minutes reads `0:07` rather than `7`, which would
-    /// be ambiguous against the hours in the rows beside it.
+    /// Rounded rather than truncated, unlike the menu bar's live figure: this is a static
+    /// historical sum, not a value still ticking upward, so a 59.6-second total should read as a
+    /// minute rather than one second short of what was actually logged.
     static func formattedDuration(_ seconds: TimeInterval, showingSeconds: Bool) -> String {
-        let totalSeconds = Int(seconds.rounded())
-        let hours = totalSeconds / Int(TimeConstants.secondsPerHour)
-        let minutes = (totalSeconds % Int(TimeConstants.secondsPerHour)) / Int(TimeConstants.secondsPerMinute)
-        // Hours are unpadded below 10 (e.g. "1:23") but keep two digits once double-digit, matching
-        // the menu bar.
-        if showingSeconds {
-            return String(format: "%d:%02d:%02d", hours, minutes, totalSeconds % Int(TimeConstants.secondsPerMinute))
-        }
-        return String(format: "%d:%02d", hours, minutes)
+        DurationFormat.hoursMinutesSeconds(seconds, rounding: .round, showingSeconds: showingSeconds)
     }
 
     /// Local `yyyy-MM-dd HH:mm` for the debug log, so a logged range can be read against the
