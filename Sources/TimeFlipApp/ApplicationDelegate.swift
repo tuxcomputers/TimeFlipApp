@@ -254,16 +254,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 // A newly selected device is almost always still on the factory default —
                 // reusing whatever password a previous (different) device rotated to would
                 // just be wrong here. So: the default first, then in a dev build the PIN dev
-                // devices are left on, then the password field (e.g. a known custom PIN typed in
-                // for recovery). Each is only tried if the one before was rejected as wrong --
-                // any other outcome stops the sequence.
+                // devices are left on, then `config.json`'s PIN (a known custom PIN a developer
+                // set by hand for recovery), then the current password. Each is only tried if the
+                // one before was rejected as wrong -- any other outcome stops the sequence.
                 //
-                // Pairing is the only place a password is guessed. Connecting uses the stored one
-                // and fails if it is rejected, because being paired means the app is meant to
-                // already know it (see startDeviceEvents).
+                // Pairing is the only place a password is guessed, and the only place
+                // `config.json`'s PIN is read at all: it deliberately does not set the password
+                // this app connects with (see AppState.applyDeveloperConfig). Connecting uses the
+                // stored one and fails if it is rejected, because being paired means the app is
+                // meant to already know it (see startDeviceEvents).
                 var candidates = [TimeFlipConstants.defaultPassword]
                 if DeveloperMode.isEnabled {
                     candidates.append(DeveloperMode.devicePassword)
+                    if let configuredPassword = self.appState.developerConfigDevicePassword {
+                        candidates.append(configuredPassword)
+                    }
                 }
                 candidates.append(self.appState.devicePassword)
                 var tried: Set<String> = []

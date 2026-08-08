@@ -1,6 +1,6 @@
 # LED Settings Persistence Checklist
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 Covers LED brightness/blink interval moving from UserDefaults to being DB-backed via
 `AppDataStore`/the `led_settings` row -- confirms a value set in the Settings UI survives an app
@@ -21,14 +21,14 @@ The switch to the test database (quit, `switch-database.sh test`, relaunch, conf
 is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
 repeated here.
 
-- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
+- [x] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
 before proceeding: `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "SELECT setting_value FROM setting WHERE setting_name = 'db_type';"`
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
+- [x] Step 2: Open Preferences on the Device tab and expand the **LED** disclosure.
 Preferences is the status-item menu's "Settings..." item; the Device tab is selected by name via the tab picker, and the disclosure is under Settings. Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10), [Number 15](../Methods.md#method-15).
 ```toml step
 [[actions]]
@@ -70,7 +70,7 @@ expect = "true"
 disclosure expanded -- established in Setup immediately above, which this scenario runs straight
 on from.
 
-- [ ] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
+- [x] Step 1: Set Brightness to `77` and Blink Interval to `42` by typing directly into their fields.
       Each value needs a Return after it to commit -- a `SteppedNumberField` writes nothing until Return or focus loss, so typing alone leaves the DB untouched. [Method: Number 12](../Methods.md#method-12).
 ```toml step
 action = "applescript"
@@ -95,14 +95,14 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [ ] Step 2: Query `led_settings` and confirm it reads `{"brightness":77,"blink_interval":42}`
+- [x] Step 2: Query `led_settings` and confirm it reads `{"brightness":77,"blink_interval":42}`
 ```toml step
 action = "wait_for_sql"
 query = "SELECT CASE WHEN setting_value LIKE '%\"brightness\":77%' AND setting_value LIKE '%\"blink_interval\":42%' THEN 'matches' ELSE setting_value END FROM setting WHERE setting_name='led_settings';"
 expect = "matches"
 timeout_seconds = 30
 ```
-- [ ] Step 3: Quit the app and start it again
+- [x] Step 3: Quit the app and start it again
 confirm reconnect via a fresh `debug_log` `"Login accepted, code=0x02"` row. Methods: [Number 3](../Methods.md#method-3) to quit, [Number 2](../Methods.md#method-2) to start.
 ```toml step
 [[actions]]
@@ -117,7 +117,7 @@ since_id = "$current_log_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [ ] Step 4: Reopen Preferences, Device tab, expand **LED**
+- [x] Step 4: Reopen Preferences, Device tab, expand **LED**
 , and confirm Brightness still shows `77` and Blink Interval still shows `42` -- read both fields' values directly via accessibility, no screenshot needed.
 ```toml step
 [[actions]]
@@ -142,7 +142,7 @@ tell application "System Events"
 end tell'''
 expect = "77|42"
 ```
-- [ ] Step 5: Query `led_settings` again and confirm it's unchanged.
+- [x] Step 5: Query `led_settings` again and confirm it's unchanged.
       The restart's startup sync re-applies the stored value to the device but doesn't alter the stored row.
 ```toml step
 action = "sql_query"
@@ -162,7 +162,7 @@ these log that the write happened with no verification, rather than a fabricated
 disclosure expanded, Brightness/Blink Interval at `77`/`42` -- the clean state the previous
 scenario leaves behind (check `led_settings` directly if running this scenario standalone).
 
-- [ ] Step 1: Change Brightness field, in quick succession: `10`, then immediately `50`, then immediately `95`
+- [x] Step 1: Change Brightness field, in quick succession: `10`, then immediately `50`, then immediately `95`
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -190,7 +190,7 @@ tell application "System Events"
     end tell
 end tell'''
 ```
-- [ ] Step 2: Confirm **each** intermediate brightness value logged a changed + saved pair, in order.
+- [x] Step 2: Confirm **each** intermediate brightness value logged a changed + saved pair, in order.
 In `debug_log` (tag `led-bright`), rows newer than the noted ID: a `"Brightness value changed to X%"` + `"Brightness saved to DB: X%"` pair per value. Asserted as the whole ordered run, not just the final value -- checking only `95` would pass on a sequence that committed once instead of three times, which is exactly what happens without the `return` after each value.
 ```toml step
 action = "wait_for_sql"
@@ -198,14 +198,14 @@ query = "SELECT group_concat(message, ' | ') FROM (SELECT message FROM debug_log
 expect_contains = "Brightness value changed to 10% | Brightness saved to DB: 10% | Brightness value changed to 50% | Brightness saved to DB: 50% | Brightness value changed to 95% | Brightness saved to DB: 95%"
 timeout_seconds = 30
 ```
-- [ ] Step 3: Confirm `led_settings` already reads `"brightness":95`
+- [x] Step 3: Confirm `led_settings` already reads `"brightness":95`
 immediately (before the 1s debounce elapses).
 ```toml step
 use = "method-24.a"
 setting = "led_settings"
 expect_contains = "\"brightness\":95"
 ```
-- [ ] Step 4: Confirm one debounced triggered line and the write after it
+- [x] Step 4: Confirm one debounced triggered line and the write after it
 after about 1.5s. In `debug_log`: exactly **one** `"Brightness set to 95% triggered"` (not one per intermediate value), followed immediately by `"Brightness written to 95% (no device read-back available)"` -- -- no confirmed/MISMATCH line, since the protocol has no brightness read-back.
 ```toml step
 use = "method-24.e"
@@ -215,7 +215,7 @@ since_id = "$before_brightness_id"
 expect_contains = "Brightness written to 95% (no device read-back available)"
 timeout_seconds = 30
 ```
-- [ ] Step 5: Repeat the same rapid-sequence test on the Blink Interval
+- [x] Step 5: Repeat the same rapid-sequence test on the Blink Interval
 field (`8`, then `25`, then `55`) and confirm the identical pattern:
 every intermediate value printed+DB-saved immediately, one debounced `"Blink interval set to 55s triggered"` + `"Blink interval written to 55s (no device read-back available)"` pair about 1s later.
 ```toml step
@@ -255,7 +255,7 @@ since_id = "$current_log_id"
 expect_contains = "Blink interval written to 55s (no device read-back available)"
 timeout_seconds = 30
 ```
-- [ ] Step 6: Restore Brightness to `77` and Blink Interval to `42`
+- [x] Step 6: Restore Brightness to `77` and Blink Interval to `42`
 Those are the values from the persistence scenario above. Confirm `led_settings` reads `{"brightness":77,"blink_interval":42}` again, so the session doesn't leave a real setting changed.
 ```toml step
 [[actions]]
@@ -287,7 +287,7 @@ query = "SELECT CASE WHEN setting_value LIKE '%\"brightness\":77%' AND setting_v
 expect = "matches"
 timeout_seconds = 30
 ```
-- [ ] Step 7: Close the Settings window
+- [x] Step 7: Close the Settings window
 (opened in Setup) so the next checklist starts with no stray window open.
       [Method: Number 23](../Methods.md#method-23).
 ```toml step

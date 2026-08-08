@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a
@@ -34,7 +34,7 @@ low-battery state -- the clean state the Bench run's own restore leaves behind. 
 query below; if it shows a non-default threshold or `isLowBattery=true` left over from an
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
-- [ ] **(Claude)** Step 1: Query the current threshold and the live `battery` `level`
+- [x] **(Claude)** Step 1: Query the current threshold and the live `battery` `level`
 , and note both.  Take the **higher of the two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device read low. Both are captured, so they can be restored at the end.
 ```toml step
 [[actions]]
@@ -52,7 +52,7 @@ timeout_seconds = 30
 use = "method-24.g"
 capture = "battery_level_a"
 ```
-- [ ] **(Claude)** Step 2: Quit the app.
+- [x] **(Claude)** Step 2: Quit the app.
       [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
@@ -62,7 +62,7 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [ ] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above
+- [x] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above
 , so the fresh connection registers as low immediately:
 `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name = 'low_battery_level';"`
 ```toml step
@@ -70,7 +70,7 @@ use = "method-24.i"
 setting = "low_battery_level"
 value = "{\"percent\":$battery_level_a}"
 ```
-- [ ] **(Claude)** Step 4: Start the app
+- [x] **(Claude)** Step 4: Start the app
 [Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device (fresh `debug_log` `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
@@ -82,7 +82,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [ ] **(Claude)** Step 5: Confirm a `battery` row logged
+- [x] **(Claude)** Step 5: Confirm a `battery` row logged
 after the restart shows `isLowBattery=true` in `debug_log` -- so the visual checks below are made while the app really is in the low state.
 ```toml step
 use = "method-24.e"
@@ -99,8 +99,8 @@ timeout_seconds = 30
 (`isLowBattery=true`) -- confirmed by that section's own final query above; re-check it directly
 if running this section standalone rather than straight after.
 
-- [ ] **(You)** Step 1: Confirm the activity name is blinking red/white.
-- [ ] **(Claude)** Step 2: Click the **left side** of the status item
+- [x] **(You)** Step 1: Confirm the activity name is blinking red/white.
+- [x] **(Claude)** Step 2: Click the **left side** of the status item
 and confirm the low-battery shortcut fired. That is the icon + activity name, not the duration/timer side, clicked via CGEventPost: `debug_log` (`click` tag) logs `Left-click while low battery: opening Settings on the Device tab` (the app opens Settings directly instead of the dropdown menu while the warning is active). Step 3 then confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
 ```toml step
 [[actions]]
@@ -118,7 +118,7 @@ query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-
 expect_contains = "opening Settings on the Device tab"
 timeout_seconds = 30
 ```
-- [ ] **(Claude)** Step 3: Confirm that Settings opened on the Device tab
+- [x] **(Claude)** Step 3: Confirm that Settings opened on the Device tab
 (the Device tab reads `value = 1`) -- the window only exists if the left-click opened Settings, so this doubles as proof it wasn't the dropdown menu.
 ```toml step
 [[actions]]
@@ -126,7 +126,7 @@ use = "method-11"
 tab = "Device"
 expect = "1"
 ```
-- [ ] **(You)** Step 4: Confirm the "Battery" line on the Device tab is flashing red/default.
+- [x] **(You)** Step 4: Confirm the "Battery" line on the Device tab is flashing red/default.
       Both the **label** and the percentage value flash, in sync with the menu bar blink.
 
 ## Scenario C -- restore and confirm it all stops
@@ -134,7 +134,7 @@ expect = "1"
 **Preconditions:** still in the low-battery state, both elements still flashing (the previous
 section's own state, unchanged) -- so there's something real to restore and confirm stops.
 
-- [ ] **(Claude)** Step 1: Quit the app.
+- [x] **(Claude)** Step 1: Quit the app.
 [Method: Number 3](../Methods.md#method-3)
 ```toml step
 [[actions]]
@@ -144,14 +144,14 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [ ] **(Claude)** Step 2: Restore `low_battery_level` to its original value noted above.
+- [x] **(Claude)** Step 2: Restore `low_battery_level` to its original value noted above.
       (Restored to 5%.)
 ```toml step
 use = "method-24.i"
 setting = "low_battery_level"
 value = "$threshold_original"
 ```
-- [ ] **(Claude)** Step 3: Start the app
+- [x] **(Claude)** Step 3: Start the app
 [Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device (fresh `debug_log` `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
@@ -163,7 +163,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [ ] **(Claude)** Step 4: Query `debug_log` and confirm a `battery` row now
+- [x] **(Claude)** Step 4: Query `debug_log` and confirm a `battery` row now
 shows `isLowBattery=false`
 ```toml step
 use = "method-24.e"
@@ -173,9 +173,9 @@ since_id = "$before_quit_id"
 expect_contains = "isLowBattery=false"
 timeout_seconds = 30
 ```
-- [ ] **(You)** Step 5: Confirm the activity name is no longer flashing
+- [x] **(You)** Step 5: Confirm the activity name is no longer flashing
 , and that the Battery line on the Device tab is no longer flashing.
-- [ ] **(Claude)** Step 6: Click the **left side** of the status item again
+- [x] **(Claude)** Step 6: Click the **left side** of the status item again
  via CGEventPost and confirm it now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only applies while the warning is active. `debug_log` (`click` tag) logs `Left-click: opening the dropdown menu` (the non-low branch); an Escape then dismisses the menu it opened so it doesn't block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
 ```toml step
 [[actions]]

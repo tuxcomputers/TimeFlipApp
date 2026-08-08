@@ -585,7 +585,11 @@ keeping the query -- that's how the same SQL serves both an immediate read and a
   since the device's reported level oscillates by 1-2% between samples.
 - **h** -- the face the device is *not* currently resting on, as a name (`Break`/`Meeting`) -- what
   to ask a person to flip to.
-- **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`.
+- **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`. The value goes in
+  **raw**, so a JSON-shaped setting takes the whole object (`{"enabled":false}`), never a bare
+  scalar: the app reads these with `json_extract` and falls back to its *default* when the field
+  isn't there, which is silent. Verify such a write with **f** (the field the app reads), not **a** --
+  **a** hands back whatever was written, so a malformed value confirms itself.
 - **j** -- the latest *real* `battery` row, skipping the `level=nil` placeholder the app logs before
   the first reading arrives.
 
