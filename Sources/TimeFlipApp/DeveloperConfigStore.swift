@@ -105,6 +105,9 @@ enum DeveloperMode {
         case field = "field"
         case menu = "menu"
         case tab = "tab"
+        // The Report tab's date range and how many categories it found in it. Six characters, well
+        // short of the longest tag, so adding it re-pads nothing.
+        case report = "report"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

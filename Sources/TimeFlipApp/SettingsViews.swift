@@ -19,6 +19,8 @@ struct SettingsRootView: View {
     let assignCategoryToFace: (UInt8, Int) -> Void
     /// Locks or unlocks a physical face: `(face_id, locked)`.
     let setFaceLocked: (UInt8, Bool) -> Void
+    /// Tracked seconds per category between two instants, for the Report tab: `(from, to)`.
+    let loadCategoryTotals: (Date, Date) -> [CategoryTotalRecord]
     @State private var selectedTab: SettingsTab = .faces
     let onMinimumContentHeightChange: (CGFloat) -> Void
     let onClose: () -> Void
@@ -38,6 +40,7 @@ struct SettingsRootView: View {
         updateCategoryIcon: @escaping (Int, Int) -> Void,
         assignCategoryToFace: @escaping (UInt8, Int) -> Void,
         setFaceLocked: @escaping (UInt8, Bool) -> Void,
+        loadCategoryTotals: @escaping (Date, Date) -> [CategoryTotalRecord],
         onClose: @escaping () -> Void = {},
         onMinimumContentHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
@@ -55,6 +58,7 @@ struct SettingsRootView: View {
         self.updateCategoryIcon = updateCategoryIcon
         self.assignCategoryToFace = assignCategoryToFace
         self.setFaceLocked = setFaceLocked
+        self.loadCategoryTotals = loadCategoryTotals
         self.onClose = onClose
         self.onMinimumContentHeightChange = onMinimumContentHeightChange
     }
@@ -96,6 +100,14 @@ struct SettingsRootView: View {
                         Text("Faces")
                     }
                     .tag(SettingsTab.faces)
+                ReportView(
+                    appState: appState,
+                    loadCategoryTotals: loadCategoryTotals
+                )
+                    .tabItem {
+                        Text("Report")
+                    }
+                    .tag(SettingsTab.report)
                 ReportSettingsView(
                     appState: appState,
                     authManager: authManager,
@@ -104,7 +116,7 @@ struct SettingsRootView: View {
                     .tabItem {
                         Text("App")
                     }
-                    .tag(SettingsTab.report)
+                    .tag(SettingsTab.app)
             }
             .onChange(of: appState.pendingSettingsTab) { _, newValue in
                 guard let newValue else { return }
@@ -141,6 +153,10 @@ enum SettingsTab: Hashable {
     case categories
     case faces
     case report
+    /// The Google/app-preferences tab, drawn by `ReportSettingsView`. Named for its visible title
+    /// rather than for that view: the view predates the Report tab and took the name first, so
+    /// leaving this case called `report` would have pointed the two names at each other's tab.
+    case app
 
     /// Matches the tab's visible title, for the `tab` debug log (see SettingsRootView).
     var debugName: String {
@@ -148,7 +164,8 @@ enum SettingsTab: Hashable {
         case .timeflip: return "Device"
         case .categories: return "Categories"
         case .faces: return "Faces"
-        case .report: return "App"
+        case .report: return "Report"
+        case .app: return "App"
         }
     }
 }

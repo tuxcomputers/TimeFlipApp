@@ -11,6 +11,22 @@ struct TimeEntryRecord {
     let duration: TimeInterval
 }
 
+/// One category's tracked time over a reporting range -- a row of the Report tab.
+///
+/// Carries the category's own name/icon/colour rather than just its id, so the tab can draw a row
+/// without re-reading the whole `category` table to look each one up. `Identifiable` by category, of
+/// which there is exactly one row per report.
+struct CategoryTotalRecord: Equatable, Sendable, Identifiable {
+    let id: Int
+    let name: String
+    let iconID: Int
+    let colourID: Int
+    /// Seconds recorded against this category inside the range, with segments that straddle either
+    /// end clipped to it -- so a span running across midnight is split across the two reports that
+    /// contain its halves rather than counted whole in both.
+    let seconds: TimeInterval
+}
+
 /// Which segment a `device_event` row is, in the only terms that identify one: the device's own
 /// event number for it, plus the `start_epoch` saying which run of that counter it belongs to.
 ///
@@ -1927,6 +1943,65 @@ final class AppDataStore {
             sqlite3_finalize(stmt)
         }
         return items
+    }
+
+    /// Tracked seconds per category between two instants -- the Report tab's whole content.
+    ///
+    /// Reads `time_entry` for the same reasons `loadTimeEntries(overlappingSince:)` does: the
+    /// category is recorded on the entry as it was *when the segment happened*, so reassigning a
+    /// face today cannot move last week's time to a different category in a report of last week.
+    /// Sub-blip and paused segments never became entries, so they are absent here too.
+    ///
+    /// **Straddling segments are clipped, not counted whole.** A span that starts before `from` or
+    /// ends after `to` contributes only its overlap, which is what makes two adjacent reports add up
+    /// to the report over both: the overnight segment either side of a day boundary would otherwise
+    /// appear in full on both days. `min`/`max` with two arguments are SQLite's scalar functions,
+    /// not the aggregates, so the clip happens per row inside the `SUM`.
+    ///
+    /// Includes the `Unassigned` sentinel (`category_id` 0), unlike `loadCategories()`, which starts
+    /// at 1. Time on a face with no category of its own is still time the user spent, and dropping
+    /// it would leave a report that quietly fails to add up to the day.
+    ///
+    /// Ordered longest first: a report is read to find where the time went, and that ordering
+    /// answers it in the first row. Categories with nothing in the range are left out entirely
+    /// rather than listed as zero.
+    func loadCategoryTotals(from: Date, to: Date) -> [CategoryTotalRecord] {
+        guard let db else { return [] }
+        var results: [CategoryTotalRecord] = []
+        let sql = """
+        SELECT te.category_id, c.category_name, c.icon_id, c.colour_id,
+               SUM(min(de.start_epoch + te.duration_seconds, ?2) - max(de.start_epoch, ?1)) AS seconds
+        FROM time_entry te
+        JOIN device_event de ON de.device_event_id = te.device_event_id
+        JOIN category c ON c.category_id = te.category_id
+        WHERE de.start_epoch < ?2
+          AND (de.start_epoch + te.duration_seconds) > ?1
+        GROUP BY te.category_id, c.category_name, c.icon_id, c.colour_id
+        HAVING seconds > 0
+        ORDER BY seconds DESC;
+        """
+        queue.sync {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                logger.error("category totals prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(stmt)
+                return
+            }
+            sqlite3_bind_double(stmt, 1, from.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 2, to.timeIntervalSince1970)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                results.append(CategoryTotalRecord(
+                    id: Int(sqlite3_column_int64(stmt, 0)),
+                    name: name,
+                    iconID: Int(sqlite3_column_int64(stmt, 2)),
+                    colourID: Int(sqlite3_column_int64(stmt, 3)),
+                    seconds: sqlite3_column_double(stmt, 4)
+                ))
+            }
+            sqlite3_finalize(stmt)
+        }
+        return results
     }
 
     // MARK: - Device history position

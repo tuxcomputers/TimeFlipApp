@@ -129,6 +129,15 @@ enum SettingsLayoutConstants {
         static let iconBackgroundCornerRadius: CGFloat = 6
     }
 
+    enum Report {
+        // The gap between the two calendars, and around the tab's content. Matches the Faces tab's
+        // section spacing so the two tabs sit at the same rhythm.
+        static let pickerSpacing: CGFloat = 12
+        static let padding: CGFloat = 12
+        // Between a calendar's title and the grid under it.
+        static let titleSpacing: CGFloat = 4
+    }
+
     enum CategoryList {
         // Fixed so every row's colour square lines up at the same x position regardless of how
         // long that row's category name is -- a plain Text(name) with no width sizes to its own

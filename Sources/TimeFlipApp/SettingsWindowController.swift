@@ -22,7 +22,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         updateCategoryName: @escaping (Int, String) -> Void,
         updateCategoryIcon: @escaping (Int, Int) -> Void,
         assignCategoryToFace: @escaping (UInt8, Int) -> Void,
-        setFaceLocked: @escaping (UInt8, Bool) -> Void
+        setFaceLocked: @escaping (UInt8, Bool) -> Void,
+        loadCategoryTotals: @escaping (Date, Date) -> [CategoryTotalRecord]
     ) {
         let window = NSWindow(
             contentRect: NSRect(
@@ -61,6 +62,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             updateCategoryIcon: updateCategoryIcon,
             assignCategoryToFace: assignCategoryToFace,
             setFaceLocked: setFaceLocked,
+            loadCategoryTotals: loadCategoryTotals,
             onClose: { [weak window] in
                 window?.close()
             }

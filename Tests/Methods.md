@@ -260,7 +260,8 @@ which it lands on whatever was under the pointer before. See
 ## Method 10: Switch Settings-window tabs
 
 Address the tab by **name**, never by index. Both `title` and `name` read `missing value` on these
-buttons, but `description` holds the visible label (`Device`, `Categories`, `Faces`, `App`), so:
+buttons, but `description` holds the visible label (`Device`, `Categories`, `Faces`, `Report`,
+`App`), so:
 
 `click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
 whose description is "<name>")`

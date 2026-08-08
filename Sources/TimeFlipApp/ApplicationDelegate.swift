@@ -97,6 +97,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         setFaceLocked: { [weak self, dataStore] faceID, locked in
             dataStore.updateFaceLocked(faceID: faceID, locked: locked)
             self?.refreshFaceCategories()
+        },
+        loadCategoryTotals: { [dataStore] from, to in
+            dataStore.loadCategoryTotals(from: from, to: to)
         }
     )
     private lazy var dailyTotals = DailyCategoryTotals(dataStore: dataStore)
