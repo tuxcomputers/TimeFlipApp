@@ -136,6 +136,13 @@ enum SettingsLayoutConstants {
         static let padding: CGFloat = 12
         // Between a calendar's title and the grid under it.
         static let titleSpacing: CGFloat = 4
+        // The hand-drawn month calendar (see ReportCalendarView). Its cell and font sizes are not
+        // here: the calendars span the window, so they are derived from the width the tab is given
+        // (ReportCalendarMetrics). Only what sits *around* the grids is fixed, since that is what
+        // the derivation subtracts before dividing the rest into columns.
+        static let monthTitleMinimumScale: CGFloat = 0.7
+        static let calendarPadding: CGFloat = 8
+        static let calendarRowSpacing: CGFloat = 4
     }
 
     enum CategoryList {

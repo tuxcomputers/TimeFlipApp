@@ -14,14 +14,10 @@ import SwiftUI
 /// not a report anyone can ask for. Allowing one would only ever answer "nothing tracked", which is
 /// indistinguishable from a real day on which nothing was.
 ///
-/// **The month arrows still page past that bound, and that is accepted rather than unnoticed.** A
-/// bound governs which dates can be *selected*, not which month is *displayed*, so paging forward
-/// reaches a month with every date greyed and nothing selectable. This is not a limitation of the
-/// SwiftUI wrapper: measured 2026-08-08 by setting `minDate`/`maxDate` on a bare AppKit
-/// `NSDatePicker` and clicking its forward arrow, which behaved identically. Nothing short of
-/// hand-building the month grid changes it, and that would mean owning localisation, week-start
-/// conventions, keyboard navigation and accessibility to tidy up a month in which nothing can be
-/// picked. Don't re-investigate this without new evidence that the platform has changed.
+/// The selected span is drawn **bold in both calendars**, so it reads as one range rather than as
+/// two separately highlighted days, and the month arrows stop at the last month holding a selectable
+/// day. Neither is expressible on the system date picker, which is why `ReportCalendarView` draws
+/// these grids itself -- see its own documentation for what was measured before deciding that.
 struct ReportView: View {
     @ObservedObject var appState: AppState
     let loadCategoryTotals: (Date, Date) -> [CategoryTotalRecord]
@@ -34,16 +30,20 @@ struct ReportView: View {
     @State private var totals: [CategoryTotalRecord] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            pickers
-            Divider()
-            if totals.isEmpty {
-                emptyState
-            } else {
-                totalsList
+        // The calendars span the window, so their sizes come from the width this tab is actually
+        // given rather than from constants -- see ReportCalendarMetrics.
+        GeometryReader { proxy in
+            VStack(alignment: .leading, spacing: 0) {
+                pickers(metrics: .fitting(tabWidth: proxy.size.width))
+                Divider()
+                if totals.isEmpty {
+                    emptyState
+                } else {
+                    totalsList
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear(perform: reload)
         .onChange(of: startDate) { _, newValue in
             DeveloperMode.debugPrint(.field, "Field changed: Report start date -> \(Self.debugDate(newValue))")
@@ -67,59 +67,41 @@ struct ReportView: View {
 
     // MARK: - Date range
 
-    @ViewBuilder private var pickers: some View {
+    @ViewBuilder private func pickers(metrics: ReportCalendarMetrics) -> some View {
         let latest = ReportDateRange.latestSelectableDay()
-        // Never later than `latest`, so the closed range below cannot be inverted -- a ClosedRange
-        // with an upper bound below its lower one traps at runtime. The From picker's own bound
-        // already keeps `startDate` inside today, so this only guards against a start arriving from
+        // Never later than `latest`, so neither range below can be inverted -- a ClosedRange with an
+        // upper bound under its lower one traps at runtime. The From calendar's own bound already
+        // keeps `startDate` inside today, so this only guards against a start arriving from
         // somewhere else (a stale value, a clock that moved backwards).
         let earliestEnd = min(Calendar.current.startOfDay(for: startDate), latest)
+        // The span both calendars draw bold. Passed to each of them, not just to the one owning that
+        // end of it, so the selected range reads as one span across the pair.
+        let emphasised = min(startDate, endDate ?? startDate)...max(startDate, endDate ?? startDate)
         HStack(alignment: .top, spacing: SettingsLayoutConstants.Report.pickerSpacing) {
             // Bounded above at today: a report can only cover time already recorded, so a future
             // start would report nothing and read as "nothing tracked" rather than as a date that
-            // can't be asked about.
-            calendar(title: "From", subtitle: nil) {
-                DatePicker("", selection: $startDate, in: ...latest, displayedComponents: .date)
-            }
-            // Bounded below at the start day, which greys out every earlier date rather than merely
-            // rejecting one after it is clicked, and above at today for the same reason as the start.
-            // `startOfDay` rather than `startDate` itself: the raw value carries whatever time of day
-            // it was seeded with, and a bound in the middle of the start day would put that same day
-            // out of reach as an end.
-            calendar(title: "To", subtitle: endDate == nil ? "not set, reporting one day" : nil) {
-                DatePicker(
-                    "",
-                    selection: endBinding,
-                    in: earliestEnd...latest,
-                    displayedComponents: .date
-                )
-            }
+            // can't be asked about. Unbounded below -- history goes back as far as it goes back.
+            ReportCalendarView(
+                title: "From",
+                subtitle: nil,
+                selection: $startDate,
+                allowed: Date.distantPast...latest,
+                emphasised: emphasised,
+                metrics: metrics
+            )
+            // Bounded below at the start day, so every earlier date is dimmed and unclickable rather
+            // than rejected after the fact, and above at today for the same reason as the start.
+            ReportCalendarView(
+                title: "To",
+                subtitle: endDate == nil ? "not set, reporting one day" : nil,
+                selection: endBinding,
+                allowed: earliestEnd...latest,
+                emphasised: emphasised,
+                metrics: metrics
+            )
             Spacer(minLength: 0)
         }
         .padding(SettingsLayoutConstants.Report.padding)
-    }
-
-    /// One titled calendar. The label goes above rather than through `DatePicker`'s own, which the
-    /// graphical style puts beside the grid and pushes the two calendars out of line with each other.
-    @ViewBuilder private func calendar(
-        title: String,
-        subtitle: String?,
-        @ViewBuilder picker: () -> some View
-    ) -> some View {
-        VStack(alignment: .leading, spacing: SettingsLayoutConstants.Report.titleSpacing) {
-            HStack(spacing: SettingsLayoutConstants.Report.titleSpacing) {
-                Text(title)
-                    .font(.headline)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            picker()
-                .datePickerStyle(.graphical)
-                .labelsHidden()
-        }
     }
 
     /// Writes through to `endDate` and, by being written to at all, marks the end as set. Reads back
