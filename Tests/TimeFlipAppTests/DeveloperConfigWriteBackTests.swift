@@ -1,6 +1,7 @@
 @testable import TimeFlipApp
 import XCTest
 
+// swiftlint:disable line_length
 /// `config.json` is a developer input file, edited by hand. These pin the rule that the app reads
 /// the PIN from it and never writes one back.
 ///
@@ -132,3 +133,4 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         XCTAssertEqual(configStore.stored?.devicePassword, "123456")
     }
 }
+// swiftlint:enable line_length

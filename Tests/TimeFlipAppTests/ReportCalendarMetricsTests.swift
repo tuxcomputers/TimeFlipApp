@@ -1,6 +1,7 @@
 @testable import TimeFlipApp
 import XCTest
 
+// swiftlint:disable line_length
 /// Covers `ReportCalendarMetrics`, which sizes the Report tab's calendars to the window.
 ///
 /// The property that matters is that two calendars plus everything between and around them fit the
@@ -98,3 +99,4 @@ final class ReportCalendarMetricsTests: XCTestCase {
         }
     }
 }
+// swiftlint:enable line_length

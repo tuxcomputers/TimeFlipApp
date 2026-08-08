@@ -1,6 +1,7 @@
 @testable import TimeFlipApp
 import XCTest
 
+// swiftlint:disable line_length
 /// Covers `ReportCalendarGrid`, the arithmetic behind the Report tab's hand-drawn calendars.
 ///
 /// These are the parts that would otherwise only be checkable by looking at a rendered month: where
@@ -177,3 +178,4 @@ final class ReportCalendarGridTests: XCTestCase {
         XCTAssertEqual(Set(mondaySymbols), Set(sundaySymbols), "same seven days, rotated")
     }
 }
+// swiftlint:enable line_length
