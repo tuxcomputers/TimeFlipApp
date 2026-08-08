@@ -17,7 +17,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-The switch to the test database (quit, `use-test-database.sh`, relaunch, confirm reconnect)
+The switch to the test database (quit, `switch-database.sh test`, relaunch, confirm reconnect)
 is done once by `Tests/00-test-setup.md`, which the supervisor always runs first -- not
 repeated here.
 

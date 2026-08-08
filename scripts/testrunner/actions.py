@@ -172,7 +172,7 @@ def act_shell(spec, ctx):
 
     A failure reports the exit code and **stderr**, then stdout. Preferring stdout (the old
     behaviour) hid the actual error whenever a script printed progress before dying: a DDL error
-    that took `use-test-database.sh` down was logged as nothing but the script's own "Creating
+    that took `switch-database.sh test` down was logged as nothing but the script's own "Creating
     test.sqlite..." chatter, which says only where it got to, not what went wrong."""
     command = _sub(spec["command"], ctx)
     r = subprocess.run(command, shell=True, capture_output=True, text=True)

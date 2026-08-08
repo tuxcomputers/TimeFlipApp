@@ -268,7 +268,7 @@ def _wait_for_reconnect(db_path, since_id=0, timeout=30):
 
 def restore_production_database(db_path, repo_root):
     """Runs once, after the end-of-run device cleanup reset: repoints appdata.sqlite back
-    at production.sqlite (scripts/use-production-database.sh) and confirms the app
+    at production.sqlite (scripts/switch-database.sh prod) and confirms the app
     reconnects against it, the reverse of the production->test switch that
     Tests/00-test-setup.md does at the start. Without this, the app is silently left pointed
     at test.sqlite until someone
@@ -281,7 +281,7 @@ def restore_production_database(db_path, repo_root):
         return True
     if db_type != "test":
         print(f"  unexpected db_type {db_type!r} -- not switching automatically. "
-              "Run scripts/use-production-database.sh manually once you've confirmed it's safe.")
+              "Run scripts/switch-database.sh prod manually once you've confirmed it's safe.")
         return False
 
     # Read production.sqlite's own current max id directly, by its real path -- not
@@ -296,12 +296,12 @@ def restore_production_database(db_path, repo_root):
         print("  app did not quit -- refusing to launch a second instance on top of it. "
               "Quit it manually, then re-run.")
         return False
-    r = subprocess.run(["scripts/use-production-database.sh"], cwd=repo_root, capture_output=True, text=True)
+    r = subprocess.run(["scripts/switch-database.sh", "prod"], cwd=repo_root, capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"  error running use-production-database.sh: {r.stderr.strip()}")
+        print(f"  error running switch-database.sh prod: {r.stderr.strip()}")
         return False
     _launch_app(repo_root)
-    # Pinned now, right after use-production-database.sh repointed the symlink -- query
+    # Pinned now, right after switch-database.sh prod repointed the symlink -- query
     # this concrete file directly for the reconnect wait, not the symlink.
     production_path = os.path.realpath(db_path)
     if not _wait_for_reconnect(production_path, since_id=since_id):

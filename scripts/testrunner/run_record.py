@@ -12,7 +12,7 @@ same stamp `logs/<run_id>.txt` uses):
 **Why its own database file rather than tables in the app's.** Three reasons, in order of how
 much they'd hurt:
 
-- `scripts/use-test-database.sh` deletes and reseeds `test.sqlite` at the start of every run
+- `scripts/switch-database.sh test` deletes and reseeds `test.sqlite` at the start of every run
   (its default "fresh" mode). Tables living there would lose the previous run's values, which
   is the opposite of what a record kept for analysis is for -- the interesting queries
   ("is this step's timing drifting?", and every `captured_value` lookup a resume makes) are

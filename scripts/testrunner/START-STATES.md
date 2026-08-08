@@ -46,7 +46,7 @@ Environment prerequisites -- not gates the runner queries, but a run can't succe
   to `debug_log`, which is the entire detection channel.
 - **App built** at `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip` -- `run_tests.sh`
   rebuilds it before every run (aborting on failure), so this is enforced, not merely assumed.
-- **`production.sqlite` exists** -- `use-production-database.sh` refuses to relink to a missing file.
+- **`production.sqlite` exists** -- `switch-database.sh prod` refuses to relink to a missing file.
 - **Device-manipulation warning acknowledged** (unless `--yes`).
 - **Run order:** the whole Bench suite before any Interactive checklist.
 
@@ -138,7 +138,7 @@ an app that's down is started and synced first, *then* its device state is read 
 - DB not production, app running, device paired + connected
 
 1. Ask the dev: switch to production and record its history first? (`y`/`n`)
-   - **y** → switch to production (`use-production-database.sh` relinks the symlink), then go to
+   - **y** → switch to production (`switch-database.sh prod` relinks the symlink), then go to
      **Prod and app not running** step 1 (restart on prod, wait for connect + sync, then branch on
      timing/paused). Note: if the device turns out to be *timing* on production, this re-enters
      **Prod and device is timing** and the run aborts -- recording history can't proceed while a
@@ -161,8 +161,8 @@ The shared terminal path -- every non-aborting branch ends here.
 
 - App running, device paired + connected; production history recorded (or the dev opted out)
 
-1. Quit the app, run `use-test-database.sh $db_mode` (fresh run: creates a fresh empty
-   `test.sqlite`; restart-from-scenario resume passes `keep`, preserving the existing `test.sqlite`
+1. Quit the app, run `switch-database.sh test $db_mode` (fresh run: creates a fresh empty
+   `test.sqlite`; restart-from-scenario resume passes `-keep`, preserving the existing `test.sqlite`
    so state earlier scenarios built survives), repoint the `appdata.sqlite` symlink at it, relaunch.
    On a resume the production-history recording above is also skipped (we stay on test throughout).
 2. Read the app's `paired` setting. If it isn't paired -- the **"test DB + not paired"** start

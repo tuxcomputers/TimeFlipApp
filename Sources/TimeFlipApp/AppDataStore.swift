@@ -2084,14 +2084,14 @@ final class AppDataStore {
     }
 
     /// Makes sure `appdata.sqlite` is a symlink to `production.sqlite`, not a plain file, so
-    /// `scripts/use-test-database.sh`/`scripts/use-production-database.sh` can repoint it at
+    /// `scripts/switch-database.sh test`/`scripts/switch-database.sh prod` can repoint it at
     /// `test.sqlite` for a testing session without touching real data (see
     /// `Tests/CLAUDE.md`). A no-op if it's already a symlink, whatever it currently
     /// points at -- this only ever runs the one-time migration for a plain file (an install from
     /// before this symlink scheme existed, or a fresh install with no database yet). Only
     /// `production.sqlite` is ever brought into being through this scheme (by `sqlite3_open` on the
     /// symlink target at the app's next launch); `test.sqlite` is **not** created at startup -- it
-    /// is created fresh only when a testing session is started (`scripts/use-test-database.sh`,
+    /// is created fresh only when a testing session is started (`scripts/switch-database.sh test`,
     /// which deletes any existing one first). Internal (not private) so `AppDataStoreTests` can
     /// exercise it directly against a temp directory, independent of the `DeveloperMode.isEnabled`
     /// gate at its one production call site (`init`).

@@ -74,7 +74,7 @@ Only when Step 1 chose to switch (`want_switch = y`); relinks the `appdata.sqlit
 ```toml step
 when = '$want_switch == y'
 action = "shell"
-command = "scripts/use-production-database.sh"
+command = "scripts/switch-database.sh prod"
 ```
 - [x] Step 3: Capture production's current max `debug_log_id` as the baseline for the forced history fetch below.
 Skipped (and ticked) when Step 1 chose not to record history.
@@ -122,14 +122,14 @@ query = "SELECT COALESCE((SELECT CASE WHEN paused = 0 THEN 'TIMING' ELSE 'ok' EN
 expect = "ok"
 ```
 - [x] Step 8: Switch to the test database
--- quit the app (if running), run `scripts/use-test-database.sh $db_mode`, relaunch. On a fresh run (`db_mode = fresh`) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). A fresh `test.sqlite` also gets production's `paired`/`device_uuid`/`device_name` rows copied into it, before the relaunch, so the app connects to the device it is already paired to rather than pairing again from scratch: those rows are per-database, and the device's PIN is no longer the factory default once a pairing has rotated it. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
+-- quit the app (if running), run `scripts/switch-database.sh test $db_mode`, relaunch. On a fresh run (`db_mode` empty) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = -keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). A fresh `test.sqlite` also gets production's `paired`/`device_uuid`/`device_name` rows copied into it, before the relaunch, so the app connects to the device it is already paired to rather than pairing again from scratch: those rows are per-database, and the device's PIN is no longer the factory default once a pairing has rotated it. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
 ```toml step
 [[actions]]
 use = "method-3"
 
 [[actions]]
 action = "shell"
-command = "scripts/use-test-database.sh $db_mode"
+command = "scripts/switch-database.sh test $db_mode"
 
 [[actions]]
 use = "method-2"

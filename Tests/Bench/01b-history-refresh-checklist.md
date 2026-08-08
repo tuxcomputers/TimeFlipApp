@@ -27,7 +27,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-The switch to the test database (quit, `use-test-database.sh`, relaunch against a fresh
+The switch to the test database (quit, `switch-database.sh test`, relaunch against a fresh
 `test.sqlite`, confirm reconnect and `db_type=test`), leaving the device unlocked/unpaused, and
 building up **≥ 10 device events** (Scenario A/B need enough real history to observe) are all done
 by `Tests/00-test-setup.md`, which the supervisor always runs first -- and the event build runs
