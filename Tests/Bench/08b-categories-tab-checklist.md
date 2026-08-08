@@ -53,13 +53,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 The switch to the test database is done once by `Tests/00-test-setup.md`, which the supervisor
 always runs first -- not repeated here.
 
-- [x] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
+- [ ] Step 1: Query `db_type` and confirm it reads `{"type":"test"}`
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [x] Step 2: Open Settings and switch to the Categories tab.
+- [ ] Step 2: Open Settings and switch to the Categories tab.
       Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
@@ -70,7 +70,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Categories"
 ```
-- [x] Step 3: Confirm Active opens expanded and Inactive opens collapsed.
+- [ ] Step 3: Confirm Active opens expanded and Inactive opens collapsed.
       The archive is folded away on purpose; the list you work in is not. Read from the disclosure
       triangles, whose value is the expanded state.
 ```toml step
@@ -85,7 +85,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "active=true inactive=false"
 ```
-- [x] Step 4: Confirm the two section labels read **Active** and **Inactive**.
+- [ ] Step 4: Confirm the two section labels read **Active** and **Inactive**.
       Not accessibility-readable, so this is the one look a person (or a screenshot) has to take.
       [Method: Number 17](../Methods.md#method-17).
 ```toml step
@@ -97,7 +97,7 @@ prompt = "On the Categories tab, are the two collapsible sections labelled **Act
 
 **Preconditions:** Settings open on the Categories tab, from Setup above.
 
-- [x] Step 1: Click **Create** and confirm the field takes focus without being clicked.
+- [ ] Step 1: Click **Create** and confirm the field takes focus without being clicked.
       Focus is set a runloop turn after the field appears, since at `onAppear` it is not yet in the
       window's responder chain and a synchronous focus is dropped. Typing straight after Create is
       the whole point of the deferral, so this is the step that proves it still works.
@@ -114,7 +114,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "focused=true"
 ```
-- [x] Step 2: Confirm **Save** is disabled for an empty field and for whitespace only.
+- [ ] Step 2: Confirm **Save** is disabled for an empty field and for whitespace only.
       A name that normalises to nothing must not be savable. `button 1 of group 2` is Create before
       the field opens and Save after it.
 ```toml step
@@ -146,7 +146,7 @@ on a keystroke meant to abandon one field.
 
 **Preconditions:** the create field open and holding a name, from Scenario A.
 
-- [x] Step 1: Press Escape and confirm the window survives.
+- [ ] Step 1: Press Escape and confirm the window survives.
       This is the assertion the scenario exists for.
 ```toml step
 [[actions]]
@@ -164,7 +164,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "window=true"
 ```
-- [x] Step 2: Confirm nothing was created and the field closed.
+- [ ] Step 2: Confirm nothing was created and the field closed.
       The create control is back to a lone button, which is how the collapsed state reads.
 ```toml step
 [[actions]]
@@ -184,7 +184,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "fields=0 buttons=1"
 ```
-- [x] Step 3: Confirm Escape closes the window once no field is open.
+- [ ] Step 3: Confirm Escape closes the window once no field is open.
       The shortcut has to come back, or Escape stops working on the Settings window entirely.
 ```toml step
 [[actions]]
@@ -213,7 +213,7 @@ reinstate, since the whole point is that it must not pick one for the user.
 directly: the create control reads the database live rather than the loaded list, so a seeded row
 reaches the alert without reopening the tab.
 
-- [x] Step 1: Seed one active `Email`, and reopen Settings on the Categories tab.
+- [ ] Step 1: Seed one active `Email`, and reopen Settings on the Categories tab.
 ```toml step
 [[actions]]
 action = "sql_exec"
@@ -227,7 +227,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Categories"
 ```
-- [x] Step 2: Type `Email` and Save; confirm the dead-end alert.
+- [ ] Step 2: Type `Email` and Save; confirm the dead-end alert.
       An active category already holds the name, so there is nothing to decide and the alert offers
       no way to create anything: exactly one button, and it only dismisses.
 ```toml step
@@ -248,7 +248,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "title=That category already exists | buttons=1"
 ```
-- [x] Step 3: Dismiss it, then retire that row and seed a second retired `Email`.
+- [ ] Step 3: Dismiss it, then retire that row and seed a second retired `Email`.
       Two retired namesakes and no active one is the ambiguous case.
 ```toml step
 [[actions]]
@@ -273,7 +273,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name = 'Email' AND active = 0;"
 expect = "2"
 ```
-- [x] Step 4: Type `Email` again; confirm the ambiguous alert names both retired rows.
+- [ ] Step 4: Type `Email` again; confirm the ambiguous alert names both retired rows.
 ```toml step
 action = "applescript"
 script = '''
@@ -292,7 +292,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "2 inactive categories are called"
 ```
-- [x] Step 5: Confirm it offers create and cancel, and **no** reinstate.
+- [ ] Step 5: Confirm it offers create and cancel, and **no** reinstate.
       The absent third button is the assertion: offering to bring one back would mean picking blind.
       Creating is still allowed, since only an *active* namesake bars that.
 ```toml step
@@ -311,7 +311,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "count=2 [Create a new category with the same name][Cancel]"
 ```
-- [x] Step 6: Cancel, and confirm nothing was created.
+- [ ] Step 6: Cancel, and confirm nothing was created.
       (Note: Cancel here deliberately leaves the **create field still open**, holding the typed
       name, so the name can be reconsidered rather than retyped. Only the active-collision alert
       closes the field, because there the name is unusable and there is nothing to reconsider. A
@@ -332,7 +332,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name = 'Email';"
 expect = "2"
 ```
-- [x] Step 7: Escape out of the create field it left open.
+- [ ] Step 7: Escape out of the create field it left open.
       Not tidying for its own sake: an open create field owns Escape (`openCategoryNameFields`), so
       leaving it open would have Scenario G's Escape abandon *this* field instead of the rename it
       is aimed at, and the later scenarios would run with a half-open form on screen.
@@ -364,7 +364,7 @@ that is still retired.
 
 **Preconditions:** the two retired `Email` rows from Scenario C, Settings open.
 
-- [x] Step 1: Make one `Email` active again, then re-read the tab.
+- [ ] Step 1: Make one `Email` active again, then re-read the tab.
       Switching away and back re-runs the list's `onAppear`, which is what puts the seeded rows on
       screen.
 ```toml step
@@ -380,7 +380,7 @@ tab = "Device"
 use = "method-10"
 tab = "Categories"
 ```
-- [x] Step 2: Expand the Inactive section.
+- [ ] Step 2: Expand the Inactive section.
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
       (Note: the count includes `ZZ Retired`, one of the three categories `Tests/00-test-setup.md`
@@ -401,7 +401,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "inactive_rows=2"
 ```
-- [x] Step 3: Tick the retired `Email` row's Active box; confirm the refusal alert.
+- [ ] Step 3: Tick the retired `Email` row's Active box; confirm the refusal alert.
 ```toml step
 action = "applescript"
 script = '''
@@ -417,7 +417,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "title=That name is already in use"
 ```
-- [x] Step 4: Dismiss, then confirm the row is still retired and the box reads unticked.
+- [ ] Step 4: Dismiss, then confirm the row is still retired and the box reads unticked.
       Both halves matter: the database must not have changed, and the UI must not claim it did.
 ```toml step
 [[actions]]
@@ -446,7 +446,7 @@ row must still allow.
 
 **Preconditions:** the Inactive section expanded, showing one retired `Email`.
 
-- [x] Step 1: Confirm the disabled and enabled controls on the retired row.
+- [ ] Step 1: Confirm the disabled and enabled controls on the retired row.
       Icon and colour are `button 1` and `button 2` of the row, the limit is `text field 1`, and the
       Active box is `checkbox 1`.
 ```toml step
@@ -476,14 +476,31 @@ Every other category is retired first, leaving the Active section holding **one 
 the "which row did you click" ambiguity from a step a human drives, and makes the row addressable as
 row 1 rather than by counting seeds.
 
+**Faces 2 and 8 are unlocked before that retire, and the order matters.** They hold `Break` and
+`Meeting`, and the app **refuses** to deactivate a category a locked face holds -- Scenario I asserts
+that refusal, and the message it checks tells the user to unlock the face first. Retiring them with a
+bare `UPDATE` would manufacture a state the app forbids, in the same file that tests the rule; going
+through the unlock is the app's own prescribed route, so every state here is one it could have
+produced. Clearing the faces afterwards is the other half: retiring through the app puts every face
+holding that category back on `Unassigned`, so the SQL has to do that too, or the faces are left
+pointing at retired categories. Scenario I puts both locks back when it rebuilds the seeds.
+
 **Preconditions:** Settings open on the Categories tab, the active `Email` row present.
 
-- [x] Step 1: Retire every category except the active `Email`, and re-read the tab.
+- [ ] Step 1: Retire every category except the active `Email`, and re-read the tab.
       Switching away and back re-runs the list's `onAppear`. Cleanup puts the seeded ones back.
 ```toml step
 [[actions]]
 action = "sql_exec"
+query = "UPDATE face SET locked = 0 WHERE face_id IN (2, 8);"
+
+[[actions]]
+action = "sql_exec"
 query = "UPDATE category SET active = 0 WHERE category_id >= 1 AND NOT (category_name = 'Email' AND active = 1);"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE active = 0);"
 
 [[actions]]
 use = "method-10"
@@ -503,7 +520,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "active_rows=1"
 ```
-- [x] Step 2: Clear the row's colour and icon so the picks below are unambiguous.
+- [ ] Step 2: Clear the row's colour and icon so the picks below are unambiguous.
       Starting from `None` for both means a passing assertion cannot be the value that was already
       there.
 ```toml step
@@ -519,7 +536,7 @@ tab = "Device"
 use = "method-10"
 tab = "Categories"
 ```
-- [x] Step 3: Open the colour swatch and pick **Red**.
+- [ ] Step 3: Open the colour swatch and pick **Red**.
       An unset swatch draws as a hollow square with no fill, so its whole rectangle has to be
       clickable rather than just the 1pt stroke. If only the outline responds, this is where that
       shows up. It is the only row on screen.
@@ -531,7 +548,7 @@ prompt = '''On the **Email** row (the only row in the Active section), click the
 
 Both true?'''
 ```
-- [x] Step 4: Confirm the database holds **Red**, not merely a change.
+- [ ] Step 4: Confirm the database holds **Red**, not merely a change.
       `colour_id` 1 is `Red` (`database/005_colour.sql`). Any other colour fails this step: it means
       the popover wrote something other than what was clicked.
 ```toml step
@@ -540,7 +557,7 @@ query = "SELECT colour_id FROM category WHERE category_name = 'Email' AND active
 expect = "1"
 timeout_seconds = 30
 ```
-- [x] Step 5: Open the icon grid, confirm its shape, and pick the **UX** icon.
+- [ ] Step 5: Open the icon grid, confirm its shape, and pick the **UX** icon.
       42 seeded icons in a fixed 6-wide grid, so they land as an even 6x7 with no scrolling and no
       partial last row. There is no "none" cell, deliberately: clearing is re-clicking the
       selection. Each cell carries its name as a tooltip, which is how to find UX among 42.
@@ -553,7 +570,7 @@ prompt = '''On the same row, click the icon button (leftmost in the row):
 
 All three true?'''
 ```
-- [x] Step 6: Confirm the database holds the **UX** icon.
+- [ ] Step 6: Confirm the database holds the **UX** icon.
       `icon_id` 40 is `ic_ux` (`database/004_icon.sql`). As with the colour, the value is the
       assertion: a grid that wrote the cell next to the one clicked would pass a "did it change"
       check and fail this one.
@@ -563,7 +580,7 @@ query = "SELECT icon_id FROM category WHERE category_name = 'Email' AND active =
 expect = "40"
 timeout_seconds = 30
 ```
-- [x] Step 7: Re-click the UX icon and confirm it clears to `icon_id` 0.
+- [ ] Step 7: Re-click the UX icon and confirm it clears to `icon_id` 0.
       Re-clicking the selection is the only way to unset an icon, since the grid has no none cell.
 ```toml step
 [[actions]]
@@ -592,7 +609,7 @@ That last part is why Step 5 reactivates `Meeting` before renaming onto it: a de
 needs an **active** namesake, and Scenario F had left none. Step 7 retires it again, so Scenario H
 inherits the single-row Active section it expects.
 
-- [x] Step 1: Right-click the `Email` name, pick **Edit**, and confirm the field opens focused.
+- [ ] Step 1: Right-click the `Email` name, pick **Edit**, and confirm the field opens focused.
       Right-clicked near the right-hand end of the name column, the part a short label does not
       cover -- the hit area `contentShape(Rectangle())` exists to claim. The field replaces the name
       `static text`, so it becomes `text field 1` of the section, pre-filled with the current name.
@@ -613,7 +630,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "value=Email focused=true"
 ```
-- [x] Step 2: Press Escape and confirm the edit is abandoned outright.
+- [ ] Step 2: Press Escape and confirm the edit is abandoned outright.
       Escape exists so that opening Edit by mistake does not cost a round trip through a
       confirmation dialog: the field reverts and no alert appears.
 ```toml step
@@ -632,7 +649,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "sheets=0 name=true"
 ```
-- [x] Step 3: Rename it and confirm the history warning.
+- [ ] Step 3: Rename it and confirm the history warning.
       The name does not change until this is accepted. The warning is about history: everything
       links by `category_id`, so reports covering time *before* the rename show the new name too.
 ```toml step
@@ -658,7 +675,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "title=Rename this category?"
 ```
-- [x] Step 4: Cancel and confirm the name is untouched.
+- [ ] Step 4: Cancel and confirm the name is untouched.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -674,7 +691,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name = 'Client work';"
 expect = "0"
 ```
-- [x] Step 5: Reactivate `Meeting`, then rename onto it; confirm the dead end.
+- [ ] Step 5: Reactivate `Meeting`, then rename onto it; confirm the dead end.
       A name held by an **active** category is simply taken -- the same dead end as when creating,
       with no rename-anyway offered. `Meeting` has to be brought back first, because Scenario F
       retired it along with everything else: against a *retired* namesake this raises the
@@ -716,7 +733,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "title=That category already exists buttons=1"
 ```
-- [x] Step 6: Dismiss, then correct only the capitalisation and confirm it is **not** a collision.
+- [ ] Step 6: Dismiss, then correct only the capitalisation and confirm it is **not** a collision.
       The lookup is `COLLATE NOCASE`, so the row finds itself. Only the id comparison stops the app
       refusing a name the row already holds, and this is the only place that check meets a real
       window.
@@ -752,7 +769,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "title=Rename this category?"
 ```
-- [x] Step 7: Accept it and confirm the rename landed.
+- [ ] Step 7: Accept it and confirm the rename landed.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -789,7 +806,7 @@ tell application "System Events"
         return "active_rows=" & ((count of checkboxes of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "active_rows=3"
+expect_contains = "active_rows=1"
 ```
 
 ## Scenario H -- the daily limit commits like every other stepper
@@ -800,7 +817,7 @@ right category.
 
 **Preconditions:** the active row, now called `EMAIL`, in the Active section.
 
-- [x] Step 1: Type a daily limit into the `EMAIL` row and commit with Return.
+- [ ] Step 1: Type a daily limit into the `EMAIL` row and commit with Return.
       [Method: Number 12](../Methods.md#method-12). Scenario F left it the only active row, so
       `text field 1`.
 ```toml step
@@ -824,7 +841,7 @@ query = "SELECT daily_limit FROM category WHERE category_name = 'EMAIL' AND acti
 expect = "90"
 timeout_seconds = 30
 ```
-- [x] Step 2: Confirm no other category's limit moved.
+- [ ] Step 2: Confirm no other category's limit moved.
       Each row's stepper carries its own hold key, keyed on the category id; a shared one would
       drive the wrong row.
 ```toml step
@@ -846,7 +863,7 @@ Both halves are reachable with the cube in a drawer, because the seed locks face
 **Preconditions:** Settings open on the Categories tab. Step 1 rebuilds the rows the steps below
 address, since the scenarios before this leave the list in a state of their own.
 
-- [x] Step 1: Seed one category on an unlocked face, put the seeds back on their locked ones, and
+- [ ] Step 1: Seed one category on an unlocked face, put the seeds back on their locked ones, and
       restart the app.
       The restart is the point: face and lock state are read at launch and refreshed only by the
       app's own writes, so SQL alone leaves the window disagreeing with the database. Methods:
@@ -891,7 +908,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Categories"
 ```
-- [x] Step 2: Confirm the Active box is dead on the two locked-face rows and live on the third.
+- [ ] Step 2: Confirm the Active box is dead on the two locked-face rows and live on the third.
       Names as well as states, because the whole claim is which row is which: the section holds
       `Break`, `Face test`, `Meeting` in that order, and row *k*'s name is `static text (2k + 3)`
       after the four column headers.
@@ -911,7 +928,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "Break=false Face test=true Meeting=false"
 ```
-- [x] Step 3: Confirm the disabled box explains itself, naming the face in the way.
+- [ ] Step 3: Confirm the disabled box explains itself, naming the face in the way.
       The row gives no clue which face it is, and a dead control with no reason is the failure this
       tooltip exists to prevent. Read as `AXHelp` rather than by hovering: the help tag lands on the
       checkbox itself even though `.help` is applied to the container around it, so the text is
@@ -929,10 +946,7 @@ tell application "System Events"
 end tell'''
 expect = "Face 8 is locked to this category. Unlock it on the Faces tab to deactivate this category."
 ```
-### Bugs found and fixed - branch 'bugfix/deactivateCategory'
-2026-08-06 - This step was written as a hover-and-look `ask_user`; a synthetic `kCGEventMouseMoved`
-never raises the help tag, so it would have failed on behaviour that works. Reads `AXHelp` instead.
-- [x] Step 4: Retire `Face test` from its Active box; confirm the face it was on is back on
+- [ ] Step 4: Retire `Face test` from its Active box; confirm the face it was on is back on
       `Unassigned`.
       The database is the assertion, not the row moving: `face.category_id` 0 is the `Unassigned`
       sentinel every unassigned face points at.
@@ -959,17 +973,17 @@ action = "sql_query"
 query = "SELECT category_id FROM face WHERE face_id = 3;"
 expect = "0"
 ```
-- [x] Step 5: Confirm the clear was reported, naming the face it touched.
+- [ ] Step 5: Confirm the clear was reported, naming the face it touched.
       [Method: Number 24.d](../Methods.md#method-24), the `face-clear` tag.
 ```toml step
 use = "method-24.d"
 tag = "face-clear"
 expect_contains = "face 3 back to Unassigned"
 ```
-- [x] Step 6: Confirm the two locked-face rows survived the retire.
+- [ ] Step 6: Confirm the two locked-face rows are all that is left in the Active section.
       The retired row moved to Inactive, and neither category on a locked face went with it. The
-      count is **4**, not 2: `ZZ Assigned` and `ZZ NoFace`, seeded active by `Tests/00-test-setup.md`
-      Step 16, are in this section too and are not what this step is about.
+      report fixture's categories are not in this count: Scenario F retires every non-`Email`
+      category, the seeded ones included, and nothing reinstates them.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -979,7 +993,7 @@ tell application "System Events"
         return "active_rows=" & ((count of checkboxes of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "active_rows=4"
+expect_contains = "active_rows=2"
 
 [[actions]]
 action = "sql_query"
@@ -993,7 +1007,7 @@ on the locked face to reach the Faces tab's lock control.
 
 ## Cleanup
 
-- [x] Step 1: Put face 3 back on `Unassigned` and drop the category Scenario I put there.
+- [ ] Step 1: Put face 3 back on `Unassigned` and drop the category Scenario I put there.
       A face still pointing at the row would make the delete below fail on the foreign key rather
       than leaving anything behind.
 ```toml step
@@ -1010,7 +1024,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name = 'Face test';"
 expect = "0"
 ```
-- [x] Step 2: Remove the categories this checklist created.
+- [ ] Step 2: Remove the categories this checklist created.
       They exist only to make the alerts reachable, and leaving them behind would change what the
       next run of Scenario C sees.
 ```toml step
@@ -1023,7 +1037,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name IN ('Email','EMAIL','Client work','Discovery category');"
 expect = "0"
 ```
-- [x] Step 3: Reinstate the seeded categories Scenario F retired.
+- [ ] Step 3: Reinstate the seeded categories Scenario F retired.
       `Break` and `Meeting` are the two faces the physical cube carries stickers for, so the whole
       Interactive phase that follows expects them active. Leaving them retired would be this
       checklist quietly changing the ones after it.
@@ -1037,7 +1051,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name IN ('Break','Meeting') AND active = 1;"
 expect = "2"
 ```
-- [x] Step 4: Close the Settings window.
+- [ ] Step 4: Close the Settings window.
       [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
