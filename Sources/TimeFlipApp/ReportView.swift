@@ -148,7 +148,10 @@ struct ReportView: View {
                 ForEach(totals) { total in
                     ReportRow(
                         name: total.name,
-                        duration: Self.formattedDuration(total.seconds),
+                        duration: Self.formattedDuration(
+                            total.seconds,
+                            showingSeconds: appState.displaySecondsEnabled
+                        ),
                         iconName: appState.iconOptions.first { $0.iconId == total.iconID }?.iconName,
                         colour: appState.colourOptions.first { $0.colourId == total.colourID }
                     )
@@ -177,13 +180,25 @@ struct ReportView: View {
         )
     }
 
-    /// `H:MM`, matching the menu bar's own format, so the same span reads the same in both places.
+    /// `H:MM`, or `H:MM:SS` when "Show seconds in the menu bar" is on -- the same format the menu bar
+    /// itself uses (`MenuBarController.formattedDuration`), driven by the same setting, so a span
+    /// never reads one way there and another way here.
+    ///
+    /// That setting also earns its keep on this screen rather than merely being obeyed by it: at
+    /// `H:MM` every total under a minute reads `0:00`, which is indistinguishable from a category
+    /// that was opened and left. Turning seconds on is what tells those apart.
+    ///
     /// Hours are never dropped: a category with 7 minutes reads `0:07` rather than `7`, which would
     /// be ambiguous against the hours in the rows beside it.
-    static func formattedDuration(_ seconds: TimeInterval) -> String {
+    static func formattedDuration(_ seconds: TimeInterval, showingSeconds: Bool) -> String {
         let totalSeconds = Int(seconds.rounded())
         let hours = totalSeconds / Int(TimeConstants.secondsPerHour)
         let minutes = (totalSeconds % Int(TimeConstants.secondsPerHour)) / Int(TimeConstants.secondsPerMinute)
+        // Hours are unpadded below 10 (e.g. "1:23") but keep two digits once double-digit, matching
+        // the menu bar.
+        if showingSeconds {
+            return String(format: "%d:%02d:%02d", hours, minutes, totalSeconds % Int(TimeConstants.secondsPerMinute))
+        }
         return String(format: "%d:%02d", hours, minutes)
     }
 
