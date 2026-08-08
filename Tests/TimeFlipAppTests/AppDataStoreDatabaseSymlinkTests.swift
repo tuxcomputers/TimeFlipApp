@@ -38,7 +38,7 @@ final class AppDataStoreDatabaseSymlinkTests: XCTestCase {
     func testFreshInstallDoesNotCreateTestDatabase() throws {
         AppDataStore.ensureDatabaseSymlink(at: appdataURL)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: testURL.path), "test.sqlite is created only when a testing session is started (scripts/use-test-database.sh), never at app startup")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: testURL.path), "test.sqlite is created only when a testing session is started (scripts/switch-database.sh test), never at app startup")
     }
 
     func testPreExistingPlainFileIsMigratedIntoProduction() throws {

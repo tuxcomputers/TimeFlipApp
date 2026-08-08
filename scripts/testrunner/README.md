@@ -17,7 +17,7 @@ scripts/testrunner/run_tests.sh Tests/Bench/04b-lock-and-pause-on-lock-checklist
 scripts/testrunner/run_tests.sh --keep-db              # everything, against the EXISTING test.sqlite (not rebuilt)
 ```
 
-`--keep-db` passes `keep` to `use-test-database.sh` even on a from-the-top run, so an existing
+`--keep-db` passes `-keep` to `switch-database.sh test` even on a from-the-top run, so an existing
 `test.sqlite` survives instead of being deleted and reseeded. It exists for a test database
 **seeded by hand** -- `device_event` rows copied in from production, which satisfy
 `00-test-setup.md` Step 14's ≥10-event gate immediately and save flipping the cube ten times to
@@ -84,7 +84,7 @@ started off-production doesn't hard-fail); when recording, capture production's 
 `debug_log_id`, restart the app to force a fresh history fetch and confirm
 a `"history fetch complete:"` lands after the restart's login (so all real history is recorded
 before switching -- the end-of-run factory reset later wipes the device's own counter; any trigger
-counts, and DETECTION.md explains why naming `startup` specifically is a race); then `use-test-database.sh`,
+counts, and DETECTION.md explains why naming `startup` specifically is a race); then `switch-database.sh test`,
 relaunch, confirm reconnect, and confirm `db_type` is now `test`. If any setup step fails the
 whole run aborts before any feature checklist. (`session_setup.py` no longer switches; it just
 holds the warning and mid-timing gates and the end-of-run reset/restore.)
@@ -128,14 +128,14 @@ device's own onboard counter, so none of it gets mistaken for real history. The 
 clicks the discovered row itself (`cgevent_click_element`, the same click `Bench/02b`
 Step 7 uses) and only falls back to asking you if that click doesn't land. It then asks (`y/n`) whether to switch the app back to the
 production database now -- say `n` if you're about to run more tests, since switching to
-production and back to test every run is wasted effort (`use-test-database.sh` rebuilds
+production and back to test every run is wasted effort (`switch-database.sh test` rebuilds
 `test.sqlite` from scratch each time). `y` repoints `appdata.sqlite` back at
-`production.sqlite` itself (`scripts/use-production-database.sh`, quit/relaunch included)
+`production.sqlite` itself (`scripts/switch-database.sh prod`, quit/relaunch included)
 and confirms the app reconnects against it. `--yes` answers `y` automatically, for
 CI/non-interactive use. If either the cleanup reset or (when requested) the database
 restore can't complete for some reason, the run prints a clear warning and the log
 records it -- resolve that manually (reset/pair the device, and/or run
-`scripts/use-production-database.sh` yourself) before trusting production history in
+`scripts/switch-database.sh prod` yourself) before trusting production history in
 that case.
 
 ## Answering a question mid-run
@@ -399,7 +399,7 @@ progress of every checklist about to run, as one whole-batch decision -- not per
   keep.)
 
   On **`s`** the shared setup runs in *keep* mode: it does **not** wipe the test DB
-  (`use-test-database.sh keep` preserves the existing `test.sqlite`) and skips the
+  (`switch-database.sh test -keep` preserves the existing `test.sqlite`) and skips the
   production-history round-trip, so the state the kept-ticked earlier scenarios built survives
   into the resumed one. It still quits and relaunches the app, so a rebuilt binary is picked up.
   A **`t`** / fresh run rebuilds `test.sqlite` from scratch as before. (`main()` derives this from
@@ -505,7 +505,7 @@ sqlite3 logs/testruns.sqlite "SELECT checklist, section, step_number, descriptio
   WHERE run_id='2026-07-31_13.01.08' AND verified_by='human';"
 ```
 
-**Why its own file and not a table in the app's database.** `scripts/use-test-database.sh` wipes
+**Why its own file and not a table in the app's database.** `scripts/switch-database.sh test` wipes
 and reseeds `test.sqlite` at the start of every run, so a table there would lose the previous
 run's values -- and comparing runs is the whole point. `debug_log` is worse still: it's what the
 checklists *assert against* (`method-24.d`/`24.e`, every `wait_for_sql`), so a runner writing

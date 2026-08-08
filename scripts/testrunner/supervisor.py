@@ -566,8 +566,8 @@ def main():
     parser.add_argument(
         "--keep-db",
         action="store_true",
-        help="Run against the EXISTING test.sqlite instead of rebuilding it: passes 'keep' to "
-        "use-test-database.sh even on a from-the-top run. For a test database seeded by hand "
+        help="Run against the EXISTING test.sqlite instead of rebuilding it: passes '-keep' to "
+        "`switch-database.sh test` even on a from-the-top run. For a test database seeded by hand "
         "(e.g. device_event rows copied from production, so the 10-event history gate is already "
         "satisfied) that a fresh rebuild would delete. A resume (`s`) already implies this.",
     )
@@ -685,17 +685,18 @@ def main():
         ) else "n"
         # On a "resume" (`s`), keep the existing test DB and skip the production-history recording:
         # earlier scenarios' state must survive, and we're already on test. On a fresh run, wipe and
-        # rebuild it. `db_mode` is passed straight to use-test-database.sh; `resume` gates the
+        # rebuild it. `db_mode` is passed straight to `switch-database.sh test` as its optional flag --
+        # either "-keep" or empty, since keeping is off by default there; `resume` gates the
         # production round-trip prompt in Step 1.
         resume = "y" if run_mode == "resume" else "n"
         # `--keep-db` preserves a hand-seeded test database on a from-the-top run, where the default
         # would delete it. Only `db_mode` is forced, deliberately not `resume`: that gates Step 1's
         # production round-trip prompt, and the developer should still be asked whether to record
         # real history first rather than have that skipped as a side effect of keeping the file.
-        db_mode = "keep" if (run_mode == "resume" or args.keep_db) else "fresh"
+        db_mode = "-keep" if (run_mode == "resume" or args.keep_db) else ""
         if args.keep_db:
             print("--keep-db: running against the existing test.sqlite; it will not be rebuilt.")
-            log_lines.append("--keep-db passed: existing test.sqlite preserved (db_mode=keep).")
+            log_lines.append("--keep-db passed: existing test.sqlite preserved (db_mode=-keep).")
             # A kept database brings its own fetch interval, and a long one silences the heartbeat
             # the pre-checklist connection gate reads. See normalise_fetch_interval.
             was = normalise_fetch_interval(db_path)
@@ -732,7 +733,7 @@ def main():
         print(f"RUN HALTED for investigation: {halt}")
         print("End-of-run cleanup (device factory reset / production restore) was SKIPPED so you")
         print("can inspect the current state. You are most likely still on the TEST database --")
-        print("quit the app and run scripts/use-production-database.sh when you're done.")
+        print("quit the app and run scripts/switch-database.sh prod when you're done.")
         print(banner)
         # The investigation this halt exists for is exactly when the readings matter, and every
         # row is already committed (run_record commits per step, for this case).
@@ -767,16 +768,16 @@ def main():
 
     if restore_now:
         db_restore_ok = restore_production_database(args.db_path, repo_root)
-        log_lines.append(f"End-of-run database restore: {'OK' if db_restore_ok else 'FAILED -- run scripts/use-production-database.sh manually'}")
+        log_lines.append(f"End-of-run database restore: {'OK' if db_restore_ok else 'FAILED -- run scripts/switch-database.sh prod manually'}")
         if not db_restore_ok:
             print(
                 "\n!!! Could not switch back to the production database automatically -- quit "
-                "the app and run scripts/use-production-database.sh yourself, then relaunch, "
+                "the app and run scripts/switch-database.sh prod yourself, then relaunch, "
                 "before trusting production history."
             )
     else:
         print(
-            "\nStaying on the test database. Run scripts/use-production-database.sh (quit the "
+            "\nStaying on the test database. Run scripts/switch-database.sh prod (quit the "
             "app first) whenever you're ready to switch back."
         )
         log_lines.append("Developer chose to stay on the test database for now.")

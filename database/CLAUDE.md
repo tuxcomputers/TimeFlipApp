@@ -154,7 +154,7 @@ and don't count it when reasoning about the schema.
   it. An unconditional `ALTER` therefore breaks every **fresh** database, because the `CREATE TABLE`
   above has already added the column and sqlite reports `duplicate column name`. That is not
   hypothetical: it silently emptied `colour` on a fresh database (the app logs the error and carries
-  on, so it self-heals on the second launch) and hard-failed `use-test-database.sh` under `set -e`.
+  on, so it self-heals on the second launch) and hard-failed `switch-database.sh test` under `set -e`.
 - `AppDataStore.runDatabaseDDL` still carries `skipSatisfiedColumnAdditions`, which comments out a
   live `ALTER ... ADD COLUMN` whose column already exists. With this rule in force nothing reaches
   it, and it cannot help the fresh-database case anyway (it checks the live database, which has no

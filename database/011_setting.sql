@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS setting (
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_setting ON setting(setting_name);
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'db_type', '{"type":"production"}', 'type: "production" or "test" -- which physical database file (see AppDataStore.ensureDatabaseSymlink) this row lives in. Set once, when that file is first created, and never changed afterward: production.sqlite always seeds as "production" via this default; scripts/use-test-database.sh overrides a freshly-created test.sqlite to "test" immediately after seeding it. Used as a pre-testing safety check (see Tests/CLAUDE.md) -- if this reads "production" during what is supposed to be a testing session, the appdata.sqlite symlink was never repointed at test.sqlite, and testing must not proceed.'
+SELECT 'db_type', '{"type":"production"}', 'type: "production" or "test" -- which physical database file (see AppDataStore.ensureDatabaseSymlink) this row lives in. Set once, when that file is first created, and never changed afterward: production.sqlite always seeds as "production" via this default; scripts/switch-database.sh test overrides a freshly-created test.sqlite to "test" immediately after seeding it. Used as a pre-testing safety check (see Tests/CLAUDE.md) -- if this reads "production" during what is supposed to be a testing session, the appdata.sqlite symlink was never repointed at test.sqlite, and testing must not proceed.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'db_type');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

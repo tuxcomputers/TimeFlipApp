@@ -468,9 +468,14 @@ strictly increasing.
 
 `appdata.sqlite` symlinks to `production.sqlite` or `test.sqlite`, re-read only at launch:
 ```
-scripts/use-test-database.sh        # -> test.sqlite (deletes and recreates fresh)
-scripts/use-production-database.sh  # -> production.sqlite
+scripts/switch-database.sh              # -> swaps to whichever of the two isn't in use
+scripts/switch-database.sh test         # -> test.sqlite (deletes and recreates fresh)
+scripts/switch-database.sh test -keep   # -> test.sqlite, preserved as-is (resuming a mid-run batch)
+scripts/switch-database.sh prod         # -> production.sqlite (no-op if already there)
 ```
+Naming the target is what a script should do (it says where it wants to end up regardless of where
+it started); the bare swap is the convenience form for switching by hand. `test` always rebuilds,
+even when test.sqlite is already the database in use -- `-keep` is what suppresses that.
 **Pre-flight, every session, before switching:** confirm `db_type` reads `{"type":"production"}`,
 then restart the app and confirm a fresh fetch against production has completed (`debug_log`, tag
 `hist-done`, `"history fetch complete:"`) -- so real device history lands in `production.sqlite`
@@ -494,7 +499,7 @@ starts fresh.
 
 **This switch happens once per testing session** (when the user first asks to run the device
 tests), not before every individual checklist -- a checklist's own Setup listing "run
-`scripts/use-test-database.sh`" describes what a *standalone* run of that checklist needs, not a
+`scripts/switch-database.sh test`" describes what a *standalone* run of that checklist needs, not a
 mandatory re-wipe when it's one of several checklists run back-to-back in the same session. If
 `db_type` already reads `{"type":"test"}` from an earlier checklist this session, skip straight to
 confirming that, rather than deleting and recreating `test.sqlite` again.
