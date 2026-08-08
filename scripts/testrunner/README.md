@@ -364,14 +364,17 @@ content. Add a new named target there before referencing it from a `cgevent_clic
 
 ### Asking a person for something
 
-Two rules, both enforced by shape rather than by remembering:
+Two rules:
 
 1. **Every `(You)` step must actually ask.** `ask_user`/`ask_user_or_detect` do it by definition; a
    step detected with `wait_for_sql` needs a `prompt`, because that field is the only thing that
    raises a nudge. Without one the runner polls in silence and the person is never told to do
    anything -- `08i`'s flip and lock-toggle steps sat there for a full timeout that way
    (2026-08-08). A `(You)` step with no `toml step` block at all is fine: the supervisor asks
-   "Verify the above is true" for it.
+   "Verify the above is true" for it. Checked at parse time, not just documented: loading a
+   checklist with a `(You)` `wait_for_sql` step missing `prompt` raises
+   `ValueError` (`md_checklist.Checklist._parse` ->
+   `_require_prompt_on_you_wait_for_sql`) before the run ever starts.
 2. **The order is always banner, then the step, then the nudge.** A run scrolls a long way on its
    own, so the box has to announce the step rather than appear underneath it. The supervisor prints
    the banner and the header itself for a step that asks the moment it runs

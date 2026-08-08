@@ -92,6 +92,23 @@ class Step:
         return t
 
 
+def _require_prompt_on_you_wait_for_sql(spec, path, toml_line):
+    """Enforce "Asking a person for something" rule 1 (see scripts/testrunner/README.md):
+    a `(You)` step detected with `wait_for_sql` must carry a `prompt`, since that field is
+    the only thing that raises a nudge -- without one the runner polls in silence and the
+    person is never told to do anything (08i's flip and lock-toggle steps did exactly this,
+    2026-08-08). Checked at parse time rather than left to be remembered, so a new checklist
+    can't reintroduce the same silent-polling bug."""
+    subs = spec["actions"] if "actions" in spec else [spec]
+    for sub in subs:
+        if sub.get("action") == "wait_for_sql" and not sub.get("prompt"):
+            raise ValueError(
+                f"{path}: TOML step block at line {toml_line}: a (You) step's wait_for_sql "
+                "needs a `prompt` -- without one the runner polls in silence instead of "
+                "telling the person what to do"
+            )
+
+
 class Checklist:
     def __init__(self, path):
         self.path = path
@@ -150,6 +167,8 @@ class Checklist:
                     spec = tomllib.loads(toml_text)
                 except Exception as e:
                     raise ValueError(f"{self.path}: bad TOML step block near line {fence_start + 1}: {e}") from e
+                if actor == "you":
+                    _require_prompt_on_you_wait_for_sql(spec, self.path, fence_start + 1)
                 end_of_item = fence_end
             else:
                 end_of_item = j - 1
