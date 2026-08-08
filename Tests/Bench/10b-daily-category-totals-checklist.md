@@ -42,13 +42,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 and captures -- the device/app state each scenario needs is resolved inside that scenario, so a
 restart-from-scenario resume, which skips this section, still gets it.
 
-- [x] Step 1: Confirm `db_type` reads **test** before anything writes to it.
+- [ ] Step 1: Confirm `db_type` reads **test** before anything writes to it.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [x] Step 2: Capture the current day window's start epoch, derived from `daily_reset_time`.
+- [ ] Step 2: Capture the current day window's start epoch, derived from `daily_reset_time`.
 Mirrors `DailyCategoryTotals.computeWindowStart`: today's boundary at that local time, or yesterday's
 if now is still before it. (Note: the yesterday branch subtracts a flat 86400, which is exact only
 where the local offset doesn't shift; Brisbane has no DST, and the steps below only ever use the
@@ -58,7 +58,7 @@ action = "sql_query"
 query = "WITH r AS (SELECT CAST(json_extract(setting_value,'$.hour') AS INT) h, CAST(json_extract(setting_value,'$.minute') AS INT) m FROM setting WHERE setting_name='daily_reset_time'), t AS (SELECT CAST(strftime('%s', date('now','localtime') || ' ' || substr('0'||h,-2) || ':' || substr('0'||m,-2) || ':00', 'utc') AS INT) AS today_reset FROM r) SELECT CASE WHEN CAST(strftime('%s','now') AS INT) >= today_reset THEN today_reset ELSE today_reset - 86400 END FROM t;"
 capture = "window_start"
 ```
-- [x] Step 3: Capture the newest recorded `device_event`'s `start_epoch` as the anchor
+- [ ] Step 3: Capture the newest recorded `device_event`'s `start_epoch` as the anchor
 the synthetic segments sit behind, and confirm at least 90 minutes of today's window sits before it
 -- otherwise there is nowhere inside the window to put them and this checklist can't run yet (a run
 started within 90 minutes of the daily reset, or one whose newest event predates today).
@@ -80,7 +80,7 @@ expect = "ok"
 by Setup, and -- resolved by Step 1 below rather than assumed -- the device **paused** and the app
 **not running**.
 
-- [x] Step 1: Resolve this scenario's own device and app state: unlocked, then paused, then the app quit.
+- [ ] Step 1: Resolve this scenario's own device and app state: unlocked, then paused, then the app quit.
 Deliberately not inherited from Setup. A restart-from-scenario resume re-enters here with Setup ticked
 and skipped, so anything Setup had established would be missing: the device would still be running,
 making Step 8's figure drift instead of exact, and the app would still be up, so Step 6's launch
@@ -104,7 +104,7 @@ expect_contains = "Resume"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 2: Capture the two stickered faces' current category assignments for Scenario C to restore.
+- [ ] Step 2: Capture the two stickered faces' current category assignments for Scenario C to restore.
 Faces 2 (**Meeting**) and 8 (**Break**) are the only two with stickers on the cube used for these
 tests, which is why they are the pair reassigned here.
 ```toml step
@@ -118,7 +118,7 @@ action = "sql_query"
 query = "SELECT category_id FROM face WHERE face_id = 8;"
 capture = "face8_category_original"
 ```
-- [x] Step 3: Create the category these totals accumulate against, and capture its id.
+- [ ] Step 3: Create the category these totals accumulate against, and capture its id.
 Every leftover of an abandoned run is dropped first, so re-running this scenario is idempotent:
 `UN1_category` is unique on name among **active** rows, so a second insert would otherwise fail --
 and the synthetic events have to go with it. They are placed relative to the anchor, which moves
@@ -155,7 +155,7 @@ action = "sql_query"
 query = "SELECT category_id FROM category WHERE category_name = 'ZZ Totals';"
 capture = "test_category_id"
 ```
-- [x] Step 4: Point both faces at that one category.
+- [ ] Step 4: Point both faces at that one category.
 This is the condition under test: one category, two faces.
 ```toml step
 [[actions]]
@@ -167,7 +167,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM face WHERE category_id = $test_category_id;"
 expect = "2"
 ```
-- [x] Step 5: Insert one closed segment per face, 20 minutes on face 2 and 40 on face 8, with a `time_entry` each.
+- [ ] Step 5: Insert one closed segment per face, 20 minutes on face 2 and 40 on face 8, with a `time_entry` each.
 Both sit inside today's window and behind the anchor. `finalised`/`processed` are set so the
 time-entry sweep treats them as already converted and doesn't write a second entry over the top.
 ```toml step
@@ -188,7 +188,7 @@ action = "sql_query"
 query = "SELECT CAST(SUM(duration_seconds) AS INT) FROM time_entry WHERE category_id = $test_category_id;"
 expect = "3600"
 ```
-- [x] Step 6: Start the app and confirm it reconnected.
+- [ ] Step 6: Start the app and confirm it reconnected.
 The startup seed (`ApplicationDelegate.seedDailyTotals`) re-derives the totals from `time_entry`. The
 quit in front is what [Method: Number 2](../Methods.md#method-2) asks for: it no-ops when nothing is
 running, and prevents a second instance when something is. Methods:
@@ -206,7 +206,7 @@ use = "method-4"
 since_id = "$current_log_id"
 timeout_seconds = 60
 ```
-- [x] Step 7: Confirm the status item now names the shared category.
+- [ ] Step 7: Confirm the status item now names the shared category.
 The name is resolved from the face's category, so this proves the reassignment reached the app before
 the duration is read. [Method: Number 27](../Methods.md#method-27).
 ```toml step
@@ -214,7 +214,7 @@ use = "method-27"
 expect_contains = "ZZ Totals"
 timeout_seconds = 30
 ```
-- [x] Step 8: Confirm the rendered duration is the **sum of both faces**, `1:00:00`.
+- [ ] Step 8: Confirm the rendered duration is the **sum of both faces**, `1:00:00`.
 This is the assertion the whole checklist exists for. Keyed by face it would read `0:20:00` -- face
 2's own 20 minutes, the face the cube is resting on -- and the 40 minutes spent on face 8 would be
 invisible to a limit set on the category they share. [Method: Number 27](../Methods.md#method-27).
@@ -229,7 +229,7 @@ timeout_seconds = 30
 **Preconditions:** Scenario A complete and left in place -- the shared category holding an hour
 across two faces, the device still paused, the app running.
 
-- [x] Step 1: Set the shared category's daily limit to 45 minutes.
+- [ ] Step 1: Set the shared category's daily limit to 45 minutes.
 Chosen to sit **above** either face's own contribution (20 and 40) and **below** their sum (60), so
 the two keyings disagree: per category the limit is spent, per face it is not.
 ```toml step
@@ -242,7 +242,7 @@ action = "sql_query"
 query = "SELECT daily_limit FROM category WHERE category_id = $test_category_id;"
 expect = "45"
 ```
-- [x] Step 2: Quit and relaunch so the new limit is loaded, and confirm the reading is unchanged.
+- [ ] Step 2: Quit and relaunch so the new limit is loaded, and confirm the reading is unchanged.
 The limit rides along on the activity record, so it is picked up when that is reloaded rather than
 watched for. The duration must still read `1:00:00` -- the device is paused, so nothing has accrued.
 Methods: [Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2),
@@ -264,7 +264,7 @@ use = "method-27"
 expect_contains = "1:00:00"
 timeout_seconds = 30
 ```
-- [x] Step 3: Confirm the menu bar is drawing the over-limit state.
+- [ ] Step 3: Confirm the menu bar is drawing the over-limit state.
 The only part of this checklist with no readable equivalent: `overLimit` reaches the screen as
 colour, not text. Screenshot the menu bar and confirm the activity name and duration are drawn in
 the over-limit colour rather than the normal one.
@@ -275,12 +275,12 @@ the over-limit colour rather than the normal one.
 **Preconditions:** Scenarios A and B complete. Runs even if either failed -- the rows and
 reassignments it removes are what would otherwise corrupt `01i`.
 
-- [x] Step 1: Quit the app before unpicking the rows underneath it.
+- [ ] Step 1: Quit the app before unpicking the rows underneath it.
 [Method: Number 3](../Methods.md#method-3).
 ```toml step
 use = "method-3"
 ```
-- [x] Step 2: Delete the synthetic entries and events, restore both faces, and drop the test category.
+- [ ] Step 2: Delete the synthetic entries and events, restore both faces, and drop the test category.
 Ordered entry-then-event-then-category so no foreign key is ever left dangling.
 ```toml step
 [[actions]]
@@ -303,7 +303,7 @@ query = "UPDATE face SET category_id = $face8_category_original WHERE face_id = 
 action = "sql_exec"
 query = "DELETE FROM category WHERE category_name = 'ZZ Totals';"
 ```
-- [x] Step 3: Confirm nothing synthetic survives and the resume position is a real event again.
+- [ ] Step 3: Confirm nothing synthetic survives and the resume position is a real event again.
 `01i` resumes history from the newest recorded segment, so this is the check that the Interactive
 phase starts from the device's own record rather than an invented one.
 ```toml step
@@ -322,7 +322,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT start_epoch FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1) >= $anchor_epoch THEN 'ok' ELSE 'resume position moved behind the anchor' END;"
 expect = "ok"
 ```
-- [x] Step 4: Restart the app and leave the device unlocked and unpaused.
+- [ ] Step 4: Restart the app and leave the device unlocked and unpaused.
 Undoes Scenario A Step 1's pause, so the Interactive phase starts from the same clean state every
 other checklist assumes. Methods: [Number 3](../Methods.md#method-3),
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).

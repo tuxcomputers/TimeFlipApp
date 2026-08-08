@@ -214,7 +214,26 @@ directly: the create control reads the database live rather than the loaded list
 reaches the alert without reopening the tab.
 
 - [ ] Step 1: Seed one active `Email`, and reopen Settings on the Categories tab.
+      Every `Email` an earlier attempt left is dropped first, so the scenario is idempotent.
+      `UN1_category` is unique on name among **active** rows, so seeding a second active one over
+      the top fails outright with `UNIQUE constraint failed: category.category_name` -- which is
+      exactly what a **resume** produces, since resuming keeps the existing `test.sqlite` rather
+      than rebuilding it, leftover rows and all. Measured on 2026-08-08, resuming into this
+      scenario after a halted run. `Bench/10b` guards its own seed the same way and for the same
+      reason. The faces are cleared first so no foreign key is left pointing at a deleted row.
 ```toml step
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE category_name = 'Email');"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM time_entry WHERE category_id IN (SELECT category_id FROM category WHERE category_name = 'Email');"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM category WHERE category_name = 'Email';"
+
 [[actions]]
 action = "sql_exec"
 query = "INSERT INTO category (category_name, icon_id, colour_id, active) VALUES ('Email', 0, 0, 1);"
@@ -384,7 +403,7 @@ tab = "Categories"
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
       (Note: the count includes `ZZ Retired`, one of the three categories `Tests/00-test-setup.md`
-      Step 16 seeds for the report checklist. That fixture is seeded on every run rather than only
+      Step 8 seeds for the report checklist. That fixture is seeded on every run rather than only
       when the report checklist was requested, precisely so this number is a fixed baseline instead
       of depending on which checklists someone asked for. The retired row this step is really about
       is `Email`; if the seed's shape ever changes, this is the number that moves with it.)

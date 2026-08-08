@@ -36,12 +36,14 @@ beginning, so the periodic fetch would repopulate the table within about ten sec
 Durations of 30, 45 and 60 minutes make every range asserted below a different figure, so no
 assertion can pass against the wrong range.
 
-**The fixture is seeded by `Tests/00-test-setup.md` Step 16, not here**, and unconditionally rather
+**The fixture is seeded by `Tests/00-test-setup.md` Step 8, not here**, and unconditionally rather
 than only when this checklist was requested -- so every run starts from the same categories and the
 Categories tab's row counts are a fixed baseline instead of depending on which checklists someone
 asked for. `08b` accounts for the three extra rows explicitly; its notes say which number is the
-seed's. Insertion order costs nothing: `latestRecordedEvent()` orders by `start_epoch` first, so a
-row dated days ago can never become the history resume position however late it is written.
+seed's. It is seeded into the freshly-created `test.sqlite` **before the app is launched**, so the
+synthetic `device_event` rows take the lowest ids and every real row lands after them -- seeded at
+the end of setup they took the highest ids instead and became "the latest `device_event`", which
+`01b` asserts is the open, growing one.
 
 What this checklist does still do is **restore the three states** in Setup, because `08b` deactivates
 every category but its own while testing the Active partition and does not put them back.
@@ -94,7 +96,7 @@ setting = "display_seconds"
 expect = "true"
 ```
 - [ ] Step 5: Re-establish the fixture's three category states.
-`Tests/00-test-setup.md` Step 16 seeds the rows and their states, but `08b` runs in between and
+`Tests/00-test-setup.md` Step 8 seeds the rows and their states, but `08b` runs in between and
 legitimately deactivates every category except its own (`UPDATE category SET active = 0 ... NOT
 (category_name = 'Email' ...)`) as part of testing the Active partition, and never puts them back.
 So by the time this checklist runs all three fixture categories are retired and the three states it

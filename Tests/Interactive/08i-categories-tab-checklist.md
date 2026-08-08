@@ -37,7 +37,7 @@ loaded, and a stale read here would look like the bar never lifting.
 face 8 with that face locked -- which is where `08b`'s Cleanup leaves it. Step 1 confirms it rather
 than assuming.
 
-- [x] **(Claude)** Step 1: Confirm face 8 holds `Break` and is locked.
+- [ ] **(Claude)** Step 1: Confirm face 8 holds `Break` and is locked.
       If it does not, `08b` Scenario I's Step 1 is the statement that puts it back.
 ```toml step
 [[actions]]
@@ -50,7 +50,7 @@ action = "sql_query"
 query = "SELECT category_name FROM category WHERE category_id = (SELECT category_id FROM face WHERE face_id = 8);"
 expect = "Break"
 ```
-- [x] **(You)** Step 2: Flip the cube to the **Break** face (face 8) and leave it there.
+- [ ] **(You)** Step 2: Flip the cube to the **Break** face (face 8) and leave it there.
       The Faces tab only offers the lock control for the face on top, so this is what makes it
       reachable at all.
 ```toml step
@@ -59,7 +59,7 @@ query = "SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMI
 expect = "8"
 timeout_seconds = 120
 ```
-- [x] **(Claude)** Step 3: Open Settings on the Categories tab and confirm `Break`'s Active box is
+- [ ] **(Claude)** Step 3: Open Settings on the Categories tab and confirm `Break`'s Active box is
       dead.
       Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). `Break`
       sorts first among the active rows, so it is `checkbox 1`.
@@ -84,13 +84,13 @@ tell application "System Events"
 end tell'''
 expect_contains = "Break=false"
 ```
-- [x] **(Claude)** Step 4: Switch to the Faces tab.
+- [ ] **(Claude)** Step 4: Switch to the Faces tab.
       [Method: Number 10](../Methods.md#method-10).
 ```toml step
 use = "method-10"
 tab = "Faces"
 ```
-- [x] **(You)** Step 5: Click the **lock toggle** over the top-left of the drawn device to unlock
+- [ ] **(You)** Step 5: Click the **lock toggle** over the top-left of the drawn device to unlock
       face 8.
       A hand rather than a script: no checklist drives a control inside the Faces tab yet, so the
       lock toggle has no established accessibility path, and a guessed one would fail here as a
@@ -102,7 +102,7 @@ query = "SELECT locked FROM face WHERE face_id = 8;"
 expect = "0"
 timeout_seconds = 120
 ```
-- [x] **(Claude)** Step 6: Back on the Categories tab, confirm `Break`'s Active box is now live.
+- [ ] **(Claude)** Step 6: Back on the Categories tab, confirm `Break`'s Active box is now live.
       No relaunch and no re-read between the unlock and this: the box is driven by published state,
       which is the whole reason it can answer at all.
 ```toml step
@@ -122,7 +122,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "Break=true"
 ```
-- [x] **(Claude)** Step 7: Retire `Break` from that box; confirm face 8 goes back to `Unassigned`.
+- [ ] **(Claude)** Step 7: Retire `Break` from that box; confirm face 8 goes back to `Unassigned`.
       The retire the lock was barring, now that it is not.
 ```toml step
 [[actions]]
@@ -147,14 +147,14 @@ action = "sql_query"
 query = "SELECT active FROM category WHERE category_name = 'Break';"
 expect = "0"
 ```
-- [x] **(You)** Step 8: Confirm the cube's top face is now unlit.
+- [ ] **(You)** Step 8: Confirm the cube's top face is now unlit.
       Face 8 has no category, so it has no colour, and an unassigned face is the LED off rather than
       whatever it was showing. This is the only step where the clear is visible on the hardware.
 ```toml step
 action = "ask_user"
 prompt = "Is the cube's top face (Break) now unlit?"
 ```
-- [x] **(Claude)** Step 9: Put `Break` back on its locked face and restart the app.
+- [ ] **(Claude)** Step 9: Put `Break` back on its locked face and restart the app.
       The Interactive checklists after this one expect the stickered faces to mean what the stickers
       say. The restart is not tidiness: the restore is SQL, and a running app carries face and lock
       state in memory, so without it the next checklist inherits a window still showing `Break`
