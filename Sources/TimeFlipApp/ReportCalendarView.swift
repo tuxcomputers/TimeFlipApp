@@ -188,14 +188,16 @@ struct ReportCalendarView: View {
         // Every row of the grid would otherwise take a focus ring as the tab gains focus, reading as
         // a selection rather than as keyboard focus -- the same treatment the Faces tab's list gets.
         .focusEffectDisabled()
-        // NOTE: this label does not currently reach the accessibility layer, and neither does the
-        // month arrows' one. Measured 2026-08-08 against the running app: every cell arrives with
-        // no AXTitle, AXDescription or AXValue at all, so a date announces as a bare "button" --
-        // worse than the system picker this replaced, which named its dates. The common factor is
-        // `.buttonStyle(.plain)`; `.accessibilityElement(children: .ignore)` was tried and is worse
-        // still, replacing the button role with AXUnknown while the name stays absent. Left in
-        // place because it is correct as written and costs nothing, but it is not working. See the
-        // Report section of docs/TODO-features-under-development.md.
+        // The full date rather than the day number: "Monday, 3 August 2026" says which cell this is
+        // without the surrounding grid, which a screen reader has no way to convey. Verified against
+        // the running app on 2026-08-08 -- the cell carries it as AXDescription.
+        //
+        // Do **not** conclude from System Events that this is missing. AppleScript reads
+        // `description` on these as the role ("button") and omits AXDescription from `attributes of`
+        // altogether, which reads exactly like an unlabelled control; querying the accessibility API
+        // directly returns the date. That misreading is also why the device checklist addresses day
+        // cells by index (Tests/Methods.md, Method 28) -- not because they are unnamed, but because
+        // the runner's AppleScript cannot see the name.
         .accessibilityLabel(Self.accessibleDay(day, calendar: calendar, locale: locale))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }

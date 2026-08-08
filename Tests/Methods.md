@@ -760,10 +760,18 @@ tell application "System Events"
 end tell"""
 ```
 
-**The calendars are addressed by index, not by name.** Every day cell and both month arrows reach
-the accessibility layer with no `AXTitle`, `AXDescription` or `AXValue` at all (measured 2026-08-08;
-see the Report section of `docs/TODO-features-under-development.md`), so there is nothing to match
-`whose description is ...` against. The indices are stable by construction rather than by luck: each
+**The calendars are addressed by index, not by name** -- because AppleScript cannot see their
+names, not because they lack them. The day cells and month arrows are properly labelled
+(`AXDescription` = `Monday, 3 August 2026`, `Previous month`), confirmed on 2026-08-08 by querying
+the accessibility API directly. System Events disagrees, and misleadingly: `description` on these
+reads back as the role (`button`) and `attributes of` omits `AXDescription` entirely, so from
+AppleScript they look unlabelled. Nothing here can match `whose description is ...`, so index it is.
+
+Worth knowing before filing an accessibility bug against any SwiftUI control on this evidence: a
+missing name in System Events is not a missing name. `AXAttributedDescription` also exists on these
+and cannot be read from AppleScript at all -- the AppleEvent handler simply fails.
+
+The indices are stable by construction rather than by luck: each
 calendar contributes exactly 2 arrow buttons then 42 day cells, in reading order, and the grid is
 always six weeks whatever the month. So within `group 1 of group 1 of window "TimeFlip Settings"`:
 
