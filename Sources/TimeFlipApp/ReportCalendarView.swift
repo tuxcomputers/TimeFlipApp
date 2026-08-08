@@ -192,28 +192,30 @@ struct ReportCalendarView: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    /// The selected span's background, drawn as one continuous bar rather than a row of separate
-    /// blobs: square where the range carries on into the next cell, rounded only where a run ends.
+    /// The selected span's background: one continuous fill, rounded **only** at the range's own two
+    /// ends and square everywhere else.
     ///
-    /// A run ends at either end of the range and at both edges of a week, since a span crossing a
-    /// week boundary stops at the edge of the grid and picks up on the line below. `leading`/
-    /// `trailing` rather than left/right, so a right-to-left layout -- where the grid itself flips
-    /// -- rounds the visually-correct ends.
+    /// It deliberately does not round where a row ends. Doing that put a corner on the right of one
+    /// week and on the left of the next, and since the weeks stack directly on top of each other
+    /// those corners met as a notch running down both edges of a multi-week range -- the fill read
+    /// as a stack of separate pills rather than one span. Squaring every internal edge is what lets
+    /// the rows meet flush.
+    ///
+    /// `leading`/`trailing` rather than left/right, so a right-to-left layout -- where the grid
+    /// itself flips -- rounds the visually-correct ends.
     ///
     /// Tinted from the accent colour rather than a literal blue: macOS lets the accent colour be
     /// changed system-wide, and an opacity composites over whatever is behind it, so this follows
     /// that choice and adapts to light and dark without a second palette.
     @ViewBuilder private func rangeFill(_ day: Date) -> some View {
         let radius = metrics.dayCornerRadius
-        let startsRun = ReportCalendarGrid.isSameDay(day, emphasised.lowerBound, calendar: calendar)
-            || ReportCalendarGrid.isFirstColumn(day, calendar: calendar)
-        let endsRun = ReportCalendarGrid.isSameDay(day, emphasised.upperBound, calendar: calendar)
-            || ReportCalendarGrid.isLastColumn(day, calendar: calendar)
+        let isRangeStart = ReportCalendarGrid.isSameDay(day, emphasised.lowerBound, calendar: calendar)
+        let isRangeEnd = ReportCalendarGrid.isSameDay(day, emphasised.upperBound, calendar: calendar)
         UnevenRoundedRectangle(
-            topLeadingRadius: startsRun ? radius : 0,
-            bottomLeadingRadius: startsRun ? radius : 0,
-            bottomTrailingRadius: endsRun ? radius : 0,
-            topTrailingRadius: endsRun ? radius : 0
+            topLeadingRadius: isRangeStart ? radius : 0,
+            bottomLeadingRadius: isRangeStart ? radius : 0,
+            bottomTrailingRadius: isRangeEnd ? radius : 0,
+            topTrailingRadius: isRangeEnd ? radius : 0
         )
         .fill(Color.accentColor.opacity(SettingsLayoutConstants.Report.rangeTintOpacity))
     }
