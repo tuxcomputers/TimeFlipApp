@@ -81,8 +81,11 @@ final class ReportCalendarMetricsTests: XCTestCase {
         let metrics = ReportCalendarMetrics(cellSize: 28)
 
         XCTAssertEqual(metrics.dayFontSize, 12)
+        XCTAssertEqual(metrics.weekdayFontSize, 11)
         XCTAssertEqual(metrics.monthTitleFontSize, 13)
         XCTAssertEqual(metrics.arrowSize, 20)
+        XCTAssertEqual(metrics.arrowFontSize, 11)
+        XCTAssertEqual(metrics.dayCornerRadius, 5)
         XCTAssertEqual(metrics.gridWidth, 196)
     }
 

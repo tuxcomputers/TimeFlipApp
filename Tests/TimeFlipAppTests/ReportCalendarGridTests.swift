@@ -144,6 +144,18 @@ final class ReportCalendarGridTests: XCTestCase {
         XCTAssertEqual(ymd(shown, calendar), "2026-08-01")
     }
 
+    func testADisplayedMonthAfterTheBoundsIsPulledBackToTheLatestMonth() {
+        // The symmetric case to the one above: a selection past the upper bound (e.g. the From
+        // calendar left displaying a future month once "today" moves backwards under it) must clamp
+        // down to the latest reachable month, not just the earliest.
+        let calendar = mondayFirst
+        let allowed = date(2026, 8, 5, calendar: calendar)...date(2026, 8, 8, calendar: calendar)
+
+        let shown = ReportCalendarGrid.displayableMonth(for: date(2026, 12, 25, calendar: calendar), within: allowed, calendar: calendar)
+
+        XCTAssertEqual(ymd(shown, calendar), "2026-08-01")
+    }
+
     func testAnInRangeSelectionKeepsItsOwnMonth() {
         let calendar = mondayFirst
         let allowed = date(2026, 1, 1, calendar: calendar)...date(2026, 8, 8, calendar: calendar)
