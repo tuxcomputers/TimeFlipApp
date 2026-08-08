@@ -427,8 +427,11 @@ def act_wait_for_sql(spec, ctx):
         # Grace period elapsed and still nothing -- now it's worth a person's attention. Said
         # once, not repeated: a wait can run for minutes (an indefinite one until the developer
         # acts), and re-printing the banner would just push the step it asks about off the screen.
+        # Routed through _announce rather than called directly: if this step's actions already
+        # put up the banner for an earlier ask_user, _announce prints just the nudge instead of a
+        # second banner underneath the first.
         if prompt and not alerted and time.time() - started >= alert_after:
-            print_action_required(prompt, header=ctx.get("step_header"))
+            _announce(prompt, ctx)
             alerted = True
     expected_desc = str(expect) if expect is not None else f"contains {expect_contains}"
     return StepResult(
