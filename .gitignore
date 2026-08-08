@@ -12,3 +12,4 @@ config.auth.json
 /Tests/Bench/device_register_snapshot.json
 /logs/
 __pycache__/
+.claude/

@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 Covers the menu bar's day figure being a **category** total rather than a face total: the number
 drawn beside the activity name, and the `daily_limit` tested against it, both key off
@@ -124,15 +124,18 @@ Every leftover of an abandoned run is dropped first, so re-running this scenario
 and the synthetic events have to go with it. They are placed relative to the anchor, which moves
 between runs, so a stale pair would not collide on `UN1_device_event`; it would simply still sit
 inside today's window and silently double the total Step 8 asserts. (Confirmed on 2026-08-05, when a
-resumed run would otherwise have measured 2:00:00.)
+resumed run would otherwise have measured 2:00:00.) `900101`/`900102` are this checklist's own
+numbers, kept clear of the shared setup fixture's `900001`-`900003`, because both the drop here and
+the teardown in Scenario C delete by event number and would otherwise take another checklist's
+fixture with them.
 ```toml step
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900001, 900002));"
+query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900101, 900102));"
 
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM device_event WHERE event_number IN (900001, 900002);"
+query = "DELETE FROM device_event WHERE event_number IN (900101, 900102);"
 
 [[actions]]
 action = "sql_exec"
@@ -173,15 +176,15 @@ time-entry sweep treats them as already converted and doesn't write a second ent
 ```toml step
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900001, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $anchor_epoch - 5400, 'unixepoch', 'localtime'), (SELECT timezone_id FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), $anchor_epoch - 5400, 1200.0, 0, 1, 1;"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900101, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $anchor_epoch - 5400, 'unixepoch', 'localtime'), (SELECT timezone_id FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), $anchor_epoch - 5400, 1200.0, 0, 1, 1;"
 
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900002, 1, 8, strftime('%Y-%m-%dT%H:%M:%S', $anchor_epoch - 3600, 'unixepoch', 'localtime'), (SELECT timezone_id FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), $anchor_epoch - 3600, 2400.0, 0, 1, 1;"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900102, 1, 8, strftime('%Y-%m-%dT%H:%M:%S', $anchor_epoch - 3600, 'unixepoch', 'localtime'), (SELECT timezone_id FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1), $anchor_epoch - 3600, 2400.0, 0, 1, 1;"
 
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT $test_category_id, device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number IN (900001, 900002);"
+query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT $test_category_id, device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number IN (900101, 900102);"
 
 [[actions]]
 action = "sql_query"
@@ -285,11 +288,11 @@ Ordered entry-then-event-then-category so no foreign key is ever left dangling.
 ```toml step
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900001, 900002));"
+query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900101, 900102));"
 
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM device_event WHERE event_number IN (900001, 900002);"
+query = "DELETE FROM device_event WHERE event_number IN (900101, 900102);"
 
 [[actions]]
 action = "sql_exec"
@@ -309,7 +312,7 @@ phase starts from the device's own record rather than an invented one.
 ```toml step
 [[actions]]
 action = "sql_query"
-query = "SELECT COUNT(*) FROM device_event WHERE event_number IN (900001, 900002);"
+query = "SELECT COUNT(*) FROM device_event WHERE event_number IN (900101, 900102);"
 expect = "0"
 
 [[actions]]

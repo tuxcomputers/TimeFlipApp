@@ -141,6 +141,11 @@ final class AppState: ObservableObject {
     // Developer mode: true once config.json has been found and read (see the "Developer mode"
     // section below and DeveloperConfigStore.swift). Remove together with that section.
     @Published private(set) var isDeveloperConfigLoaded: Bool = false
+    /// Developer mode: the PIN `config.json` holds, if any. Read at launch and offered as a
+    /// **pairing candidate only** (see `ApplicationDelegate.onDeviceSelectedForPairing`) -- it is
+    /// deliberately not the password this app connects with, so a stale entry in that file cannot
+    /// lock a dev build out of a cube it has already rotated. Remove with the dev-mode section.
+    private(set) var developerConfigDevicePassword: String?
     // Which physical database this launch opened -- "production" or "test" (see
     // AppDataStore.loadDbType()). Fixed for the session; set once at launch by ApplicationDelegate.
     // Surfaced at the far left of the menu bar in developer mode only, so a developer can't mistake
@@ -357,12 +362,27 @@ final class AppState: ObservableObject {
         DeveloperMode.isEnabled && isDeveloperConfigLoaded
     }
 
+    /// Note what `config.json`'s PIN is without letting it become `devicePassword`.
+    ///
+    /// It used to be assigned straight over the password set in `init`, and that is what made
+    /// 2026-08-08's run of `03b` unrecoverable: the file still said `000000` from the 2026-08-01
+    /// write-back bug, pairing rotated the cube to `DeveloperMode.devicePassword`, and every launch
+    /// afterwards presented `000000` and was refused (`Login rejected, code=0x01`) forever, because
+    /// connecting deliberately never guesses a second password. Nothing is written down in dev mode
+    /// (see `persistDevicePassword`), so the only thing keeping the two ends in agreement across a
+    /// restart is that a dev build starts on the same constant it rotates to -- which this
+    /// assignment quietly broke.
+    ///
+    /// The PIN is still honoured where guessing is legitimate: pairing tries it after the factory
+    /// default and the dev constant. A cube left on some other custom PIN therefore needs a re-pair
+    /// rather than a plain reconnect, which is the same answer the app already gives for any device
+    /// whose password it has lost track of.
     private func applyDeveloperConfig() {
         guard let config = developerConfigStore.load() else { return }
         isDeveloperConfigLoaded = true
         googleClientID = config.googleClientID ?? googleClientID
         googleClientSecret = config.googleClientSecret ?? googleClientSecret
-        devicePassword = config.devicePassword ?? devicePassword
+        developerConfigDevicePassword = config.devicePassword
     }
 
     /// Writes the Google keys back to `config.json`, **passing the PIN through from whatever is

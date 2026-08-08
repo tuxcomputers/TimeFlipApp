@@ -129,6 +129,29 @@ enum SettingsLayoutConstants {
         static let iconBackgroundCornerRadius: CGFloat = 6
     }
 
+    enum Report {
+        // The gap between the two calendars, and around the tab's content. Matches the Faces tab's
+        // section spacing so the two tabs sit at the same rhythm.
+        static let pickerSpacing: CGFloat = 12
+        static let padding: CGFloat = 12
+        // Between a calendar's title and the grid under it.
+        static let titleSpacing: CGFloat = 4
+        // The hand-drawn month calendar (see ReportCalendarView). Its cell and font sizes are not
+        // here: the calendars span the window, so they are derived from the width the tab is given
+        // (ReportCalendarMetrics). Only what sits *around* the grids is fixed, since that is what
+        // the derivation subtracts before dividing the rest into columns.
+        static let monthTitleMinimumScale: CGFloat = 0.7
+        // The fill behind the days between the start and the end, as a fraction of the accent
+        // colour. Faint enough that the two solid endpoints still lead, strong enough to read on the
+        // white the calendar sits on -- the app's other (unused) selection tint at 0.12 was too
+        // faint at this cell size. Weight is kept on those days as well: a tint is the first thing
+        // lost to a colour-vision difference or a high-contrast setting, so it is a second signal
+        // for the span rather than the only one.
+        static let rangeTintOpacity: CGFloat = 0.15
+        static let calendarPadding: CGFloat = 8
+        static let calendarRowSpacing: CGFloat = 4
+    }
+
     enum CategoryList {
         // Fixed so every row's colour square lines up at the same x position regardless of how
         // long that row's category name is -- a plain Text(name) with no width sizes to its own
