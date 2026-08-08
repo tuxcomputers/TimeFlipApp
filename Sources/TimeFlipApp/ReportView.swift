@@ -223,6 +223,9 @@ private struct ReportRow: View {
                 width: SettingsLayoutConstants.FaceList.iconBackgroundSize,
                 height: SettingsLayoutConstants.FaceList.iconBackgroundSize
             )
+            // Decorative: the colour/icon swatch adds nothing VoiceOver can say that the name
+            // beside it doesn't already cover.
+            .accessibilityHidden(true)
 
             Text(name)
 
@@ -235,5 +238,8 @@ private struct ReportRow: View {
         }
         .frame(height: SettingsLayoutConstants.faceRowHeight)
         .padding(.horizontal, SettingsLayoutConstants.FaceList.horizontalPadding)
+        // Combined into one element so VoiceOver reads "name, duration" as a single stop rather
+        // than landing on the name and the duration as two separate swipes.
+        .accessibilityElement(children: .combine)
     }
 }
