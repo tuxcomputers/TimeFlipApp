@@ -183,4 +183,27 @@ final class CategoryTotalsReportTests: XCTestCase {
 
         XCTAssertTrue(totals(store, from: -1, to: 10_000).isEmpty)
     }
+
+    // MARK: - a category's history outlives its current state
+
+    func testARetiredCategorysHistoricalTimeStillTotals() throws {
+        // The report shows time, not current categories: retiring a category is a promise its
+        // history still counts (see ReportView's own documentation). loadCategoryTotals's join on
+        // `time_entry` skips the `active` flag entirely to keep that promise -- this pins the SQL
+        // shape directly, rather than relying only on the device checklist (11b) to notice a
+        // regression here.
+        let store = AppDataStore(databaseURL: databaseURL)
+        record(store, event: 1, face: 2, offset: 0, duration: 600)
+        record(store, event: 2, face: 8, offset: 600, duration: 60)
+
+        let meetingID = try XCTUnwrap(store.loadCategories().first { $0.name == "Meeting" }?.id)
+        // Face 2 is seeded locked (database/008_face.sql), and the app refuses to retire a category
+        // a locked face still holds -- unlock it first, the route the app's own error prescribes.
+        store.updateFaceLocked(faceID: 2, locked: false)
+        XCTAssertTrue(store.updateCategoryActive(categoryID: meetingID, isActive: false))
+
+        let rows = totals(store, from: -1, to: 1_000)
+
+        XCTAssertEqual(rows.first { $0.name == "Meeting" }?.seconds, 600, "retiring must not drop its history")
+    }
 }
