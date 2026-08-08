@@ -138,19 +138,23 @@ struct ReportCalendarView: View {
 
     @ViewBuilder private var grid: some View {
         let days = ReportCalendarGrid.days(forMonthContaining: month, calendar: calendar)
+        // Built once per grid render and shared by every cell below, rather than one per cell: all
+        // 42 cells in a month use the same calendar/locale, so a fresh DateFormatter per cell was
+        // pure allocation churn on a view that redraws on any AppState change, not just a selection.
+        let accessibilityFormatter = Self.dayAccessibilityFormatter(calendar: calendar, locale: locale)
         VStack(spacing: 0) {
             ForEach(0..<ReportCalendarGrid.weeksShown, id: \.self) { week in
                 HStack(spacing: 0) {
                     ForEach(0..<ReportCalendarGrid.daysPerWeek, id: \.self) { weekday in
                         let day = days[week * ReportCalendarGrid.daysPerWeek + weekday]
-                        dayCell(day)
+                        dayCell(day, accessibilityFormatter: accessibilityFormatter)
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder private func dayCell(_ day: Date) -> some View {
+    @ViewBuilder private func dayCell(_ day: Date, accessibilityFormatter: DateFormatter) -> some View {
         let selectable = allowed.contains(day) || isSelectableEdgeDay(day)
         let isSelected = ReportCalendarGrid.isSameDay(day, selection, calendar: calendar)
         let inMonth = ReportCalendarGrid.isSameMonth(day, month, calendar: calendar)
@@ -198,7 +202,7 @@ struct ReportCalendarView: View {
         // directly returns the date. That misreading is also why the device checklist addresses day
         // cells by index (Tests/Methods.md, Method 28) -- not because they are unnamed, but because
         // the runner's AppleScript cannot see the name.
-        .accessibilityLabel(Self.accessibleDay(day, calendar: calendar, locale: locale))
+        .accessibilityLabel(Self.accessibleDay(day, using: accessibilityFormatter))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -255,13 +259,17 @@ struct ReportCalendarView: View {
         String(calendar.component(.day, from: day))
     }
 
-    private static func accessibleDay(_ day: Date, calendar: Calendar, locale: Locale) -> String {
+    private static func dayAccessibilityFormatter(calendar: Calendar, locale: Locale) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = locale
         formatter.dateStyle = .full
         formatter.timeStyle = .none
-        return formatter.string(from: day)
+        return formatter
+    }
+
+    private static func accessibleDay(_ day: Date, using formatter: DateFormatter) -> String {
+        formatter.string(from: day)
     }
 
     private static func debugMonth(_ date: Date, calendar: Calendar) -> String {
