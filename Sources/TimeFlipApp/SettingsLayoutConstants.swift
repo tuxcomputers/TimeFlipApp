@@ -141,6 +141,13 @@ enum SettingsLayoutConstants {
         // (ReportCalendarMetrics). Only what sits *around* the grids is fixed, since that is what
         // the derivation subtracts before dividing the rest into columns.
         static let monthTitleMinimumScale: CGFloat = 0.7
+        // The fill behind the days between the start and the end, as a fraction of the accent
+        // colour. Faint enough that the two solid endpoints still lead, strong enough to read on the
+        // white the calendar sits on -- the app's other (unused) selection tint at 0.12 was too
+        // faint at this cell size. Weight is kept on those days as well: a tint is the first thing
+        // lost to a colour-vision difference or a high-contrast setting, so it is a second signal
+        // for the span rather than the only one.
+        static let rangeTintOpacity: CGFloat = 0.15
         static let calendarPadding: CGFloat = 8
         static let calendarRowSpacing: CGFloat = 4
     }

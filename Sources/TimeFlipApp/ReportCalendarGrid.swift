@@ -67,6 +67,22 @@ enum ReportCalendarGrid {
         calendar.isDate(lhs, inSameDayAs: rhs)
     }
 
+    /// Whether `day` sits in the grid's first column -- the locale's first weekday.
+    ///
+    /// The selected range is filled as a continuous bar, so it has to be rounded off where a run
+    /// ends and left square where it carries on into the next cell. A row's edges are two of those
+    /// places: a range crossing a week boundary stops at the edge of the grid and resumes on the
+    /// line below, and squaring it there would leave the fill running into nothing.
+    static func isFirstColumn(_ day: Date, calendar: Calendar) -> Bool {
+        calendar.component(.weekday, from: day) == calendar.firstWeekday
+    }
+
+    /// Whether `day` sits in the grid's last column. The other end of `isFirstColumn`.
+    static func isLastColumn(_ day: Date, calendar: Calendar) -> Bool {
+        let lastWeekday = ((calendar.firstWeekday - 1 + daysPerWeek - 1) % daysPerWeek) + 1
+        return calendar.component(.weekday, from: day) == lastWeekday
+    }
+
     /// The month `months` away from the one shown, or `nil` when that month holds no selectable day.
     ///
     /// This is what stops the calendar paging into a month where everything is greyed out: a month

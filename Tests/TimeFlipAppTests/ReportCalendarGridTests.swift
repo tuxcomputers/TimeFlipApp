@@ -89,6 +89,40 @@ final class ReportCalendarGridTests: XCTestCase {
         XCTAssertEqual(ymd(days[0], calendar), "2026-06-01")
     }
 
+    // MARK: - where the range bar rounds off
+
+    func testTheColumnEdgesFollowTheLocalesFirstWeekday() {
+        // The selected span is filled as a continuous bar, squared where it carries on and rounded
+        // where a run ends. A week's edges are two of those places, and which days those are depends
+        // entirely on where the locale starts its week.
+        let monday = mondayFirst
+        let sunday = sundayFirst
+        // 3 Aug 2026 is a Monday, 9 Aug the Sunday that ends that week.
+        let mon = date(2026, 8, 3, calendar: monday)
+        let sun = date(2026, 8, 9, calendar: monday)
+
+        XCTAssertTrue(ReportCalendarGrid.isFirstColumn(mon, calendar: monday))
+        XCTAssertTrue(ReportCalendarGrid.isLastColumn(sun, calendar: monday))
+        // The same two days sit elsewhere in a Sunday-first week.
+        XCTAssertFalse(ReportCalendarGrid.isFirstColumn(mon, calendar: sunday))
+        XCTAssertFalse(ReportCalendarGrid.isLastColumn(sun, calendar: sunday))
+        XCTAssertTrue(ReportCalendarGrid.isFirstColumn(sun, calendar: sunday), "Sunday opens a Sunday-first week")
+    }
+
+    func testExactlyOneDayPerWeekOpensAndClosesTheRow() {
+        // Guards the modular arithmetic in isLastColumn: an off-by-one there would round the bar in
+        // the wrong place, or nowhere, and only be visible on a range that spans a week boundary.
+        for firstWeekday in 1...7 {
+            let calendar = makeCalendar(firstWeekday: firstWeekday)
+            let week = ReportCalendarGrid.days(forMonthContaining: date(2026, 8, 15, calendar: calendar), calendar: calendar).prefix(7)
+
+            XCTAssertEqual(week.filter { ReportCalendarGrid.isFirstColumn($0, calendar: calendar) }.count, 1)
+            XCTAssertEqual(week.filter { ReportCalendarGrid.isLastColumn($0, calendar: calendar) }.count, 1)
+            XCTAssertTrue(ReportCalendarGrid.isFirstColumn(week.first!, calendar: calendar), "the row opens on its first cell")
+            XCTAssertTrue(ReportCalendarGrid.isLastColumn(week.last!, calendar: calendar), "and closes on its last")
+        }
+    }
+
     // MARK: - month navigation
 
     func testTheForwardArrowStopsAtTheMonthHoldingTheLastSelectableDay() {

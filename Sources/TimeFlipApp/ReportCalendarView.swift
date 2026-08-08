@@ -168,9 +168,17 @@ struct ReportCalendarView: View {
                     height: metrics.cellSize
                 )
                 .background {
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: metrics.dayCornerRadius)
-                            .fill(Color.accentColor)
+                    ZStack {
+                        // The span first, the picked day on top of it: a tint for "inside the
+                        // range", solid for "the date this calendar sets", so the two ends stay
+                        // distinguishable from the days between them.
+                        if isEmphasised(day) {
+                            rangeFill(day)
+                        }
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: metrics.dayCornerRadius)
+                                .fill(Color.accentColor)
+                        }
                     }
                 }
                 .contentShape(Rectangle())
@@ -182,6 +190,32 @@ struct ReportCalendarView: View {
         .focusEffectDisabled()
         .accessibilityLabel(Self.accessibleDay(day, calendar: calendar, locale: locale))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// The selected span's background, drawn as one continuous bar rather than a row of separate
+    /// blobs: square where the range carries on into the next cell, rounded only where a run ends.
+    ///
+    /// A run ends at either end of the range and at both edges of a week, since a span crossing a
+    /// week boundary stops at the edge of the grid and picks up on the line below. `leading`/
+    /// `trailing` rather than left/right, so a right-to-left layout -- where the grid itself flips
+    /// -- rounds the visually-correct ends.
+    ///
+    /// Tinted from the accent colour rather than a literal blue: macOS lets the accent colour be
+    /// changed system-wide, and an opacity composites over whatever is behind it, so this follows
+    /// that choice and adapts to light and dark without a second palette.
+    @ViewBuilder private func rangeFill(_ day: Date) -> some View {
+        let radius = metrics.dayCornerRadius
+        let startsRun = ReportCalendarGrid.isSameDay(day, emphasised.lowerBound, calendar: calendar)
+            || ReportCalendarGrid.isFirstColumn(day, calendar: calendar)
+        let endsRun = ReportCalendarGrid.isSameDay(day, emphasised.upperBound, calendar: calendar)
+            || ReportCalendarGrid.isLastColumn(day, calendar: calendar)
+        UnevenRoundedRectangle(
+            topLeadingRadius: startsRun ? radius : 0,
+            bottomLeadingRadius: startsRun ? radius : 0,
+            bottomTrailingRadius: endsRun ? radius : 0,
+            topTrailingRadius: endsRun ? radius : 0
+        )
+        .fill(Color.accentColor.opacity(SettingsLayoutConstants.Report.rangeTintOpacity))
     }
 
     /// A day sitting exactly on a bound counts as selectable even when the bound's time of day puts
