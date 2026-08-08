@@ -220,3 +220,68 @@ when = '$needs_history == y'
 action = "ask_user"
 prompt = "Stop flipping and leave the device resting on one face. Is it resting and settled now? (y once it's stopped)"
 ```
+- [x] Step 16: Seed the report fixture -- three categories in three states, with time 3, 4 and 5 days ago
+ -- the shared fixture `Bench/11b` measures. Seeded **here**, unconditionally, so every run starts from the same categories whichever checklists were requested: gating it would make the Categories tab's row counts depend on the requested set, which is worse than a fixed baseline that `08b` can simply account for. The three states are the point rather than repetition -- a report shows *time*, not *current* categories, so it must include one that has been **retired** (which `loadCategories()` and the Faces list both filter out) and one on **no face** (which a report resolving categories through `face` would drop). Placed an hour after each day's own reset boundary, so each sits wholly inside one app-day; dated days back so nothing the cube records during the run can land in the same range. Durations of 30, 45 and 60 minutes make every range `11b` asserts a different figure. `ZZ Assigned` goes on **face 5**, which carries no sticker and is used by no other checklist, so nothing ever flips to it. `finalised`/`processed` are set so the time-entry sweep treats the events as already converted. Idempotent, since `UN1_category` is unique on name among active rows. No teardown: `test.sqlite` is rebuilt from scratch every run, and these rows are inert elsewhere -- their own categories, and days old, so outside today's window entirely.
+```toml step
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900001, 900002, 900003));"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM device_event WHERE event_number IN (900001, 900002, 900003);"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE category_name IN ('ZZ Assigned', 'ZZ NoFace', 'ZZ Retired'));"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM category WHERE category_name IN ('ZZ Assigned', 'ZZ NoFace', 'ZZ Retired');"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO category (category_name, active, daily_limit) VALUES ('ZZ Assigned', 1, 0), ('ZZ NoFace', 1, 0), ('ZZ Retired', 1, 0);"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = (SELECT category_id FROM category WHERE category_name = 'ZZ Assigned') WHERE face_id = 5;"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE category SET active = 0 WHERE category_name = 'ZZ Retired';"
+
+[[actions]]
+action = "sql_query"
+query = "WITH r AS (SELECT CAST(json_extract(setting_value,'$.hour') AS INT) h, CAST(json_extract(setting_value,'$.minute') AS INT) m FROM setting WHERE setting_name='daily_reset_time'), t AS (SELECT CAST(strftime('%s', date('now','localtime') || ' ' || substr('0'||h,-2) || ':' || substr('0'||m,-2) || ':00', 'utc') AS INT) AS today_reset FROM r) SELECT CASE WHEN CAST(strftime('%s','now') AS INT) >= today_reset THEN today_reset ELSE today_reset - 86400 END FROM t;"
+capture = "seed_window_start"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900001, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 432000 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 432000 + 3600, 1800.0, 0, 1, 1;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900002, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 345600 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 345600 + 3600, 2700.0, 0, 1, 1;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900003, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 259200 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 259200 + 3600, 3600.0, 0, 1, 1;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT (SELECT category_id FROM category WHERE category_name = 'ZZ Assigned'), device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number = 900001;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT (SELECT category_id FROM category WHERE category_name = 'ZZ NoFace'), device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number = 900002;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT (SELECT category_id FROM category WHERE category_name = 'ZZ Retired'), device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number = 900003;"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired')) || '/' || (SELECT active FROM category WHERE category_name='ZZ Retired') || '/' || (SELECT COUNT(*) FROM face WHERE category_id = (SELECT category_id FROM category WHERE category_name='ZZ Assigned'));"
+expect = "8100/0/1"
+```

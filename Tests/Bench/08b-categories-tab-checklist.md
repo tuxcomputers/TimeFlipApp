@@ -383,6 +383,11 @@ tab = "Categories"
 - [x] Step 2: Expand the Inactive section.
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
+      (Note: the count includes `ZZ Retired`, one of the three categories `Tests/00-test-setup.md`
+      Step 16 seeds for the report checklist. That fixture is seeded on every run rather than only
+      when the report checklist was requested, precisely so this number is a fixed baseline instead
+      of depending on which checklists someone asked for. The retired row this step is really about
+      is `Email`; if the seed's shape ever changes, this is the number that moves with it.)
 ```toml step
 action = "applescript"
 script = '''
@@ -394,7 +399,7 @@ tell application "System Events"
         return "inactive_rows=" & ((count of checkboxes of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "inactive_rows=1"
+expect_contains = "inactive_rows=2"
 ```
 - [x] Step 3: Tick the retired `Email` row's Active box; confirm the refusal alert.
 ```toml step
@@ -784,7 +789,7 @@ tell application "System Events"
         return "active_rows=" & ((count of checkboxes of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "active_rows=1"
+expect_contains = "active_rows=3"
 ```
 
 ## Scenario H -- the daily limit commits like every other stepper
@@ -961,8 +966,10 @@ use = "method-24.d"
 tag = "face-clear"
 expect_contains = "face 3 back to Unassigned"
 ```
-- [x] Step 6: Confirm the two locked-face rows are all that is left in the Active section.
-      The retired row moved to Inactive, and neither category on a locked face went with it.
+- [x] Step 6: Confirm the two locked-face rows survived the retire.
+      The retired row moved to Inactive, and neither category on a locked face went with it. The
+      count is **4**, not 2: `ZZ Assigned` and `ZZ NoFace`, seeded active by `Tests/00-test-setup.md`
+      Step 16, are in this section too and are not what this step is about.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -972,7 +979,7 @@ tell application "System Events"
         return "active_rows=" & ((count of checkboxes of group 1 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "active_rows=2"
+expect_contains = "active_rows=4"
 
 [[actions]]
 action = "sql_query"
