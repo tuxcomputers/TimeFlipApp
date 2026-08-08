@@ -150,6 +150,43 @@ final class ReportDateRangeTests: XCTestCase {
         XCTAssertLessThanOrEqual(earliestEnd, latest, "picking today as the start must not invert the end's range")
     }
 
+    // MARK: - a day boundary crossing daylight saving
+
+    /// The fixed UTC `calendar` above makes every other test's arithmetic deterministic, but it
+    /// can't exercise a real DST transition -- the production call site (`ReportView.reload()`)
+    /// uses `Calendar.current`, which does observe one. `bounds`' `calendar.date(byAdding: .day,
+    /// value: 1, ...)` is Calendar-based day arithmetic, not a fixed `+86400` seconds -- exactly the
+    /// distinction that only shows up crossing a transition.
+    func testTheDayBoundaryIsCorrectAcrossASpringForwardTransition() throws {
+        var eastern = Calendar(identifier: .gregorian)
+        eastern.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        // 2026's US spring-forward is 2026-03-08 (clocks jump 2am -> 3am), so the app-day starting
+        // at the 3am reset on 2026-03-07 is the one that loses an hour to it.
+        var startComponents = DateComponents()
+        startComponents.year = 2026
+        startComponents.month = 3
+        startComponents.day = 7
+        startComponents.hour = 12
+        let start = try XCTUnwrap(eastern.date(from: startComponents))
+
+        let bounds = ReportDateRange.bounds(start: start, end: nil, resetHour: 3, resetMinute: 0, calendar: eastern)
+
+        XCTAssertEqual(
+            eastern.dateComponents([.month, .day, .hour], from: bounds.start),
+            DateComponents(month: 3, day: 7, hour: 3),
+            "the reset hour reads the same on the wall clock regardless of the zone's offset"
+        )
+        XCTAssertEqual(
+            eastern.dateComponents([.month, .day, .hour], from: bounds.end),
+            DateComponents(month: 3, day: 8, hour: 3),
+            "the reset hour reads the same on the wall clock regardless of the zone's offset"
+        )
+        XCTAssertEqual(
+            bounds.end.timeIntervalSince(bounds.start), 23 * TimeConstants.secondsPerHour,
+            "this app-day is genuinely 23 hours long; a fixed +86400s bug would read 24h here"
+        )
+    }
+
     // MARK: - dayStart
 
     func testDayStartPutsTheBoundaryOnThePickedDate() {
