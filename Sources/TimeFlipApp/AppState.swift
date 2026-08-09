@@ -194,6 +194,16 @@ final class AppState: ObservableObject {
     // updates here via setLowBatteryBlinkState(). Deliberately not persisted.
     @Published private(set) var isLowBattery: Bool = false
     @Published private(set) var lowBatteryBlinkPhaseOn: Bool = false
+    /// The duration the menu bar is showing right now, mirrored here for the same reason as the two
+    /// above: the Faces tab is a different view hierarchy and has to show the same figure.
+    ///
+    /// The **string**, not the seconds behind it. That number is the category's tracked time today
+    /// plus the segment still running, clipped to the day window and frozen while paused, and it
+    /// then goes through the `display_seconds` setting -- so a second computation of it somewhere
+    /// else is a second chance to disagree, over a value a user can see in two places at once.
+    /// Pushed by `MenuBarController` on each render, which is already ticking. Deliberately not
+    /// persisted.
+    @Published private(set) var currentDurationText: String = ""
     // Set by MenuBarController.openPreferences() when the app has a better idea of where the user
     // is heading than the tab they last left the window on -- see SettingsTabRules for which cases
     // those are. SettingsRootView consumes and clears it.
@@ -709,6 +719,12 @@ final class AppState: ObservableObject {
     func setLowBatteryBlinkState(isLowBattery: Bool, blinkPhaseOn: Bool) {
         self.isLowBattery = isLowBattery
         self.lowBatteryBlinkPhaseOn = blinkPhaseOn
+    }
+
+    /// Mirrors what the menu bar is showing. Empty when it is showing no duration at all.
+    func setCurrentDurationText(_ text: String) {
+        guard currentDurationText != text else { return }
+        currentDurationText = text
     }
 
     func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {

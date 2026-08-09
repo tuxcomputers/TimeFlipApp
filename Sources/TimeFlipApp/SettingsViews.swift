@@ -289,7 +289,8 @@ private struct PaneSetupView: View {
         let state = ManualTimerRules.state(currentFaceID: appState.currentFaceID, isPaused: appState.isPaused)
         let faceID = TimeFlipConstants.manualFaceID
         return TopFaceEditor(
-            categoryName: state == .idle ? "" : appState.categoryActivity(for: faceID)?.name,
+            // The same line as device mode, for the face on show -- manual mode's face is 13.
+            categoryName: appState.categoryActivity(for: faceID)?.name,
             isLocked: false,
             onToggleLock: nil,
             onTapCentre: ManualTimerRules.isCentreClickable(state) ? {
@@ -299,7 +300,10 @@ private struct PaneSetupView: View {
         ) {
             ManualTimerFaceView(
                 centre: ManualTimerRules.centre(for: state),
-                tint: appState.faceCategoryColour(for: faceID)
+                tint: appState.faceCategoryColour(for: faceID),
+                // The same string the menu bar is showing, mirrored rather than recomputed -- see
+                // `AppState.currentDurationText`.
+                elapsed: appState.currentDurationText
             )
         }
     }
@@ -543,19 +547,37 @@ struct ManualTimerFaceView: View {
     /// not `deviceLineColour`. The latter answers "what reads against the lit device body" and is
     /// white for a dark face, which on the window behind it would be a white icon on white.
     let tint: Color
+    /// The time so far, drawn immediately under the control rather than under the category name --
+    /// it belongs to the thing being started and stopped, so it reads as part of it.
+    let elapsed: String
 
     var body: some View {
         Color.clear
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 GeometryReader { proxy in
-                    FaceCentreView(
-                        centre: centre,
-                        tint: tint,
-                        size: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
-                    )
+                    let size = proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
+                    VStack(spacing: size * Constants.elapsedGapScale) {
+                        FaceCentreView(centre: centre, tint: tint, size: size)
+                            .frame(height: size)
+                        Text(elapsed)
+                            // Monospaced digits: this ticks once a second, and proportional figures
+                            // change width as they go, so a centred line would twitch on every tick.
+                            .font(.system(size: size * Constants.elapsedFontScale, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
             }
+    }
+
+    private enum Constants {
+        /// Both sized off the control rather than fixed, so the pair stays in proportion as the
+        /// window is resized -- the square scales with the column, and a fixed point size would
+        /// crowd the glyph at one width and look stranded at another.
+        static let elapsedFontScale: CGFloat = 0.3
+        static let elapsedGapScale: CGFloat = 0.12
     }
 }
 

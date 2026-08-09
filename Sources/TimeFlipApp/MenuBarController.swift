@@ -313,6 +313,9 @@ final class MenuBarController: NSObject {
         if !force, snapshot == lastSnapshot {
             return
         }
+        // After the early return above, so this only fires when something actually changed rather
+        // than once a second regardless.
+        appState.setCurrentDurationText(duration)
 
         logger.debug("status_update face=\(self.appState.currentFaceID, privacy: .public) paused=\(self.isPaused) start=\(self.activityStartDate?.timeIntervalSince1970 ?? -1) accum=\(self.currentSegmentElapsed) dur=\(self.currentDuration())")
 
@@ -403,6 +406,8 @@ final class MenuBarController: NSObject {
         // reaches a device, which is exactly when someone is most likely to be wondering which
         // database this launch opened, and it would be perverse for the answer to appear only once
         // timing had already started.
+        // No duration is on show, so nothing should be mirroring one to the Faces tab either.
+        appState.setCurrentDurationText("")
         let badge = databaseBadge()
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
         let text = NSMutableAttributedString(
@@ -421,6 +426,7 @@ final class MenuBarController: NSObject {
 
     private func applyConnectingStatus() {
         let title = "Connecting…"
+        appState.setCurrentDurationText("")
         guard let button = statusItem?.button else { return }
         button.image = nil
         button.imagePosition = .noImage
