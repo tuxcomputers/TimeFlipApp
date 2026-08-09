@@ -243,6 +243,19 @@ file should read `0`.
 
 ## CI enforcement
 
-`scripts/check_interactive_checklists.sh` (wired into `.github/workflows/tests.yml`) fails the
-build if any `<feature>-checklist.md` under either `Tests/Bench/` or `Tests/Interactive/` has an
-unchecked (`- [ ]`) item. A PR touching either folder must have it fully ticked before merging.
+`scripts/check_interactive_checklists.sh` (wired into `.github/workflows/tests.yml`) fails the build
+on either of two things, across every `<feature>-checklist.md` under `Tests/Bench/` and
+`Tests/Interactive/`:
+
+- an unchecked (`- [ ]`) item;
+- a `### Last run` heading naming a branch other than the PR's, or missing entirely.
+
+The second is what makes the first mean anything. A tick stays in the file until someone clears it,
+so a branch that changes behaviour and never re-runs the suite arrives with a full set of ticks
+recording the *previous* branch's run. The heading is the only record of whose evidence it is, so
+the whole suite has to be re-run on the branch the PR is for, not just the checklists it edited.
+
+The branch half is PR-only: it compares against `github.head_ref`, which is empty on a push to main,
+and an empty branch skips that half. That is deliberate -- a heading names the feature branch that
+ran it and goes on naming it after the merge, so enforcing it on main would fail every push forever.
+`scripts/ci-local.sh` passes the current branch the same way (and nothing when you're on `main`).

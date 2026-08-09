@@ -29,8 +29,12 @@ jobs:
       - name: Test
         run: swift test
 
+      # `github.head_ref` is the PR's source branch, and is empty on a push to main -- which the
+      # script reads as "no branch to check against" and skips the Last-run half. That is the
+      # behaviour main needs: a checklist's heading names the feature branch that ran it, and goes
+      # on naming it after the merge, so enforcing it on main would fail every push forever.
       - name: Verify interactive test checklists are complete
-        run: ./scripts/check_interactive_checklists.sh
+        run: ./scripts/check_interactive_checklists.sh --branch "${{ github.head_ref }}"
 
   # Only meaningful for pull_request: checks out the PR branch's actual tip commit (not the merge
   # preview above), so a PR that only passes once merged with newer base-branch changes -- but
@@ -56,7 +60,7 @@ jobs:
         run: swift test
 
       - name: Verify interactive test checklists are complete
-        run: ./scripts/check_interactive_checklists.sh
+        run: ./scripts/check_interactive_checklists.sh --branch "${{ github.head_ref }}"
 
   # The one job branch protection should require by name. Individual test jobs above can be
   # renamed, added, or removed freely without ever touching the branch protection setting again --
