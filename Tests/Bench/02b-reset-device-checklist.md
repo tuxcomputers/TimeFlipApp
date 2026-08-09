@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-09 23:25 on the branch 'feature/manualMode'
+### Last run - 2026-08-09 23:53 on the branch 'feature/manualMode'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -33,14 +33,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Confirm `db_type` still reads `{"type":"test"}`
+- [x] Step 1: Confirm `db_type` still reads `{"type":"test"}`
 (left active by `01b-history-refresh-checklist.md`) and the device is connected. If it reads `production`, `01b`'s Setup needs (re-)running first rather than switching databases from here.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [ ] Step 2: Note the device's current event counter as the pre-reset baseline.
+- [x] Step 2: Note the device's current event counter as the pre-reset baseline.
 Query `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a `history` fetch's `device_last_event=`. It must be > 0 -- `01b`'s Setup backfill should already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` -- use `start_epoch`/`start_time` if a time is needed, or omit entirely and just order by `device_event_id DESC`.)
 ```toml step
 use = "method-24.c"
@@ -53,7 +53,7 @@ capture = "n_pre_reset"
 **Preconditions:** test DB active, device paired and connected, the pre-reset baseline noted (> 0)
 noted -- all established immediately above in Setup, which this scenario runs straight on from.
 
-- [ ] Step 1: Open Settings (status-item menu -> "Settings...")
+- [x] Step 1: Open Settings (status-item menu -> "Settings...")
 and switch to the Device tab (selected by name). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
@@ -64,7 +64,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Device"
 ```
-- [ ] Step 2: Click **Reset Device** and confirm the destructive-action dialog.
+- [x] Step 2: Click **Reset Device** and confirm the destructive-action dialog.
  The button is an `AXButton` in the pairing section's `AXGroup`, right of **Forget Device**. [Method: Number 16](../Methods.md#method-16) -- **Cancel** is button 1, **Reset Device** (the destructive confirm) is button 2. (Note: the pairing section shows **Forget/Reset** whenever the app is paired, and a single **Scan for Devices** button when it isn't. Pairing is durable, so after a restart the buttons are there as soon as the window opens rather than waiting on the history backfill -- but the first action below still waits for the Reset button to exist before clicking, since clicking `button 2` when only Scan is present fails with `-1719 Invalid index`.)
 ```toml step
 [[actions]]
@@ -103,6 +103,12 @@ end tell'''
 ```
 - [ ] Step 3: Confirm the reset sequence via `debug_log`
 (`TimeFlip` tag): a `"Factory reset (0xFF) sent; ... awaiting device reboot to confirm via default-password login"` row, then reconnect/login attempts, then `"Factory reset confirmed: device is back on the default password; returning to never-paired state"`.
+      **The wait has to outlast the app's own budget, not the reset's typical duration.**
+      `ApplicationDelegate.factoryResetConfirmTimeout` is 120s, and until it expires the app is still
+      legitimately retrying, so any step budget below it can fail while the feature is working. 150s
+      leaves the app's verdict, either message, as the thing that decides this step.
+      The query matches the give-up line as well, so a genuine failure reports what the app actually
+      concluded instead of `(no rows)`.
 ```toml step
 [[actions]]
 action = "wait_for_sql"
@@ -112,9 +118,9 @@ timeout_seconds = 30
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND (message LIKE 'Factory reset confirmed%' OR message LIKE 'Factory reset NOT confirmed%') AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect_contains = "Factory reset confirmed: device is back on the default password; returning to never-paired state"
-timeout_seconds = 60
+timeout_seconds = 150
 
 [[actions]]
 action = "sql_query"
@@ -123,6 +129,8 @@ capture = "confirmed_id"
 ```
 ### Bugs found and fixed - branch 'feature/manualMode'
 2026-08-09 - The confirm login never presented the default PIN: it was tried *after* the stored one, and a rejected probe drops the link on its way out, so the second attempt failed at connect before sending anything (`refused this app's PIN` then `could not be reached`, same second, no `Probe logging in using password` line). The default now goes first while a reset is pending, and a settle sits between attempts on one peripheral.
+2026-08-09 - This step's 60s wait was shorter than the app's own 120s confirm budget, so it could fail while the reset was still working. Measured this run: reset sent 23:54:05.8, device stopped advertising, back in scan results 23:54:43.5 (37.7s), confirmed 23:55:16.3 (70.5s total, the gap being reconnect backoff, not the device). Raised to 150s, and the query now also matches the give-up line so a real failure reports the app's verdict.
+2026-08-10 - The 70.5s above was mostly the eligibility scan sitting out its full window after it had already found the cube, so that scan now ends as soon as the paired device turns up. That broke this step outright on the first hardware run: a cube keeps advertising, and keeps accepting its pre-reset password, for several seconds after `0xFF` (still listed at +3s, still logging in at +8s), so ending early attached the app to the cube it was waiting to lose, and holding that link stopped it advertising, leaving every later scan empty until the 120s budget ran out. Confirming a reset now waits the window out deliberately (`mayEndEarly: false`). Re-measured after the fix: `0xFF` at 00:31:42.4, confirmed at 00:32:18.1, **35.7s**, one scan window and one probe.
 2026-08-09 - A confirmed reset left `config.json` naming the pre-reset PIN, so the next launch would present a password the wiped cube no longer held; `forgetDevice` now records the factory default there.
 - [ ] Step 4: Confirm the UI reaches the pristine never-paired state.
  During the confirm window the `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...` or `Connected`.

@@ -28,7 +28,7 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Quit the app if it is running, so setup starts from a known down state.
+- [x] Step 1: Quit the app if it is running, so setup starts from a known down state.
 Whatever the previous run left behind stops mattering here. A halt leaves the app up with whatever window it was driving still open, and the steps that close a checklist's Settings window are the ones a halt never reaches, so the next run would inherit it. That instance is also the previous binary: `run_tests.sh` rebuilds before the supervisor starts, and anything already running predates that build. Nothing is lost by quitting: the pre-flight timing gate has already read the live state by the time this runs (it is the supervisor's first act, before any prompt), and every path through this file starts the app again -- recording production history restarts it at Step 5, and the switch to test relaunches it at Step 9. [Method: Number 3](Methods.md#method-3), which no-ops when nothing is running, and polls until the process is really gone rather than trusting the quit event's acknowledgement.
 ```toml step
 use = "method-3"
@@ -265,7 +265,7 @@ use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 15: Build up device history to **≥ 10 events**
+- [x] Step 15: Build up device history to **≥ 10 events**
 -- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it prompts you to flip and polls with **no timeout** -- take as long as you need, it won't fail the run. Confirmed on the test DB (Step 14 above) so real flips record to `test.sqlite`.
 ```toml step
 when = '$needs_history == y'
@@ -276,14 +276,14 @@ prompt = "The history-refresh checklist needs at least 10 device events. Flip th
 timeout_seconds = 0
 poll_interval = 3
 ```
-- [ ] Step 16: Confirm you've **stopped flipping**
+- [x] Step 16: Confirm you've **stopped flipping**
  and the device is resting on one face before any checklist runs -- the ≥10 monitor above returns the instant the count hits 10, which can be mid-flip, so `01b`'s "event count unchanged" scenario would otherwise race a still-climbing counter. Only when history was being built (`needs_history = y`).
 ```toml step
 when = '$needs_history == y'
 action = "ask_user"
 prompt = "Stop flipping and leave the device resting on one face. Is it resting and settled now? (y once it's stopped)"
 ```
-- [ ] Step 17: Confirm the report fixture is in place, and behind everything the run records
+- [x] Step 17: Confirm the report fixture is in place, and behind everything the run records
  -- the three categories and three segments `Bench/11b` measures, seeded back in Step 9. **Seeded there, not here, and the position is the whole point.** These rows are synthetic `device_event`s, and several checklists read *the latest* `device_event` by `device_event_id` -- `01b` Setup asserts it is the open, growing one (`finalised = 0`), and `Method 24.c` hands that row to whoever asks. Seeded at the end of setup they took the highest ids and became that row, failing `01b` with `finalised = 1` (measured 2026-08-08, ids 10-12 against real rows 1-9). Inserted into the freshly-created `test.sqlite` before the app has ever launched, they take ids 1-3 instead and every real row lands after them, so the newest is always a real one. The fixture is three categories in three states -- active on a face, active on no face, and retired -- because a report shows *time*, not *current* categories: it must include one the Faces list and `loadCategories()` both filter out. Durations of 30, 45 and 60 minutes on the days 5, 4 and 3 back make every range `11b` asserts a different figure, and dating them days back keeps them clear of anything the cube records today. No teardown: `test.sqlite` is rebuilt every run. (Note: on a **resume** the database is kept, so Step 9's re-seed re-inserts at whatever ids are free by then -- acceptable, since a resume only re-enters a run whose earlier checklists have already passed.)
 ```toml step
 [[actions]]
@@ -296,7 +296,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1) >= 900000 THEN 'a seeded row is the newest device_event -- it would be read as the live segment' ELSE 'ok' END;"
 expect = "ok"
 ```
-- [ ] Step 18: Retire bug history belonging to another branch, on the checklists this run will cover.
+- [x] Step 18: Retire bug history belonging to another branch, on the checklists this run will cover.
 `Tests/CLAUDE.md`'s rule is that a **Bugs found and fixed** entry belongs to the branch that found
 it, so arriving on a new branch retires it -- and that a checklist this run does not reach keeps
 both its entries and its `Last run` heading exactly as the previous branch left them. This does the
