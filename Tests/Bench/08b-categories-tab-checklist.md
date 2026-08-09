@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-09 22:51 on the branch 'feature/manualMode'
+### Last run - 2026-08-09 23:36 on the branch 'feature/manualMode'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
@@ -209,18 +209,29 @@ The decision behind each is unit-tested. What is checked here is that the alert 
 and offers exactly the choices it should -- in particular that the ambiguous case offers **no**
 reinstate, since the whole point is that it must not pick one for the user.
 
-**Preconditions:** Settings closed by Scenario B; this scenario reopens it. The rows are seeded
-directly: the create control reads the database live rather than the loaded list, so a seeded row
-reaches the alert without reopening the tab.
+**Preconditions:** Settings closed by Scenario B; this scenario reopens it. The active row is made
+**through the Create control**, so the list on screen and the database agree from the start. Only the
+second, retired row is seeded, because no UI can create one: a retired category has to be created and
+then retired, and this scenario needs it retired before the create control is used again.
 
-- [ ] Step 1: Seed one active `Email`, and reopen Settings on the Categories tab.
-      Every `Email` an earlier attempt left is dropped first, so the scenario is idempotent.
-      `UN1_category` is unique on name among **active** rows, so seeding a second active one over
-      the top fails outright with `UNIQUE constraint failed: category.category_name` -- which is
-      exactly what a **resume** produces, since resuming keeps the existing `test.sqlite` rather
-      than rebuilding it, leftover rows and all. Measured on 2026-08-08, resuming into this
-      scenario after a halted run. `Bench/10b` guards its own seed the same way and for the same
-      reason. The faces are cleared first so no foreign key is left pointing at a deleted row.
+- [ ] Step 1: Reopen Settings on the Categories tab and create `Email` from the **Create button**.
+      Every `Email` an earlier attempt left is dropped first, so the scenario is idempotent. That
+      cleanup is the one piece of SQL here, and it is a delete rather than a seed: a leftover active
+      namesake would send the create straight to the dead-end alert of Step 2, so no row would be
+      created and the failure would land a step later than its cause. Resuming produces exactly that,
+      since it keeps the existing `test.sqlite` rather than rebuilding it, leftover rows and all
+      (measured on 2026-08-08, resuming into this scenario after a halted run). The faces are cleared
+      first so no foreign key is left pointing at a deleted row.
+      **Creating it rather than seeding it is what makes the rest of the scenario addressable.** The
+      create path re-reads the list on success (`onCreated` -> `loadCategories()`), so the new row is
+      on screen as well as in the database; a seeded row is only in the database, and Step 3 has to
+      find it by name among the rendered rows.
+      **The pass is the database record.** The window is not asserted on at all here -- the sheet
+      count comes back only so a stray alert is in the transcript -- and `wait_for_sql` confirming
+      exactly one active `Email` is what the step turns on. That way a control that did not take the
+      name fails here, rather than passing and leaving a later step to report a row that was never
+      created.
+      Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
 action = "sql_exec"
@@ -235,23 +246,42 @@ action = "sql_exec"
 query = "DELETE FROM category WHERE category_name = 'Email';"
 
 [[actions]]
-action = "sql_exec"
-query = "INSERT INTO category (category_name, icon_id, colour_id, active) VALUES ('Email', 0, 0, 1);"
-
-[[actions]]
 use = "method-6"
 item = "Settings..."
 
 [[actions]]
 use = "method-10"
 tab = "Categories"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "TimeFlip" to activate
+tell application "System Events"
+    tell process "TimeFlip"
+        click button 1 of group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
+        delay 0.6
+        keystroke "Email"
+        keystroke return
+        delay 1.2
+        return "sheets=" & ((count of sheets of window "TimeFlip Settings") as string)
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT COUNT(*) FROM category WHERE category_name = 'Email' AND active = 1;"
+expect = "1"
+timeout_seconds = 10
 ```
-- [ ] Step 2: Type `Email` and Save; confirm the dead-end alert.
-      An active category already holds the name, so there is nothing to decide and the alert offers
-      no way to create anything: exactly one button, and it only dismisses.
-      (Note: the row this refers to is seeded in Step 1 *before* the window is opened, so it is on
-      screen under **Active** while the alert is up. Step 3 is where the database and the window
-      start to disagree, and where the tab switch that reconciles them lives.)
+- [ ] Step 2: Try to create a **second** `Email`; confirm the dead-end alert.
+      The same control, the same name, one step later: an active category now holds it, so there is
+      nothing to decide and the alert offers no way to create anything -- exactly one button, and it
+      only dismisses. Step 1 passing and this one passing are the two halves of the same control,
+      which is why they read identically apart from what they assert.
+      (Note: the row it collides with was created through this control in Step 1, so it is on screen
+      under **Active** while the alert is up. Step 3 is where the database and the window start to
+      disagree, and where the tab switch that reconciles them lives.)
 ```toml step
 action = "applescript"
 script = '''
@@ -356,6 +386,11 @@ tab = "Device"
 use = "method-10"
 tab = "Categories"
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-09 - This step could not find `Email` among the rendered rows: Step 1 seeded it with SQL and
+reopening Settings did not re-read the list, so the row existed only in the database. Step 1 now
+creates it from the Create control, whose success path re-reads the list, and passes on the database
+record rather than on anything the window says.
 - [ ] Step 4: Type `Email` again; confirm the ambiguous alert names both retired rows.
 ```toml step
 action = "applescript"

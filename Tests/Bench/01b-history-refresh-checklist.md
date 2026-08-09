@@ -1,6 +1,6 @@
 # History Refresh Checklist
 
-### Last run - 2026-08-09 23:04 on the branch 'feature/manualMode'
+### Last run - 2026-08-09 23:25 on the branch 'feature/manualMode'
 
 Covers the periodic/live-event history refresh rework: the cheap last-event check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see
@@ -34,7 +34,7 @@ by `Tests/00-test-setup.md`, which the supervisor always runs first -- and the e
 there precisely because this history-refresh checklist is in the run. This step only checks the one
 extra thing Scenario A relies on.
 
-- [x] Step 1: Confirm the latest `device_event` row is open/growing.
+- [ ] Step 1: Confirm the latest `device_event` row is open/growing.
       (`finalised=0`) -- the actively-open row Scenario A's skip-path check relies on (the device
       is left resting on one face by the setup's flip step).
 ```toml step
@@ -48,7 +48,7 @@ expect = "0"
 **Preconditions:** an already-open, actively-growing `device_event` row -- established by Setup
 immediately above, which this scenario runs straight on from.
 
-- [x] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds`.
+- [ ] Step 1: Note the currently-open `device_event` row's `event_number` and `duration_seconds`.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -60,7 +60,7 @@ action = "sql_query"
 query = "SELECT duration_seconds FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
 capture = "duration_d0"
 ```
-- [x] Step 2: Wait for at least one periodic refresh interval.
+- [ ] Step 2: Wait for at least one periodic refresh interval.
       (`SELECT setting_value FROM setting WHERE setting_name = 'fetch_history_interval_seconds';`)
       without touching the device.
 ```toml step
@@ -73,7 +73,7 @@ capture = "refresh_interval"
 action = "shell"
 command = "sleep 15"
 ```
-- [x] Step 3: Query `debug_log` and confirm a `hist-result` row logged
+- [ ] Step 3: Query `debug_log` and confirm a `hist-result` row logged
 `"history fetch: device event=<event_number> unchanged; DB refreshed"` -- the cheap-check skip path was taken, not a full stream fetch.
 ```toml step
 action = "wait_for_sql"
@@ -81,7 +81,7 @@ query = "SELECT message FROM debug_log WHERE tag='hist-result' ORDER BY debug_lo
 expect_contains = "history fetch: device event=$event_number_d0 unchanged; DB refreshed"
 timeout_seconds = 30
 ```
-- [x] Step 4: Re-query the same `device_event` row.
+- [ ] Step 4: Re-query the same `device_event` row.
       Confirm `event_number` is unchanged but `duration_seconds` increased -- the skip path still
       refreshes the open row's duration.
 ```toml step
@@ -111,7 +111,7 @@ numbers repeat across factory resets, so on a database spanning resets those two
 and the start epoch is what tells the generations apart. It is carried in the log line alongside
 the number for that reason, so the step below asserts both halves.)
 
-- [x] Step 1: Query `device_event` for the newest recorded segment.
+- [ ] Step 1: Query `device_event` for the newest recorded segment.
 That is the position the app resumes from, as `event_number@start_epoch` -- both halves, since the
 resume decision compares the epoch as well as the number.
 ```toml step
@@ -119,7 +119,7 @@ action = "sql_query"
 query = "SELECT event_number || '@' || start_epoch FROM device_event WHERE event_number > 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
 capture = "recorded_c"
 ```
-- [x] Step 2: Quit the app.
+- [ ] Step 2: Quit the app.
 [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
@@ -129,7 +129,7 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 3: Start the app again and confirm reconnect.
+- [ ] Step 3: Start the app again and confirm reconnect.
       Methods: [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
 ```toml step
 [[actions]]
@@ -139,7 +139,7 @@ use = "method-2"
 use = "method-4"
 since_id = "$before_quit_id"
 ```
-- [x] Step 4: Query `debug_log` for the relaunched app's first history fetch
+- [ ] Step 4: Query `debug_log` for the relaunched app's first history fetch
 and confirm it read its resume position out of `device_event` (`recorded_ev=<N>@<epoch>`, matching Step 1) rather than starting from scratch, which would show `recorded_ev=nil`. (Note: matches the first `hist-check` after the restart, deliberately **not** a `trigger=startup` line. The periodic timer starts at launch, so on a slow connect it fires before the startup fetch is reached; the startup call is then coalesced into the one already running and the work is logged under `trigger=periodic`. The resume position is what this step is actually about, and it is the same either way -- confirmed live 2026-07-31, where a 6.4s link plus twelve face-colour writes let the timer win.)
 ```toml step
 action = "wait_for_sql"
