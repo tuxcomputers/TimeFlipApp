@@ -8,8 +8,8 @@ import XCTest
 /// device came back would strand the user. Manual mode is the one state where that reasoning fails,
 /// and it fails quietly -- see `DeviceTabRules` for what each button actually does to a stand-in.
 final class DeviceTabRulesTests: XCTestCase {
-    private func allows(_ status: ConnectionStatus, manual: Bool = false) -> Bool {
-        DeviceTabRules.allowsPairingActions(connectionStatus: status, isManualMode: manual)
+    private func allows(_ status: ConnectionStatus) -> Bool {
+        DeviceTabRules.allowsPairingActions(connectionStatus: status)
     }
 
     func testManualModeSwitchesThemOff() {
@@ -17,15 +17,18 @@ final class DeviceTabRulesTests: XCTestCase {
         // never happened and discards the real cube's stored name and uuid; Forget reports success
         // without sending anything and deletes the PIN this app rotated onto a cube that still
         // wants it. Neither is recoverable without the device in hand.
-        XCTAssertFalse(allows(.disconnected, manual: true))
+        XCTAssertFalse(allows(.manual))
     }
 
-    func testManualModeOutranksEveryConnectionStatus() {
-        // The status manual mode reports is `.disconnected`, but nothing should depend on that: it
-        // is the stand-in answering that makes these unsafe, not which status happens to be set.
+    func testTheOnlyStatusesThatDisableThemAreManualAndPairing() {
+        // Pinned as a set rather than one at a time, because the failure mode is a new case being
+        // added and quietly defaulting to enabled. Both of these have something in the way: a
+        // stand-in that would answer, or an attempt that owns the connection.
         for status in [ConnectionStatus.disconnected, .connected, .reconnecting, .failed(nil), .resetting] {
-            XCTAssertFalse(allows(status, manual: true), "\(status)")
+            XCTAssertTrue(allows(status), "\(status)")
         }
+        XCTAssertFalse(allows(.manual))
+        XCTAssertFalse(allows(.pairing))
     }
 
     func testAnOutOfRangeDeviceCanStillBeForgotten() {

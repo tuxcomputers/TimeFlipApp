@@ -25,9 +25,15 @@ enum DeviceTabRules {
     ///
     /// Both read as ordinary buttons doing ordinary things, and both are unrecoverable without the
     /// cube in hand. Disabled is the only safe answer while there is a stand-in in the way.
-    static func allowsPairingActions(connectionStatus: ConnectionStatus, isManualMode: Bool) -> Bool {
-        if isManualMode { return false }
-        // Mid-pairing: the attempt owns the connection until it resolves.
-        return connectionStatus != .pairing
+    static func allowsPairingActions(connectionStatus: ConnectionStatus) -> Bool {
+        switch connectionStatus {
+        case .manual:
+            return false
+        case .pairing:
+            // The attempt owns the connection until it resolves.
+            return false
+        case .disconnected, .connected, .reconnecting, .resetting, .failed:
+            return true
+        }
     }
 }

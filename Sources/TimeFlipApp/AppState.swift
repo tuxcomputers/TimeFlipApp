@@ -94,10 +94,14 @@ final class AppState: ObservableObject {
     @Published var googleClientSecret: String
     @Published var devicePassword: String
     @Published var pairedDeviceUUID: String?
-    /// Whether the app can reach the paired device right now. **Transient**: it changes on every
-    /// connect, drop, retry and reset, and it means nothing on its own -- a status of `.connected`
-    /// while `isPaired` is false is not a state the app can be in. Read `isConnected` rather than
-    /// comparing this to `.connected` directly, so that gating isn't re-derived at each call site.
+    /// Whether the app can reach the paired device right now, or is timing without one. Also the
+    /// single answer to whether this launch is in manual mode, which is `.manual` and nothing else
+    /// (see `isManualMode`).
+    ///
+    /// **Transient**: it changes on every connect, drop, retry and reset, and for the device cases
+    /// it means nothing on its own -- a status of `.connected` while `isPaired` is false is not a
+    /// state the app can be in. Read `isConnected` rather than comparing this to `.connected`
+    /// directly, so that gating isn't re-derived at each call site.
     @Published var connectionStatus: ConnectionStatus
     @Published var autoPauseMinutes: UInt16
     @Published var deviceInfo: TimeFlipDeviceInfo?
@@ -252,6 +256,10 @@ final class AppState: ObservableObject {
     /// connected to, so this can never be true without it. Everything that needs a live device
     /// (sending pause/lock, showing a battery level, enabling the Device tab's controls) should
     /// ask this rather than either half alone.
+    ///
+    /// A manual session is not this, however live its reading looks: `.manual` is a separate case,
+    /// so everything gated here stays off, which is the answer for anything that ends in a write
+    /// over BLE. What the menu bar draws is a different question, and `MenuBarLiveDisplay`'s.
     var isConnected: Bool {
         isPaired && connectionStatus == .connected
     }
@@ -287,11 +295,16 @@ final class AppState: ObservableObject {
 
     /// Whether the user chose manual mode for this launch.
     ///
-    /// **Deliberately not persisted, and there is nowhere to persist it to.** Quitting and
-    /// restarting the app is the only way out of manual mode (see
-    /// `docs/TODO-features-under-development.md`), so a stored flag would outlive the very restart
-    /// meant to end it and strand a user who quit specifically to get their cube back.
-    @Published private(set) var isManualMode = false
+    /// **Derived, not stored.** It was a flag of its own until `ConnectionStatus.manual` existed,
+    /// and a flag beside the status is two answers to one question: they can disagree, and the
+    /// disagreement that mattered was manual mode running while the status said `.connected` --
+    /// exactly the pair a write guard was once proposed to catch. One enum cannot say both.
+    ///
+    /// Nothing is persisted either, and there is nowhere to persist it to: quitting and restarting
+    /// is the only way out of manual mode (see `docs/TODO-features-under-development.md`), so a
+    /// stored answer would outlive the very restart meant to end it and strand a user who quit
+    /// specifically to get their cube back.
+    var isManualMode: Bool { connectionStatus == .manual }
 
     /// The app has stopped trying and is asking. Nothing may attempt a connection until this is
     /// answered.
@@ -305,10 +318,12 @@ final class AppState: ObservableObject {
     }
 
     /// Manual mode: no further connection attempt this launch, from any path.
+    ///
+    /// The status *is* the mode, so this one assignment both records the choice and closes the gate
+    /// on every attempt path. There is no matching `leaveManualMode()`, on purpose.
     func enterManualMode() {
         isAwaitingManualModeDecision = false
-        isManualMode = true
-        connectionStatus = .disconnected
+        connectionStatus = .manual
     }
 
     init(
@@ -1145,9 +1160,11 @@ final class AppState: ObservableObject {
     }
 }
 
-/// Whether the app can currently reach the device it is paired to, and what it is doing about it.
-/// Every case is transient -- see `AppState.isPaired` for the durable half, and `isConnected` for
-/// the two combined. Deliberately says nothing about *which* device: that never changes here.
+/// What the app is currently timing from, and what it is doing about reaching it.
+///
+/// Mostly that is the device it is paired to, and every one of those cases is transient -- see
+/// `AppState.isPaired` for the durable half, and `isConnected` for the two combined. Deliberately
+/// says nothing about *which* device: that never changes here.
 enum ConnectionStatus: Equatable {
     /// Not connected and not trying: either nothing is paired, or a paired device has been let go
     /// of after a deliberate teardown. Rendered as "Not paired" only when `isPaired` is false.
@@ -1157,6 +1174,21 @@ enum ConnectionStatus: Equatable {
     case pairing
     /// Connected and logged in.
     case connected
+    /// Manual mode: the app is timing from the Faces tab against a virtual device standing in for
+    /// the cube. Connected, in the only sense that matters to anything drawing a reading -- there
+    /// is a session running, and its source is one this app drives itself -- to something that is
+    /// not a cube. Entered from the offer after a failed scan and held for the rest of the launch,
+    /// quitting being the only way out, so nothing ever moves off it.
+    ///
+    /// Deliberately **not** `.connected`: `isConnected` gates every command that goes out over BLE,
+    /// and there is no radio on the other end of this one.
+    ///
+    /// It replaced a `.disconnected`, which was true -- there is no cube -- and useless. Every
+    /// reader that cares whether something is timing had to be told about manual mode separately,
+    /// from a flag kept alongside this enum, so the two states that must never coincide (connected
+    /// to a cube, and writing manual segments) were held apart by an audit of who wrote what. As
+    /// cases of one enum they cannot coexist, and the audit is the compiler's.
+    case manual
     /// Connection to an already-paired device was lost (BLE range, sleep, etc.) and an automatic
     /// reconnect is in progress. Distinct from `.failed`/`.disconnected` so the menu bar keeps
     /// showing the last known activity/icon instead of tearing down to an unpaired look.

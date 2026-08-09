@@ -67,7 +67,20 @@ final class AppStateManualModeGateTests: XCTestCase {
         XCTAssertTrue(appState.isManualMode)
         XCTAssertFalse(appState.shouldAttemptConnection)
         XCTAssertTrue(appState.shouldMaintainConnection, "still paired to the same device")
-        XCTAssertEqual(appState.connectionStatus, .disconnected)
+        XCTAssertEqual(appState.connectionStatus, .manual)
+    }
+
+    func testManualModeAndConnectedCannotBothBeTrue() {
+        // The reason the mode is a `ConnectionStatus` case rather than a flag beside one. A flag
+        // could say manual while the status said connected, which is the pair that would have
+        // written a manual segment with a live cube on the other end -- and was held apart only by
+        // an audit of who writes the status. One enum cannot say both.
+        let appState = makePairedAppState()
+
+        appState.enterManualMode()
+
+        XCTAssertTrue(appState.isManualMode)
+        XCTAssertFalse(appState.isConnected, "there is no radio on the other end of a manual session")
     }
 
     func testManualModeStillReadsAsPairedRatherThanNotPaired() {

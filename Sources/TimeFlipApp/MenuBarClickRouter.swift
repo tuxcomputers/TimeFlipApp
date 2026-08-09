@@ -27,27 +27,29 @@ enum StatusItemClick: Equatable {
 enum MenuBarClickRouter {
 
     /// - Parameters:
-    ///   - isConnected: paired **and** reporting `.connected`. The pause/lock half only means
-    ///     anything when there is a device listening to act on it.
-    ///   - isManualMode: the app is driving time itself. There is a timer to stop, so the right half
-    ///     keeps its meaning -- pause -- even though the device the ordinary pause talks to is not
-    ///     there. Lock does not survive the same way, having nothing to lock, so a double-click is
-    ///     just two toggles. The left half stays on the menu, which is where Quit lives, and that
-    ///     matters more here than anywhere else since quitting is the only way *out* of the mode.
+    ///   - connectionStatus: what the app is timing from. `.manual` means the app is driving time
+    ///     itself, and there is a timer to stop, so the right half keeps its meaning -- pause --
+    ///     even though the device the ordinary pause talks to is not there. Lock does not survive
+    ///     the same way, having nothing to lock, so a double-click is just two toggles. The left
+    ///     half stays on the menu, which is where Quit lives, and that matters more here than
+    ///     anywhere else since quitting is the only way *out* of the mode.
+    ///   - isPaired: the other half of `AppState.isConnected`. The pause/lock gestures only mean
+    ///     anything when there is a device listening to act on them, and a status of `.connected`
+    ///     without a pairing is not something to send a lock command on the strength of.
     ///   - isLowBatteryBlinking: the activity text is flashing a low battery. A left-click then
     ///     goes to Settings rather than the menu, on the reading that someone clicking a warning
     ///     wants the thing the warning is about.
     static func action(
-        isConnected: Bool,
-        isManualMode: Bool,
+        connectionStatus: ConnectionStatus,
+        isPaired: Bool,
         isLowBatteryBlinking: Bool,
         isLeftSide: Bool,
         clickCount: Int
     ) -> StatusItemClick {
-        if isManualMode {
+        if connectionStatus == .manual {
             return isLeftSide ? .showMenu : .togglePauseImmediately
         }
-        guard isConnected else { return .showMenu }
+        guard isPaired, connectionStatus == .connected else { return .showMenu }
         guard !isLeftSide else {
             return isLowBatteryBlinking ? .openSettings : .showMenu
         }

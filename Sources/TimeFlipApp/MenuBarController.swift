@@ -50,10 +50,10 @@ final class MenuBarController: NSObject {
     private var lastRenderedTitle: String = ""
     private var isPairedSnapshot: Bool
     private var connectionStatusSnapshot: ConnectionStatus
-    /// Whether the app is driving time itself rather than from the cube. Mirrored here for the
-    /// same reason as the two above: the click handler runs on an AppKit callback and reads its
-    /// state from snapshots rather than reaching into `AppState`.
-    private var isManualModeSnapshot = false
+    /// Whether the app is driving time itself rather than reading a cube. Read off the status
+    /// snapshot rather than mirrored separately: manual mode *is* a connection status, so a second
+    /// subscription would only give the two a way to arrive out of order.
+    private var isManualMode: Bool { connectionStatusSnapshot == .manual }
     // Whether the device has actually been reached since launch. Distinct from being paired (which
     // is remembered from a previous run) and from currentActivity being set (which
     // syncActivityFromState populates from stored state before any device is contacted). Without
@@ -147,11 +147,6 @@ final class MenuBarController: NSObject {
         appState.$connectionStatus
             .sink { [weak self] status in
                 self?.handleConnectionStatusChange(status)
-            }
-            .store(in: &cancellables)
-        appState.$isManualMode
-            .sink { [weak self] isManualMode in
-                self?.isManualModeSnapshot = isManualMode
             }
             .store(in: &cancellables)
         appState.$dailyCategoryDurations
@@ -267,7 +262,7 @@ final class MenuBarController: NSObject {
         guard MenuBarLiveDisplay.showsActivity(
             isPaired: isPairedSnapshot,
             hasReachedDeviceThisSession: hasReachedDeviceThisSession,
-            isManualMode: isManualModeSnapshot
+            connectionStatus: connectionStatusSnapshot
         ) else {
             applyNoLiveDeviceStatus()
             return
@@ -288,8 +283,7 @@ final class MenuBarController: NSObject {
         ) >= Double(limitMinutes) * 60
         let isConnected = MenuBarLiveDisplay.rendersAsLive(
             isPaired: isPairedSnapshot,
-            isConnected: connectionStatusSnapshot == .connected,
-            isManualMode: isManualModeSnapshot
+            connectionStatus: connectionStatusSnapshot
         )
         let isLowBattery = updatedLowBatteryLatch(currentLevel: appState.batteryLevel)
         // Must run before the early-return below so the blink timer starts/stops as soon as the
@@ -551,7 +545,7 @@ final class MenuBarController: NSObject {
         // play/pause control uses, rather than through `onPauseToggle` -- that ends in a device
         // command, and the guard below would refuse it anyway, manual mode never being connected.
         // Same gesture, same effect, so the two controls cannot disagree about what pausing means.
-        if isManualModeSnapshot {
+        if isManualMode {
             appState.onManualTimingPauseToggle?()
             return
         }
@@ -591,12 +585,12 @@ final class MenuBarController: NSObject {
         }
         let location = button.convert(event.locationInWindow, from: nil)
         let isLeftSide = location.x <= button.bounds.width / 2
-        // The raw connected test rather than `MenuBarLiveDisplay.rendersAsLive`, with manual mode
-        // passed separately: the two want different answers here. Manual mode draws as live, but
-        // lock has nothing to reach, so it cannot simply borrow the connected case.
+        // The status itself rather than `MenuBarLiveDisplay.rendersAsLive`: the two want different
+        // answers here. Manual mode draws as live, but lock has nothing to reach, so it cannot
+        // simply borrow the connected case.
         let action = MenuBarClickRouter.action(
-            isConnected: isPairedSnapshot && connectionStatusSnapshot == .connected,
-            isManualMode: isManualModeSnapshot,
+            connectionStatus: connectionStatusSnapshot,
+            isPaired: isPairedSnapshot,
             isLowBatteryBlinking: lowBatteryBlinkTimer != nil,
             isLeftSide: isLeftSide,
             clickCount: event.clickCount
@@ -604,7 +598,7 @@ final class MenuBarController: NSObject {
         DeveloperMode.debugPrint(
             .click,
             "Status item clicked: side=\(isLeftSide ? "left" : "right") clickCount=\(event.clickCount)"
-                + "\(isManualModeSnapshot ? " manualMode" : "") -> \(action)"
+                + "\(isManualMode ? " manualMode" : "") -> \(action)"
         )
         switch action {
         case .showMenu:
@@ -646,7 +640,7 @@ final class MenuBarController: NSObject {
     @objc
     private func openPreferences() {
         if let tab = SettingsTabRules.tabOnOpen(
-            isManualMode: isManualModeSnapshot,
+            isManualMode: isManualMode,
             isLowBatteryBlinking: lowBatteryBlinkTimer != nil
         ) {
             appState.pendingSettingsTab = tab
@@ -797,15 +791,16 @@ final class MenuBarController: NSObject {
             // connectionStatusSnapshot == .connected) and refresh the tooltip.
             rebuildMenu()
             updateStatusView(force: true)
+        case .manual:
+            // A session the app itself is timing, so there is something to show and nothing to
+            // reach. Rebuild so the menu's device actions go dead, redraw so the session appears --
+            // the same pair `.reconnecting` does, and for the same reason: the display outlives the
+            // connection. Deliberately not grouped with `.disconnected` below, which is what this
+            // case used to be reported as and what made a teardown exception necessary.
+            rebuildMenu()
+            updateStatusView(force: true)
         case .disconnected, .failed, .resetting:
             // .resetting: a factory reset is underway and the device is going away.
-            guard MenuBarLiveDisplay.tearsDownOnDisconnect(isManualMode: isManualModeSnapshot) else {
-                // Manual mode reports `.disconnected` for the whole launch, truthfully -- there is
-                // no cube. Tearing down on it would clear the session that status is describing.
-                rebuildMenu()
-                updateStatusView(force: true)
-                return
-            }
             tearDownToUnpaired()
         }
     }
