@@ -8,21 +8,53 @@ import XCTest
 /// that meant they were only ever checked by hand, one at a time, which is how a rule gets changed
 /// for one state and quietly broken in another.
 ///
-/// Manual mode has no case of its own: it is not connected, so it takes the no-device answers in the
-/// last section, which are also the answers it wants.
+/// Manual mode is its own case: it draws as live and has a timer to stop, but nothing to lock, so it
+/// can neither borrow the connected answers nor the no-device ones.
 final class MenuBarClickRouterTests: XCTestCase {
     private func action(
         connected: Bool = false,
+        manual: Bool = false,
         lowBattery: Bool = false,
         left: Bool,
         clicks: Int = 1
     ) -> StatusItemClick {
         MenuBarClickRouter.action(
             isConnected: connected,
+            isManualMode: manual,
             isLowBatteryBlinking: lowBattery,
             isLeftSide: left,
             clickCount: clicks
         )
+    }
+
+    // MARK: - Manual mode
+
+    func testInManualModeTheRightHalfStillPauses() {
+        // There is a timer to stop, so the right half keeps its meaning even though the device the
+        // ordinary pause talks to is not there.
+        XCTAssertEqual(action(manual: true, left: false), .togglePauseImmediately)
+    }
+
+    func testTheManualPauseDoesNotWaitForADoubleClick() {
+        // The wait exists to let a second click upgrade to lock. Manual mode has no lock, so there
+        // is no second gesture the first click could turn out to be part of, and holding it back
+        // would only make the control feel slow.
+        XCTAssertNotEqual(action(manual: true, left: false), .togglePause)
+    }
+
+    func testManualModeNeverLocks() {
+        // Nothing to lock. A double-click is two toggles, which lands back where it started -- the
+        // ordinary result of double-clicking any toggle, and harmless.
+        for clicks in 1...3 {
+            XCTAssertEqual(action(manual: true, left: false, clicks: clicks), .togglePauseImmediately)
+        }
+    }
+
+    func testInManualModeTheLeftHalfKeepsTheMenu() {
+        // Where Quit lives, which matters more here than anywhere else: quitting is the only way
+        // *out* of manual mode.
+        XCTAssertEqual(action(manual: true, left: true), .showMenu)
+        XCTAssertEqual(action(manual: true, lowBattery: true, left: true), .showMenu)
     }
 
     // MARK: - Connected, the pre-existing rules

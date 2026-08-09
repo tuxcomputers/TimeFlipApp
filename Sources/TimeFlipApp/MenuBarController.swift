@@ -547,6 +547,14 @@ final class MenuBarController: NSObject {
 
     @objc
     private func togglePause() {
+        // Manual mode's timer is stopped and started through its own path, the one the Faces tab's
+        // play/pause control uses, rather than through `onPauseToggle` -- that ends in a device
+        // command, and the guard below would refuse it anyway, manual mode never being connected.
+        // Same gesture, same effect, so the two controls cannot disagree about what pausing means.
+        if isManualModeSnapshot {
+            appState.onManualTimingPauseToggle?()
+            return
+        }
         // While locked, the only valid action is double-clicking to unlock — pause/resume must
         // not be reachable from the menu or a single click on the status item.
         guard appState.isConnected, !appState.isLocked else { return }
@@ -583,11 +591,12 @@ final class MenuBarController: NSObject {
         }
         let location = button.convert(event.locationInWindow, from: nil)
         let isLeftSide = location.x <= button.bounds.width / 2
-        // The raw connected test, not `MenuBarLiveDisplay.rendersAsLive`: manual mode draws as live
-        // because its reading is current, but pause and lock still have no device to reach, so for
-        // clicks it takes the no-device answer.
+        // The raw connected test rather than `MenuBarLiveDisplay.rendersAsLive`, with manual mode
+        // passed separately: the two want different answers here. Manual mode draws as live, but
+        // lock has nothing to reach, so it cannot simply borrow the connected case.
         let action = MenuBarClickRouter.action(
             isConnected: isPairedSnapshot && connectionStatusSnapshot == .connected,
+            isManualMode: isManualModeSnapshot,
             isLowBatteryBlinking: lowBatteryBlinkTimer != nil,
             isLeftSide: isLeftSide,
             clickCount: event.clickCount
@@ -616,6 +625,8 @@ final class MenuBarController: NSObject {
             }
             pendingSingleClickWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
+        case .togglePauseImmediately:
+            togglePause()
         }
     }
 
