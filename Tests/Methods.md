@@ -796,3 +796,76 @@ Every pick is logged under the `report` tag (`<title> calendar picked yyyy-MM-dd
 resolved range and how many categories it found
 (`Report yyyy-MM-dd HH:MM -> yyyy-MM-dd HH:MM: N categories`). Assert against that rather than
 assuming an index landed where it was meant to.
+
+<a id="method-29"></a>
+## Method 29: Answer the manual-mode offer
+
+The retry-or-manual dialog is an **`NSAlert`**, not a SwiftUI `.alert`, deliberately: every SwiftUI
+one in this app hangs off a view inside the Settings window, and this has to be answerable when no
+window is open at all, which is the usual state of an `LSUIElement` app at startup.
+
+That makes it the one dialog here whose buttons are properly named. It is `window 1` of the process
+(`role AXWindow`, `subrole AXDialog`, and its own `name` empty), and its buttons carry a real
+`name` **and** `title` -- unlike every SwiftUI `Button` in the Settings window, which exposes
+neither (Method 13). So it is addressed by name, with no identifier needed and no CGEvent click:
+
+```applescript
+tell application "System Events" to tell process "TimeFlip" to ¬
+    click button "Switch to Manual Mode" of window 1
+```
+
+Confirmed live 2026-08-09, for both buttons. The two titles are `Retry` and
+`Switch to Manual Mode`; the alert's two `static text` elements carry the headline and body, so a
+step can assert it is the right dialog before answering it.
+
+`count of windows` is the cheapest assertion that it is up (`1`) or gone (`0`), and the same read is
+what proves the app did **not** re-raise it after an answer.
+
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        click button "$button" of window 1
+    end tell
+end tell"""
+```
+
+**The app is blocked while it is up.** `runModal()` holds the main thread, so `osascript`-driven
+quits are refused (`User cancelled. (-128)`) and anything the app queued runs only once it closes.
+Answer the dialog before quitting, and never `pkill` past it.
+
+<a id="method-30"></a>
+## Method 30: Read the dropdown's items with their enabled state
+
+Method 25 returns the item **names**, which is enough to read the device's live state from the
+mutually-exclusive labels. This returns `name=enabled` pairs instead, for the separate question of
+whether an item can be *chosen* -- the two diverge, and manual mode is where they do: `Resume` is
+live there while `Lock` is dead beside it.
+
+Same one-`tell`-block rule as Method 6: opening the menu and reading it must not be split across two
+`osascript` calls. Returns e.g.
+`Settings...=true; missing value=false; Resume=true; Lock=false; Quit=true;` -- the `missing value`
+is the separator, which has no name and is never enabled.
+
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to ""
+            repeat with mi in every menu item of menu 1
+                set names to names & (name of mi) & "=" & (enabled of mi) & "; "
+            end repeat
+        end tell
+        key code 53
+    end tell
+end tell
+return names"""
+```
+
+Match a single item with `expect_contains = "Lock=false"`, which pins that item's state without
+depending on what else is in the menu or what order it is in. Confirmed live 2026-08-09.
