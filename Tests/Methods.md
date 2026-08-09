@@ -1,5 +1,32 @@
 # Automation methods
 
+## Use these, and fix this file when they fall short
+
+**Read this file before running any checklist, and use the method for anything it covers.** Not an
+equivalent you wrote from memory: the methods are here because each one was got wrong at least once
+first, and most carry a caveat that is invisible until it costs a run (Method 6's single `tell`
+block, Method 7's preceding mouse move, Method 12's commit key). An improvised equivalent silently
+drops those.
+
+**When a method does not fit, update this file in the same run.** Three shapes, all the same rule:
+
+- **Missing** -- a technique with no method. Append it with the next unused number and link it from
+  the step that needed it.
+- **Wrong** -- a method whose body no longer works, or whose caveat turns out to be incomplete. Fix
+  the method, not the one step that tripped on it.
+- **Deliberately not followed** -- a case the method does not cover. Say so *in the method*, as a
+  second form or a caveat, rather than leaving the reason in one checklist or in your head.
+
+The bar for anything added or changed is `CLAUDE.md`'s: **verified against a real, live run, never
+reasoned about.** A method that has not been executed is a guess with a number on it.
+
+Working from memory instead is what this is for. On 2026-08-09 a verification run built the app with
+a command that is not in this file, correctly -- Method 1's form builds *and launches*, which is
+unusable under the live-app-interaction ritual, where the build has to happen before the warning and
+the launch only after the acknowledgment. The right command was worked out by reading
+`scripts/run.sh`, and the gap went unrecorded until somebody asked whether the methods were being
+used. It is Method 1's second form now.
+
 The concrete, verified "how" behind every automated step in `Tests/Bench/`/`Tests/Interactive/`.
 Each method below is self-contained and independently linkable -- a checklist step that needs one
 says so explicitly by **number**, as a link that jumps straight to it:
@@ -22,6 +49,22 @@ file holds only reusable step-execution techniques.
 `scripts/run.sh` builds+launches in one step, blocking -- background it, poll the log for
 `"Build of product"`/`"error:"`. Bundle:
 `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
+
+**Second form: build without launching.** The form above starts the app as a side effect, which the
+root `CLAUDE.md`'s live-app-interaction ritual cannot use -- there the build has to happen *before*
+the hands-off warning and the launch only *after* the acknowledgment, so they have to be separable.
+`bundle` does the same work and stops at the bundle; pair it with Method 2 when the app should
+actually start.
+
+```toml method
+action = "shell"
+command = "mint run stackotter/swift-bundler@main bundle TimeFlip"
+timeout_seconds = 540
+```
+
+Note `swift bundler bundle` is **not** the same command and does not work here (`unable to invoke
+subcommand: swift-bundler`) -- the tool is reached through `mint`, as `scripts/run.sh` does. Both
+confirmed live 2026-08-09, across five build/launch cycles during the manual-mode verification.
 
 <a id="method-2"></a>
 ## Method 2: Launch the app
