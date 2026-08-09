@@ -136,21 +136,33 @@ enum DeviceNameRules {
     /// Checking one and not the other is exactly the bug this replaced: the connect path checked
     /// both while the discovery scan checked only the peripheral name, so a renamed cube connected
     /// fine but could not be found by a scan (reported 2026-08-01).
+    /// `previouslyKnown` is the name this cube was called before `remembered`, from
+    /// `device_name.previous_name`. It is here for a firmware/OS behaviour rather than nostalgia:
+    /// the GAP name macOS reports is one connection stale after a rename, so the scan immediately
+    /// following one still sees the old name. Matching on the current name alone loses the device
+    /// exactly when it has just been renamed, which is the moment a user is most likely to be
+    /// watching for it. Both are matched exactly, for the same reason `remembered` is.
     static func matchesKnownDevice(
         peripheralName: String?,
         advertisedName: String?,
-        remembered: String?
+        remembered: String?,
+        previouslyKnown: String? = nil
     ) -> Bool {
-        matchesKnownDevice(peripheralName: peripheralName, remembered: remembered)
-            || matchesKnownDevice(peripheralName: advertisedName, remembered: remembered)
+        matchesKnownDevice(peripheralName: peripheralName, remembered: remembered, previouslyKnown: previouslyKnown)
+            || matchesKnownDevice(peripheralName: advertisedName, remembered: remembered, previouslyKnown: previouslyKnown)
     }
 
-    static func matchesKnownDevice(peripheralName: String?, remembered: String?) -> Bool {
+    static func matchesKnownDevice(
+        peripheralName: String?,
+        remembered: String?,
+        previouslyKnown: String? = nil
+    ) -> Bool {
         let name = (peripheralName ?? "").lowercased()
         guard !name.isEmpty else { return false }
         if name.contains("timeflip") { return true }
-        guard let remembered = remembered?.lowercased(), !remembered.isEmpty else { return false }
-        return name == remembered
+        return [remembered, previouslyKnown]
+            .compactMap { $0?.lowercased() }
+            .contains { !$0.isEmpty && $0 == name }
     }
 
     /// Printable ASCII, `0x20` to `0x7E`.

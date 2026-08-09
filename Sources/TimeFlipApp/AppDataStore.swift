@@ -1506,14 +1506,38 @@ final class AppDataStore {
     /// device clears the uuid but **not** the name, since forgetting does not un-rename the cube
     /// and that string is what the filtered scan needs to find it again. Only a confirmed factory
     /// reset clears this, the cube having reverted to the vendor name.
+    /// Records the name the cube is carrying, keeping the one it displaced as `previous_name`.
+    ///
+    /// The second name is not history for its own sake, it is how the device stays findable across
+    /// a rename. `CBPeripheral.name` is the GAP name macOS caches and re-reads only on the *next*
+    /// connect, so straight after a rename the scan still sees the name before this one (measured;
+    /// see `docs/timeflip2-firmware-observations.md` § "The GAP name is one connection stale"). A
+    /// scan filtering on the new name alone therefore cannot match the cube it just renamed.
+    /// Keeping both means the eligible-device list covers the name the device has taken and the
+    /// name it is still answering to.
+    ///
+    /// Only a real change moves the pointer. Re-recording the same name on every connect, which is
+    /// what happens today, must not push the genuinely previous name out of the row and undo the
+    /// very thing it is here for.
     func recordDeviceName(_ name: String?) {
-        saveSettingJSON(name: "device_name", merging: ["name": name.map { $0 as Any } ?? NSNull()])
+        let current = loadDeviceName()
+        var fields: [String: Any] = ["name": name.map { $0 as Any } ?? NSNull()]
+        if let current, current != name {
+            fields["previous_name"] = current
+        }
+        saveSettingJSON(name: "device_name", merging: fields)
     }
 
     /// Restores the remembered device name at launch. Absent until the first connection, since the
     /// name is read from the device rather than guessed.
     func loadDeviceName() -> String? {
         loadSettingJSON(name: "device_name")?["name"] as? String
+    }
+
+    /// The name this device was called before the current one, if it has ever been renamed. Absent
+    /// on a device that has only ever had one name. See `recordDeviceName` for why it is kept.
+    func loadPreviousDeviceName() -> String? {
+        loadSettingJSON(name: "device_name")?["previous_name"] as? String
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,

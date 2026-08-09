@@ -202,4 +202,63 @@ final class DeviceNameRulesTests: XCTestCase {
         // its own limit from this value, so a change here silently changes what the device is sent.
         XCTAssertEqual(DeviceNameRules.maximumLength, 18)
     }
+
+    // MARK: - Finding a cube that was renamed a moment ago
+
+    func testTheNameBeforeTheRenameStillMatches() {
+        // The whole point of device_name.previous_name. Renamed "Dibby" -> "Wobble", the very next
+        // scan still reports "Dibby" because macOS re-reads the GAP name only on the next connect.
+        // Matching the new name alone loses the cube at the exact moment it was renamed.
+        XCTAssertTrue(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: "Dibby",
+                remembered: "Wobble",
+                previouslyKnown: "Dibby"
+            )
+        )
+    }
+
+    func testTheCurrentNameStillMatchesWithAPreviousOneKept() {
+        XCTAssertTrue(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: "Wobble",
+                remembered: "Wobble",
+                previouslyKnown: "Dibby"
+            )
+        )
+    }
+
+    func testAPreviousNameIsMatchedExactlyLikeTheCurrentOne() {
+        // Same reasoning as the remembered name: a short former name used as a substring would
+        // start claiming other people's hardware.
+        XCTAssertFalse(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: "Cube Companion",
+                remembered: "Wobble",
+                previouslyKnown: "Cube"
+            )
+        )
+    }
+
+    func testAnUnrelatedDeviceStillMatchesNothing() {
+        XCTAssertFalse(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: "GlowDreaming",
+                advertisedName: "GlowDreaming",
+                remembered: "Wobble",
+                previouslyKnown: "Dibby"
+            )
+        )
+    }
+
+    func testEitherNameCanArriveOnTheAdvertisementInstead() {
+        XCTAssertTrue(
+            DeviceNameRules.matchesKnownDevice(
+                peripheralName: nil,
+                advertisedName: "Dibby",
+                remembered: "Wobble",
+                previouslyKnown: "Dibby"
+            )
+        )
+    }
 }

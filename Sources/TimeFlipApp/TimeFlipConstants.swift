@@ -63,6 +63,17 @@ enum TimeFlipConstants {
     static let maxBlipTimeSeconds: Int = 30
     static let defaultBlipTimeSeconds: Int = 5
 
+    /// How long each startup connect scan waits before concluding the device isn't there, while a
+    /// launch has never reached it (`TimeFlipBLEDevice.connectScanTimeoutSeconds`).
+    ///
+    /// Shorter than the 30-second watchdog every other phase uses, because these attempts are the
+    /// ones deciding whether to offer manual mode and somebody is watching an app that appears to
+    /// be doing nothing. The watchdog is sized for a device that is present but slow; this one has
+    /// to conclude a device is absent. Measured against a cube that is actually there, scan-and-link
+    /// has never exceeded 5.4 seconds across 36 logged connects (`conn-phase` rows, 2026-08-09), so
+    /// ten still leaves nearly double the slowest real case.
+    static let startupConnectScanTimeoutSeconds: UInt64 = 10
+
     /// Bounds for how many consecutive failed reconnect attempts pass before the app offers manual
     /// mode (the `manual_mode` setting's `prompt_after_attempts`; see `database/011_setting.sql`).
     ///

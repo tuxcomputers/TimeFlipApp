@@ -108,6 +108,9 @@ enum DeveloperMode {
         // The Report tab's date range and how many categories it found in it. Six characters, well
         // short of the longest tag, so adding it re-pads nothing.
         case report = "report"
+        // Giving up on an unreachable device at startup, and what the user picked when asked.
+        // Eleven characters, the same as the longest existing tag, so adding it re-pads nothing.
+        case manualMode = "manual-mode"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

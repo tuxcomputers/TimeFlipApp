@@ -182,6 +182,69 @@ final class SettingsPersistenceTests: XCTestCase {
         XCTAssertNil(reopened.loadDeviceName())
     }
 
+    // MARK: - device name, current and previous
+
+    func testTheFirstNameRecordedLeavesNoPreviousOne() {
+        let store = reopenedStore()
+        store.recordDeviceName("Dibby")
+
+        let reopened = reopenedStore()
+        XCTAssertEqual(reopened.loadDeviceName(), "Dibby")
+        XCTAssertNil(reopened.loadPreviousDeviceName(), "a cube with one name has no previous one")
+    }
+
+    func testARenameKeepsTheNameItDisplaced() {
+        // Why the row holds two: the GAP name macOS reports is a connection stale, so the scan
+        // straight after a rename is still seeing "Dibby" and has to match on it.
+        let store = reopenedStore()
+        store.recordDeviceName("Dibby")
+
+        store.recordDeviceName("Wobble")
+
+        let reopened = reopenedStore()
+        XCTAssertEqual(reopened.loadDeviceName(), "Wobble")
+        XCTAssertEqual(reopened.loadPreviousDeviceName(), "Dibby")
+    }
+
+    func testRecordingTheSameNameAgainDoesNotPushThePreviousOneOut() {
+        // The failure this guards is silent and total: the name is re-recorded on every connect,
+        // so a no-op write that rolled the pointer would replace the genuinely previous name with
+        // the current one within seconds and undo the entire point of keeping it.
+        let store = reopenedStore()
+        store.recordDeviceName("Dibby")
+        store.recordDeviceName("Wobble")
+
+        store.recordDeviceName("Wobble")
+        store.recordDeviceName("Wobble")
+
+        XCTAssertEqual(reopenedStore().loadPreviousDeviceName(), "Dibby")
+    }
+
+    func testRenamingTwiceKeepsOnlyTheNameImmediatelyBefore() {
+        // One step back, not a history: the stale GAP name is exactly one connection behind.
+        let store = reopenedStore()
+        store.recordDeviceName("Dibby")
+        store.recordDeviceName("Wobble")
+        store.recordDeviceName("Plopper")
+
+        let reopened = reopenedStore()
+        XCTAssertEqual(reopened.loadDeviceName(), "Plopper")
+        XCTAssertEqual(reopened.loadPreviousDeviceName(), "Wobble")
+    }
+
+    func testClearingTheNameKeepsTheOneItHadForTheScanToMatchOn() {
+        // A confirmed factory reset clears the name. The cube is still advertising something until
+        // it reboots, so the name it had is still the useful thing to look for.
+        let store = reopenedStore()
+        store.recordDeviceName("Dibby")
+
+        store.recordDeviceName(nil)
+
+        let reopened = reopenedStore()
+        XCTAssertNil(reopened.loadDeviceName())
+        XCTAssertEqual(reopened.loadPreviousDeviceName(), "Dibby")
+    }
+
     // MARK: - manual mode
 
     /// No save-side tests here, unlike every section above: nothing edits this value yet, so the

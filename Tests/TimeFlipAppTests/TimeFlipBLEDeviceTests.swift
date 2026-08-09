@@ -130,5 +130,33 @@ final class TimeFlipBLEDeviceTests: XCTestCase {
 
         XCTAssertFalse(fired, "a cancelled watchdog must never fire")
     }
+
+    // MARK: - The startup connect-scan budget
+
+    func testAConnectScanStartsOnTheDevicesOwnWatchdog() {
+        let device = TimeFlipBLEDevice(central: FakeCentralManager(), deviceOperationTimeoutSeconds: 30)
+
+        XCTAssertEqual(device.connectScanTimeoutSeconds, 30)
+        XCTAssertEqual(device.defaultConnectScanTimeoutSeconds, 30)
+    }
+
+    func testTheStartupScanBudgetSitsAboveARealScanAndBelowTheWatchdog() {
+        // 5.4s is the slowest scan-and-link ever logged against a cube that was actually there
+        // (36 samples across both databases, 2026-08-09). The budget has to clear that with room,
+        // and undercut the watchdog it stands in for, or it is not worth having.
+        XCTAssertGreaterThan(TimeFlipConstants.startupConnectScanTimeoutSeconds, 6)
+        XCTAssertLessThan(TimeFlipConstants.startupConnectScanTimeoutSeconds, 30)
+    }
+
+    func testRestoringTheScanBudgetUsesThisDevicesWatchdogNotAHardcodedThirty() {
+        // A device built with a shorter watchdog must be restored to *that*, which is why
+        // ApplicationDelegate reads defaultConnectScanTimeoutSeconds rather than a constant.
+        let device = TimeFlipBLEDevice(central: FakeCentralManager(), deviceOperationTimeoutSeconds: 3)
+        device.connectScanTimeoutSeconds = TimeFlipConstants.startupConnectScanTimeoutSeconds
+
+        device.connectScanTimeoutSeconds = device.defaultConnectScanTimeoutSeconds
+
+        XCTAssertEqual(device.connectScanTimeoutSeconds, 3)
+    }
 }
 // swiftlint:enable discouraged_optional_collection

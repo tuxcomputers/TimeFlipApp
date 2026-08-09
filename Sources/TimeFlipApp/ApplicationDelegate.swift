@@ -171,7 +171,20 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var dayResetTimer: Timer?
     // Backoff counter for reconnect attempts after losing connection to an already-paired
     // device; reset to 0 as soon as a reconnect succeeds. Capped in scheduleReconnect().
+    // This picks the *delay* and nothing else -- which is why handleSystemWake resets it (a loop
+    // that had climbed to the 30s cap would otherwise keep someone who just woke their Mac beside
+    // their cube waiting half a minute). The count that decides when to offer manual mode is
+    // separate, in `manualModeOffer`, so neither can quietly change the other's meaning.
     private var reconnectAttempt = 0
+    // How many startup attempts have failed, and whether this launch has ever connected. Its
+    // threshold comes from the `manual_mode` setting; see ManualModeOffer for the rule.
+    private lazy var manualModeOffer = ManualModeOffer(
+        promptAfterAttempts: dataStore.loadManualModePromptAfterAttempts()
+    )
+    // Puts the "device isn't in range" choice in front of the user and reports what they picked.
+    // A seam rather than a direct NSAlert call so a test can answer it without a window server;
+    // the default is set in applicationDidFinishLaunching.
+    var presentManualModeOffer: ((@escaping (ManualModeAnswer) -> Void) -> Void)?
     // Set from the moment a factory reset's 0xFF command is sent until the device is confirmed
     // reset (it reconnects on the factory default password) or the deadline passes. While set, the
     // reconnect path treats a successful default-password login as the reset confirmation -- NOT a
@@ -213,6 +226,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         ActivityLibrary.reportUnresolvableIcons(appState.iconOptions)
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
+        if presentManualModeOffer == nil {
+            presentManualModeOffer = { [weak self] answer in
+                self?.runManualModeAlert(answer)
+            }
+        }
+        // Until this launch has reached the device once, a scan that finds nothing has to give up
+        // quickly: these are the attempts the manual-mode offer is counting, and at the full
+        // watchdog three of them leave someone watching an app that looks like it is doing nothing
+        // for minutes. Restored to the full watchdog by the first successful connect.
+        (device as? TimeFlipBLEDevice)?.connectScanTimeoutSeconds = TimeFlipConstants.startupConnectScanTimeoutSeconds
         appState.onPairingChange = { [weak self] paired in
             guard let self else { return }
             // Fires only when pairing itself changes -- true once a first pairing succeeds, false
@@ -345,7 +368,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // The scan filter has to learn the new name in the same breath as the device does.
             // Leave it until the next launch and a drop in between would be unrecoverable: the
             // reconnect scan would still be looking for the name the cube no longer answers to.
-            (device as? TimeFlipBLEDevice)?.rememberedDeviceName = name
+            // The name being displaced is kept rather than dropped: the GAP name macOS reports is
+            // one connection stale, so the very next scan is still seeing it.
+            if let ble = device as? TimeFlipBLEDevice {
+                ble.previouslyKnownDeviceName = ble.rememberedDeviceName
+                ble.rememberedDeviceName = name
+            }
             return true
         }
         appState.onDisplaySecondsChange = { [weak self] enabled in
@@ -577,7 +605,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.logger.notice("System woke from sleep; device already connected")
                 return
             }
-            guard self.appState.shouldMaintainConnection else { return }
+            guard self.appState.shouldAttemptConnection else { return }
             self.logger.notice("System woke from sleep; forcing a fresh device reconnect attempt")
             self.stopDeviceEvents()
             self.reconnectAttempt = 0
@@ -588,7 +616,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // being in range by coincidence.
             DeveloperMode.debugPrint(.timeFlip, "System wake: reconnecting status shown, waiting 2s before connect attempt")
             try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
-            guard self.appState.shouldMaintainConnection else { return }
+            guard self.appState.shouldAttemptConnection else { return }
             DeveloperMode.debugPrint(.timeFlip, "System wake: 2s delay elapsed, attempting reconnect now")
             self.startDeviceEvents()
         }
@@ -621,13 +649,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // stored name that `confirmConnected` otherwise keeps -- unlike a connect-time read,
             // this fires *because* the name changed rather than reporting a cached one.
             bleDevice.onDeviceNameChanged = { [weak self] name in
-                guard let self, let name, !name.isEmpty else { return }
+                guard let self, let name, !name.isEmpty, name != bleDevice.rememberedDeviceName else { return }
                 self.appState.adoptReportedDeviceName(name)
+                bleDevice.previouslyKnownDeviceName = bleDevice.rememberedDeviceName
                 bleDevice.rememberedDeviceName = name
             }
             // Before the connect below, because the connect IS the scan: a cube renamed off
-            // "timeflip" matches on this name or on nothing at all.
+            // "timeflip" matches on one of these names or on nothing at all. Both go in, since the
+            // scan after a rename is still seeing the name before it.
             bleDevice.rememberedDeviceName = appState.deviceName
+            bleDevice.previouslyKnownDeviceName = dataStore.loadPreviousDeviceName()
         }
         eventTaskGeneration += 1
         let generation = eventTaskGeneration
@@ -639,10 +670,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             if !skipConnect {
-                let connected = await device.connect()
-                guard connected else {
+                let outcome = await self.connectToPairedDevice(device)
+                guard outcome == .connected else {
                     logger.error("TimeFlip connect failed; will retry")
                     await MainActor.run {
+                        // Every eligible device was there and refused this app's PIN. Retrying
+                        // scans up the same cube for the same refusal, so this is already the
+                        // final answer rather than one attempt of three -- ask now. Only on a
+                        // launch that has never connected: after that, the offer is over for the
+                        // session and a refusal is handled as any other drop.
+                        if outcome == .allRefused, !self.manualModeOffer.hasConnectedThisLaunch {
+                            self.offerManualMode(reason: "every device found refused this app's PIN")
+                            return
+                        }
                         self.handleReconnectFailure(message: "Connect failed")
                     }
                     return
@@ -745,6 +785,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     self.appState.connectionStatus = .connected
                 }
                 self.reconnectAttempt = 0
+                // Settles the manual-mode question for the rest of this session: from here a drop
+                // reconnects on the backoff indefinitely, with no offer. Having the cube and then
+                // losing it is a different situation from never having had it.
+                let wasFirstConnect = !self.manualModeOffer.hasConnectedThisLaunch
+                self.manualModeOffer.recordConnected()
+                if wasFirstConnect, let ble = self.device as? TimeFlipBLEDevice {
+                    // The short startup scan budget was there to reach a verdict while someone was
+                    // watching. Nobody is now, and a reconnect is chasing a device this launch has
+                    // already reached, so give the scan the full watchdog back.
+                    ble.connectScanTimeoutSeconds = ble.defaultConnectScanTimeoutSeconds
+                }
                 // Persist the password that actually worked if it differs from the stored one
                 // (the default-password fallback above), so the next reconnect doesn't have to
                 // rediscover this via another rejection first.
@@ -882,12 +933,149 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // far as pairing (a drop between connect() and the first face event), so report it as the
         // pairing failure it is rather than retrying forever against a device the app isn't
         // actually paired to.
+        //
+        // Deliberately `shouldMaintainConnection` and not `shouldAttemptConnection`: this asks
+        // whether there is a pairing to reconnect to, not whether an attempt may run right now.
+        // Reading the manual-mode gates here would report a pairing failure for a device that is
+        // perfectly well paired and merely out of range.
         guard appState.shouldMaintainConnection else {
             appState.pairingFailed(message: message)
             return
         }
+        // An attempt that was already in flight when the offer went up, landing afterwards. The
+        // dialog is the only thing that decides what happens next, so this failure changes nothing.
+        guard !appState.isAwaitingManualModeDecision, !appState.isManualMode else { return }
+        guard manualModeOffer.recordFailedAttempt() == .keepTrying else {
+            offerManualMode(reason: "nothing eligible found in \(manualModeOffer.failedAttempts) attempts")
+            return
+        }
         appState.connectionStatus = .reconnecting
         scheduleReconnect()
+    }
+
+    /// Find this app's own device among everything advertising, and log in to it.
+    ///
+    /// Scan, build the list of eligible devices, then try each in turn until one accepts the
+    /// password or the list runs out. The list is eligible-by-name, which in an office is several
+    /// people's cubes; only one of them will take this app's PIN, and that is what identifies it.
+    /// The previous driver connected to whichever answered first and stopped there, so a colleague's
+    /// cube advertising a moment sooner was enough to lock this user out of their own device with a
+    /// "wrong password" that named nothing.
+    ///
+    /// `.wrongPassword` is therefore not a failure, it is the answer to "is this one mine?" and the
+    /// loop moves on. Only running out of candidates is a failure, and that is what the manual-mode
+    /// offer counts.
+    ///
+    /// The mock has no radio and nothing to scan, so it keeps `connect()`.
+    private func connectToPairedDevice(_ device: TimeFlipSessionManaging) async -> ConnectAttemptOutcome {
+        guard let ble = device as? TimeFlipBLEDevice else {
+            return await device.connect() ? .connected : .noneEligible
+        }
+
+        let pairedUUID = appState.pairedDeviceUUID.flatMap(UUID.init(uuidString:))
+        let candidates = await ble.scanForEligibleDevices(preferring: pairedUUID)
+        guard !candidates.isEmpty else {
+            DeveloperMode.debugPrint(.scan, "no eligible device found in this scan")
+            return .noneEligible
+        }
+        // Mid factory-reset the cube has gone back to the default password, which is the proof the
+        // wipe took, so that one is worth trying too. See startDeviceEvents' pendingFactoryResetConfirm.
+        var passwords = [appState.devicePassword]
+        if pendingFactoryResetConfirm, appState.devicePassword != TimeFlipConstants.defaultPassword {
+            passwords.append(TimeFlipConstants.defaultPassword)
+        }
+
+        for candidate in candidates {
+            for password in passwords {
+                switch await ble.connectToDiscoveredDevice(id: candidate.id, password: password) {
+                case .connected:
+                    DeveloperMode.debugPrint(.scan, "logged in to \(candidate.name)")
+                    return .connected
+                case .wrongPassword:
+                    DeveloperMode.debugPrint(.scan, "\(candidate.name) refused this app's PIN; trying the next device")
+                case .notTimeFlip:
+                    DeveloperMode.debugPrint(.scan, "\(candidate.name) is not a TimeFlip after all; trying the next device")
+                case .cancelled:
+                    return .cancelled
+                case .failed:
+                    DeveloperMode.debugPrint(.scan, "\(candidate.name) could not be reached; trying the next device")
+                }
+            }
+        }
+        DeveloperMode.debugPrint(.scan, "none of the \(candidates.count) eligible device(s) accepted this app's PIN")
+        return .allRefused
+    }
+
+    /// Why an attempt to reach the paired device ended, in the terms the manual-mode offer needs.
+    /// The difference that matters is whether anything eligible was *there*: nothing in range is
+    /// worth retrying, and a cube that refused the PIN is not, because the next scan finds the same
+    /// cube and it refuses again.
+    private enum ConnectAttemptOutcome {
+        case connected
+        /// The scan found nothing this app could be paired to. Counts toward the retry threshold.
+        case noneEligible
+        /// Devices were found and every one refused this app's PIN. Straight to the dialog.
+        case allRefused
+        /// Torn down deliberately (a forget, a reset, a quit). Not a verdict on anything.
+        case cancelled
+    }
+
+    /// The default presentation of the offer: a modal `NSAlert`.
+    ///
+    /// `NSAlert` rather than a SwiftUI `.alert`, which is what the rest of the app uses, because
+    /// every one of those hangs off a view inside the Settings window and this has to be answerable
+    /// when no window is open at all -- the usual case at startup for an `LSUIElement` app. The
+    /// activate call is part of that: a menu-bar app is not frontmost, so without it the alert can
+    /// come up behind whatever the user is actually looking at.
+    private func runManualModeAlert(_ answer: @escaping (ManualModeAnswer) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Unable to find your device, retry or switch to manual mode"
+        alert.informativeText = """
+            No TimeFlip answered: either none is in range, or none of the ones found would accept \
+            this app's PIN.
+
+            Manual mode lets you track time from the app instead, and lasts until you quit and \
+            start the app again.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Retry")
+        alert.addButton(withTitle: "Switch to Manual Mode")
+        NSApp.activate(ignoringOtherApps: true)
+        answer(alert.runModal() == .alertFirstButtonReturn ? .retry : .switchToManualMode)
+    }
+
+    /// Stop trying and ask: retry, or switch to manual mode for the rest of this launch.
+    ///
+    /// Reached only from a launch that has never connected, after `prompt_after_attempts` failures
+    /// in a row. No attempt runs while this is on screen -- `AppState.shouldAttemptConnection` is
+    /// false from here until an answer arrives, which closes off the backoff retry and the
+    /// wake-from-sleep path alike.
+    /// `reason` names which of the two ways this was reached, because "not in range" and "there and
+    /// refused this app's PIN" are different problems and the log line was the only place they
+    /// could be told apart. Confirmed on hardware 2026-08-09, where a refused PIN logged as
+    /// "unreachable after 1 attempts" and read as a range problem it was not.
+    private func offerManualMode(reason: String = "no eligible device in range") {
+        DeveloperMode.debugPrint(.manualMode, "Offering manual mode: \(reason)")
+        appState.awaitManualModeDecision()
+        appState.connectionStatus = .disconnected
+        stopDeviceEvents()
+        presentManualModeOffer? { [weak self] answer in
+            guard let self else { return }
+            switch answer {
+            case .retry:
+                DeveloperMode.debugPrint(.manualMode, "Retry chosen; attempting again")
+                self.manualModeOffer.retryChosen()
+                // The delay counter goes back to the start too, so a fresh round begins two seconds
+                // out rather than at whatever the last round had climbed to.
+                self.reconnectAttempt = 0
+                self.appState.manualModeDeclined()
+                self.appState.connectionStatus = .reconnecting
+                self.startDeviceEvents()
+            case .switchToManualMode:
+                DeveloperMode.debugPrint(.manualMode, "Manual mode chosen; no further connection attempts this launch")
+                self.appState.enterManualMode()
+            }
+        }
     }
 
     /// While a factory reset is pending confirmation, keep retrying the reconnect (to catch the
@@ -914,7 +1102,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds) * TimeConstants.nanosecondsPerSecond)
             guard let self else { return }
-            guard self.appState.shouldMaintainConnection else { return }
+            // Re-read on the far side of the sleep, not before it: the manual-mode offer can go up
+            // while this delay is running, and an attempt queued a moment earlier must not land
+            // behind the dialog.
+            guard self.appState.shouldAttemptConnection else { return }
             self.startDeviceEvents()
         }
     }

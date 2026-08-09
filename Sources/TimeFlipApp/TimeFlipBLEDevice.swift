@@ -110,6 +110,21 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // service/characteristic discovery, notifications, writes, reads). On timeout, whatever step
     // was in flight is aborted and the peripheral is force-disconnected — see handleTimeout(_:).
     private let deviceOperationTimeoutSeconds: UInt64
+    /// How long a connect scan waits before concluding the device isn't there, separately from the
+    /// watchdog above. Defaults to the same value, and `ApplicationDelegate` lowers it for the
+    /// startup attempts that decide whether to offer manual mode: those have to reach a verdict
+    /// while someone is watching, and the long watchdog is sized for a device that is present but
+    /// slow rather than one that is absent. Measured against a cube that is actually there,
+    /// scan-and-link has never taken more than 5.4s across 36 logged connects (`conn-phase` rows in
+    /// both databases, 2026-08-09), so the startup budget still leaves a wide margin.
+    ///
+    /// Restored to the full watchdog once a launch has connected: after that the app is reconnecting
+    /// to a device it has already reached, and there is no dialog waiting on the answer.
+    var connectScanTimeoutSeconds: UInt64
+    /// What `connectScanTimeoutSeconds` goes back to. This instance's own watchdog rather than a
+    /// second copy of the literal, so a device built with a shorter one for a test is restored to
+    /// that and not to 30.
+    var defaultConnectScanTimeoutSeconds: UInt64 { deviceOperationTimeoutSeconds }
     // Peripherals seen during a discovery scan, keyed by identifier, so a user-selected entry
     // can be connected to directly rather than re-scanning and grabbing the first match.
     private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
@@ -158,6 +173,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         self.central = central ?? CBCentralManager()
         self.logger = logger
         self.deviceOperationTimeoutSeconds = deviceOperationTimeoutSeconds
+        self.connectScanTimeoutSeconds = deviceOperationTimeoutSeconds
         super.init()
         self.central.delegate = self
     }
@@ -243,6 +259,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         isDiscoveryScanning = false
         central.stopScan()
         logger.notice("Stopped discovery-only scan")
+        // Silent for an eligibility scan, for the same reason it doesn't announce what it finds:
+        // the Device tab's scan button never started this one, so it must not see it end.
+        guard !isCollectingEligibleOnly else { return }
         onDiscoveryScanStopped?()
     }
 
@@ -286,6 +305,42 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let components = (end - start).components
         let milliseconds = components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
         return "\(milliseconds)ms"
+    }
+
+    /// Every device this app could plausibly be paired to, from one scan window, best candidate
+    /// first. The caller then tries to log in to each until one lets it in (see
+    /// `ApplicationDelegate.connectToPairedDevice`).
+    ///
+    /// **This replaces connecting to whatever answered first.** The original driver stopped the
+    /// scan and connected the instant any peripheral matched on name (`23fe40e`, the upstream
+    /// initial release), which is fine with one cube on the desk and wrong everywhere else: in an
+    /// office with several TimeFlips it grabs a colleague's, is refused at login because their PIN
+    /// is not this app's, and gives up without ever having tried the user's own device sitting
+    /// right there. The stored `device_uuid` could have settled it and was never consulted by the
+    /// connect path at all.
+    ///
+    /// `preferring` is that uuid. It orders rather than filters: it is assigned by this Mac's
+    /// CoreBluetooth stack, so it is the surest identification available when it is present, but a
+    /// cube that has been re-paired or reset can legitimately no longer carry it and still be the
+    /// user's device. Putting it first means the usual case costs exactly one login attempt.
+    func scanForEligibleDevices(preferring pairedUUID: UUID?) async -> [EligibleDevice] {
+        isCollectingEligibleOnly = true
+        defer { isCollectingEligibleOnly = false }
+        await startDiscoveryScan(filterToTimeFlip: true)
+        try? await Task.sleep(nanoseconds: connectScanTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+        stopDiscoveryScan()
+
+        let found = discoveredPeripherals.map { id, peripheral in
+            EligibleDevice(id: id, name: peripheral.name ?? "Unknown Device")
+        }
+        let candidates = EligibleDevice.ordered(found, preferring: pairedUUID)
+        let leadsWithPaired = candidates.first?.id == pairedUUID && pairedUUID != nil
+        DeveloperMode.debugPrint(
+            .scan,
+            "eligible after scan: \(candidates.isEmpty ? "none" : candidates.map(\.name).joined(separator: ", "))"
+                + (leadsWithPaired ? " (paired device first)" : "")
+        )
+        return candidates
     }
 
     /// Connect to a peripheral the user picked from a discovery scan result, verifying it's
@@ -499,11 +554,18 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
 
     private func probeAttemptLogin(password: String, probe: ProbeSession) async throws -> Bool {
         let passwordData = Data(password.utf8)
+        // Logged the same way the session login is. Without this the probe was the one login path
+        // in the app that recorded neither the password it sent nor the code it got back, so a
+        // refusal here could not be told from a refusal there -- which is exactly what a
+        // wrong-PIN diagnosis needs (2026-08-09).
+        DeveloperMode.debugPrint(.timeFlip, "Probe logging in using password: \(passwordData.hexString())")
         try await probeWrite(passwordData, to: TimeFlipUUIDs.password, probe: probe)
         guard let response = try await probeRead(TimeFlipUUIDs.commandResult, probe: probe) else {
+            DeveloperMode.debugPrint(.timeFlip, "Probe login: no commandResult response")
             return false
         }
         let code = response.first ?? 0
+        DeveloperMode.debugPrint(.timeFlip, "Probe login commandResult raw bytes: \(response.hexString()) -> \(code == 0x02 ? "accepted" : "rejected")")
         return code == 0x02
     }
 
@@ -549,7 +611,10 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// real CBPeripheral, which can't be constructed outside CoreBluetooth).
     func scheduleTimeout(_ key: String, action: @escaping (TimeFlipBLEDevice) -> Void) {
         timeoutTasks[key]?.cancel()
-        let timeoutSeconds = deviceOperationTimeoutSeconds
+        // The scan is the one phase that gets its own budget (see connectScanTimeoutSeconds). Every
+        // other phase is talking to a device already known to be there, where the long watchdog is
+        // the right answer; the scan is the phase that has to conclude the device is absent.
+        let timeoutSeconds = key == "connection" ? connectScanTimeoutSeconds : deviceOperationTimeoutSeconds
         timeoutTasks[key] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: timeoutSeconds * TimeConstants.nanosecondsPerSecond)
             guard !Task.isCancelled, let self else { return }
@@ -980,6 +1045,18 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// every launch -- which is exactly what happened on 2026-08-01 with a cube renamed "Hazza".
     var rememberedDeviceName: String?
 
+    /// The name this cube was called before `rememberedDeviceName`, from
+    /// `device_name.previous_name`. Kept alongside it because the GAP name macOS reports is one
+    /// connection stale after a rename, so the scan straight after one is still seeing the old
+    /// name. Without this the app can lose the device at exactly the moment it renamed it.
+    var previouslyKnownDeviceName: String?
+
+    /// True while `scanForEligibleDevices` is using the discovery scan to build its own candidate
+    /// list. Same collection, but the pairing UI must not hear about it: this scan runs on every
+    /// launch, and its results appearing in the Device tab's "Scan for Devices" list would be a
+    /// list nobody asked for, arriving while the user is looking at something else.
+    private var isCollectingEligibleOnly = false
+
     /// Whether a discovered advertisement is from a device worth listing or connecting to.
     ///
     /// **Both filter sites go through this one function on purpose.** They used to inline the test
@@ -993,14 +1070,18 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// device being findable and not.
     private func describe(_ peripheral: CBPeripheral, _ advertisementData: [String: Any]) -> String {
         let advertised = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-        return "name=\(peripheral.name ?? "nil") advert=\(advertised ?? "nil") looking-for=\(rememberedDeviceName ?? "nil")"
+        let lookingFor = [rememberedDeviceName, previouslyKnownDeviceName]
+            .compactMap { $0 }
+            .joined(separator: "|")
+        return "name=\(peripheral.name ?? "nil") advert=\(advertised ?? "nil") looking-for=\(lookingFor.isEmpty ? "nil" : lookingFor)"
     }
 
     private func isKnownDevice(_ peripheral: CBPeripheral, _ advertisementData: [String: Any]) -> Bool {
         DeviceNameRules.matchesKnownDevice(
             peripheralName: peripheral.name,
             advertisedName: advertisementData[CBAdvertisementDataLocalNameKey] as? String,
-            remembered: rememberedDeviceName
+            remembered: rememberedDeviceName,
+            previouslyKnown: previouslyKnownDeviceName
         )
     }
 
@@ -1890,6 +1971,8 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
                 "listed: \(describe(peripheral, advertisementData))\(serviceMatches ? " serviceMatch" : "")"
             )
             discoveredPeripherals[peripheral.identifier] = peripheral
+            // Collected either way; only announced when a person asked for a device list.
+            guard !isCollectingEligibleOnly else { return }
             // `peripheral.name` first: it is the name the user actually set, even when the cache is
             // a connection behind. The advertised name is a fallback rather than the primary,
             // because on this hardware it never changes, so preferring it would show every renamed

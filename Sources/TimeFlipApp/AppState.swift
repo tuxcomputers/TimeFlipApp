@@ -239,13 +239,61 @@ final class AppState: ObservableObject {
         isPaired && connectionStatus == .connected
     }
 
-    /// Whether the app should be trying to reach a device at all -- the gate on every reconnect,
-    /// backoff retry and wake-from-sleep attempt. True while paired, because a paired app is meant
-    /// to keep its device reachable however long that takes; and true mid-pairing, because that
-    /// attempt is still live and a drop during it should be retried rather than abandoned. False
-    /// otherwise, which is what stops a forgotten device being chased forever.
+    /// Whether there is a device this app is meant to be reaching at all. True while paired,
+    /// because a paired app is meant to keep its device reachable however long that takes; and true
+    /// mid-pairing, because that attempt is still live and a drop during it should be retried
+    /// rather than abandoned. False otherwise, which is what stops a forgotten device being chased
+    /// forever, and is why a drop while it is false is reported as a pairing failure rather than
+    /// retried (see `ApplicationDelegate.handleReconnectFailure`).
+    ///
+    /// This is about the *pairing*, not about whether an attempt may run right now. For that, ask
+    /// `shouldAttemptConnection`.
     var shouldMaintainConnection: Bool {
         isPaired || connectionStatus == .pairing
+    }
+
+    /// Whether an attempt to reach the device may start **right now** -- the gate on every backoff
+    /// retry and wake-from-sleep attempt.
+    ///
+    /// Everything `shouldMaintainConnection` covers, minus the two states where the app has
+    /// deliberately stopped: the manual-mode offer is on screen waiting for an answer, and manual
+    /// mode was chosen for this launch. Both mean no attempt of any kind, from any path. Someone
+    /// who starts the app and walks away has to find the dialog exactly where they left it, not a
+    /// wake-from-sleep having quietly started another run of attempts behind it.
+    var shouldAttemptConnection: Bool {
+        shouldMaintainConnection && !isManualMode && !isAwaitingManualModeDecision
+    }
+
+    /// Whether the manual-mode offer is on screen. Set when the app gives up on the startup
+    /// attempts, cleared by whichever button is pressed.
+    @Published private(set) var isAwaitingManualModeDecision = false
+
+    /// Whether the user chose manual mode for this launch.
+    ///
+    /// **Deliberately not persisted, and there is nowhere to persist it to.** Quitting and
+    /// restarting the app is the only way out of manual mode (see
+    /// `docs/TODO-features-under-development.md`), so a stored flag would outlive the very restart
+    /// meant to end it and strand a user who quit specifically to get their cube back. The
+    /// `manual_mode` setting row holds the trigger threshold only.
+    @Published private(set) var isManualMode = false
+
+    /// The app has stopped trying and is asking. Nothing may attempt a connection until this is
+    /// answered.
+    func awaitManualModeDecision() {
+        isAwaitingManualModeDecision = true
+    }
+
+    /// Retry: the offer is dismissed and attempts may run again. The count that led here is reset
+    /// by `ManualModeOffer.retryChosen()`, so this buys a full fresh round.
+    func manualModeDeclined() {
+        isAwaitingManualModeDecision = false
+    }
+
+    /// Manual mode: no further connection attempt this launch, from any path.
+    func enterManualMode() {
+        isAwaitingManualModeDecision = false
+        isManualMode = true
+        connectionStatus = .disconnected
     }
 
     init(
