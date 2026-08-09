@@ -601,12 +601,17 @@ final class MenuBarController: NSObject {
         statusItem?.menu = nil
     }
 
+    /// Opens Settings, on the tab `SettingsTabRules` picks. Reached from the dropdown's
+    /// "Settings..." item and from the status-item click, and the tab rule applies to both: the
+    /// window lands where the app knows the user is heading regardless of which route got them
+    /// there. A `nil` from the rule leaves whatever tab was last selected, which is the usual case.
     @objc
     private func openPreferences() {
-        // While the low-battery warning is flashing, jump straight to the Device tab (where the
-        // battery line lives) instead of leaving whatever tab was last selected.
-        if lowBatteryBlinkTimer != nil {
-            appState.pendingSettingsTab = .timeflip
+        if let tab = SettingsTabRules.tabOnOpen(
+            isManualMode: isManualModeSnapshot,
+            isLowBatteryBlinking: lowBatteryBlinkTimer != nil
+        ) {
+            appState.pendingSettingsTab = tab
         }
         settingsWindowController.show()
     }

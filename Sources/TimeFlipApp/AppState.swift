@@ -194,9 +194,9 @@ final class AppState: ObservableObject {
     // updates here via setLowBatteryBlinkState(). Deliberately not persisted.
     @Published private(set) var isLowBattery: Bool = false
     @Published private(set) var lowBatteryBlinkPhaseOn: Bool = false
-    // Set by MenuBarController.openPreferences() when Preferences is opened while low-battery is
-    // flashing, so the window jumps straight to the Device tab (where the battery line lives)
-    // instead of leaving whatever tab was last selected. SettingsRootView consumes and clears it.
+    // Set by MenuBarController.openPreferences() when the app has a better idea of where the user
+    // is heading than the tab they last left the window on -- see SettingsTabRules for which cases
+    // those are. SettingsRootView consumes and clears it.
     @Published var pendingSettingsTab: SettingsTab?
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
