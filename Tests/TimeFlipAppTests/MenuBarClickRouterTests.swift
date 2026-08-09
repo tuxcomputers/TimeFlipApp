@@ -26,14 +26,12 @@ final class MenuBarClickRouterTests: XCTestCase {
 
     // MARK: - Manual mode
 
-    func testInManualModeTheLeftSideOpensSettings() {
-        // Manual timing is driven from Settings, so that is what the user is reaching for.
-        XCTAssertEqual(action(manual: true, left: true), .openSettings)
-    }
-
-    func testInManualModeTheRightSideStillOpensTheMenu() {
-        // The menu is the only route to Quit, so it must stay reachable from somewhere. The right
-        // half is free to carry it because pause and lock have no device to act on.
+    func testInManualModeBothHalvesOpenTheMenu() {
+        // Quit matters more here than anywhere else: it is the only way *out* of manual mode, the
+        // work is done in the Settings window, which has no Quit of its own, and the menu is the
+        // only thing that carries one. Sending either half to Settings would put that single exit
+        // behind knowing which half of the status item to click.
+        XCTAssertEqual(action(manual: true, left: true), .showMenu)
         XCTAssertEqual(action(manual: true, left: false), .showMenu)
     }
 
@@ -46,10 +44,11 @@ final class MenuBarClickRouterTests: XCTestCase {
     }
 
     func testManualModeOutranksALowBatteryBlink() {
-        // A blink left over from before the device went away must not change what the left half
-        // does, since both routes lead to Settings anyway -- pinned so the precedence is deliberate
-        // rather than accidental.
-        XCTAssertEqual(action(manual: true, lowBattery: true, left: true), .openSettings)
+        // A blink can only be left over from before the device went away, manual mode never reading
+        // a battery. If it won, the left half would go to Settings and take the menu, and with it
+        // the only Quit, out of reach -- which is the whole reason this rule is ordered first.
+        XCTAssertEqual(action(manual: true, lowBattery: true, left: true), .showMenu)
+        XCTAssertEqual(action(manual: true, lowBattery: true, left: false), .showMenu)
     }
 
     // MARK: - Connected, the pre-existing rules

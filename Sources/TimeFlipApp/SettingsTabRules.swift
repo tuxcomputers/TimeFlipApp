@@ -10,10 +10,10 @@ enum SettingsTabRules {
 
     /// - Parameters:
     ///   - isManualMode: the app is driving time itself. Faces is where a manual session is
-    ///     steered from, and it is the reason the window is being opened at all, so it is worth
-    ///     overriding the remembered tab on **every** open rather than only the first. Somebody who
-    ///     glanced at Report and closed it should not have to click back to Faces to start timing
-    ///     again.
+    ///     steered from -- picking a category and starting or stopping the clock all happen there,
+    ///     and nowhere else -- so it is worth overriding the remembered tab on **every** open rather
+    ///     than only the first. Somebody who glanced at Report and closed it should not have to
+    ///     click back to Faces to start timing again.
     ///   - isLowBatteryBlinking: the activity text is flashing a low battery, so the window jumps
     ///     to Device, where the battery line lives.
     /// - Returns: the tab to force, or `nil` to leave whatever was last selected.

@@ -126,6 +126,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     )
     private let enableMockEvents = false
     private lazy var device: TimeFlipSessionManaging? = enableMockEvents ? MockTimeFlipDevice() : TimeFlipBLEDevice()
+    /// The same object as `device` while a manual session is running, held at its own type so the
+    /// timing controls can drive it. `nil` outside manual mode, which is what makes those controls
+    /// no-ops rather than something that has to be guarded at every call site.
+    private var manualDevice: MockTimeFlipDevice?
     private var eventTask: Task<Void, Never>?
     // Bumped every time startDeviceEvents spawns a new eventTask, so a stale task's completion
     // handler can tell it's no longer the current one and avoid nil-ing out its replacement.
@@ -236,6 +240,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // watchdog three of them leave someone watching an app that looks like it is doing nothing
         // for minutes. Restored to the full watchdog by the first successful connect.
         (device as? TimeFlipBLEDevice)?.connectScanTimeoutSeconds = TimeFlipConstants.startupConnectScanTimeoutSeconds
+        appState.onManualTimingStart = { [weak self] categoryID in
+            self?.startManualTiming(categoryID: categoryID)
+        }
+        appState.onManualTimingPauseToggle = { [weak self] in
+            guard let self else { return }
+            self.setManualTimingPaused(!self.appState.isPaused)
+        }
         appState.onPairingChange = { [weak self] paired in
             guard let self else { return }
             // Fires only when pairing itself changes -- true once a first pairing succeeds, false
@@ -881,8 +892,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // after a deliberate forget. startDeviceEvents re-installs the handler when it reconnects.
         (device as? TimeFlipBLEDevice)?.onDisconnect = nil
         device?.stop()
-        Task { [weak self] in
-            await self?.device?.disconnect()
+        // The device being torn down, captured now rather than read again when the task runs. Manual
+        // mode puts a different one in `device` moments after this returns, and re-reading the
+        // property there would disconnect the replacement instead of the one being let go.
+        let outgoing = device
+        Task {
+            await outgoing?.disconnect()
         }
         eventTask?.cancel()
         eventTask = nil
@@ -1074,7 +1089,117 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             case .switchToManualMode:
                 DeveloperMode.debugPrint(.manualMode, "Manual mode chosen; no further connection attempts this launch")
                 self.appState.enterManualMode()
+                self.startManualSession()
             }
+        }
+    }
+
+    /// Stands a virtual device up where the cube was, and runs the ordinary event loop against it.
+    ///
+    /// The substitution is the whole trick: a manually timed segment is not a second kind of record
+    /// living beside the real ones, it is a `device_event` written by the same `HistoryIngestor`
+    /// from the same history frames, so the menu bar, the daily totals, `time_entry` and the Report
+    /// all keep working with nothing added to any of them.
+    ///
+    /// Deliberately **not** `startDeviceEvents`, which is the connect-and-log-in path and does a
+    /// pile of things that would be lies here: it stamps `connection.last_connection` for a device
+    /// that was never reached, syncs LED brightness and face colours to hardware that does not
+    /// exist, and stands up `MockEventHTTPServer`, a developer control surface that has no business
+    /// listening on a port during an ordinary user's session. What is actually needed is the
+    /// ingestor, the event stream, and nothing else.
+    ///
+    /// The virtual device starts **empty and stopped**: no seeded sample history (those two invented
+    /// segments would be ingested into a real database as work the user never did), no initial face,
+    /// and no auto-pause, which on a real cube is a convenience and here would silently stop a timer
+    /// the user is relying on.
+    private func startManualSession() {
+        let mock = MockTimeFlipDevice(
+            configuration: MockTimeFlipDevice.Configuration(
+                initialFaceID: TimeFlipConstants.unassignedFaceID,
+                isPaused: true,
+                isInitiallyPaired: true,
+                autoPauseMinutes: 0,
+                emitInitialStatus: false,
+                seedsSampleHistory: false,
+                reportsOpenSegment: true
+            )
+        )
+        device = mock
+        manualDevice = mock
+        historyIngestor = HistoryIngestor(
+            device: mock,
+            dataStore: dataStore,
+            appState: appState,
+            dailyTotals: dailyTotals,
+            onLatestEntry: { [weak self] entry in
+                self?.applyActiveInterval(from: entry)
+            }
+        )
+        historyIngestor?.startPeriodicFetchTimer()
+        // The events are what make a click feel immediate: `handleDeviceEvent` refreshes history on
+        // any face or pause change, so a segment reaches the database on the click rather than at
+        // the next tick of the periodic timer.
+        //
+        // `awaitingInitialStatus` stays false on purpose. It is what turns the first face event of a
+        // connection into `confirmConnected(name:uuid:)`, and this device's name is nothing -- it
+        // would overwrite the real cube's remembered name with a blank, losing the app's handle on
+        // the device the user is going to want back on the next launch.
+        awaitingInitialStatus = false
+        isHistoryBackfillComplete = true
+        eventTaskGeneration += 1
+        let generation = eventTaskGeneration
+        eventTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.eventTaskGeneration == generation {
+                    self.eventTask = nil
+                }
+            }
+            _ = await mock.connect()
+            _ = await mock.login(password: TimeFlipConstants.defaultPassword)
+            await mock.enableNotifications()
+            for await event in mock.events {
+                self.handleDeviceEvent(event)
+            }
+        }
+        mock.start()
+        DeveloperMode.debugPrint(.manualMode, "Manual session started on face \(TimeFlipConstants.manualFaceID)")
+    }
+
+    /// Picks the category being timed, and starts the clock on it.
+    ///
+    /// **The order is the point.** A `time_entry` records the category its face was mapped to when
+    /// the segment happened, and manual mode's face is remapped every time the user picks something
+    /// new -- so writing the new category first would convert the segment that just ended against
+    /// the category it was not. The flip closes that segment, the refresh converts it while the old
+    /// mapping still stands, and only then does the face take the new category, which the next
+    /// segment (open, unconverted) will be resolved through when it in turn ends.
+    ///
+    /// Unpausing comes after the flip rather than before it so the stub segment that leaves behind
+    /// is a *paused* one, and paused segments are never converted into `time_entry` rows. Before it,
+    /// the same stub would be a running segment and would land in the user's totals as a zero-second
+    /// entry against whatever they had been doing.
+    private func startManualTiming(categoryID: Int) {
+        guard let manualDevice else { return }
+        DeveloperMode.debugPrint(.manualMode, "Manual timing: category \(categoryID) on face \(TimeFlipConstants.manualFaceID)")
+        manualDevice.flip(to: TimeFlipConstants.manualFaceID)
+        manualDevice.setPaused(false)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.historyIngestor?.refreshHistory(trigger: "manual_start")
+            self.dataStore.updateFaceCategory(faceID: TimeFlipConstants.manualFaceID, categoryID: categoryID)
+            self.refreshFaceCategories()
+        }
+    }
+
+    /// Stops the manual clock, or starts it again. The segment that ends is written and converted by
+    /// the refresh, exactly as a flip's is.
+    private func setManualTimingPaused(_ paused: Bool) {
+        guard let manualDevice else { return }
+        DeveloperMode.debugPrint(.manualMode, "Manual timing: \(paused ? "stopped" : "running")")
+        manualDevice.setPaused(paused)
+        Task { [weak self] in
+            await self?.historyIngestor?.refreshHistory(trigger: "manual_pause")
         }
     }
 
@@ -1350,7 +1475,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyActiveInterval(from entry: TimeFlipHistoryEntry) {
-        guard TimeFlipConstants.isValidFaceID(entry.faceID) else { return }
+        // The stored bound: in manual mode these entries come from the virtual device on face 13.
+        // The frames a real cube sends are already held to 12 by `TimeFlipHistoryParser.parse`
+        // before they ever reach here, so widening this cannot let a corrupt frame through.
+        guard TimeFlipConstants.isValidStoredFaceID(entry.faceID) else { return }
         let isPaused = entry.isPaused
         let elapsed: TimeInterval
         if entry.duration > 0 {

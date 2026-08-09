@@ -198,6 +198,13 @@ final class AppState: ObservableObject {
     // is heading than the tab they last left the window on -- see SettingsTabRules for which cases
     // those are. SettingsRootView consumes and clears it.
     @Published var pendingSettingsTab: SettingsTab?
+    /// Starts manual timing on the category, which also puts that category on `manualFaceID`. The
+    /// order those two happen in matters and is not this view's to decide, so the Faces tab asks for
+    /// the whole gesture rather than writing the face row itself -- see
+    /// `ApplicationDelegate.startManualTiming`.
+    var onManualTimingStart: ((Int) -> Void)?
+    /// Stops manual timing if it is running, starts it again if it is stopped.
+    var onManualTimingPauseToggle: (() -> Void)?
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?

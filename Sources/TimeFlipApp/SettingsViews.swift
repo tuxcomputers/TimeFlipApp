@@ -194,14 +194,13 @@ private struct PaneSetupView: View {
 
             HStack(alignment: .top, spacing: spacing) {
                 VStack(alignment: .leading, spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-                    Text("Top face")
+                    Text(appState.isManualMode ? "Timing" : "Top face")
                         .font(.headline)
 
-                    if TimeFlipConstants.isValidFaceID(appState.currentFaceID) {
+                    if appState.isManualMode {
+                        manualTimerEditor
+                    } else if TimeFlipConstants.isValidFaceID(appState.currentFaceID) {
                         TopFaceEditor(
-                            litColour: appState.deviceBodyColour(for: appState.currentFaceID),
-                            lineColour: appState.deviceLineColour(for: appState.currentFaceID),
-                            iconName: appState.categoryActivity(for: appState.currentFaceID)?.iconName,
                             categoryName: appState.categoryActivity(for: appState.currentFaceID)?.name,
                             isLocked: appState.isFaceLocked(appState.currentFaceID),
                             onToggleLock: {
@@ -210,7 +209,13 @@ private struct PaneSetupView: View {
                                 DeveloperMode.debugPrint(.click, "Button clicked: Face \(faceID) lock -> \(locked ? "locked" : "unlocked")")
                                 setFaceLocked(faceID, locked)
                             }
-                        )
+                        ) {
+                            DeviceFaceView(
+                                litColour: appState.deviceBodyColour(for: appState.currentFaceID),
+                                lineColour: appState.deviceLineColour(for: appState.currentFaceID),
+                                centre: centre(for: appState.currentFaceID)
+                            )
+                        }
                     } else {
                         Text("Flip the device to pick a face.")
                             .foregroundStyle(.secondary)
@@ -231,7 +236,7 @@ private struct PaneSetupView: View {
                         // A locked face keeps the category it has, so there is nothing here to
                         // click. The write refuses a locked face too, in case this ever gets past.
                         canAssign: canAssignToFaceOnShow,
-                        onSelect: { assignCategoryToFace(appState.currentFaceID, $0) }
+                        onSelect: { pickCategory($0) }
                     )
 
                     CategoryCreateControl(
@@ -246,13 +251,13 @@ private struct PaneSetupView: View {
                             // must not land on the face either.
                             guard updateCategoryActive(category.id, true) else { return false }
                             categories = loadCategories()
-                            assignToFaceOnShow(category.id)
+                            pickCategory(category.id)
                             return true
                         },
                         onCreated: { newCategoryID in
                             categories = loadCategories()
                             guard let newCategoryID else { return }
-                            assignToFaceOnShow(newCategoryID)
+                            pickCategory(newCategoryID)
                         }
                     )
                 }
@@ -274,57 +279,127 @@ private struct PaneSetupView: View {
         // swiftlint:enable closure_body_length
     }
 
+    /// Manual mode's timer control, where the device graphic sits the rest of the time.
+    ///
+    /// No device is drawn: there is no cube in this mode, so a picture of one would be reporting
+    /// nothing. No lock either -- locking exists to stop a face being reassigned by accident, and
+    /// manual mode's face is *meant* to be reassigned, since every category the user picks lands on
+    /// it, so a lock there could only get in the way of the one gesture this tab has.
+    private var manualTimerEditor: some View {
+        let state = ManualTimerRules.state(currentFaceID: appState.currentFaceID, isPaused: appState.isPaused)
+        let faceID = TimeFlipConstants.manualFaceID
+        return TopFaceEditor(
+            categoryName: state == .idle ? "" : appState.categoryActivity(for: faceID)?.name,
+            isLocked: false,
+            onToggleLock: nil,
+            onTapCentre: ManualTimerRules.isCentreClickable(state) ? {
+                DeveloperMode.debugPrint(.click, "Manual timer clicked while \(state): toggling")
+                appState.onManualTimingPauseToggle?()
+            } : nil
+        ) {
+            ManualTimerFaceView(
+                centre: ManualTimerRules.centre(for: state),
+                tint: appState.faceCategoryColour(for: faceID)
+            )
+        }
+    }
+
+    /// What the centre of the device shows for a real face: its category's icon, if it has one.
+    private func centre(for faceID: UInt8) -> DeviceFaceCentre {
+        guard let iconName = appState.categoryActivity(for: faceID)?.iconName else { return .empty }
+        return .categoryIcon(iconName)
+    }
+
     /// Whether the face on show will take a category: there has to be a real face up, and a locked
-    /// face keeps the one it already has. Read by the assignment list to decide whether its rows are
-    /// live, and by `assignToFaceOnShow` for the same question, so the two cannot disagree.
+    /// face keeps the one it already has. Manual mode's face is always ready for one, being the
+    /// whole point of the tab there. Read by the assignment list to decide whether its rows are
+    /// live, and by `pickCategory` for the same question, so the two cannot disagree.
     private var canAssignToFaceOnShow: Bool {
-        TimeFlipConstants.isValidFaceID(appState.currentFaceID)
+        if appState.isManualMode { return true }
+        return TimeFlipConstants.isValidFaceID(appState.currentFaceID)
             && !appState.isFaceLocked(appState.currentFaceID)
     }
 
-    /// Puts a just-created category straight onto the face on show. Creating a category on *this*
-    /// tab is done while looking at a particular face, and that face is the reason it is being
-    /// created, so it lands there rather than leaving the user to find the new row in the list below
-    /// and click it. The Categories tab, which has no face in front of it, creates without
-    /// assigning -- which is why this lives here and not in `CategoryCreateControl`.
+    /// The one gesture this tab has: a category is chosen, from the list or by being created or
+    /// reinstated right here.
     ///
-    /// It overwrites whatever the face held: the face was unlocked and the user asked for a new
-    /// category while on it, which is the same instruction as clicking a row in the list.
+    /// Creating a category on *this* tab is done while looking at a particular face, and that face is
+    /// the reason it is being created, so it lands there rather than leaving the user to find the new
+    /// row in the list below and click it. The Categories tab, which has no face in front of it,
+    /// creates without assigning -- which is why this lives here and not in `CategoryCreateControl`.
+    ///
+    /// It overwrites whatever the face held: the face was unlocked and the user asked for this
+    /// category while on it, which is the same instruction either way.
+    ///
+    /// In manual mode the choice also **starts the clock**, which is why it goes out through
+    /// `onManualTimingStart` rather than writing the face row from here. Closing the running segment
+    /// before the new category lands is the whole of that job, and getting the order wrong records
+    /// time against the wrong thing -- see `ApplicationDelegate.startManualTiming`.
     ///
     /// Does nothing when the face won't take it -- no face reported yet, or a locked one. Neither
     /// needs saying twice: the list beside this is already visibly dead and the lock already reads
     /// red, and the write itself refuses a locked face anyway.
-    private func assignToFaceOnShow(_ categoryID: Int) {
-        let faceID = appState.currentFaceID
+    private func pickCategory(_ categoryID: Int) {
         guard canAssignToFaceOnShow else {
-            DeveloperMode.debugPrint(.click, "New category \(categoryID) left unassigned: face \(faceID) is \(appState.isFaceLocked(faceID) ? "locked" : "not a face")")
+            let faceID = appState.currentFaceID
+            DeveloperMode.debugPrint(.click, "Category \(categoryID) left unassigned: face \(faceID) is \(appState.isFaceLocked(faceID) ? "locked" : "not a face")")
             return
         }
-        DeveloperMode.debugPrint(.click, "New category \(categoryID) assigned to the top face \(faceID)")
-        assignCategoryToFace(faceID, categoryID)
+        if appState.isManualMode {
+            DeveloperMode.debugPrint(.click, "Category \(categoryID) picked in manual mode; starting the clock")
+            appState.onManualTimingStart?(categoryID)
+            return
+        }
+        DeveloperMode.debugPrint(.click, "Category \(categoryID) assigned to the top face \(appState.currentFaceID)")
+        assignCategoryToFace(appState.currentFaceID, categoryID)
     }
 }
 
-private struct TopFaceEditor: View {
-    /// The colour to light the device in: the colour of the category assigned to this face, or
-    /// white when it has none (see `AppState.deviceBodyColour`).
-    let litColour: Color
-    /// The colour of the device's inner lines and centre icon (see `AppState.deviceLineColour`).
-    let lineColour: Color
-    /// The assigned category's icon, or `nil` when there isn't one to draw.
-    let iconName: String?
-    /// The assigned category's name, shown under the device.
+/// The square at the top of the left column, with the category's name under it.
+///
+/// Generic over what fills the square because the two modes have nothing in common there: with a
+/// cube it is the device artwork lit in the face's colour, and in manual mode there is no device, so
+/// it is the timer control alone on the window. Everything around it -- the square footprint the
+/// column's height is measured from, the name, the optional lock and the optional click target --
+/// is shared, which is what keeps the two from drifting apart in spacing or type.
+private struct TopFaceEditor<Face: View>: View {
+    /// The assigned category's name, shown under the square.
     let categoryName: String?
     let isLocked: Bool
-    let onToggleLock: () -> Void
+    /// `nil` hides the lock entirely, which is what manual mode wants -- it has no lock to offer,
+    /// rather than a lock that is merely switched off.
+    let onToggleLock: (() -> Void)?
+    /// Makes the centre of the square a click target. `nil` leaves it inert, which is every case
+    /// except manual mode's play/pause.
+    var onTapCentre: (() -> Void)?
+    @ViewBuilder let face: () -> Face
 
     var body: some View {
         VStack(spacing: SettingsLayoutConstants.Pane.sectionSpacing) {
-            // DeviceFaceView squares itself off, so the name sits directly under the device rather
-            // than being pushed to the bottom of a tall column.
-            DeviceFaceView(litColour: litColour, lineColour: lineColour, iconName: iconName)
+            // The face squares itself off, so the name sits directly under it rather than being
+            // pushed to the bottom of a tall column.
+            face()
                 .overlay(alignment: .topLeading) {
-                    FaceLockToggle(isLocked: isLocked, action: onToggleLock)
+                    if let onToggleLock {
+                        FaceLockToggle(isLocked: isLocked, action: onToggleLock)
+                    }
+                }
+                .overlay {
+                    if let onTapCentre {
+                        // Sized to the centre rather than the whole square, so the click lands on
+                        // the icon a user is aiming at and the rest stays inert.
+                        GeometryReader { proxy in
+                            Button(action: onTapCentre) {
+                                Color.clear.contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .frame(
+                                width: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale,
+                                height: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                        }
+                    }
                 }
 
             Text(categoryName ?? "")
@@ -415,9 +490,8 @@ struct DeviceFaceView: View {
     /// The colour of the inner lines and the centre icon. The outer outline is not drawn in this
     /// and stays black, so the device's shape reads against the window whatever it is lit in.
     let lineColour: Color
-    /// The icon of the category assigned to this face, drawn on the centre face. `nil` when the
-    /// face has no category, or its category has no icon.
-    let iconName: String?
+    /// What sits on the centre face.
+    let centre: DeviceFaceCentre
 
     var body: some View {
         device
@@ -428,14 +502,11 @@ struct DeviceFaceView: View {
                 GeometryReader { proxy in
                     // The centre face is centred on the artwork, so centring the icon in the same
                     // frame puts it on that face without needing the pentagon's corners.
-                    if let iconName {
-                        ActivityIconView(
-                            iconName: iconName,
-                            tint: lineColour,
-                            size: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    }
+                    FaceCentreView(
+                        centre: centre,
+                        tint: lineColour,
+                        size: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
+                    )
                 }
             }
     }
@@ -454,6 +525,66 @@ struct DeviceFaceView: View {
             Image(systemName: "square.dashed")
                 .resizable()
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Manual mode's face: the timer control alone, on the window.
+///
+/// No device is drawn behind it, because in manual mode there is no device. Keeping the artwork and
+/// putting the control on its centre face would draw a cube for a session that has nothing to do
+/// with one, and invite the reading that the picture is reporting something about hardware.
+///
+/// It still takes the same square footprint the device did, so the name below it and the rest of
+/// the column sit where they always have.
+struct ManualTimerFaceView: View {
+    let centre: DeviceFaceCentre
+    /// The category's own colour, or `.primary` when it has none -- `AppState.faceCategoryColour`,
+    /// not `deviceLineColour`. The latter answers "what reads against the lit device body" and is
+    /// white for a dark face, which on the window behind it would be a white icon on white.
+    let tint: Color
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                GeometryReader { proxy in
+                    FaceCentreView(
+                        centre: centre,
+                        tint: tint,
+                        size: proxy.size.width * SettingsLayoutConstants.DeviceFace.centreIconScale
+                    )
+                }
+            }
+    }
+}
+
+/// What sits in the middle of the square, centred in whatever it is given.
+private struct FaceCentreView: View {
+    let centre: DeviceFaceCentre
+    let tint: Color
+    let size: CGFloat
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch centre {
+        case .empty:
+            EmptyView()
+        case .categoryIcon(let iconName):
+            ActivityIconView(iconName: iconName, tint: tint, size: size)
+        case .symbol(let symbolName):
+            // An SF Symbol rather than the asset loader `ActivityIconView` uses: the category icons
+            // come from the app's own asset catalogue, and the timer's play/pause are not categories.
+            Image(systemName: symbolName)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(tint)
+                .frame(width: size, height: size)
         }
     }
 }

@@ -1,5 +1,5 @@
 -- face
--- The 12 physical faces of the TimeFlip device, each linked to its assigned category.
+-- The 12 physical faces of the TimeFlip device plus the app's own face 13, each linked to its assigned category.
 
 CREATE TABLE IF NOT EXISTS face (
   face_id       INTEGER CONSTRAINT PK_face PRIMARY KEY
@@ -34,3 +34,5 @@ INSERT INTO face (face_id, category_id)
 SELECT 11, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 11);
 INSERT INTO face (face_id, category_id)
 SELECT 12, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 12);
+INSERT INTO face (face_id, category_id)
+SELECT 13, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 13);

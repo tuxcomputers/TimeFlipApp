@@ -5,6 +5,17 @@ enum TimeFlipConstants {
     static let maxFaceID: UInt8 = 12
     static let faceCount = Int(maxFaceID - minFaceID + 1)
     static let faceIDs: [UInt8] = Array(minFaceID...maxFaceID)
+    /// The one face manual mode owns: not a face of any cube, but a thirteenth the app keeps for
+    /// itself so a manually timed segment resolves its category through exactly the same
+    /// `device_event.device_face -> face -> category` join every real segment does.
+    ///
+    /// One face is enough because manual mode times one thing at a time. The category being timed
+    /// is whatever this face currently holds, rather than twelve standing mappings, and keeping it
+    /// off the cube's own 1-12 means a manual session never disturbs what the physical faces are
+    /// assigned to.
+    static let manualFaceID: UInt8 = 13
+    /// The widest face id the **database** accepts, as opposed to the widest a cube can report.
+    static let maxStoredFaceID: UInt8 = manualFaceID
     static let unassignedFaceID: UInt8 = 0
     /// The `Unassigned` sentinel category seeded at `category_id` 0 (`database/007_category.sql`).
     /// What a face points at when it has nothing on it, and so what a face is put back on when the
@@ -100,8 +111,22 @@ enum TimeFlipConstants {
     }
     static let defaultPassword = "000000"
 
+    /// Whether a **cube** could have reported this face. Deliberately still stops at 12, and is the
+    /// bound every BLE path uses: `TimeFlipHistoryParser.parse` and the notification handlers in
+    /// `TimeFlipBLEDevice` validate a face byte lifted straight off a frame, and widening this
+    /// would tell them a TimeFlip2 may report a thirteenth face, which it may not. A frame claiming
+    /// 13 is a corrupt frame, not a manual segment.
     static func isValidFaceID(_ faceID: UInt8) -> Bool {
         faceID >= minFaceID && faceID <= maxFaceID
+    }
+
+    /// Whether this face can be **stored**: the twelve a cube has, plus `manualFaceID`.
+    ///
+    /// The bound for anything on the app's own side of the line -- the `face` table, a
+    /// `device_event` row being written, the face on show in the Faces tab -- where 13 is a real
+    /// face with a real category on it. See `isValidFaceID` for why the two are separate.
+    static func isValidStoredFaceID(_ faceID: UInt8) -> Bool {
+        faceID >= minFaceID && faceID <= maxStoredFaceID
     }
 }
 

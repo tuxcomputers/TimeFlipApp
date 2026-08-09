@@ -546,7 +546,8 @@ final class MenuBarController: NSObject {
     /// on a double-click, without opening anything. If the device has never connected (or can't
     /// connect), there's no pause/resume state to toggle, so any click just pops the menu. While
     /// locked, the single-click pause/resume toggle is a no-op (see togglePause) — the double-click
-    /// unlock action is the only thing that does anything.
+    /// unlock action is the only thing that does anything. Manual mode gives both halves the menu,
+    /// including over a stale low-battery blink; see `MenuBarClickRouter`, which owns all of these.
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
@@ -700,7 +701,9 @@ final class MenuBarController: NSObject {
         faceCategoriesOverride: [UInt8: CategoryRecord]? = nil
     ) {
         let faceID = appState.currentFaceID
-        guard TimeFlipConstants.isValidFaceID(faceID) else { return }
+        // The stored bound: what is being asked is which category the face on show carries, and in
+        // manual mode that face is 13.
+        guard TimeFlipConstants.isValidStoredFaceID(faceID) else { return }
         let categories = faceCategoriesOverride ?? appState.faceCategories
         guard let activity = appState.categoryActivity(for: faceID, in: categories) else {
             return

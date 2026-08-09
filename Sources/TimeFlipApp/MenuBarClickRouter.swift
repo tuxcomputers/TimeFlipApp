@@ -25,9 +25,11 @@ enum MenuBarClickRouter {
     /// - Parameters:
     ///   - isConnected: paired **and** reporting `.connected`. The pause/lock half only means
     ///     anything when there is a device listening to act on it.
-    ///   - isManualMode: the app is driving time itself. There is no device, so the right half's
-    ///     pause and lock have nothing to act on, and the left half opens Settings instead, because
-    ///     that is where manual timing is driven from and so what the user is reaching for.
+    ///   - isManualMode: the app is driving time itself. Both halves open the menu: there is no
+    ///     device for pause and lock to act on, and the menu carries Quit, which matters more here
+    ///     than anywhere else -- quitting is the only way *out* of manual mode, and the work is done
+    ///     in the Settings window, which has no Quit of its own. Sending a half of the status item
+    ///     to Settings instead would put the one exit behind knowing which half to click.
     ///   - isLowBatteryBlinking: the activity text is flashing a low battery. A left-click then
     ///     goes to Settings rather than the menu, on the reading that someone clicking a warning
     ///     wants the thing the warning is about.
@@ -38,9 +40,10 @@ enum MenuBarClickRouter {
         isLeftSide: Bool,
         clickCount: Int
     ) -> StatusItemClick {
-        if isManualMode {
-            return isLeftSide ? .openSettings : .showMenu
-        }
+        // Ahead of the low-battery route below, not folded into the `isConnected` guard: a blink
+        // left over from before the device went away would otherwise send the left half to Settings
+        // and take the menu, and Quit with it, out of reach again.
+        if isManualMode { return .showMenu }
         guard isConnected else { return .showMenu }
         guard !isLeftSide else {
             return isLowBatteryBlinking ? .openSettings : .showMenu

@@ -876,7 +876,7 @@ final class AppDataStore {
         guard let db else { return }
         let sql = """
         UPDATE face SET locked = ?
-        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxFaceID);
+        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxStoredFaceID);
         """
         queue.sync {
             var stmt: OpaquePointer?
@@ -964,9 +964,9 @@ final class AppDataStore {
     /// Assigns a category to a physical face -- the Faces tab's category list. See
     /// `database/008_face.sql`.
     ///
-    /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFaceID`
-    /// sentinel (face `0`, what `currentFaceID` reads before the device has reported a face)
-    /// can't create a thirteenth row.
+    /// The `face_id` guard keeps the write to the seeded faces -- the cube's 12 plus manual mode's
+    /// 13 -- so the `unassignedFaceID` sentinel (face `0`, what `currentFaceID` reads before the
+    /// device has reported a face) can't create a row of its own.
     ///
     /// A locked face is refused here as well as in the UI. Locking exists to stop a face being
     /// reassigned by accident, and a guard the UI alone enforces is one a stale view can walk past.
@@ -984,7 +984,7 @@ final class AppDataStore {
         let sql = """
         UPDATE face SET category_id = ?
         WHERE face_id = ? AND locked = 0
-          AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxFaceID);
+          AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxStoredFaceID);
         """
         queue.sync {
             var stmt: OpaquePointer?
