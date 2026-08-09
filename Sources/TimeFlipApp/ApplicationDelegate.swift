@@ -183,6 +183,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     // Whether this launch has ever connected, which is the whole of what decides between retrying
     // quietly and putting the offer up. See ManualModeOffer for the rule.
     private var manualModeOffer = ManualModeOffer()
+    // What the current connect attempt found, which is how the manual-mode offer says why it gave
+    // up (see `ManualModeOfferReason`). Held here rather than returned, because the offer is often
+    // raised from the disconnect the attempt causes -- a path with no access to what the attempt is
+    // about to return, and the one that gets there first. Both reset at the top of every attempt.
+    private var attemptEligibleCount = 0
+    private var attemptRefusedCount = 0
     // Puts the "device isn't in range" choice in front of the user and reports what they picked.
     // A seam rather than a direct NSAlert call so a test can answer it without a window server;
     // the default is set in applicationDidFinishLaunching.
@@ -298,11 +304,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 // set by hand for recovery), then the current password. Each is only tried if the
                 // one before was rejected as wrong -- any other outcome stops the sequence.
                 //
-                // Pairing is the only place a password is guessed, and the only place
-                // `config.json`'s PIN is read at all: it deliberately does not set the password
-                // this app connects with (see AppState.applyDeveloperConfig). Connecting uses the
-                // stored one and fails if it is rejected, because being paired means the app is
-                // meant to already know it (see startDeviceEvents).
+                // Pairing is the only place a password is guessed. The default and the dev constant
+                // belong to this list and nowhere else: they are the two states a cube whose PIN
+                // the app does not know yet can be in. Once paired there is exactly one right
+                // answer -- `config.json`'s PIN, which is also what the rotation below leaves the
+                // cube on (see AppState.applyDeveloperConfig) -- and connecting presents that and
+                // fails if it is rejected, because being paired means the app is meant to know it
+                // (see startDeviceEvents).
                 var candidates = [TimeFlipConstants.defaultPassword]
                 if DeveloperMode.isEnabled {
                     candidates.append(DeveloperMode.devicePassword)
@@ -711,7 +719,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                         // after that, the offer is over for the session and a refusal is handled as
                         // any other drop.
                         if outcome == .allRefused, !self.manualModeOffer.hasConnectedThisLaunch {
-                            self.offerManualMode(reason: "every device found refused this app's PIN")
+                            self.offerManualMode()
                             return
                         }
                         self.handleReconnectFailure(message: "Connect failed")
@@ -847,8 +855,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                let rotatedPassword = await bleDevice.rotateDevicePassword() {
                 await MainActor.run {
                     self.appState.devicePassword = rotatedPassword
+                    // Dev mode writes the PIN into config.json rather than the Keychain, because
+                    // that file is what a paired connect reads. This is the one save that sets the
+                    // field rather than passing it through from disk -- see
+                    // `AppState.recordPairedDevicePassword` for why that is safe only here.
+                    self.appState.recordPairedDevicePassword(rotatedPassword)
                 }
-                if !self.appState.isDeveloperConfigLoaded {
+                if !DeveloperMode.isEnabled {
                     do {
                         try TimeFlipDevicePasswordStore.shared.savePassword(rotatedPassword)
                     } catch {
@@ -981,7 +994,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // dialog is the only thing that decides what happens next, so this failure changes nothing.
         guard !appState.isAwaitingManualModeDecision, !appState.isManualMode else { return }
         guard manualModeOffer.recordFailedAttempt() == .keepTrying else {
-            offerManualMode(reason: "nothing eligible found in the scan")
+            offerManualMode()
             return
         }
         appState.connectionStatus = .reconnecting
@@ -1003,12 +1016,15 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     ///
     /// The mock has no radio and nothing to scan, so it keeps `connect()`.
     private func connectToPairedDevice(_ device: TimeFlipSessionManaging) async -> ConnectAttemptOutcome {
+        attemptEligibleCount = 0
+        attemptRefusedCount = 0
         guard let ble = device as? TimeFlipBLEDevice else {
             return await device.connect() ? .connected : .noneEligible
         }
 
         let pairedUUID = appState.pairedDeviceUUID.flatMap(UUID.init(uuidString:))
         let candidates = await ble.scanForEligibleDevices(preferring: pairedUUID)
+        attemptEligibleCount = candidates.count
         guard !candidates.isEmpty else {
             DeveloperMode.debugPrint(.scan, "no eligible device found in this scan")
             return .noneEligible
@@ -1021,12 +1037,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         for candidate in candidates {
+            // Counted per candidate, not per attempt: mid-factory-reset there are two passwords to
+            // try, and a cube that refuses both is still one device that refused, not two.
+            var refusedThisCandidate = false
             for password in passwords {
                 switch await ble.connectToDiscoveredDevice(id: candidate.id, password: password) {
                 case .connected:
                     DeveloperMode.debugPrint(.scan, "logged in to \(candidate.name)")
                     return .connected
                 case .wrongPassword:
+                    refusedThisCandidate = true
                     DeveloperMode.debugPrint(.scan, "\(candidate.name) refused this app's PIN; trying the next device")
                 case .notTimeFlip:
                     DeveloperMode.debugPrint(.scan, "\(candidate.name) is not a TimeFlip after all; trying the next device")
@@ -1035,6 +1055,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 case .failed:
                     DeveloperMode.debugPrint(.scan, "\(candidate.name) could not be reached; trying the next device")
                 }
+            }
+            if refusedThisCandidate {
+                attemptRefusedCount += 1
             }
         }
         DeveloperMode.debugPrint(.scan, "none of the \(candidates.count) eligible device(s) accepted this app's PIN")
@@ -1081,15 +1104,27 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     /// Stop trying and ask: retry, or switch to manual mode for the rest of this launch.
     ///
-    /// Reached only from a launch that has never connected, after `prompt_after_attempts` failures
-    /// in a row. No attempt runs while this is on screen -- `AppState.shouldAttemptConnection` is
-    /// false from here until an answer arrives, which closes off the backoff retry and the
-    /// wake-from-sleep path alike.
-    /// `reason` names which of the two ways this was reached, because "not in range" and "there and
-    /// refused this app's PIN" are different problems and the log line was the only place they
-    /// could be told apart. Confirmed on hardware 2026-08-09, where a refused PIN logged as
-    /// "unreachable after 1 attempts" and read as a range problem it was not.
-    private func offerManualMode(reason: String = "no eligible device in range") {
+    /// Reached only from a launch that has never connected, on the first failed attempt. No attempt
+    /// runs while this is on screen -- `AppState.shouldAttemptConnection` is false from here until
+    /// an answer arrives, which closes off the backoff retry and the wake-from-sleep path alike.
+    ///
+    /// **Two callers race to get here and both arrive.** A refused PIN ends the probe, and the
+    /// disconnect that causes reaches `handleReconnectFailure` before `startDeviceEvents` can act
+    /// on the `.allRefused` it is about to be handed -- measured at 3ms apart on hardware
+    /// 2026-08-09. The loser used to arrive anyway, blocked behind `runModal()`, and fire the
+    /// instant the user chose manual mode: the dialog went straight back up and `stopDeviceEvents()`
+    /// tore down the session that had just started, so the mode could only be entered by answering
+    /// the same question twice. The guard below is what makes a second call harmless, and it lives
+    /// here rather than at the call sites because only one of them ever had it.
+    ///
+    /// The reason is derived rather than passed in for the same reason: the caller that knows the
+    /// true answer is the one that loses the race. See `ManualModeOfferReason`.
+    private func offerManualMode() {
+        guard appState.mayOfferManualMode else { return }
+        let reason = ManualModeOfferReason.describe(
+            eligibleFound: attemptEligibleCount,
+            refusedPIN: attemptRefusedCount
+        )
         DeveloperMode.debugPrint(.manualMode, "Offering manual mode: \(reason)")
         appState.awaitManualModeDecision()
         appState.connectionStatus = .disconnected

@@ -2,8 +2,9 @@
 import XCTest
 
 // swiftlint:disable line_length
-/// `config.json` is a developer input file, edited by hand. These pin the rule that the app reads
-/// the PIN from it and never writes one back.
+/// `config.json` is a developer file, edited by hand. These pin the rule that the app reads the PIN
+/// from it and writes that field back **only** at the pairing that sets it -- never on any other
+/// save, and never from memory.
 ///
 /// The bug they exist for cost a real evening on 2026-08-01. Forget Device set the in-memory
 /// password to the factory default, the `$devicePassword` observer wrote that straight into
@@ -38,12 +39,19 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         )
     }
 
-    /// The 2026-08-01 write-back was stopped, but the `000000` it had already stamped into the file
-    /// stayed there, and the file still outranked the password a dev build starts on -- so the same
-    /// evening repeated itself on 2026-08-08, halting `03b` with a cube on `123456` and an app
-    /// presenting `000000` on every launch. Reading the PIN must not decide what the app connects
-    /// with.
-    func testAStaleConfigPINDoesNotBecomeTheConnectPassword() {
+    /// The file's PIN **is** the connect password now, which is the opposite of what this once
+    /// asserted, and the reason the reversal is safe is worth keeping next to it.
+    ///
+    /// The 2026-08-01 write-back stamped `000000` into the file while pairing rotated the cube to
+    /// `123456`, and the same evening repeated itself on 2026-08-08 when the file's stale value
+    /// still outranked the constant: `03b` halted with a cube on one PIN and every launch
+    /// presenting the other. The fix then was to keep the file out of the connect path.
+    ///
+    /// What makes it the right source now is that the app **writes** the field at the pairing that
+    /// sets it (`recordPairedDevicePassword`), so a stale value is no longer something the app can
+    /// produce -- only something a developer can type, deliberately, which is exactly what the
+    /// manual-mode checklist needs to do to stage a refused PIN.
+    func testTheConfigPINIsWhatAPairedBuildPresents() {
         let configStore = InMemoryDeveloperConfigStore(
             stored: DeveloperConfigPayload(
                 googleClientID: "client-id",
@@ -57,8 +65,25 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         XCTAssertTrue(appState.isDeveloperConfigLoaded, "the dev-config path must actually be live, or this proves nothing")
         XCTAssertEqual(
             appState.devicePassword,
+            TimeFlipConstants.defaultPassword,
+            "config.json is the record of what the paired cube is on, so it decides what is presented"
+        )
+    }
+
+    /// The half that is **not** reversed, and the one that stops a mismatch being unrecoverable.
+    ///
+    /// Pairing still rotates onto the compiled constant, which is also a pairing candidate, so a
+    /// cube this app has paired can always be reached again by a re-pair no matter what happens to
+    /// the file. Rotating onto the file's own value instead would leave the cube on a PIN that only
+    /// that file names, and an edit afterwards would strand it: nothing left to guess, and neither
+    /// Forget nor a factory reset can help, both needing a login first.
+    func testPairingStillRotatesOntoTheCompiledConstant() throws {
+        try XCTSkipUnless(DeveloperMode.isEnabled)
+
+        XCTAssertEqual(
             DeveloperMode.devicePassword,
-            "a dev build must start on the password it rotates a cube to, whatever config.json says"
+            "123456",
+            "the rotation target is compiled in and in the pairing candidate list; changing it strands paired cubes"
         )
     }
 

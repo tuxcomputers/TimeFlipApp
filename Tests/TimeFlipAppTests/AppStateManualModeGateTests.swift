@@ -1,14 +1,15 @@
 @testable import TimeFlipApp
 import XCTest
 
-/// The two gates that decide whether the app may reach for its device, and the difference between
-/// them.
+/// The gates that decide whether the app may reach for its device, or ask about giving up on it,
+/// and the differences between them.
 ///
 /// `shouldMaintainConnection` asks whether there is a pairing to reconnect to; a drop while it is
 /// false is reported as a pairing failure. `shouldAttemptConnection` asks whether an attempt may
 /// start right now, and is the one every retry path reads. Manual mode belongs to the second only:
 /// reading it into the first would report a pairing failure for a device that is perfectly well
-/// paired and merely out of range.
+/// paired and merely out of range. `mayOfferManualMode` is a third question again -- whether the
+/// dialog may go up -- and it exists because two paths reach it and both arrive.
 @MainActor
 final class AppStateManualModeGateTests: XCTestCase {
     private func makePairedAppState() -> AppState {
@@ -81,6 +82,45 @@ final class AppStateManualModeGateTests: XCTestCase {
 
         XCTAssertTrue(appState.isManualMode)
         XCTAssertFalse(appState.isConnected, "there is no radio on the other end of a manual session")
+    }
+
+    // MARK: - Raising the offer
+
+    func testTheOfferMayBeRaisedOnAFreshFailure() {
+        XCTAssertTrue(makePairedAppState().mayOfferManualMode)
+    }
+
+    func testTheOfferIsNotRaisedTwiceWhileItIsOnScreen() {
+        // The first of the two racing callers puts the alert up; the second must find the door shut
+        // rather than queue a duplicate behind `runModal()`.
+        let appState = makePairedAppState()
+
+        appState.awaitManualModeDecision()
+
+        XCTAssertFalse(appState.mayOfferManualMode)
+    }
+
+    func testTheOfferIsNotRaisedAfterItHasBeenAnswered() {
+        // The half that actually bit, on hardware. The queued second call fired the instant the
+        // alert closed, so choosing manual mode put the question straight back up and
+        // `stopDeviceEvents()` tore down the session that had just started -- the mode could only
+        // be entered by answering twice.
+        let appState = makePairedAppState()
+        appState.awaitManualModeDecision()
+
+        appState.enterManualMode()
+
+        XCTAssertFalse(appState.mayOfferManualMode, "answering the question must not re-ask it")
+    }
+
+    func testRetryLeavesTheOfferAvailableAgain() {
+        // Retry is not an answer to keep: the next failure has to be able to ask again.
+        let appState = makePairedAppState()
+        appState.awaitManualModeDecision()
+
+        appState.manualModeDeclined()
+
+        XCTAssertTrue(appState.mayOfferManualMode)
     }
 
     func testManualModeStillReadsAsPairedRatherThanNotPaired() {

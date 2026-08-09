@@ -293,6 +293,21 @@ final class AppState: ObservableObject {
     /// attempts, cleared by whichever button is pressed.
     @Published private(set) var isAwaitingManualModeDecision = false
 
+    /// Whether the offer may be **raised** right now, as against whether an attempt may run.
+    ///
+    /// The question exists because two paths reach the offer and both arrive: a refused PIN ends
+    /// the probe, and the disconnect that causes gets there before the attempt's own `.allRefused`
+    /// does. Without this the second call landed while the alert was already up, waited out
+    /// `runModal()`, and fired the moment the user chose manual mode -- putting the dialog straight
+    /// back up and tearing down the session that had just started, so the mode could only be
+    /// entered by answering the same question twice (measured on hardware 2026-08-09).
+    ///
+    /// Already asking is the obvious half. Already **in** manual mode is the half that bit: the
+    /// answer had been given, and re-asking undid it.
+    var mayOfferManualMode: Bool {
+        !isAwaitingManualModeDecision && !isManualMode
+    }
+
     /// Whether the user chose manual mode for this launch.
     ///
     /// **Derived, not stored.** It was a flag of its own until `ConnectionStatus.manual` existed,
@@ -440,21 +455,27 @@ final class AppState: ObservableObject {
         DeveloperMode.isEnabled && isDeveloperConfigLoaded
     }
 
-    /// Note what `config.json`'s PIN is without letting it become `devicePassword`.
+    /// Note what `config.json`'s PIN is. `loadDevicePassword` then adopts it as the password a dev
+    /// build presents to a cube it is **already paired to**.
     ///
-    /// It used to be assigned straight over the password set in `init`, and that is what made
-    /// 2026-08-08's run of `03b` unrecoverable: the file still said `000000` from the 2026-08-01
-    /// write-back bug, pairing rotated the cube to `DeveloperMode.devicePassword`, and every launch
-    /// afterwards presented `000000` and was refused (`Login rejected, code=0x01`) forever, because
-    /// connecting deliberately never guesses a second password. Nothing is written down in dev mode
-    /// (see `persistDevicePassword`), so the only thing keeping the two ends in agreement across a
-    /// restart is that a dev build starts on the same constant it rotates to -- which this
-    /// assignment quietly broke.
+    /// This assignment used to be the bug rather than the feature, and the difference is worth
+    /// keeping straight. It once wrote the file's PIN over `devicePassword` while **pairing rotated
+    /// the cube to a different value**, and that mismatch is what made 2026-08-08's run of `03b`
+    /// unrecoverable: the file said `000000` from the 2026-08-01 write-back bug, the cube was on
+    /// `DeveloperMode.devicePassword`, and every launch afterwards presented `000000` and was
+    /// refused (`Login rejected, code=0x01`) forever, because connecting deliberately never guesses
+    /// a second password.
     ///
-    /// The PIN is still honoured where guessing is legitimate: pairing tries it after the factory
-    /// default and the dev constant. A cube left on some other custom PIN therefore needs a re-pair
-    /// rather than a plain reconnect, which is the same answer the app already gives for any device
-    /// whose password it has lost track of.
+    /// The fix then was to keep the file out of the connect path. The fix now is to make both ends
+    /// read the same thing: `DeveloperMode.pairedDevicePassword` is what a paired connect presents
+    /// **and** what pairing rotates the cube onto, so the two cannot disagree by construction.
+    /// Nothing is written down in dev mode (see `persistDevicePassword`), and nothing needs to be:
+    /// the file is the record.
+    ///
+    /// Guessing is still confined to pairing, which tries the factory default and the dev constant
+    /// before this -- the two states a cube whose PIN the app does not know yet can be in. A cube
+    /// on some *other* custom PIN still needs a re-pair rather than a plain reconnect, which is the
+    /// answer the app already gives for any device whose password it has lost track of.
     private func applyDeveloperConfig() {
         guard let config = developerConfigStore.load() else { return }
         isDeveloperConfigLoaded = true
@@ -473,6 +494,29 @@ final class AppState: ObservableObject {
     ///
     /// Read from disk rather than simply omitted, because omitting it would encode the key as
     /// absent and delete the developer's PIN instead of leaving it alone.
+    /// Record into `config.json` the PIN a fresh pairing has just rotated the cube onto.
+    ///
+    /// **The single exception to the pass-through rule below**, and it exists because this is the
+    /// one moment the app knows something about the cube's PIN that the file does not. Everywhere
+    /// else the file wins, which is the 2026-08-01 fix: the app used to rewrite that field from
+    /// memory on every save, and a Forget Device stamped `000000` over a hand-set PIN, after which
+    /// the re-pair rotated the cube to something the file no longer named.
+    ///
+    /// The difference is that a pairing has just *set* the value, so writing it here cannot
+    /// overwrite anything still true. After this the two ends agree: the cube is on this PIN, the
+    /// file says so, and a paired connect reads the file (`DeveloperMode.pairedDevicePassword`).
+    func recordPairedDevicePassword(_ password: String) {
+        guard DeveloperMode.isEnabled else { return }
+        developerConfigDevicePassword = password
+        developerConfigStore.save(
+            DeveloperConfigPayload(
+                googleClientID: sanitizedClientID(),
+                googleClientSecret: googleClientSecret.isEmpty ? nil : googleClientSecret,
+                devicePassword: password
+            )
+        )
+    }
+
     private func persistDeveloperConfig() {
         developerConfigStore.save(
             DeveloperConfigPayload(
@@ -484,15 +528,21 @@ final class AppState: ObservableObject {
     }
 
     private func loadDevicePassword() {
-        // Guard on DeveloperMode.isEnabled itself, not isDeveloperConfigActive (which also
-        // requires config.json to have actually loaded) -- otherwise a dev build whose config.json
-        // symlink is broken falls through to Keychain here and clobbers the "123456" default set
-        // in init above.
-        guard !DeveloperMode.isEnabled else { return }
         let wasApplying = isApplyingPreferences
         isApplyingPreferences = true
+        defer { isApplyingPreferences = wasApplying }
+        // A dev build never reaches the Keychain, and now takes its answer from `config.json`
+        // rather than from the fixed constant: once there is a pairing, the cube is on the PIN that
+        // file names, because that is what pairing rotated it to. The constant is left as the
+        // fallback for a broken or PIN-less config.json, so such a build behaves exactly as it did
+        // before -- which is why this branches on `DeveloperMode.isEnabled` itself rather than on
+        // `isDeveloperConfigActive`. Guarding on the latter would drop a build with a broken
+        // config.json symlink through to the Keychain and clobber the constant set in `init`.
+        if DeveloperMode.isEnabled {
+            devicePassword = developerConfigDevicePassword ?? DeveloperMode.devicePassword
+            return
+        }
         devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
-        isApplyingPreferences = wasApplying
     }
 
     func loadClientSecretOnce() {
