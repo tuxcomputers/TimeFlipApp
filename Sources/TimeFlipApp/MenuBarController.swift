@@ -50,6 +50,10 @@ final class MenuBarController: NSObject {
     private var lastRenderedTitle: String = ""
     private var isPairedSnapshot: Bool
     private var connectionStatusSnapshot: ConnectionStatus
+    /// Whether the app is driving time itself rather than from the cube. Mirrored here for the
+    /// same reason as the two above: the click handler runs on an AppKit callback and reads its
+    /// state from snapshots rather than reaching into `AppState`.
+    private var isManualModeSnapshot = false
     // Whether the device has actually been reached since launch. Distinct from being paired (which
     // is remembered from a previous run) and from currentActivity being set (which
     // syncActivityFromState populates from stored state before any device is contacted). Without
@@ -143,6 +147,11 @@ final class MenuBarController: NSObject {
         appState.$connectionStatus
             .sink { [weak self] status in
                 self?.handleConnectionStatusChange(status)
+            }
+            .store(in: &cancellables)
+        appState.$isManualMode
+            .sink { [weak self] isManualMode in
+                self?.isManualModeSnapshot = isManualMode
             }
             .store(in: &cancellables)
         appState.$dailyCategoryDurations
@@ -541,39 +550,46 @@ final class MenuBarController: NSObject {
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
-        guard isConnected, let event = NSApp.currentEvent else {
+        // No event to read a side from (a synthetic `performClick`, say): the menu is the safe
+        // answer, since it is the one thing reachable in every state.
+        guard let event = NSApp.currentEvent else {
             showMenu()
             return
         }
         let location = button.convert(event.locationInWindow, from: nil)
-        let side = location.x > button.bounds.width / 2 ? "right" : "left"
-        DeveloperMode.debugPrint(.click, "Status item clicked: side=\(side) clickCount=\(event.clickCount)")
-        guard location.x > button.bounds.width / 2 else {
-            if lowBatteryBlinkTimer != nil {
-                DeveloperMode.debugPrint(.click, "Left-click while low battery: opening Settings on the Device tab")
-                openPreferences()
-            } else {
-                DeveloperMode.debugPrint(.click, "Left-click: opening the dropdown menu")
-                showMenu()
-            }
-            return
-        }
-        if event.clickCount >= 2 {
+        let isLeftSide = location.x <= button.bounds.width / 2
+        let action = MenuBarClickRouter.action(
+            isConnected: isPairedSnapshot && connectionStatusSnapshot == .connected,
+            isManualMode: isManualModeSnapshot,
+            isLowBatteryBlinking: lowBatteryBlinkTimer != nil,
+            isLeftSide: isLeftSide,
+            clickCount: event.clickCount
+        )
+        DeveloperMode.debugPrint(
+            .click,
+            "Status item clicked: side=\(isLeftSide ? "left" : "right") clickCount=\(event.clickCount)"
+                + "\(isManualModeSnapshot ? " manualMode" : "") -> \(action)"
+        )
+        switch action {
+        case .showMenu:
+            showMenu()
+        case .openSettings:
+            openPreferences()
+        case .lockDevice:
             // Upgrade to the double-click (lock) action instead of also firing the single-click
-            // pause toggle that was scheduled below on the first click of this pair.
+            // pause toggle that was scheduled on the first click of this pair.
             pendingSingleClickWorkItem?.cancel()
             pendingSingleClickWorkItem = nil
             onLockRequest?()
-            return
+        case .togglePause:
+            // Delayed by the system's double-click interval so a fast second click can still cancel
+            // this and upgrade to the lock action above, instead of doing both.
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.togglePause()
+            }
+            pendingSingleClickWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
         }
-        // Single click: delay by the system's double-click interval so a fast second click can
-        // still cancel this and upgrade to the lock action above, instead of doing both.
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.togglePause()
-        }
-        pendingSingleClickWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
     }
 
     private func showMenu() {
