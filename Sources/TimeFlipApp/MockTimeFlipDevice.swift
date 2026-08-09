@@ -631,6 +631,11 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         mockDeviceName
     }
 
+    /// No radio, so no peripheral and no identifier. `confirmConnected` keeps whatever is already
+    /// stored when this is nil, which is what a mock run wants: it must not overwrite a real
+    /// device's uuid, and it has nothing truthful to put there.
+    var deviceIdentifier: String? { nil }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         applyFactoryResetIfDue()
         return stateWithUpdatedDeviceTime()

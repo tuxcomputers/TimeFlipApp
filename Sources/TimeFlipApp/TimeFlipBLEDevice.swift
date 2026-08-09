@@ -128,6 +128,25 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     // Peripherals seen during a discovery scan, keyed by identifier, so a user-selected entry
     // can be connected to directly rather than re-scanning and grabbing the first match.
     private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
+    /// Peripherals already written to the scan log in the current scan, one set per outcome, so a
+    /// scan reports each peripheral once rather than once per advertisement callback.
+    ///
+    /// `CBCentralManagerScanOptionAllowDuplicatesKey: false` coalesces only *identical*
+    /// advertisements, so anything that varies its payload is re-reported every time it changes.
+    /// Measured 2026-08-09 during a factory-reset confirm: 254 scan rows for 8 peripherals across
+    /// two 30-second scans, one TV alone accounting for 21 of them by alternating between carrying
+    /// its local name and omitting it. The repetition said nothing the first line hadn't.
+    ///
+    /// Two sets rather than one, because that same varying payload decides the outcome: a
+    /// peripheral whose packet arrives without either name is skipped, and the same peripheral is
+    /// listed when the next packet carries one. Keying on the identifier alone would hide whichever
+    /// of the two came second, which is exactly the disagreement worth seeing.
+    private var loggedScanSkips: Set<UUID> = []
+    private var loggedScanListings: Set<UUID> = []
+    /// How often the eligibility scan checks whether the paired device has turned up. Short enough
+    /// that the saving is the whole remaining window rather than most of it, long enough that a
+    /// 30-second scan costs 120 wakeups and not 30,000.
+    private let scanPollIntervalNanoseconds: UInt64 = 250_000_000
     var onDisconnect: (() -> Void)?
     /// Fires when CoreBluetooth notices the connected peripheral's GAP name has changed, which is
     /// the only authoritative signal this app gets that a rename actually took. Confirmed working
@@ -242,6 +261,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         isDiscoveryScanning = true
         discoveryFilterToTimeFlip = filterToTimeFlip
         discoveredPeripherals.removeAll()
+        beginScanLogging()
         logger.notice("Starting discovery-only scan (filterToTimeFlip=\(filterToTimeFlip, privacy: .public))")
         central.scanForPeripherals(
             withServices: nil,
@@ -323,11 +343,26 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// CoreBluetooth stack, so it is the surest identification available when it is present, but a
     /// cube that has been re-paired or reset can legitimately no longer carry it and still be the
     /// user's device. Putting it first means the usual case costs exactly one login attempt.
-    func scanForEligibleDevices(preferring pairedUUID: UUID?) async -> [EligibleDevice] {
+    /// - Parameter mayEndEarly: whether finding the preferred device is allowed to cut the window
+    ///   short. False while a factory reset is being confirmed, where the device that is present
+    ///   right now is the wrong one: see `waitForScanWindow`.
+    func scanForEligibleDevices(
+        preferring pairedUUID: UUID?,
+        mayEndEarly: Bool = true
+    ) async -> [EligibleDevice] {
         isCollectingEligibleOnly = true
         defer { isCollectingEligibleOnly = false }
         await startDiscoveryScan(filterToTimeFlip: true)
-        try? await Task.sleep(nanoseconds: connectScanTimeoutSeconds * TimeConstants.nanosecondsPerSecond)
+        // `&&` short-circuits into an autoclosure, which cannot carry the await, so the branch is
+        // spelled out.
+        var endedEarly = false
+        if mayEndEarly {
+            endedEarly = await waitForScanWindow(preferring: pairedUUID)
+        } else {
+            try? await Task.sleep(
+                nanoseconds: connectScanTimeoutSeconds * TimeConstants.nanosecondsPerSecond
+            )
+        }
         stopDiscoveryScan()
 
         let found = discoveredPeripherals.map { id, peripheral in
@@ -339,8 +374,56 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             .scan,
             "eligible after scan: \(candidates.isEmpty ? "none" : candidates.map(\.name).joined(separator: ", "))"
                 + (leadsWithPaired ? " (paired device first)" : "")
+                + (endedEarly ? " (scan ended early: paired device found)" : "")
+                + " paired_uuid=\(pairedUUID?.uuidString ?? "none")"
+                + " seen=[\(discoveredPeripherals.keys.map(\.uuidString).sorted().joined(separator: ", "))]"
         )
         return candidates
+    }
+
+    /// Holds the scan open for its window, or until the paired device turns up, whichever is first.
+    /// Reports whether it was the second.
+    ///
+    /// The window is there so every candidate is in hand before `ordered` ranks them, which matters
+    /// in a room with more than one cube: connecting to whichever answered first is the bug that
+    /// created this method. But `ordered` puts the paired uuid at the head of the list, so once that
+    /// device has been seen there is nothing a later arrival could change. Waiting on past that
+    /// point buys nothing and costs the rest of the window.
+    ///
+    /// The cost was measured on 2026-08-09, confirming a factory reset: the cube was in the scan
+    /// results at 23:54:43.5 and the app did not act on it until 23:55:14.2, thirty-one seconds of
+    /// a seventy-second confirm spent waiting for a window that had already found its answer.
+    ///
+    /// **Confirming a factory reset is the one case that must not use this**, which is what
+    /// `mayEndEarly: false` is for, and it took hardware to find out. A cube does not stop
+    /// advertising the instant `0xFF` is written: measured 2026-08-10, one was still in the scan
+    /// results three seconds after the command and still accepted its pre-reset password eight
+    /// seconds after. Ending the window early attached the app to that pre-reboot cube, and holding
+    /// the connection then stopped it advertising, so every later scan of the confirm loop reported
+    /// nothing while the app sat connected to the device it was looking for. The reset was declared
+    /// unconfirmed after the full 120 seconds and the cube never reset at all.
+    ///
+    /// The old unconditional window survived this by luck rather than design, probing only at the
+    /// end of thirty seconds, by which time the cube had usually gone. Waiting the window out is
+    /// what actually makes the confirm correct, so here it is deliberate rather than incidental.
+    ///
+    /// Note this cannot help when the stored uuid is not the peripheral's real identifier.
+    /// `AppState.recordPairing` falls back to a fresh random uuid when the pairing did not carry
+    /// one, and such a value matches nothing, so the window runs its full length. The log line above
+    /// prints the stored uuid next to the identifiers actually seen, which is what makes that case
+    /// tellable from a genuine absence.
+    private func waitForScanWindow(preferring pairedUUID: UUID?) async -> Bool {
+        let deadline = ContinuousClock().now.advanced(
+            by: .seconds(Int64(connectScanTimeoutSeconds))
+        )
+        while ContinuousClock().now < deadline {
+            if let pairedUUID, discoveredPeripherals[pairedUUID] != nil { return true }
+            try? await Task.sleep(nanoseconds: scanPollIntervalNanoseconds)
+            // A cancelled sleep returns immediately, so without this the loop would spin the
+            // remaining window at full tilt rather than ending with the task.
+            if Task.isCancelled { return false }
+        }
+        return false
     }
 
     /// Connect to a peripheral the user picked from a discovery scan result, verifying it's
@@ -891,6 +974,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         peripheral?.name
     }
 
+    /// See `TimeFlipDevice.deviceIdentifier`.
+    var deviceIdentifier: String? {
+        (peripheral as? CBPeripheral)?.identifier.uuidString
+    }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         snapshotState
     }
@@ -1106,10 +1194,19 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         }
     }
 
+    /// Starts a fresh page of the scan log. Called by both scan paths, since each
+    /// `scanForPeripherals` call resets CoreBluetooth's own duplicate filter, and the log should
+    /// follow the same boundary: one line per peripheral per scan.
+    private func beginScanLogging() {
+        loggedScanSkips.removeAll()
+        loggedScanListings.removeAll()
+    }
+
     private func performScan(filtered: Bool) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             continuations.connection = continuation
             allowBroadDiscovery = !filtered
+            beginScanLogging()
             if filtered {
                 logger.notice("Starting scan for TimeFlip service \(TimeFlipUUIDs.service.uuidString, privacy: .public)")
                 central.scanForPeripherals(
@@ -1967,7 +2064,9 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
                 // checked, and why this branch checking only one of them was a real bug.
                 guard serviceMatches || isKnownDevice(peripheral, advertisementData) else {
                     logger.debug("Discovery scan: skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
-                    DeveloperMode.debugPrint(.scan, "skipped: \(describe(peripheral, advertisementData))")
+                    if loggedScanSkips.insert(peripheral.identifier).inserted {
+                        DeveloperMode.debugPrint(.scan, "skipped: \(describe(peripheral, advertisementData))")
+                    }
                     return
                 }
             }
@@ -1975,10 +2074,12 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             // comes from `peripheral.name`, which lags a connection behind a rename, while the
             // advertised name never changes at all. A list showing a name the user did not choose
             // is explicable from this line and guesswork without it.
-            DeveloperMode.debugPrint(
-                .scan,
-                "listed: \(describe(peripheral, advertisementData))\(serviceMatches ? " serviceMatch" : "")"
-            )
+            if loggedScanListings.insert(peripheral.identifier).inserted {
+                DeveloperMode.debugPrint(
+                    .scan,
+                    "listed: \(describe(peripheral, advertisementData))\(serviceMatches ? " serviceMatch" : "")"
+                )
+            }
             discoveredPeripherals[peripheral.identifier] = peripheral
             // Collected either way; only announced when a person asked for a device list.
             guard !isCollectingEligibleOnly else { return }
@@ -2009,7 +2110,9 @@ extension TimeFlipBLEDevice: @preconcurrency CBCentralManagerDelegate {
             // renamed cube undiscoverable.
             guard serviceMatches || isKnownDevice(peripheral, advertisementData) else {
                 logger.debug("Skipping peripheral \(peripheral.identifier.uuidString, privacy: .public) (no service/name match)")
-                DeveloperMode.debugPrint(.scan, "connect scan skipped: \(describe(peripheral, advertisementData))")
+                if loggedScanSkips.insert(peripheral.identifier).inserted {
+                    DeveloperMode.debugPrint(.scan, "connect scan skipped: \(describe(peripheral, advertisementData))")
+                }
                 return
             }
         }

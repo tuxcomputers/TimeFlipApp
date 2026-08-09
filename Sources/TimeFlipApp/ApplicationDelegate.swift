@@ -1032,7 +1032,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         let pairedUUID = appState.pairedDeviceUUID.flatMap(UUID.init(uuidString:))
-        let candidates = await ble.scanForEligibleDevices(preferring: pairedUUID)
+        // Confirming a reset waits the whole scan window out. The cube is still advertising, and
+        // still on its old password, for several seconds after 0xFF, so the device present at the
+        // start of the window is the one being replaced rather than the one being waited for.
+        let candidates = await ble.scanForEligibleDevices(
+            preferring: pairedUUID,
+            mayEndEarly: !pendingFactoryResetConfirm
+        )
         attemptEligibleCount = candidates.count
         guard !candidates.isEmpty else {
             DeveloperMode.debugPrint(.scan, "no eligible device found in this scan")
@@ -1464,7 +1470,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 .deviceName,
                 "device name read on connect: device=\(reportedName ?? "nil") stored=\(appState.deviceName ?? "nil")"
             )
-            appState.confirmConnected(name: reportedName, uuid: nil)
+            // The peripheral's own identifier, not nil. Passing nil here is what made
+            // `pairedDeviceUUID` fall through to its `UUID()` fallback on every first pairing, so
+            // the stored value identified nothing and the eligibility scan's preference could never
+            // match it. A real value also self-heals an install carrying one of those random ones,
+            // since a non-nil uuid replaces whatever is stored.
+            appState.confirmConnected(name: reportedName, uuid: device?.deviceIdentifier)
         }
         if case .systemState(let state) = event {
             switch state.syncStatus {
