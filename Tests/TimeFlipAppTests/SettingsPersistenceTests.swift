@@ -181,4 +181,45 @@ final class SettingsPersistenceTests: XCTestCase {
         XCTAssertNil(reopened.loadDeviceUUID())
         XCTAssertNil(reopened.loadDeviceName())
     }
+
+    // MARK: - manual mode
+
+    /// No save-side tests here, unlike every section above: nothing edits this value yet, so the
+    /// only ways it can be wrong are the seed disagreeing with the constant, or a hand-edited row
+    /// reaching the app unclamped.
+
+    func testTheManualModePromptThresholdReadsItsSeededDefault() {
+        // The seed and the code fallback are written in two places and must not drift; a fresh
+        // database is the one case where both are exercised at once.
+        XCTAssertEqual(
+            reopenedStore().loadManualModePromptAfterAttempts(),
+            TimeFlipConstants.defaultManualModePromptAfterAttempts
+        )
+    }
+
+    func testAHandEditedManualModeThresholdIsClampedAtBothEnds() {
+        writeRawSetting(name: "manual_mode", value: "{\"prompt_after_attempts\":0}")
+        XCTAssertEqual(
+            reopenedStore().loadManualModePromptAfterAttempts(),
+            TimeFlipConstants.minManualModePromptAfterAttempts,
+            "0 would offer manual mode before a single reconnect had been attempted"
+        )
+
+        writeRawSetting(name: "manual_mode", value: "{\"prompt_after_attempts\":500}")
+        XCTAssertEqual(
+            reopenedStore().loadManualModePromptAfterAttempts(),
+            TimeFlipConstants.maxManualModePromptAfterAttempts,
+            "at the capped backoff this would be hours away, so the offer would never arrive"
+        )
+    }
+
+    func testAMalformedManualModeRowFallsBackRatherThanReadingAsZero() {
+        // The failure this guards is silent: a row with the wrong key or a string value reads as
+        // nil, and a fallback of 0 would mean offering manual mode on the first attempt forever.
+        writeRawSetting(name: "manual_mode", value: "{\"attempts\":\"3\"}")
+        XCTAssertEqual(
+            reopenedStore().loadManualModePromptAfterAttempts(),
+            TimeFlipConstants.defaultManualModePromptAfterAttempts
+        )
+    }
 }

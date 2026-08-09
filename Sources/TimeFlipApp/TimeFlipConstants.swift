@@ -63,6 +63,24 @@ enum TimeFlipConstants {
     static let maxBlipTimeSeconds: Int = 30
     static let defaultBlipTimeSeconds: Int = 5
 
+    /// Bounds for how many consecutive failed reconnect attempts pass before the app offers manual
+    /// mode (the `manual_mode` setting's `prompt_after_attempts`; see `database/011_setting.sql`).
+    ///
+    /// The floor is 1, not 0: the offer is meant to follow a device that isn't answering, and 0
+    /// would raise it before a single attempt had been made. The ceiling comes from what the
+    /// backoff actually costs -- `ApplicationDelegate.scheduleReconnect` waits
+    /// `min(2 * (attempt + 1), 30)` seconds, so 20 attempts is around six and a half minutes, and
+    /// anything past that is an offer the user would never see in a session where they had already
+    /// given up and reached for the app.
+    static let minManualModePromptAfterAttempts: Int = 1
+    static let maxManualModePromptAfterAttempts: Int = 20
+
+    /// Where the manual-mode offer sits until someone changes it, matching the `manual_mode` seed
+    /// in `database/011_setting.sql`. Held here for the same reason as
+    /// `defaultLowBatteryWarningPercent`: the loader needs a value when the row is missing or
+    /// malformed, and a bare literal there is a copy of the seed that nothing links back to it.
+    static let defaultManualModePromptAfterAttempts: Int = 3
+
     /// The low-battery ceiling actually enforced. Developer mode lifts it to the full reportable
     /// range so a warning can be forced on a healthy battery for testing, which is also why a
     /// stored value above the cap is left alone while developer mode is on.

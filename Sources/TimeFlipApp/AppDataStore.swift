@@ -1381,6 +1381,26 @@ final class AppDataStore {
         )
     }
 
+    /// How many consecutive failed reconnect attempts pass before the app offers manual mode (the
+    /// `manual_mode` setting's `prompt_after_attempts`, seeded to 3; see
+    /// `database/011_setting.sql`). Falls back to the seeded default if the row is missing or
+    /// malformed, and clamps, so a hand-edited row cannot put the offer out of reach or raise it
+    /// before the app has tried at all.
+    ///
+    /// A threshold on `ApplicationDelegate.reconnectAttempt`, and it applies at **startup only**:
+    /// the app tries this many times, stops, and asks whether to retry or switch to manual mode.
+    /// Once a launch has connected once, a later drop reconnects on the capped backoff
+    /// indefinitely, with no prompt. No `save` counterpart, since no control edits the value.
+    func loadManualModePromptAfterAttempts() -> Int {
+        guard let attempts = loadSettingJSON(name: "manual_mode")?["prompt_after_attempts"] as? Int else {
+            return TimeFlipConstants.defaultManualModePromptAfterAttempts
+        }
+        return max(
+            TimeFlipConstants.minManualModePromptAfterAttempts,
+            min(TimeFlipConstants.maxManualModePromptAfterAttempts, attempts)
+        )
+    }
+
     /// Whether locking the device via the app should also pause it first if it isn't already
     /// paused (the `pause_on_lock` setting, seeded to `true`; see `database/011_setting.sql`).
     /// Falls back to the seeded default if the row is missing or malformed.
