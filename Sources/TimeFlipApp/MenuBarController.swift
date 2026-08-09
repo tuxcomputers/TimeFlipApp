@@ -194,9 +194,6 @@ final class MenuBarController: NSObject {
         // NSMenu auto-enables items with a target/action by default, which would silently
         // override pauseItem.isEnabled below — opt out so the Pause item actually disables.
         newMenu.autoenablesItems = false
-        // Pause/Lock send commands to the device, so they need a live connection, not merely a
-        // remembered pairing.
-        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
         let isLocked = appState.isLocked
 
         // Menu items point at thin logging wrappers (menuSettings/menuPauseResume/...) rather
@@ -212,16 +209,23 @@ final class MenuBarController: NSObject {
 
         newMenu.addItem(.separator())
 
-        let pauseTitle = isConnected ? (isPaused ? "Resume" : "Pause") : "Pause"
+        // Both items' titles and enabled states are `MenuBarDropdownRules`', which is also where the
+        // reason Pause survives manual mode and Lock does not is written down.
         let pauseItem = NSMenuItem(
-            title: pauseTitle,
+            title: MenuBarDropdownRules.pauseTitle(
+                connectionStatus: connectionStatusSnapshot,
+                isPaired: isPairedSnapshot,
+                isPaused: isPaused
+            ),
             action: #selector(menuPauseResume),
             keyEquivalent: ""
         )
         pauseItem.target = self
-        // While locked, the only valid action is double-clicking the status item to unlock —
-        // pause/resume must not be reachable via the menu either.
-        pauseItem.isEnabled = isConnected && !isLocked
+        pauseItem.isEnabled = MenuBarDropdownRules.allowsPause(
+            connectionStatus: connectionStatusSnapshot,
+            isPaired: isPairedSnapshot,
+            isLocked: isLocked
+        )
         newMenu.addItem(pauseItem)
 
         let lockItem = NSMenuItem(
@@ -230,7 +234,10 @@ final class MenuBarController: NSObject {
             keyEquivalent: ""
         )
         lockItem.target = self
-        lockItem.isEnabled = isConnected
+        lockItem.isEnabled = MenuBarDropdownRules.allowsLock(
+            connectionStatus: connectionStatusSnapshot,
+            isPaired: isPairedSnapshot
+        )
         newMenu.addItem(lockItem)
 
         let quitItem = NSMenuItem(
@@ -572,8 +579,9 @@ final class MenuBarController: NSObject {
     /// on a double-click, without opening anything. If the device has never connected (or can't
     /// connect), there's no pause/resume state to toggle, so any click just pops the menu. While
     /// locked, the single-click pause/resume toggle is a no-op (see togglePause) — the double-click
-    /// unlock action is the only thing that does anything. Manual mode gives both halves the menu,
-    /// including over a stale low-battery blink; see `MenuBarClickRouter`, which owns all of these.
+    /// unlock action is the only thing that does anything. In manual mode the right half still
+    /// pauses, immediately rather than after the double-click wait, and the left half keeps the menu
+    /// even over a stale low-battery blink; see `MenuBarClickRouter`, which owns all of these.
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
