@@ -71,6 +71,13 @@ scenario or session left the expected state (confirmed live: `Interactive/04` on
 locked *and* paused from a prior session's leftover state, not its own). Point back at an existing
 resolution step instead of duplicating one.
 
+## Synthetic `device_event` rows
+
+Seeded events are addressed and cleaned up **by `event_number`**, so every fixture needs its own
+block: `900001`-`900003` belong to `Tests/00-test-setup.md`'s shared fixture, `900101`-`900102` to
+`10b`. A checklist seeding its own takes the next unused hundred, never a number another file
+already deletes.
+
 ## Driving the app directly
 
 `Tests/Methods.md` holds the concrete "how" (build/launch/quit, clicking a menu/button/checkbox,

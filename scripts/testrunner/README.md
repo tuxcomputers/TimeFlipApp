@@ -349,7 +349,7 @@ each `when = "$start_event_id < 10"`, so a device that already has enough histor
 | `applescript` | run an AppleScript (`script`), optionally assert its output (`expect`/`expect_contains`) or `capture` it |
 | `sql_query` | run a `SELECT` (`query`), optionally assert (`expect`/`expect_contains`) or `capture` the result |
 | `sql_exec` | run an `INSERT`/`UPDATE` (`query`), no assertion |
-| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s). `timeout_seconds = 0` waits **indefinitely** -- for a step gated on a human action (toggle Bluetooth, flip the cube) where a distraction shouldn't fail the run; it re-shows the nudge each minute. Optional `prompt` is printed as an "ACTION NEEDED" nudge only if the condition isn't already met when polling starts |
+| `wait_for_sql` | poll a `SELECT` until it matches `expect`/`expect_contains` or `timeout_seconds` elapses (`poll_interval`, default 2s). `timeout_seconds = 0` waits **indefinitely** -- for a step gated on a human action (toggle Bluetooth, flip the cube) where a distraction shouldn't fail the run; it re-shows the nudge each minute. Optional `prompt` is printed as an "ACTION NEEDED" nudge only if the condition isn't already met when polling starts. **A `(You)` step detected this way must carry one**: `prompt` is the only thing that raises the banner, so without it the runner polls in silence and the person is never told to do anything |
 | `cgevent_click` | a real synthetic click/double-click/held-press at a named `target` (see `locators.py`), via `CGEventPost` with `kCGMouseEventClickState` set -- see "Simulate a real click..." in `../../Tests/Methods.md` for why this works where AppleScript's `click` doesn't |
 | `cgevent_click_element` | same real CGEvent click, but at the live centre of an accessibility `element` (reads its `position`+`size` first) rather than a fixed `locators.py` target -- for dynamic controls like the discovered-device pairing row (a `Text`+`.onTapGesture` an AX press won't actuate) |
 | `cgevent_key` | post a raw keydown/keyup for `keycode` (default `53` = Escape) via `CGEventPost` -- e.g. to dismiss a modal status-item dropdown a synthetic click opened, without an osascript call that would collide with the open menu (see Method 6) |
@@ -361,6 +361,26 @@ each `when = "$start_event_id < 10"`, so a device that already has enough histor
 `locators.py` resolves named on-screen targets (currently `status_item_left`/`status_item_right`)
 fresh via accessibility on every call, since the status item's width shifts with its
 content. Add a new named target there before referencing it from a `cgevent_click` step.
+
+### Asking a person for something
+
+Two rules:
+
+1. **Every `(You)` step must actually ask.** `ask_user`/`ask_user_or_detect` do it by definition; a
+   step detected with `wait_for_sql` needs a `prompt`, because that field is the only thing that
+   raises a nudge. Without one the runner polls in silence and the person is never told to do
+   anything -- `08i`'s flip and lock-toggle steps sat there for a full timeout that way
+   (2026-08-08). A `(You)` step with no `toml step` block at all is fine: the supervisor asks
+   "Verify the above is true" for it. Checked at parse time, not just documented: loading a
+   checklist with a `(You)` `wait_for_sql` step missing `prompt` raises
+   `ValueError` (`md_checklist.Checklist._parse` ->
+   `_require_prompt_on_you_wait_for_sql`) before the run ever starts.
+2. **The order is always banner, then the step, then the nudge.** A run scrolls a long way on its
+   own, so the box has to announce the step rather than appear underneath it. The supervisor prints
+   the banner and the header itself for a step that asks the moment it runs
+   (`step_asks_immediately`), and a deferred `wait_for_sql` nudge prints all three together when it
+   fires, since by then the header has scrolled off. Route anything new through
+   `print_action_required` and this comes for free.
 
 ## What this can't do (yet)
 

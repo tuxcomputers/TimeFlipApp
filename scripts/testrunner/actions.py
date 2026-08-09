@@ -90,10 +90,49 @@ def print_action_banner(title="Action required"):
     print(bar)
 
 
-def print_action_required(message, title="Action required"):
-    """The banner plus the nudge itself."""
+def print_action_required(message, title="Action required", header=None):
+    """The banner, the step it is about, then the nudge itself -- always in that order.
+
+    `header` is the step's console line. Passing it puts the step *inside* the box's shadow rather
+    than above it, which is what makes a nudge readable when a wait has been polling quietly for a
+    while and the step that asked for it has scrolled off. Every path that asks a person for
+    something goes through here, so the three lines always arrive in the same order (see
+    `step_asks_immediately` for the one case where the supervisor prints the first two itself)."""
     print_action_banner(title)
+    if header:
+        print(header)
     print(f">>> ACTION NEEDED: {message}")
+
+
+def print_action_nudge(message):
+    """Just the nudge, for when the banner and the step header are already on screen directly
+    above it (the supervisor prints them before running a step that asks straight away)."""
+    print(f">>> ACTION NEEDED: {message}")
+
+
+def step_asks_immediately(spec):
+    """Whether this step puts a question to a person the moment it runs, rather than only if a
+    wait goes unsatisfied. True for `ask_user`/`ask_user_or_detect` anywhere in the step; a
+    `wait_for_sql` `prompt` is deferred by design (it nudges only after the grace period, so
+    announcing it up front would cry wolf on every step that is already satisfied)."""
+    if not spec:
+        return False
+    subs = spec["actions"] if "actions" in spec else [spec]
+    return any(sub.get("action") in ("ask_user", "ask_user_or_detect") for sub in subs)
+
+
+def _announce(prompt, ctx):
+    """Put the nudge on screen under a banner and the step it belongs to.
+
+    The supervisor prints those two itself for a step it knows will ask straight away, so that the
+    banner comes *before* the step rather than under it. This consumes that flag: a second ask
+    later in the same step (a deferred wait after an answered question) announces itself again
+    rather than arriving bare, long after the first box has scrolled away."""
+    if ctx.get("banner_shown"):
+        ctx["banner_shown"] = False
+        print_action_nudge(prompt)
+        return
+    print_action_required(prompt, header=ctx.get("step_header"))
 
 
 def _pretty_value(text):
@@ -388,8 +427,11 @@ def act_wait_for_sql(spec, ctx):
         # Grace period elapsed and still nothing -- now it's worth a person's attention. Said
         # once, not repeated: a wait can run for minutes (an indefinite one until the developer
         # acts), and re-printing the banner would just push the step it asks about off the screen.
+        # Routed through _announce rather than called directly: if this step's actions already
+        # put up the banner for an earlier ask_user, _announce prints just the nudge instead of a
+        # second banner underneath the first.
         if prompt and not alerted and time.time() - started >= alert_after:
-            print_action_required(prompt)
+            _announce(prompt, ctx)
             alerted = True
     expected_desc = str(expect) if expect is not None else f"contains {expect_contains}"
     return StepResult(
@@ -598,7 +640,7 @@ def act_ask_user(spec, ctx):
     var (for a later `when` guard to read) and the step always succeeds -- 'n' is a valid
     choice, not a failure. Without `capture`, 'n' fails the step as before."""
     prompt = _sub(spec["prompt"], ctx)
-    print_action_required(prompt)
+    _announce(prompt, ctx)
     while True:
         answer = input(">>> y/n: ").strip().lower()
         if answer in ("y", "n"):
@@ -625,7 +667,7 @@ def act_ask_user_or_detect(spec, ctx):
     wait_forever = timeout is not None and timeout <= 0
     rows, cols = _run_sql(ctx["db_path"], query)
     baseline = _format_rows(rows, cols)
-    print_action_required(prompt)
+    _announce(prompt, ctx)
     print(">>> (auto-detecting via the database -- no need to press Enter)")
     deadline = None if wait_forever else time.time() + timeout
     while wait_forever or time.time() < deadline:

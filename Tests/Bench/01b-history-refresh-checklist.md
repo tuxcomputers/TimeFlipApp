@@ -1,6 +1,6 @@
 # History Refresh Checklist
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 Covers the periodic/live-event history refresh rework: the cheap last-event check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see

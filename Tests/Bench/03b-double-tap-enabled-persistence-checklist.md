@@ -1,6 +1,6 @@
 # Double-Tap Enabled Persistence Checklist
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 Covers the Double-tap **Disable** checkbox's `enabled` flag moving from UserDefaults to being
 DB-backed via `AppDataStore`/the `double_tap_settings` row -- confirms the flag set in the
@@ -137,6 +137,8 @@ since_id = "$current_log_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
+### Bugs found and fixed - branch 'feature/reportTab'
+2026-08-08 - `02b`'s re-pair rotated the cube to `123456`, but every relaunch presented `config.json`'s stale `000000` and was refused, so no `Login accepted` ever arrived; that file's PIN is now a pairing candidate only, never the connect password.
 - [x] Step 4: Reopen Preferences, Device tab, expand **Double tap**, and confirm **Disable**
 still shows the state set above -- read the checkbox's value directly via accessibility, no screenshot needed.
 ```toml step

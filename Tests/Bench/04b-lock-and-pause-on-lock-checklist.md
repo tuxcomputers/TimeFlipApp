@@ -1,6 +1,6 @@
 # Lock / pause_on_lock Checklist (Bench)
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actions
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for

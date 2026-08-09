@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 The half of the day-totals feature that needs a hand on the cube. `Bench/10b` proves the sum from
 inserted rows with the device held still; this proves it from real flips, which is the case a user
@@ -131,9 +131,6 @@ expect_contains = "Resume"
 use = "method-27"
 capture = "title_after_flip"
 ```
-### Bugs found and fixed - branch 'bugfix/deactivateCategory'
-2026-08-06 - Clicking `Pause` died with `-1728` because handling the cube for Step 3's flip had
-already double-tapped it into a pause. Resolved to unlocked/unpaused first.
 - [x] **(Claude)** Step 6: Compute what the shared category has recorded today from `time_entry`.
 The same window and the same table `DailyCategoryTotals.seedFromHistory` reads, so this is the figure
 the menu bar must be showing -- derived independently of it rather than read back off the screen.

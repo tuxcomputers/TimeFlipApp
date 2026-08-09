@@ -8,6 +8,8 @@
 - [ ] Projects
 - [ ] Cost time entry
 - [x] Device rename
+- [x] Report
+- [ ] Manual mode
 
 ## Categories
 
@@ -82,7 +84,7 @@ Segments shorter than `blip_time` get no entry and are marked `processed`, which
 - Multiple categories can be associated with a single project, each carrying its own cost.
 - Reporting can be grouped by project.
 
-(Note: `project` (`006_project.sql`) is currently id/name only -- "for now", per its own comment -- and `category.project_id` already links many categories to one project, so that part of the association is already schema-supported; each category's own `cost` is what rolls up under the project. What's missing: any project create/manage UI at all (no `Project`-named view exists anywhere in `Sources/`), and any reporting query that groups by `project_id` -- today's reports (`ReportSettingsView.swift`) don't reference `project` at all.)
+(Note: `project` (`006_project.sql`) is currently id/name only -- "for now", per its own comment -- and `category.project_id` already links many categories to one project, so that part of the association is already schema-supported; each category's own `cost` is what rolls up under the project. What's missing: any project create/manage UI at all (no `Project`-named view exists anywhere in `Sources/`), and any reporting query that groups by `project_id` -- the [Report](#report) tab groups by category only and doesn't reference `project` at all. Note that `ReportSettingsView.swift`, despite its name, is the **App** tab and never was the report; it took the name first, which is why the tab enum's `.report` case had to be renamed `.app` when the real one arrived.)
 
 ## Cost time entry
 
@@ -185,3 +187,42 @@ One useful interaction: `0xFE` (reset task info) deliberately leaves the name un
 - The change is not observable until the central reconnects, at which point CoreBluetooth notices it and fires `peripheralDidUpdateName(_:)`.
 
 The two names disagreeing is what made a renamed cube unfindable, and the advertised name never changing is what makes it findable again, so both halves matter. Whether the cube applies a rename immediately or defers it is **not determinable from macOS**, since the host only re-reads GAP on connect; answering that needs a second central with no cache of this device.)
+
+## Report
+
+- A **Report** tab showing what each category took over a chosen span of days.
+- Two calendars across the top: a start and an end. The end is **optional** -- a start on its own reports that single day, which is the common case in one click.
+- The end can never precede the start, and neither can be in the future: this is a time recorder, not a time planner, so a future date would only ever answer "nothing tracked", which is indistinguishable from a real day on which nothing was. Both are enforced by what the calendars will let you pick rather than by refusing a selection afterwards, so there is no error state to report.
+- A **day** here is the app's own day, `daily_reset_time` to the same time next day, not a calendar midnight. That is the window `DailyCategoryTotals` measures the menu bar over, so a one-day report shows exactly what the menu bar showed that day.
+- Totals come from `time_entry`, longest first. Spans straddling either end of the range are **clipped** to it, which is what makes two adjacent reports add up to the report over both -- an overnight segment would otherwise count in full on both of the days it touches.
+- `Unassigned` is included, unlike `AppDataStore.loadCategories()`, which starts at `category_id` 1. Time on a face with no category of its own was still time spent, and dropping it would leave a report that quietly fails to add up to the day.
+- Durations follow the existing **Show seconds in the menu bar** setting, so a span never reads one way in the menu bar and another way here. That setting also earns its keep on this screen: at `H:MM` every total under a minute reads `0:00`, indistinguishable from a category that was opened and left.
+
+(Note: built on `feature/reportTab` -- `ReportView`, `ReportDateRange`, `ReportCalendarView`, `ReportCalendarGrid`, `ReportCalendarMetrics`, and `AppDataStore.loadCategoryTotals(from:to:)`. Verified against the device database, not only by unit test: a 5--6 Aug range rendered Unassigned 4:55, Break 3:54 and Meeting 1:57, matching the same clipped sums computed directly from `test.sqlite`.
+
+The calendars are **drawn by this app rather than taken from the system**, which is a maintenance cost worth knowing about. Two requirements forced it, both established by measurement: the selected span is drawn bold and tinted across both calendars, and neither SwiftUI's `DatePicker` nor AppKit's `NSDatePicker` exposes any hook for styling an individual day cell; and the month arrows stop at the last month holding a selectable day, where a bare `NSDatePicker` with `minDate`/`maxDate` set directly still paged into a fully greyed-out month (measured 2026-08-08). A date bound governs which days can be *selected*, not which month is *displayed*. Don't revisit either without new evidence that the platform has changed.
+
+What is missing, in dependency order rather than priority:
+
+- **Grouping by project** -- see [Projects](#projects), which calls for exactly this. Nothing in the report references `project_id` today.
+- **Cost totals** -- see [Cost time entry](#cost-time-entry). `total_cost` is written by nobody and reads zero on every row, so a cost column would be a column of zeros.
+- **Export.** There is no way to get a report out of the app: no CSV, no copy, no print. Likely the first thing wanted once the numbers are trusted.
+- **Arrow-key navigation inside the calendars.** Days are focusable and activate with space or return, but the system picker's arrow-key movement was not reimplemented. This is the one thing that got *worse* in leaving the native control.
+- **No maximum cell size.** The calendars span the window, and a cell is square with the grid always six weeks, so a very wide window makes them tall as well as wide and squeezes the totals beneath. A cap is a small change if it ever bites.)
+
+## Manual mode
+
+The cube gets left at work, or at home. The app should still be usable on those days rather than being dead weight until the device is back in range.
+
+- After the app fails to reach a paired device **3 times**, it asks whether to switch to manual mode, rather than going on retrying silently.
+- In manual mode the user drives the timing from the app itself -- picking the category and starting/stopping it -- instead of by flipping a cube that isn't there.
+- Manual mode is a state the app is in, not an unpairing: `paired` stays true and the device is still the user's device, so returning to it must not mean pairing again.
+
+(Note: nothing here is built. The trigger has somewhere to live -- `ApplicationDelegate` already counts reconnect attempts in `reconnectAttempt` with a capped backoff in `scheduleReconnect()` -- so "3 attempts then ask" is a threshold on an existing counter rather than new machinery. Everything after the prompt is new.
+
+Four things need deciding before this is buildable, and the first two are the real work:
+
+- **A manual segment has no `device_event`, and `time_entry` requires one.** `time_entry.device_event_id` is `NOT NULL REFERENCES device_event(device_event_id)` and carries `UN1_time_entry`, a `UNIQUE` index on that column (`database/009_time_entry.sql`). So either manual time writes a synthetic `device_event` row to hang off -- which then has to be distinguishable from something the cube actually reported, or history logic will treat it as one -- or the column becomes nullable and `UN1_time_entry` becomes a partial index. This is the central schema decision and everything else follows it.
+- **The cube is still recording while it is away, so the same hours can arrive twice.** Left sitting on a face at home it accumulates a segment covering exactly the time the user was tracking manually, and the next successful connect backfills it (the history fetch is a backlog recovery, not a live feed). Those events become `time_entry` rows overlapping the manual ones, and the day is then counted twice. Manual mode therefore needs an explicit rule for what wins -- most likely that device history is not ingested for a span already covered manually -- and that rule has to be written down before either side is implemented, because it cannot be applied retrospectively once both sets of rows exist.
+- **How manual mode ends.** Automatically on the next successful connect is the obvious answer and is probably wrong on its own: a cube brushing into range for a moment would silently take the user out of the mode mid-segment. Ending it needs to be at least as deliberate as entering it.
+- **What the menu bar shows.** Today it reflects device state -- the current face, pause, battery, lock. In manual mode there is no face and no battery, and pause/lock are the app's own idea rather than the cube's, so what the status item shows and which of its menu items still make sense both need answering.)

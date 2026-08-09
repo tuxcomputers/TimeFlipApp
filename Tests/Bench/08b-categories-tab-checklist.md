@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
@@ -214,7 +214,26 @@ directly: the create control reads the database live rather than the loaded list
 reaches the alert without reopening the tab.
 
 - [x] Step 1: Seed one active `Email`, and reopen Settings on the Categories tab.
+      Every `Email` an earlier attempt left is dropped first, so the scenario is idempotent.
+      `UN1_category` is unique on name among **active** rows, so seeding a second active one over
+      the top fails outright with `UNIQUE constraint failed: category.category_name` -- which is
+      exactly what a **resume** produces, since resuming keeps the existing `test.sqlite` rather
+      than rebuilding it, leftover rows and all. Measured on 2026-08-08, resuming into this
+      scenario after a halted run. `Bench/10b` guards its own seed the same way and for the same
+      reason. The faces are cleared first so no foreign key is left pointing at a deleted row.
 ```toml step
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE category_name = 'Email');"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM time_entry WHERE category_id IN (SELECT category_id FROM category WHERE category_name = 'Email');"
+
+[[actions]]
+action = "sql_exec"
+query = "DELETE FROM category WHERE category_name = 'Email';"
+
 [[actions]]
 action = "sql_exec"
 query = "INSERT INTO category (category_name, icon_id, colour_id, active) VALUES ('Email', 0, 0, 1);"
@@ -383,6 +402,11 @@ tab = "Categories"
 - [x] Step 2: Expand the Inactive section.
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
+      (Note: the count includes `ZZ Retired`, one of the three categories `Tests/00-test-setup.md`
+      Step 8 seeds for the report checklist. That fixture is seeded on every run rather than only
+      when the report checklist was requested, precisely so this number is a fixed baseline instead
+      of depending on which checklists someone asked for. The retired row this step is really about
+      is `Email`; if the seed's shape ever changes, this is the number that moves with it.)
 ```toml step
 action = "applescript"
 script = '''
@@ -394,7 +418,7 @@ tell application "System Events"
         return "inactive_rows=" & ((count of checkboxes of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "inactive_rows=1"
+expect_contains = "inactive_rows=2"
 ```
 - [x] Step 3: Tick the retired `Email` row's Active box; confirm the refusal alert.
 ```toml step
@@ -471,6 +495,15 @@ Every other category is retired first, leaving the Active section holding **one 
 the "which row did you click" ambiguity from a step a human drives, and makes the row addressable as
 row 1 rather than by counting seeds.
 
+**Faces 2 and 8 are unlocked before that retire, and the order matters.** They hold `Break` and
+`Meeting`, and the app **refuses** to deactivate a category a locked face holds -- Scenario I asserts
+that refusal, and the message it checks tells the user to unlock the face first. Retiring them with a
+bare `UPDATE` would manufacture a state the app forbids, in the same file that tests the rule; going
+through the unlock is the app's own prescribed route, so every state here is one it could have
+produced. Clearing the faces afterwards is the other half: retiring through the app puts every face
+holding that category back on `Unassigned`, so the SQL has to do that too, or the faces are left
+pointing at retired categories. Scenario I puts both locks back when it rebuilds the seeds.
+
 **Preconditions:** Settings open on the Categories tab, the active `Email` row present.
 
 - [x] Step 1: Retire every category except the active `Email`, and re-read the tab.
@@ -478,7 +511,15 @@ row 1 rather than by counting seeds.
 ```toml step
 [[actions]]
 action = "sql_exec"
+query = "UPDATE face SET locked = 0 WHERE face_id IN (2, 8);"
+
+[[actions]]
+action = "sql_exec"
 query = "UPDATE category SET active = 0 WHERE category_id >= 1 AND NOT (category_name = 'Email' AND active = 1);"
+
+[[actions]]
+action = "sql_exec"
+query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE active = 0);"
 
 [[actions]]
 use = "method-10"
@@ -924,9 +965,6 @@ tell application "System Events"
 end tell'''
 expect = "Face 8 is locked to this category. Unlock it on the Faces tab to deactivate this category."
 ```
-### Bugs found and fixed - branch 'bugfix/deactivateCategory'
-2026-08-06 - This step was written as a hover-and-look `ask_user`; a synthetic `kCGEventMouseMoved`
-never raises the help tag, so it would have failed on behaviour that works. Reads `AXHelp` instead.
 - [x] Step 4: Retire `Face test` from its Active box; confirm the face it was on is back on
       `Unassigned`.
       The database is the assertion, not the row moving: `face.category_id` 0 is the `Unassigned`
@@ -962,7 +1000,9 @@ tag = "face-clear"
 expect_contains = "face 3 back to Unassigned"
 ```
 - [x] Step 6: Confirm the two locked-face rows are all that is left in the Active section.
-      The retired row moved to Inactive, and neither category on a locked face went with it.
+      The retired row moved to Inactive, and neither category on a locked face went with it. The
+      report fixture's categories are not in this count: Scenario F retires every non-`Email`
+      category, the seeded ones included, and nothing reinstates them.
 ```toml step
 [[actions]]
 action = "applescript"

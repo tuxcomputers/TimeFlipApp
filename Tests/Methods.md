@@ -260,7 +260,8 @@ which it lands on whatever was under the pointer before. See
 ## Method 10: Switch Settings-window tabs
 
 Address the tab by **name**, never by index. Both `title` and `name` read `missing value` on these
-buttons, but `description` holds the visible label (`Device`, `Categories`, `Faces`, `App`), so:
+buttons, but `description` holds the visible label (`Device`, `Categories`, `Faces`, `Report`,
+`App`), so:
 
 `click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings"
 whose description is "<name>")`
@@ -584,7 +585,11 @@ keeping the query -- that's how the same SQL serves both an immediate read and a
   since the device's reported level oscillates by 1-2% between samples.
 - **h** -- the face the device is *not* currently resting on, as a name (`Break`/`Meeting`) -- what
   to ask a person to flip to.
-- **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`.
+- **i** -- overwrite a setting (`setting`, `value`). A write, so it's a `sql_exec`. The value goes in
+  **raw**, so a JSON-shaped setting takes the whole object (`{"enabled":false}`), never a bare
+  scalar: the app reads these with `json_extract` and falls back to its *default* when the field
+  isn't there, which is silent. Verify such a write with **f** (the field the app reads), not **a** --
+  **a** hands back whatever was written, so a malformed value confirms itself.
 - **j** -- the latest *real* `battery` row, skipping the `level=nil` placeholder the app logs before
   the first reading arrives.
 
@@ -731,3 +736,63 @@ Paused, the rendered figure is exactly the total and an exact string assertion h
 
 Still unreadable, and still needing Method 17: the pause/play icon, the red lock badge, and the
 over-limit colouring, none of which are text.
+
+<a id="method-28"></a>
+## Method 28: Read the Report tab's totals
+
+The Report tab's rows **are** accessibility-readable, so the figures are asserted directly rather
+than screenshotted. Each row contributes two `static text` elements in view order -- the category
+name, then its duration -- inside the tab's scroll area. Joining them with `|` gives one string per
+read, e.g. `Unassigned|4:55|Break|3:54|Meeting|1:57|`, which carries the names, the durations **and
+their order** (longest first) in a single value. Confirmed live 2026-08-08.
+
+Match a row with `expect_contains = "<Category>|<duration>|"`, which pins a name to the duration
+next to it without depending on where that row sorts. Asserting the whole string only works when the
+range is known to hold nothing else.
+
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        set out to ""
+        repeat with t in static texts of scroll area 1 of group 1 of group 1 of window "TimeFlip Settings"
+            set out to out & (value of t) & "|"
+        end repeat
+        return out
+    end tell
+end tell"""
+```
+
+**The calendars are addressed by index, not by name** -- because AppleScript cannot see their
+names, not because they lack them. The day cells and month arrows are properly labelled
+(`AXDescription` = `Monday, 3 August 2026`, `Previous month`), confirmed on 2026-08-08 by querying
+the accessibility API directly. System Events disagrees, and misleadingly: `description` on these
+reads back as the role (`button`) and `attributes of` omits `AXDescription` entirely, so from
+AppleScript they look unlabelled. Nothing here can match `whose description is ...`, so index it is.
+
+Worth knowing before filing an accessibility bug against any SwiftUI control on this evidence: a
+missing name in System Events is not a missing name. `AXAttributedDescription` also exists on these
+and cannot be read from AppleScript at all -- the AppleEvent handler simply fails.
+
+The indices are stable by construction rather than by luck: each
+calendar contributes exactly 2 arrow buttons then 42 day cells, in reading order, and the grid is
+always six weeks whatever the month. So within `group 1 of group 1 of window "TimeFlip Settings"`:
+
+| Buttons | What |
+| --- | --- |
+| 1, 2 | **From** calendar: previous month, next month |
+| 3-44 | **From** calendar: the 42 day cells, top-left to bottom-right |
+| 45, 46 | **To** calendar: previous month, next month |
+| 47-88 | **To** calendar: its 42 day cells |
+
+Cell `n` (0-based) of a calendar showing month `M` is the `n`th day from the start of the week
+containing `M`'s first day -- the leading cells belong to the previous month and are real, clickable
+dates. A disabled cell (a future date, or one before the start) swallows the click silently, so a
+step that clicks one and expects a change fails on the assertion rather than on the click. Confirmed
+live: clicking button 3 with August 2026 shown logged `From calendar picked 2026-07-27`.
+
+Every pick is logged under the `report` tag (`<title> calendar picked yyyy-MM-dd`), followed by the
+resolved range and how many categories it found
+(`Report yyyy-MM-dd HH:MM -> yyyy-MM-dd HH:MM: N categories`). Assert against that rather than
+assuming an index landed where it was meant to.

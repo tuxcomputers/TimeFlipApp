@@ -408,18 +408,16 @@ final class MenuBarController: NSObject {
         dailyCategoryDurationsOverride: [Int: TimeInterval]? = nil,
         dailyWindowStartOverride: Date? = nil
     ) -> String {
-        let totalSeconds = Int(currentDuration(
-            dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
-            dailyWindowStartOverride: dailyWindowStartOverride
-        ))
-        let hours = totalSeconds / Int(TimeConstants.secondsPerHour)
-        let minutes = (totalSeconds % Int(TimeConstants.secondsPerHour)) / Int(TimeConstants.secondsPerMinute)
-        // Hours are unpadded below 10 (e.g. "1:23") but keep two digits once double-digit (e.g. "12:23").
-        if displaySecondsEnabled {
-            let seconds = totalSeconds % Int(TimeConstants.secondsPerMinute)
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", hours, minutes)
+        DurationFormat.hoursMinutesSeconds(
+            currentDuration(
+                dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
+                dailyWindowStartOverride: dailyWindowStartOverride
+            ),
+            // A live, ticking value: truncate rather than round, so the displayed seconds are
+            // never ahead of what has actually elapsed.
+            rounding: .truncate,
+            showingSeconds: displaySecondsEnabled
+        )
     }
 
     /// The figure the menu bar draws, and the one the daily limit is tested against: the current

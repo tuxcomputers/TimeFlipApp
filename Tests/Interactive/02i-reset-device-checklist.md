@@ -1,6 +1,6 @@
 # Reset Device Checklist (Interactive)
 
-### Last run - 2026-08-06 on the branch 'bugfix/deactivateCategory'
+### Last run - 2026-08-08 on the branch 'feature/reportTab'
 
 The physical-flip part of the reset test. Run **after the whole Bench phase**
 (`Tests/Bench/02b-reset-device-checklist.md` included) -- by this point the device is already reset
