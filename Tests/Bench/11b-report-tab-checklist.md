@@ -38,7 +38,7 @@ beginning, so the periodic fetch would repopulate the table within about ten sec
 Durations of 30, 45 and 60 minutes make every range asserted below a different figure, so no
 assertion can pass against the wrong range.
 
-**The fixture is seeded by `Tests/00-test-setup.md` Step 8, not here**, and unconditionally rather
+**The fixture is seeded by `Tests/00-test-setup.md` Step 9, not here**, and unconditionally rather
 than only when this checklist was requested -- so every run starts from the same categories and the
 Categories tab's row counts are a fixed baseline instead of depending on which checklists someone
 asked for. `08b` accounts for the three extra rows explicitly; its notes say which number is the
@@ -102,7 +102,7 @@ field = "enabled"
 expect = "1"
 ```
 - [ ] Step 5: Re-establish the fixture's three category states.
-`Tests/00-test-setup.md` Step 8 seeds the rows and their states, but `08b` runs in between and
+`Tests/00-test-setup.md` Step 9 seeds the rows and their states, but `08b` runs in between and
 legitimately deactivates every category except its own (`UPDATE category SET active = 0 ... NOT
 (category_name = 'Email' ...)`) as part of testing the Active partition, and never puts them back.
 So by the time this checklist runs all three fixture categories are retired and the three states it
@@ -179,7 +179,7 @@ tab = "Report"
 expect = "1"
 ```
 - [ ] Step 2: Pick 5 days ago as the start, and confirm the calendar picked the date intended.
-The click is by index, so this asserts where it actually landed rather than trusting Setup Step 8's
+The click is by index, so this asserts where it actually landed rather than trusting Setup Step 9's
 arithmetic. A disabled cell swallows a click silently, so without this a mis-computed index would
 surface as a wrong total rather than as a wrong click.
 [Method: Number 28](../Methods.md#method-28).

@@ -15,13 +15,14 @@ How each thing is detected (the exact `sqlite3` queries / helpers) lives in
 > - The **early** timing gate (pre-flight) only fires when the app is already running -- with it
 >   shut down the last `device_event` on disk is stale (a dev could have double-tapped to pause or
 >   changed faces since), so it defers.
-> - `00-test-setup.md` Step 4 restarts (or, when the app was down, just starts) it, Steps 5--6 wait
->   for reconnect + history sync, and **Step 7 re-checks the timing gate on that fresh data** before
->   any destructive step. Step 7 runs whenever history is being recorded, so it also covers switching
+> - `00-test-setup.md` Step 1 quits the app, so everything after it reads disk rather than whatever
+>   a previous run left running. Step 5 then starts it, Steps 6--7 wait
+>   for reconnect + history sync, and **Step 8 re-checks the timing gate on that fresh data** before
+>   any destructive step. Step 8 runs whenever history is being recorded, so it also covers switching
 >   onto production mid-run (the "choose → y" path).
-> - The reconnect waits (Steps 5, 9) prompt the dev to pair / power on the device and keep waiting,
+> - The reconnect waits (Steps 6, 12) prompt the dev to pair / power on the device and keep waiting,
 >   rather than failing opaquely (**Device not paired**).
-> - Step 10 (`ensure_unlocked_unpaused`) leaves the device unlocked + unpaused for every run.
+> - Step 13 (`ensure_unlocked_unpaused`) leaves the device unlocked + unpaused for every run.
 
 ---
 

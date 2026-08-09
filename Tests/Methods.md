@@ -533,7 +533,7 @@ at launch and can tick before the startup fetch is reached on a slow connect, in
 startup call is folded into the one already running and never logs a `trigger=startup` row at all
 (the work still happens, under the other trigger, followed by a `trigger=debounce` re-run). Scope
 to the newest `Login accepted` instead and accept any completed fetch after it, as
-`00-test-setup.md` Step 6 does. **And don't match the older `"DB refreshed"` text:** that only ever
+`00-test-setup.md` Step 7 does. **And don't match the older `"DB refreshed"` text:** that only ever
 logs on the branch where nothing changed, and never appears for a fetch that pulls a real backlog.
 
 Then: quit, run the test-database script, start the app, query `db_type` as the very first Setup
