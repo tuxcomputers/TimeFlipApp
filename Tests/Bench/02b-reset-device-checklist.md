@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-09 23:04 on the branch 'feature/manualMode'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -121,6 +121,9 @@ action = "sql_query"
 query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "confirmed_id"
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-09 - The confirm login never presented the default PIN: it was tried *after* the stored one, and a rejected probe drops the link on its way out, so the second attempt failed at connect before sending anything (`refused this app's PIN` then `could not be reached`, same second, no `Probe logging in using password` line). The default now goes first while a reset is pending, and a settle sits between attempts on one peripheral.
+2026-08-09 - A confirmed reset left `config.json` naming the pre-reset PIN, so the next launch would present a password the wiped cube no longer held; `forgetDevice` now records the factory default there.
 - [x] Step 4: Confirm the UI reaches the pristine never-paired state.
  During the confirm window the `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...` or `Connected`.
 ```toml step
@@ -173,7 +176,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "TimeFlip"
 ```
-- [x] Step 7: Click the discovered device's row to select and pair
+- [ ] Step 7: Click the discovered device's row to select and pair
 (it is on the factory default PIN `000000` now). [Method: Number 9](../Methods.md#method-9) -- a coordinate CGEvent click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture` an AX press won't actuate. Wait for the pairing to **complete**, not merely for the first login: a fresh pair logs in with the default PIN, then rotates the device password and logs `"Device password confirmed set to: <pw>"` (`> current_log_id`) about a second later. Waiting for *that* marker (not the earlier `"Login accepted"`, which fires mid-rotation) is what keeps Step 8's `Connected` check from racing the rotation. If the automated click doesn't land, the prompt asks you to click the row yourself.
 ```toml step
 [[actions]]
@@ -187,7 +190,7 @@ expect_contains = "Device password confirmed set to:"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 ```
-- [x] Step 8: Confirm the Device tab shows the device paired and connected again
+- [ ] Step 8: Confirm the Device tab shows the device paired and connected again
  read the `Connection` row (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no longer "Not paired").
  ```toml step
 action = "applescript"
@@ -199,7 +202,7 @@ tell application "System Events"
 end tell'''
 expect = "Connected"
 ```
-- [x] Step 9: Confirm the device's own event counter was wiped by the reset
+- [ ] Step 9: Confirm the device's own event counter was wiped by the reset
  the first `history` fetch after re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet), not resuming from the pre-reset baseline. (`MAX(event_number)` in the local `device_event` table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence. This must run **after** the re-pair, not before: the app stops history fetches while forgotten (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a *real* post-reset event with the device's own low numbering needs a physical flip -- that's the Interactive counterpart.)
 ```toml step
 use = "method-24.e"
@@ -209,7 +212,7 @@ since_id = "$before_reset_id"
 expect_contains = "device_last_event=nil"
 timeout_seconds = 30
 ```
-- [x] Step 10: Close the Settings window
+- [ ] Step 10: Close the Settings window
 (opened in Scenario A Step 1) so the next checklist starts with no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"

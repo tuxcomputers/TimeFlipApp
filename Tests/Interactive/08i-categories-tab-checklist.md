@@ -39,7 +39,7 @@ unlocked and unpaused. Steps 1 and 2 confirm both rather than assuming. The two 
 things: face 8's is the app-side `face.locked` flag this scenario is about, the device's is the cube's
 own state, and the menu's Unlock leaves `face.locked` untouched.
 
-- [x] **(Claude)** Step 1: Confirm face 8 holds `Break` and is locked.
+- [ ] **(Claude)** Step 1: Confirm face 8 holds `Break` and is locked.
       If it does not, `08b` Scenario I's Step 1 is the statement that puts it back.
 ```toml step
 [[actions]]
@@ -52,7 +52,7 @@ action = "sql_query"
 query = "SELECT category_name FROM category WHERE category_id = (SELECT category_id FROM face WHERE face_id = 8);"
 expect = "Break"
 ```
-- [x] **(Claude)** Step 2: Confirm the device is unlocked and unpaused.
+- [ ] **(Claude)** Step 2: Confirm the device is unlocked and unpaused.
       A locked cube silently refuses flips -- no error, no event -- so the flip below would wait out
       its whole timeout while the person doing the flipping watches nothing happen. `07i` runs
       immediately before this and quits the app in its Cleanup, and with `pause_on_lock` on that quit
@@ -60,7 +60,7 @@ expect = "Break"
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [x] **(You)** Step 3: Flip the cube to the **Break** face (face 8) and leave it there.
+- [ ] **(You)** Step 3: Flip the cube to the **Break** face (face 8) and leave it there.
       The Faces tab only offers the lock control for the face on top, so this is what makes it
       reachable at all. Detected from the new `device_event` row rather than an answer
       ([Method: Number 19](../Methods.md#method-19)), which is why Step 2 has to have run: a locked
@@ -75,10 +75,7 @@ prompt = "Flip the cube to the Break face (face 8) and leave it resting there --
 timeout_seconds = 0
 poll_interval = 2
 ```
-### Bugs found and fixed - branch 'feature/reportTab'
-2026-08-08 - This scenario never confirmed the **device** was unlocked, and `07i`'s Cleanup quit the app with `pause_on_lock` on, which pauses and locks the cube on exit; the flip then produced no `device_event` row at all and the step waited out its 120s on a flip that had actually been done. Step 2 now runs `ensure_unlocked_unpaused` first, as `10i` already did.
-2026-08-08 - Steps 3 and 6 are `(You)` steps that carried no `prompt`, so the runner polled in silence and never raised an ACTION NEEDED banner for either -- the only two such steps in the Interactive suite. Both now prompt, and wait without a timeout like every other human-gated step.
-- [x] **(Claude)** Step 4: Open Settings on the Categories tab and confirm `Break`'s Active box is
+- [ ] **(Claude)** Step 4: Open Settings on the Categories tab and confirm `Break`'s Active box is
       dead.
       Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). `Break`
       sorts first among the active rows, so it is `checkbox 1`.
@@ -103,13 +100,13 @@ tell application "System Events"
 end tell'''
 expect_contains = "Break=false"
 ```
-- [x] **(Claude)** Step 5: Switch to the Faces tab.
+- [ ] **(Claude)** Step 5: Switch to the Faces tab.
       [Method: Number 10](../Methods.md#method-10).
 ```toml step
 use = "method-10"
 tab = "Faces"
 ```
-- [x] **(You)** Step 6: Click the **lock toggle** over the top-left of the drawn device to unlock
+- [ ] **(You)** Step 6: Click the **lock toggle** over the top-left of the drawn device to unlock
       face 8.
       A hand rather than a script: no checklist drives a control inside the Faces tab yet, so the
       lock toggle has no established accessibility path, and a guessed one would fail here as a
@@ -125,7 +122,7 @@ prompt = "On the Faces tab, click the lock toggle over the top-left of the drawn
 timeout_seconds = 0
 poll_interval = 2
 ```
-- [x] **(Claude)** Step 7: Back on the Categories tab, confirm `Break`'s Active box is now live.
+- [ ] **(Claude)** Step 7: Back on the Categories tab, confirm `Break`'s Active box is now live.
       No relaunch and no re-read between the unlock and this: the box is driven by published state,
       which is the whole reason it can answer at all.
 ```toml step
@@ -145,7 +142,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "Break=true"
 ```
-- [x] **(Claude)** Step 8: Retire `Break` from that box; confirm face 8 goes back to `Unassigned`.
+- [ ] **(Claude)** Step 8: Retire `Break` from that box; confirm face 8 goes back to `Unassigned`.
       The retire the lock was barring, now that it is not.
 ```toml step
 [[actions]]
@@ -170,14 +167,14 @@ action = "sql_query"
 query = "SELECT active FROM category WHERE category_name = 'Break';"
 expect = "0"
 ```
-- [x] **(You)** Step 9: Confirm the cube's top face is now unlit.
+- [ ] **(You)** Step 9: Confirm the cube's top face is now unlit.
       Face 8 has no category, so it has no colour, and an unassigned face is the LED off rather than
       whatever it was showing. This is the only step where the clear is visible on the hardware.
 ```toml step
 action = "ask_user"
 prompt = "Is the cube's top face (Break) now unlit?"
 ```
-- [x] **(Claude)** Step 10: Put `Break` back on its locked face and restart the app.
+- [ ] **(Claude)** Step 10: Put `Break` back on its locked face and restart the app.
       The Interactive checklists after this one expect the stickered faces to mean what the stickers
       say. The restart is not tidiness: the restore is SQL, and a running app carries face and lock
       state in memory, so without it the next checklist inherits a window still showing `Break`

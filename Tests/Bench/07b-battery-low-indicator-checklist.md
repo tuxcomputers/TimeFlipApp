@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-09 22:49 on the branch 'feature/manualMode'
 
 Covers the low-battery blink (`MenuBarController.updateLowBatteryBlinkTimer`/
 `updatedLowBatteryLatch`): the activity name blinks red/white once battery drops to or below
@@ -61,7 +61,7 @@ low-battery state -- check via the query below; if it shows `isLowBattery=true` 
 threshold left over from an interrupted prior run, restore the threshold to 10% and restart the app
 before continuing.
 
-- [x] Step 1: Capture the live level
+- [ ] Step 1: Capture the live level
 , robust to the 1-2% flap. Not the last row's value (nondeterministic across a flap, and a one-off low outlier would set the threshold below the flap so the device never reads low). Take the **higher of the      two most-frequent** levels (`GROUP BY level ORDER BY count DESC LIMIT 2`, then the larger) -- since this scenario sets `threshold = level` to make the device read low (`level <= threshold`), the threshold must sit at/above the top of the flap.
 ```toml step
 [[actions]]
@@ -74,7 +74,7 @@ timeout_seconds = 30
 use = "method-24.g"
 capture = "battery_level_a"
 ```
-- [x] Step 2: Quit the app.
+- [ ] Step 2: Quit the app.
 [Method: Number 3](../Methods.md#method-3)
 ```toml step
 [[actions]]
@@ -84,21 +84,21 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 3: Query the current threshold
+- [ ] Step 3: Query the current threshold
 and capture it, so Scenario C can restore it.
 ```toml step
 use = "method-24.a"
 setting = "low_battery_level"
 capture = "threshold_original"
 ```
-- [x] Step 4: Update the threshold to at/above the level noted above
+- [ ] Step 4: Update the threshold to at/above the level noted above
 , so the fresh connection registers as low immediately.
 ```toml step
 use = "method-24.i"
 setting = "low_battery_level"
 value = "{\"percent\":$battery_level_a}"
 ```
-- [x] Step 5: Start the app
+- [ ] Step 5: Start the app
 and confirm it reconnects to the device. [Method: Number 2](../Methods.md#method-2)
 ```toml step
 [[actions]]
@@ -110,7 +110,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 6: Query `debug_log`
+- [ ] Step 6: Query `debug_log`
 and confirm a `battery` row logged after the restart shows `isLowBattery=true`
 ```toml step
 use = "method-24.e"
@@ -128,14 +128,14 @@ timeout_seconds = 30
 restoring; if it already reads `false`, the previous section's trigger didn't hold and needs
 re-running first.
 
-- [x] Step 1: Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true`
+- [ ] Step 1: Query `debug_log` for the most recent `battery` row and confirm `isLowBattery=true`
 before proceeding (state left by the previous section).
 ```toml step
 use = "method-24.d"
 tag = "battery"
 expect_contains = "isLowBattery=true"
 ```
-- [x] Step 2: Quit the app.
+- [ ] Step 2: Quit the app.
 [Method: Number 3](../Methods.md#method-3)
 ```toml step
 [[actions]]
@@ -145,14 +145,14 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 3: Restore the threshold to its original value
+- [ ] Step 3: Restore the threshold to its original value
 via the same `UPDATE setting ...` command.
 ```toml step
 use = "method-24.i"
 setting = "low_battery_level"
 value = "$threshold_original"
 ```
-- [x] Step 4: Start the app
+- [ ] Step 4: Start the app
 [Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device.
 ```toml step
 [[actions]]
@@ -164,7 +164,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 5: Confirm a `battery` row after the restart shows `isLowBattery=false`
+- [ ] Step 5: Confirm a `battery` row after the restart shows `isLowBattery=false`
 In `debug_log`, with `level` above `recoveryAt` (threshold + 5), not just above the bare threshold.
 ```toml step
 use = "method-24.e"
@@ -187,13 +187,13 @@ selected. This is accessibility-readable (the selected tab), so it stays here; t
 Battery line, and confirming the left side of the status item now opens Settings directly (skipping
 the dropdown) while low, are the Interactive counterpart.
 
-- [x] Step 1: Query `db_type` to confirm which database is active.
+- [ ] Step 1: Query `db_type` to confirm which database is active.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
 ```
-- [x] Step 2: Query the current threshold and the live battery level
+- [ ] Step 2: Query the current threshold and the live battery level
 and capture them, so they can be restored at the end. The level is the **higher of the two most-frequent** readings (flap-robust; this scenario sets `threshold = level` to make the device read low, so it must be at/above the top of the flap).
 ```toml step
 [[actions]]
@@ -211,7 +211,7 @@ timeout_seconds = 30
 use = "method-24.g"
 capture = "battery_level_d"
 ```
-- [x] Step 3: Quit the app.
+- [ ] Step 3: Quit the app.
 [Method: Number 3](../Methods.md#method-3)
 ```toml step
 [[actions]]
@@ -221,14 +221,14 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 4: Update the threshold to at/above the live level noted above
+- [ ] Step 4: Update the threshold to at/above the live level noted above
 , so the fresh connection registers as low immediately.
 ```toml step
 use = "method-24.i"
 setting = "low_battery_level"
 value = "{\"percent\":$battery_level_d}"
 ```
-- [x] Step 5: Start the app
+- [ ] Step 5: Start the app
 [Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device.
 ```toml step
 [[actions]]
@@ -240,7 +240,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 6: Query `debug_log` and confirm a `battery` row logged
+- [ ] Step 6: Query `debug_log` and confirm a `battery` row logged
 after the restart shows `isLowBattery=true`
 ```toml step
 use = "method-24.e"
@@ -250,7 +250,7 @@ since_id = "$before_quit_id"
 expect_contains = "isLowBattery=true"
 timeout_seconds = 30
 ```
-- [x] Step 7: With some non-Device tab last selected, open Preferences on the **Device** tab.
+- [ ] Step 7: With some non-Device tab last selected, open Preferences on the **Device** tab.
 Confirm via the accessibility tree ([Method: Number 11](../Methods.md#method-11)) that Device is the selected tab -- the `pendingSettingsTab` hint forced it, not whatever was last open.
 ```toml step
 [[actions]]
@@ -277,7 +277,7 @@ use = "method-11"
 tab = "Device"
 expect = "1"
 ```
-- [x] Step 8: Confirm the force-to-Device holds from a *different* last tab too
+- [ ] Step 8: Confirm the force-to-Device holds from a *different* last tab too
 select the **App** tab (vs **Faces** in Step 7), close Preferences, then reopen it while still low, and confirm via the accessibility tree that the **Device** tab is the selected one again. [Method: Number 11](../Methods.md#method-11) -- reading the Device tab's `value`, so no human check needed.
 ```toml step
 [[actions]]
@@ -304,7 +304,7 @@ use = "method-11"
 tab = "Device"
 expect = "1"
 ```
-- [x] Step 9: Quit the app.
+- [ ] Step 9: Quit the app.
 [Method: Number 3](../Methods.md#method-3)
 ```toml step
 [[actions]]
@@ -314,14 +314,14 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 10: Restore the threshold to its original value.
+- [ ] Step 10: Restore the threshold to its original value.
       Whatever Scenario A captured as `$threshold_original`, so the session leaves no real setting changed.
 ```toml step
 use = "method-24.i"
 setting = "low_battery_level"
 value = "$threshold_original"
 ```
-- [x] Step 11: Start the app
+- [ ] Step 11: Start the app
 [Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device.
 ```toml step
 [[actions]]
@@ -333,7 +333,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 12: Query `debug_log` and confirm a `battery` row logged
+- [ ] Step 12: Query `debug_log` and confirm a `battery` row logged
 after the restart shows `isLowBattery=false`
 ```toml step
 use = "method-24.e"
@@ -343,7 +343,7 @@ since_id = "$before_quit_id"
 expect_contains = "isLowBattery=false"
 timeout_seconds = 30
 ```
-- [x] Step 13: Open Preferences and confirm
+- [ ] Step 13: Open Preferences and confirm
 that, no longer low, opening it no longer force-selects the Device tab -- whatever tab was open previously stays selected.
 ```toml step
 [[actions]]
@@ -355,7 +355,7 @@ use = "method-11"
 tab = "Faces"
 expect = "1"
 ```
-- [x] Step 14: Close the Settings window
+- [ ] Step 14: Close the Settings window
 (reopened in Step 13) so the next checklist starts with no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"

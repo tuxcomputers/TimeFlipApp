@@ -7,10 +7,16 @@ import XCTest
 /// state -- no device, no window.
 @MainActor
 final class AppStateDeviceTabTests: XCTestCase {
+    /// Every store injected, including the developer-config one. Omitting that argument defaults it
+    /// to `DeveloperConfigStore.shared`, which is the developer's **real** `config.json` -- a test
+    /// that then takes any path writing to it rewrites a file on the machine running the suite. That
+    /// is not hypothetical: it happened here on 2026-08-09, when the forget path briefly recorded the
+    /// factory default and these four `forgetDevice()` calls stamped it into the real file.
     private func makeAppState() -> AppState {
         AppState(
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
+            developerConfigStore: InMemoryDeveloperConfigStore(),
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             blinkIntervalSeconds: 15,

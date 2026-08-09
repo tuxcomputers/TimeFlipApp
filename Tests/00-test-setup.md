@@ -290,7 +290,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1) >= 900000 THEN 'a seeded row is the newest device_event -- it would be read as the live segment' ELSE 'ok' END;"
 expect = "ok"
 ```
-- [ ] Step 17: Retire bug history belonging to another branch, on the checklists this run will cover.
+- [x] Step 17: Retire bug history belonging to another branch, on the checklists this run will cover.
 `Tests/CLAUDE.md`'s rule is that a **Bugs found and fixed** entry belongs to the branch that found
 it, so arriving on a new branch retires it -- and that a checklist this run does not reach keeps
 both its entries and its `Last run` heading exactly as the previous branch left them. This does the

@@ -2,16 +2,20 @@
 import XCTest
 
 // swiftlint:disable line_length
-/// `config.json` is a developer file, edited by hand. These pin the rule that the app reads the PIN
-/// from it and writes that field back **only** at the pairing that sets it -- never on any other
-/// save, and never from memory.
+/// `config.json` holds a dev cube's PIN. These pin the rule that the app writes that field at the
+/// **two moments the cube's password actually changes** -- a pairing rotating it, and a forget or
+/// confirmed reset putting it back to the factory default -- and never on any other save.
 ///
-/// The bug they exist for cost a real evening on 2026-08-01. Forget Device set the in-memory
-/// password to the factory default, the `$devicePassword` observer wrote that straight into
-/// `config.json`, the re-pair then rotated the cube to a different PIN, and the file was left
-/// describing a password the device no longer accepted. Nothing failed at the time. It surfaced
-/// later as a login rejection on a launch nobody would connect to the forget, and every attempt to
-/// fix the file by hand was overwritten again by the running app.
+/// The bug they exist for cost a real evening on 2026-08-01, and the fix has since been turned
+/// around, so the distinction is worth holding precisely. Forget Device set the in-memory password
+/// to the factory default and the `$devicePassword` observer wrote it into `config.json` -- but the
+/// re-pair afterwards **wrote nothing**, so the cube ended up on a rotated PIN the file did not
+/// name. It surfaced later as a login rejection on a launch nobody would connect to the forget, and
+/// every attempt to fix the file by hand was overwritten again by the running app.
+///
+/// The write was never the problem; the half-loop was. Both ends are closed now, so the file tracks
+/// the cube instead of describing one moment of it, and the write on every unrelated save -- the
+/// part that fought the developer's editor -- is still gone.
 @MainActor
 final class DeveloperConfigWriteBackTests: XCTestCase {
     private func makeAppState(
@@ -48,7 +52,7 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
     /// presenting the other. The fix then was to keep the file out of the connect path.
     ///
     /// What makes it the right source now is that the app **writes** the field at the pairing that
-    /// sets it (`recordPairedDevicePassword`), so a stale value is no longer something the app can
+    /// sets it (`recordDevicePasswordInConfig`), so a stale value is no longer something the app can
     /// produce -- only something a developer can type, deliberately, which is exactly what the
     /// manual-mode checklist needs to do to stage a refused PIN.
     func testTheConfigPINIsWhatAPairedBuildPresents() {
@@ -110,17 +114,39 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         XCTAssertEqual(appState.devicePassword, DeveloperMode.devicePassword)
     }
 
-    func testForgettingADeviceDoesNotWriteConfigJSONAtAll() {
+    /// The other half of the reversal, and the one that looks most like the original bug.
+    ///
+    /// Forgetting a device resets the cube over `0x30` and only proceeds once that is confirmed, so
+    /// the cube really is back on the factory default and the file has to say so. This is the write
+    /// that caused the 2026-08-01 evening, and what makes it right now is what was missing then: the
+    /// **re-pair also writes**, so the file tracks the cube through both transitions rather than
+    /// being stamped on the way out and abandoned on the way back in.
+    ///
+    /// Leaving it stale is not the safe option it looks like. The file is what a paired build
+    /// presents, so a forget that left `123456` in place would name a password the cube no longer
+    /// holds -- which is the lockout, not the protection from it.
+    func testForgettingADeviceRecordsTheFactoryDefault() async {
         let configStore = handEditedConfig
         let appState = makeAppState(configStore: configStore)
         XCTAssertTrue(appState.isDeveloperConfigLoaded, "the dev-config path must actually be live, or this proves nothing")
 
+        await appState.resetAndForgetDevice()
+
+        XCTAssertEqual(configStore.stored?.devicePassword, TimeFlipConstants.defaultPassword)
+        XCTAssertEqual(configStore.stored?.googleClientID, "client-id", "the keys sharing the file must survive it")
+        XCTAssertEqual(configStore.stored?.googleClientSecret, "secret")
+    }
+
+    func testThePlainUnpairPrimitiveWritesNothing() {
+        // `forgetDevice` is called by a dozen tests on an `AppState` built with default stores, which
+        // means the real `config.json`. The write belongs to the callers that know a password was
+        // actually reset, and this is the line that keeps it there.
+        let configStore = handEditedConfig
+        let appState = makeAppState(configStore: configStore)
+
         appState.forgetDevice()
 
-        XCTAssertTrue(
-            configStore.saves.isEmpty,
-            "Forget Device must not touch config.json; it once stamped the factory default over a hand-set PIN"
-        )
+        XCTAssertTrue(configStore.saves.isEmpty)
         XCTAssertEqual(configStore.stored?.devicePassword, "123456")
     }
 

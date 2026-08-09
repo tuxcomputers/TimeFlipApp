@@ -1,6 +1,6 @@
 # Lock / pause_on_lock Checklist (Bench)
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-09 22:43 on the branch 'feature/manualMode'
 
 Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actions
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for
@@ -39,14 +39,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [x] Step 1: Query the current `pause_on_lock` value
+- [ ] Step 1: Query the current `pause_on_lock` value
  and capture it, so a later step (or a resume) can put it back.
  ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='pause_on_lock';"
 capture = "pause_on_lock_original"
 ```
-- [x] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
+- [ ] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
       If the device is currently paused or locked, resolve that first (click Resume / Unlock via
       the menu) so the scenarios below start from a clean unlocked, unpaused state.
 ```toml step
@@ -58,24 +58,24 @@ action = "ensure_unlocked_unpaused"
 **Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=true` -- checked and
 resolved in Setup immediately above, which this scenario runs straight on from.
 
-- [x] Step 1: Set `pause_on_lock` to `true`
+- [ ] Step 1: Set `pause_on_lock` to `true`
 ```toml step
 use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":true}"
 ```
-- [x] Step 2: Confirm the device is not already paused (latest `device_event` has `paused = 0`).
+- [ ] Step 2: Confirm the device is not already paused (latest `device_event` has `paused = 0`).
 ```toml step
 use = "method-24.c"
 column = "paused"
 expect = "0"
 ```
-- [x] Step 3: Click the "Lock" menu item.
+- [ ] Step 3: Click the "Lock" menu item.
 ```toml step
 use = "method-6"
 item = "Lock"
 ```
-- [x] Step 4: Confirm a new `paused = 1` device_event
+- [ ] Step 4: Confirm a new `paused = 1` device_event
 row was written and the lock verified. `debug_log` shows `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`
 ```toml step
 [[actions]]
@@ -90,9 +90,9 @@ use = "method-24.c"
 column = "paused"
 expect = "1"
 ```
-- [x] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
+- [ ] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
       [Method: Number 17](../Methods.md#method-17).
-- [x] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
+- [ ] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 ```toml step
 action = "applescript"
 script = '''
@@ -110,7 +110,7 @@ end tell
 return names & {"enabled=" & pauseEnabled}'''
 expect_contains = "Unlock"
 ```
-- [x] Step 7: Click "Unlock".
+- [ ] Step 7: Click "Unlock".
 ```toml step
 [[actions]]
 use = "method-6"
@@ -123,27 +123,27 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
 timeout_seconds = 30
 ```
-- [x] Step 8: Confirm the device is still paused after unlocking
+- [ ] Step 8: Confirm the device is still paused after unlocking
       -- no new `paused = 0` row appears.
 ```toml step
 use = "method-24.c"
 column = "paused"
 expect = "1"
 ```
-- [x] Step 9: Check the menu bar: the lock badge is gone and the icon shows pause (⏸).
+- [ ] Step 9: Check the menu bar: the lock badge is gone and the icon shows pause (⏸).
       [Method: Number 17](../Methods.md#method-17).
-- [x] Step 10: Confirm menu reads "Lock" and "Resume".
+- [ ] Step 10: Confirm menu reads "Lock" and "Resume".
 ```toml step
 use = "method-25"
 expect_contains = "Resume"
 ```
-- [x] Step 11: Click "Resume"
+- [ ] Step 11: Click "Resume"
 to bring the device back to a clean unpaused state.
 ```toml step
 use = "method-6"
 item = "Resume"
 ```
-- [x] Step 12: Confirm a new `paused = 0` row appears in `device_event`
+- [ ] Step 12: Confirm a new `paused = 0` row appears in `device_event`
 for the resume.
 ```toml step
 use = "method-24.c"
@@ -161,7 +161,7 @@ below; if it doesn't match (a locked/paused leftover from an interrupted prior r
 it the same way Setup does above (Unlock/Resume via the menu, set `pause_on_lock=true`) before
 continuing.
 
-- [x] Step 1: Confirm `pause_on_lock` is still `true` and the device is unpaused (`paused = 0`).
+- [ ] Step 1: Confirm `pause_on_lock` is still `true` and the device is unpaused (`paused = 0`).
 ```toml step
 [[actions]]
 use = "method-24.a"
@@ -173,7 +173,7 @@ use = "method-24.c"
 column = "paused"
 expect = "0"
 ```
-- [x] Step 2: Quit the app.
+- [ ] Step 2: Quit the app.
 [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
@@ -183,7 +183,7 @@ capture = "before_quit_1_id"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 3: Confirm `debug_log` shows the pause-and-lock-before-exit sequence.
+- [ ] Step 3: Confirm `debug_log` shows the pause-and-lock-before-exit sequence.
 `"Quit requested; pause_on_lock enabled, pausing and locking device before exit"` then `"Pause+lock on quit complete, terminating now"`
 ```toml step
 action = "wait_for_sql"
@@ -191,7 +191,7 @@ query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_1_id OR
 expect_contains = "Pause+lock on quit complete, terminating now"
 timeout_seconds = 30
 ```
-- [x] Step 4: Start the app
+- [ ] Step 4: Start the app
  and confirm reconnect and check the status icon is green. [Method: Number 2](../Methods.md#method-2).
 ```toml step
 [[actions]]
@@ -203,7 +203,7 @@ since_id = "$before_quit_1_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [x] Step 5: Confirm a new `paused = 1` device_event row now appears
+- [ ] Step 5: Confirm a new `paused = 1` device_event row now appears
 (only after this relaunch's startup fetch, not immediately after quit).
 ```toml step
 use = "method-24.c"
@@ -212,14 +212,14 @@ column = "paused"
 expect = "1"
 timeout_seconds = 30
 ```
-- [x] Step 6: Check the menu bar shows the lock badge and the pause icon (⏸).
+- [ ] Step 6: Check the menu bar shows the lock badge and the pause icon (⏸).
  [Method: Number 17](../Methods.md#method-17).
-- [x] Step 7: Confirm menu reads "Unlock" and the Pause item is disabled.
+- [ ] Step 7: Confirm menu reads "Unlock" and the Pause item is disabled.
 ```toml step
 use = "method-25"
 expect_contains = "Unlock"
 ```
-- [x] Step 8: Click "Unlock", then click "Resume" to return to a clean state.
+- [ ] Step 8: Click "Unlock", then click "Resume" to return to a clean state.
 ```toml step
 [[actions]]
 use = "method-6"
@@ -243,7 +243,7 @@ column = "paused"
 expect = "0"
 timeout_seconds = 30
 ```
-- [x] Step 9: Test the *disabled* case properly
+- [ ] Step 9: Test the *disabled* case properly
 the noted "original" value is `true`, not `false`, so restoring "to original" here wouldn't actually exercise the disabled-quit path. Explicitly set `pause_on_lock` to `false` instead, confirmed via querying the setting back.
 ```toml step
 [[actions]]
@@ -256,7 +256,7 @@ use = "method-24.a"
 setting = "pause_on_lock"
 expect = "{\"enabled\":false}"
 ```
-- [x] Step 10: Quit the app
+- [ ] Step 10: Quit the app
 (from the clean, unlocked/unpaused state above, with `pause_on_lock` now genuinely `false`). [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
@@ -271,7 +271,7 @@ capture = "event_id_before_disabled_quit"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 11: Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or device not connected, exiting immediately"`
+- [ ] Step 11: Query `debug_log` and confirm `"Quit requested; pause_on_lock disabled or device not connected, exiting immediately"`
       -- not the pause/lock sequence above.
 ```toml step
 action = "wait_for_sql"
@@ -279,21 +279,21 @@ query = "SELECT message FROM debug_log WHERE debug_log_id > $before_quit_2_id OR
 expect_contains = "Quit requested; pause_on_lock disabled or device not connected, exiting immediately"
 timeout_seconds = 30
 ```
-- [x] Step 12: Confirm no new `paused = 1` device_event
+- [ ] Step 12: Confirm no new `paused = 1` device_event
 row was added around the quit time.
 ```toml step
 use = "method-24.c"
 column = "device_event_id"
 expect = "$event_id_before_disabled_quit"
 ```
-- [x] Step 13: Restore `pause_on_lock` to the real original value
+- [ ] Step 13: Restore `pause_on_lock` to the real original value
 (`true`) noted in Setup.
 ```toml step
 use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":true}"
 ```
-- [x] Step 14: Start the app
+- [ ] Step 14: Start the app
 ; confirm reconnect and check the status icon is green with no lock badge -- a clean, unlocked, unpaused state, `pause_on_lock` back to its real original value. [Method: Number 2](../Methods.md#method-2).
 ```toml step
 [[actions]]
@@ -316,20 +316,20 @@ expect_contains = "Lock"
 value -- the clean state Scenario B's own last step leaves behind. Check via the step below;
 if it doesn't match, resolve the same way as Scenario B's own precondition above before continuing.
 
-- [x] Step 1: Confirm the device is unpaused (latest `device_event` has `paused = 0`).
+- [ ] Step 1: Confirm the device is unpaused (latest `device_event` has `paused = 0`).
 ```toml step
 use = "method-24.c"
 column = "paused"
 expect = "0"
 ```
-- [x] Step 2: Note the current `device_event` row's `device_event_id` and `duration_seconds`
+- [ ] Step 2: Note the current `device_event` row's `device_event_id` and `duration_seconds`
       Wait a few seconds.
 ```toml step
 use = "method-24.c"
 column = "duration_seconds"
 capture = "duration_before_wait"
 ```
-- [x] Step 3: Re-query the same `device_event_id` and confirm `duration_seconds` increased
+- [ ] Step 3: Re-query the same `device_event_id` and confirm `duration_seconds` increased
 and it's still the same row.
 ```toml step
 action = "wait_for_sql"
@@ -337,7 +337,7 @@ query = "SELECT CASE WHEN duration_seconds > $duration_before_wait THEN 'increas
 expect = "increased"
 timeout_seconds = 30
 ```
-- [x] Step 4: Confirm menu reads "Lock" and the Pause is enabled
+- [ ] Step 4: Confirm menu reads "Lock" and the Pause is enabled
       -- a clean state ready for `Tests/Interactive/04i-lock-and-pause-on-lock-checklist.md`
 ```toml step
 use = "method-25"
@@ -356,13 +356,13 @@ point (`x = position.x + size.width * 0.75`, `y = position.y + size.height / 2`)
 behind, though `pause_on_lock` is still `true` from there; this scenario's own first step forces it
 to `false` regardless.
 
-- [x] Step 1: Set `pause_on_lock` to `false`
+- [ ] Step 1: Set `pause_on_lock` to `false`
 ```toml step
 use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":false}"
 ```
-- [x] Step 2: Confirm the menu reads "Lock", i.e. the device is unlocked.
+- [ ] Step 2: Confirm the menu reads "Lock", i.e. the device is unlocked.
       The dropdown, not the menu-bar badge -- `Lock`/`Unlock` are mutually-exclusive labels
       ([Method: Number 25](../Methods.md#method-25)), and the badge itself is only checked visually
       in Step 7 below.
@@ -370,7 +370,7 @@ value = "{\"enabled\":false}"
 use = "method-25"
 expect_contains = "Lock"
 ```
-- [x] Step 3: Double-click the right half of the status icon
+- [ ] Step 3: Double-click the right half of the status icon
 (CGEventPost, `click_state=1` then `2`, ~0.15s apart). Query `debug_log` (tag `click`) and confirm `clickCount=1` then `clickCount=2`, both `side=right`, then (tag `TimeFlip`) `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`
 ```toml step
 [[actions]]
@@ -385,14 +385,14 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 30
 ```
-- [x] Step 4: Confirm no new `paused = 1` row was added
+- [ ] Step 4: Confirm no new `paused = 1` row was added
       -- `pause_on_lock` disabled, so Lock alone must not pause.
 ```toml step
 use = "method-24.c"
 column = "paused"
 expect = "0"
 ```
-- [x] Step 5: Single-click the right half of the status icon
+- [ ] Step 5: Single-click the right half of the status icon
       confirm via `debug_log` (`clickCount=1`, no accompanying second click) the click landed, and
       that nothing else changed -- still locked, no pause/resume toggle, no new `device_event` row
       (a no-op while locked, `togglePause()`'s own guard).
@@ -419,7 +419,7 @@ use = "method-24.c"
 column = "device_event_id"
 expect = "$event_id_before_noop_click"
 ```
-- [x] Step 6: Double-click the right half of the status icon again
+- [ ] Step 6: Double-click the right half of the status icon again
       confirm `debug_log` shows `clickCount=1` then `clickCount=2` again, then `"Lock OFF triggered"` / `"...confirmed: requested=OFF actual=OFF"`
 ```toml step
 [[actions]]
@@ -434,13 +434,13 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
 timeout_seconds = 30
 ```
-- [x] Step 7: Check the menu bar: the lock badge is gone and the icon shows the play icon (▶).
+- [ ] Step 7: Check the menu bar: the lock badge is gone and the icon shows the play icon (▶).
       [Method: Number 17](../Methods.md#method-17). The only visual check of the *cleared* badge in
       this file -- Scenario A's Steps 5 and 9 both look at the locked rendering, and every other
       "unlocked" step here reads the DB or the dropdown instead, neither of which can see the badge.
       Step 6 above already proved the state itself (`requested=OFF actual=OFF`), so what this step
       adds is that the status item actually repainted to match.
-- [x] Step 8: Restore `pause_on_lock` to `true`
+- [ ] Step 8: Restore `pause_on_lock` to `true`
 and confirm the device is unlocked, unpaused -- clean for the next scenario.
 ```toml step
 [[actions]]
@@ -465,7 +465,7 @@ menu item instead of the gesture -- the two lock triggers are independent code p
 last step leaves this behind; check via the dropdown's item names ([Method: Number
 25](../Methods.md#method-25)) and resolve via Unlock/Resume from the menu if it doesn't match.
 
-- [x] Step 1: Click the "Lock" menu item.
+- [ ] Step 1: Click the "Lock" menu item.
       Confirm `debug_log` shows `"Lock ON triggered"` / `"...confirmed: requested=ON actual=ON"`
 ```toml step
 [[actions]]
@@ -479,7 +479,7 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=ON actual=ON"
 timeout_seconds = 30
 ```
-- [x] Step 2: Single-click the right half of the status icon
+- [ ] Step 2: Single-click the right half of the status icon
 (CGEventPost, single `click_state=1`). Confirm via `debug_log` (tag `click`, `clickCount=1`) the click landed, and confirm no new `device_event` row appeared -- still locked, no pause/resume toggle.
 ```toml step
 [[actions]]
@@ -504,7 +504,7 @@ use = "method-24.c"
 column = "device_event_id"
 expect = "$event_id_before_menu_lock_noop"
 ```
-- [x] Step 3: Click "Unlock" from the menu, then "Resume"
+- [ ] Step 3: Click "Unlock" from the menu, then "Resume"
 to return to a clean, unlocked, unpaused state.
 ```toml step
 action = "ensure_unlocked_unpaused"

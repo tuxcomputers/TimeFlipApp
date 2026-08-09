@@ -96,7 +96,7 @@ final class DeveloperPasswordSourceTests: XCTestCase {
         )
         let appState = makeAppState(configPIN: nil, store: store)
 
-        appState.recordPairedDevicePassword(DeveloperMode.devicePassword)
+        appState.recordDevicePasswordInConfig(DeveloperMode.devicePassword)
 
         XCTAssertEqual(store.stored?.devicePassword, DeveloperMode.devicePassword)
         XCTAssertEqual(appState.developerConfigDevicePassword, DeveloperMode.devicePassword)
@@ -110,7 +110,7 @@ final class DeveloperPasswordSourceTests: XCTestCase {
         )
         let appState = makeAppState(configPIN: "123456", store: store)
 
-        appState.recordPairedDevicePassword("654321")
+        appState.recordDevicePasswordInConfig("654321")
 
         XCTAssertEqual(store.stored?.googleClientID, "id")
         XCTAssertEqual(store.stored?.googleClientSecret, "secret")

@@ -48,7 +48,7 @@ a `LabeledContent` value, which is selectable on macOS, and selectable text answ
 with macOS's "Look Up" menu unless selection is turned off. That is exactly what it did before
 `.textSelection(.disabled)` was added.
 
-- [x] Step 1: Restart the app, open Settings on the Device tab, and confirm the cube is not already
+- [ ] Step 1: Restart the app, open Settings on the Device tab, and confirm the cube is not already
       called `Chomper`.
       The quit has to come first. `Tests/00-test-setup.md` leaves the app running, so a step that
       only launches starts a **second** instance: two status items, two BLE clients. That is
@@ -94,7 +94,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN setting_value LIKE '%Chomper%' THEN 'STALE-FROM-PREVIOUS-RUN' ELSE 'ready' END FROM setting WHERE setting_name = 'device_name';"
 expect_contains = "ready"
 ```
-- [x] Step 2: Right-click the name itself and confirm Rename opens the editor.
+- [ ] Step 2: Right-click the name itself and confirm Rename opens the editor.
       The name is `static text 2` of the row. Escape closes the editor again so the next step
       starts from the same place.
 ```toml step
@@ -118,7 +118,7 @@ action = "cgevent_key"
 keycode = 53
 activate = "TimeFlip"
 ```
-- [x] Step 3: Right-click the "Name" label and confirm the same menu opens.
+- [ ] Step 3: Right-click the "Name" label and confirm the same menu opens.
 ```toml step
 [[actions]]
 action = "cgevent_context_menu_pick"
@@ -140,7 +140,7 @@ action = "cgevent_key"
 keycode = 53
 activate = "TimeFlip"
 ```
-- [x] Step 4: Right-click the bare middle of the row and confirm the menu opens there too.
+- [ ] Step 4: Right-click the bare middle of the row and confirm the menu opens there too.
       This is the part that belongs to the row's `contentShape(Rectangle())` and to no element,
       hence the pixel offset off the label.
 ```toml step
@@ -170,7 +170,7 @@ activate = "TimeFlip"
 
 **Preconditions:** Scenario A finished, so the editor is closed and the device is connected.
 
-- [x] Step 1: Rename the device to `Chomper`, confirm the write went out, and confirm nothing
+- [ ] Step 1: Rename the device to `Chomper`, confirm the write went out, and confirm nothing
       re-reads the command result afterward.
       `15 07` is the opcode and the length, then `Chomper` in ASCII. The device never updates the
       command result characteristic for `0x15`, so there is nothing to wait for and the app does not
@@ -211,7 +211,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM debug_log WHERE message LIKE '%commandResult re-read%' AND debug_log_id > $current_log_id;"
 expect = "0"
 ```
-- [x] Step 2: Confirm the name was stored and is on screen.
+- [ ] Step 2: Confirm the name was stored and is on screen.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -228,7 +228,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "name=Chomper"
 ```
-- [x] Step 3: Confirm the notice appeared, naming both the new name and the one the device will
+- [ ] Step 3: Confirm the notice appeared, naming both the new name and the one the device will
       keep reporting.
 ```toml step
 [[actions]]
@@ -249,7 +249,7 @@ expect_contains = "Renamed to"
 This is the procedure documented for users under "Renaming Your Device" in
 `docs/configuration.md`. It runs here so the documentation cannot quietly go stale.
 
-- [x] Step 1: Forget the device and confirm the notice goes with it.
+- [ ] Step 1: Forget the device and confirm the notice goes with it.
       Forget also resets the device password to the factory default and proves it with a real
       login, which is what makes the re-pair below work.
 ```toml step
@@ -278,7 +278,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "name=Not paired texts=6"
 ```
-- [x] Step 2: Scan, and confirm the cube is listed under its **old** name.
+- [ ] Step 2: Scan, and confirm the cube is listed under its **old** name.
       This is the finding, on screen: the advertised name never changed and the reported one has
       not caught up, so the row cannot say `Chomper`.
 ```toml step
@@ -297,7 +297,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'listed
 expect_contains = "advert=TimeFlip v2.0"
 timeout_seconds = 30
 ```
-- [x] Step 3: Click that row and pair with it.
+- [ ] Step 3: Click that row and pair with it.
       The row says one thing and the cube is called another; the peripheral is the same either way.
 ```toml step
 [[actions]]
@@ -310,7 +310,7 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 40
 ```
-- [x] Step 4: Confirm the device corrects itself a second or two into the connection.
+- [ ] Step 4: Confirm the device corrects itself a second or two into the connection.
       `peripheralDidUpdateName` is the only signal that ever reports the real name, and it cannot
       fire during the connection the rename was made on. The connect-time read is the stale one.
 ```toml step
@@ -330,7 +330,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "name=Chomper"
 ```
-- [x] Step 5: Confirm the notice did not come back.
+- [ ] Step 5: Confirm the notice did not come back.
       It belongs to a rename, not to a name that disagrees. The re-pair is the cure, not another
       symptom.
 ```toml step
@@ -344,7 +344,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "texts=6"
 ```
-- [x] Step 6: Rename the cube back to `TimeFlip v2.0`.
+- [ ] Step 6: Rename the cube back to `TimeFlip v2.0`.
       Leaves the device where the next run expects it, and is the one step that has to happen even
       if something above failed: a cube left on a test name is a cube the next run silently
       no-ops against (Scenario A Step 1 is what catches that).

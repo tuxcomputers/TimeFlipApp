@@ -184,6 +184,31 @@ One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/d
 re-explain it here. Append further bugs found on later runs of the same checklist on the same
 branch under the existing heading, rather than replacing it.
 
+**A failed step the user posts here counts as a test run, and recording it is Claude's job.** When
+the user runs the standalone runner themselves (`scripts/testrunner/run_tests.sh` or
+`supervisor.py`) and pastes a failure into the conversation, that failure was found by running
+against the device, which is exactly what this section is for -- the only difference from Claude
+running it is whose hands were on the keyboard, and that difference must not decide whether the
+history gets written.
+
+So: work out the cause, fix it, and **add the entry to that checklist file** in the same change as
+the fix. Specifics:
+
+- **Which file and where.** The runner names both -- its step ids read `T<checklist>-Sc<section>-St<n>`
+  (e.g. `T01b-ScA-St4`), and the transcript in `logs/` has the full path. The entry goes under that
+  step, in that file, not in whatever file is currently open.
+- **With the fix, not with the report.** The section is bugs found *and fixed*: an entry describing a
+  failure nobody has explained yet is a note, and belongs in the conversation until it becomes a
+  cause.
+- **The cause, not the symptom.** "The step timed out" is what the runner already said. What belongs
+  here is why -- see the existing entries, which name the wrong setting shape, the unscoped query,
+  the missing `prompt`.
+- **A broken step is a bug too.** Roughly half the entries in this suite are faults in the checklist
+  rather than in the app, and they are worth recording for the same reason: the next run would
+  otherwise rediscover them.
+- **Leave the checkboxes alone.** They are the runner's record of what it did, and a failed step's
+  box stays unchecked until a run actually passes it. Fixing the cause does not tick it.
+
 Clearing is per-checklist and tied to *actually running it*: when you re-run a checklist on a
 different branch (the same run that updates its `### Last run` heading), clear its old Bugs found and
 fixed first -- those bugs belonged to the previous branch, and the fresh run starts its own history.

@@ -494,18 +494,21 @@ final class AppState: ObservableObject {
     ///
     /// Read from disk rather than simply omitted, because omitting it would encode the key as
     /// absent and delete the developer's PIN instead of leaving it alone.
-    /// Record into `config.json` the PIN a fresh pairing has just rotated the cube onto.
+    /// Record into `config.json` the PIN the cube has just been put on.
     ///
-    /// **The single exception to the pass-through rule below**, and it exists because this is the
-    /// one moment the app knows something about the cube's PIN that the file does not. Everywhere
-    /// else the file wins, which is the 2026-08-01 fix: the app used to rewrite that field from
-    /// memory on every save, and a Forget Device stamped `000000` over a hand-set PIN, after which
-    /// the re-pair rotated the cube to something the file no longer named.
+    /// **The only two moments the app writes that field**, and both share the property that makes
+    /// it safe: the cube's password has just been *changed*, so the file cannot be describing
+    /// anything still true. A pairing rotates it (see `ApplicationDelegate.startDeviceEvents`), and
+    /// a forget or a confirmed factory reset puts it back to the factory default (see
+    /// `forgetDevice`). Everywhere else the file wins and is passed through from disk untouched.
     ///
-    /// The difference is that a pairing has just *set* the value, so writing it here cannot
-    /// overwrite anything still true. After this the two ends agree: the cube is on this PIN, the
-    /// file says so, and a paired connect reads the file (`DeveloperMode.pairedDevicePassword`).
-    func recordPairedDevicePassword(_ password: String) {
+    /// That distinction is the 2026-08-01 fix, and it is worth being precise about what was wrong
+    /// then, because this now does the thing that broke it. Forget Device stamped `000000` over a
+    /// hand-set PIN **and the re-pair afterwards did not write anything**, so the cube ended up on a
+    /// rotated password the file did not name and every launch after was refused. Writing on forget
+    /// is only safe because the other end of that loop is closed now: the re-pair records what it
+    /// rotated to, so the file tracks the cube through both transitions instead of one.
+    func recordDevicePasswordInConfig(_ password: String) {
         guard DeveloperMode.isEnabled else { return }
         developerConfigDevicePassword = password
         developerConfigStore.save(
@@ -823,6 +826,12 @@ final class AppState: ObservableObject {
         discoveredDevices.append(device)
     }
 
+    /// Forget Device: reset the cube's password over `0x30` first, then unpair.
+    ///
+    /// The reset is what makes it safe to record the factory default in `config.json` -- it is
+    /// confirmed before this proceeds, so the cube really is back on it, and the file is the record
+    /// of what the cube holds. Recorded here rather than in `forgetDevice`, which is the plain
+    /// unpair primitive and has no business knowing whether a password was reset.
     func resetAndForgetDevice() async {
         let confirmed = await onResetDevicePasswordRequest?() ?? true
         guard confirmed else {
@@ -830,6 +839,7 @@ final class AppState: ObservableObject {
             return
         }
         forgetDevice()
+        recordDevicePasswordInConfig(TimeFlipConstants.defaultPassword)
     }
 
     /// Starts a full factory reset (erases face colors, task parameters, name, password --
@@ -930,10 +940,16 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         deviceInfo = nil
-        // Correct in memory, and deliberately not persisted anywhere in developer mode: Forget
-        // Device sends 0x30 to reset the cube first, so the factory default really is the password
-        // the *next* pairing attempt should present. See `persistDevicePassword` for why that no
-        // longer reaches `config.json`.
+        // Correct in memory: both routes here have just put the cube back on the factory default, so
+        // that is what the *next* pairing attempt should present.
+        //
+        // Writing it to `config.json` is deliberately **not** done here, even though the file has to
+        // end up saying it. This is the plain unpair primitive and a dozen tests call it on an
+        // `AppState` built with default stores -- which means the shared, real config store. A write
+        // here reaches out of the test suite and rewrites the developer's own file, which it did,
+        // once, before this comment existed. The two callers that actually know the cube was reset
+        // record it themselves: `resetAndForgetDevice` below, and the factory-reset confirmation in
+        // `ApplicationDelegate`.
         devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }

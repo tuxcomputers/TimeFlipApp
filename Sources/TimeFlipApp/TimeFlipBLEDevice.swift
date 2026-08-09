@@ -754,7 +754,7 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// Rotating onto the file's value instead would put the cube on a PIN that only that file
     /// names, and an edit to it afterwards would strand the cube: pairing would have nothing left
     /// to guess, and neither Forget nor a factory reset can help, both needing a login first. The
-    /// caller records this value into `config.json` (see `AppState.recordPairedDevicePassword`),
+    /// caller records this value into `config.json` (see `AppState.recordDevicePasswordInConfig`),
     /// which is how the file comes to hold what the cube is actually on.
     ///
     /// The new password is only returned (and therefore only saved by the caller) once the

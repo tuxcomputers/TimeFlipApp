@@ -203,6 +203,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     // How long to keep trying to catch the device coming back on the default password after a reset
     // before giving up and surfacing a failure (the device reboots in well under this).
     private let factoryResetConfirmTimeout: TimeInterval = 120
+    // How long to leave between two password attempts against the same peripheral. A rejected probe
+    // cancels its connection on the way out, and CoreBluetooth will not reconnect to a peripheral it
+    // is still tearing down -- without this the second attempt returns `.failed` in the same second,
+    // which reads as "could not be reached" when the password was never sent at all.
+    private let probeSettleSeconds: UInt64 = 1
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
@@ -796,6 +801,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                         // 0xFF wipes the name along with everything else, so the remembered one is
                         // discarded here rather than kept the way Forget Device keeps it.
                         self.appState.forgetDevice(deviceWasWiped: true)
+                        // The wipe is what this branch just proved, so `config.json` has to follow
+                        // the cube back to the factory default -- otherwise the next launch presents
+                        // a password a wiped cube no longer holds.
+                        self.appState.recordDevicePasswordInConfig(TimeFlipConstants.defaultPassword)
                     }
                 } else {
                     // Logged in, but with the OLD password -- the wipe hasn't taken yet. Tear down
@@ -858,8 +867,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     // Dev mode writes the PIN into config.json rather than the Keychain, because
                     // that file is what a paired connect reads. This is the one save that sets the
                     // field rather than passing it through from disk -- see
-                    // `AppState.recordPairedDevicePassword` for why that is safe only here.
-                    self.appState.recordPairedDevicePassword(rotatedPassword)
+                    // `AppState.recordDevicePasswordInConfig` for why that is safe only here.
+                    self.appState.recordDevicePasswordInConfig(rotatedPassword)
                 }
                 if !DeveloperMode.isEnabled {
                     do {
@@ -1029,18 +1038,34 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             DeveloperMode.debugPrint(.scan, "no eligible device found in this scan")
             return .noneEligible
         }
-        // Mid factory-reset the cube has gone back to the default password, which is the proof the
-        // wipe took, so that one is worth trying too. See startDeviceEvents' pendingFactoryResetConfirm.
+        // Mid factory-reset the cube has gone back to the default password, and that login is the
+        // proof the wipe took -- so it goes **first**, ahead of the stored one.
+        //
+        // It used to be appended, and that made the reset impossible to confirm. The stored password
+        // is guaranteed wrong once the wipe has landed, a rejected probe drops the link on its way
+        // out (`connectToDiscoveredDevice` cancels the peripheral connection in a `defer`), and the
+        // next attempt on that same peripheral then races the teardown and fails before it can send
+        // anything. Measured on the device 2026-08-09: `refused this app's PIN` and `could not be
+        // reached` in the same second, with no `Probe logging in using password` line for the second
+        // attempt at all -- the default was never actually presented, every scan round repeated it,
+        // and `02b` timed out waiting for a confirmation that could not arrive.
         var passwords = [appState.devicePassword]
         if pendingFactoryResetConfirm, appState.devicePassword != TimeFlipConstants.defaultPassword {
-            passwords.append(TimeFlipConstants.defaultPassword)
+            passwords.insert(TimeFlipConstants.defaultPassword, at: 0)
         }
 
         for candidate in candidates {
             // Counted per candidate, not per attempt: mid-factory-reset there are two passwords to
             // try, and a cube that refuses both is still one device that refused, not two.
             var refusedThisCandidate = false
-            for password in passwords {
+            for (attempt, password) in passwords.enumerated() {
+                // Let the previous probe's teardown finish before reconnecting to the same
+                // peripheral. Ordering above means the reset case no longer depends on this, but a
+                // second attempt that fails instantly is not an answer about the password -- it is
+                // the radio still holding the last one.
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: probeSettleSeconds * TimeConstants.nanosecondsPerSecond)
+                }
                 switch await ble.connectToDiscoveredDevice(id: candidate.id, password: password) {
                 case .connected:
                     DeveloperMode.debugPrint(.scan, "logged in to \(candidate.name)")
