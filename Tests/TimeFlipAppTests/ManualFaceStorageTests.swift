@@ -96,6 +96,47 @@ final class ManualFaceStorageTests: XCTestCase {
         XCTAssertTrue(written)
     }
 
+    // MARK: - Resuming a device fetch past a manual session
+
+    func testAManualSegmentIsNeverTheResumePosition() {
+        // Manual rows sit in the same table but were never part of any device's history, and their
+        // event numbers are seeded from the wall clock, so they land around 1.79 billion against a
+        // cube's few hundred. Counted as the newest recorded event, the next launch reads the stored
+        // position as unreachable and re-fetches the cube's whole history from zero.
+        let store = AppDataStore(databaseURL: dbURL)
+        store.recordDeviceEvent(
+            eventNumber: 139,
+            deviceFace: 2,
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            durationSeconds: 600,
+            isPaused: false
+        )
+        store.recordDeviceEvent(
+            eventNumber: 1_786_000_000,
+            deviceFace: TimeFlipConstants.manualFaceID,
+            startedAt: Date(timeIntervalSince1970: 1_700_001_000),
+            durationSeconds: 300,
+            isPaused: false
+        )
+
+        // Newer by start_epoch and far higher by number, and still not the answer.
+        XCTAssertEqual(store.latestRecordedEvent()?.eventNumber, 139)
+    }
+
+    func testWithOnlyManualSegmentsThereIsNoResumePosition() {
+        // A launch that has only ever run manually leaves nothing to resume from, which reads as a
+        // fresh start rather than as a position the device will fail to reach.
+        let store = AppDataStore(databaseURL: dbURL)
+        store.recordDeviceEvent(
+            eventNumber: 1_786_000_001,
+            deviceFace: TimeFlipConstants.manualFaceID,
+            startedAt: Date(timeIntervalSince1970: 1_700_002_000),
+            durationSeconds: 120,
+            isPaused: false
+        )
+        XCTAssertNil(store.latestRecordedEvent())
+    }
+
     func testADeviceEventOnFaceFourteenIsRefusedByTheCheck() {
         let store = AppDataStore(databaseURL: dbURL)
         let written = store.recordDeviceEvent(

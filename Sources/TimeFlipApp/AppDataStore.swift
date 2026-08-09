@@ -2072,10 +2072,28 @@ final class AppDataStore {
     /// zero rows in production were inserted out of chronological order, because a batch is sorted
     /// by event number before it is written), but a gap recovered in a later batch would be inserted
     /// after newer rows, and insertion order would then name an old segment as the newest.
+    ///
+    /// **Only faces a cube can report.** Manual-mode rows sit in the same table but were never part
+    /// of any device's history, so they can never be a position to resume a device fetch from -- and
+    /// their event numbers are seeded from the wall clock (`MockTimeFlipDevice`, to keep them clear
+    /// of a real counter's), which puts them around 1.79 billion against a cube's few hundred.
+    /// Bounded by `maxFaceID` rather than tested against the manual face by name, so a second
+    /// app-owned face would be excluded on the day it is added rather than the day this is
+    /// remembered. Left in,
+    /// the newest row after any manual session is one the device cannot reach, `resumeCursor` reads
+    /// that as the stored position being unreachable, and the next launch re-fetches the cube's
+    /// entire history from zero. Not damaging -- `recordDeviceEvent` matches on
+    /// `(event_number, start_epoch)`, so the re-fetch updates rows in place rather than duplicating
+    /// them -- but a whole history transfer for nothing, once per manual session.
+    ///
+    /// This is the only reader that wants them gone. `maxKnownStartEpoch` deliberately still counts
+    /// them: it decides update-vs-insert and which row is the open one, and a manual segment is a
+    /// real row that has to take part in both.
     func latestRecordedEvent() -> RecordedEvent? {
         guard let db else { return nil }
         let sql = """
         SELECT event_number, start_epoch FROM device_event
+        WHERE device_face <= \(TimeFlipConstants.maxFaceID)
         ORDER BY start_epoch DESC, device_event_id DESC
         LIMIT 1;
         """
