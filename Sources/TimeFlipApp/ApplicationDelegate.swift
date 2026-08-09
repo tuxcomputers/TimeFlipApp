@@ -177,14 +177,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     // device; reset to 0 as soon as a reconnect succeeds. Capped in scheduleReconnect().
     // This picks the *delay* and nothing else -- which is why handleSystemWake resets it (a loop
     // that had climbed to the 30s cap would otherwise keep someone who just woke their Mac beside
-    // their cube waiting half a minute). The count that decides when to offer manual mode is
-    // separate, in `manualModeOffer`, so neither can quietly change the other's meaning.
+    // their cube waiting half a minute). Whether to offer manual mode is a separate question, in
+    // `manualModeOffer`, so neither can quietly change the other's meaning.
     private var reconnectAttempt = 0
-    // How many startup attempts have failed, and whether this launch has ever connected. Its
-    // threshold comes from the `manual_mode` setting; see ManualModeOffer for the rule.
-    private lazy var manualModeOffer = ManualModeOffer(
-        promptAfterAttempts: dataStore.loadManualModePromptAfterAttempts()
-    )
+    // Whether this launch has ever connected, which is the whole of what decides between retrying
+    // quietly and putting the offer up. See ManualModeOffer for the rule.
+    private var manualModeOffer = ManualModeOffer()
     // Puts the "device isn't in range" choice in front of the user and reports what they picked.
     // A seam rather than a direct NSAlert call so a test can answer it without a window server;
     // the default is set in applicationDidFinishLaunching.
@@ -682,14 +680,20 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
             if !skipConnect {
                 let outcome = await self.connectToPairedDevice(device)
+                // A deliberate teardown -- a forget, a reset, a quit -- is not a verdict on whether
+                // the device is in range, so it must not reach the failure handling below. It
+                // mattered less while the offer waited for a third failure; now that the first one
+                // asks, letting this through would put the dialog up because the user pressed
+                // Forget Device.
+                guard outcome != .cancelled else { return }
                 guard outcome == .connected else {
                     logger.error("TimeFlip connect failed; will retry")
                     await MainActor.run {
                         // Every eligible device was there and refused this app's PIN. Retrying
-                        // scans up the same cube for the same refusal, so this is already the
-                        // final answer rather than one attempt of three -- ask now. Only on a
-                        // launch that has never connected: after that, the offer is over for the
-                        // session and a refusal is handled as any other drop.
+                        // scans up the same cube for the same refusal, so this is the same final
+                        // answer either way -- ask now. Only on a launch that has never connected:
+                        // after that, the offer is over for the session and a refusal is handled as
+                        // any other drop.
                         if outcome == .allRefused, !self.manualModeOffer.hasConnectedThisLaunch {
                             self.offerManualMode(reason: "every device found refused this app's PIN")
                             return
@@ -961,7 +965,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // dialog is the only thing that decides what happens next, so this failure changes nothing.
         guard !appState.isAwaitingManualModeDecision, !appState.isManualMode else { return }
         guard manualModeOffer.recordFailedAttempt() == .keepTrying else {
-            offerManualMode(reason: "nothing eligible found in \(manualModeOffer.failedAttempts) attempts")
+            offerManualMode(reason: "nothing eligible found in the scan")
             return
         }
         appState.connectionStatus = .reconnecting
@@ -1078,10 +1082,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch answer {
             case .retry:
-                DeveloperMode.debugPrint(.manualMode, "Retry chosen; attempting again")
-                self.manualModeOffer.retryChosen()
-                // The delay counter goes back to the start too, so a fresh round begins two seconds
-                // out rather than at whatever the last round had climbed to.
+                DeveloperMode.debugPrint(.manualMode, "Retry chosen; scanning again")
+                // The delay counter goes back to the start, so the next attempt begins two seconds
+                // out rather than at whatever the last one had climbed to.
                 self.reconnectAttempt = 0
                 self.appState.manualModeDeclined()
                 self.appState.connectionStatus = .reconnecting

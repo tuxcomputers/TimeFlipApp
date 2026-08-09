@@ -290,8 +290,7 @@ final class AppState: ObservableObject {
     /// **Deliberately not persisted, and there is nowhere to persist it to.** Quitting and
     /// restarting the app is the only way out of manual mode (see
     /// `docs/TODO-features-under-development.md`), so a stored flag would outlive the very restart
-    /// meant to end it and strand a user who quit specifically to get their cube back. The
-    /// `manual_mode` setting row holds the trigger threshold only.
+    /// meant to end it and strand a user who quit specifically to get their cube back.
     @Published private(set) var isManualMode = false
 
     /// The app has stopped trying and is asking. Nothing may attempt a connection until this is
@@ -300,8 +299,7 @@ final class AppState: ObservableObject {
         isAwaitingManualModeDecision = true
     }
 
-    /// Retry: the offer is dismissed and attempts may run again. The count that led here is reset
-    /// by `ManualModeOffer.retryChosen()`, so this buys a full fresh round.
+    /// Retry: the offer is dismissed and attempts may run again, which is one more scan.
     func manualModeDeclined() {
         isAwaitingManualModeDecision = false
     }
