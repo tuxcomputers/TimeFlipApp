@@ -146,15 +146,26 @@ heading directly under the file's title (the first `#` heading), before any intr
 ```markdown
 # Reset Device Checklist
 
-### Last run - 2026-07-20 on the branch 'feature/blahBlah'
+### Last run - 2026-08-09 21:55 on the branch 'feature/blahBlah'
 ```
 
-Update it to today's date and the current branch **only when you actually run that checklist on this
-branch** -- never when merely editing the file during development. Each checklist tracks its own last
-run independently: running only `01` on a branch updates only `01`'s heading; every other checklist
-keeps the date/branch from whenever *it* was last run (an earlier branch, or nothing at all --
+Update it to now and the current branch **only when you actually run that checklist on this branch**
+-- never when merely editing the file during development. Each checklist tracks its own last run
+independently: running only `01` on a branch updates only `01`'s heading; every other checklist keeps
+the timestamp/branch from whenever *it* was last run (an earlier branch, or nothing at all --
 checklists predating this convention simply won't have the line until their next run, and that's
 expected).
+
+The time is there because a date alone cannot separate two runs on the same day, which is the normal
+case while a branch is being worked on: without it, a heading that says today tells you nothing about
+whether it covers the change you just made.
+
+**The standalone runner does this itself**, so neither of the rules here depends on whoever is
+running remembering them. `scripts/testrunner/checklist_header.py` stamps a file's heading as the
+supervisor starts that file -- started, not finished, so a halted run still records which checklist
+it was in -- and `00-test-setup.md`'s last step retires bug history belonging to another branch,
+across exactly the files that run resolved. When **you** run the checklists by hand, you are the
+runner: do both yourself, and the same script is there to do it with.
 
 ## Bugs found and fixed
 

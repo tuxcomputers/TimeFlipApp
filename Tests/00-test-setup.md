@@ -290,3 +290,18 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1) >= 900000 THEN 'a seeded row is the newest device_event -- it would be read as the live segment' ELSE 'ok' END;"
 expect = "ok"
 ```
+- [ ] Step 17: Retire bug history belonging to another branch, on the checklists this run will cover.
+`Tests/CLAUDE.md`'s rule is that a **Bugs found and fixed** entry belongs to the branch that found
+it, so arriving on a new branch retires it -- and that a checklist this run does not reach keeps
+both its entries and its `Last run` heading exactly as the previous branch left them. This does the
+first half; the supervisor does the second, stamping each file's `Last run` as it starts it rather
+than here (see `scripts/testrunner/checklist_header.py`).
+**Last in Setup on purpose.** It is the one step that destroys recorded evidence, so it runs only
+once everything else has passed: a setup that fails at the database switch or the pairing leaves
+every checklist's history untouched. `$checklist_files` is the list the supervisor actually
+resolved, not a fresh discovery -- `-f`/`-s` and explicit paths all narrow a run, and sweeping wider
+than the run would clear history nobody asked to lose.
+```toml step
+action = "shell"
+command = "python3 scripts/testrunner/checklist_header.py sweep --branch \"$branch\" $checklist_files"
+```
