@@ -1244,12 +1244,25 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     /// The running segment as a history frame, with its duration as of `date`.
+    ///
+    /// **Whole seconds**, because that is the only resolution a real device has: the history frame's
+    /// duration field is a count of seconds (`docs/TimeFlip2 BLE Protocol v4.3.md`), so a real
+    /// segment never arrives with a fraction on it and `device_event.duration_seconds` never held
+    /// one. Subtracting two `Date`s does, and manual mode is the first path where those reach the
+    /// database -- a segment closed a moment after it opened was recording durations like
+    /// `0.0000919103622437` seconds.
+    ///
+    /// To the **nearest** second rather than truncated. Truncating is the tempting reading -- a
+    /// counter reports the seconds it has ticked through -- but what is being recorded here is
+    /// elapsed wall time, and dropping the remainder loses up to a second from every segment in the
+    /// same direction. Those segments feed the daily totals, so the loss accumulates across a day
+    /// rather than cancelling out. Nearest is unbiased.
     private func openSegmentFrame(for session: ActiveSession, at date: Date) -> TimeFlipHistoryEntry {
         TimeFlipHistoryEntry(
             eventNumber: session.eventNumber,
             faceID: session.faceID,
             startedAt: session.start,
-            duration: max(0, date.timeIntervalSince(session.start)),
+            duration: max(0, date.timeIntervalSince(session.start)).rounded(),
             isPaused: session.isPaused
         )
     }

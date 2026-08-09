@@ -3,52 +3,26 @@ import XCTest
 
 /// What each half of the status item does, in each state the app can be in.
 ///
-/// These rules lived inside an `@objc` AppKit handler until manual mode added a fourth to them, so
+/// These rules lived inside an `@objc` AppKit handler until manual mode made them worth pinning, so
 /// reaching any of them needed a real status item, a real click and a window server. In practice
 /// that meant they were only ever checked by hand, one at a time, which is how a rule gets changed
 /// for one state and quietly broken in another.
+///
+/// Manual mode has no case of its own: it is not connected, so it takes the no-device answers in the
+/// last section, which are also the answers it wants.
 final class MenuBarClickRouterTests: XCTestCase {
     private func action(
         connected: Bool = false,
-        manual: Bool = false,
         lowBattery: Bool = false,
         left: Bool,
         clicks: Int = 1
     ) -> StatusItemClick {
         MenuBarClickRouter.action(
             isConnected: connected,
-            isManualMode: manual,
             isLowBatteryBlinking: lowBattery,
             isLeftSide: left,
             clickCount: clicks
         )
-    }
-
-    // MARK: - Manual mode
-
-    func testInManualModeBothHalvesOpenTheMenu() {
-        // Quit matters more here than anywhere else: it is the only way *out* of manual mode, the
-        // work is done in the Settings window, which has no Quit of its own, and the menu is the
-        // only thing that carries one. Sending either half to Settings would put that single exit
-        // behind knowing which half of the status item to click.
-        XCTAssertEqual(action(manual: true, left: true), .showMenu)
-        XCTAssertEqual(action(manual: true, left: false), .showMenu)
-    }
-
-    func testManualModeNeverPausesOrLocks() {
-        // Whatever the click count, and even if a stale "connected" somehow survived alongside it:
-        // there is no device, and firing a lock at one that isn't there is worse than doing nothing.
-        for clicks in 1...3 {
-            XCTAssertEqual(action(connected: true, manual: true, left: false, clicks: clicks), .showMenu)
-        }
-    }
-
-    func testManualModeOutranksALowBatteryBlink() {
-        // A blink can only be left over from before the device went away, manual mode never reading
-        // a battery. If it won, the left half would go to Settings and take the menu, and with it
-        // the only Quit, out of reach -- which is the whole reason this rule is ordered first.
-        XCTAssertEqual(action(manual: true, lowBattery: true, left: true), .showMenu)
-        XCTAssertEqual(action(manual: true, lowBattery: true, left: false), .showMenu)
     }
 
     // MARK: - Connected, the pre-existing rules
@@ -70,10 +44,12 @@ final class MenuBarClickRouterTests: XCTestCase {
         XCTAssertEqual(action(connected: true, lowBattery: true, left: true), .openSettings)
     }
 
-    // MARK: - Neither connected nor manual
+    // MARK: - No device, which is also what manual mode gets
 
     func testDisconnectedGivesTheMenuFromEitherSide() {
-        // Nothing to pause, nothing to lock, and no manual session to configure.
+        // Nothing to pause and nothing to lock. Also the manual-mode answer: its stop control is
+        // the play/pause on the Faces tab, and the menu is where Quit lives, which matters there
+        // more than anywhere else since quitting is the only way out of the mode.
         XCTAssertEqual(action(left: true), .showMenu)
         XCTAssertEqual(action(left: false), .showMenu)
         XCTAssertEqual(action(left: false, clicks: 2), .showMenu, "a double-click must not lock a device that isn't there")

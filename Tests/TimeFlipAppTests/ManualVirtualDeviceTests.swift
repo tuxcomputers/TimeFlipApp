@@ -88,6 +88,39 @@ final class ManualVirtualDeviceTests: XCTestCase {
         XCTAssertEqual(open.duration, 90, accuracy: 0.5)
     }
 
+    func testEverySegmentIsAWholeNumberOfSeconds() async {
+        // A real device's history frame carries a count of seconds, so `device_event.duration_seconds`
+        // has only ever held whole numbers. Subtracting two `Date`s does not, and manual mode is the
+        // first path where that reaches the database: a segment closed a moment after it opened was
+        // recording durations like 0.0000919103622437 seconds.
+        let device = await makeManualDevice()
+        pickCategory(on: device)
+        device.setDeviceTime(start.addingTimeInterval(12.75))
+        device.setPaused(true)
+        device.setDeviceTime(start.addingTimeInterval(30.4))
+
+        let history = await device.fetchHistory(startingFrom: nil)
+        XCTAssertFalse(history.isEmpty)
+        for entry in history {
+            XCTAssertEqual(entry.duration, entry.duration.rounded(.down), "fractional duration: \(entry.duration)")
+        }
+    }
+
+    func testAPartSecondGoesToTheNearestWholeOne() async {
+        // Nearest, not truncated. Truncating loses up to a second from every segment in the same
+        // direction, and these feed the daily totals, so the loss accumulates over a day instead of
+        // cancelling out.
+        let device = await makeManualDevice()
+        pickCategory(on: device)
+        device.setDeviceTime(start.addingTimeInterval(12.75))
+        let roundedUp = await device.fetchHistory(startingFrom: nil).last?.duration
+        XCTAssertEqual(roundedUp, 13)
+
+        device.setDeviceTime(start.addingTimeInterval(20.25))
+        let roundedDown = await device.fetchHistory(startingFrom: nil).last?.duration
+        XCTAssertEqual(roundedDown, 20)
+    }
+
     func testTheRunningSegmentKeepsOneEventNumberAsItGrows() async {
         // It has to be the same row growing, not a new row per refresh. `recordDeviceEvent` matches
         // on (event_number, start_epoch) and updates in place, so a fresh number each fetch would

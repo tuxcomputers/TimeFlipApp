@@ -259,12 +259,16 @@ final class MenuBarController: NSObject {
             applyConnectingStatus()
             return
         }
-        // Nothing live to show: either no device is paired, or one is but the app hasn't reached it
-        // yet this session. Both get the plain placeholder rather than an "Idle 0:00" that looks
-        // like a reading from a device. Once the device HAS been reached, a later drop keeps
-        // rendering the last known activity (that's the point of `.reconnecting`), so this only
-        // suppresses the never-connected case.
-        if !isPairedSnapshot || !hasReachedDeviceThisSession {
+        // Nothing to show: either no device is paired, or one is but the app hasn't reached it yet
+        // this session. Both get the plain placeholder rather than an "Idle 0:00" that looks like a
+        // reading from a device. Once the device HAS been reached, a later drop keeps rendering the
+        // last known activity (that's the point of `.reconnecting`), so this only suppresses the
+        // never-reached case -- and a manual session is never that, having a reading by construction.
+        guard MenuBarLiveDisplay.showsActivity(
+            isPaired: isPairedSnapshot,
+            hasReachedDeviceThisSession: hasReachedDeviceThisSession,
+            isManualMode: isManualModeSnapshot
+        ) else {
             applyNoLiveDeviceStatus()
             return
         }
@@ -282,7 +286,11 @@ final class MenuBarController: NSObject {
             dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         ) >= Double(limitMinutes) * 60
-        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
+        let isConnected = MenuBarLiveDisplay.rendersAsLive(
+            isPaired: isPairedSnapshot,
+            isConnected: connectionStatusSnapshot == .connected,
+            isManualMode: isManualModeSnapshot
+        )
         let isLowBattery = updatedLowBatteryLatch(currentLevel: appState.batteryLevel)
         // Must run before the early-return below so the blink timer starts/stops as soon as the
         // low-battery state changes, even on a call that isn't itself forced. Gated on isConnected
@@ -310,16 +318,15 @@ final class MenuBarController: NSObject {
 
         let iconSize = statusBarIconSize()
         let icon = resolvedIcon(named: iconName, pointSize: iconSize)
-        // Dev mode only: a "TEST"/"PROD" tag pinned at the far left of the menu bar. When present the
-        // activity icon is drawn as a leading attachment inside the title (so the order reads
-        // DB, icon, category, pause/play, time) rather than as the button's own image; when absent
-        // the shipping layout (icon as button.image) is untouched.
-        let dbBadge = developerDatabaseBadge()
-        let titleKey = "\(dbBadge?.text ?? "")|\(iconName ?? "")|\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
-        let buttonImage = dbBadge == nil ? icon : nil
-        button.imagePosition = buttonImage == nil ? .noImage : .imageLeft
-        if button.image !== buttonImage {
-            button.image = buttonImage
+        // The "TEST"/"PROD" tag is pinned at the far left of the menu bar, which means the activity
+        // icon can no longer be the button's own image (that would draw to the left of the title,
+        // ahead of the tag). It rides as a leading attachment inside the title instead, so the order
+        // reads DB, icon, category, pause/play, time.
+        let dbBadge = databaseBadge()
+        let titleKey = "\(dbBadge.text)|\(iconName ?? "")|\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
+        button.imagePosition = .noImage
+        if button.image != nil {
+            button.image = nil
         }
         let tooltip = connectionStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
         if button.toolTip != tooltip {
@@ -328,7 +335,7 @@ final class MenuBarController: NSObject {
         if lastRenderedTitle != titleKey {
             button.attributedTitle = makeStatusTitle(
                 databaseBadge: dbBadge,
-                leadingIcon: dbBadge == nil ? nil : icon,
+                leadingIcon: icon,
                 activityLabel: activityLabel,
                 duration: duration,
                 isPaused: isPaused,
@@ -392,12 +399,23 @@ final class MenuBarController: NSObject {
     private func applyNoLiveDeviceStatus() {
         let title = AppIdentifiers.statusItemTitle
         guard let button = statusItem?.button else { return }
+        // The database tag rides on the placeholder too. This is the state the app sits in before it
+        // reaches a device, which is exactly when someone is most likely to be wondering which
+        // database this launch opened, and it would be perverse for the answer to appear only once
+        // timing had already started.
+        let badge = databaseBadge()
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        let text = NSMutableAttributedString(
+            string: "\(badge.text) ",
+            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small)), .foregroundColor: badge.color]
+        )
+        text.append(NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
         button.image = nil
         button.imagePosition = .noImage
         button.title = title
-        button.attributedTitle = NSAttributedString(string: title)
+        button.attributedTitle = text
         button.toolTip = "\(title) (\(isPairedSnapshot ? "Disconnected" : "Not paired"))"
-        lastRenderedTitle = title
+        lastRenderedTitle = "\(badge.text)|\(title)"
         lastSnapshot = nil
     }
 
@@ -559,9 +577,11 @@ final class MenuBarController: NSObject {
         }
         let location = button.convert(event.locationInWindow, from: nil)
         let isLeftSide = location.x <= button.bounds.width / 2
+        // The raw connected test, not `MenuBarLiveDisplay.rendersAsLive`: manual mode draws as live
+        // because its reading is current, but pause and lock still have no device to reach, so for
+        // clicks it takes the no-device answer.
         let action = MenuBarClickRouter.action(
             isConnected: isPairedSnapshot && connectionStatusSnapshot == .connected,
-            isManualMode: isManualModeSnapshot,
             isLowBatteryBlinking: lowBatteryBlinkTimer != nil,
             isLeftSide: isLeftSide,
             clickCount: event.clickCount
@@ -762,17 +782,31 @@ final class MenuBarController: NSObject {
             updateStatusView(force: true)
         case .disconnected, .failed, .resetting:
             // .resetting: a factory reset is underway and the device is going away.
+            guard MenuBarLiveDisplay.tearsDownOnDisconnect(isManualMode: isManualModeSnapshot) else {
+                // Manual mode reports `.disconnected` for the whole launch, truthfully -- there is
+                // no cube. Tearing down on it would clear the session that status is describing.
+                rebuildMenu()
+                updateStatusView(force: true)
+                return
+            }
             tearDownToUnpaired()
         }
     }
 
-    /// Dev-only leading tag naming which database this launch opened -- red "TEST" (attention) vs a
-    /// plain white "PROD" -- so a developer can't mistake a test database for the real one and record
-    /// real timings into it. `nil` when developer mode is off, so the shipping menu bar is unchanged.
-    private func developerDatabaseBadge() -> (text: String, color: NSColor)? {
-        guard DeveloperMode.isEnabled else { return nil }
+    /// Leading tag naming which database this launch opened -- red "TEST" (attention) against the
+    /// ordinary label colour for "PROD" -- so a test database can't be mistaken for the real one and
+    /// real timings recorded into it.
+    ///
+    /// Shown on every run, not only in developer mode. Which database is open decides where every
+    /// segment of the day lands, and the moment it is worth knowing is the moment you have forgotten
+    /// which one you started under.
+    ///
+    /// `.labelColor` rather than the white this used while it was developer-only: white is only
+    /// legible against a dark menu bar, and now that it shows in every run it has to read in light
+    /// appearance too.
+    private func databaseBadge() -> (text: String, color: NSColor) {
         let isTest = appState.dbType.lowercased() == "test"
-        return isTest ? ("TEST", .systemRed) : ("PROD", .white)
+        return isTest ? ("TEST", .systemRed) : ("PROD", .labelColor)
     }
 
     /// A copy of a template icon filled with `color`, for use as a text attachment inside the status
@@ -791,7 +825,7 @@ final class MenuBarController: NSObject {
     }
 
     private func makeStatusTitle(
-        databaseBadge: (text: String, color: NSColor)? = nil,
+        databaseBadge: (text: String, color: NSColor),
         leadingIcon: NSImage? = nil,
         activityLabel: String,
         duration: String,
@@ -819,20 +853,20 @@ final class MenuBarController: NSObject {
 
         let indicatorSize = max(Constants.minIndicatorAttachmentSize, font.capHeight * Constants.indicatorScale)
 
-        // Dev-mode DB tag, then (since it displaces the button's own image) the activity icon,
-        // both ahead of the category label -- see updateStatusView. The icon rides at the same
-        // height as the pause/play glyph so it can't outgrow the menu bar and clip.
-        if let databaseBadge {
-            let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
-            let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
-            text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
-            if let leadingIcon {
-                let attachment = NSTextAttachment()
-                attachment.image = tintedIcon(leadingIcon, color: .white)
-                attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
-                text.append(NSAttributedString(attachment: attachment))
-                text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
-            }
+        // The DB tag, then (since it displaces the button's own image) the activity icon, both ahead
+        // of the category label -- see updateStatusView. The icon rides at the same height as the
+        // pause/play glyph so it can't outgrow the menu bar and clip, and takes `.labelColor` for
+        // the same reason the tag does: an attachment draws its own pixels rather than picking up
+        // the button's tint, so a hardcoded white would vanish in light appearance.
+        let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
+        let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
+        text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
+        if let leadingIcon {
+            let attachment = NSTextAttachment()
+            attachment.image = tintedIcon(leadingIcon, color: .labelColor)
+            attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
+            text.append(NSAttributedString(attachment: attachment))
+            text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
         }
 
         text.append(NSAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes))
