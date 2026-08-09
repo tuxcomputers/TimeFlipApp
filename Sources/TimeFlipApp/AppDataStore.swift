@@ -73,6 +73,9 @@ enum TimeEntrySweepTrigger: String {
     /// App launch, which catches anything a previous run left unconverted, whether through a crash
     /// or through simply not having had this code yet.
     case launch = "launch"
+    /// A manual session ended, which is the app quitting. Nothing else closes a manual segment: a
+    /// real one is closed by the next frame the cube sends, and manual mode has no next frame.
+    case manualSessionEnd = "manual-session-end"
 }
 
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
@@ -484,6 +487,80 @@ final class AppDataStore {
         }
         emit(outcome)
         return outcome.created
+    }
+
+    /// Closes off the manual session's open segment, and converts it.
+    ///
+    /// Every other segment in this table is closed by the frame that follows it: a later
+    /// `start_epoch` arrives and `recordDeviceEvent` marks everything before it finalised. A manual
+    /// session has no frame after its last one -- the app is going away -- so without this the
+    /// segment the user was timing when they quit stays `finalised = 0` and never becomes a
+    /// `time_entry`. That matters more here than it would for a cube: the next launch of a real
+    /// device closes the row on its first flip, whereas somebody in manual mode may have no device
+    /// at all, which is why they were in manual mode.
+    ///
+    /// - Parameter endingAt: when the session stopped, which gives the row its true final duration.
+    ///   The open row is only as current as the last periodic fetch wrote it, so on a quit it is up
+    ///   to `fetch_history_interval_seconds` short. Pass `nil` for a row left behind by a *previous*
+    ///   run, where the honest answer is the duration already on it: the app did not get to write
+    ///   the moment it stopped, so anything computed from the clock now would be invented.
+    /// - Returns: whether a row was found and closed.
+    @discardableResult
+    func closeOpenManualSegment(endingAt: Date?) -> Bool {
+        guard let db else { return false }
+        var closed = false
+        queue.sync {
+            let selectSQL = """
+            SELECT device_event_id, start_epoch FROM device_event
+            WHERE finalised = 0 AND device_face = \(TimeFlipConstants.manualFaceID)
+            ORDER BY start_epoch DESC, device_event_id DESC
+            LIMIT 1;
+            """
+            var rowID: Int64?
+            var startEpoch: Int64 = 0
+            var selectStmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK,
+               sqlite3_step(selectStmt) == SQLITE_ROW {
+                rowID = sqlite3_column_int64(selectStmt, 0)
+                startEpoch = sqlite3_column_int64(selectStmt, 1)
+            }
+            sqlite3_finalize(selectStmt)
+            guard let rowID else { return }
+
+            var updateStmt: OpaquePointer?
+            let sql: String
+            if endingAt != nil {
+                sql = "UPDATE device_event SET duration_seconds = ?, finalised = 1 WHERE device_event_id = ?;"
+            } else {
+                sql = "UPDATE device_event SET finalised = 1 WHERE device_event_id = ?;"
+            }
+            guard sqlite3_prepare_v2(db, sql, -1, &updateStmt, nil) == SQLITE_OK else {
+                logger.error("manual segment close prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(updateStmt)
+                return
+            }
+            if let endingAt {
+                // Whole seconds, like every other duration in this column -- see
+                // `MockTimeFlipDevice.openSegmentFrame`.
+                let duration = max(0, endingAt.timeIntervalSince1970 - Double(startEpoch)).rounded()
+                sqlite3_bind_double(updateStmt, 1, duration)
+                sqlite3_bind_int64(updateStmt, 2, rowID)
+            } else {
+                sqlite3_bind_int64(updateStmt, 1, rowID)
+            }
+            closed = sqlite3_step(updateStmt) == SQLITE_DONE
+            if !closed {
+                logger.error("manual segment close failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(updateStmt)
+        }
+        // Outside the lock: `sweepTimeEntries` takes `queue` itself, and it is what turns the row
+        // just finalised into a `time_entry`.
+        if closed {
+            let created = sweepTimeEntries(trigger: .manualSessionEnd)
+            DeveloperMode.debugPrint(.manualMode, "Manual segment closed off; \(created) time entr\(created == 1 ? "y" : "ies") created")
+        }
+        return closed
     }
 
     /// What a conversion pass did, carried back out of the lock so it can be logged from outside.

@@ -217,6 +217,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         let dbType = dataStore.loadDbType()
         appState.dbType = dbType
         DeveloperMode.debugPrint(.dbType, "Database type: \(dbType)")
+        // A manual segment left open by a run that did not reach `applicationWillTerminate` -- a
+        // crash, a force quit, a power cut. Manual mode is per-launch, so an open manual row can
+        // never be resumed and is finished by definition; left alone it stays `finalised = 0` and
+        // never converts, and unlike a cube's row there is no later frame coming to close it, which
+        // for a user with no device at all means never. Keeps whatever duration it was last written
+        // with rather than inventing one from the clock: when it actually stopped is unknowable.
+        // Before the sweep, so the row it finalises is converted by that same pass.
+        dataStore.closeOpenManualSegment(endingAt: nil)
         // Before anything can add to the backlog: converts whatever the last run left behind, and
         // reports any device_event marked processed with no time_entry to show for it. Runs after
         // the log sink is wired above so a repair actually reaches debug_log.
@@ -594,6 +602,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // Record the intentional quit and clear connection_lost, so the disconnect that
         // stopDeviceEvents() is about to cause isn't later read as a dropped connection.
         dataStore.recordQuitRequest()
+        // Quitting is how a manual session ends, and nothing else will close its segment: a cube's
+        // is closed by the frame after it, and there is no frame after this one. Done here, straight
+        // against the database, rather than by pausing the virtual device and refreshing history:
+        // that path is async and coalesces against a fetch already running, either of which would
+        // lose the race with termination.
+        if appState.isManualMode {
+            dataStore.closeOpenManualSegment(endingAt: Date())
+        }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         stopDeviceEvents()
         logger.info("Application will terminate")
