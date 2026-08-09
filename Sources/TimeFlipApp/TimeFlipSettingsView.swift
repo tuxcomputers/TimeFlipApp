@@ -279,14 +279,14 @@ struct TimeFlipSettingsView: View {
                         Task { await appState.resetAndForgetDevice() }
                     }
                     .accessibilityIdentifier("forget-device")
-                    .disabled(appState.connectionStatus == .pairing)
+                    .disabled(!pairingActionsEnabled)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
                     .accessibilityIdentifier("reset-device")
-                    .disabled(appState.connectionStatus == .pairing)
+                    .disabled(!pairingActionsEnabled)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
                         isPresented: $showingFactoryResetConfirmation,
@@ -659,6 +659,15 @@ struct TimeFlipSettingsView: View {
     /// launch has a device name to show but no live values behind it.
     private var isShowingLiveValues: Bool {
         appState.isConnected || appState.connectionStatus == .reconnecting
+    }
+
+    /// Whether Forget Device and Reset Device are live. See `DeviceTabRules.allowsPairingActions`
+    /// for why manual mode has to switch them off, which is not the reason it sounds like.
+    private var pairingActionsEnabled: Bool {
+        DeviceTabRules.allowsPairingActions(
+            connectionStatus: appState.connectionStatus,
+            isManualMode: appState.isManualMode
+        )
     }
 
     /// Name/Connection value colour: black (primary) while the values are live, greyed (secondary)
