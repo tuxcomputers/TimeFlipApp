@@ -875,15 +875,22 @@ final class MenuBarController: NSObject {
 
         // The DB tag, then (since it displaces the button's own image) the activity icon, both ahead
         // of the category label -- see updateStatusView. The icon rides at the same height as the
-        // pause/play glyph so it can't outgrow the menu bar and clip, and takes `.labelColor` for
-        // the same reason the tag does: an attachment draws its own pixels rather than picking up
-        // the button's tint, so a hardcoded white would vanish in light appearance.
+        // pause/play glyph so it can't outgrow the menu bar and clip.
+        //
+        // It takes `categoryColor`, the colour of the name it sits directly against, so it carries
+        // the same state the rest of the item does: yellow while the reading is stale, green when
+        // live, red over limit, and the red/white low-battery blink. Two colours it must **not**
+        // take, both tried: a hardcoded `.white`, which vanishes in a light menu bar, and
+        // `.labelColor`, which is worse in a way that is easy to miss -- it follows the appearance
+        // setting while the menu bar tints from the wallpaper, so a Light-appearance Mac with a dark
+        // wallpaper draws a black icon on a dark strip. Matching the text beside it sidesteps the
+        // question: whatever is legible for the category name is legible for its icon.
         let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
         let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
         text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
         if let leadingIcon {
             let attachment = NSTextAttachment()
-            attachment.image = tintedIcon(leadingIcon, color: .labelColor)
+            attachment.image = tintedIcon(leadingIcon, color: categoryColor)
             attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
             text.append(NSAttributedString(attachment: attachment))
             text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
