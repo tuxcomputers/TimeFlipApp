@@ -499,11 +499,14 @@ tab = "Categories"
 - [x] Step 2: Expand the Inactive section.
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
-      (Note: the count includes `ZZ Retired`, one of the three categories `Tests/00-test-setup.md`
-      Step 8 seeds for the report checklist. That fixture is seeded on every run rather than only
-      when the report checklist was requested, precisely so this number is a fixed baseline instead
-      of depending on which checklists someone asked for. The retired row this step is really about
-      is `Email`; if the seed's shape ever changes, this is the number that moves with it.)
+      (Note: the count includes the three retired categories `Tests/00-test-setup.md` Step 9 seeds --
+      `ZZ Retired` for the report checklist, `ZZ Lapsed Older` and `ZZ Lapsed Recent` for the
+      last-used one. That fixture is seeded on every run rather than only when those checklists were
+      requested, precisely so this number is a fixed baseline instead of depending on which
+      checklists someone asked for. The retired row this step is really about is `Email`; if the
+      seed's shape ever changes, this is the number that moves with it, and it moved from 2 to 4 on
+      2026-08-10 when the two `ZZ Lapsed` rows joined the fixture. Every step below addressing the
+      Inactive list by index still means `Email`, which sorts before both of them.)
 ```toml step
 action = "applescript"
 script = '''
@@ -515,7 +518,7 @@ tell application "System Events"
         return "inactive_rows=" & ((count of checkboxes of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
     end tell
 end tell'''
-expect_contains = "inactive_rows=2"
+expect_contains = "inactive_rows=4"
 ```
 - [x] Step 3: Tick the retired `Email` row's Active box; confirm the refusal alert.
 ```toml step
@@ -560,7 +563,9 @@ A retired category is a record of what it was, not a setting worth tuning, so it
 daily limit are disabled. The Active box stays live, since reinstating is the one edit an inactive
 row must still allow.
 
-**Preconditions:** the Inactive section expanded, showing one retired `Email`.
+**Preconditions:** the Inactive section expanded, with the retired `Email` first in it. The seeded
+`ZZ Retired`, `ZZ Lapsed Older` and `ZZ Lapsed Recent` sit below it and are not what this scenario
+is about; `Email` is `checkbox 1` because it sorts before all three.
 
 - [x] Step 1: Confirm the disabled and enabled controls on the retired row.
       Icon and colour are `button 1` and `button 2` of the row, the limit is `text field 1`, and the

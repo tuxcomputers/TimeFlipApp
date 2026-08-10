@@ -139,23 +139,23 @@ command = "scripts/switch-database.sh test $db_mode"
 
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900001, 900002, 900003));"
+query = "DELETE FROM time_entry WHERE device_event_id IN (SELECT device_event_id FROM device_event WHERE event_number IN (900001, 900002, 900003, 900004, 900005));"
 
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM device_event WHERE event_number IN (900001, 900002, 900003);"
+query = "DELETE FROM device_event WHERE event_number IN (900001, 900002, 900003, 900004, 900005);"
 
 [[actions]]
 action = "sql_exec"
-query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE category_name IN ('ZZ Assigned', 'ZZ NoFace', 'ZZ Retired'));"
+query = "UPDATE face SET category_id = 0 WHERE category_id IN (SELECT category_id FROM category WHERE category_name IN ('ZZ Assigned', 'ZZ NoFace', 'ZZ Retired', 'ZZ Lapsed Older', 'ZZ Lapsed Recent'));"
 
 [[actions]]
 action = "sql_exec"
-query = "DELETE FROM category WHERE category_name IN ('ZZ Assigned', 'ZZ NoFace', 'ZZ Retired');"
+query = "DELETE FROM category WHERE category_name IN ('ZZ Assigned', 'ZZ NoFace', 'ZZ Retired', 'ZZ Lapsed Older', 'ZZ Lapsed Recent');"
 
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO category (category_name, active, daily_limit) VALUES ('ZZ Assigned', 1, 0), ('ZZ NoFace', 1, 0), ('ZZ Retired', 1, 0);"
+query = "INSERT INTO category (category_name, active, daily_limit) VALUES ('ZZ Assigned', 1, 0), ('ZZ NoFace', 1, 0), ('ZZ Retired', 1, 0), ('ZZ Lapsed Older', 0, 0), ('ZZ Lapsed Recent', 0, 0);"
 
 [[actions]]
 action = "sql_exec"
@@ -172,15 +172,15 @@ capture = "seed_window_start"
 
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900001, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 432000 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 432000 + 3600, 1800.0, 0, 1, 1;"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900001, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 432000 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 432000 + 3600, 1829.0, 0, 1, 1;"
 
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900002, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 345600 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 345600 + 3600, 2700.0, 0, 1, 1;"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900002, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 345600 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 345600 + 3600, 2730.0, 0, 1, 1;"
 
 [[actions]]
 action = "sql_exec"
-query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900003, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 259200 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 259200 + 3600, 3600.0, 0, 1, 1;"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900003, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 259200 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 259200 + 3600, 3631.0, 0, 1, 1;"
 
 [[actions]]
 action = "sql_exec"
@@ -193,6 +193,22 @@ query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start
 [[actions]]
 action = "sql_exec"
 query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT (SELECT category_id FROM category WHERE category_name = 'ZZ Retired'), device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number = 900003;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900004, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 864000 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 864000 + 3600, 900.0, 0, 1, 1;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO device_event (event_number, event_type_id, device_face, start_time, timezone_id, start_epoch, duration_seconds, paused, finalised, processed) SELECT 900005, 1, 2, strftime('%Y-%m-%dT%H:%M:%S', $seed_window_start - 1728000 + 3600, 'unixepoch', 'localtime'), 0, $seed_window_start - 1728000 + 3600, 1200.0, 0, 1, 1;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT (SELECT category_id FROM category WHERE category_name = 'ZZ Lapsed Recent'), device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number = 900004;"
+
+[[actions]]
+action = "sql_exec"
+query = "INSERT INTO time_entry (category_id, device_event_id, started_at, start_timezone_id, ended_at, end_timezone_id, duration_seconds) SELECT (SELECT category_id FROM category WHERE category_name = 'ZZ Lapsed Older'), device_event_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch, 'unixepoch', 'localtime'), timezone_id, strftime('%Y-%m-%dT%H:%M:%S', start_epoch + duration_seconds, 'unixepoch', 'localtime'), timezone_id, duration_seconds FROM device_event WHERE event_number = 900005;"
 
 [[actions]]
 use = "method-2"
@@ -284,12 +300,21 @@ action = "ask_user"
 prompt = "Stop flipping and leave the device resting on one face. Is it resting and settled now? (y once it's stopped)"
 ```
 - [x] Step 17: Confirm the report fixture is in place, and behind everything the run records
- -- the three categories and three segments `Bench/11b` measures, seeded back in Step 9. **Seeded there, not here, and the position is the whole point.** These rows are synthetic `device_event`s, and several checklists read *the latest* `device_event` by `device_event_id` -- `01b` Setup asserts it is the open, growing one (`finalised = 0`), and `Method 24.c` hands that row to whoever asks. Seeded at the end of setup they took the highest ids and became that row, failing `01b` with `finalised = 1` (measured 2026-08-08, ids 10-12 against real rows 1-9). Inserted into the freshly-created `test.sqlite` before the app has ever launched, they take ids 1-3 instead and every real row lands after them, so the newest is always a real one. The fixture is three categories in three states -- active on a face, active on no face, and retired -- because a report shows *time*, not *current* categories: it must include one the Faces list and `loadCategories()` both filter out. Durations of 30, 45 and 60 minutes on the days 5, 4 and 3 back make every range `11b` asserts a different figure, and dating them days back keeps them clear of anything the cube records today. No teardown: `test.sqlite` is rebuilt every run. (Note: on a **resume** the database is kept, so Step 9's re-seed re-inserts at whatever ids are free by then -- acceptable, since a resume only re-enters a run whose earlier checklists have already passed.)
+ -- the five categories and five segments `Bench/11b` and `Bench/14b` measure, seeded back in Step 9. **Seeded there, not here, and the position is the whole point.** These rows are synthetic `device_event`s, and several checklists read *the latest* `device_event` by `device_event_id` -- `01b` Setup asserts it is the open, growing one (`finalised = 0`), and `Method 24.c` hands that row to whoever asks. Seeded at the end of setup they took the highest ids and became that row, failing `01b` with `finalised = 1` (measured 2026-08-08, ids 10-12 against real rows 1-9). Inserted into the freshly-created `test.sqlite` before the app has ever launched, they take ids 1-5 instead and every real row lands after them, so the newest is always a real one. Three of the categories are for `11b`, in three states -- active on a face, active on no face, and retired -- because a report shows *time*, not *current* categories: it must include one the Faces list and `loadCategories()` both filter out. Durations of 30:29, 45:30 and 60:31 on the days 5, 4 and 3 back make every range `11b` asserts a different figure, and dating them days back keeps them clear of anything the cube records today. The seconds are not decoration: they straddle the half-minute (29 below, 30 exactly on it, 31 above), so `11b`'s seconds-off assertions prove the figure is **truncated** to the minute rather than rounded. On round durations those assertions read the same either way and proved nothing.
+
+The other two, `ZZ Lapsed Recent` and `ZZ Lapsed Older`, are retired from the moment they are inserted and exist for `14b`: the Categories tab's Last used column reads the end of a category's newest `time_entry`, so proving it needs retired categories whose newest entries are on *different, known* days. 10 and 20 days back, well clear of the 3-to-5 the `11b` rows occupy, so a wrong row cannot produce a right-looking answer. Their names sort after `Email`, which matters because `08b` addresses the retired row it creates as `checkbox 1` of the Inactive list; adding rows that sorted before it would silently repoint every one of those steps.
+
+No teardown: `test.sqlite` is rebuilt every run. (Note: on a **resume** the database is kept, so Step 9's re-seed re-inserts at whatever ids are free by then -- acceptable, since a resume only re-enters a run whose earlier checklists have already passed.)
 ```toml step
 [[actions]]
 action = "sql_query"
 query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired')) || '/' || (SELECT active FROM category WHERE category_name='ZZ Retired') || '/' || (SELECT COUNT(*) FROM face WHERE category_id = (SELECT category_id FROM category WHERE category_name='ZZ Assigned'));"
-expect = "8100/0/1"
+expect = "8190/0/1"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Lapsed Recent','ZZ Lapsed Older')) || '/' || (SELECT COUNT(*) FROM category WHERE category_name IN ('ZZ Lapsed Recent','ZZ Lapsed Older') AND active = 0);"
+expect = "2100/2"
 
 [[actions]]
 action = "sql_query"
