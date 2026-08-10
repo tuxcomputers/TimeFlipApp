@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 14:28 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 15:48 on the branch 'docs/testHeading'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
@@ -77,8 +77,6 @@ setting = "connection"
 field = "connected"
 expect = "1"
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-10 - This step read the newest `TimeFlip`-tagged log row and expected the login, but
 `00-test-setup.md` ends by leaving the device unlocked and unpaused and logs that under the same
 tag, so the newest row was `Lock verification confirmed: requested=OFF actual=OFF` and the step
 could never pass. Reads the live `connection.connected` flag now, which is also the thing the
@@ -197,8 +195,6 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND debug_log_id 
 expect_contains = "Offering manual mode"
 timeout_seconds = 60
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-10 - Retry did nothing at all: it logged "scanning again", the dialog came back 5ms later,
 and no scan ran for 99 seconds. The offer is raised from inside the connect task and puts up a
 modal, so that task is still on the stack while the dialog is answered. Retry cleared the flag and
 started a fresh attempt; the modal then returned, the old task carried on into its failure handling,
@@ -518,8 +514,6 @@ So Scenario E quits with nothing on screen, matching how every other scenario he
 ```toml step
 use = "method-23"
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-10 - Step 1 read `window "TimeFlip Settings"` without opening it and failed with `-1728`.
 Scenario B opens the window and its last step closes it again, and Scenario C is driven entirely
 from the status item, so by the time this scenario runs there is no window to address. It opens its
 own now. Found on the first run that ever reached Scenario D.
@@ -622,8 +616,6 @@ use = "method-4"
 since_id = "$before_restore_launch"
 timeout_seconds = 90
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-10 - The restore blanked the PIN instead of putting it back, and the step above reported
 success while doing it. `act_shell` ignored both `capture` and `expect`, so Setup Step 2 never set
 `real_pin`; the restore command then reached `subprocess.run(..., shell=True)` with `$real_pin`
 still in it and **bash** expanded that undefined name to an empty string, writing `"PIN": ""`. The

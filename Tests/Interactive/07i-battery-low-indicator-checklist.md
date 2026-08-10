@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-10 14:32 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 15:53 on the branch 'docs/testHeading'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a
@@ -127,8 +127,6 @@ query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Statu
 expect_contains = "side=left clickCount=1 -> openSettings"
 timeout_seconds = 30
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-10 - Step 2 waited for a `click` row reading `Left-click while low battery: opening
 Settings...`, which `1447da4` deleted when it moved the routing rule out of AppKit into
 `MenuBarClickRouter` and replaced the per-branch messages with one line naming the resolved action.
 Nothing was wrong with the app: the click landed and Settings opened, and the log said so as

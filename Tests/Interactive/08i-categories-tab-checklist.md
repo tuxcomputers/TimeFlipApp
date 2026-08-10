@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 14:33 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 15:54 on the branch 'docs/testHeading'
 
 One scenario, and only because of where the lock control lives.
 
