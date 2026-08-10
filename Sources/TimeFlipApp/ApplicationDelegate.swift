@@ -328,6 +328,22 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 var attemptedPassword = TimeFlipConstants.defaultPassword
                 var outcome = DeviceConnectOutcome.wrongPassword
                 for candidate in candidates where !tried.contains(candidate) {
+                    // Let the rejected probe's teardown finish before reconnecting to the same
+                    // peripheral. A refused login drops the link on its way out
+                    // (`connectToDiscoveredDevice` cancels the connection in a `defer`), so an
+                    // immediate second attempt races that teardown and comes back `.failed`
+                    // before it can send anything -- which the `guard` below reads as "not a
+                    // verdict about the password" and stops on, abandoning every candidate after
+                    // the first. The list then only ever presents the default, which is exactly
+                    // what pairing did on 2026-08-10: `000000` refused, no second `Probe logging
+                    // in using password` line at all, and a cube on a rotated PIN unpairable.
+                    //
+                    // Same cause, and the same one-second settle, as the auto-connect probe in
+                    // `connectToFirstEligible` -- which got this fix on 2026-08-09 while this
+                    // path, the one a person actually clicks, did not.
+                    if !tried.isEmpty {
+                        try? await Task.sleep(nanoseconds: probeSettleSeconds * TimeConstants.nanosecondsPerSecond)
+                    }
                     tried.insert(candidate)
                     attemptedPassword = candidate
                     outcome = await bleDevice.connectToDiscoveredDevice(id: id, password: candidate)

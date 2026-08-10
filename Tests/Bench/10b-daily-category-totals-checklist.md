@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-10 15:45 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:31 on the branch 'bugfix/pairingProbeSettle'
 
 Covers the menu bar's day figure being a **category** total rather than a face total: the number
 drawn beside the activity name, and the `daily_limit` tested against it, both key off

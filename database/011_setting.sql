@@ -59,7 +59,7 @@ SELECT 'debug', '{"enabled":true,"to_file":false,"directory":"~/Documents/TimeFl
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'debug');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'daily_reset_time', '{"hour":3,"minute":0}', 'NOT YET IMPLEMENTED -- placeholder for a planned feature. hour (0-23) and minute (0-59), local time, at which each category''s tracked-time-vs-category.daily_limit accounting rolls over to a new day (default 3 AM, not midnight, so a session spanning midnight isn''t split). A future Preferences UI will let the user override this.'
+SELECT 'daily_reset_time', '{"hour":3,"minute":0}', 'hour (0-23) and minute (0-59), local time, at which each category''s tracked-time-vs-category.daily_limit accounting rolls over to a new day (default 3 AM, not midnight, so a session spanning midnight isn''t split). DailyCategoryTotals reads this to set the window its totals are summed over, so it is also the window the menu bar''s over-limit colouring is judged against. Editable from the App tab, which steps it in whole hours plus AM/PM; the minute is stored as well so a finer time can be set when testing the rollover firing.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'daily_reset_time');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)

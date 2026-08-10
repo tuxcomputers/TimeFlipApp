@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-10 15:55 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:40 on the branch 'bugfix/pairingProbeSettle'
 
 Nothing needed.
 

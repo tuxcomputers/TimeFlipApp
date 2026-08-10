@@ -1,6 +1,6 @@
 # History Refresh Checklist (Interactive)
 
-### Last run - 2026-08-10 15:51 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:36 on the branch 'bugfix/pairingProbeSettle'
 
 The physical-flip parts of the history refresh test. Run **after the whole Bench phase**
 (`Tests/Bench/01b-history-refresh-checklist.md` and, since then, `02b-reset-device-checklist.md`

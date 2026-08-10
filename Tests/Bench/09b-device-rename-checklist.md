@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-10 15:44 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:30 on the branch 'bugfix/pairingProbeSettle'
 
 Covers renaming the cube: the three right-click targets that open the menu, the write itself, the
 notice that explains why the new name does not show up everywhere, and the documented workaround

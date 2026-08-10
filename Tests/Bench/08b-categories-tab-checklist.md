@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 15:41 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:27 on the branch 'bugfix/pairingProbeSettle'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the

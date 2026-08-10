@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist
 
-### Last run - 2026-08-10 15:39 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:25 on the branch 'bugfix/pairingProbeSettle'
 
 Covers the low-battery blink (`MenuBarController.updateLowBatteryBlinkTimer`/
 `updatedLowBatteryLatch`): the activity name blinks red/white once battery drops to or below
