@@ -28,16 +28,16 @@
 
 ### Telling retired namesakes apart
 
-`UN1_category` allows one *active* category per name and any number of retired ones, so several retired categories can end up sharing a name, each owning its own history. They are then hard to tell apart, and two pieces of work follow from that. The first is half done.
+`UN1_category` allows one *active* category per name and any number of retired ones, so several retired categories can end up sharing a name, each owning its own history. They are then hard to tell apart, and two pieces of work follow from that. The first is done.
 
 The create flow no longer guesses between them: typing a name that matches more than one retired category drops the reinstate button and points at the Inactive list, where each is at least a separate row. That much is built. What was missing is any way to know *which* row is which.
 
-- **Show what distinguishes them on the row.** Half built. The Inactive list now carries a **Last used** column: the end of that category's most recent `time_entry`, or `Never` for one that has recorded none (`CategoryLastUsedText`, filled by `AppDataStore.loadCategories`). Two namesakes whose history differs are now separable at a glance, and one with nothing behind it says so rather than sitting blank.
+- **Show what distinguishes them on the row.** Built. The Inactive list carries a **Last used** column: the end of that category's most recent `time_entry`, or `Never` for one that has recorded none (`CategoryLastUsedText`, filled by `AppDataStore.loadCategories`). Two namesakes whose history differs are separable at a glance, and one with nothing behind it says so rather than sitting blank.
 
-  Still missing: **total time recorded** against each, the other half of "which one holds my data". Last used answers how recently, not how much, and a category used once for a minute reads the same as one used daily for a year.
+  **Total time recorded against each will not be built** (decided 2026-08-10). It was the other half this section once asked for, on the grounds that last used answers how recently rather than how much, so a category used once for a minute reads the same as one used daily for a year. That distinction is real but is not worth a second aggregate over `time_entry` on every category load: the question this section exists to answer is *which of these two rows is mine*, and a date answers it. Reopen it only if two namesakes turn up that were genuinely last used at the same time.
 
   This section used to propose a `retired_at` column instead, on the grounds that a last-used date needed `time_entry`, which had no writer at the time. It has one (`AppDataStore.convertEligibleEvents`), so the better signal was available and `retired_at` is no longer wanted: when a category was retired says nothing about the history behind it, which is the actual question being asked. That dependency was also the stated reason two tests in `CategoryStoreTests` are commented out; the reason no longer holds, so they are worth reinstating on their own merits.
-- **Then offer a picker.** With rows that can be told apart, the create flow can list the matches and let the user choose, instead of sending them elsewhere. Strictly downstream of the point above: without labels it is a column of identical buttons, which is the blind pick again with more steps.
+- **Then offer a picker.** With rows that can be told apart, the create flow can list the matches and let the user choose, instead of sending them elsewhere. This was blocked on the point above and no longer is: the rows now carry a date, so a picker would list distinguishable options rather than the column of identical buttons that made it a blind pick with extra steps.
 
 A third option was considered and rejected: forbidding duplicate names among *retired* categories too, by requiring a rename when retiring onto a namesake. It would make the whole problem disappear, but each retired row owns distinct history, so they are not interchangeable and merging them is not automatically safe. Worth revisiting only if the duplicates turn out not to be worth keeping.
 
