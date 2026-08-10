@@ -56,6 +56,7 @@ struct CategoriesSettingsView: View {
                     isExpanded: $isInactiveExpanded,
                     categories: CategoryEditRules.partitioned(categories).inactive,
                     emptyMessage: "No inactive categories.",
+                    showsLastUsed: true,
                     appState: appState,
                     actions: actions
                 )
@@ -128,6 +129,9 @@ private struct CategorySection: View {
     @Binding var isExpanded: Bool
     let categories: [CategoryRecord]
     let emptyMessage: String
+    /// Whether this list's rows carry a last-used date, and so whether its header captions that
+    /// column. True for Inactive only.
+    var showsLastUsed = false
     @ObservedObject var appState: AppState
     let actions: CategoryRowActions
 
@@ -138,7 +142,7 @@ private struct CategorySection: View {
                     Text(emptyMessage)
                         .foregroundStyle(.secondary)
                 } else {
-                    CategoryColumnHeaderRow()
+                    CategoryColumnHeaderRow(showsLastUsed: showsLastUsed)
                     ForEach(categories) { category in
                         CategoryRow(
                             appState: appState,
@@ -163,6 +167,10 @@ private struct CategorySection: View {
 /// label sits directly over its column -- no label over the icon column, since there's nothing
 /// meaningful to caption there.
 private struct CategoryColumnHeaderRow: View {
+    /// Only the Inactive list captions the last-used column. An active category is one being used
+    /// now, so its cells are empty by definition and the caption would label nothing.
+    let showsLastUsed: Bool
+
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
             Color.clear
@@ -174,6 +182,11 @@ private struct CategoryColumnHeaderRow: View {
             Text("Daily limit (0 = disabled)")
                 .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
             Text("Active")
+                .frame(width: SettingsLayoutConstants.CategoryList.activeColumnWidth, alignment: .leading)
+            if showsLastUsed {
+                Text(CategoryLastUsedText.columnTitle)
+                    .fixedSize()
+            }
             Spacer()
         }
         .font(.caption)
@@ -226,6 +239,8 @@ private struct CategoryRow: View {
                 // reinstating the category is the one edit an inactive row must still allow.
                 .disabled(!category.isActive)
             activeCheckbox
+                .frame(width: SettingsLayoutConstants.CategoryList.activeColumnWidth, alignment: .leading)
+            lastUsedLabel
             Spacer()
         }
         .alert(
@@ -440,6 +455,23 @@ private struct CategoryRow: View {
     /// Only *this* direction is barred. A retired category on a locked face -- which a database
     /// predating this rule can hold -- must still be reinstatable, and reinstating puts nothing on
     /// any face.
+    /// When a retired category last recorded time, sitting under the "Last used" header to the right
+    /// of its Active box.
+    ///
+    /// Nothing at all on an active row (`CategoryLastUsedText.label` returns nil), which is why only
+    /// the Inactive list's header carries the caption. Secondary and small: it is context for a
+    /// decision about reinstating, not a control, and it must not compete with the name at the other
+    /// end of the row.
+    @ViewBuilder
+    private var lastUsedLabel: some View {
+        if let text = CategoryLastUsedText.label(isActive: category.isActive, lastUsed: category.lastUsed) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+    }
+
     private var activeCheckbox: some View {
         // The tooltip is on the container, outside `.disabled()`: a disabled control stops taking
         // mouse events, and a help tag it never sees is no use on the one row that needs one.
