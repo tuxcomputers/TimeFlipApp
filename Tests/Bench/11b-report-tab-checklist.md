@@ -1,6 +1,6 @@
 # Report Tab Checklist
 
-### Last run - 2026-08-10 11:18 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 12:53 on the branch 'feature/manualMode'
 
 Covers the **Report** tab: a date range picked on two hand-drawn calendars, and what each category
 took over it. The figures come from `AppDataStore.loadCategoryTotals(from:to:)`, which sums
@@ -57,13 +57,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 **Preconditions:** the test database and the device connected, both established by
 `Tests/00-test-setup.md`, which the supervisor always runs first.
 
-- [ ] Step 1: Confirm `db_type` reads **test** before anything writes to it.
+- [x] Step 1: Confirm `db_type` reads **test** before anything writes to it.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 2: Capture the current day window's start epoch, derived from `daily_reset_time`.
+- [x] Step 2: Capture the current day window's start epoch, derived from `daily_reset_time`.
 The same boundary `ReportDateRange.dayStart` computes, so the seeded segments land inside the app's
 days rather than inside calendar ones. (Note: the yesterday branch subtracts a flat 86400, exact only
 where the local offset doesn't shift; Brisbane has no DST, and the steps below only use the today
@@ -73,7 +73,7 @@ action = "sql_query"
 query = "WITH r AS (SELECT CAST(json_extract(setting_value,'$.hour') AS INT) h, CAST(json_extract(setting_value,'$.minute') AS INT) m FROM setting WHERE setting_name='daily_reset_time'), t AS (SELECT CAST(strftime('%s', date('now','localtime') || ' ' || substr('0'||h,-2) || ':' || substr('0'||m,-2) || ':00', 'utc') AS INT) AS today_reset FROM r) SELECT CASE WHEN CAST(strftime('%s','now') AS INT) >= today_reset THEN today_reset ELSE today_reset - 86400 END FROM t;"
 capture = "window_start"
 ```
-- [ ] Step 3: Confirm this run can address the seeded days on the calendar at all.
+- [x] Step 3: Confirm this run can address the seeded days on the calendar at all.
 The calendars are clicked by index ([Method: Number 28](../Methods.md#method-28)), and a calendar
 shows six weeks starting from the week containing the 1st. Today's own cell therefore has to sit at
 least 5 cells in for 5-days-ago to still be on the grid. That fails only in the first days of some
@@ -83,7 +83,7 @@ action = "sql_query"
 query = "WITH f AS (SELECT date('now','localtime','start of month') AS first_day), g AS (SELECT date(first_day, '-' || ((CAST(strftime('%w', first_day) AS INT) + 6) % 7) || ' days') AS grid_start FROM f) SELECT CASE WHEN CAST(julianday(date('now','localtime')) - julianday(grid_start) AS INT) >= 5 THEN 'ok' ELSE 'today is only ' || CAST(julianday(date('now','localtime')) - julianday(grid_start) AS INT) || ' cells into the grid, so 5 days ago is not on it -- re-run later in the month' END FROM g;"
 expect = "ok"
 ```
-- [ ] Step 4: Show seconds, so every assertion below is exact to the second.
+- [x] Step 4: Show seconds, so every assertion below is exact to the second.
 The report follows this setting (`ReportView.formattedDuration`, the same format the menu bar uses).
 At `H:MM` a wrong total could still round to a right-looking figure; at `H:MM:SS` it cannot.
 (Note: written and read back as the JSON the app stores, `{"enabled":true}`. `loadDisplaySecondsEnabled`
@@ -101,7 +101,7 @@ setting = "display_seconds"
 field = "enabled"
 expect = "1"
 ```
-- [ ] Step 5: Re-establish the fixture's three category states.
+- [x] Step 5: Re-establish the fixture's three category states.
 `Tests/00-test-setup.md` Step 9 seeds the rows and their states, but `08b` runs in between and
 legitimately deactivates every category except its own (`UPDATE category SET active = 0 ... NOT
 (category_name = 'Email' ...)`) as part of testing the Active partition, and never puts them back.
@@ -127,7 +127,7 @@ action = "sql_query"
 query = "SELECT (SELECT active FROM category WHERE category_name='ZZ Assigned') || (SELECT active FROM category WHERE category_name='ZZ NoFace') || (SELECT active FROM category WHERE category_name='ZZ Retired') || '/' || (SELECT COUNT(*) FROM face WHERE category_id = (SELECT category_id FROM category WHERE category_name='ZZ Assigned')) || '/' || (SELECT COUNT(*) FROM face WHERE category_id = (SELECT category_id FROM category WHERE category_name='ZZ NoFace'));"
 expect = "110/1/0"
 ```
-- [ ] Step 6: Confirm the seeded time is present and intact.
+- [x] Step 6: Confirm the seeded time is present and intact.
 The rows come from the shared setup, so this checklist starts by proving its fixture is really there
 rather than discovering it is missing three assertions later.
 ```toml step
@@ -135,7 +135,7 @@ action = "sql_query"
 query = "SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired');"
 expect = "8100"
 ```
-- [ ] Step 7: Compute the calendar button indices for 5, 4 and 3 days ago.
+- [x] Step 7: Compute the calendar button indices for 5, 4 and 3 days ago.
 Derived from the grid rather than hardcoded: cell `n` of the **From** calendar is button `3 + n`, and
 `n` is the number of days from the start of the week containing the 1st ([Method: Number
 28](../Methods.md#method-28)). The **To** calendar's cells start at button 47, so its index is the
@@ -161,7 +161,7 @@ capture = "to_button_day3"
 
 **Preconditions:** Setup complete: the three categories seeded in their three states, seconds on.
 
-- [ ] Step 1: Open the Report tab and confirm it is the selected one.
+- [x] Step 1: Open the Report tab and confirm it is the selected one.
 Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10),
 [Number 11](../Methods.md#method-11).
 ```toml step
@@ -178,7 +178,7 @@ use = "method-11"
 tab = "Report"
 expect = "1"
 ```
-- [ ] Step 2: Pick 5 days ago as the start, and confirm the calendar picked the date intended.
+- [x] Step 2: Pick 5 days ago as the start, and confirm the calendar picked the date intended.
 The click is by index, so this asserts where it actually landed rather than trusting Setup Step 9's
 arithmetic. A disabled cell swallows a click silently, so without this a mis-computed index would
 surface as a wrong total rather than as a wrong click.
@@ -204,7 +204,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'From calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) = 'From calendar picked ' || date('now','localtime','-5 days') THEN 'ok' ELSE 'clicked the wrong cell: ' || (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'From calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) END;"
 expect = "ok"
 ```
-- [ ] Step 3: Confirm the report shows `ZZ Assigned` at **0:30:00** -- that day alone.
+- [x] Step 3: Confirm the report shows `ZZ Assigned` at **0:30:00** -- that day alone.
 The end is untouched, so the range is the single day. Reading 2:15:00 here would mean an unset end
 was being treated as "up to now"; reading nothing would mean the day boundary is wrong.
 [Method: Number 28](../Methods.md#method-28).
@@ -212,7 +212,7 @@ was being treated as "up to now"; reading nothing would mean the day boundary is
 use = "method-28"
 expect_contains = "ZZ Assigned|0:30:00|"
 ```
-- [ ] Step 4: Confirm the other two days are **not** in that single-day range.
+- [x] Step 4: Confirm the other two days are **not** in that single-day range.
 The same read, asserted from the other direction: a start with no end must not reach forward.
 ```toml step
 [[actions]]
@@ -229,7 +229,7 @@ expect = "ok"
 
 **Preconditions:** Scenario A complete, the start on 5 days ago.
 
-- [ ] Step 1: Set the end to 3 days ago, and confirm the pick landed there.
+- [x] Step 1: Set the end to 3 days ago, and confirm the pick landed there.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -251,20 +251,20 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'To calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) = 'To calendar picked ' || date('now','localtime','-3 days') THEN 'ok' ELSE 'clicked the wrong cell: ' || (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'To calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) END;"
 expect = "ok"
 ```
-- [ ] Step 2: Confirm the category still on a face reports **0:30:00**.
+- [x] Step 2: Confirm the category still on a face reports **0:30:00**.
 The ordinary case, and the control for the two below.
 ```toml step
 use = "method-28"
 expect_contains = "ZZ Assigned|0:30:00|"
 ```
-- [ ] Step 3: Confirm the category on **no face** reports **0:45:00**.
+- [x] Step 3: Confirm the category on **no face** reports **0:45:00**.
 `loadCategoryTotals` joins `category` straight off `time_entry`, so the face table has no say. An
 implementation that resolved the category through `face` would drop this row entirely.
 ```toml step
 use = "method-28"
 expect_contains = "ZZ NoFace|0:45:00|"
 ```
-- [ ] Step 4: Confirm the **deactivated** category reports **1:00:00**.
+- [x] Step 4: Confirm the **deactivated** category reports **1:00:00**.
 The assertion this fixture exists for. Retiring a category hides it from assignment and nothing else
 -- it keeps its history and must keep reporting, which is what makes retiring safe to do. Both
 `loadCategories()` and the Faces list filter `active = 0` out, so a report built on either would
@@ -273,7 +273,7 @@ silently lose this row and under-report the range.
 use = "method-28"
 expect_contains = "ZZ Retired|1:00:00|"
 ```
-- [ ] Step 5: Confirm the range totals **2:15:00** across the three.
+- [x] Step 5: Confirm the range totals **2:15:00** across the three.
 Derived from `time_entry` rather than read off the screen, so the figure the tab shows is compared
 against the same table it claims to sum, over the same clipped window.
 ```toml step
@@ -286,7 +286,7 @@ expect = "8100"
 
 **Preconditions:** Scenario B complete, the range covering 5 to 3 days ago.
 
-- [ ] Step 1: Move the start to 4 days ago and confirm `ZZ Assigned` leaves the report.
+- [x] Step 1: Move the start to 4 days ago and confirm `ZZ Assigned` leaves the report.
 Proves the start bounds the range rather than the report simply totalling everything up to the end.
 Its 30 minutes are now outside it, so the row goes entirely -- a category with nothing in the range
 is left out, not listed as zero, which would read as "used, took no time".
@@ -315,7 +315,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN '$narrowed_totals' LIKE '%ZZ Assigned%' THEN 'the dropped day is still being counted: $narrowed_totals' ELSE 'ok' END;"
 expect = "ok"
 ```
-- [ ] Step 2: Confirm the two remaining categories are unchanged.
+- [x] Step 2: Confirm the two remaining categories are unchanged.
 The narrowing must move the range's edge, not rescale what is inside it.
 ```toml step
 [[actions]]
@@ -331,7 +331,7 @@ expect_contains = "ZZ Retired|1:00:00|"
 
 **Preconditions:** Scenario C complete, the range covering 4 and 3 days ago.
 
-- [ ] Step 1: Turn seconds off, relaunch, and reopen the Report tab.
+- [x] Step 1: Turn seconds off, relaunch, and reopen the Report tab.
 The setting is read when the view draws, and a relaunch is the unambiguous way to be sure the new
 value is the one in play. Methods: [Number 3](../Methods.md#method-3),
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4),
@@ -361,7 +361,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Report"
 ```
-- [ ] Step 2: Pick 5 days ago again and confirm it reads **0:30** rather than 0:30:00.
+- [x] Step 2: Pick 5 days ago again and confirm it reads **0:30** rather than 0:30:00.
 A fresh launch opens on today with no end, and today holds none of the fixture, so a date has to be
 picked again to have a figure to read at all.
 ```toml step
@@ -390,7 +390,7 @@ expect_contains = "ZZ Assigned|0:30|"
 **Preconditions:** Scenarios A to D complete. Runs even if any failed -- the seeded rows, the three
 categories and face 5's reassignment are what would otherwise outlive this checklist.
 
-- [ ] Step 1: Close the Settings window and quit the app before unpicking the rows underneath it.
+- [x] Step 1: Close the Settings window and quit the app before unpicking the rows underneath it.
 Methods: [Number 23](../Methods.md#method-23), [Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
@@ -399,7 +399,7 @@ use = "method-23"
 [[actions]]
 use = "method-3"
 ```
-- [ ] Step 2: Restore the seconds setting.
+- [x] Step 2: Restore the seconds setting.
 The seeded rows, the three categories and face 5 are **not** removed: they belong to
 `Tests/00-test-setup.md`, which seeds them for every run and deliberately leaves them, since
 `test.sqlite` is rebuilt from scratch next time and they are inert elsewhere -- their own categories,
@@ -417,7 +417,7 @@ setting = "display_seconds"
 field = "enabled"
 expect = "1"
 ```
-- [ ] Step 3: Restart the app and leave the device unlocked and unpaused.
+- [x] Step 3: Restart the app and leave the device unlocked and unpaused.
 So the Interactive phase starts from the same clean state every other checklist assumes. Methods:
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
 ```toml step

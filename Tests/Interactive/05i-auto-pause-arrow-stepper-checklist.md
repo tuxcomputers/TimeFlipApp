@@ -1,5 +1,7 @@
 # Auto-Pause Arrow Stepper Checklist (Interactive)
 
+### Last run - 2026-08-10 13:05 on the branch 'feature/manualMode'
+
 Nothing needed. The press-and-hold acceleration gesture (both directions) and the
 hold-interrupted-by-window-close case all moved to
 `Tests/Bench/05b-auto-pause-arrow-stepper-checklist.md` once CGEventPost ([Method: Number 7](../Methods.md#method-7)) was confirmed to drive this

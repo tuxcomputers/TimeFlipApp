@@ -281,7 +281,13 @@ with the CGEventPost technique above, at the status item's own `position`/`size`
 position.x + size.width * 0.75`, `y = position.y + size.height / 2` roughly) -- confirmed live for
 both the single-click pause/resume toggle and the double-click lock toggle. `handleStatusItemClick`
 also logs every real click it receives (`debug_log` tag `click`, `"Status item clicked:
-side=left/right clickCount=N"`), useful to confirm a click (synthetic or real) actually landed.
+side=left/right clickCount=N ... -> <action>"`), useful to confirm a click (synthetic or real)
+actually landed. The trailing `-> <action>` is the `StatusItemClick` the router resolved it to
+(`showMenu`, `openSettings`, `lockDevice`, `togglePause`, `togglePauseImmediately`), and ` manualMode`
+appears before the arrow while the app is in manual mode. **Assert on that arrow rather than on a
+per-branch message**: `1447da4` moved the routing into `MenuBarClickRouter` and deleted the
+individual messages each branch used to log, leaving `07i` waiting on `"Left-click while low
+battery: ..."`, which no longer existed. The decision is the durable thing to read.
 
 <a id="method-9"></a>
 ## Method 9: Discovered-device row click

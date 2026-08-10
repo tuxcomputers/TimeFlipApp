@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 13:05 on the branch 'feature/manualMode'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a
@@ -34,7 +34,7 @@ low-battery state -- the clean state the Bench run's own restore leaves behind. 
 query below; if it shows a non-default threshold or `isLowBattery=true` left over from an
 interrupted prior run, restore the threshold to 5% and restart the app before continuing.
 
-- [ ] **(Claude)** Step 1: Query the current threshold and the live `battery` `level`
+- [x] **(Claude)** Step 1: Query the current threshold and the live `battery` `level`
 , and note both.  Take the **higher of the two most-frequent** readings -- flap-robust, since this sets `threshold = level` to make the device read low. Both are captured, so they can be restored at the end.
 ```toml step
 [[actions]]
@@ -52,7 +52,7 @@ timeout_seconds = 30
 use = "method-24.g"
 capture = "battery_level_a"
 ```
-- [ ] **(Claude)** Step 2: Quit the app.
+- [x] **(Claude)** Step 2: Quit the app.
       [Method: Number 3](../Methods.md#method-3).
 ```toml step
 [[actions]]
@@ -62,7 +62,7 @@ capture = "before_quit_id"
 [[actions]]
 use = "method-3"
 ```
-- [ ] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above
+- [x] **(Claude)** Step 3: Update `low_battery_level` to at/above the live level noted above
 , so the fresh connection registers as low immediately:
 `sqlite3 ~/Library/Application\ Support/TimeFlip/appdata.sqlite "UPDATE setting SET setting_value = '{\"percent\":<level>}' WHERE setting_name = 'low_battery_level';"`
 ```toml step
@@ -70,7 +70,7 @@ use = "method-24.i"
 setting = "low_battery_level"
 value = "{\"percent\":$battery_level_a}"
 ```
-- [ ] **(Claude)** Step 4: Start the app
+- [x] **(Claude)** Step 4: Start the app
 [Method: Number 2](../Methods.md#method-2) and confirm it reconnects to the device (fresh `debug_log` `"Login accepted, code=0x02"` row).
 ```toml step
 [[actions]]
@@ -82,7 +82,7 @@ since_id = "$before_quit_id"
 expect_contains = "Login accepted"
 timeout_seconds = 30
 ```
-- [ ] **(Claude)** Step 5: Confirm a `battery` row logged
+- [x] **(Claude)** Step 5: Confirm a `battery` row logged
 after the restart shows `isLowBattery=true` in `debug_log` -- so the visual checks below are made while the app really is in the low state.
 ```toml step
 use = "method-24.e"
@@ -99,9 +99,18 @@ timeout_seconds = 30
 (`isLowBattery=true`) -- confirmed by that section's own final query above; re-check it directly
 if running this section standalone rather than straight after.
 
-- [ ] **(You)** Step 1: Confirm the activity name is blinking red/white.
+- [x] **(You)** Step 1: Confirm the activity name is blinking red/white.
 - [ ] **(Claude)** Step 2: Click the **left side** of the status item
-and confirm the low-battery shortcut fired. That is the icon + activity name, not the duration/timer side, clicked via CGEventPost: `debug_log` (`click` tag) logs `Left-click while low battery: opening Settings on the Device tab` (the app opens Settings directly instead of the dropdown menu while the warning is active). Step 3 then confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+and confirm the low-battery shortcut fired. That is the icon + activity name, not the duration/timer side, clicked via CGEventPost: `debug_log` (`click` tag) logs `Status item clicked: side=left clickCount=1 -> openSettings`, the app having opened Settings directly instead of the dropdown menu while the warning is active. Step 3 then confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+      This used to wait for `Left-click while low battery: opening Settings...`, a marker `1447da4`
+      deleted when it lifted the routing rule out of AppKit into `MenuBarClickRouter` and replaced
+      the per-branch messages with one line naming the decision. The click was landing and the app
+      was doing the right thing; only the sentence it used to say had gone.
+      Asserting the decision is enough here because *why* it was taken is unit-tested
+      (`MenuBarClickRouterTests.testConnectedLeftSideOpensSettingsWhileTheBatteryWarningBlinks`): a
+      left-click resolves to `openSettings` only while the warning blinks. What those tests cannot
+      see, and what this step is for, is whether a real click at a real screen position reaches that
+      rule at all.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -114,10 +123,18 @@ mode = "single"
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click while low battery: opening Settings%' AND debug_log_id > $before_left_click_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "opening Settings on the Device tab"
+query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Status item clicked:%' AND debug_log_id > $before_left_click_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "side=left clickCount=1 -> openSettings"
 timeout_seconds = 30
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-10 - Step 2 waited for a `click` row reading `Left-click while low battery: opening
+Settings...`, which `1447da4` deleted when it moved the routing rule out of AppKit into
+`MenuBarClickRouter` and replaced the per-branch messages with one line naming the resolved action.
+Nothing was wrong with the app: the click landed and Settings opened, and the log said so as
+`Status item clicked: side=left clickCount=1 -> openSettings`. The step reads the decision now, and
+`Methods.md` Method 7 records that the arrow is the durable thing to assert on.
+
 - [ ] **(Claude)** Step 3: Confirm that Settings opened on the Device tab
 (the Device tab reads `value = 1`) -- the window only exists if the left-click opened Settings, so this doubles as proof it wasn't the dropdown menu.
 ```toml step

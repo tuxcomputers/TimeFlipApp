@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 12:04 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 12:54 on the branch 'feature/manualMode'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
@@ -606,7 +606,7 @@ action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 expect = "$real_pin"
 ```
-- [ ] Step 2: Relaunch and confirm the app reaches the cube again.
+- [x] Step 2: Relaunch and confirm the app reaches the cube again.
 The proof that the restore worked, and the state the next checklist expects to inherit. Methods:
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
 ```toml step
