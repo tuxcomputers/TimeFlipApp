@@ -1,6 +1,6 @@
 # Lock / pause_on_lock Checklist (Bench)
 
-### Last run - 2026-08-10 11:05 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 11:28 on the branch 'feature/manualMode'
 
 Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actions
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for
@@ -39,14 +39,14 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Query the current `pause_on_lock` value
+- [x] Step 1: Query the current `pause_on_lock` value
  and capture it, so a later step (or a resume) can put it back.
  ```toml step
 action = "sql_query"
 query = "SELECT setting_value FROM setting WHERE setting_name='pause_on_lock';"
 capture = "pause_on_lock_original"
 ```
-- [ ] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
+- [x] Step 2: Query the device's current lock/pause state and the status-item menu's item names.
       If the device is currently paused or locked, resolve that first (click Resume / Unlock via
       the menu) so the scenarios below start from a clean unlocked, unpaused state.
 ```toml step
@@ -58,24 +58,24 @@ action = "ensure_unlocked_unpaused"
 **Preconditions:** device connected, unlocked, unpaused, `pause_on_lock=true` -- checked and
 resolved in Setup immediately above, which this scenario runs straight on from.
 
-- [ ] Step 1: Set `pause_on_lock` to `true`
+- [x] Step 1: Set `pause_on_lock` to `true`
 ```toml step
 use = "method-24.i"
 setting = "pause_on_lock"
 value = "{\"enabled\":true}"
 ```
-- [ ] Step 2: Confirm the device is not already paused (latest `device_event` has `paused = 0`).
+- [x] Step 2: Confirm the device is not already paused (latest `device_event` has `paused = 0`).
 ```toml step
 use = "method-24.c"
 column = "paused"
 expect = "0"
 ```
-- [ ] Step 3: Click the "Lock" menu item.
+- [x] Step 3: Click the "Lock" menu item.
 ```toml step
 use = "method-6"
 item = "Lock"
 ```
-- [ ] Step 4: Confirm a new `paused = 1` device_event
+- [x] Step 4: Confirm a new `paused = 1` device_event
 row was written and the lock verified. `debug_log` shows `"Lock ON triggered"` followed by `"Lock verification confirmed: requested=ON actual=ON"`
 ```toml step
 [[actions]]
@@ -90,9 +90,9 @@ use = "method-24.c"
 column = "paused"
 expect = "1"
 ```
-- [ ] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
+- [x] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
       [Method: Number 17](../Methods.md#method-17).
-- [ ] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
+- [x] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 ```toml step
 action = "applescript"
 script = '''
@@ -110,7 +110,7 @@ end tell
 return names & {"enabled=" & pauseEnabled}'''
 expect_contains = "Unlock"
 ```
-- [ ] Step 7: Click "Unlock".
+- [x] Step 7: Click "Unlock".
 ```toml step
 [[actions]]
 use = "method-6"
@@ -123,7 +123,7 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
 timeout_seconds = 30
 ```
-- [ ] Step 8: Confirm the device is still paused after unlocking
+- [x] Step 8: Confirm the device is still paused after unlocking
       -- no new `paused = 0` row appears.
 ```toml step
 use = "method-24.c"

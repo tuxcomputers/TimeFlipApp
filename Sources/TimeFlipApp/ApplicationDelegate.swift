@@ -723,6 +723,24 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 guard outcome == .connected else {
                     logger.error("TimeFlip connect failed; will retry")
                     await MainActor.run {
+                        // A newer attempt has replaced this one, so this result is about a
+                        // connection nobody is waiting for any more, and acting on it does harm.
+                        //
+                        // Retry is where that happens, and the position of this check is the whole
+                        // fix. The offer is raised from inside this very task and puts up a modal,
+                        // so the main actor is busy answering the dialog while this block sits in
+                        // the queue. Retry clears the awaiting flag and starts a fresh attempt;
+                        // then the modal returns, this block finally runs, raises the dialog a
+                        // second time, and `offerManualMode` -> `stopDeviceEvents` cancels the
+                        // attempt Retry just started, before its first line executes. Measured
+                        // 2026-08-10: Retry logged "scanning again", the new task was created 2ms
+                        // later, the dialog was back 3ms after that, and no scan ran for 99s.
+                        //
+                        // Checking before the `await` instead proves nothing, because the
+                        // generation is still current at that point -- tried on the device, and it
+                        // changed nothing at all. `eventTaskGeneration` already existed for this
+                        // and was consulted only by the `defer` above.
+                        guard self.eventTaskGeneration == generation else { return }
                         // Every eligible device was there and refused this app's PIN. Retrying
                         // scans up the same cube for the same refusal, so this is the same final
                         // answer either way -- ask now. Only on a launch that has never connected:

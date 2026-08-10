@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 11:19 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 11:31 on the branch 'feature/manualMode'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
@@ -33,13 +33,13 @@ Config path: `~/Library/Application Support/TimeFlip/config.json`
 **Preconditions:** the test database and the device connected, both established by
 `Tests/00-test-setup.md`, which the supervisor always runs first.
 
-- [ ] Step 1: Confirm `db_type` reads **test** before anything writes to it.
+- [x] Step 1: Confirm `db_type` reads **test** before anything writes to it.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
+- [x] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
 Everything after this depends on being able to restore it: get it wrong and the next launch cannot
 reach the cube. Captured rather than assumed, because a re-pair may have rewritten it.
 ```toml step
@@ -47,7 +47,7 @@ action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 capture = "real_pin"
 ```
-- [ ] Step 3: Confirm the app can currently reach the cube with that PIN.
+- [x] Step 3: Confirm the app can currently reach the cube with that PIN.
 The premise of the whole checklist is that only the PIN is wrong afterwards. If the device is
 already unreachable, every assertion below would pass for the wrong reason -- and Scenario A's proof
 that the cube was *found* is what separates this file from `12i`.
@@ -77,13 +77,13 @@ premise is actually about. Same fix in `Interactive/12i` Step 2, which was a cop
 
 **Preconditions:** Setup complete: test database, device connected, the real PIN captured.
 
-- [ ] Step 1: Quit the app, so the staged PIN is read at the next launch.
+- [x] Step 1: Quit the app, so the staged PIN is read at the next launch.
 `config.json` is read at startup, so editing it under a running app changes nothing.
 [Method: Number 3](../Methods.md#method-3).
 ```toml step
 use = "method-3"
 ```
-- [ ] Step 2: Stage the refusal by setting the PIN to `123457`.
+- [x] Step 2: Stage the refusal by setting the PIN to `123457`.
 One digit off the real one, deliberately: a value that is obviously a test fixture and obviously not
 a real PIN. The Google keys in the same file are read and rewritten around it rather than the file
 being replaced, because losing a client secret to a test fixture would be a bad way to find this out.
@@ -97,7 +97,7 @@ action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 expect = "123457"
 ```
-- [ ] Step 3: Capture the log baseline, then launch.
+- [x] Step 3: Capture the log baseline, then launch.
 Everything asserted below has to be a row *this* launch produced: the same messages are sitting in
 the table from earlier runs. Methods: [Number 24.b](../Methods.md#method-24),
 [Number 2](../Methods.md#method-2).
@@ -109,7 +109,7 @@ capture = "before_staged_launch"
 [[actions]]
 use = "method-2"
 ```
-- [ ] Step 4: Confirm the scan **found** the cube.
+- [x] Step 4: Confirm the scan **found** the cube.
 The line that separates this run from `12i`'s. Without it, a refusal and an empty airspace are
 indistinguishable from the offer alone.
 ```toml step
@@ -118,7 +118,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'eligib
 expect_contains = "TimeFlip"
 timeout_seconds = 60
 ```
-- [ ] Step 5: Confirm the cube answered and rejected the PIN.
+- [x] Step 5: Confirm the cube answered and rejected the PIN.
 A real `0x01` from the device, not a timeout: it was reached, it understood, and it said no.
 ```toml step
 action = "wait_for_sql"
@@ -126,7 +126,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'none o
 expect_contains = "accepted this app's PIN"
 timeout_seconds = 60
 ```
-- [ ] Step 6: Confirm the offer names the **refusal**, not an empty scan.
+- [x] Step 6: Confirm the offer names the **refusal**, not an empty scan.
 The regression this pins shipped once. Two callers race here -- the attempt's own result, and the
 disconnect the refused probe causes -- and the one that knows the true answer lost by 3ms, so the log
 blamed the absence of a cube that was on the desk. "Not in range" and "there and refused" are
@@ -137,7 +137,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "refused this app's PIN"
 timeout_seconds = 30
 ```
-- [ ] Step 7: Confirm the dialog is actually on screen with both answers.
+- [x] Step 7: Confirm the dialog is actually on screen with both answers.
 An `NSAlert` raised by an app with no window open, which is the part least likely to survive a macOS
 change. [Method: Number 29](../Methods.md#method-29).
 ```toml step
@@ -186,6 +186,16 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND debug_log_id 
 expect_contains = "Offering manual mode"
 timeout_seconds = 60
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-10 - Retry did nothing at all: it logged "scanning again", the dialog came back 5ms later,
+and no scan ran for 99 seconds. The offer is raised from inside the connect task and puts up a
+modal, so that task is still on the stack while the dialog is answered. Retry cleared the flag and
+started a fresh attempt; the modal then returned, the old task carried on into its failure handling,
+raised the dialog a second time, and `offerManualMode` -> `stopDeviceEvents` cancelled the new
+attempt before its first line ran. `eventTaskGeneration` already existed for exactly this and was
+consulted only by the task's `defer`; it is now checked **inside** the `MainActor.run` that acts on
+the outcome. Checking before that hop was tried first on the device and changed nothing, because the
+generation is still current on that side of the await.
 - [ ] Step 9: Press **Switch to Manual Mode** and confirm the session starts.
 ```toml step
 [[actions]]
