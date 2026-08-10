@@ -1,5 +1,7 @@
 # Manual Mode Checklist
 
+### Last run - 2026-08-10 11:19 on the branch 'feature/manualMode'
+
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
 it records goes through the same `device_event` -> `time_entry` pipeline a real cube's history does,
@@ -49,11 +51,27 @@ capture = "real_pin"
 The premise of the whole checklist is that only the PIN is wrong afterwards. If the device is
 already unreachable, every assertion below would pass for the wrong reason -- and Scenario A's proof
 that the cube was *found* is what separates this file from `12i`.
+Read from the live `connection` setting, not from the log. This asked
+[Method 24.d](../Methods.md#method-24) for the newest `TimeFlip`-tagged message and expected the
+login, which only holds if nothing else has been logged under that tag since. `00-test-setup.md`
+ends by leaving the device unlocked and unpaused, and that verification is logged under the same
+tag, so the newest row is reliably *not* the login: this step failed on its first run reading
+`Lock verification confirmed: requested=OFF actual=OFF`. Elsewhere in the suite 24.d is safe because
+the step provokes the message immediately before reading it; here nothing was provoked.
+The flag is also the better question. "Is the app connected right now" is what the premise needs,
+and a login row proves only that one succeeded at some point.
 ```toml step
-use = "method-24.d"
-tag = "TimeFlip"
-expect_contains = "Login accepted"
+use = "method-24.f"
+setting = "connection"
+field = "connected"
+expect = "1"
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-10 - This step read the newest `TimeFlip`-tagged log row and expected the login, but
+`00-test-setup.md` ends by leaving the device unlocked and unpaused and logs that under the same
+tag, so the newest row was `Lock verification confirmed: requested=OFF actual=OFF` and the step
+could never pass. Reads the live `connection.connected` flag now, which is also the thing the
+premise is actually about. Same fix in `Interactive/12i` Step 2, which was a copy of it.
 
 ## Scenario A -- a device that answers and refuses raises the offer
 

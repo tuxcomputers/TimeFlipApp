@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 10:18 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 11:12 on the branch 'feature/manualMode'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the

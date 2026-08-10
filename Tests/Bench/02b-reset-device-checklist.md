@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-10 10:09 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 11:03 on the branch 'feature/manualMode'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the

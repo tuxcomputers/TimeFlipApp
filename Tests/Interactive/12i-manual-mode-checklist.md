@@ -38,10 +38,15 @@ expect = '{"type":"test"}'
 - [ ] **(Claude)** Step 2: Confirm the app is currently connected to the cube.
 The premise: the only thing that changes below is the radio. Starting from an already-unreachable
 device would make every assertion here pass for a reason the checklist is not testing.
+Read from the live `connection` setting rather than the newest `TimeFlip` log row, for the reason
+`Bench/12b` Setup Step 3 records: the setup's closing unlock/unpause is logged under that same tag,
+so the newest row is never the login, and asking whether the app is connected *now* is the question
+this premise is actually about.
 ```toml step
-use = "method-24.d"
-tag = "TimeFlip"
-expect_contains = "Login accepted"
+use = "method-24.f"
+setting = "connection"
+field = "connected"
+expect = "1"
 ```
 
 ## Scenario A -- nothing in range raises the offer, and says so
