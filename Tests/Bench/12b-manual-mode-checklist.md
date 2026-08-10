@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 11:56 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 12:04 on the branch 'feature/manualMode'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
@@ -39,7 +39,7 @@ use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
+- [x] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
 Everything after this depends on being able to restore it: get it wrong and the next launch cannot
 reach the cube. Captured rather than assumed, because a re-pair may have rewritten it.
 **Refuses to run if the staged fixture is already there.** A run that halts anywhere between
@@ -474,7 +474,7 @@ timeout_seconds = 30
 Settings window open** -- Scenario B closed the one it opened, and Scenario C is driven entirely from
 the status item. This scenario opens its own.
 
-- [ ] Step 1: Open Settings on the Device tab and confirm Forget Device and Reset Device are both
+- [x] Step 1: Open Settings on the Device tab and confirm Forget Device and Reset Device are both
       disabled.
 These are deliberately **not** gated on being connected -- forgetting a cube that is out of range is
 an ordinary thing to want. Manual mode is the exception, and it fails quietly: a virtual device
@@ -512,7 +512,7 @@ tell application "System Events"
 end tell"""
 expect_contains = "forget-device=false"
 ```
-- [ ] Step 2: Close the Settings window this scenario opened.
+- [x] Step 2: Close the Settings window this scenario opened.
 So Scenario E quits with nothing on screen, matching how every other scenario here leaves it.
 [Method: Number 23](../Methods.md#method-23).
 ```toml step
@@ -528,7 +528,7 @@ own now. Found on the first run that ever reached Scenario D.
 
 **Preconditions:** Scenario D complete: the app in manual mode with the timer running on face 13.
 
-- [ ] Step 1: Capture the open segment's id and duration.
+- [x] Step 1: Capture the open segment's id and duration.
 Every other segment in `device_event` is closed by the frame that follows it. A manual session has no
 frame after its last one, so without the quit handler the segment being timed would stay open and
 never become a `time_entry`. For a cube that self-heals on the next flip; here nothing is coming.
@@ -548,7 +548,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id WHERE de.device_event_id = $open_manual_row;"
 expect = "0"
 ```
-- [ ] Step 2: Let it run a little, then quit.
+- [x] Step 2: Let it run a little, then quit.
 The row is only as current as the last periodic fetch left it, so the close-off has to give it its
 true duration rather than accept whatever was last written. [Method: Number 3](../Methods.md#method-3).
 ```toml step
@@ -559,7 +559,7 @@ command = "sleep 15"
 [[actions]]
 use = "method-3"
 ```
-- [ ] Step 3: Confirm the segment was finalised, and grew on the way out.
+- [x] Step 3: Confirm the segment was finalised, and grew on the way out.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -571,7 +571,7 @@ action = "shell"
 command = "sqlite3 ~/Library/Application\\ Support/TimeFlip/appdata.sqlite \"SELECT CASE WHEN duration_seconds > $duration_before_quit THEN 'grew' ELSE 'stuck' END FROM device_event WHERE device_event_id = $open_manual_row;\""
 expect = "grew"
 ```
-- [ ] Step 4: Confirm it became a `time_entry`.
+- [x] Step 4: Confirm it became a `time_entry`.
 "And all that entails": finalising is only half of it, the row has to be converted too, and against
 the category face 13 held at the time.
 ```toml step
@@ -580,7 +580,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM time_entry WHERE device_event_id = $open_manual_row;"
 expect = "1"
 ```
-- [ ] Step 5: Confirm the app said so on the way out.
+- [x] Step 5: Confirm the app said so on the way out.
 A SQLite write during `applicationWillTerminate` is the part of this feature least likely to survive
 first contact, so it is worth asserting from both ends.
 ```toml step
@@ -593,7 +593,7 @@ expect_contains = "Manual segment closed off"
 
 **Preconditions:** Scenario E complete: the app quit, the staged PIN still in `config.json`.
 
-- [ ] Step 1: Put the real PIN back.
+- [x] Step 1: Put the real PIN back.
 Everything after this run depends on it. Restored before the relaunch, so the very next launch proves
 it worked rather than leaving a broken file for the next checklist to trip over.
 ```toml step
@@ -622,3 +622,14 @@ use = "method-4"
 since_id = "$before_restore_launch"
 timeout_seconds = 90
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-10 - The restore blanked the PIN instead of putting it back, and the step above reported
+success while doing it. `act_shell` ignored both `capture` and `expect`, so Setup Step 2 never set
+`real_pin`; the restore command then reached `subprocess.run(..., shell=True)` with `$real_pin`
+still in it and **bash** expanded that undefined name to an empty string, writing `"PIN": ""`. The
+verification action directly underneath compares the file against `$real_pin` and would have caught
+it, except `expect` was ignored there too. Only Step 2's relaunch noticed, by which point the cube
+was unreachable and the cause was two steps and one silent assertion away.
+`act_shell` now honours both. Note this makes five other shell assertions in this file live for the
+first time, including Scenario B Step 5 (`moved`) and Scenario E Step 3 (`grew`), which have been
+passing regardless of what they printed.
