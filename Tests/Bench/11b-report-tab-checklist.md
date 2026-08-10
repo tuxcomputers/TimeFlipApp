@@ -1,6 +1,6 @@
 # Report Tab Checklist
 
-### Last run - 2026-08-10 12:53 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 13:54 on the branch 'feature/manualMode'
 
 Covers the **Report** tab: a date range picked on two hand-drawn calendars, and what each category
 took over it. The figures come from `AppDataStore.loadCategoryTotals(from:to:)`, which sums
