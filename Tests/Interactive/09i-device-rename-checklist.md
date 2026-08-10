@@ -1,5 +1,7 @@
 # Device Rename Checklist
 
+### Last run - 2026-08-10 14:34 on the branch 'feature/manualMode'
+
 Nothing needed.
 
 Renaming needs the cube, but never a hand on it. Every step is a click or a keystroke in the

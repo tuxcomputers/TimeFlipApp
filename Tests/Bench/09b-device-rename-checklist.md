@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-10 13:50 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 14:23 on the branch 'feature/manualMode'
 
 Covers renaming the cube: the three right-click targets that open the menu, the write itself, the
 notice that explains why the new name does not show up everywhere, and the documented workaround

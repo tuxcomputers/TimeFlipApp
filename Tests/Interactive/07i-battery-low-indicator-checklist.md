@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-10 14:01 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 14:32 on the branch 'feature/manualMode'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a
@@ -198,7 +198,7 @@ timeout_seconds = 30
 ```
 - [x] **(You)** Step 5: Confirm the activity name is no longer flashing
 , and that the Battery line on the Device tab is no longer flashing.
-- [ ] **(Claude)** Step 6: Click the **left side** of the status item again
+- [x] **(Claude)** Step 6: Click the **left side** of the status item again
  via CGEventPost and confirm it now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only applies while the warning is active. `debug_log` (`click` tag) logs `Status item clicked: side=left clickCount=1 -> showMenu`, the non-low branch; an Escape then dismisses the menu it opened so it doesn't block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
       The sibling of Step 2's fix, and the one that proves this scenario's point: the *same* click,
       on the same half, resolving to `showMenu` here and `openSettings` there is the whole
