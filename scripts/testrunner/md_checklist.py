@@ -56,6 +56,11 @@ class Step:
     prose: str  # first-line text after the checkbox (used for the run print and dedup)
     spec: Optional[dict]
     section: str  # cleaned `## ` heading this step falls under ("Setup", "Scenario A", ...)
+    # The same heading uncut ("Scenario B -- quit and relaunch resumes from ..."), for the console
+    # sub-heading, which has the room to say what the scenario is actually for. Kept separate from
+    # `section` rather than replacing it: `section` keys the run record and the remembered-value
+    # tree, so a resume looks values up by it, and rewording a heading must not orphan them.
+    section_full: str
     number: int  # 1-based ordinal within `section`
     full_text: str  # prose joined across wrapped continuation lines (excludes the toml block)
 
@@ -122,11 +127,13 @@ class Checklist:
         n = len(lines)
         i = 0
         section = ""
+        section_full = ""
         section_step_no = 0
         while i < n:
             sec = SECTION_RE.match(lines[i])
             if sec:
-                section = _clean_section(sec.group(1))
+                section_full = sec.group(1).strip()
+                section = _clean_section(section_full)
                 section_step_no = 0
                 i += 1
                 continue
@@ -181,6 +188,7 @@ class Checklist:
                     prose=rest.strip(),
                     spec=spec,
                     section=section,
+                    section_full=section_full,
                     number=section_step_no,
                     full_text=" ".join(body_parts).strip(),
                 )

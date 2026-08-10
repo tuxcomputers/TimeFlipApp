@@ -68,8 +68,12 @@ class StepResult:
     actual: Optional[str] = None
 
 
-# Width of the starred box announcing a step that needs a person (see print_action_required).
-ACTION_BANNER_WIDTH = 70
+# Width of the hashed box naming the checklist a run has reached (see print_checklist_banner).
+# The starred action box is not this wide: it is sized to its own title, see print_action_banner.
+CHECKLIST_BANNER_WIDTH = 70
+
+# Spaces between the starred action box's title and its two side walls.
+ACTION_BANNER_PADDING = 2
 
 # How long act_wait_for_sql polls quietly before alerting the developer that it's still waiting. A
 # relaunched app needs a few seconds to find the device and log `Login accepted`, so an instant
@@ -80,14 +84,52 @@ ALERT_AFTER_SECONDS = 5
 
 
 def print_action_banner(title="Action required"):
-    """The centred starred box announcing that the run needs a person. A run scrolls a long way on
-    its own, so the point where it is waiting has to be findable at a glance rather than reading as
-    one more result line. Printed on its own so a caller can put the step's own text inside the
-    box's shadow, above the nudge (see supervisor's human-verified step)."""
-    bar = "*" * ACTION_BANNER_WIDTH
+    """The starred box announcing that the run needs a person. A run scrolls a long way on its own,
+    so the point where it is waiting has to be findable at a glance rather than reading as one more
+    result line. Printed on its own so a caller can put the step's own text inside the box's shadow,
+    above the nudge (see supervisor's human-verified step).
+
+    Sized to its title rather than to a fixed width, so it hugs the words:
+
+        *********************
+        *  Action required  *
+        *********************
+
+    That makes it a compact flag beside the step it interrupts, distinct from the full-width
+    checklist box below, which is a divider between whole checklists and is meant to be a wall."""
+    inner = len(title) + ACTION_BANNER_PADDING * 2
+    bar = "*" * (inner + 2)
     print(bar)
-    print(f"*{title.center(ACTION_BANNER_WIDTH - 2)}*")
+    print(f"*{title.center(inner)}*")
     print(bar)
+
+
+def print_checklist_banner(name):
+    """The hashed box naming the checklist the steps below belong to.
+
+    Full width, unlike the action box, because it divides one checklist from the next rather than
+    flagging a moment inside one. Together with `print_scenario_header` this is what lets a step
+    line be a bare "Step 3: ..." -- the checklist and the scenario are the headings above it
+    instead of a prefix repeated on every line. The log file has read this way for a while
+    (`run_checklist` writes the section as a sub-heading); the console now matches it."""
+    bar = "#" * CHECKLIST_BANNER_WIDTH
+    print(bar)
+    print(f"#{name.center(CHECKLIST_BANNER_WIDTH - 2)}#")
+    print(bar)
+
+
+def print_scenario_header(section):
+    """The scenario sub-heading under a checklist banner:
+
+        ####### Scenario B -- quit and relaunch resumes from ... #######
+
+    The `## ` heading uncut (`Step.section_full`), not the short "Scenario B" that keys the run
+    record, because the part after the dash is the only place a run says what a scenario is *for*.
+
+    Narrower and lighter than the boxes on purpose. A run raises one of these every few steps, so a
+    full box would flatten the difference between "the next few steps are a new scenario" and the
+    two things that genuinely interrupt a reader: a new checklist, and the run needing a person."""
+    print(f"####### {section} #######")
 
 
 def print_action_required(message, title="Action required", header=None):

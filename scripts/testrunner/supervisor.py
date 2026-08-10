@@ -28,11 +28,13 @@ failed step stops the whole run (later steps assume the state earlier ones left)
 leaving the device in the state that failed and skipping end-of-run cleanup so it can
 be inspected.
 
-A passing step prints a bare "-> PASS" and nothing else, so a run reads as a clean list
-of outcomes. What each step read goes to the `step_value` table in logs/testruns.sqlite
-instead (run_record.py) -- its own database file, so the values survive test.sqlite
-being reseeded each run and can be compared run to run. A failure still prints its
-Expected/Result on the spot.
+Which checklist and scenario the steps belong to are headings above them (a hashed box, and
+a "####### Scenario A -- what it is for #######" line) rather than a prefix repeated on every
+step line, so a step reads as "Step 3: <instruction>". A passing step prints a bare "-> PASS" and nothing
+else, so a run reads as a clean list of outcomes. What each step read goes to the
+`step_value` table in logs/testruns.sqlite instead (run_record.py) -- its own database file,
+so the values survive test.sqlite being reseeded each run and can be compared run to run.
+A failure still prints its Expected/Result on the spot.
 
 Every run writes a full transcript to logs/YYYY-MM-DD_hh.mm.ss.txt regardless of
 outcome, and exits non-zero if anything failed or was skipped -- for CI/scripts to
@@ -53,6 +55,8 @@ from methods import load_methods, methods_path, resolve_uses  # noqa: E402
 from actions import (  # noqa: E402
     condition_met,
     print_action_banner,
+    print_checklist_banner,
+    print_scenario_header,
     step_asks_immediately,
     resolve_missing_vars_from_remembered,
     run_step,
@@ -411,18 +415,33 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
         # app/device has a moment to settle before the next one runs.
         time.sleep(STEP_PAUSE_SECONDS)
         ran_any = True
-        # Log the section name once, as a sub-heading, when it changes -- so step lines below can
-        # stay short ("Step N: ...") and still be unambiguous.
+        # Name the section once, as a sub-heading, when it changes -- so step lines below can stay
+        # short ("Step N: ...") and still be unambiguous. The log has always read this way; the
+        # console now does too, with the checklist's own banner above the first of them.
+        #
+        # `lead` is the blank line a step header normally opens with. A step that follows one of
+        # these headings drops it, so the heading and its first step sit together as one block
+        # rather than being pushed apart by the gap that separates ordinary steps.
+        lead = "\n"
         if step.section != last_section:
             log_lines.append(f"\n{step.section}")
+            print()
+            if last_section is None:
+                # First step of this checklist that has actually run. Printed here rather than on
+                # entry to the function because a checklist can be entered and run nothing (a
+                # resume whose steps are all ticked already), and a banner over no steps is noise.
+                print_checklist_banner(_display_name(path))
+                print()
+            print_scenario_header(step.section_full or step.section)
+            lead = ""
             last_section = step.section
         actor_tag = "(You) " if step.actor == "you" else ""
-        # Console header: "(01b History refresh checklist) Scenario A - Step 3: <instruction>".
+        # Console header: "(You) Step 3: <instruction>", under the two headings above.
         # The instruction is the step's FIRST line in the .md (see Step.description) -- the short
         # imperative sentence -- not the rationale/detail that follows it on the wrapped lines.
         # The log uses the shorter "Step N: STATUS ..." form (section is the sub-heading above).
         desc = step.description()
-        header = f"({_display_name(path)}) {actor_tag}{step.section} - Step {step.number}: {desc}"
+        header = f"{actor_tag}Step {step.number}: {desc}"
 
         # Which scenario this step is in (for recording captures under it), and -- for a resume
         # that skipped earlier scenarios -- fill any $var this step needs that an earlier scenario
@@ -437,7 +456,7 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
             if auto_yes:
                 # --yes/non-interactive: there's no human to ask, and this step needs one
                 # (no toml to automate it) -- record it as a skip rather than block on input.
-                print(f"\n{header}")
+                print(f"{lead}{header}")
                 print("-> SKIP: needs human verification; --yes/non-interactive can't ask.")
                 log_lines.append(f"Step {step.number}: SKIP - {desc} (needs human; --yes)")
                 _record(run_record, path, step, desc, "SKIP",
@@ -450,7 +469,8 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
             # question: the thing being asked about sits inside the box that announced it rather
             # than above it, so a reader who spots the stars has the step right there. The question
             # is phrased so Y = passed/continue.
-            print()
+            if lead:
+                print()
             print_action_banner()
             print(header)
             passed = prompt_yn(">>> ACTION NEEDED: Verify the above is true")
@@ -484,11 +504,12 @@ def run_checklist(path, db_path, log_lines, auto_yes=False, remembered=None,
         guard_unmet = cond is not None and not condition_met(cond, ctx)
         ctx["banner_shown"] = step_asks_immediately(spec) and not guard_unmet
         if ctx["banner_shown"]:
-            print()
+            if lead:
+                print()
             print_action_banner()
             print(header)
         else:
-            print(f"\n{header}")
+            print(f"{lead}{header}")
         if guard_unmet:
             print(f"-> SKIP: not needed (when {cond})")
             log_lines.append(f"Step {step.number}: SKIP - {desc} (when {cond} not met)")

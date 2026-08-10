@@ -152,17 +152,42 @@ before comparison in both, so any casing works:
 ## Steps run without confirmation
 
 Steps run straight through -- the runner prints each step's result and moves on, with no
-per-step y/n gate. One line names the step, one reports the result:
+per-step y/n gate. Which checklist and which scenario the steps belong to are **headings
+above them** rather than a prefix repeated on every line, so a step line is short:
 
 ```
-(00 Test setup) Setup - Step 2: Check which database is active.
+######################################################################
+#                     01b History refresh checklist                  #
+######################################################################
+
+####### Setup #######
+Step 1: Confirm the latest `device_event` row is open/growing.
+-> PASS
+
+####### Scenario A -- nothing changes (skip path + duration refresh) #######
+Step 1: Note the currently-open `device_event` row's `event_number`.
+-> PASS
+
+Step 2: Wait for at least one periodic refresh interval.
 -> PASS
 ```
 
-The step line is `(<checklist>) [<actor>] <section> - Step <n>: <instruction>`, where the
-instruction is the step's **first line** in the `.md` -- so write that line as the short
-imperative sentence and put the rationale/caveats on the wrapped lines under it (see
-`Tests/00-test-setup.md` for the shape). `(You)` appears for a `**(You)**` step.
+The scenario line is the `## ` heading **uncut**, so the part after the `--` says what the
+scenario is for. That is `Step.section_full`; the short `Scenario A` (`Step.section`) still
+keys the run record and the remembered-value tree, so rewording a heading does not orphan
+values a resume needs to look up.
+
+The hashed box is full width because it divides one checklist from the next. The starred
+**Action required** box is sized to its title instead, so it reads as a compact flag beside
+the step it interrupts rather than a second wall. The hashed box is raised on the first step
+a checklist actually runs, not on entry: a resume can enter a checklist whose steps are all
+ticked already, and a banner over no steps is noise.
+
+The step line is `[<actor>] Step <n>: <instruction>`, where the instruction is the step's
+**first line** in the `.md` -- so write that line as the short imperative sentence and put the
+rationale/caveats on the wrapped lines under it (see `Tests/00-test-setup.md` for the shape).
+`(You)` appears for a `**(You)**` step. The transcript in `logs/` has always read this way,
+with the section as a sub-heading; the console now matches it.
 
 A pass is a bare `-> PASS` and nothing else, whether the step read a value or just clicked
 something, so a run reads as a clean list of outcomes:
@@ -192,9 +217,9 @@ asks you to verify against the app/device rather than guess at). Both announce t
 a boxed banner, so the point where the run is waiting on you can't be missed in the scroll:
 
 ```
-**********************************************************************
-*                          Action required                           *
-**********************************************************************
+*********************
+*  Action required  *
+*********************
 >>> ACTION NEEDED: Flip the cube to the Break face.
 ```
 
