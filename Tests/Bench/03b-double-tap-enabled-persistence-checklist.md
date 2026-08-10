@@ -1,6 +1,6 @@
 # Double-Tap Enabled Persistence Checklist
 
-### Last run - 2026-08-10 17:19 on the branch 'bugfix/pairingProbeSettle'
+### Last run - 2026-08-10 20:03 on the branch 'feature/singleInstance'
 
 Covers the Double-tap **Disable** checkbox's `enabled` flag moving from UserDefaults to being
 DB-backed via `AppDataStore`/the `double_tap_settings` row -- confirms the flag set in the

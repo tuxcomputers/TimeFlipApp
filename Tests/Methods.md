@@ -76,11 +76,19 @@ action = "shell"
 command = "nohup ./.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip > /dev/null 2>&1 &"
 ```
 
-**Pair it with Method 3 unless you know the app is down.** Nothing here checks for a running
-instance, and `Tests/00-test-setup.md` leaves the app running before any feature checklist starts,
-so a step that only launches gets a **second** instance: two status items in the menu bar, two BLE
-clients competing for the device. Quit first (Method 3 no-ops when nothing is running, so the pair
-restarts and cold-starts alike). Confirmed on 2026-08-02, when `09b` inlined a bare launch.
+**Pair it with Method 3 unless you know the app is down**, but not for the reason this note used to
+give. A second instance is no longer possible: the app takes an exclusive lock at startup
+(`SingleInstanceLock`) and a duplicate launch writes `TimeFlip is already running; this instance is
+exiting.` to stderr and exits 0 before it opens the database or touches the radio. The two status
+items and two competing BLE clients that `09b` produced on 2026-08-02 by inlining a bare launch
+cannot happen now.
+
+What is left is quieter and still wrong: `Tests/00-test-setup.md` leaves the app running before any
+feature checklist starts, so a bare launch is a **no-op**, and a step meaning to observe a fresh
+start silently asserts against the instance that was already up. Quit first (Method 3 no-ops when
+nothing is running, so the pair restarts and cold-starts alike). The lock is released when the
+process dies however it dies, so a relaunch straight after a quit, a crash or a `kill -9` takes it
+cleanly (measured 2026-08-10).
 
 <a id="method-3"></a>
 ## Method 3: Quit the app

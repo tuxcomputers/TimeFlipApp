@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 17:39 on the branch 'bugfix/pairingProbeSettle'
+### Last run - 2026-08-10 20:25 on the branch 'feature/singleInstance'
 
 One scenario, and only because of where the lock control lives.
 
