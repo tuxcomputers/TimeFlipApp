@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 14:20 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 15:41 on the branch 'docs/testHeading'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
@@ -386,8 +386,6 @@ tab = "Device"
 use = "method-10"
 tab = "Categories"
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-09 - This step could not find `Email` among the rendered rows: Step 1 seeded it with SQL and
 reopening Settings did not re-read the list, so the row existed only in the database. Step 1 now
 creates it from the Create control, whose success path re-reads the list, and passes on the database
 record rather than on anything the window says.

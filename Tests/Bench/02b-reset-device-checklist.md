@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-10 14:12 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 15:31 on the branch 'docs/testHeading'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -127,11 +127,6 @@ action = "sql_query"
 query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "confirmed_id"
 ```
-### Bugs found and fixed - branch 'feature/manualMode'
-2026-08-09 - The confirm login never presented the default PIN: it was tried *after* the stored one, and a rejected probe drops the link on its way out, so the second attempt failed at connect before sending anything (`refused this app's PIN` then `could not be reached`, same second, no `Probe logging in using password` line). The default now goes first while a reset is pending, and a settle sits between attempts on one peripheral.
-2026-08-09 - This step's 60s wait was shorter than the app's own 120s confirm budget, so it could fail while the reset was still working. Measured this run: reset sent 23:54:05.8, device stopped advertising, back in scan results 23:54:43.5 (37.7s), confirmed 23:55:16.3 (70.5s total, the gap being reconnect backoff, not the device). Raised to 150s, and the query now also matches the give-up line so a real failure reports the app's verdict.
-2026-08-10 - The 70.5s above was mostly the eligibility scan sitting out its full window after it had already found the cube, so that scan now ends as soon as the paired device turns up. That broke this step outright on the first hardware run: a cube keeps advertising, and keeps accepting its pre-reset password, for several seconds after `0xFF` (still listed at +3s, still logging in at +8s), so ending early attached the app to the cube it was waiting to lose, and holding that link stopped it advertising, leaving every later scan empty until the 120s budget ran out. Confirming a reset now waits the window out deliberately (`mayEndEarly: false`). Re-measured after the fix: `0xFF` at 00:31:42.4, confirmed at 00:32:18.1, **35.7s**, one scan window and one probe.
-2026-08-09 - A confirmed reset left `config.json` naming the pre-reset PIN, so the next launch would present a password the wiped cube no longer held; `forgetDevice` now records the factory default there.
 - [x] Step 4: Confirm the UI reaches the pristine never-paired state.
  During the confirm window the `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...` or `Connected`.
 ```toml step
