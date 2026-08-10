@@ -500,8 +500,8 @@ tab = "Categories"
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
       (Note: the count includes the three retired categories `Tests/00-test-setup.md` Step 9 seeds --
-      `ZZ Retired` for the report checklist, `ZZ Lapsed Older` and `ZZ Lapsed Recent` for the
-      last-used one. That fixture is seeded on every run rather than only when those checklists were
+      `ZZ Retired` for the report checklist, and two both named `ZZ Lapsed` for the last-used one
+      (retired namesakes are legal, `UN1_category` only bars duplicates among active categories). That fixture is seeded on every run rather than only when those checklists were
       requested, precisely so this number is a fixed baseline instead of depending on which
       checklists someone asked for. The retired row this step is really about is `Email`; if the
       seed's shape ever changes, this is the number that moves with it, and it moved from 2 to 4 on
@@ -564,7 +564,7 @@ daily limit are disabled. The Active box stays live, since reinstating is the on
 row must still allow.
 
 **Preconditions:** the Inactive section expanded, with the retired `Email` first in it. The seeded
-`ZZ Retired`, `ZZ Lapsed Older` and `ZZ Lapsed Recent` sit below it and are not what this scenario
+`ZZ Retired` and the two `ZZ Lapsed` rows sit below it and are not what this scenario
 is about; `Email` is `checkbox 1` because it sorts before all three.
 
 - [x] Step 1: Confirm the disabled and enabled controls on the retired row.

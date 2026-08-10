@@ -12,12 +12,16 @@ no matter which row that query picked.
 
 So this measures the whole path: rows in the database, through the join, to the characters on screen.
 
-**The fixture is two retired categories with entries on known, different days** -- `ZZ Lapsed Recent`
-10 days back and `ZZ Lapsed Older` 20 days back, seeded by `Tests/00-test-setup.md` Step 9 as event
-numbers `900004` and `900005`. Both dates are clear of the 3-to-5 days back the report fixture
-occupies, so a wrong row cannot produce a right-looking answer, and they differ from each other so a
-query returning MIN instead of MAX, or joining the wrong category, gives a visibly wrong day rather
-than the same one twice.
+**The fixture is two retired categories that share one name** -- both `ZZ Lapsed`, with entries 10
+and 20 days back, seeded by `Tests/00-test-setup.md` Step 9 as event numbers `900004` and `900005`.
+The shared name is what makes this the real case: `UN1_category` only bars duplicates among *active*
+categories, so the Inactive list can hold any number of identical-looking rows, and telling them
+apart by the history behind them is the entire reason this column exists. A fixture with two
+distinct names would test an easier problem.
+
+Both dates are clear of the 3-to-5 days back the report fixture occupies, so a wrong row cannot
+produce a right-looking answer, and they differ from each other so a query returning MIN instead of
+MAX, or joining the wrong category, gives a visibly wrong day rather than the same one twice.
 
 DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
@@ -32,29 +36,31 @@ use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 2: Confirm the two seeded categories are retired and hold one entry each.
-The premise. A missing or active fixture row would make every assertion below meaningless in a way
-that reads as a UI bug.
+- [ ] Step 2: Confirm both `ZZ Lapsed` rows are retired and hold one entry each.
+The premise, and the shape that matters: two rows under one name, one entry apiece. A missing or
+active fixture row would make every assertion below meaningless in a way that reads as a UI bug.
 ```toml step
 action = "sql_query"
-query = "SELECT (SELECT COUNT(*) FROM category WHERE category_name IN ('ZZ Lapsed Recent','ZZ Lapsed Older') AND active = 0) || '/' || (SELECT COUNT(*) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Lapsed Recent','ZZ Lapsed Older'));"
+query = "SELECT (SELECT COUNT(*) FROM category WHERE category_name = 'ZZ Lapsed' AND active = 0) || '/' || (SELECT COUNT(*) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name = 'ZZ Lapsed');"
 expect = "2/2"
 ```
 - [ ] Step 3: Compute the two dates the screen must show, from the rows themselves.
-Derived from the database rather than written in, so the assertion cannot drift from the fixture the
-way a hardcoded date would every time the seed moves. `%-d` and `%-I` drop the leading zero and the `sed` lowercases AM/PM,
+Selected by `MIN`/`MAX(category_id)` rather than by name, which no longer identifies a row -- the
+same pairing the setup used when it attached the entries. Derived from the database rather than
+written in, so the assertion cannot drift from the fixture the way a hardcoded date would every time
+the seed moves. `%-d` and `%-I` drop the leading zero and the `sed` lowercases AM/PM,
 which is what `DateFormatter`'s `.medium` date and `.short` time styles produce. Confirmed against a
 row already on screen: `ZZ Retired` rendered `7 Aug 2026 at 5:00 am`, and this command returns the
 same string for it.
 ```toml step
 [[actions]]
 action = "shell"
-command = "sqlite3 ~/Library/Application\\ Support/TimeFlip/appdata.sqlite \"SELECT CAST(MAX(de.start_epoch + te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE c.category_name = 'ZZ Lapsed Recent';\" | xargs -I{} date -r {} '+%-d %b %Y at %-I:%M %p' | sed 's/ AM$/ am/; s/ PM$/ pm/'"
+command = "sqlite3 ~/Library/Application\\ Support/TimeFlip/appdata.sqlite \"SELECT CAST(MAX(de.start_epoch + te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id WHERE te.category_id = (SELECT MIN(category_id) FROM category WHERE category_name = 'ZZ Lapsed');\" | xargs -I{} date -r {} '+%-d %b %Y at %-I:%M %p' | sed 's/ AM$/ am/; s/ PM$/ pm/'"
 capture = "recent_expected"
 
 [[actions]]
 action = "shell"
-command = "sqlite3 ~/Library/Application\\ Support/TimeFlip/appdata.sqlite \"SELECT CAST(MAX(de.start_epoch + te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE c.category_name = 'ZZ Lapsed Older';\" | xargs -I{} date -r {} '+%-d %b %Y at %-I:%M %p' | sed 's/ AM$/ am/; s/ PM$/ pm/'"
+command = "sqlite3 ~/Library/Application\\ Support/TimeFlip/appdata.sqlite \"SELECT CAST(MAX(de.start_epoch + te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id WHERE te.category_id = (SELECT MAX(category_id) FROM category WHERE category_name = 'ZZ Lapsed');\" | xargs -I{} date -r {} '+%-d %b %Y at %-I:%M %p' | sed 's/ AM$/ am/; s/ PM$/ pm/'"
 capture = "older_expected"
 
 [[actions]]
@@ -151,6 +157,27 @@ tell application "System Events"
     end tell
 end tell'''
 expect_contains = "$older_expected"
+```
+
+- [ ] Step 5: Confirm the two rows are namesakes, separated only by their dates.
+The claim the whole column exists for, and the one Steps 3 and 4 cannot make on their own: they
+would both pass against a single row that somehow carried both dates. `ZZ Lapsed` must appear twice
+in the Inactive list, with the two different dates beside them.
+```toml step
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
+            set matches to 0
+            repeat with i from 1 to (count of static texts)
+                if (value of static text i) is "ZZ Lapsed" then set matches to matches + 1
+            end repeat
+            return "zz_lapsed_rows=" & (matches as string)
+        end tell
+    end tell
+end tell'''
+expect_contains = "zz_lapsed_rows=2"
 ```
 
 ## Scenario B -- what the column does not say
