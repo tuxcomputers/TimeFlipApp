@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 11:31 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 11:56 on the branch 'feature/manualMode'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
@@ -39,10 +39,21 @@ use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [x] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
+- [ ] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
 Everything after this depends on being able to restore it: get it wrong and the next launch cannot
 reach the cube. Captured rather than assumed, because a re-pair may have rewritten it.
+**Refuses to run if the staged fixture is already there.** A run that halts anywhere between
+Scenario A Step 2 and Teardown leaves `123457` in the file, and a fresh run from the top would then
+capture the fixture *as* the real PIN and have Teardown write it back permanently, leaving the app
+unable to reach the cube and every later checklist failing in a way that points nowhere near here.
+Restore the real PIN by hand first, then start again.
 ```toml step
+[[actions]]
+action = "shell"
+command = "python3 -c \"import json,os; pin=json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN']; print('ok' if pin != '123457' else 'STAGED FIXTURE STILL IN config.json from a halted run -- put the real PIN back before running this')\""
+expect = "ok"
+
+[[actions]]
 action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 capture = "real_pin"
@@ -161,7 +172,7 @@ tell application "System Events"
 end tell"""
 expect_contains = "Retry"
 ```
-- [ ] Step 8: Press **Retry** and confirm it scans again rather than giving up.
+- [x] Step 8: Press **Retry** and confirm it scans again rather than giving up.
 Retry is the whole reason the threshold was dropped to one failure: the cost of asking too early is
 a click. It must produce a fresh scan, and land back on the same dialog while the PIN is still wrong.
 [Method: Number 29](../Methods.md#method-29).
@@ -196,7 +207,7 @@ attempt before its first line ran. `eventTaskGeneration` already existed for exa
 consulted only by the task's `defer`; it is now checked **inside** the `MainActor.run` that acts on
 the outcome. Checking before that hop was tried first on the device and changed nothing, because the
 generation is still current on that side of the await.
-- [ ] Step 9: Press **Switch to Manual Mode** and confirm the session starts.
+- [x] Step 9: Press **Switch to Manual Mode** and confirm the session starts.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -218,7 +229,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "face 13"
 timeout_seconds = 30
 ```
-- [ ] Step 10: Confirm answering the question did not re-ask it.
+- [x] Step 10: Confirm answering the question did not re-ask it.
 The bug this pins was user-facing and shipped: the losing caller's offer sat blocked behind the modal
 and fired the instant the dialog closed, putting it straight back up and tearing down the session
 that had just started. The mode could only be entered by answering twice. Zero windows and no second
@@ -239,7 +250,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM debug_log WHERE tag='manual-mode' AND message LIKE 'Offering manual mode:%' AND debug_log_id > $before_answer;"
 expect = "0"
 ```
-- [ ] Step 11: Confirm the menu bar shows a live display rather than the bare app name.
+- [x] Step 11: Confirm the menu bar shows a live display rather than the bare app name.
 Manual mode reports its own `ConnectionStatus`, and the menu bar's three display rules read it. Read
 literally as a disconnection, they emptied the status item to `TEST TimeFlip`.
 [Method: Number 27](../Methods.md#method-27).
@@ -253,7 +264,7 @@ expect_contains = "0:00:00"
 **Preconditions:** Scenario A complete: the app in manual mode with a session running and no dialog
 on screen.
 
-- [ ] Step 1: Open Settings from the dropdown and confirm it lands on **Faces**.
+- [x] Step 1: Open Settings from the dropdown and confirm it lands on **Faces**.
 Manual timing is driven entirely from that tab, so it is forced open there on every open rather than
 reopening wherever the window was last closed. Methods: [Number 6](../Methods.md#method-6),
 [Number 11](../Methods.md#method-11).
@@ -267,7 +278,7 @@ use = "method-11"
 tab = "Faces"
 expect = "1"
 ```
-- [ ] Step 2: Confirm the tab is in its manual shape.
+- [x] Step 2: Confirm the tab is in its manual shape.
 The left column's label reads `Timing` rather than `Top face`, and the device artwork is not drawn
 at all -- there is no cube in this mode, so a picture of one would be reporting nothing.
 ```toml step
@@ -284,7 +295,7 @@ tell application "System Events"
 end tell"""
 expect_contains = "Timing|"
 ```
-- [ ] Step 3: Click the first category row and confirm it starts the clock.
+- [x] Step 3: Click the first category row and confirm it starts the clock.
 The click is a real CGEvent one at the row's centre: these rows expose no name, title or identifier
 to accessibility, so the app's own `click`-tagged log is what proves which row was hit.
 [Method: Number 7](../Methods.md#method-7).
@@ -309,7 +320,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "on face 13"
 timeout_seconds = 30
 ```
-- [ ] Step 4: Confirm the segment landed on face 13 and is still open.
+- [x] Step 4: Confirm the segment landed on face 13 and is still open.
 A manual segment is an ordinary `device_event`, which is the whole point of the design: no second
 kind of record, and the same conversion into `time_entry` a cube's history gets.
 ```toml step
@@ -323,7 +334,7 @@ use = "method-24.c"
 column = "finalised"
 expect = "0"
 ```
-- [ ] Step 5: Confirm the duration is climbing.
+- [x] Step 5: Confirm the duration is climbing.
 Read from the status item's rendered title rather than a screenshot; two reads ten seconds apart is
 what proves movement, which a single frame cannot. [Method: Number 27](../Methods.md#method-27).
 ```toml step
@@ -344,7 +355,7 @@ action = "shell"
 command = "test \"$duration_first\" != \"$duration_second\" && echo moved || echo stuck"
 expect = "moved"
 ```
-- [ ] Step 6: Confirm the Faces tab and the menu bar agree.
+- [x] Step 6: Confirm the Faces tab and the menu bar agree.
 Two views of one session, and the requirement was that they cannot disagree. The elapsed figure sits
 under the play/pause control, inside the square, and is the same string the status item renders.
 ```toml step
@@ -361,7 +372,7 @@ tell application "System Events"
 end tell"""
 capture = "faces_tab_row"
 ```
-- [ ] Step 7: Close the Settings window, so the next checklist starts with none open.
+- [x] Step 7: Close the Settings window, so the next checklist starts with none open.
 [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
@@ -372,7 +383,7 @@ use = "method-23"
 **Preconditions:** Scenario B complete: a category being timed, the clock running, no Settings window
 open.
 
-- [ ] Step 1: Confirm the dropdown offers Pause and refuses Lock.
+- [x] Step 1: Confirm the dropdown offers Pause and refuses Lock.
 Pause survives manual mode because the thing it acts on moved into the app. Lock has no such half:
 it is a device command with a device state behind it, and there is no device. This item was dead in
 manual mode until the status item's right half had already been taught to pause, so the same gesture
@@ -386,7 +397,7 @@ expect_contains = "Lock=false"
 use = "method-30"
 expect_contains = "Pause=true"
 ```
-- [ ] Step 2: Pause from the dropdown and confirm the timer stops.
+- [x] Step 2: Pause from the dropdown and confirm the timer stops.
 It routes to the manual timer's own path, not to the device command the ordinary pause sends -- which
 would be refused anyway, manual mode never being connected.
 [Method: Number 6](../Methods.md#method-6).
@@ -405,7 +416,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "stopped"
 timeout_seconds = 30
 ```
-- [ ] Step 3: Confirm the duration is frozen, not merely slower.
+- [x] Step 3: Confirm the duration is frozen, not merely slower.
 ```toml step
 [[actions]]
 use = "method-27"
@@ -419,7 +430,7 @@ command = "sleep 12"
 use = "method-27"
 expect = "$paused_first"
 ```
-- [ ] Step 4: Confirm the item now reads Resume and is still live, with Lock still dead.
+- [x] Step 4: Confirm the item now reads Resume and is still live, with Lock still dead.
 A live item saying `Pause` over a stopped timer would be the same lie the greyed-out case exists to
 avoid. [Method: Number 30](../Methods.md#method-30).
 ```toml step
@@ -431,7 +442,7 @@ expect_contains = "Resume=true"
 use = "method-30"
 expect_contains = "Lock=false"
 ```
-- [ ] Step 5: Resume from the status item's right half and confirm it drives the same timer.
+- [x] Step 5: Resume from the status item's right half and confirm it drives the same timer.
 The other trigger for one gesture. It fires immediately rather than waiting out the double-click
 interval, because that wait exists only to let a second click upgrade to lock, and manual mode has
 nothing to lock. Methods: [Number 7](../Methods.md#method-7), [Number 8](../Methods.md#method-8).
@@ -459,17 +470,28 @@ timeout_seconds = 30
 
 ## Scenario D -- the Device tab cannot reach a device that isn't there
 
-**Preconditions:** Scenario C complete: the app in manual mode with the timer running.
+**Preconditions:** Scenario C complete: the app in manual mode with the timer running, and **no
+Settings window open** -- Scenario B closed the one it opened, and Scenario C is driven entirely from
+the status item. This scenario opens its own.
 
-- [ ] Step 1: Confirm Forget Device and Reset Device are both disabled.
+- [ ] Step 1: Open Settings on the Device tab and confirm Forget Device and Reset Device are both
+      disabled.
 These are deliberately **not** gated on being connected -- forgetting a cube that is out of range is
 an ordinary thing to want. Manual mode is the exception, and it fails quietly: a virtual device
 answers both. Reset is routed against the protocol so `0xFF` lands on the stand-in, is confirmed, and
 discards the real cube's stored name and uuid; Forget reports success having sent nothing, clears the
 stored password and unpairs, leaving the cube holding a PIN whose only copy has just been deleted.
-Neither is recoverable without the device in hand. Methods: [Number 10](../Methods.md#method-10),
+Neither is recoverable without the device in hand.
+The open is this step's own: it read the window straight away and failed with `-1728`, having
+inherited an assumption from Scenario B that no longer held once B learned to close up after itself.
+Manual mode forces the window to **Faces** on every open, so the tab switch is still needed after it.
+Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10),
 [Number 13](../Methods.md#method-13).
 ```toml step
+[[actions]]
+use = "method-6"
+item = "Settings..."
+
 [[actions]]
 use = "method-10"
 tab = "Device"
@@ -490,11 +512,17 @@ tell application "System Events"
 end tell"""
 expect_contains = "forget-device=false"
 ```
-- [ ] Step 2: Close the Settings window again.
+- [ ] Step 2: Close the Settings window this scenario opened.
+So Scenario E quits with nothing on screen, matching how every other scenario here leaves it.
 [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-10 - Step 1 read `window "TimeFlip Settings"` without opening it and failed with `-1728`.
+Scenario B opens the window and its last step closes it again, and Scenario C is driven entirely
+from the status item, so by the time this scenario runs there is no window to address. It opens its
+own now. Found on the first run that ever reached Scenario D.
 
 ## Scenario E -- quitting closes the segment off
 
