@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 15:48 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:34 on the branch 'bugfix/pairingProbeSettle'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything

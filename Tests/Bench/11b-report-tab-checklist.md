@@ -1,6 +1,6 @@
 # Report Tab Checklist
 
-### Last run - 2026-08-10 15:47 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:32 on the branch 'bugfix/pairingProbeSettle'
 
 Covers the **Report** tab: a date range picked on two hand-drawn calendars, and what each category
 took over it. The figures come from `AppDataStore.loadCategoryTotals(from:to:)`, which sums

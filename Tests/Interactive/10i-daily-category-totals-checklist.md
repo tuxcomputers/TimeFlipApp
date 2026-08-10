@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-10 15:55 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:40 on the branch 'bugfix/pairingProbeSettle'
 
 The half of the day-totals feature that needs a hand on the cube. `Bench/10b` proves the sum from
 inserted rows with the device held still; this proves it from real flips, which is the case a user

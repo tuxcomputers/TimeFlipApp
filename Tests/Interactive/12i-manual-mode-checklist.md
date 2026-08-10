@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 15:58 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:44 on the branch 'bugfix/pairingProbeSettle'
 
 The half of manual mode that needs the airspace to be genuinely empty.
 

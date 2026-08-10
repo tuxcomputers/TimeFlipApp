@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-10 15:53 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:38 on the branch 'bugfix/pairingProbeSettle'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a

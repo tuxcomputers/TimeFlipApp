@@ -1,6 +1,6 @@
 # History Refresh Checklist
 
-### Last run - 2026-08-10 15:31 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:17 on the branch 'bugfix/pairingProbeSettle'
 
 Covers the periodic/live-event history refresh rework: the cheap last-event check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see

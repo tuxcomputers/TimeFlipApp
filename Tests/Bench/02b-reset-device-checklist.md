@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-10 15:31 on the branch 'docs/testHeading'
+### Last run - 2026-08-10 17:18 on the branch 'bugfix/pairingProbeSettle'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
