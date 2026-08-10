@@ -1037,8 +1037,11 @@ final class AppState: ObservableObject {
     }
 
     /// Publishes the day's per-face totals. The only way they are set: they are always a whole set
-    /// re-derived from `device_event` (`DailyCategoryTotals.seedFromHistory`), never a running tally
-    /// nudged one segment at a time. An `incrementDailyTotal(faceID:by:)` used to exist for the
+    /// re-derived from `time_entry` (`DailyCategoryTotals.seedFromHistory`), never a running tally
+    /// nudged one segment at a time. `time_entry` rather than `device_event`, and that is the point
+    /// rather than a detail: the category is recorded on the entry, so reassigning a face later
+    /// cannot rewrite what was already tracked against the old one (see
+    /// `AppDataStore.loadTimeEntries`). An `incrementDailyTotal(faceID:by:)` used to exist for the
     /// latter and was removed with it -- a figure the database cannot be asked to confirm is one
     /// that can quietly drift from the rows it is supposed to be summarising.
     func replaceDailyTotals(_ totals: [Int: TimeInterval]) {
