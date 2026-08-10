@@ -1,6 +1,6 @@
 # TimeFlip macOS
 
-A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device with seamless Google Calendar integration.
+A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
 
 ## Provenance
 
@@ -12,14 +12,18 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **BLE Device Integration**: Direct connection to TimeFlip2 via Bluetooth Low Energy, with automatic reconnection (including on system wake from sleep) if the connection drops
 - **Status Indicators**: Menu bar text color shows connection state (green/yellow) and a blinking low-battery warning at a glance
 - **Device Lock Control**: Double-click to lock/unlock the device directly from the menu bar
-- **Google Calendar Sync**: Automatically creates calendar events for completed time tracking sessions
-- **Activity Management**: Configure custom activities with icons, colors, and daily time limits
-- **Auto-Pause Support**: Automatic pause after configurable idle time
-- **Daily Statistics**: Track daily time spent per activity
+- **Categories**: Unlimited categories with their own icon, color and daily time limit. Typing a name that doesn't exist creates it. Retiring one takes it off the faces and out of the assignment list while keeping every hour ever recorded against it
+- **Faces**: Assign any category to any face, and the same category to several faces at once. A face can be locked so it keeps what it has, and a locked face's category cannot be retired out from under it
+- **Manual Mode**: When the cube can't be reached at startup, time from the app instead: pick a category on the Faces tab and the clock runs on it. It lasts the launch, so quitting and starting again is the way back to the device
+- **Device Rename**: Give the cube its own name. The scan matches both the vendor default and the stored name, so a renamed cube is still findable
+- **Report**: Per-category totals over a chosen span of days. Spans crossing either end are clipped to the range, so two adjacent reports add up to the report over both
+- **Auto-Pause Support**: Automatic pause after a configurable idle time, and optionally when the device is locked
+- **Daily Statistics**: Time per category for the app's own day, which starts at a configurable reset time rather than at midnight
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
 
 ### Not supported
 
+- **Google Calendar sync**: not implemented. Signing in to Google, and choosing or creating the calendar to write to, both work, and `time_entry.synced_to_google_calendar` is reserved in the schema, but nothing writes events to a calendar yet. See [the TODO](docs/TODO-features-under-development.md)
 - **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. PRs are welcome
 
 ## Getting Started
@@ -30,6 +34,7 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **[Workflow](docs/workflow.md)** - how the device owner organizes activities and faces
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
+- **[Features Under Development](docs/TODO-features-under-development.md)** - what is built, what is not, and why each decision was made
 - **[Developer Mode Removal TODO](docs/TODO-devmode.md)** - everything to remove/decide on before shipping without dev-only config/logging
 
 ## Architecture
@@ -41,7 +46,8 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **TimeFlipBLEDevice**: Bluetooth Low Energy device driver
 - **HistoryIngestor**: Turns the device's history stream into `device_event` rows
 - **AppDataStore**: The SQLite store, and where `time_entry` rows are made
-- **GoogleIntegrationCoordinator**: Syncs data to Google Calendar
+- **DailyCategoryTotals**: The day's per-category totals, seeded from `time_entry` and advanced live
+- **GoogleIntegrationCoordinator**: Google account and calendar lookup (no event writing yet, see Not supported)
 - **AppState**: Application state and user preferences
 
 ### Data Flow
@@ -59,13 +65,13 @@ Menu Bar UI + Daily Stats   Google Calendar Events
 ### Event Pipeline
 
 1. Device sends notifications on face changes or pause events
-2. Driver fetches complete history from the device, resuming at the newest segment already recorded
-3. Every frame is written to `device_event`; all but the last as closed (`finalised = 1`), the last as the open segment whose duration grows until a later event closes it out
-4. Closing a segment out converts it to a `time_entry` row against the category its face is mapped to, unless it was shorter than `blip_time`
-5. The menu bar reads `device_event` for the day's totals; Google Calendar sync reads `time_entry` and flags each row with `synced_to_google_calendar`
+2. The driver first makes a cheap single-frame read of the device's current event. If that is the segment already on record, its duration alone is refreshed and nothing is streamed at all, which is what most refreshes do
+3. Otherwise it streams history **from** the newest segment already recorded, so only what is new comes across. It streams from the very beginning in two cases: nothing is on record yet, or the recorded position cannot be reconciled with the device's counter (a factory reset restarts the numbering, so a post-reset event 10 is not the event 10 on file)
+4. Every frame is written to `device_event`; all but the last as closed (`finalised = 1`), the last as the open segment whose duration grows until a later event closes it out
+5. Closing a segment out converts it to a `time_entry` row against the category its face is mapped to, unless it was shorter than `blip_time`
+6. The menu bar's daily totals are seeded from `time_entry`, not `device_event`, so reassigning a face later cannot rewrite what was already recorded against the old category. The still-open segment has no row yet, so its elapsed time is added on top rather than counted twice. The Report tab reads the same table over a chosen span
 
-There are no sync cursors. The device resume position is a query against `device_event`, and delivery
-progress is the flag on each `time_entry` row.
+There are no sync cursors. The device resume position is a query against `device_event`.
 
 ## License
 
