@@ -7,10 +7,16 @@ import XCTest
 /// state -- no device, no window.
 @MainActor
 final class AppStateDeviceTabTests: XCTestCase {
+    /// Every store injected, including the developer-config one. Omitting that argument defaults it
+    /// to `DeveloperConfigStore.shared`, which is the developer's **real** `config.json` -- a test
+    /// that then takes any path writing to it rewrites a file on the machine running the suite. That
+    /// is not hypothetical: it happened here on 2026-08-09, when the forget path briefly recorded the
+    /// factory default and these four `forgetDevice()` calls stamped it into the real file.
     private func makeAppState() -> AppState {
         AppState(
             googleClientSecretStore: InMemoryGoogleClientSecretStore(),
             devicePasswordStore: InMemoryDevicePasswordStore(),
+            developerConfigStore: InMemoryDeveloperConfigStore(),
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             blinkIntervalSeconds: 15,
@@ -292,6 +298,43 @@ final class AppStateDeviceTabTests: XCTestCase {
         appState.confirmConnected(name: "Someone else's cube", uuid: "uuid-2")
 
         XCTAssertEqual(appState.deviceName, "Someone else's cube")
+    }
+
+    func testRePairingTheSameCubeKeepsTheNameWeGaveIt() async {
+        // The other half of the case above, and the one it used to break. Rename, Forget, Scan,
+        // pair is the documented workaround for a rename not showing up, so a re-pair to the *same*
+        // cube is a normal thing to do, not a corner. `CBPeripheral.name` is still cached at the
+        // pre-rename value at that point, and adopting it threw away the name the user had just
+        // set. Measured on the device 2026-08-10: a cube renamed to `Zeta1` came back `Blip`.
+        //
+        // What separates this from pairing a different cube is the peripheral identity, which is
+        // the whole reason `deviceNameSourceUUID` exists.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Blip", uuid: "uuid-1")
+        appState.onDeviceRenameRequest = { _ in true }
+        _ = await appState.renameDevice(to: "Zeta1")
+        XCTAssertEqual(appState.deviceName, "Zeta1")
+
+        appState.forgetDevice()
+        appState.confirmConnected(name: "Blip", uuid: "uuid-1")
+
+        XCTAssertEqual(appState.deviceName, "Zeta1", "the same cube re-paired must not have our name replaced by its stale cached one")
+        XCTAssertEqual(appState.pairedDeviceName, "Zeta1")
+    }
+
+    func testTheCubesOwnNameReportAlwaysWins() {
+        // `peripheralDidUpdateName` is the only signal that fires *because* the name changed, so it
+        // outranks everything, including a name this session adopted a moment earlier. The delegate
+        // guards this call on the reported name differing from the live stored one; guarding on a
+        // snapshot taken before the connect is what once dropped it.
+        let appState = makeAppState()
+        appState.confirmConnected(name: "Blip", uuid: "uuid-1")
+
+        appState.adoptReportedDeviceName("Zeta1")
+
+        XCTAssertEqual(appState.deviceName, "Zeta1")
+        XCTAssertEqual(appState.pairedDeviceName, "Zeta1")
+        XCTAssertEqual(appState.deviceNameSourceUUID, "uuid-1", "the cube it came from now owns it")
     }
 
     func testReconnectingWithoutANameShowsTheRememberedOne() {

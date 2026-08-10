@@ -1,5 +1,32 @@
 # Automation methods
 
+## Use these, and fix this file when they fall short
+
+**Read this file before running any checklist, and use the method for anything it covers.** Not an
+equivalent you wrote from memory: the methods are here because each one was got wrong at least once
+first, and most carry a caveat that is invisible until it costs a run (Method 6's single `tell`
+block, Method 7's preceding mouse move, Method 12's commit key). An improvised equivalent silently
+drops those.
+
+**When a method does not fit, update this file in the same run.** Three shapes, all the same rule:
+
+- **Missing** -- a technique with no method. Append it with the next unused number and link it from
+  the step that needed it.
+- **Wrong** -- a method whose body no longer works, or whose caveat turns out to be incomplete. Fix
+  the method, not the one step that tripped on it.
+- **Deliberately not followed** -- a case the method does not cover. Say so *in the method*, as a
+  second form or a caveat, rather than leaving the reason in one checklist or in your head.
+
+The bar for anything added or changed is `CLAUDE.md`'s: **verified against a real, live run, never
+reasoned about.** A method that has not been executed is a guess with a number on it.
+
+Working from memory instead is what this is for. On 2026-08-09 a verification run built the app with
+a command that is not in this file, correctly -- Method 1's form builds *and launches*, which is
+unusable under the live-app-interaction ritual, where the build has to happen before the warning and
+the launch only after the acknowledgment. The right command was worked out by reading
+`scripts/run.sh`, and the gap went unrecorded until somebody asked whether the methods were being
+used. It is Method 1's second form now.
+
 The concrete, verified "how" behind every automated step in `Tests/Bench/`/`Tests/Interactive/`.
 Each method below is self-contained and independently linkable -- a checklist step that needs one
 says so explicitly by **number**, as a link that jumps straight to it:
@@ -22,6 +49,22 @@ file holds only reusable step-execution techniques.
 `scripts/run.sh` builds+launches in one step, blocking -- background it, poll the log for
 `"Build of product"`/`"error:"`. Bundle:
 `.build/bundler/apps/TimeFlip/TimeFlip.app/Contents/MacOS/TimeFlip`.
+
+**Second form: build without launching.** The form above starts the app as a side effect, which the
+root `CLAUDE.md`'s live-app-interaction ritual cannot use -- there the build has to happen *before*
+the hands-off warning and the launch only *after* the acknowledgment, so they have to be separable.
+`bundle` does the same work and stops at the bundle; pair it with Method 2 when the app should
+actually start.
+
+```toml method
+action = "shell"
+command = "mint run stackotter/swift-bundler@main bundle TimeFlip"
+timeout_seconds = 540
+```
+
+Note `swift bundler bundle` is **not** the same command and does not work here (`unable to invoke
+subcommand: swift-bundler`) -- the tool is reached through `mint`, as `scripts/run.sh` does. Both
+confirmed live 2026-08-09, across five build/launch cycles during the manual-mode verification.
 
 <a id="method-2"></a>
 ## Method 2: Launch the app
@@ -238,7 +281,13 @@ with the CGEventPost technique above, at the status item's own `position`/`size`
 position.x + size.width * 0.75`, `y = position.y + size.height / 2` roughly) -- confirmed live for
 both the single-click pause/resume toggle and the double-click lock toggle. `handleStatusItemClick`
 also logs every real click it receives (`debug_log` tag `click`, `"Status item clicked:
-side=left/right clickCount=N"`), useful to confirm a click (synthetic or real) actually landed.
+side=left/right clickCount=N ... -> <action>"`), useful to confirm a click (synthetic or real)
+actually landed. The trailing `-> <action>` is the `StatusItemClick` the router resolved it to
+(`showMenu`, `openSettings`, `lockDevice`, `togglePause`, `togglePauseImmediately`), and ` manualMode`
+appears before the arrow while the app is in manual mode. **Assert on that arrow rather than on a
+per-branch message**: `1447da4` moved the routing into `MenuBarClickRouter` and deleted the
+individual messages each branch used to log, leaving `07i` waiting on `"Left-click while low
+battery: ..."`, which no longer existed. The decision is the durable thing to read.
 
 <a id="method-9"></a>
 ## Method 9: Discovered-device row click
@@ -490,7 +539,7 @@ at launch and can tick before the startup fetch is reached on a slow connect, in
 startup call is folded into the one already running and never logs a `trigger=startup` row at all
 (the work still happens, under the other trigger, followed by a `trigger=debounce` re-run). Scope
 to the newest `Login accepted` instead and accept any completed fetch after it, as
-`00-test-setup.md` Step 6 does. **And don't match the older `"DB refreshed"` text:** that only ever
+`00-test-setup.md` Step 7 does. **And don't match the older `"DB refreshed"` text:** that only ever
 logs on the branch where nothing changed, and never appears for a fetch that pulls a real backlog.
 
 Then: quit, run the test-database script, start the app, query `db_type` as the very first Setup
@@ -796,3 +845,76 @@ Every pick is logged under the `report` tag (`<title> calendar picked yyyy-MM-dd
 resolved range and how many categories it found
 (`Report yyyy-MM-dd HH:MM -> yyyy-MM-dd HH:MM: N categories`). Assert against that rather than
 assuming an index landed where it was meant to.
+
+<a id="method-29"></a>
+## Method 29: Answer the manual-mode offer
+
+The retry-or-manual dialog is an **`NSAlert`**, not a SwiftUI `.alert`, deliberately: every SwiftUI
+one in this app hangs off a view inside the Settings window, and this has to be answerable when no
+window is open at all, which is the usual state of an `LSUIElement` app at startup.
+
+That makes it the one dialog here whose buttons are properly named. It is `window 1` of the process
+(`role AXWindow`, `subrole AXDialog`, and its own `name` empty), and its buttons carry a real
+`name` **and** `title` -- unlike every SwiftUI `Button` in the Settings window, which exposes
+neither (Method 13). So it is addressed by name, with no identifier needed and no CGEvent click:
+
+```applescript
+tell application "System Events" to tell process "TimeFlip" to ¬
+    click button "Switch to Manual Mode" of window 1
+```
+
+Confirmed live 2026-08-09, for both buttons. The two titles are `Retry` and
+`Switch to Manual Mode`; the alert's two `static text` elements carry the headline and body, so a
+step can assert it is the right dialog before answering it.
+
+`count of windows` is the cheapest assertion that it is up (`1`) or gone (`0`), and the same read is
+what proves the app did **not** re-raise it after an answer.
+
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        click button "$button" of window 1
+    end tell
+end tell"""
+```
+
+**The app is blocked while it is up.** `runModal()` holds the main thread, so `osascript`-driven
+quits are refused (`User cancelled. (-128)`) and anything the app queued runs only once it closes.
+Answer the dialog before quitting, and never `pkill` past it.
+
+<a id="method-30"></a>
+## Method 30: Read the dropdown's items with their enabled state
+
+Method 25 returns the item **names**, which is enough to read the device's live state from the
+mutually-exclusive labels. This returns `name=enabled` pairs instead, for the separate question of
+whether an item can be *chosen* -- the two diverge, and manual mode is where they do: `Resume` is
+live there while `Lock` is dead beside it.
+
+Same one-`tell`-block rule as Method 6: opening the menu and reading it must not be split across two
+`osascript` calls. Returns e.g.
+`Settings...=true; missing value=false; Resume=true; Lock=false; Quit=true;` -- the `missing value`
+is the separator, which has no name and is never enabled.
+
+```toml method
+action = "applescript"
+script = """
+tell application "System Events"
+    tell process "TimeFlip"
+        tell menu bar item 1 of menu bar 2
+            click
+            delay 0.4
+            set names to ""
+            repeat with mi in every menu item of menu 1
+                set names to names & (name of mi) & "=" & (enabled of mi) & "; "
+            end repeat
+        end tell
+        key code 53
+    end tell
+end tell
+return names"""
+```
+
+Match a single item with `expect_contains = "Lock=false"`, which pins that item's state without
+depending on what else is in the menu or what order it is in. Confirmed live 2026-08-09.

@@ -68,6 +68,16 @@ for arg in "$@"; do
     esac
 done
 
+# Stands in for CI's `github.head_ref`, so the checklist check gets the same "which branch is this
+# PR for" answer locally. Read from the real repo, not the merge worktree, which is detached and
+# would answer "HEAD". Empty on main or in a detached HEAD, exactly as head_ref is empty on a push
+# to main, which skips the Last-run half of the check rather than failing it.
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+PR_BRANCH="$CURRENT_BRANCH"
+if [ "$PR_BRANCH" = "HEAD" ] || [ "$PR_BRANCH" = "$BASE_BRANCH" ]; then
+    PR_BRANCH=""
+fi
+
 bold=$(tput bold 2>/dev/null || true)
 red=$(tput setaf 1 2>/dev/null || true)
 green=$(tput setaf 2 2>/dev/null || true)
@@ -92,7 +102,7 @@ run_job() {
         case "$label" in
             build)      local cmd=(swift build) ;;
             test)       local cmd=(swift test) ;;
-            checklists) local cmd=(./scripts/check_interactive_checklists.sh) ;;
+            checklists) local cmd=(./scripts/check_interactive_checklists.sh --branch "$PR_BRANCH") ;;
         esac
 
         printf "  %s ... " "$label"
@@ -124,7 +134,6 @@ if [ "$RUN_BRANCH" -eq 1 ]; then
 fi
 
 if [ "$RUN_MERGE" -eq 1 ]; then
-    CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
     if [ "$CURRENT_BRANCH" = "$BASE_BRANCH" ]; then
         step "Test (after merge into base branch)"
         warn "already on $BASE_BRANCH -- nothing to merge, the job above already covers it"

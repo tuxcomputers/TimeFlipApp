@@ -1,6 +1,6 @@
 # Report Tab Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 14:26 on the branch 'feature/manualMode'
 
 Covers the **Report** tab: a date range picked on two hand-drawn calendars, and what each category
 took over it. The figures come from `AppDataStore.loadCategoryTotals(from:to:)`, which sums
@@ -38,7 +38,7 @@ beginning, so the periodic fetch would repopulate the table within about ten sec
 Durations of 30, 45 and 60 minutes make every range asserted below a different figure, so no
 assertion can pass against the wrong range.
 
-**The fixture is seeded by `Tests/00-test-setup.md` Step 8, not here**, and unconditionally rather
+**The fixture is seeded by `Tests/00-test-setup.md` Step 9, not here**, and unconditionally rather
 than only when this checklist was requested -- so every run starts from the same categories and the
 Categories tab's row counts are a fixed baseline instead of depending on which checklists someone
 asked for. `08b` accounts for the three extra rows explicitly; its notes say which number is the
@@ -102,7 +102,7 @@ field = "enabled"
 expect = "1"
 ```
 - [x] Step 5: Re-establish the fixture's three category states.
-`Tests/00-test-setup.md` Step 8 seeds the rows and their states, but `08b` runs in between and
+`Tests/00-test-setup.md` Step 9 seeds the rows and their states, but `08b` runs in between and
 legitimately deactivates every category except its own (`UPDATE category SET active = 0 ... NOT
 (category_name = 'Email' ...)`) as part of testing the Active partition, and never puts them back.
 So by the time this checklist runs all three fixture categories are retired and the three states it
@@ -135,8 +135,6 @@ action = "sql_query"
 query = "SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired');"
 expect = "8100"
 ```
-### Bugs found and fixed - branch 'feature/reportTab'
-2026-08-08 - `10b` seeded its own two events as `900001`/`900002`, the same numbers the shared setup fixture uses, so its pre-clean and teardown deleted two of the three seeded entries and this step read 3600; `10b` now seeds `900101`/`900102`.
 - [x] Step 7: Compute the calendar button indices for 5, 4 and 3 days ago.
 Derived from the grid rather than hardcoded: cell `n` of the **From** calendar is button `3 + n`, and
 `n` is the number of days from the start of the week containing the 1st ([Method: Number
@@ -181,7 +179,7 @@ tab = "Report"
 expect = "1"
 ```
 - [x] Step 2: Pick 5 days ago as the start, and confirm the calendar picked the date intended.
-The click is by index, so this asserts where it actually landed rather than trusting Setup Step 8's
+The click is by index, so this asserts where it actually landed rather than trusting Setup Step 9's
 arithmetic. A disabled cell swallows a click silently, so without this a mis-computed index would
 surface as a wrong total rather than as a wrong click.
 [Method: Number 28](../Methods.md#method-28).
@@ -386,9 +384,6 @@ timeout_seconds = 15
 use = "method-28"
 expect_contains = "ZZ Assigned|0:30|"
 ```
-### Bugs found and fixed - branch 'feature/reportTab'
-2026-08-08 - The seconds setting was written as a bare `true`/`false` rather than the `{"enabled":...}` the app stores, so `loadDisplaySecondsEnabled` never saw it and fell back to its `true` default; the raw read-back confirmed the malformed value instead of catching it, and the report went on printing `0:30:00`.
-2026-08-08 - This step's wait for `From calendar picked` was unscoped, so a row from an earlier scenario satisfied it before the click had landed; it now scopes to `> $current_log_id`.
 
 ## Scenario E -- teardown, leaving nothing for the Interactive phase to inherit
 

@@ -50,6 +50,10 @@ final class MenuBarController: NSObject {
     private var lastRenderedTitle: String = ""
     private var isPairedSnapshot: Bool
     private var connectionStatusSnapshot: ConnectionStatus
+    /// Whether the app is driving time itself rather than reading a cube. Read off the status
+    /// snapshot rather than mirrored separately: manual mode *is* a connection status, so a second
+    /// subscription would only give the two a way to arrive out of order.
+    private var isManualMode: Bool { connectionStatusSnapshot == .manual }
     // Whether the device has actually been reached since launch. Distinct from being paired (which
     // is remembered from a previous run) and from currentActivity being set (which
     // syncActivityFromState populates from stored state before any device is contacted). Without
@@ -190,9 +194,6 @@ final class MenuBarController: NSObject {
         // NSMenu auto-enables items with a target/action by default, which would silently
         // override pauseItem.isEnabled below — opt out so the Pause item actually disables.
         newMenu.autoenablesItems = false
-        // Pause/Lock send commands to the device, so they need a live connection, not merely a
-        // remembered pairing.
-        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
         let isLocked = appState.isLocked
 
         // Menu items point at thin logging wrappers (menuSettings/menuPauseResume/...) rather
@@ -208,16 +209,23 @@ final class MenuBarController: NSObject {
 
         newMenu.addItem(.separator())
 
-        let pauseTitle = isConnected ? (isPaused ? "Resume" : "Pause") : "Pause"
+        // Both items' titles and enabled states are `MenuBarDropdownRules`', which is also where the
+        // reason Pause survives manual mode and Lock does not is written down.
         let pauseItem = NSMenuItem(
-            title: pauseTitle,
+            title: MenuBarDropdownRules.pauseTitle(
+                connectionStatus: connectionStatusSnapshot,
+                isPaired: isPairedSnapshot,
+                isPaused: isPaused
+            ),
             action: #selector(menuPauseResume),
             keyEquivalent: ""
         )
         pauseItem.target = self
-        // While locked, the only valid action is double-clicking the status item to unlock —
-        // pause/resume must not be reachable via the menu either.
-        pauseItem.isEnabled = isConnected && !isLocked
+        pauseItem.isEnabled = MenuBarDropdownRules.allowsPause(
+            connectionStatus: connectionStatusSnapshot,
+            isPaired: isPairedSnapshot,
+            isLocked: isLocked
+        )
         newMenu.addItem(pauseItem)
 
         let lockItem = NSMenuItem(
@@ -226,7 +234,10 @@ final class MenuBarController: NSObject {
             keyEquivalent: ""
         )
         lockItem.target = self
-        lockItem.isEnabled = isConnected
+        lockItem.isEnabled = MenuBarDropdownRules.allowsLock(
+            connectionStatus: connectionStatusSnapshot,
+            isPaired: isPairedSnapshot
+        )
         newMenu.addItem(lockItem)
 
         let quitItem = NSMenuItem(
@@ -250,12 +261,16 @@ final class MenuBarController: NSObject {
             applyConnectingStatus()
             return
         }
-        // Nothing live to show: either no device is paired, or one is but the app hasn't reached it
-        // yet this session. Both get the plain placeholder rather than an "Idle 0:00" that looks
-        // like a reading from a device. Once the device HAS been reached, a later drop keeps
-        // rendering the last known activity (that's the point of `.reconnecting`), so this only
-        // suppresses the never-connected case.
-        if !isPairedSnapshot || !hasReachedDeviceThisSession {
+        // Nothing to show: either no device is paired, or one is but the app hasn't reached it yet
+        // this session. Both get the plain placeholder rather than an "Idle 0:00" that looks like a
+        // reading from a device. Once the device HAS been reached, a later drop keeps rendering the
+        // last known activity (that's the point of `.reconnecting`), so this only suppresses the
+        // never-reached case -- and a manual session is never that, having a reading by construction.
+        guard MenuBarLiveDisplay.showsActivity(
+            isPaired: isPairedSnapshot,
+            hasReachedDeviceThisSession: hasReachedDeviceThisSession,
+            connectionStatus: connectionStatusSnapshot
+        ) else {
             applyNoLiveDeviceStatus()
             return
         }
@@ -273,7 +288,10 @@ final class MenuBarController: NSObject {
             dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
         ) >= Double(limitMinutes) * 60
-        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
+        let isConnected = MenuBarLiveDisplay.rendersAsLive(
+            isPaired: isPairedSnapshot,
+            connectionStatus: connectionStatusSnapshot
+        )
         let isLowBattery = updatedLowBatteryLatch(currentLevel: appState.batteryLevel)
         // Must run before the early-return below so the blink timer starts/stops as soon as the
         // low-battery state changes, even on a call that isn't itself forced. Gated on isConnected
@@ -296,21 +314,23 @@ final class MenuBarController: NSObject {
         if !force, snapshot == lastSnapshot {
             return
         }
+        // After the early return above, so this only fires when something actually changed rather
+        // than once a second regardless.
+        appState.setCurrentDurationText(duration)
 
         logger.debug("status_update face=\(self.appState.currentFaceID, privacy: .public) paused=\(self.isPaused) start=\(self.activityStartDate?.timeIntervalSince1970 ?? -1) accum=\(self.currentSegmentElapsed) dur=\(self.currentDuration())")
 
         let iconSize = statusBarIconSize()
         let icon = resolvedIcon(named: iconName, pointSize: iconSize)
-        // Dev mode only: a "TEST"/"PROD" tag pinned at the far left of the menu bar. When present the
-        // activity icon is drawn as a leading attachment inside the title (so the order reads
-        // DB, icon, category, pause/play, time) rather than as the button's own image; when absent
-        // the shipping layout (icon as button.image) is untouched.
-        let dbBadge = developerDatabaseBadge()
-        let titleKey = "\(dbBadge?.text ?? "")|\(iconName ?? "")|\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
-        let buttonImage = dbBadge == nil ? icon : nil
-        button.imagePosition = buttonImage == nil ? .noImage : .imageLeft
-        if button.image !== buttonImage {
-            button.image = buttonImage
+        // The "TEST"/"PROD" tag is pinned at the far left of the menu bar, which means the activity
+        // icon can no longer be the button's own image (that would draw to the left of the title,
+        // ahead of the tag). It rides as a leading attachment inside the title instead, so the order
+        // reads DB, icon, category, pause/play, time.
+        let dbBadge = databaseBadge()
+        let titleKey = "\(dbBadge.text)|\(iconName ?? "")|\(activityLabel)|\(duration)|\(isPaused)|\(overLimit)|\(isConnected)|\(isLowBattery)|\(lowBatteryBlinkPhaseOn)|\(isLocked)"
+        button.imagePosition = .noImage
+        if button.image != nil {
+            button.image = nil
         }
         let tooltip = connectionStatusSnapshot == .reconnecting ? "Reconnecting to TimeFlip…" : nil
         if button.toolTip != tooltip {
@@ -319,7 +339,7 @@ final class MenuBarController: NSObject {
         if lastRenderedTitle != titleKey {
             button.attributedTitle = makeStatusTitle(
                 databaseBadge: dbBadge,
-                leadingIcon: dbBadge == nil ? nil : icon,
+                leadingIcon: icon,
                 activityLabel: activityLabel,
                 duration: duration,
                 isPaused: isPaused,
@@ -383,17 +403,31 @@ final class MenuBarController: NSObject {
     private func applyNoLiveDeviceStatus() {
         let title = AppIdentifiers.statusItemTitle
         guard let button = statusItem?.button else { return }
+        // The database tag rides on the placeholder too. This is the state the app sits in before it
+        // reaches a device, which is exactly when someone is most likely to be wondering which
+        // database this launch opened, and it would be perverse for the answer to appear only once
+        // timing had already started.
+        // No duration is on show, so nothing should be mirroring one to the Faces tab either.
+        appState.setCurrentDurationText("")
+        let badge = databaseBadge()
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        let text = NSMutableAttributedString(
+            string: "\(badge.text) ",
+            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small)), .foregroundColor: badge.color]
+        )
+        text.append(NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
         button.image = nil
         button.imagePosition = .noImage
         button.title = title
-        button.attributedTitle = NSAttributedString(string: title)
+        button.attributedTitle = text
         button.toolTip = "\(title) (\(isPairedSnapshot ? "Disconnected" : "Not paired"))"
-        lastRenderedTitle = title
+        lastRenderedTitle = "\(badge.text)|\(title)"
         lastSnapshot = nil
     }
 
     private func applyConnectingStatus() {
         let title = "Connecting…"
+        appState.setCurrentDurationText("")
         guard let button = statusItem?.button else { return }
         button.image = nil
         button.imagePosition = .noImage
@@ -514,6 +548,14 @@ final class MenuBarController: NSObject {
 
     @objc
     private func togglePause() {
+        // Manual mode's timer is stopped and started through its own path, the one the Faces tab's
+        // play/pause control uses, rather than through `onPauseToggle` -- that ends in a device
+        // command, and the guard below would refuse it anyway, manual mode never being connected.
+        // Same gesture, same effect, so the two controls cannot disagree about what pausing means.
+        if isManualMode {
+            appState.onManualTimingPauseToggle?()
+            return
+        }
         // While locked, the only valid action is double-clicking to unlock — pause/resume must
         // not be reachable from the menu or a single click on the status item.
         guard appState.isConnected, !appState.isLocked else { return }
@@ -537,43 +579,57 @@ final class MenuBarController: NSObject {
     /// on a double-click, without opening anything. If the device has never connected (or can't
     /// connect), there's no pause/resume state to toggle, so any click just pops the menu. While
     /// locked, the single-click pause/resume toggle is a no-op (see togglePause) — the double-click
-    /// unlock action is the only thing that does anything.
+    /// unlock action is the only thing that does anything. In manual mode the right half still
+    /// pauses, immediately rather than after the double-click wait, and the left half keeps the menu
+    /// even over a stale low-battery blink; see `MenuBarClickRouter`, which owns all of these.
     @objc
     private func handleStatusItemClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        let isConnected = isPairedSnapshot && connectionStatusSnapshot == .connected
-        guard isConnected, let event = NSApp.currentEvent else {
+        // No event to read a side from (a synthetic `performClick`, say): the menu is the safe
+        // answer, since it is the one thing reachable in every state.
+        guard let event = NSApp.currentEvent else {
             showMenu()
             return
         }
         let location = button.convert(event.locationInWindow, from: nil)
-        let side = location.x > button.bounds.width / 2 ? "right" : "left"
-        DeveloperMode.debugPrint(.click, "Status item clicked: side=\(side) clickCount=\(event.clickCount)")
-        guard location.x > button.bounds.width / 2 else {
-            if lowBatteryBlinkTimer != nil {
-                DeveloperMode.debugPrint(.click, "Left-click while low battery: opening Settings on the Device tab")
-                openPreferences()
-            } else {
-                DeveloperMode.debugPrint(.click, "Left-click: opening the dropdown menu")
-                showMenu()
-            }
-            return
-        }
-        if event.clickCount >= 2 {
+        let isLeftSide = location.x <= button.bounds.width / 2
+        // The status itself rather than `MenuBarLiveDisplay.rendersAsLive`: the two want different
+        // answers here. Manual mode draws as live, but lock has nothing to reach, so it cannot
+        // simply borrow the connected case.
+        let action = MenuBarClickRouter.action(
+            connectionStatus: connectionStatusSnapshot,
+            isPaired: isPairedSnapshot,
+            isLowBatteryBlinking: lowBatteryBlinkTimer != nil,
+            isLeftSide: isLeftSide,
+            clickCount: event.clickCount
+        )
+        DeveloperMode.debugPrint(
+            .click,
+            "Status item clicked: side=\(isLeftSide ? "left" : "right") clickCount=\(event.clickCount)"
+                + "\(isManualMode ? " manualMode" : "") -> \(action)"
+        )
+        switch action {
+        case .showMenu:
+            showMenu()
+        case .openSettings:
+            openPreferences()
+        case .lockDevice:
             // Upgrade to the double-click (lock) action instead of also firing the single-click
-            // pause toggle that was scheduled below on the first click of this pair.
+            // pause toggle that was scheduled on the first click of this pair.
             pendingSingleClickWorkItem?.cancel()
             pendingSingleClickWorkItem = nil
             onLockRequest?()
-            return
+        case .togglePause:
+            // Delayed by the system's double-click interval so a fast second click can still cancel
+            // this and upgrade to the lock action above, instead of doing both.
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.togglePause()
+            }
+            pendingSingleClickWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
+        case .togglePauseImmediately:
+            togglePause()
         }
-        // Single click: delay by the system's double-click interval so a fast second click can
-        // still cancel this and upgrade to the lock action above, instead of doing both.
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.togglePause()
-        }
-        pendingSingleClickWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
     }
 
     private func showMenu() {
@@ -585,12 +641,17 @@ final class MenuBarController: NSObject {
         statusItem?.menu = nil
     }
 
+    /// Opens Settings, on the tab `SettingsTabRules` picks. Reached from the dropdown's
+    /// "Settings..." item and from the status-item click, and the tab rule applies to both: the
+    /// window lands where the app knows the user is heading regardless of which route got them
+    /// there. A `nil` from the rule leaves whatever tab was last selected, which is the usual case.
     @objc
     private func openPreferences() {
-        // While the low-battery warning is flashing, jump straight to the Device tab (where the
-        // battery line lives) instead of leaving whatever tab was last selected.
-        if lowBatteryBlinkTimer != nil {
-            appState.pendingSettingsTab = .timeflip
+        if let tab = SettingsTabRules.tabOnOpen(
+            isManualMode: isManualMode,
+            isLowBatteryBlinking: lowBatteryBlinkTimer != nil
+        ) {
+            appState.pendingSettingsTab = tab
         }
         settingsWindowController.show()
     }
@@ -679,7 +740,9 @@ final class MenuBarController: NSObject {
         faceCategoriesOverride: [UInt8: CategoryRecord]? = nil
     ) {
         let faceID = appState.currentFaceID
-        guard TimeFlipConstants.isValidFaceID(faceID) else { return }
+        // The stored bound: what is being asked is which category the face on show carries, and in
+        // manual mode that face is 13.
+        guard TimeFlipConstants.isValidStoredFaceID(faceID) else { return }
         let categories = faceCategoriesOverride ?? appState.faceCategories
         guard let activity = appState.categoryActivity(for: faceID, in: categories) else {
             return
@@ -736,19 +799,34 @@ final class MenuBarController: NSObject {
             // connectionStatusSnapshot == .connected) and refresh the tooltip.
             rebuildMenu()
             updateStatusView(force: true)
+        case .manual:
+            // A session the app itself is timing, so there is something to show and nothing to
+            // reach. Rebuild so the menu's device actions go dead, redraw so the session appears --
+            // the same pair `.reconnecting` does, and for the same reason: the display outlives the
+            // connection. Deliberately not grouped with `.disconnected` below, which is what this
+            // case used to be reported as and what made a teardown exception necessary.
+            rebuildMenu()
+            updateStatusView(force: true)
         case .disconnected, .failed, .resetting:
             // .resetting: a factory reset is underway and the device is going away.
             tearDownToUnpaired()
         }
     }
 
-    /// Dev-only leading tag naming which database this launch opened -- red "TEST" (attention) vs a
-    /// plain white "PROD" -- so a developer can't mistake a test database for the real one and record
-    /// real timings into it. `nil` when developer mode is off, so the shipping menu bar is unchanged.
-    private func developerDatabaseBadge() -> (text: String, color: NSColor)? {
-        guard DeveloperMode.isEnabled else { return nil }
+    /// Leading tag naming which database this launch opened -- red "TEST" (attention) against the
+    /// ordinary label colour for "PROD" -- so a test database can't be mistaken for the real one and
+    /// real timings recorded into it.
+    ///
+    /// Shown on every run, not only in developer mode. Which database is open decides where every
+    /// segment of the day lands, and the moment it is worth knowing is the moment you have forgotten
+    /// which one you started under.
+    ///
+    /// `.labelColor` rather than the white this used while it was developer-only: white is only
+    /// legible against a dark menu bar, and now that it shows in every run it has to read in light
+    /// appearance too.
+    private func databaseBadge() -> (text: String, color: NSColor) {
         let isTest = appState.dbType.lowercased() == "test"
-        return isTest ? ("TEST", .systemRed) : ("PROD", .white)
+        return isTest ? ("TEST", .systemRed) : ("PROD", .labelColor)
     }
 
     /// A copy of a template icon filled with `color`, for use as a text attachment inside the status
@@ -767,7 +845,7 @@ final class MenuBarController: NSObject {
     }
 
     private func makeStatusTitle(
-        databaseBadge: (text: String, color: NSColor)? = nil,
+        databaseBadge: (text: String, color: NSColor),
         leadingIcon: NSImage? = nil,
         activityLabel: String,
         duration: String,
@@ -795,20 +873,27 @@ final class MenuBarController: NSObject {
 
         let indicatorSize = max(Constants.minIndicatorAttachmentSize, font.capHeight * Constants.indicatorScale)
 
-        // Dev-mode DB tag, then (since it displaces the button's own image) the activity icon,
-        // both ahead of the category label -- see updateStatusView. The icon rides at the same
-        // height as the pause/play glyph so it can't outgrow the menu bar and clip.
-        if let databaseBadge {
-            let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
-            let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
-            text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
-            if let leadingIcon {
-                let attachment = NSTextAttachment()
-                attachment.image = tintedIcon(leadingIcon, color: .white)
-                attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
-                text.append(NSAttributedString(attachment: attachment))
-                text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
-            }
+        // The DB tag, then (since it displaces the button's own image) the activity icon, both ahead
+        // of the category label -- see updateStatusView. The icon rides at the same height as the
+        // pause/play glyph so it can't outgrow the menu bar and clip.
+        //
+        // It takes `categoryColor`, the colour of the name it sits directly against, so it carries
+        // the same state the rest of the item does: yellow while the reading is stale, green when
+        // live, red over limit, and the red/white low-battery blink. Two colours it must **not**
+        // take, both tried: a hardcoded `.white`, which vanishes in a light menu bar, and
+        // `.labelColor`, which is worse in a way that is easy to miss -- it follows the appearance
+        // setting while the menu bar tints from the wallpaper, so a Light-appearance Mac with a dark
+        // wallpaper draws a black icon on a dark strip. Matching the text beside it sidesteps the
+        // question: whatever is legible for the category name is legible for its icon.
+        let badgeFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .small))
+        let badgeAttributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: databaseBadge.color]
+        text.append(NSAttributedString(string: "\(databaseBadge.text) ", attributes: badgeAttributes))
+        if let leadingIcon {
+            let attachment = NSTextAttachment()
+            attachment.image = tintedIcon(leadingIcon, color: categoryColor)
+            attachment.bounds = NSRect(x: 0, y: font.descender, width: indicatorSize, height: indicatorSize)
+            text.append(NSAttributedString(attachment: attachment))
+            text.append(NSAttributedString(string: " ", attributes: steadyAttributes))
         }
 
         text.append(NSAttributedString(string: "\(activityLabel) ", attributes: categoryAttributes))

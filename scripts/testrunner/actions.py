@@ -206,24 +206,55 @@ def _format_rows(rows, cols):
 
 
 def act_shell(spec, ctx):
-    """Run a shell command. A shell step *does* something (relink the db, sleep), so there's no
-    value to echo on a pass and nothing was asserted to compare on a failure.
+    """Run a shell command, honouring `capture` and `expect`/`expect_contains` on its stdout.
 
     A failure reports the exit code and **stderr**, then stdout. Preferring stdout (the old
     behaviour) hid the actual error whenever a script printed progress before dying: a DDL error
     that took `switch-database.sh test` down was logged as nothing but the script's own "Creating
-    test.sqlite..." chatter, which says only where it got to, not what went wrong."""
+    test.sqlite..." chatter, which says only where it got to, not what went wrong.
+
+    `capture` and `expect` used to be silently ignored here, on the reasoning that a shell step
+    *does* something rather than reading something. Several do both, and the silence was expensive:
+    `12b` captured the real device PIN with a shell step, so `real_pin` was never set; the restore
+    command then went through `shell=True` with `$real_pin` still in it, and **bash** expanded that
+    undefined name to an empty string, blanking the PIN in `config.json`. The verification action
+    right underneath compared the file against `$real_pin` and would have caught it, except `expect`
+    was ignored there too, so the step passed and the next launch could not reach the cube
+    (2026-08-10).
+
+    That bash expansion is why an unresolved variable cannot be left to `safe_substitute`'s
+    leave-it-alone behaviour: what survives Python gets eaten by the shell. Honouring `expect` is
+    what turns it back into a failed assertion instead of silent damage."""
     command = _sub(spec["command"], ctx)
     r = subprocess.run(command, shell=True, capture_output=True, text=True)
     out, err = r.stdout.strip(), r.stderr.strip()
-    if r.returncode == 0:
-        return StepResult(True, out or "exit=0")
-    parts = [f"exit={r.returncode}"]
-    if err:
-        parts.append(err)
-    if out:
-        parts.append(f"(stdout before it failed: {out})")
-    return StepResult(False, " | ".join(parts))
+    if r.returncode != 0:
+        parts = [f"exit={r.returncode}"]
+        if err:
+            parts.append(err)
+        if out:
+            parts.append(f"(stdout before it failed: {out})")
+        return StepResult(False, " | ".join(parts))
+
+    expect, expect_contains = _resolve_expect(spec, ctx)
+    if expect is not None and out != str(expect):
+        return StepResult(
+            False,
+            f"stdout was {out!r}",
+            expected=str(expect),
+            actual=out or "(nothing)",
+        )
+    if expect_contains is not None and expect_contains not in out:
+        return StepResult(
+            False,
+            f"stdout was {out!r}",
+            expected=f"contains {expect_contains}",
+            actual=out or "(nothing)",
+        )
+    if "capture" in spec:
+        ctx["vars"][spec["capture"]] = out
+        _remember_capture(spec, ctx, out)
+    return StepResult(True, out or "exit=0")
 
 
 APP_PROCESS_PATTERN = "TimeFlip.app/Contents/MacOS/TimeFlip"

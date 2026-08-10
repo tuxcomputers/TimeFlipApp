@@ -73,6 +73,9 @@ enum TimeEntrySweepTrigger: String {
     /// App launch, which catches anything a previous run left unconverted, whether through a crash
     /// or through simply not having had this code yet.
     case launch = "launch"
+    /// A manual session ended, which is the app quitting. Nothing else closes a manual segment: a
+    /// real one is closed by the next frame the cube sends, and manual mode has no next frame.
+    case manualSessionEnd = "manual-session-end"
 }
 
 /// A row from the `colour` reference table (`database/005_colour.sql`). `deviceHex` is the
@@ -486,6 +489,80 @@ final class AppDataStore {
         return outcome.created
     }
 
+    /// Closes off the manual session's open segment, and converts it.
+    ///
+    /// Every other segment in this table is closed by the frame that follows it: a later
+    /// `start_epoch` arrives and `recordDeviceEvent` marks everything before it finalised. A manual
+    /// session has no frame after its last one -- the app is going away -- so without this the
+    /// segment the user was timing when they quit stays `finalised = 0` and never becomes a
+    /// `time_entry`. That matters more here than it would for a cube: the next launch of a real
+    /// device closes the row on its first flip, whereas somebody in manual mode may have no device
+    /// at all, which is why they were in manual mode.
+    ///
+    /// - Parameter endingAt: when the session stopped, which gives the row its true final duration.
+    ///   The open row is only as current as the last periodic fetch wrote it, so on a quit it is up
+    ///   to `fetch_history_interval_seconds` short. Pass `nil` for a row left behind by a *previous*
+    ///   run, where the honest answer is the duration already on it: the app did not get to write
+    ///   the moment it stopped, so anything computed from the clock now would be invented.
+    /// - Returns: whether a row was found and closed.
+    @discardableResult
+    func closeOpenManualSegment(endingAt: Date?) -> Bool {
+        guard let db else { return false }
+        var closed = false
+        queue.sync {
+            let selectSQL = """
+            SELECT device_event_id, start_epoch FROM device_event
+            WHERE finalised = 0 AND device_face = \(TimeFlipConstants.manualFaceID)
+            ORDER BY start_epoch DESC, device_event_id DESC
+            LIMIT 1;
+            """
+            var rowID: Int64?
+            var startEpoch: Int64 = 0
+            var selectStmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK,
+               sqlite3_step(selectStmt) == SQLITE_ROW {
+                rowID = sqlite3_column_int64(selectStmt, 0)
+                startEpoch = sqlite3_column_int64(selectStmt, 1)
+            }
+            sqlite3_finalize(selectStmt)
+            guard let rowID else { return }
+
+            var updateStmt: OpaquePointer?
+            let sql: String
+            if endingAt != nil {
+                sql = "UPDATE device_event SET duration_seconds = ?, finalised = 1 WHERE device_event_id = ?;"
+            } else {
+                sql = "UPDATE device_event SET finalised = 1 WHERE device_event_id = ?;"
+            }
+            guard sqlite3_prepare_v2(db, sql, -1, &updateStmt, nil) == SQLITE_OK else {
+                logger.error("manual segment close prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+                sqlite3_finalize(updateStmt)
+                return
+            }
+            if let endingAt {
+                // Whole seconds, like every other duration in this column -- see
+                // `MockTimeFlipDevice.openSegmentFrame`.
+                let duration = max(0, endingAt.timeIntervalSince1970 - Double(startEpoch)).rounded()
+                sqlite3_bind_double(updateStmt, 1, duration)
+                sqlite3_bind_int64(updateStmt, 2, rowID)
+            } else {
+                sqlite3_bind_int64(updateStmt, 1, rowID)
+            }
+            closed = sqlite3_step(updateStmt) == SQLITE_DONE
+            if !closed {
+                logger.error("manual segment close failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+            sqlite3_finalize(updateStmt)
+        }
+        // Outside the lock: `sweepTimeEntries` takes `queue` itself, and it is what turns the row
+        // just finalised into a `time_entry`.
+        if closed {
+            let created = sweepTimeEntries(trigger: .manualSessionEnd)
+            DeveloperMode.debugPrint(.manualMode, "Manual segment closed off; \(created) time entr\(created == 1 ? "y" : "ies") created")
+        }
+        return closed
+    }
+
     /// What a conversion pass did, carried back out of the lock so it can be logged from outside.
     ///
     /// **The messages cannot be logged where they are produced.** `DeveloperMode.debugPrint` runs
@@ -876,7 +953,7 @@ final class AppDataStore {
         guard let db else { return }
         let sql = """
         UPDATE face SET locked = ?
-        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxFaceID);
+        WHERE face_id = ? AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxStoredFaceID);
         """
         queue.sync {
             var stmt: OpaquePointer?
@@ -964,9 +1041,9 @@ final class AppDataStore {
     /// Assigns a category to a physical face -- the Faces tab's category list. See
     /// `database/008_face.sql`.
     ///
-    /// The `face_id` guard keeps the write to the 12 real faces, so the `unassignedFaceID`
-    /// sentinel (face `0`, what `currentFaceID` reads before the device has reported a face)
-    /// can't create a thirteenth row.
+    /// The `face_id` guard keeps the write to the seeded faces -- the cube's 12 plus manual mode's
+    /// 13 -- so the `unassignedFaceID` sentinel (face `0`, what `currentFaceID` reads before the
+    /// device has reported a face) can't create a row of its own.
     ///
     /// A locked face is refused here as well as in the UI. Locking exists to stop a face being
     /// reassigned by accident, and a guard the UI alone enforces is one a stale view can walk past.
@@ -984,7 +1061,7 @@ final class AppDataStore {
         let sql = """
         UPDATE face SET category_id = ?
         WHERE face_id = ? AND locked = 0
-          AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxFaceID);
+          AND face_id BETWEEN \(TimeFlipConstants.minFaceID) AND \(TimeFlipConstants.maxStoredFaceID);
         """
         queue.sync {
             var stmt: OpaquePointer?
@@ -1486,14 +1563,38 @@ final class AppDataStore {
     /// device clears the uuid but **not** the name, since forgetting does not un-rename the cube
     /// and that string is what the filtered scan needs to find it again. Only a confirmed factory
     /// reset clears this, the cube having reverted to the vendor name.
+    /// Records the name the cube is carrying, keeping the one it displaced as `previous_name`.
+    ///
+    /// The second name is not history for its own sake, it is how the device stays findable across
+    /// a rename. `CBPeripheral.name` is the GAP name macOS caches and re-reads only on the *next*
+    /// connect, so straight after a rename the scan still sees the name before this one (measured;
+    /// see `docs/timeflip2-firmware-observations.md` § "The GAP name is one connection stale"). A
+    /// scan filtering on the new name alone therefore cannot match the cube it just renamed.
+    /// Keeping both means the eligible-device list covers the name the device has taken and the
+    /// name it is still answering to.
+    ///
+    /// Only a real change moves the pointer. Re-recording the same name on every connect, which is
+    /// what happens today, must not push the genuinely previous name out of the row and undo the
+    /// very thing it is here for.
     func recordDeviceName(_ name: String?) {
-        saveSettingJSON(name: "device_name", merging: ["name": name.map { $0 as Any } ?? NSNull()])
+        let current = loadDeviceName()
+        var fields: [String: Any] = ["name": name.map { $0 as Any } ?? NSNull()]
+        if let current, current != name {
+            fields["previous_name"] = current
+        }
+        saveSettingJSON(name: "device_name", merging: fields)
     }
 
     /// Restores the remembered device name at launch. Absent until the first connection, since the
     /// name is read from the device rather than guessed.
     func loadDeviceName() -> String? {
         loadSettingJSON(name: "device_name")?["name"] as? String
+    }
+
+    /// The name this device was called before the current one, if it has ever been renamed. Absent
+    /// on a device that has only ever had one name. See `recordDeviceName` for why it is kept.
+    func loadPreviousDeviceName() -> String? {
+        loadSettingJSON(name: "device_name")?["previous_name"] as? String
     }
 
     /// Whether the menu bar duration display includes seconds (the `display_seconds` setting,
@@ -2028,10 +2129,28 @@ final class AppDataStore {
     /// zero rows in production were inserted out of chronological order, because a batch is sorted
     /// by event number before it is written), but a gap recovered in a later batch would be inserted
     /// after newer rows, and insertion order would then name an old segment as the newest.
+    ///
+    /// **Only faces a cube can report.** Manual-mode rows sit in the same table but were never part
+    /// of any device's history, so they can never be a position to resume a device fetch from -- and
+    /// their event numbers are seeded from the wall clock (`MockTimeFlipDevice`, to keep them clear
+    /// of a real counter's), which puts them around 1.79 billion against a cube's few hundred.
+    /// Bounded by `maxFaceID` rather than tested against the manual face by name, so a second
+    /// app-owned face would be excluded on the day it is added rather than the day this is
+    /// remembered. Left in,
+    /// the newest row after any manual session is one the device cannot reach, `resumeCursor` reads
+    /// that as the stored position being unreachable, and the next launch re-fetches the cube's
+    /// entire history from zero. Not damaging -- `recordDeviceEvent` matches on
+    /// `(event_number, start_epoch)`, so the re-fetch updates rows in place rather than duplicating
+    /// them -- but a whole history transfer for nothing, once per manual session.
+    ///
+    /// This is the only reader that wants them gone. `maxKnownStartEpoch` deliberately still counts
+    /// them: it decides update-vs-insert and which row is the open one, and a manual segment is a
+    /// real row that has to take part in both.
     func latestRecordedEvent() -> RecordedEvent? {
         guard let db else { return nil }
         let sql = """
         SELECT event_number, start_epoch FROM device_event
+        WHERE device_face <= \(TimeFlipConstants.maxFaceID)
         ORDER BY start_epoch DESC, device_event_id DESC
         LIMIT 1;
         """

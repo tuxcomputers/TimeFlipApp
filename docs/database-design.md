@@ -72,7 +72,7 @@ One row per device-reported timing segment — created whenever the device is fl
 | `device_event_id`  | INTEGER | Row identifier, primary key, autoincrementing (`PK_device_event`).          |
 | `event_number`      | INTEGER | The device's own sequence number for this event. Part of the composite matching key with `start_epoch` — see below — but not unique on its own, and not used for ordering. |
 | `event_type_id`     | INTEGER | References `event_type.event_type_id` — always `face_flip` or `pause` for rows in this table. |
-| `device_face`       | INTEGER | Decoded face number, `1`-`12`. Decoded from the device's raw face byte, not stored as hex. |
+| `device_face`       | INTEGER | Decoded face number, `1`-`13`. Decoded from the device's raw face byte, not stored as hex. `13` is not a face of any cube: it is the one face manual mode owns, so a manually timed segment resolves its category through the same join as every other segment (see `face` below). |
 | `start_time`        | TEXT    | When the segment started, as a local-time ISO 8601 timestamp with no UTC offset (e.g. `2026-07-16T09:30:00`). Decoded from the device's raw timestamp encoding. Display only — see `start_epoch` for ordering/comparisons. |
 | `timezone_id`       | INTEGER | References `timezone.timezone_id` — the IANA zone (e.g. `America/New_York`) `start_time` was recorded in. |
 | `start_epoch`       | INTEGER | The same moment as `start_time`, as Unix epoch seconds. This — not `event_number` — is what `AppDataStore.recordDeviceEvent` compares to decide ordering and the `finalised` flag; also half of the composite matching key (see below). Indexed. |
@@ -87,7 +87,7 @@ Foreign keys:
 
 Constraints:
 - `(event_number, start_epoch)` has a composite `UNIQUE` index (`UN1_device_event`) — see below for why it's the pair, not `event_number` alone, that's unique.
-- `device_face` is constrained to the valid TimeFlip face range (`1`-`12`).
+- `device_face` is constrained to `1`-`13`: the cube's twelve, plus manual mode's face `13`. In code the two bounds are `TimeFlipConstants.isValidFaceID` (still 12, and what every BLE path validates a face byte against, so a frame claiming 13 stays a corrupt frame) and `isValidStoredFaceID` (13, for anything on the app's own side of the line).
 - `duration_seconds` is constrained to be non-negative.
 - `paused` is constrained to `0`/`1` (SQLite has no native boolean type).
 - `finalised` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `0`.
@@ -174,7 +174,9 @@ Constraints:
 
 ### `face` (`database/008_face.sql`)
 
-The 12 physical faces of the TimeFlip device, each linked to the category currently assigned to it.
+The 12 physical faces of the TimeFlip device, each linked to the category currently assigned to it, plus a 13th the app keeps for itself.
+
+Face `13` is manual mode's. It is not a face of any cube; it exists so that a segment timed from the app resolves its category through the same `device_event.device_face -> face -> category` join as a segment flipped on hardware, rather than needing a second way to record what was being worked on. One face is enough because manual mode times one thing at a time: the category being timed is whatever face 13 currently holds, and picking a new category in the Faces tab reassigns it. Keeping it off the cube's own 1-12 means a manual session never disturbs what the physical faces are assigned to.
 
 | Column        | Type    | Description                                                        |
 |---------------|---------|-----------------------------------------------------------------------|
@@ -292,6 +294,9 @@ Seeded rows:
   - `device_name` answers *what it is called*: the name the cube itself is carrying, its GAP Device Name `0x2A00`, which is what device command `0x15` writes and what a scan sees. Read from the peripheral on every connect and mirrored here, so it follows the device rather than leading it. Absent until the first connection, since the name is read rather than guessed.
   - **The name and the uuid have deliberately different lifetimes, which is why they are two rows rather than one.** Forget Device clears `device_uuid` and **keeps** `device_name`: forgetting does not un-rename the cube, and once a device has been renamed off "TimeFlip" that string is the only thing the filtered scan can match it on, so discarding it would discard the way back to the device. A confirmed factory reset (`0xFF`) clears **both**, the cube having reverted to the vendor name. `0xFE` (reset task info) leaves the name alone and so touches neither.
   - The Device tab's "Not paired" placeholder is a rendering of `paired` being false, not a stored value: `AppState.pairedDeviceName` is display-only and never persisted, so a forgotten-but- remembered name is held in `device_name` without the tab claiming a pairing that is gone.
+
+There is deliberately **no** `manual_mode` row. There was one, holding a threshold of failed connect attempts before the app offered manual mode, and it is gone with the threshold: one scan either finds the user's device or it does not, and a second and third scan of the same airspace seconds later find the same nothing. Whether manual mode is currently *on* was never stored and still is not — it is per-launch, in-memory state, because quitting and restarting the app is the only way out of the mode and a persisted flag would outlive the very restart meant to end it. With no row at all there is no longer an obvious place to put one by mistake. See [TODO: features under development](TODO-features-under-development.md), Manual mode.
+
 #### Pairing vs connection
 
 Two distinct things, and the schema keeps them apart because conflating them is what made an out-of-band device reset look like nothing had happened:

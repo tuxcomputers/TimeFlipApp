@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 14:20 on the branch 'feature/manualMode'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
@@ -209,18 +209,29 @@ The decision behind each is unit-tested. What is checked here is that the alert 
 and offers exactly the choices it should -- in particular that the ambiguous case offers **no**
 reinstate, since the whole point is that it must not pick one for the user.
 
-**Preconditions:** Settings closed by Scenario B; this scenario reopens it. The rows are seeded
-directly: the create control reads the database live rather than the loaded list, so a seeded row
-reaches the alert without reopening the tab.
+**Preconditions:** Settings closed by Scenario B; this scenario reopens it. The active row is made
+**through the Create control**, so the list on screen and the database agree from the start. Only the
+second, retired row is seeded, because no UI can create one: a retired category has to be created and
+then retired, and this scenario needs it retired before the create control is used again.
 
-- [x] Step 1: Seed one active `Email`, and reopen Settings on the Categories tab.
-      Every `Email` an earlier attempt left is dropped first, so the scenario is idempotent.
-      `UN1_category` is unique on name among **active** rows, so seeding a second active one over
-      the top fails outright with `UNIQUE constraint failed: category.category_name` -- which is
-      exactly what a **resume** produces, since resuming keeps the existing `test.sqlite` rather
-      than rebuilding it, leftover rows and all. Measured on 2026-08-08, resuming into this
-      scenario after a halted run. `Bench/10b` guards its own seed the same way and for the same
-      reason. The faces are cleared first so no foreign key is left pointing at a deleted row.
+- [x] Step 1: Reopen Settings on the Categories tab and create `Email` from the **Create button**.
+      Every `Email` an earlier attempt left is dropped first, so the scenario is idempotent. That
+      cleanup is the one piece of SQL here, and it is a delete rather than a seed: a leftover active
+      namesake would send the create straight to the dead-end alert of Step 2, so no row would be
+      created and the failure would land a step later than its cause. Resuming produces exactly that,
+      since it keeps the existing `test.sqlite` rather than rebuilding it, leftover rows and all
+      (measured on 2026-08-08, resuming into this scenario after a halted run). The faces are cleared
+      first so no foreign key is left pointing at a deleted row.
+      **Creating it rather than seeding it is what makes the rest of the scenario addressable.** The
+      create path re-reads the list on success (`onCreated` -> `loadCategories()`), so the new row is
+      on screen as well as in the database; a seeded row is only in the database, and Step 3 has to
+      find it by name among the rendered rows.
+      **The pass is the database record.** The window is not asserted on at all here -- the sheet
+      count comes back only so a stray alert is in the transcript -- and `wait_for_sql` confirming
+      exactly one active `Email` is what the step turns on. That way a control that did not take the
+      name fails here, rather than passing and leaving a later step to report a row that was never
+      created.
+      Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
 action = "sql_exec"
@@ -235,20 +246,42 @@ action = "sql_exec"
 query = "DELETE FROM category WHERE category_name = 'Email';"
 
 [[actions]]
-action = "sql_exec"
-query = "INSERT INTO category (category_name, icon_id, colour_id, active) VALUES ('Email', 0, 0, 1);"
-
-[[actions]]
 use = "method-6"
 item = "Settings..."
 
 [[actions]]
 use = "method-10"
 tab = "Categories"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "TimeFlip" to activate
+tell application "System Events"
+    tell process "TimeFlip"
+        click button 1 of group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
+        delay 0.6
+        keystroke "Email"
+        keystroke return
+        delay 1.2
+        return "sheets=" & ((count of sheets of window "TimeFlip Settings") as string)
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT COUNT(*) FROM category WHERE category_name = 'Email' AND active = 1;"
+expect = "1"
+timeout_seconds = 10
 ```
-- [x] Step 2: Type `Email` and Save; confirm the dead-end alert.
-      An active category already holds the name, so there is nothing to decide and the alert offers
-      no way to create anything: exactly one button, and it only dismisses.
+- [x] Step 2: Try to create a **second** `Email`; confirm the dead-end alert.
+      The same control, the same name, one step later: an active category now holds it, so there is
+      nothing to decide and the alert offers no way to create anything -- exactly one button, and it
+      only dismisses. Step 1 passing and this one passing are the two halves of the same control,
+      which is why they read identically apart from what they assert.
+      (Note: the row it collides with was created through this control in Step 1, so it is on screen
+      under **Active** while the alert is up. Step 3 is where the database and the window start to
+      disagree, and where the tab switch that reconciles them lives.)
 ```toml step
 action = "applescript"
 script = '''
@@ -267,8 +300,32 @@ tell application "System Events"
 end tell'''
 expect_contains = "title=That category already exists | buttons=1"
 ```
-- [x] Step 3: Dismiss it, then retire that row and seed a second retired `Email`.
+- [x] Step 3: Dismiss it, retire that row **from its Active checkbox**, seed a second retired
+      `Email`, and re-read the tab.
       Two retired namesakes and no active one is the ambiguous case.
+      Retiring through the control rather than an `UPDATE` is the point of doing it here: it is the
+      path a user takes, it proves the checkbox actually writes, and it keeps the window honest by
+      itself -- an edit made in the UI patches the loaded record in place, so the row moves from
+      Active to Inactive as it is clicked (`CategoryEditRules.patching`). A SQL update behind the
+      window changes the database and leaves the list showing the old state.
+      **The row is addressed by index**, which is unavoidable: a row's checkbox is not reachable
+      from its name, only from its position (see the accessibility shape above). The index is
+      counted **off the screen**, not derived from a query, and that is deliberate.
+      `loadCategories()` returns `results.sorted(by: CategoryRecord.displayOrder)`, and that
+      comparator cannot be reproduced in SQL: names that are entirely a number come first in numeric
+      order (so 1, 2, 10, not 1, 10, 2), the rest fall back to `localizedStandardCompare` -- the
+      Finder ordering that puts `ABC-2` before `ABC-10` -- and ties break on `category_id`. SQLite
+      has no equivalent of that middle rule, so any `ORDER BY` here would be an approximation that
+      agrees with the app until it quietly doesn't, and the failure would be a click on the wrong
+      row. Walking the rendered names asks the list where `Email` actually is, and stays right when
+      the fixture gains a category or the comparator changes. The step fails loudly if it is not
+      found, and the assertion after the click names `Email` specifically, so a miscount cannot
+      quietly retire somebody else.
+      The tab switch at the end is for the *seeded* row, which no UI can create: a retired category
+      has no create control. Without it the window would show one retired `Email` where the database
+      has two, and Step 4's alert would name a row nothing on screen accounts for. The alert itself
+      never needed it -- `findCategories` queries the database live on every Save.
+      Methods: [Number 13](../Methods.md#method-13), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
 action = "applescript"
@@ -280,8 +337,37 @@ tell application "System Events"
 end tell'''
 
 [[actions]]
-action = "sql_exec"
-query = "UPDATE category SET active = 0 WHERE category_name = 'Email';"
+action = "sql_query"
+query = "SELECT COUNT(*) FROM category WHERE active = 1 AND category_id >= 1;"
+capture = "active_before_retire"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "TimeFlip" to activate
+tell application "System Events"
+    tell process "TimeFlip"
+        tell group 1 of scroll area 1 of group 1 of window "TimeFlip Settings"
+            set labels to value of every static text
+            set rowIndex to 0
+            repeat with i from 5 to (count of labels) by 2
+                set rowIndex to rowIndex + 1
+                if item i of labels is "Email" then
+                    click checkbox rowIndex
+                    return "clicked row " & rowIndex
+                end if
+            end repeat
+        end tell
+        return "Email is not in the Active list"
+    end tell
+end tell'''
+expect_contains = "clicked row"
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT (SELECT active FROM category WHERE category_name = 'Email') || '/' || ((SELECT COUNT(*) FROM category WHERE active = 1 AND category_id >= 1) - $active_before_retire);"
+expect = "0/-1"
+timeout_seconds = 10
 
 [[actions]]
 action = "sql_exec"
@@ -291,7 +377,20 @@ query = "INSERT INTO category (category_name, icon_id, colour_id, active) VALUES
 action = "sql_query"
 query = "SELECT COUNT(*) FROM category WHERE category_name = 'Email' AND active = 0;"
 expect = "2"
+
+[[actions]]
+use = "method-10"
+tab = "Device"
+
+[[actions]]
+use = "method-10"
+tab = "Categories"
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-09 - This step could not find `Email` among the rendered rows: Step 1 seeded it with SQL and
+reopening Settings did not re-read the list, so the row existed only in the database. Step 1 now
+creates it from the Create control, whose success path re-reads the list, and passes on the database
+record rather than on anything the window says.
 - [x] Step 4: Type `Email` again; confirm the ambiguous alert names both retired rows.
 ```toml step
 action = "applescript"

@@ -1,6 +1,6 @@
 # Auto-Pause Arrow Stepper Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 14:17 on the branch 'feature/manualMode'
 
 Covers press-and-hold arrow behavior (`AutoPauseStepper`): ticks by 1 until passing the *second*
 multiple-of-5 gridline from the value the hold started at, then by 5, at a slower tick rate. Also

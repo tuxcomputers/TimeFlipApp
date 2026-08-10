@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 14:23 on the branch 'feature/manualMode'
 
 Covers renaming the cube: the three right-click targets that open the menu, the write itself, the
 notice that explains why the new name does not show up everywhere, and the documented workaround
@@ -21,12 +21,19 @@ whether the device takes the name, and what it says its name is afterward.
 Renaming works, but nothing looks like it did, for two measured reasons
 (`docs/timeflip2-firmware-observations.md`):
 
-- the advertised name never changes, so a scan lists the cube as `TimeFlip v2.0` permanently
+- the advertised name never changes, so a scan's *packet* says `TimeFlip v2.0` permanently
 - the reported name is only read at connect time, so macOS hands out the old one for a reconnect
   or two
 
-So Scenario C pairs with a row showing the **old** name on purpose. That is not a mistake in the
+So Scenario C pairs with a row that may well show the **old** name. That is not a mistake in the
 step, it is the behaviour being tested.
+
+How long "a reconnect or two" lasts is not fixed, and the steps must not assume a particular
+number. The forget in Scenario C is itself a connection and can refresh the cache: measured across
+three runs of one build on 2026-08-10, the row showed the new name once and the old name twice, and
+`peripheralDidUpdateName` landed on the forget's connection once and after the re-pair twice. The
+steps therefore assert what is invariant (the advertised name, and where the app ends up) rather
+than which connection a value arrives on.
 
 ## The row's accessibility shape
 
@@ -278,9 +285,14 @@ tell application "System Events"
 end tell'''
 expect_contains = "name=Not paired texts=6"
 ```
-- [x] Step 2: Scan, and confirm the cube is listed under its **old** name.
-      This is the finding, on screen: the advertised name never changed and the reported one has
-      not caught up, so the row cannot say `Chomper`.
+- [x] Step 2: Scan, and confirm the cube is still **advertising** the vendor name.
+      This is the finding, on screen: `0x15` changes the GAP name and never the advertised one, so
+      the packet says `TimeFlip v2.0` however many times the cube is renamed. That is what the
+      assertion reads, because it is the half that is actually invariant.
+      The row's *label* is `CBPeripheral.name`, which is a cache, and it is deliberately not
+      asserted here. It is usually a connection behind, but the forget above is itself a connection
+      and can refresh it: on 2026-08-10 the same scan showed `Chomper` on one run and the old name
+      on two others. Step 3 therefore picks the row by position rather than by either name.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -299,10 +311,29 @@ timeout_seconds = 30
 ```
 - [x] Step 3: Click that row and pair with it.
       The row says one thing and the cube is called another; the peripheral is the same either way.
+      **Addressed by position, not by the name it happens to be showing.** It used to click
+      `whose value is "TimeFlip v2.0"`, which assumes the reported name has not caught up yet, and
+      that is not reliable: on 2026-08-10 the forget's own connection had already refreshed it, so
+      the row read `Chomper` and the selector matched nothing. `cgevent_click_element` fails a step
+      when its element is missing, but the assertion below it is a login, and the app was already
+      logging in on its own, so the run sailed past a click that never landed.
+      `static text 1` of the section is the "Click a device below to pair with it." header, so the
+      first device row is `static text 2`. The count is asserted first: exactly one device, so the
+      index cannot land on somebody else's cube.
 ```toml step
 [[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        return "rows=" & ((count of static texts of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
+    end tell
+end tell'''
+expect_contains = "rows=2"
+
+[[actions]]
 action = "cgevent_click_element"
-element = "first static text of group 3 of scroll area 1 of group 1 of window \"TimeFlip Settings\" whose value is \"TimeFlip v2.0\""
+element = "static text 2 of group 3 of scroll area 1 of group 1 of window \"TimeFlip Settings\""
 
 [[actions]]
 action = "wait_for_sql"
@@ -310,13 +341,22 @@ query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Lo
 expect_contains = "Login accepted"
 timeout_seconds = 40
 ```
-- [x] Step 4: Confirm the device corrects itself a second or two into the connection.
-      `peripheralDidUpdateName` is the only signal that ever reports the real name, and it cannot
-      fire during the connection the rename was made on. The connect-time read is the stale one.
+- [x] Step 4: Confirm the window ends up showing the name the cube is actually carrying.
+      The connect-time read is the stale one, and `peripheralDidUpdateName` is the only signal that
+      ever reports the real name. **Which connection it arrives on is not fixed**, so this asserts
+      the outcome rather than the timing: measured 2026-08-10, it fired on the forget's connection
+      in one run and only after the re-pair in two others, on the same build and the same cube. A
+      step that required the second of those would fail on a healthy app roughly a third of the
+      time, which is what it did.
+      What must hold either way is that the re-pair does not *lose* the name. It used to: the
+      re-pair adopted the cached pre-rename name over the real one, and the name report that would
+      have corrected it was then dropped by a guard comparing against the value that overwrite had
+      just replaced. Both are fixed (`shouldAdoptReportedName` takes the peripheral's identity now,
+      so re-pairing the same cube keeps our name), and this step is what proves it on hardware.
 ```toml step
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='device-name' AND message LIKE 'device reported a new name%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+query = "SELECT setting_value FROM setting WHERE setting_name = 'device_name';"
 expect_contains = "Chomper"
 timeout_seconds = 30
 

@@ -292,6 +292,26 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         var autoPauseMinutes: UInt16
         var emitInitialStatus: Bool
         var latency: Latency
+        /// Whether the two invented segments below are put in the history log at init.
+        ///
+        /// On by default, because a test asking this device for history wants some. Off for a
+        /// manual-mode session, which is the one caller whose history reaches a **real** database:
+        /// those two would be ingested as segments the user never worked, against faces they never
+        /// flipped, and land in their totals and their Report as fact.
+        var seedsSampleHistory: Bool
+        /// Whether a history fetch ends with the **running** segment, the way a real one does.
+        ///
+        /// `docs/timeflip.md` §5: "the last frame in every history dump is the current interval
+        /// snapshot, even when paused". This device has never done that -- its history holds only
+        /// finished segments -- which is a standing parity gap, off by default here so the suite
+        /// that grew up around the old behaviour keeps testing what it was written against.
+        ///
+        /// Manual mode turns it on because without it a running segment exists nowhere but in
+        /// memory until something closes it, and quitting the app is the documented way *out* of
+        /// manual mode -- so every session would lose whatever it was timing at the moment the user
+        /// left. With it on, the growing frame is re-reported on each refresh and
+        /// `recordDeviceEvent` keeps the open row up to date on disk.
+        var reportsOpenSegment: Bool
         /// Seed for the delay sampler. Fixed by default so a run is reproducible; vary it only to
         /// deliberately explore different draws.
         var randomSeed: UInt64
@@ -306,6 +326,8 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             autoPauseMinutes: UInt16 = 0,
             emitInitialStatus: Bool = true,
             latency: Latency = .instant,
+            seedsSampleHistory: Bool = true,
+            reportsOpenSegment: Bool = false,
             randomSeed: UInt64 = 0x5EED
         ) {
             self.initialFaceID = initialFaceID
@@ -317,11 +339,15 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             self.autoPauseMinutes = autoPauseMinutes
             self.emitInitialStatus = emitInitialStatus
             self.latency = latency
+            self.seedsSampleHistory = seedsSampleHistory
+            self.reportsOpenSegment = reportsOpenSegment
             self.randomSeed = randomSeed
         }
     }
 
     private struct ActiveSession {
+        /// Claimed when the segment opens, so it keeps one identity from open to close.
+        var eventNumber: UInt32
         var faceID: UInt8
         var start: Date
         var isPaused: Bool
@@ -437,26 +463,29 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
         // Seed the counter with realistic device-like magnitudes.
         nextEventNumber = UInt32(now.timeIntervalSince1970)
-        history.append(
-            TimeFlipHistoryEntry(
-                eventNumber: allocateEventNumber(),
-                faceID: Constants.historySample1FaceID,
-                startedAt: sample1Start,
-                duration: Constants.historySample1DurationMinutes * TimeConstants.secondsPerMinute,
-                isPaused: false
+        if configuration.seedsSampleHistory {
+            history.append(
+                TimeFlipHistoryEntry(
+                    eventNumber: allocateEventNumber(),
+                    faceID: Constants.historySample1FaceID,
+                    startedAt: sample1Start,
+                    duration: Constants.historySample1DurationMinutes * TimeConstants.secondsPerMinute,
+                    isPaused: false
+                )
             )
-        )
-        history.append(
-            TimeFlipHistoryEntry(
-                eventNumber: allocateEventNumber(),
-                faceID: Constants.historySample2FaceID,
-                startedAt: sample2Start,
-                duration: Constants.historySample2DurationMinutes * TimeConstants.secondsPerMinute,
-                isPaused: false
+            history.append(
+                TimeFlipHistoryEntry(
+                    eventNumber: allocateEventNumber(),
+                    faceID: Constants.historySample2FaceID,
+                    startedAt: sample2Start,
+                    duration: Constants.historySample2DurationMinutes * TimeConstants.secondsPerMinute,
+                    isPaused: false
+                )
             )
-        )
+        }
         if TimeFlipConstants.isValidFaceID(initialFaceID) {
             self.activeSession = ActiveSession(
+                eventNumber: allocateEventNumber(),
                 faceID: initialFaceID,
                 start: now,
                 isPaused: configuration.isPaused
@@ -602,6 +631,11 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         mockDeviceName
     }
 
+    /// No radio, so no peripheral and no identifier. `confirmConnected` keeps whatever is already
+    /// stored when this is nil, which is what a mock run wants: it must not overwrite a real
+    /// device's uuid, and it has nothing truthful to put there.
+    var deviceIdentifier: String? { nil }
+
     func snapshot() -> TimeFlipDeviceSnapshot {
         applyFactoryResetIfDue()
         return stateWithUpdatedDeviceTime()
@@ -627,6 +661,12 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
         // `read`, not the stream's command round trip.
         await waitForRadio(configuration.latency.read)
         applyFactoryResetIfDue()
+        // The device's *current* record, which is the running segment when there is one -- the same
+        // frame `fetchHistory` ends on, so the ingestor's cheap check can recognise the segment it
+        // already has on record and refresh its duration without pulling the whole stream.
+        if configuration.reportsOpenSegment, let activeSession {
+            return openSegmentFrame(for: activeSession, at: deviceTime())
+        }
         return history.max { ($0.eventNumber ?? 0) < ($1.eventNumber ?? 0) }
     }
 
@@ -938,8 +978,14 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
     }
 
     private func fetchHistorySync(startingFrom eventNumber: UInt32?) -> [TimeFlipHistoryEntry] {
-        guard let eventNumber else { return history }
-        return history.filter { entry in
+        var frames = history
+        // Last, and only when configured to: a real dump ends with the current interval snapshot
+        // (`docs/timeflip.md` §5), and the ingestor reads the final frame as the open segment.
+        if configuration.reportsOpenSegment, let activeSession {
+            frames.append(openSegmentFrame(for: activeSession, at: deviceTime()))
+        }
+        guard let eventNumber else { return frames }
+        return frames.filter { entry in
             guard let entryNumber = entry.eventNumber else { return false }
             return entryNumber >= eventNumber
         }
@@ -950,7 +996,11 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
             appendEventLog("flip_ignored_locked face=\(faceID)")
             return
         }
-        guard TimeFlipConstants.isValidFaceID(faceID) else {
+        // The stored bound, not the cube's: this is the one entry point manual mode drives, and the
+        // face it flips to is 13. Every other guard in here stays at 12, because they emulate what
+        // hardware does -- lighting a face, waking on a double tap -- and there is no thirteenth
+        // face to do any of that to.
+        guard TimeFlipConstants.isValidStoredFaceID(faceID) else {
             appendEventLog("flip_ignored_invalid face=\(faceID)")
             return
         }
@@ -1179,21 +1229,46 @@ final class MockTimeFlipDevice: TimeFlipSessionManaging, TimeFlipMockControlling
 
     private func finalizeActiveSession(at date: Date) {
         guard let activeSession else { return }
-        let duration = max(0, date.timeIntervalSince(activeSession.start))
-        history.append(
-            TimeFlipHistoryEntry(
-                eventNumber: allocateEventNumber(),
-                faceID: activeSession.faceID,
-                startedAt: activeSession.start,
-                duration: duration,
-                isPaused: activeSession.isPaused
-            )
-        )
+        history.append(openSegmentFrame(for: activeSession, at: date))
         self.activeSession = nil
     }
 
     private func beginSession(faceID: UInt8, paused: Bool, at date: Date) {
-        guard TimeFlipConstants.isValidFaceID(faceID) else { return }
-        activeSession = ActiveSession(faceID: faceID, start: date, isPaused: paused)
+        guard TimeFlipConstants.isValidStoredFaceID(faceID) else { return }
+        // The number is claimed when the segment opens, not when it closes, so the same segment
+        // carries one identity throughout. That is what lets the open frame below be re-reported as
+        // it grows: `AppDataStore.recordDeviceEvent` matches on (event_number, start_epoch) and
+        // updates the row in place, where a fresh number each fetch would insert a new row per
+        // refresh and record one segment several times over.
+        activeSession = ActiveSession(
+            eventNumber: allocateEventNumber(),
+            faceID: faceID,
+            start: date,
+            isPaused: paused
+        )
+    }
+
+    /// The running segment as a history frame, with its duration as of `date`.
+    ///
+    /// **Whole seconds**, because that is the only resolution a real device has: the history frame's
+    /// duration field is a count of seconds (`docs/TimeFlip2 BLE Protocol v4.3.md`), so a real
+    /// segment never arrives with a fraction on it and `device_event.duration_seconds` never held
+    /// one. Subtracting two `Date`s does, and manual mode is the first path where those reach the
+    /// database -- a segment closed a moment after it opened was recording durations like
+    /// `0.0000919103622437` seconds.
+    ///
+    /// To the **nearest** second rather than truncated. Truncating is the tempting reading -- a
+    /// counter reports the seconds it has ticked through -- but what is being recorded here is
+    /// elapsed wall time, and dropping the remainder loses up to a second from every segment in the
+    /// same direction. Those segments feed the daily totals, so the loss accumulates across a day
+    /// rather than cancelling out. Nearest is unbiased.
+    private func openSegmentFrame(for session: ActiveSession, at date: Date) -> TimeFlipHistoryEntry {
+        TimeFlipHistoryEntry(
+            eventNumber: session.eventNumber,
+            faceID: session.faceID,
+            startedAt: session.start,
+            duration: max(0, date.timeIntervalSince(session.start)).rounded(),
+            isPaused: session.isPaused
+        )
     }
 }

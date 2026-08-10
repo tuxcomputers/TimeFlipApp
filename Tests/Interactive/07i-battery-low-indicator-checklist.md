@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 14:32 on the branch 'feature/manualMode'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a
@@ -101,7 +101,16 @@ if running this section standalone rather than straight after.
 
 - [x] **(You)** Step 1: Confirm the activity name is blinking red/white.
 - [x] **(Claude)** Step 2: Click the **left side** of the status item
-and confirm the low-battery shortcut fired. That is the icon + activity name, not the duration/timer side, clicked via CGEventPost: `debug_log` (`click` tag) logs `Left-click while low battery: opening Settings on the Device tab` (the app opens Settings directly instead of the dropdown menu while the warning is active). Step 3 then confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+and confirm the low-battery shortcut fired. That is the icon + activity name, not the duration/timer side, clicked via CGEventPost: `debug_log` (`click` tag) logs `Status item clicked: side=left clickCount=1 -> openSettings`, the app having opened Settings directly instead of the dropdown menu while the warning is active. Step 3 then confirms the Device tab is the one selected. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+      This used to wait for `Left-click while low battery: opening Settings...`, a marker `1447da4`
+      deleted when it lifted the routing rule out of AppKit into `MenuBarClickRouter` and replaced
+      the per-branch messages with one line naming the decision. The click was landing and the app
+      was doing the right thing; only the sentence it used to say had gone.
+      Asserting the decision is enough here because *why* it was taken is unit-tested
+      (`MenuBarClickRouterTests.testConnectedLeftSideOpensSettingsWhileTheBatteryWarningBlinks`): a
+      left-click resolves to `openSettings` only while the warning blinks. What those tests cannot
+      see, and what this step is for, is whether a real click at a real screen position reaches that
+      rule at all.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -114,10 +123,24 @@ mode = "single"
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click while low battery: opening Settings%' AND debug_log_id > $before_left_click_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "opening Settings on the Device tab"
+query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Status item clicked:%' AND debug_log_id > $before_left_click_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "side=left clickCount=1 -> openSettings"
 timeout_seconds = 30
 ```
+### Bugs found and fixed - branch 'feature/manualMode'
+2026-08-10 - Step 2 waited for a `click` row reading `Left-click while low battery: opening
+Settings...`, which `1447da4` deleted when it moved the routing rule out of AppKit into
+`MenuBarClickRouter` and replaced the per-branch messages with one line naming the resolved action.
+Nothing was wrong with the app: the click landed and Settings opened, and the log said so as
+`Status item clicked: side=left clickCount=1 -> openSettings`. The step reads the decision now, and
+`Methods.md` Method 7 records that the arrow is the durable thing to assert on.
+2026-08-10 - Scenario C Step 6 was the same fault, on the sibling marker `Left-click: opening the
+dropdown menu`, and it halted the very next run because the first fix chased the one failing string
+instead of the family. `1447da4` deleted exactly three click messages; this file asserted two of
+them. Both read the arrow now, which is also what makes the pair meaningful: the same click on the
+same half resolving to `openSettings` in Scenario B and `showMenu` here is the whole difference the
+low-battery shortcut makes.
+
 - [x] **(Claude)** Step 3: Confirm that Settings opened on the Device tab
 (the Device tab reads `value = 1`) -- the window only exists if the left-click opened Settings, so this doubles as proof it wasn't the dropdown menu.
 ```toml step
@@ -176,7 +199,10 @@ timeout_seconds = 30
 - [x] **(You)** Step 5: Confirm the activity name is no longer flashing
 , and that the Battery line on the Device tab is no longer flashing.
 - [x] **(Claude)** Step 6: Click the **left side** of the status item again
- via CGEventPost and confirm it now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only applies while the warning is active. `debug_log` (`click` tag) logs `Left-click: opening the dropdown menu` (the non-low branch); an Escape then dismisses the menu it opened so it doesn't block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+ via CGEventPost and confirm it now opens the normal dropdown **menu**, not Settings -- the low-battery left-click skip only applies while the warning is active. `debug_log` (`click` tag) logs `Status item clicked: side=left clickCount=1 -> showMenu`, the non-low branch; an Escape then dismisses the menu it opened so it doesn't block later steps. Method: [Number 7](../Methods.md#method-7) (target `status_item_left`).
+      The sibling of Step 2's fix, and the one that proves this scenario's point: the *same* click,
+      on the same half, resolving to `showMenu` here and `openSettings` there is the whole
+      difference the low-battery shortcut makes, and the arrow is where that difference now shows.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -189,8 +215,8 @@ mode = "single"
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Left-click: opening the dropdown menu%' AND debug_log_id > $before_menu_click_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "opening the dropdown menu"
+query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Status item clicked:%' AND debug_log_id > $before_menu_click_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "side=left clickCount=1 -> showMenu"
 timeout_seconds = 30
 
 [[actions]]

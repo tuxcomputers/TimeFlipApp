@@ -1,5 +1,7 @@
 # Report Tab Checklist
 
+### Last run - 2026-08-10 14:38 on the branch 'feature/manualMode'
+
 Nothing needed.
 
 The Report tab reads the database and draws it. Every step is a click in the Settings window and a

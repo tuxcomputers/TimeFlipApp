@@ -75,6 +75,15 @@ final class AppState: ObservableObject {
     /// cleared only by a confirmed factory reset, which reverts the cube to the vendor name.
     /// `nil` until the app has actually connected to a device and been told a name.
     @Published var deviceName: String?
+    /// Which peripheral `deviceName` was learned from, so a connect can tell the cube we already
+    /// know from a different one. Lives and dies with `deviceName` rather than with the pairing:
+    /// the question it answers ("is this the cube that name belongs to?") is asked precisely when
+    /// there is no pairing, on the connect that re-establishes one. See `shouldAdoptReportedName`.
+    ///
+    /// In memory only. A relaunch loses it and the old `!wasPaired` rule decides, which is the
+    /// behaviour that existed before this and no worse; the sequence it exists for (rename, Forget,
+    /// Scan, pair) happens inside one session.
+    var deviceNameSourceUUID: String?
     /// Set the moment a rename is written, and shown under the Name row until the device next
     /// connects, which is when the lag it describes ends. In memory only and deliberately not
     /// persisted: it is a note about something that just happened in this session, and a relaunch
@@ -94,10 +103,14 @@ final class AppState: ObservableObject {
     @Published var googleClientSecret: String
     @Published var devicePassword: String
     @Published var pairedDeviceUUID: String?
-    /// Whether the app can reach the paired device right now. **Transient**: it changes on every
-    /// connect, drop, retry and reset, and it means nothing on its own -- a status of `.connected`
-    /// while `isPaired` is false is not a state the app can be in. Read `isConnected` rather than
-    /// comparing this to `.connected` directly, so that gating isn't re-derived at each call site.
+    /// Whether the app can reach the paired device right now, or is timing without one. Also the
+    /// single answer to whether this launch is in manual mode, which is `.manual` and nothing else
+    /// (see `isManualMode`).
+    ///
+    /// **Transient**: it changes on every connect, drop, retry and reset, and for the device cases
+    /// it means nothing on its own -- a status of `.connected` while `isPaired` is false is not a
+    /// state the app can be in. Read `isConnected` rather than comparing this to `.connected`
+    /// directly, so that gating isn't re-derived at each call site.
     @Published var connectionStatus: ConnectionStatus
     @Published var autoPauseMinutes: UInt16
     @Published var deviceInfo: TimeFlipDeviceInfo?
@@ -194,10 +207,27 @@ final class AppState: ObservableObject {
     // updates here via setLowBatteryBlinkState(). Deliberately not persisted.
     @Published private(set) var isLowBattery: Bool = false
     @Published private(set) var lowBatteryBlinkPhaseOn: Bool = false
-    // Set by MenuBarController.openPreferences() when Preferences is opened while low-battery is
-    // flashing, so the window jumps straight to the Device tab (where the battery line lives)
-    // instead of leaving whatever tab was last selected. SettingsRootView consumes and clears it.
+    /// The duration the menu bar is showing right now, mirrored here for the same reason as the two
+    /// above: the Faces tab is a different view hierarchy and has to show the same figure.
+    ///
+    /// The **string**, not the seconds behind it. That number is the category's tracked time today
+    /// plus the segment still running, clipped to the day window and frozen while paused, and it
+    /// then goes through the `display_seconds` setting -- so a second computation of it somewhere
+    /// else is a second chance to disagree, over a value a user can see in two places at once.
+    /// Pushed by `MenuBarController` on each render, which is already ticking. Deliberately not
+    /// persisted.
+    @Published private(set) var currentDurationText: String = ""
+    // Set by MenuBarController.openPreferences() when the app has a better idea of where the user
+    // is heading than the tab they last left the window on -- see SettingsTabRules for which cases
+    // those are. SettingsRootView consumes and clears it.
     @Published var pendingSettingsTab: SettingsTab?
+    /// Starts manual timing on the category, which also puts that category on `manualFaceID`. The
+    /// order those two happen in matters and is not this view's to decide, so the Faces tab asks for
+    /// the whole gesture rather than writing the face row itself -- see
+    /// `ApplicationDelegate.startManualTiming`.
+    var onManualTimingStart: ((Int) -> Void)?
+    /// Stops manual timing if it is running, starts it again if it is stopped.
+    var onManualTimingPauseToggle: (() -> Void)?
     var onPairingChange: ((Bool) -> Void)?
     var onDeviceSelectedForPairing: ((UUID) -> Void)?
     var onCancelPairingAttempt: (() -> Void)?
@@ -235,17 +265,89 @@ final class AppState: ObservableObject {
     /// connected to, so this can never be true without it. Everything that needs a live device
     /// (sending pause/lock, showing a battery level, enabling the Device tab's controls) should
     /// ask this rather than either half alone.
+    ///
+    /// A manual session is not this, however live its reading looks: `.manual` is a separate case,
+    /// so everything gated here stays off, which is the answer for anything that ends in a write
+    /// over BLE. What the menu bar draws is a different question, and `MenuBarLiveDisplay`'s.
     var isConnected: Bool {
         isPaired && connectionStatus == .connected
     }
 
-    /// Whether the app should be trying to reach a device at all -- the gate on every reconnect,
-    /// backoff retry and wake-from-sleep attempt. True while paired, because a paired app is meant
-    /// to keep its device reachable however long that takes; and true mid-pairing, because that
-    /// attempt is still live and a drop during it should be retried rather than abandoned. False
-    /// otherwise, which is what stops a forgotten device being chased forever.
+    /// Whether there is a device this app is meant to be reaching at all. True while paired,
+    /// because a paired app is meant to keep its device reachable however long that takes; and true
+    /// mid-pairing, because that attempt is still live and a drop during it should be retried
+    /// rather than abandoned. False otherwise, which is what stops a forgotten device being chased
+    /// forever, and is why a drop while it is false is reported as a pairing failure rather than
+    /// retried (see `ApplicationDelegate.handleReconnectFailure`).
+    ///
+    /// This is about the *pairing*, not about whether an attempt may run right now. For that, ask
+    /// `shouldAttemptConnection`.
     var shouldMaintainConnection: Bool {
         isPaired || connectionStatus == .pairing
+    }
+
+    /// Whether an attempt to reach the device may start **right now** -- the gate on every backoff
+    /// retry and wake-from-sleep attempt.
+    ///
+    /// Everything `shouldMaintainConnection` covers, minus the two states where the app has
+    /// deliberately stopped: the manual-mode offer is on screen waiting for an answer, and manual
+    /// mode was chosen for this launch. Both mean no attempt of any kind, from any path. Someone
+    /// who starts the app and walks away has to find the dialog exactly where they left it, not a
+    /// wake-from-sleep having quietly started another run of attempts behind it.
+    var shouldAttemptConnection: Bool {
+        shouldMaintainConnection && !isManualMode && !isAwaitingManualModeDecision
+    }
+
+    /// Whether the manual-mode offer is on screen. Set when the app gives up on the startup
+    /// attempts, cleared by whichever button is pressed.
+    @Published private(set) var isAwaitingManualModeDecision = false
+
+    /// Whether the offer may be **raised** right now, as against whether an attempt may run.
+    ///
+    /// The question exists because two paths reach the offer and both arrive: a refused PIN ends
+    /// the probe, and the disconnect that causes gets there before the attempt's own `.allRefused`
+    /// does. Without this the second call landed while the alert was already up, waited out
+    /// `runModal()`, and fired the moment the user chose manual mode -- putting the dialog straight
+    /// back up and tearing down the session that had just started, so the mode could only be
+    /// entered by answering the same question twice (measured on hardware 2026-08-09).
+    ///
+    /// Already asking is the obvious half. Already **in** manual mode is the half that bit: the
+    /// answer had been given, and re-asking undid it.
+    var mayOfferManualMode: Bool {
+        !isAwaitingManualModeDecision && !isManualMode
+    }
+
+    /// Whether the user chose manual mode for this launch.
+    ///
+    /// **Derived, not stored.** It was a flag of its own until `ConnectionStatus.manual` existed,
+    /// and a flag beside the status is two answers to one question: they can disagree, and the
+    /// disagreement that mattered was manual mode running while the status said `.connected` --
+    /// exactly the pair a write guard was once proposed to catch. One enum cannot say both.
+    ///
+    /// Nothing is persisted either, and there is nowhere to persist it to: quitting and restarting
+    /// is the only way out of manual mode (see `docs/TODO-features-under-development.md`), so a
+    /// stored answer would outlive the very restart meant to end it and strand a user who quit
+    /// specifically to get their cube back.
+    var isManualMode: Bool { connectionStatus == .manual }
+
+    /// The app has stopped trying and is asking. Nothing may attempt a connection until this is
+    /// answered.
+    func awaitManualModeDecision() {
+        isAwaitingManualModeDecision = true
+    }
+
+    /// Retry: the offer is dismissed and attempts may run again, which is one more scan.
+    func manualModeDeclined() {
+        isAwaitingManualModeDecision = false
+    }
+
+    /// Manual mode: no further connection attempt this launch, from any path.
+    ///
+    /// The status *is* the mode, so this one assignment both records the choice and closes the gate
+    /// on every attempt path. There is no matching `leaveManualMode()`, on purpose.
+    func enterManualMode() {
+        isAwaitingManualModeDecision = false
+        connectionStatus = .manual
     }
 
     init(
@@ -362,21 +464,27 @@ final class AppState: ObservableObject {
         DeveloperMode.isEnabled && isDeveloperConfigLoaded
     }
 
-    /// Note what `config.json`'s PIN is without letting it become `devicePassword`.
+    /// Note what `config.json`'s PIN is. `loadDevicePassword` then adopts it as the password a dev
+    /// build presents to a cube it is **already paired to**.
     ///
-    /// It used to be assigned straight over the password set in `init`, and that is what made
-    /// 2026-08-08's run of `03b` unrecoverable: the file still said `000000` from the 2026-08-01
-    /// write-back bug, pairing rotated the cube to `DeveloperMode.devicePassword`, and every launch
-    /// afterwards presented `000000` and was refused (`Login rejected, code=0x01`) forever, because
-    /// connecting deliberately never guesses a second password. Nothing is written down in dev mode
-    /// (see `persistDevicePassword`), so the only thing keeping the two ends in agreement across a
-    /// restart is that a dev build starts on the same constant it rotates to -- which this
-    /// assignment quietly broke.
+    /// This assignment used to be the bug rather than the feature, and the difference is worth
+    /// keeping straight. It once wrote the file's PIN over `devicePassword` while **pairing rotated
+    /// the cube to a different value**, and that mismatch is what made 2026-08-08's run of `03b`
+    /// unrecoverable: the file said `000000` from the 2026-08-01 write-back bug, the cube was on
+    /// `DeveloperMode.devicePassword`, and every launch afterwards presented `000000` and was
+    /// refused (`Login rejected, code=0x01`) forever, because connecting deliberately never guesses
+    /// a second password.
     ///
-    /// The PIN is still honoured where guessing is legitimate: pairing tries it after the factory
-    /// default and the dev constant. A cube left on some other custom PIN therefore needs a re-pair
-    /// rather than a plain reconnect, which is the same answer the app already gives for any device
-    /// whose password it has lost track of.
+    /// The fix then was to keep the file out of the connect path. The fix now is to make both ends
+    /// read the same thing: `DeveloperMode.pairedDevicePassword` is what a paired connect presents
+    /// **and** what pairing rotates the cube onto, so the two cannot disagree by construction.
+    /// Nothing is written down in dev mode (see `persistDevicePassword`), and nothing needs to be:
+    /// the file is the record.
+    ///
+    /// Guessing is still confined to pairing, which tries the factory default and the dev constant
+    /// before this -- the two states a cube whose PIN the app does not know yet can be in. A cube
+    /// on some *other* custom PIN still needs a re-pair rather than a plain reconnect, which is the
+    /// answer the app already gives for any device whose password it has lost track of.
     private func applyDeveloperConfig() {
         guard let config = developerConfigStore.load() else { return }
         isDeveloperConfigLoaded = true
@@ -395,6 +503,32 @@ final class AppState: ObservableObject {
     ///
     /// Read from disk rather than simply omitted, because omitting it would encode the key as
     /// absent and delete the developer's PIN instead of leaving it alone.
+    /// Record into `config.json` the PIN the cube has just been put on.
+    ///
+    /// **The only two moments the app writes that field**, and both share the property that makes
+    /// it safe: the cube's password has just been *changed*, so the file cannot be describing
+    /// anything still true. A pairing rotates it (see `ApplicationDelegate.startDeviceEvents`), and
+    /// a forget or a confirmed factory reset puts it back to the factory default (see
+    /// `forgetDevice`). Everywhere else the file wins and is passed through from disk untouched.
+    ///
+    /// That distinction is the 2026-08-01 fix, and it is worth being precise about what was wrong
+    /// then, because this now does the thing that broke it. Forget Device stamped `000000` over a
+    /// hand-set PIN **and the re-pair afterwards did not write anything**, so the cube ended up on a
+    /// rotated password the file did not name and every launch after was refused. Writing on forget
+    /// is only safe because the other end of that loop is closed now: the re-pair records what it
+    /// rotated to, so the file tracks the cube through both transitions instead of one.
+    func recordDevicePasswordInConfig(_ password: String) {
+        guard DeveloperMode.isEnabled else { return }
+        developerConfigDevicePassword = password
+        developerConfigStore.save(
+            DeveloperConfigPayload(
+                googleClientID: sanitizedClientID(),
+                googleClientSecret: googleClientSecret.isEmpty ? nil : googleClientSecret,
+                devicePassword: password
+            )
+        )
+    }
+
     private func persistDeveloperConfig() {
         developerConfigStore.save(
             DeveloperConfigPayload(
@@ -406,15 +540,21 @@ final class AppState: ObservableObject {
     }
 
     private func loadDevicePassword() {
-        // Guard on DeveloperMode.isEnabled itself, not isDeveloperConfigActive (which also
-        // requires config.json to have actually loaded) -- otherwise a dev build whose config.json
-        // symlink is broken falls through to Keychain here and clobbers the "123456" default set
-        // in init above.
-        guard !DeveloperMode.isEnabled else { return }
         let wasApplying = isApplyingPreferences
         isApplyingPreferences = true
+        defer { isApplyingPreferences = wasApplying }
+        // A dev build never reaches the Keychain, and now takes its answer from `config.json`
+        // rather than from the fixed constant: once there is a pairing, the cube is on the PIN that
+        // file names, because that is what pairing rotated it to. The constant is left as the
+        // fallback for a broken or PIN-less config.json, so such a build behaves exactly as it did
+        // before -- which is why this branches on `DeveloperMode.isEnabled` itself rather than on
+        // `isDeveloperConfigActive`. Guarding on the latter would drop a build with a broken
+        // config.json symlink through to the Keychain and clobber the constant set in `init`.
+        if DeveloperMode.isEnabled {
+            devicePassword = developerConfigDevicePassword ?? DeveloperMode.devicePassword
+            return
+        }
         devicePassword = (try? devicePasswordStore.loadPassword()) ?? nil ?? TimeFlipConstants.defaultPassword
-        isApplyingPreferences = wasApplying
     }
 
     func loadClientSecretOnce() {
@@ -656,6 +796,12 @@ final class AppState: ObservableObject {
         self.lowBatteryBlinkPhaseOn = blinkPhaseOn
     }
 
+    /// Mirrors what the menu bar is showing. Empty when it is showing no duration at all.
+    func setCurrentDurationText(_ text: String) {
+        guard currentDurationText != text else { return }
+        currentDurationText = text
+    }
+
     func selectDiscoveredDevice(_ device: DiscoveredBLEDevice) {
         pendingPairingDeviceID = device.id
         pendingPairingDeviceName = device.name
@@ -689,6 +835,12 @@ final class AppState: ObservableObject {
         discoveredDevices.append(device)
     }
 
+    /// Forget Device: reset the cube's password over `0x30` first, then unpair.
+    ///
+    /// The reset is what makes it safe to record the factory default in `config.json` -- it is
+    /// confirmed before this proceeds, so the cube really is back on it, and the file is the record
+    /// of what the cube holds. Recorded here rather than in `forgetDevice`, which is the plain
+    /// unpair primitive and has no business knowing whether a password was reset.
     func resetAndForgetDevice() async {
         let confirmed = await onResetDevicePasswordRequest?() ?? true
         guard confirmed else {
@@ -696,6 +848,7 @@ final class AppState: ObservableObject {
             return
         }
         forgetDevice()
+        recordDevicePasswordInConfig(TimeFlipConstants.defaultPassword)
     }
 
     /// Starts a full factory reset (erases face colors, task parameters, name, password --
@@ -755,6 +908,9 @@ final class AppState: ObservableObject {
             // reporting for the rest of this connection, which is the one being replaced here.
             let reportedUntilReconnect = deviceName
             deviceName = name
+            // The name now belongs to the cube it was just written to, whatever it belonged to
+            // before, so a re-pair to this same cube keeps it rather than taking the cached one.
+            deviceNameSourceUUID = pairedDeviceUUID
             pairedDeviceName = name
             renameLagNotice = DeviceNameRules.renameLagNotice(
                 newName: name,
@@ -786,6 +942,7 @@ final class AppState: ObservableObject {
         renameLagNotice = nil
         if deviceWasWiped {
             deviceName = nil
+            deviceNameSourceUUID = nil
         }
         connectionStatus = .disconnected
         currentFaceID = TimeFlipConstants.unassignedFaceID
@@ -796,10 +953,16 @@ final class AppState: ObservableObject {
         lastEventDescription = nil
         lastEventDate = nil
         deviceInfo = nil
-        // Correct in memory, and deliberately not persisted anywhere in developer mode: Forget
-        // Device sends 0x30 to reset the cube first, so the factory default really is the password
-        // the *next* pairing attempt should present. See `persistDevicePassword` for why that no
-        // longer reaches `config.json`.
+        // Correct in memory: both routes here have just put the cube back on the factory default, so
+        // that is what the *next* pairing attempt should present.
+        //
+        // Writing it to `config.json` is deliberately **not** done here, even though the file has to
+        // end up saying it. This is the plain unpair primitive and a dozen tests call it on an
+        // `AppState` built with default stores -- which means the shared, real config store. A write
+        // here reaches out of the test suite and rewrites the developer's own file, which it did,
+        // once, before this comment existed. The two callers that actually know the cube was reset
+        // record it themselves: `resetAndForgetDevice` below, and the factory-reset confirmation in
+        // `ApplicationDelegate`.
         devicePassword = TimeFlipConstants.defaultPassword
         onPairingChange?(false)
     }
@@ -979,15 +1142,29 @@ final class AppState: ObservableObject {
     ///
     /// A first pairing is the one moment the cube's answer genuinely beats ours, because we have no
     /// answer of our own, and a peripheral this Mac has not connected to before has nothing cached
-    /// to be stale. It also has to be the rule rather than "adopt when nothing is stored", because
-    /// Forget Device deliberately keeps `deviceName`: pairing a *different* cube afterwards must
-    /// take the new cube's name rather than inherit the old one's.
+    /// to be stale. Pairing a *different* cube must take the new cube's name too, rather than
+    /// inherit the one Forget Device deliberately kept.
+    ///
+    /// Those two used to be spelled `!wasPaired`, which also catches the case they are not about:
+    /// re-pairing the **same** cube, where our name is right and the cube's cached answer is the
+    /// stale one. That is not a corner case, it is the documented workaround for renaming (rename,
+    /// Forget, Scan, pair), so the app broke a name every time it was used. Measured 2026-08-10: a
+    /// cube renamed to `Zeta1` came back from the re-pair called `Blip`, and the
+    /// `peripheralDidUpdateName` that would have corrected it was then suppressed by a guard
+    /// comparing against the name this overwrite had just replaced.
+    ///
+    /// Telling the two apart needs the peripheral's identity, which is why this takes a uuid.
+    /// `deviceNameSourceUUID` is the cube the remembered name was learned from, so a uuid that
+    /// matches it is the cube we already know and our name stands. It reads as "no opinion" when
+    /// either side is missing, and the old rule decides.
     ///
     /// The cost is that a rename made in some other app is not noticed until this one re-pairs.
     /// That is the better failure: it leaves a name merely out of date, where trusting the cache
     /// silently reverts a name the user just set.
-    private func shouldAdoptReportedName(wasPaired: Bool) -> Bool {
-        !wasPaired || deviceName == nil
+    private func shouldAdoptReportedName(wasPaired: Bool, uuid: String?) -> Bool {
+        if deviceName == nil { return true }
+        if let uuid, let source = deviceNameSourceUUID { return uuid != source }
+        return !wasPaired
     }
 
     /// The device has told us what it is actually called, from `peripheralDidUpdateName` -- the one
@@ -995,6 +1172,8 @@ final class AppState: ObservableObject {
     /// outranks the stored name `confirmConnected` otherwise keeps.
     func adoptReportedDeviceName(_ name: String) {
         deviceName = name
+        // It came from the cube we are connected to, so that cube now owns the name.
+        deviceNameSourceUUID = pairedDeviceUUID
         pairedDeviceName = name
         clearRenameLagNoticeIfCaughtUp(reported: name)
     }
@@ -1025,8 +1204,9 @@ final class AppState: ObservableObject {
         isPaired = true
         connectionStatus = .connected
         let reported = (name?.isEmpty == false) ? name : nil
-        if let reported, shouldAdoptReportedName(wasPaired: wasPaired) {
+        if let reported, shouldAdoptReportedName(wasPaired: wasPaired, uuid: uuid) {
             deviceName = reported
+            deviceNameSourceUUID = uuid
         } else if let reported, reported != deviceName {
             DeveloperMode.debugPrint(
                 .deviceName,
@@ -1076,9 +1256,11 @@ final class AppState: ObservableObject {
     }
 }
 
-/// Whether the app can currently reach the device it is paired to, and what it is doing about it.
-/// Every case is transient -- see `AppState.isPaired` for the durable half, and `isConnected` for
-/// the two combined. Deliberately says nothing about *which* device: that never changes here.
+/// What the app is currently timing from, and what it is doing about reaching it.
+///
+/// Mostly that is the device it is paired to, and every one of those cases is transient -- see
+/// `AppState.isPaired` for the durable half, and `isConnected` for the two combined. Deliberately
+/// says nothing about *which* device: that never changes here.
 enum ConnectionStatus: Equatable {
     /// Not connected and not trying: either nothing is paired, or a paired device has been let go
     /// of after a deliberate teardown. Rendered as "Not paired" only when `isPaired` is false.
@@ -1088,6 +1270,21 @@ enum ConnectionStatus: Equatable {
     case pairing
     /// Connected and logged in.
     case connected
+    /// Manual mode: the app is timing from the Faces tab against a virtual device standing in for
+    /// the cube. Connected, in the only sense that matters to anything drawing a reading -- there
+    /// is a session running, and its source is one this app drives itself -- to something that is
+    /// not a cube. Entered from the offer after a failed scan and held for the rest of the launch,
+    /// quitting being the only way out, so nothing ever moves off it.
+    ///
+    /// Deliberately **not** `.connected`: `isConnected` gates every command that goes out over BLE,
+    /// and there is no radio on the other end of this one.
+    ///
+    /// It replaced a `.disconnected`, which was true -- there is no cube -- and useless. Every
+    /// reader that cares whether something is timing had to be told about manual mode separately,
+    /// from a flag kept alongside this enum, so the two states that must never coincide (connected
+    /// to a cube, and writing manual segments) were held apart by an audit of who wrote what. As
+    /// cases of one enum they cannot coexist, and the audit is the compiler's.
+    case manual
     /// Connection to an already-paired device was lost (BLE range, sleep, etc.) and an automatic
     /// reconnect is in progress. Distinct from `.failed`/`.disconnected` so the menu bar keeps
     /// showing the last known activity/icon instead of tearing down to an unpaired look.

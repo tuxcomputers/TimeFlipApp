@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-08 on the branch 'feature/reportTab'
+### Last run - 2026-08-10 14:33 on the branch 'feature/manualMode'
 
 One scenario, and only because of where the lock control lives.
 
@@ -75,9 +75,6 @@ prompt = "Flip the cube to the Break face (face 8) and leave it resting there --
 timeout_seconds = 0
 poll_interval = 2
 ```
-### Bugs found and fixed - branch 'feature/reportTab'
-2026-08-08 - This scenario never confirmed the **device** was unlocked, and `07i`'s Cleanup quit the app with `pause_on_lock` on, which pauses and locks the cube on exit; the flip then produced no `device_event` row at all and the step waited out its 120s on a flip that had actually been done. Step 2 now runs `ensure_unlocked_unpaused` first, as `10i` already did.
-2026-08-08 - Steps 3 and 6 are `(You)` steps that carried no `prompt`, so the runner polled in silence and never raised an ACTION NEEDED banner for either -- the only two such steps in the Interactive suite. Both now prompt, and wait without a timeout like every other human-gated step.
 - [x] **(Claude)** Step 4: Open Settings on the Categories tab and confirm `Break`'s Active box is
       dead.
       Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10). `Break`

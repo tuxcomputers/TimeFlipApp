@@ -146,15 +146,26 @@ heading directly under the file's title (the first `#` heading), before any intr
 ```markdown
 # Reset Device Checklist
 
-### Last run - 2026-07-20 on the branch 'feature/blahBlah'
+### Last run - 2026-08-09 21:55 on the branch 'feature/blahBlah'
 ```
 
-Update it to today's date and the current branch **only when you actually run that checklist on this
-branch** -- never when merely editing the file during development. Each checklist tracks its own last
-run independently: running only `01` on a branch updates only `01`'s heading; every other checklist
-keeps the date/branch from whenever *it* was last run (an earlier branch, or nothing at all --
+Update it to now and the current branch **only when you actually run that checklist on this branch**
+-- never when merely editing the file during development. Each checklist tracks its own last run
+independently: running only `01` on a branch updates only `01`'s heading; every other checklist keeps
+the timestamp/branch from whenever *it* was last run (an earlier branch, or nothing at all --
 checklists predating this convention simply won't have the line until their next run, and that's
 expected).
+
+The time is there because a date alone cannot separate two runs on the same day, which is the normal
+case while a branch is being worked on: without it, a heading that says today tells you nothing about
+whether it covers the change you just made.
+
+**The standalone runner does this itself**, so neither of the rules here depends on whoever is
+running remembering them. `scripts/testrunner/checklist_header.py` stamps a file's heading as the
+supervisor starts that file -- started, not finished, so a halted run still records which checklist
+it was in -- and `00-test-setup.md`'s last step retires bug history belonging to another branch,
+across exactly the files that run resolved. When **you** run the checklists by hand, you are the
+runner: do both yourself, and the same script is there to do it with.
 
 ## Bugs found and fixed
 
@@ -172,6 +183,31 @@ it's unambiguous which branch's testing found it:
 One line per bug, dated `YYYY-MM-DD`, terse -- the actual fix is in the commit/diff, don't
 re-explain it here. Append further bugs found on later runs of the same checklist on the same
 branch under the existing heading, rather than replacing it.
+
+**A failed step the user posts here counts as a test run, and recording it is Claude's job.** When
+the user runs the standalone runner themselves (`scripts/testrunner/run_tests.sh` or
+`supervisor.py`) and pastes a failure into the conversation, that failure was found by running
+against the device, which is exactly what this section is for -- the only difference from Claude
+running it is whose hands were on the keyboard, and that difference must not decide whether the
+history gets written.
+
+So: work out the cause, fix it, and **add the entry to that checklist file** in the same change as
+the fix. Specifics:
+
+- **Which file and where.** The runner names both -- its step ids read `T<checklist>-Sc<section>-St<n>`
+  (e.g. `T01b-ScA-St4`), and the transcript in `logs/` has the full path. The entry goes under that
+  step, in that file, not in whatever file is currently open.
+- **With the fix, not with the report.** The section is bugs found *and fixed*: an entry describing a
+  failure nobody has explained yet is a note, and belongs in the conversation until it becomes a
+  cause.
+- **The cause, not the symptom.** "The step timed out" is what the runner already said. What belongs
+  here is why -- see the existing entries, which name the wrong setting shape, the unscoped query,
+  the missing `prompt`.
+- **A broken step is a bug too.** Roughly half the entries in this suite are faults in the checklist
+  rather than in the app, and they are worth recording for the same reason: the next run would
+  otherwise rediscover them.
+- **Leave the checkboxes alone.** They are the runner's record of what it did, and a failed step's
+  box stays unchecked until a run actually passes it. Fixing the cause does not tick it.
 
 Clearing is per-checklist and tied to *actually running it*: when you re-run a checklist on a
 different branch (the same run that updates its `### Last run` heading), clear its old Bugs found and
@@ -207,6 +243,19 @@ file should read `0`.
 
 ## CI enforcement
 
-`scripts/check_interactive_checklists.sh` (wired into `.github/workflows/tests.yml`) fails the
-build if any `<feature>-checklist.md` under either `Tests/Bench/` or `Tests/Interactive/` has an
-unchecked (`- [ ]`) item. A PR touching either folder must have it fully ticked before merging.
+`scripts/check_interactive_checklists.sh` (wired into `.github/workflows/tests.yml`) fails the build
+on either of two things, across every `<feature>-checklist.md` under `Tests/Bench/` and
+`Tests/Interactive/`:
+
+- an unchecked (`- [ ]`) item;
+- a `### Last run` heading naming a branch other than the PR's, or missing entirely.
+
+The second is what makes the first mean anything. A tick stays in the file until someone clears it,
+so a branch that changes behaviour and never re-runs the suite arrives with a full set of ticks
+recording the *previous* branch's run. The heading is the only record of whose evidence it is, so
+the whole suite has to be re-run on the branch the PR is for, not just the checklists it edited.
+
+The branch half is PR-only: it compares against `github.head_ref`, which is empty on a push to main,
+and an empty branch skips that half. That is deliberate -- a heading names the feature branch that
+ran it and goes on naming it after the merge, so enforcing it on main would fail every push forever.
+`scripts/ci-local.sh` passes the current branch the same way (and nothing when you're on `main`).

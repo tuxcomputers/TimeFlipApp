@@ -11,9 +11,32 @@ import OSLog
 enum DeveloperMode {
     static let isEnabled = true
 
-    /// The PIN dev devices are left on. Tried during pairing after the factory default, and used
-    /// as a dev build's starting `devicePassword`. Only ever reached when `isEnabled`.
+    /// The PIN dev devices are left on. A **pairing** candidate only, tried after the factory
+    /// default: it is what a cube an older build paired is still sitting on. Only ever reached
+    /// when `isEnabled`.
+    ///
+    /// Deliberately not what a paired cube is talked to with -- see `pairedDevicePassword`.
     static let devicePassword = "123456"
+
+    /// The PIN a dev build presents to a cube it is **already paired to**: `config.json`'s, which
+    /// the app writes at the pairing that rotated the cube onto it and the developer edits by hand
+    /// after that.
+    ///
+    /// The split is the rule that guessing stops at pairing. The factory default and
+    /// `devicePassword` above exist to reach a cube whose PIN this app does not know yet -- one
+    /// still on the vendor default, or left on the constant by an older build. Once there is a
+    /// pairing, the app is meant to know the answer, and there is exactly one.
+    ///
+    /// Falls back to `devicePassword` when the file has no PIN, so a missing or unreadable
+    /// config.json leaves a dev build behaving exactly as it did before this existed -- and, since
+    /// the constant is also what pairing rotates to, that fallback is a working password rather
+    /// than a guess.
+    ///
+    /// **Read fresh on every access**, not cached, which is what lets the PIN be changed by editing
+    /// the file and relaunching rather than by rebuilding.
+    static var pairedDevicePassword: String {
+        DeveloperConfigStore.shared.load()?.devicePassword ?? devicePassword
+    }
 
     /// Whether debug messages are actually emitted right now -- true only when `isEnabled` (the
     /// compile-time dev flag above) is also on. Set once at startup from the `debug` setting's
@@ -108,6 +131,9 @@ enum DeveloperMode {
         // The Report tab's date range and how many categories it found in it. Six characters, well
         // short of the longest tag, so adding it re-pads nothing.
         case report = "report"
+        // Giving up on an unreachable device at startup, and what the user picked when asked.
+        // Eleven characters, the same as the longest existing tag, so adding it re-pads nothing.
+        case manualMode = "manual-mode"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

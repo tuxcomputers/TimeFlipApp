@@ -48,6 +48,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from md_checklist import Checklist  # noqa: E402
+from checklist_header import current_branch, stamp_file  # noqa: E402
 from methods import load_methods, methods_path, resolve_uses  # noqa: E402
 from actions import (  # noqa: E402
     condition_met,
@@ -722,9 +723,17 @@ def main():
                        "reset to 10s so the connected-heartbeat gate and 01b's timing hold.")
                 print(msg)
                 log_lines.append(msg)
+        # The branch, and the files this run will cover, handed to the setup so its own step can
+        # retire bug history belonging to another branch (see checklist_header.py). Passed in rather
+        # than rediscovered there: -f/-s and explicit paths all narrow the run, and a sweep over
+        # anything wider would clear the history of checklists nobody asked to run.
+        branch = current_branch(repo_root) or ""
+        checklist_files = " ".join(os.path.relpath(p, repo_root) for p in checklist_paths)
         if not run_checklist(setup_path, db_path, log_lines, args.yes, remembered,
                              initial_vars={"needs_history": needs_history,
-                                           "resume": resume, "db_mode": db_mode},
+                                           "resume": resume, "db_mode": db_mode,
+                                           "branch": branch,
+                                           "checklist_files": checklist_files},
                              methods=methods, run_record=run_record):
             print("\nAborted -- test setup failed; not running any checklists.")
             log_lines.append("ABORTED: test setup failed.")
@@ -741,6 +750,13 @@ def main():
                 log_lines.append(f"ABORTED: {msg}")
                 overall_ok = False
                 break
+            # Stamped as the file is started, not at the end and not in the setup's sweep: a
+            # checklist this run never reaches has to keep whatever the previous branch left on it,
+            # heading and bug history alike. Started rather than finished, so a halted run still
+            # records that this file is the one it was in.
+            if branch:
+                when, how = stamp_file(path, branch)
+                log_lines.append(f"{_log_path(path)}: Last run {how} -- {when} on '{branch}'")
             ok = run_checklist(path, db_path, log_lines, args.yes, remembered,
                                methods=methods, run_record=run_record)
             overall_ok = overall_ok and ok

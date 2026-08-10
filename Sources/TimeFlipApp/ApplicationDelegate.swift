@@ -126,6 +126,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     )
     private let enableMockEvents = false
     private lazy var device: TimeFlipSessionManaging? = enableMockEvents ? MockTimeFlipDevice() : TimeFlipBLEDevice()
+    /// The same object as `device` while a manual session is running, held at its own type so the
+    /// timing controls can drive it. `nil` outside manual mode, which is what makes those controls
+    /// no-ops rather than something that has to be guarded at every call site.
+    private var manualDevice: MockTimeFlipDevice?
     private var eventTask: Task<Void, Never>?
     // Bumped every time startDeviceEvents spawns a new eventTask, so a stale task's completion
     // handler can tell it's no longer the current one and avoid nil-ing out its replacement.
@@ -171,7 +175,24 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var dayResetTimer: Timer?
     // Backoff counter for reconnect attempts after losing connection to an already-paired
     // device; reset to 0 as soon as a reconnect succeeds. Capped in scheduleReconnect().
+    // This picks the *delay* and nothing else -- which is why handleSystemWake resets it (a loop
+    // that had climbed to the 30s cap would otherwise keep someone who just woke their Mac beside
+    // their cube waiting half a minute). Whether to offer manual mode is a separate question, in
+    // `manualModeOffer`, so neither can quietly change the other's meaning.
     private var reconnectAttempt = 0
+    // Whether this launch has ever connected, which is the whole of what decides between retrying
+    // quietly and putting the offer up. See ManualModeOffer for the rule.
+    private var manualModeOffer = ManualModeOffer()
+    // What the current connect attempt found, which is how the manual-mode offer says why it gave
+    // up (see `ManualModeOfferReason`). Held here rather than returned, because the offer is often
+    // raised from the disconnect the attempt causes -- a path with no access to what the attempt is
+    // about to return, and the one that gets there first. Both reset at the top of every attempt.
+    private var attemptEligibleCount = 0
+    private var attemptRefusedCount = 0
+    // Puts the "device isn't in range" choice in front of the user and reports what they picked.
+    // A seam rather than a direct NSAlert call so a test can answer it without a window server;
+    // the default is set in applicationDidFinishLaunching.
+    var presentManualModeOffer: ((@escaping (ManualModeAnswer) -> Void) -> Void)?
     // Set from the moment a factory reset's 0xFF command is sent until the device is confirmed
     // reset (it reconnects on the factory default password) or the deadline passes. While set, the
     // reconnect path treats a successful default-password login as the reset confirmation -- NOT a
@@ -182,6 +203,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     // How long to keep trying to catch the device coming back on the default password after a reset
     // before giving up and surfacing a failure (the device reboots in well under this).
     private let factoryResetConfirmTimeout: TimeInterval = 120
+    // How long to leave between two password attempts against the same peripheral. A rejected probe
+    // cancels its connection on the way out, and CoreBluetooth will not reconnect to a peripheral it
+    // is still tearing down -- without this the second attempt returns `.failed` in the same second,
+    // which reads as "could not be reached" when the password was never sent at all.
+    private let probeSettleSeconds: UInt64 = 1
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
@@ -202,6 +228,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         let dbType = dataStore.loadDbType()
         appState.dbType = dbType
         DeveloperMode.debugPrint(.dbType, "Database type: \(dbType)")
+        // A manual segment left open by a run that did not reach `applicationWillTerminate` -- a
+        // crash, a force quit, a power cut. Manual mode is per-launch, so an open manual row can
+        // never be resumed and is finished by definition; left alone it stays `finalised = 0` and
+        // never converts, and unlike a cube's row there is no later frame coming to close it, which
+        // for a user with no device at all means never. Keeps whatever duration it was last written
+        // with rather than inventing one from the clock: when it actually stopped is unknowable.
+        // Before the sweep, so the row it finalises is converted by that same pass.
+        dataStore.closeOpenManualSegment(endingAt: nil)
         // Before anything can add to the backlog: converts whatever the last run left behind, and
         // reports any device_event marked processed with no time_entry to show for it. Runs after
         // the log sink is wired above so a repair actually reaches debug_log.
@@ -213,6 +247,23 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         ActivityLibrary.reportUnresolvableIcons(appState.iconOptions)
         logger.notice("Launching TimeFlip mockup")
         setupMainMenu()
+        if presentManualModeOffer == nil {
+            presentManualModeOffer = { [weak self] answer in
+                self?.runManualModeAlert(answer)
+            }
+        }
+        // Until this launch has reached the device once, a scan that finds nothing has to give up
+        // quickly: these are the attempts the manual-mode offer is counting, and at the full
+        // watchdog three of them leave someone watching an app that looks like it is doing nothing
+        // for minutes. Restored to the full watchdog by the first successful connect.
+        (device as? TimeFlipBLEDevice)?.connectScanTimeoutSeconds = TimeFlipConstants.startupConnectScanTimeoutSeconds
+        appState.onManualTimingStart = { [weak self] categoryID in
+            self?.startManualTiming(categoryID: categoryID)
+        }
+        appState.onManualTimingPauseToggle = { [weak self] in
+            guard let self else { return }
+            self.setManualTimingPaused(!self.appState.isPaused)
+        }
         appState.onPairingChange = { [weak self] paired in
             guard let self else { return }
             // Fires only when pairing itself changes -- true once a first pairing succeeds, false
@@ -258,11 +309,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 // set by hand for recovery), then the current password. Each is only tried if the
                 // one before was rejected as wrong -- any other outcome stops the sequence.
                 //
-                // Pairing is the only place a password is guessed, and the only place
-                // `config.json`'s PIN is read at all: it deliberately does not set the password
-                // this app connects with (see AppState.applyDeveloperConfig). Connecting uses the
-                // stored one and fails if it is rejected, because being paired means the app is
-                // meant to already know it (see startDeviceEvents).
+                // Pairing is the only place a password is guessed. The default and the dev constant
+                // belong to this list and nowhere else: they are the two states a cube whose PIN
+                // the app does not know yet can be in. Once paired there is exactly one right
+                // answer -- `config.json`'s PIN, which is also what the rotation below leaves the
+                // cube on (see AppState.applyDeveloperConfig) -- and connecting presents that and
+                // fails if it is rejected, because being paired means the app is meant to know it
+                // (see startDeviceEvents).
                 var candidates = [TimeFlipConstants.defaultPassword]
                 if DeveloperMode.isEnabled {
                     candidates.append(DeveloperMode.devicePassword)
@@ -345,7 +398,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // The scan filter has to learn the new name in the same breath as the device does.
             // Leave it until the next launch and a drop in between would be unrecoverable: the
             // reconnect scan would still be looking for the name the cube no longer answers to.
-            (device as? TimeFlipBLEDevice)?.rememberedDeviceName = name
+            // The name being displaced is kept rather than dropped: the GAP name macOS reports is
+            // one connection stale, so the very next scan is still seeing it.
+            if let ble = device as? TimeFlipBLEDevice {
+                ble.previouslyKnownDeviceName = ble.rememberedDeviceName
+                ble.rememberedDeviceName = name
+            }
             return true
         }
         appState.onDisplaySecondsChange = { [weak self] enabled in
@@ -557,6 +615,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // Record the intentional quit and clear connection_lost, so the disconnect that
         // stopDeviceEvents() is about to cause isn't later read as a dropped connection.
         dataStore.recordQuitRequest()
+        // Quitting is how a manual session ends, and nothing else will close its segment: a cube's
+        // is closed by the frame after it, and there is no frame after this one. Done here, straight
+        // against the database, rather than by pausing the virtual device and refreshing history:
+        // that path is async and coalesces against a fetch already running, either of which would
+        // lose the race with termination.
+        if appState.isManualMode {
+            dataStore.closeOpenManualSegment(endingAt: Date())
+        }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         stopDeviceEvents()
         logger.info("Application will terminate")
@@ -577,7 +643,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.logger.notice("System woke from sleep; device already connected")
                 return
             }
-            guard self.appState.shouldMaintainConnection else { return }
+            guard self.appState.shouldAttemptConnection else { return }
             self.logger.notice("System woke from sleep; forcing a fresh device reconnect attempt")
             self.stopDeviceEvents()
             self.reconnectAttempt = 0
@@ -588,7 +654,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // being in range by coincidence.
             DeveloperMode.debugPrint(.timeFlip, "System wake: reconnecting status shown, waiting 2s before connect attempt")
             try? await Task.sleep(nanoseconds: 2 * TimeConstants.nanosecondsPerSecond)
-            guard self.appState.shouldMaintainConnection else { return }
+            guard self.appState.shouldAttemptConnection else { return }
             DeveloperMode.debugPrint(.timeFlip, "System wake: 2s delay elapsed, attempting reconnect now")
             self.startDeviceEvents()
         }
@@ -621,13 +687,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // stored name that `confirmConnected` otherwise keeps -- unlike a connect-time read,
             // this fires *because* the name changed rather than reporting a cached one.
             bleDevice.onDeviceNameChanged = { [weak self] name in
-                guard let self, let name, !name.isEmpty else { return }
+                // Compared against the live stored name, not `rememberedDeviceName`. That is a
+                // snapshot taken before the connect for the scan filter, and a connect can move the
+                // stored name out from under it: when it did, this guard rejected the one
+                // authoritative name report on the grounds that it matched a value the connect had
+                // already replaced, and the wrong name stayed on screen (measured 2026-08-10).
+                guard let self, let name, !name.isEmpty, name != self.appState.deviceName else { return }
                 self.appState.adoptReportedDeviceName(name)
+                bleDevice.previouslyKnownDeviceName = bleDevice.rememberedDeviceName
                 bleDevice.rememberedDeviceName = name
             }
             // Before the connect below, because the connect IS the scan: a cube renamed off
-            // "timeflip" matches on this name or on nothing at all.
+            // "timeflip" matches on one of these names or on nothing at all. Both go in, since the
+            // scan after a rename is still seeing the name before it.
             bleDevice.rememberedDeviceName = appState.deviceName
+            bleDevice.previouslyKnownDeviceName = dataStore.loadPreviousDeviceName()
         }
         eventTaskGeneration += 1
         let generation = eventTaskGeneration
@@ -639,10 +713,43 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             if !skipConnect {
-                let connected = await device.connect()
-                guard connected else {
+                let outcome = await self.connectToPairedDevice(device)
+                // A deliberate teardown -- a forget, a reset, a quit -- is not a verdict on whether
+                // the device is in range, so it must not reach the failure handling below. It
+                // mattered less while the offer waited for a third failure; now that the first one
+                // asks, letting this through would put the dialog up because the user pressed
+                // Forget Device.
+                guard outcome != .cancelled else { return }
+                guard outcome == .connected else {
                     logger.error("TimeFlip connect failed; will retry")
                     await MainActor.run {
+                        // A newer attempt has replaced this one, so this result is about a
+                        // connection nobody is waiting for any more, and acting on it does harm.
+                        //
+                        // Retry is where that happens, and the position of this check is the whole
+                        // fix. The offer is raised from inside this very task and puts up a modal,
+                        // so the main actor is busy answering the dialog while this block sits in
+                        // the queue. Retry clears the awaiting flag and starts a fresh attempt;
+                        // then the modal returns, this block finally runs, raises the dialog a
+                        // second time, and `offerManualMode` -> `stopDeviceEvents` cancels the
+                        // attempt Retry just started, before its first line executes. Measured
+                        // 2026-08-10: Retry logged "scanning again", the new task was created 2ms
+                        // later, the dialog was back 3ms after that, and no scan ran for 99s.
+                        //
+                        // Checking before the `await` instead proves nothing, because the
+                        // generation is still current at that point -- tried on the device, and it
+                        // changed nothing at all. `eventTaskGeneration` already existed for this
+                        // and was consulted only by the `defer` above.
+                        guard self.eventTaskGeneration == generation else { return }
+                        // Every eligible device was there and refused this app's PIN. Retrying
+                        // scans up the same cube for the same refusal, so this is the same final
+                        // answer either way -- ask now. Only on a launch that has never connected:
+                        // after that, the offer is over for the session and a refusal is handled as
+                        // any other drop.
+                        if outcome == .allRefused, !self.manualModeOffer.hasConnectedThisLaunch {
+                            self.offerManualMode()
+                            return
+                        }
                         self.handleReconnectFailure(message: "Connect failed")
                     }
                     return
@@ -717,6 +824,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                         // 0xFF wipes the name along with everything else, so the remembered one is
                         // discarded here rather than kept the way Forget Device keeps it.
                         self.appState.forgetDevice(deviceWasWiped: true)
+                        // The wipe is what this branch just proved, so `config.json` has to follow
+                        // the cube back to the factory default -- otherwise the next launch presents
+                        // a password a wiped cube no longer holds.
+                        self.appState.recordDevicePasswordInConfig(TimeFlipConstants.defaultPassword)
                     }
                 } else {
                     // Logged in, but with the OLD password -- the wipe hasn't taken yet. Tear down
@@ -745,6 +856,17 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     self.appState.connectionStatus = .connected
                 }
                 self.reconnectAttempt = 0
+                // Settles the manual-mode question for the rest of this session: from here a drop
+                // reconnects on the backoff indefinitely, with no offer. Having the cube and then
+                // losing it is a different situation from never having had it.
+                let wasFirstConnect = !self.manualModeOffer.hasConnectedThisLaunch
+                self.manualModeOffer.recordConnected()
+                if wasFirstConnect, let ble = self.device as? TimeFlipBLEDevice {
+                    // The short startup scan budget was there to reach a verdict while someone was
+                    // watching. Nobody is now, and a reconnect is chasing a device this launch has
+                    // already reached, so give the scan the full watchdog back.
+                    ble.connectScanTimeoutSeconds = ble.defaultConnectScanTimeoutSeconds
+                }
                 // Persist the password that actually worked if it differs from the stored one
                 // (the default-password fallback above), so the next reconnect doesn't have to
                 // rediscover this via another rejection first.
@@ -765,8 +887,13 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                let rotatedPassword = await bleDevice.rotateDevicePassword() {
                 await MainActor.run {
                     self.appState.devicePassword = rotatedPassword
+                    // Dev mode writes the PIN into config.json rather than the Keychain, because
+                    // that file is what a paired connect reads. This is the one save that sets the
+                    // field rather than passing it through from disk -- see
+                    // `AppState.recordDevicePasswordInConfig` for why that is safe only here.
+                    self.appState.recordDevicePasswordInConfig(rotatedPassword)
                 }
-                if !self.appState.isDeveloperConfigLoaded {
+                if !DeveloperMode.isEnabled {
                     do {
                         try TimeFlipDevicePasswordStore.shared.savePassword(rotatedPassword)
                     } catch {
@@ -830,8 +957,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // after a deliberate forget. startDeviceEvents re-installs the handler when it reconnects.
         (device as? TimeFlipBLEDevice)?.onDisconnect = nil
         device?.stop()
-        Task { [weak self] in
-            await self?.device?.disconnect()
+        // The device being torn down, captured now rather than read again when the task runs. Manual
+        // mode puts a different one in `device` moments after this returns, and re-reading the
+        // property there would disconnect the replacement instead of the one being let go.
+        let outgoing = device
+        Task {
+            await outgoing?.disconnect()
         }
         eventTask?.cancel()
         eventTask = nil
@@ -882,12 +1013,302 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // far as pairing (a drop between connect() and the first face event), so report it as the
         // pairing failure it is rather than retrying forever against a device the app isn't
         // actually paired to.
+        //
+        // Deliberately `shouldMaintainConnection` and not `shouldAttemptConnection`: this asks
+        // whether there is a pairing to reconnect to, not whether an attempt may run right now.
+        // Reading the manual-mode gates here would report a pairing failure for a device that is
+        // perfectly well paired and merely out of range.
         guard appState.shouldMaintainConnection else {
             appState.pairingFailed(message: message)
             return
         }
+        // An attempt that was already in flight when the offer went up, landing afterwards. The
+        // dialog is the only thing that decides what happens next, so this failure changes nothing.
+        guard !appState.isAwaitingManualModeDecision, !appState.isManualMode else { return }
+        guard manualModeOffer.recordFailedAttempt() == .keepTrying else {
+            offerManualMode()
+            return
+        }
         appState.connectionStatus = .reconnecting
         scheduleReconnect()
+    }
+
+    /// Find this app's own device among everything advertising, and log in to it.
+    ///
+    /// Scan, build the list of eligible devices, then try each in turn until one accepts the
+    /// password or the list runs out. The list is eligible-by-name, which in an office is several
+    /// people's cubes; only one of them will take this app's PIN, and that is what identifies it.
+    /// The previous driver connected to whichever answered first and stopped there, so a colleague's
+    /// cube advertising a moment sooner was enough to lock this user out of their own device with a
+    /// "wrong password" that named nothing.
+    ///
+    /// `.wrongPassword` is therefore not a failure, it is the answer to "is this one mine?" and the
+    /// loop moves on. Only running out of candidates is a failure, and that is what the manual-mode
+    /// offer counts.
+    ///
+    /// The mock has no radio and nothing to scan, so it keeps `connect()`.
+    private func connectToPairedDevice(_ device: TimeFlipSessionManaging) async -> ConnectAttemptOutcome {
+        attemptEligibleCount = 0
+        attemptRefusedCount = 0
+        guard let ble = device as? TimeFlipBLEDevice else {
+            return await device.connect() ? .connected : .noneEligible
+        }
+
+        let pairedUUID = appState.pairedDeviceUUID.flatMap(UUID.init(uuidString:))
+        // Confirming a reset waits the whole scan window out. The cube is still advertising, and
+        // still on its old password, for several seconds after 0xFF, so the device present at the
+        // start of the window is the one being replaced rather than the one being waited for.
+        let candidates = await ble.scanForEligibleDevices(
+            preferring: pairedUUID,
+            mayEndEarly: !pendingFactoryResetConfirm
+        )
+        attemptEligibleCount = candidates.count
+        guard !candidates.isEmpty else {
+            DeveloperMode.debugPrint(.scan, "no eligible device found in this scan")
+            return .noneEligible
+        }
+        // Mid factory-reset the cube has gone back to the default password, and that login is the
+        // proof the wipe took -- so it goes **first**, ahead of the stored one.
+        //
+        // It used to be appended, and that made the reset impossible to confirm. The stored password
+        // is guaranteed wrong once the wipe has landed, a rejected probe drops the link on its way
+        // out (`connectToDiscoveredDevice` cancels the peripheral connection in a `defer`), and the
+        // next attempt on that same peripheral then races the teardown and fails before it can send
+        // anything. Measured on the device 2026-08-09: `refused this app's PIN` and `could not be
+        // reached` in the same second, with no `Probe logging in using password` line for the second
+        // attempt at all -- the default was never actually presented, every scan round repeated it,
+        // and `02b` timed out waiting for a confirmation that could not arrive.
+        var passwords = [appState.devicePassword]
+        if pendingFactoryResetConfirm, appState.devicePassword != TimeFlipConstants.defaultPassword {
+            passwords.insert(TimeFlipConstants.defaultPassword, at: 0)
+        }
+
+        for candidate in candidates {
+            // Counted per candidate, not per attempt: mid-factory-reset there are two passwords to
+            // try, and a cube that refuses both is still one device that refused, not two.
+            var refusedThisCandidate = false
+            for (attempt, password) in passwords.enumerated() {
+                // Let the previous probe's teardown finish before reconnecting to the same
+                // peripheral. Ordering above means the reset case no longer depends on this, but a
+                // second attempt that fails instantly is not an answer about the password -- it is
+                // the radio still holding the last one.
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: probeSettleSeconds * TimeConstants.nanosecondsPerSecond)
+                }
+                switch await ble.connectToDiscoveredDevice(id: candidate.id, password: password) {
+                case .connected:
+                    DeveloperMode.debugPrint(.scan, "logged in to \(candidate.name)")
+                    return .connected
+                case .wrongPassword:
+                    refusedThisCandidate = true
+                    DeveloperMode.debugPrint(.scan, "\(candidate.name) refused this app's PIN; trying the next device")
+                case .notTimeFlip:
+                    DeveloperMode.debugPrint(.scan, "\(candidate.name) is not a TimeFlip after all; trying the next device")
+                case .cancelled:
+                    return .cancelled
+                case .failed:
+                    DeveloperMode.debugPrint(.scan, "\(candidate.name) could not be reached; trying the next device")
+                }
+            }
+            if refusedThisCandidate {
+                attemptRefusedCount += 1
+            }
+        }
+        DeveloperMode.debugPrint(.scan, "none of the \(candidates.count) eligible device(s) accepted this app's PIN")
+        return .allRefused
+    }
+
+    /// Why an attempt to reach the paired device ended, in the terms the manual-mode offer needs.
+    /// The difference that matters is whether anything eligible was *there*: nothing in range is
+    /// worth retrying, and a cube that refused the PIN is not, because the next scan finds the same
+    /// cube and it refuses again.
+    private enum ConnectAttemptOutcome {
+        case connected
+        /// The scan found nothing this app could be paired to. Counts toward the retry threshold.
+        case noneEligible
+        /// Devices were found and every one refused this app's PIN. Straight to the dialog.
+        case allRefused
+        /// Torn down deliberately (a forget, a reset, a quit). Not a verdict on anything.
+        case cancelled
+    }
+
+    /// The default presentation of the offer: a modal `NSAlert`.
+    ///
+    /// `NSAlert` rather than a SwiftUI `.alert`, which is what the rest of the app uses, because
+    /// every one of those hangs off a view inside the Settings window and this has to be answerable
+    /// when no window is open at all -- the usual case at startup for an `LSUIElement` app. The
+    /// activate call is part of that: a menu-bar app is not frontmost, so without it the alert can
+    /// come up behind whatever the user is actually looking at.
+    private func runManualModeAlert(_ answer: @escaping (ManualModeAnswer) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Unable to find your device, retry or switch to manual mode"
+        alert.informativeText = """
+            No TimeFlip answered: either none is in range, or none of the ones found would accept \
+            this app's PIN.
+
+            Manual mode lets you track time from the app instead, and lasts until you quit and \
+            start the app again.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Retry")
+        alert.addButton(withTitle: "Switch to Manual Mode")
+        NSApp.activate(ignoringOtherApps: true)
+        answer(alert.runModal() == .alertFirstButtonReturn ? .retry : .switchToManualMode)
+    }
+
+    /// Stop trying and ask: retry, or switch to manual mode for the rest of this launch.
+    ///
+    /// Reached only from a launch that has never connected, on the first failed attempt. No attempt
+    /// runs while this is on screen -- `AppState.shouldAttemptConnection` is false from here until
+    /// an answer arrives, which closes off the backoff retry and the wake-from-sleep path alike.
+    ///
+    /// **Two callers race to get here and both arrive.** A refused PIN ends the probe, and the
+    /// disconnect that causes reaches `handleReconnectFailure` before `startDeviceEvents` can act
+    /// on the `.allRefused` it is about to be handed -- measured at 3ms apart on hardware
+    /// 2026-08-09. The loser used to arrive anyway, blocked behind `runModal()`, and fire the
+    /// instant the user chose manual mode: the dialog went straight back up and `stopDeviceEvents()`
+    /// tore down the session that had just started, so the mode could only be entered by answering
+    /// the same question twice. The guard below is what makes a second call harmless, and it lives
+    /// here rather than at the call sites because only one of them ever had it.
+    ///
+    /// The reason is derived rather than passed in for the same reason: the caller that knows the
+    /// true answer is the one that loses the race. See `ManualModeOfferReason`.
+    private func offerManualMode() {
+        guard appState.mayOfferManualMode else { return }
+        let reason = ManualModeOfferReason.describe(
+            eligibleFound: attemptEligibleCount,
+            refusedPIN: attemptRefusedCount
+        )
+        DeveloperMode.debugPrint(.manualMode, "Offering manual mode: \(reason)")
+        appState.awaitManualModeDecision()
+        appState.connectionStatus = .disconnected
+        stopDeviceEvents()
+        presentManualModeOffer? { [weak self] answer in
+            guard let self else { return }
+            switch answer {
+            case .retry:
+                DeveloperMode.debugPrint(.manualMode, "Retry chosen; scanning again")
+                // The delay counter goes back to the start, so the next attempt begins two seconds
+                // out rather than at whatever the last one had climbed to.
+                self.reconnectAttempt = 0
+                self.appState.manualModeDeclined()
+                self.appState.connectionStatus = .reconnecting
+                self.startDeviceEvents()
+            case .switchToManualMode:
+                DeveloperMode.debugPrint(.manualMode, "Manual mode chosen; no further connection attempts this launch")
+                self.appState.enterManualMode()
+                self.startManualSession()
+            }
+        }
+    }
+
+    /// Stands a virtual device up where the cube was, and runs the ordinary event loop against it.
+    ///
+    /// The substitution is the whole trick: a manually timed segment is not a second kind of record
+    /// living beside the real ones, it is a `device_event` written by the same `HistoryIngestor`
+    /// from the same history frames, so the menu bar, the daily totals, `time_entry` and the Report
+    /// all keep working with nothing added to any of them.
+    ///
+    /// Deliberately **not** `startDeviceEvents`, which is the connect-and-log-in path and does a
+    /// pile of things that would be lies here: it stamps `connection.last_connection` for a device
+    /// that was never reached, syncs LED brightness and face colours to hardware that does not
+    /// exist, and stands up `MockEventHTTPServer`, a developer control surface that has no business
+    /// listening on a port during an ordinary user's session. What is actually needed is the
+    /// ingestor, the event stream, and nothing else.
+    ///
+    /// The virtual device starts **empty and stopped**: no seeded sample history (those two invented
+    /// segments would be ingested into a real database as work the user never did), no initial face,
+    /// and no auto-pause, which on a real cube is a convenience and here would silently stop a timer
+    /// the user is relying on.
+    private func startManualSession() {
+        let mock = MockTimeFlipDevice(
+            configuration: MockTimeFlipDevice.Configuration(
+                initialFaceID: TimeFlipConstants.unassignedFaceID,
+                isPaused: true,
+                isInitiallyPaired: true,
+                autoPauseMinutes: 0,
+                emitInitialStatus: false,
+                seedsSampleHistory: false,
+                reportsOpenSegment: true
+            )
+        )
+        device = mock
+        manualDevice = mock
+        historyIngestor = HistoryIngestor(
+            device: mock,
+            dataStore: dataStore,
+            appState: appState,
+            dailyTotals: dailyTotals,
+            onLatestEntry: { [weak self] entry in
+                self?.applyActiveInterval(from: entry)
+            }
+        )
+        historyIngestor?.startPeriodicFetchTimer()
+        // The events are what make a click feel immediate: `handleDeviceEvent` refreshes history on
+        // any face or pause change, so a segment reaches the database on the click rather than at
+        // the next tick of the periodic timer.
+        //
+        // `awaitingInitialStatus` stays false on purpose. It is what turns the first face event of a
+        // connection into `confirmConnected(name:uuid:)`, and this device's name is nothing -- it
+        // would overwrite the real cube's remembered name with a blank, losing the app's handle on
+        // the device the user is going to want back on the next launch.
+        awaitingInitialStatus = false
+        isHistoryBackfillComplete = true
+        eventTaskGeneration += 1
+        let generation = eventTaskGeneration
+        eventTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.eventTaskGeneration == generation {
+                    self.eventTask = nil
+                }
+            }
+            _ = await mock.connect()
+            _ = await mock.login(password: TimeFlipConstants.defaultPassword)
+            await mock.enableNotifications()
+            for await event in mock.events {
+                self.handleDeviceEvent(event)
+            }
+        }
+        mock.start()
+        DeveloperMode.debugPrint(.manualMode, "Manual session started on face \(TimeFlipConstants.manualFaceID)")
+    }
+
+    /// Picks the category being timed, and starts the clock on it.
+    ///
+    /// **The order is the point.** A `time_entry` records the category its face was mapped to when
+    /// the segment happened, and manual mode's face is remapped every time the user picks something
+    /// new -- so writing the new category first would convert the segment that just ended against
+    /// the category it was not. The flip closes that segment, the refresh converts it while the old
+    /// mapping still stands, and only then does the face take the new category, which the next
+    /// segment (open, unconverted) will be resolved through when it in turn ends.
+    ///
+    /// Unpausing comes after the flip rather than before it so the stub segment that leaves behind
+    /// is a *paused* one, and paused segments are never converted into `time_entry` rows. Before it,
+    /// the same stub would be a running segment and would land in the user's totals as a zero-second
+    /// entry against whatever they had been doing.
+    private func startManualTiming(categoryID: Int) {
+        guard let manualDevice else { return }
+        DeveloperMode.debugPrint(.manualMode, "Manual timing: category \(categoryID) on face \(TimeFlipConstants.manualFaceID)")
+        manualDevice.flip(to: TimeFlipConstants.manualFaceID)
+        manualDevice.setPaused(false)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.historyIngestor?.refreshHistory(trigger: "manual_start")
+            self.dataStore.updateFaceCategory(faceID: TimeFlipConstants.manualFaceID, categoryID: categoryID)
+            self.refreshFaceCategories()
+        }
+    }
+
+    /// Stops the manual clock, or starts it again. The segment that ends is written and converted by
+    /// the refresh, exactly as a flip's is.
+    private func setManualTimingPaused(_ paused: Bool) {
+        guard let manualDevice else { return }
+        DeveloperMode.debugPrint(.manualMode, "Manual timing: \(paused ? "stopped" : "running")")
+        manualDevice.setPaused(paused)
+        Task { [weak self] in
+            await self?.historyIngestor?.refreshHistory(trigger: "manual_pause")
+        }
     }
 
     /// While a factory reset is pending confirmation, keep retrying the reconnect (to catch the
@@ -914,7 +1335,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds) * TimeConstants.nanosecondsPerSecond)
             guard let self else { return }
-            guard self.appState.shouldMaintainConnection else { return }
+            // Re-read on the far side of the sleep, not before it: the manual-mode offer can go up
+            // while this delay is running, and an attempt queued a moment earlier must not land
+            // behind the dialog.
+            guard self.appState.shouldAttemptConnection else { return }
             self.startDeviceEvents()
         }
     }
@@ -1069,7 +1493,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 .deviceName,
                 "device name read on connect: device=\(reportedName ?? "nil") stored=\(appState.deviceName ?? "nil")"
             )
-            appState.confirmConnected(name: reportedName, uuid: nil)
+            // The peripheral's own identifier, not nil. Passing nil here is what made
+            // `pairedDeviceUUID` fall through to its `UUID()` fallback on every first pairing, so
+            // the stored value identified nothing and the eligibility scan's preference could never
+            // match it. A real value also self-heals an install carrying one of those random ones,
+            // since a non-nil uuid replaces whatever is stored.
+            appState.confirmConnected(name: reportedName, uuid: device?.deviceIdentifier)
         }
         if case .systemState(let state) = event {
             switch state.syncStatus {
@@ -1159,7 +1588,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyActiveInterval(from entry: TimeFlipHistoryEntry) {
-        guard TimeFlipConstants.isValidFaceID(entry.faceID) else { return }
+        // The stored bound: in manual mode these entries come from the virtual device on face 13.
+        // The frames a real cube sends are already held to 12 by `TimeFlipHistoryParser.parse`
+        // before they ever reach here, so widening this cannot let a corrupt frame through.
+        guard TimeFlipConstants.isValidStoredFaceID(entry.faceID) else { return }
         let isPaused = entry.isPaused
         let elapsed: TimeInterval
         if entry.duration > 0 {

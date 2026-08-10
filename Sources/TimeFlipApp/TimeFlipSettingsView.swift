@@ -279,14 +279,14 @@ struct TimeFlipSettingsView: View {
                         Task { await appState.resetAndForgetDevice() }
                     }
                     .accessibilityIdentifier("forget-device")
-                    .disabled(appState.connectionStatus == .pairing)
+                    .disabled(!pairingActionsEnabled)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
                     .accessibilityIdentifier("reset-device")
-                    .disabled(appState.connectionStatus == .pairing)
+                    .disabled(!pairingActionsEnabled)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
                         isPresented: $showingFactoryResetConfirmation,
@@ -661,6 +661,12 @@ struct TimeFlipSettingsView: View {
         appState.isConnected || appState.connectionStatus == .reconnecting
     }
 
+    /// Whether Forget Device and Reset Device are live. See `DeviceTabRules.allowsPairingActions`
+    /// for why manual mode has to switch them off, which is not the reason it sounds like.
+    private var pairingActionsEnabled: Bool {
+        DeviceTabRules.allowsPairingActions(connectionStatus: appState.connectionStatus)
+    }
+
     /// Name/Connection value colour: black (primary) while the values are live, greyed (secondary)
     /// otherwise -- so the Info values read solid black when there's a device behind them,
     /// matching the battery %, and fall back to grey together when there isn't.
@@ -724,6 +730,11 @@ struct TimeFlipSettingsView: View {
             return "Pairing..."
         case .connected:
             return "Connected"
+        case .manual:
+            // Not "Disconnected", which is what this row said while manual mode reported
+            // `.disconnected`: true of the cube, and no answer at all to why the app is plainly
+            // still timing. The device rows above it stay greyed, which is the rest of the story.
+            return "Manual mode, no device"
         case .reconnecting:
             return "Reconnecting..."
         case .resetting:

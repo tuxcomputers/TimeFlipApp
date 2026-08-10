@@ -22,6 +22,18 @@ protocol TimeFlipDevice: TimeFlipEventSource {
     /// when the cube is renamed.
     var deviceName: String? { get }
 
+    /// The connected peripheral's CoreBluetooth identifier, which is what `device_uuid` is meant to
+    /// hold and what the eligibility scan orders candidates by. `nil` before a peripheral is known,
+    /// and for the mock, which has no radio to have one.
+    ///
+    /// This exists because the value being stored was not this. `confirmConnected(name:uuid:)` was
+    /// only ever called with `uuid: nil`, and its fallback mints a fresh `UUID()` in that case, so
+    /// every install has been carrying a random number that matches no peripheral. Measured
+    /// 2026-08-10: stored `7D9DCF2E-...` against a cube advertising as `FA1DDE60-...`. The effect was
+    /// silent, because a preference that never matches just leaves the candidate order alone, and
+    /// with one cube on the desk that order is already right.
+    var deviceIdentifier: String? { get }
+
     func snapshot() -> TimeFlipDeviceSnapshot
     func fetchHistory(startingFrom eventNumber: UInt32?) async -> [TimeFlipHistoryEntry]
     /// Cheap single-frame read of the device's actual current record (history characteristic
