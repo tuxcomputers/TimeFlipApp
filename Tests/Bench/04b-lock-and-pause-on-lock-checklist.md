@@ -1,6 +1,6 @@
 # Lock / pause_on_lock Checklist (Bench)
 
-### Last run - 2026-08-10 17:19 on the branch 'bugfix/pairingProbeSettle'
+### Last run - 2026-08-10 20:05 on the branch 'feature/singleInstance'
 
 Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actions
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for

@@ -1,5 +1,7 @@
 # Single Instance Checklist
 
+### Last run - 2026-08-10 20:30 on the branch 'feature/singleInstance'
+
 Nothing needed.
 
 Whether a second launch stands down is a question about processes, not about anything on screen or
