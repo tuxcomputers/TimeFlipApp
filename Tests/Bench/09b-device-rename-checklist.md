@@ -21,12 +21,19 @@ whether the device takes the name, and what it says its name is afterward.
 Renaming works, but nothing looks like it did, for two measured reasons
 (`docs/timeflip2-firmware-observations.md`):
 
-- the advertised name never changes, so a scan lists the cube as `TimeFlip v2.0` permanently
+- the advertised name never changes, so a scan's *packet* says `TimeFlip v2.0` permanently
 - the reported name is only read at connect time, so macOS hands out the old one for a reconnect
   or two
 
-So Scenario C pairs with a row showing the **old** name on purpose. That is not a mistake in the
+So Scenario C pairs with a row that may well show the **old** name. That is not a mistake in the
 step, it is the behaviour being tested.
+
+How long "a reconnect or two" lasts is not fixed, and the steps must not assume a particular
+number. The forget in Scenario C is itself a connection and can refresh the cache: measured across
+three runs of one build on 2026-08-10, the row showed the new name once and the old name twice, and
+`peripheralDidUpdateName` landed on the forget's connection once and after the re-pair twice. The
+steps therefore assert what is invariant (the advertised name, and where the app ends up) rather
+than which connection a value arrives on.
 
 ## The row's accessibility shape
 
@@ -48,7 +55,7 @@ a `LabeledContent` value, which is selectable on macOS, and selectable text answ
 with macOS's "Look Up" menu unless selection is turned off. That is exactly what it did before
 `.textSelection(.disabled)` was added.
 
-- [x] Step 1: Restart the app, open Settings on the Device tab, and confirm the cube is not already
+- [ ] Step 1: Restart the app, open Settings on the Device tab, and confirm the cube is not already
       called `Chomper`.
       The quit has to come first. `Tests/00-test-setup.md` leaves the app running, so a step that
       only launches starts a **second** instance: two status items, two BLE clients. That is
@@ -94,7 +101,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN setting_value LIKE '%Chomper%' THEN 'STALE-FROM-PREVIOUS-RUN' ELSE 'ready' END FROM setting WHERE setting_name = 'device_name';"
 expect_contains = "ready"
 ```
-- [x] Step 2: Right-click the name itself and confirm Rename opens the editor.
+- [ ] Step 2: Right-click the name itself and confirm Rename opens the editor.
       The name is `static text 2` of the row. Escape closes the editor again so the next step
       starts from the same place.
 ```toml step
@@ -118,7 +125,7 @@ action = "cgevent_key"
 keycode = 53
 activate = "TimeFlip"
 ```
-- [x] Step 3: Right-click the "Name" label and confirm the same menu opens.
+- [ ] Step 3: Right-click the "Name" label and confirm the same menu opens.
 ```toml step
 [[actions]]
 action = "cgevent_context_menu_pick"
@@ -140,7 +147,7 @@ action = "cgevent_key"
 keycode = 53
 activate = "TimeFlip"
 ```
-- [x] Step 4: Right-click the bare middle of the row and confirm the menu opens there too.
+- [ ] Step 4: Right-click the bare middle of the row and confirm the menu opens there too.
       This is the part that belongs to the row's `contentShape(Rectangle())` and to no element,
       hence the pixel offset off the label.
 ```toml step
@@ -170,7 +177,7 @@ activate = "TimeFlip"
 
 **Preconditions:** Scenario A finished, so the editor is closed and the device is connected.
 
-- [x] Step 1: Rename the device to `Chomper`, confirm the write went out, and confirm nothing
+- [ ] Step 1: Rename the device to `Chomper`, confirm the write went out, and confirm nothing
       re-reads the command result afterward.
       `15 07` is the opcode and the length, then `Chomper` in ASCII. The device never updates the
       command result characteristic for `0x15`, so there is nothing to wait for and the app does not
@@ -211,7 +218,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM debug_log WHERE message LIKE '%commandResult re-read%' AND debug_log_id > $current_log_id;"
 expect = "0"
 ```
-- [x] Step 2: Confirm the name was stored and is on screen.
+- [ ] Step 2: Confirm the name was stored and is on screen.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -228,7 +235,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "name=Chomper"
 ```
-- [x] Step 3: Confirm the notice appeared, naming both the new name and the one the device will
+- [ ] Step 3: Confirm the notice appeared, naming both the new name and the one the device will
       keep reporting.
 ```toml step
 [[actions]]
@@ -249,7 +256,7 @@ expect_contains = "Renamed to"
 This is the procedure documented for users under "Renaming Your Device" in
 `docs/configuration.md`. It runs here so the documentation cannot quietly go stale.
 
-- [x] Step 1: Forget the device and confirm the notice goes with it.
+- [ ] Step 1: Forget the device and confirm the notice goes with it.
       Forget also resets the device password to the factory default and proves it with a real
       login, which is what makes the re-pair below work.
 ```toml step
