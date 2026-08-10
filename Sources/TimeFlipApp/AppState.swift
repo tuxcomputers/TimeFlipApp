@@ -75,6 +75,15 @@ final class AppState: ObservableObject {
     /// cleared only by a confirmed factory reset, which reverts the cube to the vendor name.
     /// `nil` until the app has actually connected to a device and been told a name.
     @Published var deviceName: String?
+    /// Which peripheral `deviceName` was learned from, so a connect can tell the cube we already
+    /// know from a different one. Lives and dies with `deviceName` rather than with the pairing:
+    /// the question it answers ("is this the cube that name belongs to?") is asked precisely when
+    /// there is no pairing, on the connect that re-establishes one. See `shouldAdoptReportedName`.
+    ///
+    /// In memory only. A relaunch loses it and the old `!wasPaired` rule decides, which is the
+    /// behaviour that existed before this and no worse; the sequence it exists for (rename, Forget,
+    /// Scan, pair) happens inside one session.
+    var deviceNameSourceUUID: String?
     /// Set the moment a rename is written, and shown under the Name row until the device next
     /// connects, which is when the lag it describes ends. In memory only and deliberately not
     /// persisted: it is a note about something that just happened in this session, and a relaunch
@@ -899,6 +908,9 @@ final class AppState: ObservableObject {
             // reporting for the rest of this connection, which is the one being replaced here.
             let reportedUntilReconnect = deviceName
             deviceName = name
+            // The name now belongs to the cube it was just written to, whatever it belonged to
+            // before, so a re-pair to this same cube keeps it rather than taking the cached one.
+            deviceNameSourceUUID = pairedDeviceUUID
             pairedDeviceName = name
             renameLagNotice = DeviceNameRules.renameLagNotice(
                 newName: name,
@@ -930,6 +942,7 @@ final class AppState: ObservableObject {
         renameLagNotice = nil
         if deviceWasWiped {
             deviceName = nil
+            deviceNameSourceUUID = nil
         }
         connectionStatus = .disconnected
         currentFaceID = TimeFlipConstants.unassignedFaceID
@@ -1129,15 +1142,29 @@ final class AppState: ObservableObject {
     ///
     /// A first pairing is the one moment the cube's answer genuinely beats ours, because we have no
     /// answer of our own, and a peripheral this Mac has not connected to before has nothing cached
-    /// to be stale. It also has to be the rule rather than "adopt when nothing is stored", because
-    /// Forget Device deliberately keeps `deviceName`: pairing a *different* cube afterwards must
-    /// take the new cube's name rather than inherit the old one's.
+    /// to be stale. Pairing a *different* cube must take the new cube's name too, rather than
+    /// inherit the one Forget Device deliberately kept.
+    ///
+    /// Those two used to be spelled `!wasPaired`, which also catches the case they are not about:
+    /// re-pairing the **same** cube, where our name is right and the cube's cached answer is the
+    /// stale one. That is not a corner case, it is the documented workaround for renaming (rename,
+    /// Forget, Scan, pair), so the app broke a name every time it was used. Measured 2026-08-10: a
+    /// cube renamed to `Zeta1` came back from the re-pair called `Blip`, and the
+    /// `peripheralDidUpdateName` that would have corrected it was then suppressed by a guard
+    /// comparing against the name this overwrite had just replaced.
+    ///
+    /// Telling the two apart needs the peripheral's identity, which is why this takes a uuid.
+    /// `deviceNameSourceUUID` is the cube the remembered name was learned from, so a uuid that
+    /// matches it is the cube we already know and our name stands. It reads as "no opinion" when
+    /// either side is missing, and the old rule decides.
     ///
     /// The cost is that a rename made in some other app is not noticed until this one re-pairs.
     /// That is the better failure: it leaves a name merely out of date, where trusting the cache
     /// silently reverts a name the user just set.
-    private func shouldAdoptReportedName(wasPaired: Bool) -> Bool {
-        !wasPaired || deviceName == nil
+    private func shouldAdoptReportedName(wasPaired: Bool, uuid: String?) -> Bool {
+        if deviceName == nil { return true }
+        if let uuid, let source = deviceNameSourceUUID { return uuid != source }
+        return !wasPaired
     }
 
     /// The device has told us what it is actually called, from `peripheralDidUpdateName` -- the one
@@ -1145,6 +1172,8 @@ final class AppState: ObservableObject {
     /// outranks the stored name `confirmConnected` otherwise keeps.
     func adoptReportedDeviceName(_ name: String) {
         deviceName = name
+        // It came from the cube we are connected to, so that cube now owns the name.
+        deviceNameSourceUUID = pairedDeviceUUID
         pairedDeviceName = name
         clearRenameLagNoticeIfCaughtUp(reported: name)
     }
@@ -1175,8 +1204,9 @@ final class AppState: ObservableObject {
         isPaired = true
         connectionStatus = .connected
         let reported = (name?.isEmpty == false) ? name : nil
-        if let reported, shouldAdoptReportedName(wasPaired: wasPaired) {
+        if let reported, shouldAdoptReportedName(wasPaired: wasPaired, uuid: uuid) {
             deviceName = reported
+            deviceNameSourceUUID = uuid
         } else if let reported, reported != deviceName {
             DeveloperMode.debugPrint(
                 .deviceName,

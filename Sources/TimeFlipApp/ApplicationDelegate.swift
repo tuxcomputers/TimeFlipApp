@@ -687,7 +687,12 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // stored name that `confirmConnected` otherwise keeps -- unlike a connect-time read,
             // this fires *because* the name changed rather than reporting a cached one.
             bleDevice.onDeviceNameChanged = { [weak self] name in
-                guard let self, let name, !name.isEmpty, name != bleDevice.rememberedDeviceName else { return }
+                // Compared against the live stored name, not `rememberedDeviceName`. That is a
+                // snapshot taken before the connect for the scan filter, and a connect can move the
+                // stored name out from under it: when it did, this guard rejected the one
+                // authoritative name report on the grounds that it matched a value the connect had
+                // already replaced, and the wrong name stayed on screen (measured 2026-08-10).
+                guard let self, let name, !name.isEmpty, name != self.appState.deviceName else { return }
                 self.appState.adoptReportedDeviceName(name)
                 bleDevice.previouslyKnownDeviceName = bleDevice.rememberedDeviceName
                 bleDevice.rememberedDeviceName = name

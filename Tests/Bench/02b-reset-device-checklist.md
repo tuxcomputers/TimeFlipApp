@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-09 23:53 on the branch 'feature/manualMode'
+### Last run - 2026-08-10 10:09 on the branch 'feature/manualMode'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -101,7 +101,7 @@ tell application "System Events"
  end tell
 end tell'''
 ```
-- [ ] Step 3: Confirm the reset sequence via `debug_log`
+- [x] Step 3: Confirm the reset sequence via `debug_log`
 (`TimeFlip` tag): a `"Factory reset (0xFF) sent; ... awaiting device reboot to confirm via default-password login"` row, then reconnect/login attempts, then `"Factory reset confirmed: device is back on the default password; returning to never-paired state"`.
       **The wait has to outlast the app's own budget, not the reset's typical duration.**
       `ApplicationDelegate.factoryResetConfirmTimeout` is 120s, and until it expires the app is still
@@ -132,7 +132,7 @@ capture = "confirmed_id"
 2026-08-09 - This step's 60s wait was shorter than the app's own 120s confirm budget, so it could fail while the reset was still working. Measured this run: reset sent 23:54:05.8, device stopped advertising, back in scan results 23:54:43.5 (37.7s), confirmed 23:55:16.3 (70.5s total, the gap being reconnect backoff, not the device). Raised to 150s, and the query now also matches the give-up line so a real failure reports the app's verdict.
 2026-08-10 - The 70.5s above was mostly the eligibility scan sitting out its full window after it had already found the cube, so that scan now ends as soon as the paired device turns up. That broke this step outright on the first hardware run: a cube keeps advertising, and keeps accepting its pre-reset password, for several seconds after `0xFF` (still listed at +3s, still logging in at +8s), so ending early attached the app to the cube it was waiting to lose, and holding that link stopped it advertising, leaving every later scan empty until the 120s budget ran out. Confirming a reset now waits the window out deliberately (`mayEndEarly: false`). Re-measured after the fix: `0xFF` at 00:31:42.4, confirmed at 00:32:18.1, **35.7s**, one scan window and one probe.
 2026-08-09 - A confirmed reset left `config.json` naming the pre-reset PIN, so the next launch would present a password the wiped cube no longer held; `forgetDevice` now records the factory default there.
-- [ ] Step 4: Confirm the UI reaches the pristine never-paired state.
+- [x] Step 4: Confirm the UI reaches the pristine never-paired state.
  During the confirm window the `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...` or `Connected`.
 ```toml step
 action = "applescript"
@@ -146,14 +146,14 @@ end tell
 return n & "|" & c'''
 expect_contains = "Not paired"
 ```
-- [ ] Step 5: Confirm no auto-reconnect follows the forget
+- [x] Step 5: Confirm no auto-reconnect follows the forget
  no further `TimeFlip` `"Login accepted"` / reconnect rows after the `"returning to never-paired state"` row, until the manual re-pair below. (Scope this on `debug_log_id > $confirmed_id` -- the id of that row, captured in Step 3 -- **not** `before_reset_id`: the confirm sequence itself relogins to test the password and logs one or two `"Login accepted, code=0x02"` rows before it settles, which a pre-reset baseline would wrongly flag as an auto-reconnect.)
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $confirmed_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect = "(no rows)"
 ```
-- [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the list.
+- [x] Step 6: Click **Scan for Devices** and wait for the device to appear in the list.
  The device is a `static text` matching its name, e.g. `"TimeFlip v2.0"`, under "Click a device below to pair with it.". [Method: Number 13](../Methods.md#method-13). (Note: the device can take a few seconds to show up in the scan, so the read below polls once a second for up to 6s and returns as soon as a `TimeFlip` row appears, rather than reading the list
  once after a fixed delay.)
 ```toml step
@@ -184,7 +184,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "TimeFlip"
 ```
-- [ ] Step 7: Click the discovered device's row to select and pair
+- [x] Step 7: Click the discovered device's row to select and pair
 (it is on the factory default PIN `000000` now). [Method: Number 9](../Methods.md#method-9) -- a coordinate CGEvent click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture` an AX press won't actuate. Wait for the pairing to **complete**, not merely for the first login: a fresh pair logs in with the default PIN, then rotates the device password and logs `"Device password confirmed set to: <pw>"` (`> current_log_id`) about a second later. Waiting for *that* marker (not the earlier `"Login accepted"`, which fires mid-rotation) is what keeps Step 8's `Connected` check from racing the rotation. If the automated click doesn't land, the prompt asks you to click the row yourself.
 ```toml step
 [[actions]]
@@ -198,7 +198,7 @@ expect_contains = "Device password confirmed set to:"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 ```
-- [ ] Step 8: Confirm the Device tab shows the device paired and connected again
+- [x] Step 8: Confirm the Device tab shows the device paired and connected again
  read the `Connection` row (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no longer "Not paired").
  ```toml step
 action = "applescript"
@@ -210,7 +210,7 @@ tell application "System Events"
 end tell'''
 expect = "Connected"
 ```
-- [ ] Step 9: Confirm the device's own event counter was wiped by the reset
+- [x] Step 9: Confirm the device's own event counter was wiped by the reset
  the first `history` fetch after re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet), not resuming from the pre-reset baseline. (`MAX(event_number)` in the local `device_event` table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence. This must run **after** the re-pair, not before: the app stops history fetches while forgotten (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a *real* post-reset event with the device's own low numbering needs a physical flip -- that's the Interactive counterpart.)
 ```toml step
 use = "method-24.e"
@@ -220,7 +220,7 @@ since_id = "$before_reset_id"
 expect_contains = "device_last_event=nil"
 timeout_seconds = 30
 ```
-- [ ] Step 10: Close the Settings window
+- [x] Step 10: Close the Settings window
 (opened in Scenario A Step 1) so the next checklist starts with no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
