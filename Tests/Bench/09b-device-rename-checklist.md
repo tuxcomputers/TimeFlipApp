@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-10 20:15 on the branch 'feature/singleInstance'
+### Last run - 2026-08-10 23:42 on the branch 'feature/inactiveID'
 
 Covers renaming the cube: the three right-click targets that open the menu, the write itself, the
 notice that explains why the new name does not show up everywhere, and the documented workaround

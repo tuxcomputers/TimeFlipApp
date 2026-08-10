@@ -1,6 +1,6 @@
 # History Refresh Checklist
 
-### Last run - 2026-08-10 20:01 on the branch 'feature/singleInstance'
+### Last run - 2026-08-10 23:34 on the branch 'feature/inactiveID'
 
 Covers the periodic/live-event history refresh rework: the cheap last-event check, the
 skip-and-refresh-duration fast path, and the ambiguous/cut-short-stream safeguards (see

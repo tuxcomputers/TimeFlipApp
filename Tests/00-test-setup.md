@@ -306,16 +306,28 @@ The other two are **both called `ZZ Lapsed`**, retired from the moment they are 
 
 Their entries are 10 and 20 days back, well clear of the 3-to-5 the `11b` rows occupy, so a wrong row cannot produce a right-looking answer, and they differ from each other so a query returning MIN instead of MAX, or joining the wrong category, shows a visibly wrong day rather than the same one twice. Because the name no longer identifies a row, the `time_entry` inserts link by `MIN(category_id)` and `MAX(category_id)`: the first-inserted row takes the 10-day entry, the second the 20-day one. The name sorts after `Email`, which matters because `08b` addresses the retired row it creates as `checkbox 1` of the Inactive list; rows sorting before it would silently repoint every one of those steps.
 
+**The sums below are scoped by `event_number`, not by category**, and that distinction is the
+difference between measuring the fixture and measuring the room. `ZZ Assigned` owns face 5, because
+`11b` needs a category that is *currently on a face*, so real time lands on it whenever the cube
+rests there: during Step 15's flipping, or from an earlier run the cube still remembers, since a
+halted run skips the cleanup reset and the next run's history fetch pours those events into the
+fresh test database. Measured 2026-08-10: a 9-second segment on face 5, recorded at 20:42 during a
+run that halted, re-ingested an hour later and read as `8199` against an expected `8190`. Nothing
+was wrong with it -- the app attributed a real flip to the category holding that face, which is its
+job. Summed over the three seeded events instead, real activity can accrue on face 5 all it likes
+and this step still answers the only question it is asking: are the seeded segments there, intact,
+and attached to the categories they were seeded against.
+
 No teardown: `test.sqlite` is rebuilt every run. (Note: on a **resume** the database is kept, so Step 9's re-seed re-inserts at whatever ids are free by then -- acceptable, since a resume only re-enters a run whose earlier checklists have already passed.)
 ```toml step
 [[actions]]
 action = "sql_query"
-query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired')) || '/' || (SELECT active FROM category WHERE category_name='ZZ Retired') || '/' || (SELECT COUNT(*) FROM face WHERE category_id = (SELECT category_id FROM category WHERE category_name='ZZ Assigned'));"
+query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE de.event_number IN (900001, 900002, 900003) AND c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired')) || '/' || (SELECT active FROM category WHERE category_name='ZZ Retired') || '/' || (SELECT COUNT(*) FROM face WHERE category_id = (SELECT category_id FROM category WHERE category_name='ZZ Assigned'));"
 expect = "8190/0/1"
 
 [[actions]]
 action = "sql_query"
-query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name = 'ZZ Lapsed') || '/' || (SELECT COUNT(*) FROM category WHERE category_name = 'ZZ Lapsed' AND active = 0);"
+query = "SELECT (SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE de.event_number IN (900004, 900005) AND c.category_name = 'ZZ Lapsed') || '/' || (SELECT COUNT(*) FROM category WHERE category_name = 'ZZ Lapsed' AND active = 0);"
 expect = "2100/2"
 
 [[actions]]
@@ -323,6 +335,11 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT event_number FROM device_event ORDER BY device_event_id DESC LIMIT 1) >= 900000 THEN 'a seeded row is the newest device_event -- it would be read as the live segment' ELSE 'ok' END;"
 expect = "ok"
 ```
+### Bugs found and fixed - branch 'feature/inactiveID'
+2026-08-10 - The sums were taken over the fixture categories rather than the fixture events, so a
+real flip onto face 5 (which `ZZ Assigned` holds) counted as fixture damage: `8199` against `8190`.
+Scoped by `event_number`.
+
 - [x] Step 18: Retire bug history belonging to another branch, on the checklists this run will cover.
 `Tests/CLAUDE.md`'s rule is that a **Bugs found and fixed** entry belongs to the branch that found
 it, so arriving on a new branch retires it -- and that a checklist this run does not reach keeps

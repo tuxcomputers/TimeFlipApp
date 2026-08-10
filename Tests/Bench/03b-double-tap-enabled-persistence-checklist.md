@@ -1,6 +1,6 @@
 # Double-Tap Enabled Persistence Checklist
 
-### Last run - 2026-08-10 20:03 on the branch 'feature/singleInstance'
+### Last run - 2026-08-10 23:35 on the branch 'feature/inactiveID'
 
 Covers the Double-tap **Disable** checkbox's `enabled` flag moving from UserDefaults to being
 DB-backed via `AppDataStore`/the `double_tap_settings` row -- confirms the flag set in the
@@ -44,24 +44,21 @@ tell application "System Events"
         click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")
         delay 0.3
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
-            if exists text field "Brightness" then
-                repeat with i from 1 to (count of UI elements)
-                    try
-                        click UI element i
-                        delay 0.3
-                        if not (exists text field "Brightness") then exit repeat
-                    end try
-                end repeat
-            end if
-            if not (exists checkbox 1) then
-                repeat with i from (count of UI elements) to 1 by -1
-                    try
-                        click UI element i
-                        delay 0.3
-                        if exists checkbox 1 then exit repeat
-                    end try
-                end repeat
-            end if
+            repeat with e in UI elements
+                try
+                    if (role of e as string) is "AXDisclosureTriangle" then
+                        set ident to (value of attribute "AXIdentifier" of e)
+                        if ident is "LED" and (value of e as string) is "true" then
+                            click e
+                            delay 0.4
+                        end if
+                        if ident is "Double tap" and (value of e as string) is "false" then
+                            click e
+                            delay 0.4
+                        end if
+                    end if
+                end try
+            end repeat
         end tell
     end tell
 end tell'''
@@ -152,24 +149,21 @@ tell application "System Events"
         click (first radio button of radio group 1 of group 1 of toolbar 1 of window "TimeFlip Settings" whose description is "Device")
         delay 0.3
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
-            if exists text field "Brightness" then
-                repeat with i from 1 to (count of UI elements)
-                    try
-                        click UI element i
-                        delay 0.3
-                        if not (exists text field "Brightness") then exit repeat
-                    end try
-                end repeat
-            end if
-            if not (exists checkbox 1) then
-                repeat with i from (count of UI elements) to 1 by -1
-                    try
-                        click UI element i
-                        delay 0.3
-                        if exists checkbox 1 then exit repeat
-                    end try
-                end repeat
-            end if
+            repeat with e in UI elements
+                try
+                    if (role of e as string) is "AXDisclosureTriangle" then
+                        set ident to (value of attribute "AXIdentifier" of e)
+                        if ident is "LED" and (value of e as string) is "true" then
+                            click e
+                            delay 0.4
+                        end if
+                        if ident is "Double tap" and (value of e as string) is "false" then
+                            click e
+                            delay 0.4
+                        end if
+                    end if
+                end try
+            end repeat
             return value of checkbox 1
         end tell
     end tell
@@ -212,7 +206,11 @@ previous scenario leaves behind (check `double_tap_settings.enabled` directly if
 scenario standalone).
 
 - [x] Step 1: Record the current double-tap params
-(`clickThreshold`/`limit`/`latency`/`window`) from `double_tap_settings` -- captured under this scenario, so Step 6 (and a later resume) can read the originals back -- then show them to the dev to confirm they match the app's **Double tap** section before the scenario changes them.
+(`clickThreshold`/`limit`/`latency`/`window`) from `double_tap_settings` -- captured under this scenario, so Step 6 (and a later resume) can read the originals back -- then read the same four straight off the **Double tap** section and require them to agree, before the scenario changes them.
+
+The four are `text field 2` through `5` of the section, in the order the rows are drawn: Threshold, Limit, Latency, Window. `text field 1` is auto-pause, which sits above the disclosures and is why the count starts at 2 -- Setup leaves **LED collapsed**, so its two fields are not in the tree to shift these along. Measured 2026-08-10 against `{"clickThreshold":90,"limit":20,"latency":50,"window":50}`, which the section rendered as `90`, `20`, `50`, `50` in exactly those positions.
+
+This used to ask a person to compare four numbers by eye. It does not need to: the fields are ordinary readable ones, so the comparison is exact, and it does not depend on someone reading carefully at the end of a long run. (Nor does it need the clipboard, the other obvious route: a copy that silently fails leaves the previous contents in place, and the check then passes on stale text.)
 ```toml step
 [[actions]]
 use = "method-24.f"
@@ -239,14 +237,16 @@ field = "window"
 capture = "dt_window_original"
 
 [[actions]]
-action = "ask_user"
-prompt = '''Current Double-tap params, now captured -- these should match the app's Double tap section, top to bottom:
-Threshold: $dt_threshold_original
-Limit:     $dt_limit_original
-Latency:   $dt_latency_original
-Window:    $dt_window_original
-
-Do all four match what the app shows?'''
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
+            return "ui=" & (value of text field 2 as string) & "/" & (value of text field 3 as string) & "/" & (value of text field 4 as string) & "/" & (value of text field 5 as string)
+        end tell
+    end tell
+end tell'''
+expect_contains = "ui=$dt_threshold_original/$dt_limit_original/$dt_latency_original/$dt_window_original"
 ```
 - [x] Step 2: Change the threshold field with input
 Note the latest `debug_log_id`. In the Threshold field, type three distinct values in quick succession, committing each with Return and staying on the field: `30`, then immediately `150`, then immediately `200`. (Note: Return is what commits, and it keeps focus; `tab` would commit too but move focus on, so the next value would land somewhere else. [Method: Number 12](../Methods.md#method-12).)

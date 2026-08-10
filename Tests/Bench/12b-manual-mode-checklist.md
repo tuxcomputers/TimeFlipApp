@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 20:20 on the branch 'feature/singleInstance'
+### Last run - 2026-08-10 23:47 on the branch 'feature/inactiveID'
 
 Covers **manual mode**: what happens when the app cannot reach the cube, and the user chooses to
 time from the app instead. The mode lasts one launch, quitting is the only way out, and everything
