@@ -7,8 +7,7 @@
 .DS_Store
 client_secret_*.json
 .vscode/
-config.**
-config.auth.json
+config.*
 /Tests/Bench/device_register_snapshot.json
 /logs/
 __pycache__/
