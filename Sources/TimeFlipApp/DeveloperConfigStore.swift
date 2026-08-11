@@ -134,6 +134,11 @@ enum DeveloperMode {
         // Giving up on an unreachable device at startup, and what the user picked when asked.
         // Eleven characters, the same as the longest existing tag, so adding it re-pads nothing.
         case manualMode = "manual-mode"
+        // The hard `daily_limit`: the pause it sends when a category spends its budget, the resume
+        // when a flip lands on a category that still has some, and every refused resume in between
+        // (DailyLimitEnforcement). Eleven characters, the same as the longest existing tag, so
+        // adding it re-pads nothing.
+        case dailyLimit = "daily-limit"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

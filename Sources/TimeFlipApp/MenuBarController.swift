@@ -40,9 +40,24 @@ final class MenuBarController: NSObject {
     private var activityStartDate: Date?
     private var currentSegmentElapsed: TimeInterval = 0
     private var refreshTimer: Timer?
+    /// The hard `daily_limit`: what has been spent, what that means for the cube's pause state, and
+    /// whether Resume is currently refused. See `DailyLimitEnforcement`, which holds every rule; this
+    /// class only supplies it with the figures and sends what it asks for.
+    private var dailyLimit = DailyLimitEnforcement()
+    /// Fires at the second the category on show will spend its budget, so the pause goes out then
+    /// rather than on the next display tick -- which is a minute wide when the seconds preference is
+    /// off. Re-armed on every evaluation and invalidated whenever there is nothing to wait for.
+    private var dailyLimitTimer: Timer?
     private var lowBatteryBlinkTimer: Timer?
     private var lowBatteryBlinkPhaseOn = false
     private var isLowBatteryLatched = false
+    /// The spent/not-spent state the dropdown was last built against, so the Pause/Resume item is
+    /// rebuilt when it changes and not on every tick. See `enforceDailyLimit`.
+    private var lastDailyLimitReached = false
+    /// Guards `enforceDailyLimit` against being re-entered from inside its own rebuild, which ends in
+    /// `updateStatusView` and so leads straight back to it. Without it the crossing tick evaluates
+    /// twice and sends the pause twice, the cube not yet having reported the first one.
+    private var isEnforcingDailyLimit = false
     private var lastSnapshot: StatusSnapshot?
     private var cachedIcon: NSImage?
     private var cachedIconName: String?
@@ -186,6 +201,7 @@ final class MenuBarController: NSObject {
     deinit {
         NotificationCenter.default.removeObserver(self)
         refreshTimer?.invalidate()
+        dailyLimitTimer?.invalidate()
         lowBatteryBlinkTimer?.invalidate()
     }
 
@@ -224,7 +240,9 @@ final class MenuBarController: NSObject {
         pauseItem.isEnabled = MenuBarDropdownRules.allowsPause(
             connectionStatus: connectionStatusSnapshot,
             isPaired: isPairedSnapshot,
-            isLocked: isLocked
+            isLocked: isLocked,
+            isPaused: isPaused,
+            isDailyLimitReached: dailyLimit.isReachedForCurrentCategory
         )
         newMenu.addItem(pauseItem)
 
@@ -284,10 +302,15 @@ final class MenuBarController: NSObject {
         // The limit rides along on the activity, which is resolved from the face's category --
         // so it can't disagree with the name and icon drawn beside it.
         let limitMinutes = currentActivity?.limitMinutes ?? 0
-        let overLimit = limitMinutes > 0 && currentDuration(
+        // Evaluated here rather than beside the drawing, and before it, for the same reason the
+        // low-battery latch is: this is the app's per-tick heartbeat, so it is the one place that
+        // sees every change to the figures a limit is judged on. The red text and the pause then
+        // come from a single evaluation in a single pass, and cannot report different states.
+        let overLimit = enforceDailyLimit(
+            limitMinutes: limitMinutes,
             dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
             dailyWindowStartOverride: dailyWindowStartOverride
-        ) >= Double(limitMinutes) * 60
+        )
         let isConnected = MenuBarLiveDisplay.rendersAsLive(
             isPaired: isPairedSnapshot,
             connectionStatus: connectionStatusSnapshot
@@ -395,6 +418,111 @@ final class MenuBarController: NSObject {
             recoveryMargin: Constants.lowBatteryRecoveryMarginPercent
         )
         return isLowBatteryLatched
+    }
+
+    /// Measures the category on show against its `daily_limit`, sends whatever the cube needs, and
+    /// returns whether the budget is spent (which is what the status item draws red).
+    ///
+    /// Every rule lives in `DailyLimitEnforcement`, including why a spent category stays spent for
+    /// the day; this only supplies the figures, gates the sending on there being something to send
+    /// to, and re-arms the timer that catches the next crossing.
+    ///
+    /// The pause and the resume both go out through `onPauseToggle`, the same callback the dropdown
+    /// and the status item's right half use, so a limit's pause is the same pause in every respect:
+    /// one `0x06` write, then the history refresh that closes the segment it stopped. Nothing here
+    /// short-circuits to the device.
+    ///
+    /// Nothing suppresses a repeat while the cube is still reported running: the limit is hard, so it
+    /// keeps asking until a history frame says the cube stopped. That is the self-healing direction --
+    /// a dropped write would otherwise leave a spent category running until something else happened --
+    /// and it is cheap to be wrong about, `0x06 0x01` being idempotent and the refresh behind it
+    /// folding into whichever fetch is already running (see `HistoryIngestor.refreshHistory`). What it
+    /// must not do is ask twice in one pass, which is what `isEnforcingDailyLimit` is for.
+    @discardableResult
+    private func enforceDailyLimit(
+        limitMinutes: Int,
+        dailyCategoryDurationsOverride: [Int: TimeInterval]? = nil,
+        dailyWindowStartOverride: Date? = nil
+    ) -> Bool {
+        guard !isEnforcingDailyLimit else { return dailyLimit.isReachedForCurrentCategory }
+        isEnforcingDailyLimit = true
+        defer { isEnforcingDailyLimit = false }
+        let totalSeconds = currentDuration(
+            dailyCategoryDurationsOverride: dailyCategoryDurationsOverride,
+            dailyWindowStartOverride: dailyWindowStartOverride
+        )
+        // Evaluated even when nothing can be sent (mid-reconnect, or a manual session), rather than
+        // skipped: the return value draws the menu bar either way, and dropping an evaluation would
+        // leave the latch behind the figures rather than in step with them. It is only the write
+        // below that needs a live cube -- and evaluating again on the next pass re-decides, so an
+        // action dropped here is re-issued as soon as there is a device to take it.
+        let action = dailyLimit.evaluate(
+            categoryID: currentActivity?.categoryID,
+            limitMinutes: limitMinutes,
+            totalSeconds: totalSeconds,
+            isPaused: isPaused,
+            windowStart: dailyWindowStartOverride ?? appState.dailyWindowStart
+        )
+        let isReached = dailyLimit.isReachedForCurrentCategory
+        updateDailyLimitTimer(limitMinutes: limitMinutes, totalSeconds: totalSeconds, isReached: isReached)
+        // Manual mode has no cube to pause, and its timer is the app's own; see
+        // MenuBarDropdownRules.allowsPause for why a limit is not enforced against it at all.
+        if !isManualMode, isPairedSnapshot, connectionStatusSnapshot == .connected {
+            let name = currentActivity?.name ?? "Idle"
+            switch action {
+            case .none:
+                break
+            case .pause:
+                DeveloperMode.debugPrint(
+                    .dailyLimit,
+                    "Limit reached, pausing device: category=\"\(name)\" limit=\(limitMinutes)m tracked=\(Int(totalSeconds))s"
+                )
+                onPauseToggle?(true)
+            case .resume:
+                DeveloperMode.debugPrint(
+                    .dailyLimit,
+                    "Budget on this face, resuming device: category=\"\(name)\" limit=\(limitMinutes)m tracked=\(Int(totalSeconds))s"
+                )
+                onPauseToggle?(false)
+            }
+        }
+        // The Pause/Resume item's enabled state follows this, and the dropdown is built once and
+        // reused (see showMenu), so a change has to rebuild it rather than wait for the next thing
+        // that happens to. Mostly the rebuild that follows a pause landing gets there first
+        // (applyElapsed rebuilds on every reported change of pause state); this is what covers the
+        // rest, a limit edited on the Categories tab while the cube already sits paused.
+        if isReached != lastDailyLimitReached {
+            lastDailyLimitReached = isReached
+            rebuildMenu()
+        }
+        return isReached
+    }
+
+    /// Arms a one-shot timer for the exact second the category on show will spend its budget, so the
+    /// pause is not left waiting on the display tick -- which is a whole minute wide when the seconds
+    /// preference is off, and would make how far a hard limit overruns depend on a display setting.
+    ///
+    /// Nothing to wait for, so nothing armed, in each of the states where the figure cannot climb to
+    /// a limit: no limit set, one already reached, or a paused cube, where the tracked total stands
+    /// still by definition (`currentDuration` returns the recorded figure alone while paused).
+    private func updateDailyLimitTimer(limitMinutes: Int, totalSeconds: TimeInterval, isReached: Bool) {
+        dailyLimitTimer?.invalidate()
+        dailyLimitTimer = nil
+        guard !isReached, !isPaused, currentActivity != nil else { return }
+        guard let seconds = DailyLimitEnforcement.secondsUntilReached(
+            totalSeconds: totalSeconds,
+            limitMinutes: limitMinutes
+        ) else { return }
+        let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                // Straight back through the heartbeat rather than to the enforcement alone, so the
+                // duration on screen turns red in the same pass that stops the cube.
+                self?.updateStatusView()
+            }
+        }
+        timer.tolerance = 0
+        dailyLimitTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// The plain no-activity look: just the app name, no icon, no duration. Shown whenever there
@@ -559,6 +687,18 @@ final class MenuBarController: NSObject {
         // While locked, the only valid action is double-clicking to unlock — pause/resume must
         // not be reachable from the menu or a single click on the status item.
         guard appState.isConnected, !appState.isLocked else { return }
+        // The hard limit, and the whole of what makes it hard: the app declines to put the unpause
+        // on the wire while the category on show has spent its `daily_limit`. Both gestures land
+        // here -- the dropdown item and the status item's right half -- so refusing here refuses
+        // both, and the dropdown disables its item as well so the refusal is visible rather than a
+        // click that silently does nothing. Pausing is never refused, only resuming.
+        if isPaused, dailyLimit.isReachedForCurrentCategory {
+            DeveloperMode.debugPrint(
+                .dailyLimit,
+                "Resume refused, limit spent: category=\"\(currentActivity?.name ?? "Idle")\" limit=\(currentActivity?.limitMinutes ?? 0)m"
+            )
+            return
+        }
         onPauseToggle?(!isPaused)
     }
 
