@@ -12,14 +12,16 @@ nothing in range at all, needs Bluetooth switched off by hand and lives in `Inte
 are worth having: they are different branches ending at the same dialog, and one of them has already
 shipped a bug the other could not have found (see Bugs found and fixed).
 
-**How the refusal is staged.** `config.json`'s `PIN` is what a dev build presents to a cube it is
-already paired to. Setting it to a value the cube is not on makes the login fail while the scan
-still finds the device, which is exactly the case under test. Nothing is written to the cube, and
-the app's own rotation target is a separate compiled constant, so the cube stays on the PIN it was
-paired with throughout and the file is put back in Teardown.
+**How the refusal is staged.** `config.json`'s `PIN` is where a dev build keeps the **stored** PIN (the
+Keychain otherwise), and that is what it presents to a cube it is already paired to. Setting it to a
+value the cube is not on makes the login fail while the scan still finds the device, which is exactly
+the case under test. Nothing is written to the cube, and the value a new PIN would be set to is a
+separate compiled constant, so the cube stays on the PIN it was paired with throughout and the file is
+put back in Teardown.
 
-**Do not pair while the PIN is staged.** Pairing is the one place a password is guessed, and a
-successful pair would rotate the cube and rewrite the file mid-run. No step here touches the Device
+**Do not pair while the PIN is staged.** Pairing presents the factory default and then the stored PIN
+(`PairingPasswordRules`), so with a staged PIN the cube is on neither and the attempt fails -- which
+would leave the run investigating a pairing failure it staged itself. No step here touches the Device
 tab's pairing section, and Scenario D confirms the app itself has those controls switched off.
 
 Requires a paired physical TimeFlip device and the app running with Developer Mode enabled and the

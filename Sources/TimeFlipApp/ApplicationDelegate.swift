@@ -302,28 +302,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             guard let self, let bleDevice = self.device as? TimeFlipBLEDevice else { return }
             Task { @MainActor in
                 self.appState.connectionStatus = .pairing
-                // A newly selected device is almost always still on the factory default —
-                // reusing whatever password a previous (different) device rotated to would
-                // just be wrong here. So: the default first, then in a dev build the PIN dev
-                // devices are left on, then `config.json`'s PIN (a known custom PIN a developer
-                // set by hand for recovery), then the current password. Each is only tried if the
-                // one before was rejected as wrong -- any other outcome stops the sequence.
-                //
-                // Pairing is the only place a password is guessed. The default and the dev constant
-                // belong to this list and nowhere else: they are the two states a cube whose PIN
-                // the app does not know yet can be in. Once paired there is exactly one right
-                // answer -- `config.json`'s PIN, which is also what the rotation below leaves the
-                // cube on (see AppState.applyDeveloperConfig) -- and connecting presents that and
-                // fails if it is rejected, because being paired means the app is meant to know it
-                // (see startDeviceEvents).
-                var candidates = [TimeFlipConstants.defaultPassword]
-                if DeveloperMode.isEnabled {
-                    candidates.append(DeveloperMode.devicePassword)
-                    if let configuredPassword = self.appState.developerConfigDevicePassword {
-                        candidates.append(configuredPassword)
-                    }
-                }
-                candidates.append(self.appState.devicePassword)
+                // The default first, then the stored password, and nothing else -- see
+                // `PairingPasswordRules`, which holds the policy and the reasoning. Each is tried
+                // only if the one before was rejected as wrong; any other outcome stops the
+                // sequence, and both being rejected is a pairing failure.
+                let candidates = PairingPasswordRules.candidates(storedPassword: self.appState.devicePassword)
                 var tried: Set<String> = []
                 var attemptedPassword = TimeFlipConstants.defaultPassword
                 var outcome = DeviceConnectOutcome.wrongPassword
@@ -370,14 +353,6 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onCancelPairingAttempt = { [weak self] in
             (self?.device as? TimeFlipBLEDevice)?.cancelConnectionAttempt()
-        }
-        appState.onResetDevicePasswordRequest = { [weak self] in
-            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
-            let confirmed = await bleDevice.resetDevicePasswordToDefault()
-            if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false) {
-                try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
-            }
-            return confirmed
         }
         appState.onFactoryResetRequest = { [weak self] in
             // Against the protocol, not `as? TimeFlipBLEDevice`: the cast made this path
@@ -897,9 +872,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
             }
-            // Only rotate the password during the pairing flow itself (skipConnect is only ever
-            // true there) — routine reconnects afterward must keep reusing that same password.
-            if skipConnect, let bleDevice = device as? TimeFlipBLEDevice,
+            // Rotate only in the pairing flow itself (`skipConnect` is only ever true there), and
+            // only for a cube that answered to the vendor default -- `PairingPasswordRules` holds
+            // why. Routine reconnects afterward keep reusing the same password.
+            if skipConnect, PairingPasswordRules.rotatesPassword(passwordUsed: passwordUsed),
+               let bleDevice = device as? TimeFlipBLEDevice,
                let rotatedPassword = await bleDevice.rotateDevicePassword() {
                 await MainActor.run {
                     self.appState.devicePassword = rotatedPassword

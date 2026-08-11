@@ -48,10 +48,248 @@ column = "event_number"
 capture = "n_pre_reset"
 ```
 
-## Scenario A -- factory reset wipes the device's own event counter and ends never-paired
+## Scenario A -- Forget Device forgets, and does nothing else
+
+**Preconditions:** test DB active, device paired and connected, established in Setup above.
+
+Forgetting is local bookkeeping (`AppState.forgetDevice`): it drops the pairing and touches neither
+the cube's PIN nor the stored one. Until 2026-08-11 it reset the cube's password over `0x30` first and
+refused to unpair unless that was confirmed, which made it useless in the one situation it exists for
+-- a cube the app cannot log in to. The proof that it leaves the **device's** PIN alone is Scenario B:
+the cube is still on its rotated PIN there, which is why a wrong stored PIN cannot pair with it.
+
+- [ ] Step 1: Open Settings on the Device tab.
+Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
+```toml step
+[[actions]]
+use = "method-6"
+item = "Settings..."
+
+[[actions]]
+use = "method-10"
+tab = "Device"
+```
+- [ ] Step 2: Capture the PIN in `config.json`, which is where a dev build keeps the **stored** PIN.
+The file is the developer's, so this reads it rather than assuming a value, and Scenario B puts exactly
+this back. (In a production build the stored password is in the Keychain instead; the two are the same
+role, and `AppState.loadDevicePassword` picks between them.)
+```toml step
+action = "shell"
+command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
+capture = "config_pin_original"
+```
+- [ ] Step 3: Click **Forget Device**, and confirm it unpaired without touching a password.
+The count asserts an absence, which is the whole point of the change: no `0x30` write, no rotation, no
+confirming re-login. The Name row dropping to `Not paired` is the positive half.
+[Method: Number 13](../Methods.md#method-13).
+```toml step
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        click (first button of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose value of attribute "AXIdentifier" is "forget-device")
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT setting_value FROM setting WHERE setting_name='paired';"
+expect_contains = "false"
+timeout_seconds = 20
+
+[[actions]]
+action = "sql_query"
+query = "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $current_log_id AND (message LIKE '%reset to default%' OR message LIKE 'Rotating device password%' OR message LIKE 'Device password confirmed%');"
+expect = "0"
+```
+- [ ] Step 4: Confirm the stored PIN is exactly as it was.
+Forgetting must not rewrite it. It used to write the factory default here, which is how a Forget came
+to stamp `000000` over a hand-set PIN on 2026-08-01.
+```toml step
+action = "shell"
+command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
+expect = "$config_pin_original"
+```
+
+## Scenario B -- pairing tries two PINs, in order, and fails when neither is right
+
+**Preconditions:** Scenario A complete -- the app unpaired, the Settings window open on the Device tab,
+and the cube still holding the PIN this app rotated onto it (which is what makes the failure below
+meaningful).
+
+Pairing presents the factory default first, then the stored password, and nothing else
+(`PairingPasswordRules`). This scenario breaks the stored one on purpose so both are refused, which
+pins three things at once: that the failure is reported rather than papered over, that the cube was
+left on its own PIN by the forget above, and -- once the real PIN is restored -- that a cube reached on
+the **stored** password is not rotated, because its PIN is already the one on record.
+
+- [ ] Step 1: Point `config.json` at a PIN the cube does not have, and relaunch so the app loads it.
+`123457`, one digit off the PIN the cube is actually on, so it is obviously deliberate in a log. The relaunch is what
+makes it take effect: the file is read at startup (`AppState.applyDeveloperConfig`). Methods:
+[Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2).
+```toml step
+[[actions]]
+action = "shell"
+command = '''python3 -c "import json,os;p=os.path.expanduser('~/Library/Application Support/TimeFlip/config.json');d=json.load(open(p));d['PIN']='123457';json.dump(d,open(p,'w'),indent=2)"'''
+
+[[actions]]
+use = "method-3"
+
+[[actions]]
+use = "method-2"
+
+[[actions]]
+action = "shell"
+command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
+expect = "123457"
+```
+- [ ] Step 2: Open Settings on the Device tab and scan.
+An unpaired app shows a single **Scan for Devices** button where the Forget/Reset pair was. Methods:
+[Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10),
+[Number 13](../Methods.md#method-13).
+```toml step
+[[actions]]
+use = "method-6"
+item = "Settings..."
+
+[[actions]]
+use = "method-10"
+tab = "Device"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        click (first button of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose value of attribute "AXIdentifier" is "scan-for-devices")
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'listed:%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "TimeFlip"
+timeout_seconds = 60
+```
+- [ ] Step 3: Click the discovered row, and confirm the pairing is refused.
+[Method: Number 9](../Methods.md#method-9) -- the row is a `Text` with an `.onTapGesture`, so it needs a
+real CGEvent click at its centre.
+```toml step
+[[actions]]
+use = "method-24.b"
+capture = "before_pair_attempt_id"
+
+[[actions]]
+action = "cgevent_click_element"
+element = 'first static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose name contains "TimeFlip"'
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE message LIKE 'Probe login commandResult raw bytes: 01%' AND debug_log_id > $before_pair_attempt_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "rejected"
+timeout_seconds = 90
+```
+- [ ] Step 4: Confirm both PINs were presented, in order, and only those two.
+The rule itself, read off the wire: `30 30 30 30 30 30` is `000000` and `31 32 33 34 35 37` is
+`123457`. Two probe logins, no third -- a dev build used to append two more candidates here.
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $before_pair_attempt_id AND message LIKE 'Probe logging in using password:%';"
+expect = "2"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE debug_log_id > $before_pair_attempt_id AND message LIKE 'Probe logging in using password:%' ORDER BY debug_log_id LIMIT 1) LIKE '%30 30 30 30 30 30%' THEN 'ok' ELSE 'first candidate was not the factory default' END;"
+expect = "ok"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE debug_log_id > $before_pair_attempt_id AND message LIKE 'Probe logging in using password:%' ORDER BY debug_log_id DESC LIMIT 1) LIKE '%31 32 33 34 35 37%' THEN 'ok' ELSE 'second candidate was not the stored PIN' END;"
+expect = "ok"
+```
+- [ ] Step 5: Confirm the app is still unpaired.
+A refused pairing must leave it exactly as it was, rather than half-adopting a device it never reached.
+```toml step
+use = "method-24.a"
+setting = "paired"
+expect_contains = "false"
+```
+- [ ] Step 6: Put the real PIN back, relaunch, and pair -- on the **stored** password this time.
+The cube is on that PIN, so the default is refused and the second candidate gets in. Methods:
+[Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2),
+[Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10),
+[Number 13](../Methods.md#method-13), [Number 9](../Methods.md#method-9).
+```toml step
+[[actions]]
+use = "method-24.b"
+capture = "before_restore_id"
+
+[[actions]]
+action = "shell"
+command = '''python3 -c "import json,os,sys;p=os.path.expanduser('~/Library/Application Support/TimeFlip/config.json');d=json.load(open(p));d['PIN']=sys.argv[1];json.dump(d,open(p,'w'),indent=2)" "$config_pin_original"'''
+
+[[actions]]
+use = "method-3"
+
+[[actions]]
+use = "method-2"
+
+[[actions]]
+use = "method-6"
+item = "Settings..."
+
+[[actions]]
+use = "method-10"
+tab = "Device"
+
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        click (first button of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose value of attribute "AXIdentifier" is "scan-for-devices")
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'listed:%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "TimeFlip"
+timeout_seconds = 60
+
+[[actions]]
+action = "cgevent_click_element"
+element = 'first static text of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings" whose name contains "TimeFlip"'
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT setting_value FROM setting WHERE setting_name='paired';"
+expect_contains = "true"
+timeout_seconds = 90
+```
+- [ ] Step 7: Confirm that pairing did **not** rotate the cube's PIN.
+The other half of the rule: a cube reached on the stored password already holds the PIN on record, so
+rotating it would change a device PIN nobody asked to change and rewrite a stored password that was
+already right. Only a cube on the factory default is rotated, which Scenario C's re-pair exercises.
+```toml step
+[[actions]]
+action = "sql_query"
+query = "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $before_restore_id AND message LIKE 'Rotating device password%';"
+expect = "0"
+
+[[actions]]
+action = "shell"
+command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
+expect = "$config_pin_original"
+```
+
+## Scenario C -- factory reset wipes the device's own event counter and ends never-paired
 
 **Preconditions:** test DB active, device paired and connected, the pre-reset baseline noted (> 0)
-noted -- all established immediately above in Setup, which this scenario runs straight on from.
+noted -- the baseline from Setup, and the pairing re-established by Scenario B, which this scenario
+runs straight on from.
 
 - [x] Step 1: Open Settings (status-item menu -> "Settings...")
 and switch to the Device tab (selected by name). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).

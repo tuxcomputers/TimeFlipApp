@@ -845,13 +845,17 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// own ack isn't treated as sufficient proof the device will honor it on the next connect.
     func rotateDevicePassword() async -> String? {
         guard isLoggedIn else { return nil }
-        let generatedRandomPassword = DeveloperMode.isEnabled
+        // The **only** difference a dev build makes to pairing: what the PIN is rotated *to*. A fixed
+        // constant, so a dev cube's PIN is always known and typeable if something goes wrong; a random
+        // six digits otherwise. Everything around it -- which passwords pairing tries, when a rotation
+        // happens at all, and where the result is stored -- is identical in both.
+        let newPassword = DeveloperMode.isEnabled
             ? DeveloperMode.devicePassword
             : String(format: "%06d", Int.random(in: 0...999_999))
-        DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(generatedRandomPassword)")
+        DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(newPassword)")
         let clock = ContinuousClock()
         let begin = clock.now
-        let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
+        let payload = Data([0x30]) + Data(newPassword.utf8)
         do {
             _ = try await performCommand(payload)
         } catch {
@@ -862,9 +866,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let written = clock.now
         DeveloperMode.debugPrint(.connPhase, "password rotate 0x30 write: \(Self.elapsed(from: begin, to: written))")
         do {
-            guard try await attemptLogin(with: generatedRandomPassword) else {
+            guard try await attemptLogin(with: newPassword) else {
                 logger.error("Device rejected re-login with new password; not saving")
-                DeveloperMode.debugPrint(.timeFlip, "Device did NOT confirm new password \(generatedRandomPassword) — not saving")
+                DeveloperMode.debugPrint(.timeFlip, "Device did NOT confirm new password \(newPassword) — not saving")
                 return nil
             }
         } catch {
@@ -873,12 +877,12 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             return nil
         }
         logger.notice("Device password rotated and confirmed")
-        DeveloperMode.debugPrint(.timeFlip, "Device password confirmed set to: \(generatedRandomPassword)")
+        DeveloperMode.debugPrint(.timeFlip, "Device password confirmed set to: \(newPassword)")
         DeveloperMode.debugPrint(
             .connPhase,
             "password rotate confirm re-login: \(Self.elapsed(from: written, to: clock.now)), total: \(Self.elapsed(from: begin, to: clock.now))"
         )
-        return generatedRandomPassword
+        return newPassword
     }
 
     /// Sets the device password back to the factory default before "Forget Device" clears our
