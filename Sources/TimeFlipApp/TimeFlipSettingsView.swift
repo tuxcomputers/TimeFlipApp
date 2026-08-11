@@ -288,14 +288,14 @@ struct TimeFlipSettingsView: View {
                         appState.forgetDevice()
                     }
                     .accessibilityIdentifier("forget-device")
-                    .disabled(!pairingActionsEnabled)
+                    .disabled(!forgetEnabled)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
                     .accessibilityIdentifier("reset-device")
-                    .disabled(!pairingActionsEnabled)
+                    .disabled(!resetEnabled)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
                         isPresented: $showingFactoryResetConfirmation,
@@ -670,10 +670,17 @@ struct TimeFlipSettingsView: View {
         appState.isConnected || appState.connectionStatus == .reconnecting
     }
 
-    /// Whether Forget Device and Reset Device are live. See `DeviceTabRules.allowsPairingActions`
-    /// for why manual mode has to switch them off, which is not the reason it sounds like.
-    private var pairingActionsEnabled: Bool {
-        DeviceTabRules.allowsPairingActions(connectionStatus: appState.connectionStatus)
+    /// Whether **Forget Device** is live. Nearly always: it is local, so it stays available exactly
+    /// when the device is not -- see `DeviceTabRules.allowsForget`.
+    private var forgetEnabled: Bool {
+        DeviceTabRules.allowsForget(connectionStatus: appState.connectionStatus)
+    }
+
+    /// Whether **Reset Device** is live. A separate rule from Forget's, because manual mode has to
+    /// switch this one off and that is not the reason it sounds like -- see
+    /// `DeviceTabRules.allowsReset`.
+    private var resetEnabled: Bool {
+        DeviceTabRules.allowsReset(connectionStatus: appState.connectionStatus)
     }
 
     /// Name/Connection value colour: black (primary) while the values are live, greyed (secondary)

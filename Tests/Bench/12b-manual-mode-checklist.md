@@ -472,14 +472,20 @@ timeout_seconds = 30
 Settings window open** -- Scenario B closed the one it opened, and Scenario C is driven entirely from
 the status item. This scenario opens its own.
 
-- [x] Step 1: Open Settings on the Device tab and confirm Forget Device and Reset Device are both
-      disabled.
-These are deliberately **not** gated on being connected -- forgetting a cube that is out of range is
-an ordinary thing to want. Manual mode is the exception, and it fails quietly: a virtual device
-answers both. Reset is routed against the protocol so `0xFF` lands on the stand-in, is confirmed, and
-discards the real cube's stored name and uuid; Forget reports success having sent nothing, clears the
-stored password and unpairs, leaving the cube holding a PIN whose only copy has just been deleted.
-Neither is recoverable without the device in hand.
+- [ ] Step 1: Open Settings on the Device tab and confirm **Reset Device is dead and Forget Device is
+      live**.
+Neither is gated on being connected -- a cube out of range is one you may still want to stop chasing.
+Manual mode splits them, and only Reset is refused: it is routed against the protocol so `0xFF` lands
+on the virtual device, which accepts it, and confirming a wipe that never happened discards the real
+cube's stored name and uuid -- the two things the scan uses to find it. Not recoverable without the
+device in hand.
+Forget is live here **as of 2026-08-11**, and this scenario is where it matters most. Manual mode is
+reached by failing to reach the cube, and one way that happens is a battery change: the cube comes back
+on the vendor default, a paired connect presents the stored PIN and is refused (connecting never
+guesses -- `PairingPasswordRules`), and the app offers manual mode. Forgetting and re-pairing is the
+only route back, so a dead Forget here is a dead end. It was excluded while forgetting still reset the
+cube's password over `0x30`, which in manual mode would have reported success having sent nothing;
+forgetting sends nothing at all now (`AppState.forgetDevice`), so there is nothing left to go wrong.
 The open is this step's own: it read the window straight away and failed with `-1728`, having
 inherited an assumption from Scenario B that no longer held once B learned to close up after itself.
 Manual mode forces the window to **Faces** on every open, so the tab switch is still needed after it.
@@ -508,7 +514,12 @@ tell application "System Events"
         return out
     end tell
 end tell"""
-expect_contains = "forget-device=false"
+capture = "manual_mode_buttons"
+
+[[actions]]
+action = "sql_query"
+query = "SELECT CASE WHEN '$manual_mode_buttons' LIKE '%reset-device=false%' AND '$manual_mode_buttons' LIKE '%forget-device=true%' THEN 'ok' ELSE 'buttons read [$manual_mode_buttons] -- wanted a dead Reset beside a live Forget' END;"
+expect = "ok"
 ```
 - [x] Step 2: Close the Settings window this scenario opened.
 So Scenario E quits with nothing on screen, matching how every other scenario here leaves it.
