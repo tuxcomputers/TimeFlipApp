@@ -1,6 +1,6 @@
 # History Refresh Checklist (Interactive)
 
-### Last run - 2026-08-10 20:22 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:26 on the branch 'feature/inactiveID'
 
 The physical-flip parts of the history refresh test. Run **after the whole Bench phase**
 (`Tests/Bench/01b-history-refresh-checklist.md` and, since then, `02b-reset-device-checklist.md`

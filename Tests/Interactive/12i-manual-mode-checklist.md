@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-10 20:29 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:34 on the branch 'feature/inactiveID'
 
 The half of manual mode that needs the airspace to be genuinely empty.
 

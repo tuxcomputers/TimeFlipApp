@@ -56,6 +56,7 @@ struct CategoriesSettingsView: View {
                     isExpanded: $isInactiveExpanded,
                     categories: CategoryEditRules.partitioned(categories).inactive,
                     emptyMessage: "No inactive categories.",
+                    isRetiredList: true,
                     appState: appState,
                     actions: actions
                 )
@@ -128,6 +129,11 @@ private struct CategorySection: View {
     @Binding var isExpanded: Bool
     let categories: [CategoryRecord]
     let emptyMessage: String
+    /// Whether this is the archive list, which is a different set of columns rather than the same
+    /// set with one appended: no icon, colour or daily limit, and a last-used date instead. True
+    /// for Inactive only. The rows work it out from `category.isActive` rather than being told, and
+    /// the two always agree because `CategoryEditRules.partitioned` is what fills each list.
+    var isRetiredList = false
     @ObservedObject var appState: AppState
     let actions: CategoryRowActions
 
@@ -138,7 +144,7 @@ private struct CategorySection: View {
                     Text(emptyMessage)
                         .foregroundStyle(.secondary)
                 } else {
-                    CategoryColumnHeaderRow()
+                    CategoryColumnHeaderRow(isRetiredList: isRetiredList)
                     ForEach(categories) { category in
                         CategoryRow(
                             appState: appState,
@@ -156,24 +162,51 @@ private struct CategorySection: View {
                 isExpanded.toggle()
             }
         }
+        // Which section this is, in the one form accessibility will carry. A `DisclosureGroup`'s
+        // label subtree is not surfaced at all -- a section exposes only its disclosure triangle,
+        // which carries no name of its own -- so without this a test can address these sections by
+        // position and never check that group 1 is still the Active one.
+        //
+        // `.accessibilityLabel` is the wrong tool and actively harmful here: it does not name the
+        // triangle, it overwrites the label of every descendant. Measured 2026-08-10, all nine
+        // static texts in this section came back reading "Inactive" instead of the category names
+        // and dates -- a broken screen reader, and every assertion in `14b` gone. The same finding
+        // as `TimeFlipSettingsView`'s Forget/Reset buttons on 2026-07-31: label never appears,
+        // identifier does.
+        .accessibilityIdentifier(title)
     }
 }
 
 /// Column labels above the category list, aligned to `CategoryRow`'s own column widths so each
 /// label sits directly over its column -- no label over the icon column, since there's nothing
 /// meaningful to caption there.
+///
+/// The two lists have different columns, so this draws two different headers rather than one with
+/// an optional extra. See `CategoryRow` for why the archive drops three of them.
 private struct CategoryColumnHeaderRow: View {
+    let isRetiredList: Bool
+
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
-            Color.clear
-                .frame(width: SettingsLayoutConstants.FaceList.iconSize, height: 1)
-            Text("Name")
-                .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
-            Text("Colour")
-                .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
-            Text("Daily limit (0 = disabled)")
-                .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
-            Text("Active")
+            if isRetiredList {
+                Text("Active")
+                    .frame(width: SettingsLayoutConstants.CategoryList.activeColumnWidth, alignment: .leading)
+                Text("Name")
+                    .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
+                Text(CategoryLastUsedText.columnTitle)
+                    .fixedSize()
+            } else {
+                Color.clear
+                    .frame(width: SettingsLayoutConstants.FaceList.iconSize, height: 1)
+                Text("Name")
+                    .frame(width: SettingsLayoutConstants.CategoryList.nameColumnWidth, alignment: .leading)
+                Text("Colour")
+                    .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
+                Text("Daily limit (0 = disabled)")
+                    .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
+                Text("Active")
+                    .frame(width: SettingsLayoutConstants.CategoryList.activeColumnWidth, alignment: .leading)
+            }
             Spacer()
         }
         .font(.caption)
@@ -212,20 +245,15 @@ private struct CategoryRow: View {
         colourOptions.first { $0.colourId == category.colourID }?.color
     }
 
+    /// The two lists draw different rows, so this picks between them rather than hiding columns out
+    /// of one shared layout.
     var body: some View {
         HStack(spacing: SettingsLayoutConstants.FaceList.rowSpacing) {
-            iconButton
-            nameField
-            colourSwatch
-                .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
-            dailyLimitField
-                .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
-                // An inactive category is retired, kept only so historical time_entry rows still
-                // resolve, so its colour and limit are a record of what it was rather than
-                // settings worth carrying on tuning. The Active tick box stays live, since
-                // reinstating the category is the one edit an inactive row must still allow.
-                .disabled(!category.isActive)
-            activeCheckbox
+            if category.isActive {
+                activeRow
+            } else {
+                retiredRow
+            }
             Spacer()
         }
         .alert(
@@ -240,6 +268,41 @@ private struct CategoryRow: View {
         } message: { confirmation in
             Text(confirmation.message(currentName: category.name))
         }
+    }
+
+    /// Everything a category you are still using needs: what it looks like on the cube, what it is
+    /// called, and its budget.
+    @ViewBuilder
+    private var activeRow: some View {
+        iconButton
+        nameField
+        colourSwatch
+            .frame(width: SettingsLayoutConstants.CategoryList.colourColumnWidth, alignment: .leading)
+        dailyLimitField
+            .frame(width: SettingsLayoutConstants.CategoryList.limitColumnWidth, alignment: .leading)
+        activeCheckbox
+            .frame(width: SettingsLayoutConstants.CategoryList.activeColumnWidth, alignment: .leading)
+    }
+
+    /// A retired row is a narrower thing: the box that brings it back, its name, and when it last
+    /// recorded time.
+    ///
+    /// The icon, colour and daily limit are gone rather than merely disabled. A retired category is
+    /// kept only so historical `time_entry` rows still resolve, so those three are a record of what
+    /// it was, and drawing them dead invited the reader to try. Removing them also keeps the archive
+    /// narrower than the Active list, so the last-used column costs the window no width -- it is the
+    /// widest section that sets it, and that is still the one you work in.
+    ///
+    /// The Active box leads rather than trails, because reinstating is the only thing this row does.
+    /// In the Active list that box is the last column, the far end of a row full of settings; here
+    /// there are no settings, so putting it first makes it the point of the row rather than
+    /// something to read past.
+    @ViewBuilder
+    private var retiredRow: some View {
+        activeCheckbox
+            .frame(width: SettingsLayoutConstants.CategoryList.activeColumnWidth, alignment: .leading)
+        nameField
+        lastUsedLabel
     }
 
     /// Read-only until Edit is chosen from its right-click menu, then an inline field. Enter
@@ -359,7 +422,6 @@ private struct CategoryRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!category.isActive)
         .popover(isPresented: $isIconPickerPresented) {
             CategoryIconGrid(
                 iconOptions: iconOptions,
@@ -391,7 +453,6 @@ private struct CategoryRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!category.isActive)
         .popover(isPresented: $isColorPickerPresented) {
             ColorOptionList(
                 colourOptions: colourOptions,
@@ -440,6 +501,23 @@ private struct CategoryRow: View {
     /// Only *this* direction is barred. A retired category on a locked face -- which a database
     /// predating this rule can hold -- must still be reinstatable, and reinstating puts nothing on
     /// any face.
+    /// When a retired category last recorded time, sitting under the "Last used" header to the right
+    /// of its Active box.
+    ///
+    /// Nothing at all on an active row (`CategoryLastUsedText.label` returns nil), which is why only
+    /// the Inactive list's header carries the caption. Secondary and small: it is context for a
+    /// decision about reinstating, not a control, and it must not compete with the name at the other
+    /// end of the row.
+    @ViewBuilder
+    private var lastUsedLabel: some View {
+        if let text = CategoryLastUsedText.label(isActive: category.isActive, lastUsed: category.lastUsed) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+    }
+
     private var activeCheckbox: some View {
         // The tooltip is on the container, outside `.disabled()`: a disabled control stops taking
         // mouse events, and a help tag it never sees is no use on the one row that needs one.

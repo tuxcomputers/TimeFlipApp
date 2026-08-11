@@ -110,9 +110,22 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
     var isActive: Bool
     /// Tracked time allowed against this category per day, in whole minutes (`0` = no limit).
     var dailyLimitMinutes: Int
+    /// When this category last recorded time: the end of its most recent `time_entry`, or `nil` if
+    /// it has never recorded any. Shown against retired rows (see `CategoryLastUsedText`).
+    ///
+    /// **Filled by `loadCategories()` only**, and left `nil` by the other readers
+    /// (`loadFaceCategories`, `findCategory(named:)`, `findCategories(named:)`), none of which put a
+    /// row in front of the user in a place this is drawn. It is a derived aggregate over
+    /// `time_entry`, not a column on `category`, so the cost belongs only where it is read.
+    var lastUsed: Date?
 
     /// A copy with one field replaced, so a view holding a loaded list can reflect an edit it just
     /// wrote to the database without re-reading the table.
+    ///
+    /// `lastUsed` is carried rather than offered: it is not editable, and it must survive a patch.
+    /// The one edit an inactive row allows is its Active box, which is precisely the row this is
+    /// drawn on -- dropping it here would blank the date the moment anyone toggled the thing it sits
+    /// next to.
     func with(
         name: String? = nil,
         iconID: Int? = nil,
@@ -126,7 +139,8 @@ struct CategoryRecord: Equatable, Sendable, Identifiable {
             iconID: iconID ?? self.iconID,
             colourID: colourID ?? self.colourID,
             isActive: isActive ?? self.isActive,
-            dailyLimitMinutes: dailyLimitMinutes ?? self.dailyLimitMinutes
+            dailyLimitMinutes: dailyLimitMinutes ?? self.dailyLimitMinutes,
+            lastUsed: lastUsed
         )
     }
 
@@ -1005,8 +1019,20 @@ final class AppDataStore {
     func loadCategories() -> [CategoryRecord] {
         guard let db else { return [] }
         var results: [CategoryRecord] = []
+        // `last_used` is the end of the category's most recent recorded segment, as a correlated
+        // subquery rather than a join so the outer query still returns exactly one row per category
+        // (a join would need a GROUP BY over every selected column to say the same thing).
+        //
+        // The epoch comes from the joined `device_event` row, not `time_entry.started_at`, for the
+        // reason `loadCategoryTotals` gives: `started_at` is local text with no offset in it, so it
+        // cannot be compared or ordered across a daylight-saving change. NULL for a category that
+        // has never recorded time, which the reader turns back into `nil`.
         let sql = """
-        SELECT c.category_id, c.category_name, c.icon_id, c.colour_id, c.active, c.daily_limit
+        SELECT c.category_id, c.category_name, c.icon_id, c.colour_id, c.active, c.daily_limit,
+               (SELECT MAX(de.start_epoch + te.duration_seconds)
+                  FROM time_entry te
+                  JOIN device_event de ON de.device_event_id = te.device_event_id
+                 WHERE te.category_id = c.category_id) AS last_used
         FROM category c
         WHERE c.category_id >= 1;
         """
@@ -1024,13 +1050,17 @@ final class AppDataStore {
                 let colourID = Int(sqlite3_column_int64(stmt, 3))
                 let isActive = sqlite3_column_int64(stmt, 4) != 0
                 let dailyLimitMinutes = Int(sqlite3_column_int64(stmt, 5))
+                let lastUsed = sqlite3_column_type(stmt, 6) == SQLITE_NULL
+                    ? nil
+                    : Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))
                 results.append(CategoryRecord(
                     id: id,
                     name: name,
                     iconID: iconID,
                     colourID: colourID,
                     isActive: isActive,
-                    dailyLimitMinutes: dailyLimitMinutes
+                    dailyLimitMinutes: dailyLimitMinutes,
+                    lastUsed: lastUsed
                 ))
             }
             sqlite3_finalize(stmt)

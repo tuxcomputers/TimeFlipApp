@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 20:25 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:30 on the branch 'feature/inactiveID'
 
 One scenario, and only because of where the lock control lives.
 

@@ -1,6 +1,6 @@
 # Auto-Pause Arrow Stepper Checklist (Interactive)
 
-### Last run - 2026-08-10 20:24 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:29 on the branch 'feature/inactiveID'
 
 Nothing needed. The press-and-hold acceleration gesture (both directions) and the
 hold-interrupted-by-window-close case all moved to

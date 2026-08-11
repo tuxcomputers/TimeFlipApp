@@ -169,6 +169,10 @@ enum SettingsLayoutConstants {
         // (0 = disabled)" caption, which is the widest thing in the column and previously set this
         // width at 140.
         static var limitColumnWidth: CGFloat { Stepper.rowWidth }
+        // Fixed so the "Last used" column after it starts at the same x in the header row as in the
+        // category rows: a checkbox is narrower than its own "Active" caption, so without a width
+        // the caption and the column beyond it drift apart by the difference.
+        static let activeColumnWidth: CGFloat = 44
         // 6 wide lays the 42 seeded icons out as an even 6x7 with no partial last row and no
         // scrolling -- see database/004_icon.sql.
         static let iconGridColumns = 6

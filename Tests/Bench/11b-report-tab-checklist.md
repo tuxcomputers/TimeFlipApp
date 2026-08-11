@@ -1,6 +1,6 @@
 # Report Tab Checklist
 
-### Last run - 2026-08-10 20:18 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:22 on the branch 'feature/inactiveID'
 
 Covers the **Report** tab: a date range picked on two hand-drawn calendars, and what each category
 took over it. The figures come from `AppDataStore.loadCategoryTotals(from:to:)`, which sums
@@ -15,9 +15,9 @@ shows time, not that it shows *current* categories:
 
 | Category | State | Seeded time |
 | --- | --- | --- |
-| `ZZ Assigned` | active, on a face | 5 days ago, 30 min |
-| `ZZ NoFace` | active, on no face | 4 days ago, 45 min |
-| `ZZ Retired` | **de**activated | 3 days ago, 60 min |
+| `ZZ Assigned` | active, on a face | 5 days ago, 30 min 29 s |
+| `ZZ NoFace` | active, on no face | 4 days ago, 45 min 30 s |
+| `ZZ Retired` | **de**activated | 3 days ago, 60 min 31 s |
 
 The last two are the ones worth having. A retired category must still report -- that is what
 retiring promises (`docs/TODO-features-under-development.md`, Categories: *"Can still be reported
@@ -35,8 +35,11 @@ particular is actively harmful -- `latestRecordedEvent()` is the only record of 
 (`HistoryIngestor`), an empty table reads as `nil`, and `nil` falls through to a full fetch from the
 beginning, so the periodic fetch would repopulate the table within about ten seconds.
 
-Durations of 30, 45 and 60 minutes make every range asserted below a different figure, so no
-assertion can pass against the wrong range.
+Durations of 30:29, 45:30 and 60:31 make every range asserted below a different figure, so no
+assertion can pass against the wrong range. The seconds straddle the half-minute on purpose --
+29 below it, 30 exactly on it, 31 above -- so Scenario D's seconds-off figures prove the value is
+truncated to the minute rather than rounded. On round durations those assertions read the same
+either way and proved nothing.
 
 **The fixture is seeded by `Tests/00-test-setup.md` Step 9, not here**, and unconditionally rather
 than only when this checklist was requested -- so every run starts from the same categories and the
@@ -129,11 +132,14 @@ expect = "110/1/0"
 ```
 - [x] Step 6: Confirm the seeded time is present and intact.
 The rows come from the shared setup, so this checklist starts by proving its fixture is really there
-rather than discovering it is missing three assertions later.
+rather than discovering it is missing three assertions later. Scoped to the three seeded events
+rather than summing everything those categories hold: `ZZ Assigned` is on face 5, so a flip onto it
+adds real time to the category without touching the fixture, and this step must not read that as
+damage (see `Tests/00-test-setup.md` Step 17, which measured exactly that).
 ```toml step
 action = "sql_query"
-query = "SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired');"
-expect = "8100"
+query = "SELECT CAST(SUM(te.duration_seconds) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE de.event_number IN (900001, 900002, 900003) AND c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired');"
+expect = "8190"
 ```
 - [x] Step 7: Compute the calendar button indices for 5, 4 and 3 days ago.
 Derived from the grid rather than hardcoded: cell `n` of the **From** calendar is button `3 + n`, and
@@ -204,13 +210,13 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'From calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) = 'From calendar picked ' || date('now','localtime','-5 days') THEN 'ok' ELSE 'clicked the wrong cell: ' || (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'From calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) END;"
 expect = "ok"
 ```
-- [x] Step 3: Confirm the report shows `ZZ Assigned` at **0:30:00** -- that day alone.
-The end is untouched, so the range is the single day. Reading 2:15:00 here would mean an unset end
+- [x] Step 3: Confirm the report shows `ZZ Assigned` at **0:30:29** -- that day alone.
+The end is untouched, so the range is the single day. Reading 2:16:30 here would mean an unset end
 was being treated as "up to now"; reading nothing would mean the day boundary is wrong.
 [Method: Number 28](../Methods.md#method-28).
 ```toml step
 use = "method-28"
-expect_contains = "ZZ Assigned|0:30:00|"
+expect_contains = "ZZ Assigned|0:30:29|"
 ```
 - [x] Step 4: Confirm the other two days are **not** in that single-day range.
 The same read, asserted from the other direction: a start with no end must not reach forward.
@@ -251,36 +257,46 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'To calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) = 'To calendar picked ' || date('now','localtime','-3 days') THEN 'ok' ELSE 'clicked the wrong cell: ' || (SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'To calendar picked%' ORDER BY debug_log_id DESC LIMIT 1) END;"
 expect = "ok"
 ```
-- [x] Step 2: Confirm the category still on a face reports **0:30:00**.
+- [x] Step 2: Confirm the category still on a face reports **0:30:29**.
 The ordinary case, and the control for the two below.
 ```toml step
 use = "method-28"
-expect_contains = "ZZ Assigned|0:30:00|"
+expect_contains = "ZZ Assigned|0:30:29|"
 ```
-- [x] Step 3: Confirm the category on **no face** reports **0:45:00**.
+- [x] Step 3: Confirm the category on **no face** reports **0:45:30**.
 `loadCategoryTotals` joins `category` straight off `time_entry`, so the face table has no say. An
 implementation that resolved the category through `face` would drop this row entirely.
 ```toml step
 use = "method-28"
-expect_contains = "ZZ NoFace|0:45:00|"
+expect_contains = "ZZ NoFace|0:45:30|"
 ```
-- [x] Step 4: Confirm the **deactivated** category reports **1:00:00**.
+- [x] Step 4: Confirm the **deactivated** category reports **1:00:31**.
 The assertion this fixture exists for. Retiring a category hides it from assignment and nothing else
 -- it keeps its history and must keep reporting, which is what makes retiring safe to do. Both
 `loadCategories()` and the Faces list filter `active = 0` out, so a report built on either would
 silently lose this row and under-report the range.
 ```toml step
 use = "method-28"
-expect_contains = "ZZ Retired|1:00:00|"
+expect_contains = "ZZ Retired|1:00:31|"
 ```
-- [x] Step 5: Confirm the range totals **2:15:00** across the three.
+- [x] Step 5: Confirm the range totals **2:16:30** across the three.
 Derived from `time_entry` rather than read off the screen, so the figure the tab shows is compared
-against the same table it claims to sum, over the same clipped window.
+against the same table it claims to sum, over the same clipped window. The overlap predicate is
+load-bearing rather than tidiness: the clamp is written for rows that straddle a boundary, and fed a
+row lying entirely outside the window it returns the gap as a **negative** number. `ZZ Assigned` is
+on face 5, so a single real flip onto it today did exactly that, turning this sum into `-228354`
+(measured 2026-08-10). Restricted to the rows that actually touch the window, real activity outside
+it is ignored the way the report itself ignores it.
 ```toml step
 action = "sql_query"
-query = "WITH b AS (SELECT $window_start - 432000 AS f, $window_start - 259200 + 86400 AS t) SELECT CAST(SUM(min(de.start_epoch + te.duration_seconds, (SELECT t FROM b)) - max(de.start_epoch, (SELECT f FROM b))) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired');"
-expect = "8100"
+query = "WITH b AS (SELECT $window_start - 432000 AS f, $window_start - 259200 + 86400 AS t) SELECT CAST(SUM(min(de.start_epoch + te.duration_seconds, (SELECT t FROM b)) - max(de.start_epoch, (SELECT f FROM b))) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired') AND de.start_epoch < (SELECT t FROM b) AND de.start_epoch + te.duration_seconds > (SELECT f FROM b);"
+expect = "8190"
 ```
+### Bugs found and fixed - branch 'feature/inactiveID'
+2026-08-10 - The clipped sum had no overlap predicate, so a row lying wholly outside the range
+contributed the gap as a negative: one real 9-second flip onto `ZZ Assigned`'s face turned `8190`
+into `-228354`. Found while investigating the setup failure that shares its cause.
+
 
 ## Scenario C -- moving the start forward drops the days it passes
 
@@ -320,11 +336,11 @@ The narrowing must move the range's edge, not rescale what is inside it.
 ```toml step
 [[actions]]
 use = "method-28"
-expect_contains = "ZZ NoFace|0:45:00|"
+expect_contains = "ZZ NoFace|0:45:30|"
 
 [[actions]]
 use = "method-28"
-expect_contains = "ZZ Retired|1:00:00|"
+expect_contains = "ZZ Retired|1:00:31|"
 ```
 
 ## Scenario D -- the format follows the menu bar's seconds setting
@@ -383,6 +399,41 @@ timeout_seconds = 15
 [[actions]]
 use = "method-28"
 expect_contains = "ZZ Assigned|0:30|"
+```
+- [x] Step 3: Extend the range to 3 days ago and confirm all three read as truncated minutes.
+The case a single figure cannot make. The three seeds straddle the half-minute deliberately --
+`0:30:29` below it, `0:45:30` exactly on it, `1:00:31` above -- so a formatter that rounded to the
+nearest minute would report `0:30`, `0:46` and `1:01` here. Truncation is the rule
+(`DurationFormat` takes `minutes` by integer division, so the seconds are dropped rather than
+weighed), and the middle row is the one that proves it: exactly 30 seconds is where rounding and
+truncation part company.
+```toml step
+[[actions]]
+action = "applescript"
+script = '''
+tell application "System Events"
+    tell process "TimeFlip"
+        click button $to_button_day3 of group 1 of group 1 of window "TimeFlip Settings"
+    end tell
+end tell'''
+
+[[actions]]
+action = "wait_for_sql"
+query = "SELECT message FROM debug_log WHERE tag='report' AND message LIKE 'To calendar picked%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "To calendar picked"
+timeout_seconds = 15
+
+[[actions]]
+use = "method-28"
+expect_contains = "ZZ Assigned|0:30|"
+
+[[actions]]
+use = "method-28"
+expect_contains = "ZZ NoFace|0:45|"
+
+[[actions]]
+use = "method-28"
+expect_contains = "ZZ Retired|1:00|"
 ```
 
 ## Scenario E -- teardown, leaving nothing for the Interactive phase to inherit

@@ -1,11 +1,11 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 20:12 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 17:41 on the branch 'feature/inactiveID'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the
-window, controls disabled on a retired row or by a locked face, the right-click rename, and the face
-a retire clears.
+window, the columns a retired row does not draw, a box disabled by a locked face, the right-click
+rename, and the face a retire clears.
 
 **None of this needs the cube.** The tab is app state and database, so every scenario here would run
 against a device sitting in a drawer. It is a Bench checklist because it drives the real window, not
@@ -33,14 +33,25 @@ Read live on 2026-08-01; the steps below depend on it.
 | `group 2` | the create control |
 | `group 3` | Inactive |
 
-An expanded section is a disclosure triangle, four column-header static texts, then **eight elements
-per category row**, in this order: icon `button`, name `static text`, colour `button`, daily-limit
-`text field`, `min` static text, two chevron `image`s, Active `checkbox`. So within a section, row
-*k* is `checkbox k` / `text field k`, its icon is `button (2k-1)` and its colour swatch `button 2k`.
+**The two lists are not the same shape**, so a row index means different things in each.
+
+An expanded **Active** section is a disclosure triangle, four column-header static texts, then
+**eight elements per category row**, in this order: icon `button`, name `static text`, colour
+`button`, daily-limit `text field`, `min` static text, two chevron `image`s, Active `checkbox`. So
+within it, row *k* is `checkbox k` / `text field k`, its icon is `button (2k-1)` and its colour
+swatch `button 2k`.
+
+An expanded **Inactive** section is a disclosure triangle, three column-header static texts (`Name`,
+`Active`, `Last used`), then **three elements per row**: name `static text`, Active `checkbox`,
+last-used `static text`. There are no buttons and no text fields in it at all: a retired category
+keeps its icon, colour and limit in the database as a record of what it was, and the tab stopped
+drawing them on 2026-08-10 rather than drawing them dead (see Scenario E). So row *k* is
+`checkbox k`, and its name is `static text (2k + 2)` after the three column headers.
 
 (Note: the **Active** and **Inactive** section titles are not exposed to accessibility at all -- a
-collapsed section reports only its disclosure triangle. Confirming those labels needs an eye or a
-screenshot, which is why Setup asks. The `Active` static text inside an expanded section is the
+collapsed section reports only its disclosure triangle. What each triangle does carry is an
+`AXIdentifier` naming its section, added 2026-08-10, which is how Setup Step 3 knows group 1 is the
+Active one instead of assuming it. The `Active` static text inside an expanded section is the
 *column header*, not the section title.)
 
 Alerts open as `sheet 1 of window "TimeFlip Settings"`. Their buttons' `title` is `missing value`;
@@ -70,27 +81,30 @@ item = "Settings..."
 use = "method-10"
 tab = "Categories"
 ```
-- [x] Step 3: Confirm Active opens expanded and Inactive opens collapsed.
-      The archive is folded away on purpose; the list you work in is not. Read from the disclosure
-      triangles, whose value is the expanded state.
+- [x] Step 3: Confirm which section is which, and that Active opens expanded and Inactive collapsed.
+      The archive is folded away on purpose; the list you work in is not. Both facts come off the
+      disclosure triangles: `value` is the expanded state, and `AXIdentifier` names the section.
+      [Method: Number 15](../Methods.md#method-15).
+
+      **Naming them is what makes every other step here mean anything.** The rest of this file
+      addresses the two lists by position, `group 1` and `group 3`, which cannot tell you that
+      group 1 is the one drawn under "Active": swap the two `Section` blocks in the source and every
+      index-addressed step still passes while the window contradicts them. This used to be a
+      question put to a person, because the titles are genuinely unreadable -- a `DisclosureGroup`'s
+      label is not surfaced at all, and `.accessibilityLabel` does not fix it (it overwrites every
+      descendant's label instead, measured 2026-08-10). The identifier is set from the same `title`
+      the label draws, so this now asserts what the person was being asked.
 ```toml step
 action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
         tell scroll area 1 of group 1 of window "TimeFlip Settings"
-            return "active=" & (value of UI element 1 of group 1 as string) & " inactive=" & (value of UI element 1 of group 3 as string)
+            return "g1=" & (value of attribute "AXIdentifier" of UI element 1 of group 1 as string) & "/" & (value of UI element 1 of group 1 as string) & " g3=" & (value of attribute "AXIdentifier" of UI element 1 of group 3 as string) & "/" & (value of UI element 1 of group 3 as string)
         end tell
     end tell
 end tell'''
-expect_contains = "active=true inactive=false"
-```
-- [x] Step 4: Confirm the two section labels read **Active** and **Inactive**.
-      Not accessibility-readable, so this is the one look a person (or a screenshot) has to take.
-      [Method: Number 17](../Methods.md#method-17).
-```toml step
-action = "ask_user"
-prompt = "On the Categories tab, are the two collapsible sections labelled **Active** and **Inactive**?"
+expect_contains = "g1=Active/true g3=Inactive/false"
 ```
 
 ## Scenario A -- the create field appears, takes focus, and guards Save
@@ -499,23 +513,37 @@ tab = "Categories"
 - [x] Step 2: Expand the Inactive section.
       [Method: Number 15](../Methods.md#method-15). Addressed as `UI element 1`: System Events has no
       `disclosure triangle` class, so naming one that way is a syntax error, not an empty match.
-      (Note: the count includes `ZZ Retired`, one of the three categories `Tests/00-test-setup.md`
-      Step 8 seeds for the report checklist. That fixture is seeded on every run rather than only
-      when the report checklist was requested, precisely so this number is a fixed baseline instead
-      of depending on which checklists someone asked for. The retired row this step is really about
-      is `Email`; if the seed's shape ever changes, this is the number that moves with it.)
+      (Note: the count includes the three retired categories `Tests/00-test-setup.md` Step 9 seeds --
+      `ZZ Retired` for the report checklist, and two both named `ZZ Lapsed` for the last-used one
+      (retired namesakes are legal, `UN1_category` only bars duplicates among active categories). That fixture is seeded on every run rather than only when those checklists were
+      requested, precisely so this number is a fixed baseline instead of depending on which
+      checklists someone asked for. The retired row this step is really about is `Email`; if the
+      seed's shape ever changes, this is the number that moves with it, and it moved from 2 to 4 on
+      2026-08-10 when the two `ZZ Lapsed` rows joined the fixture. Every step below addressing the
+      Inactive list by index still means `Email`, which sorts before both of them.)
+      The click is guarded on the disclosure's current value rather than fired unconditionally: a
+      bare click is a toggle, and the runner retries a failed step whole, so a wrong count here
+      would be retried into closing the section and reporting `inactive_rows=0` instead of the
+      number that was actually wrong. `14b` lost a run to that on 2026-08-10.
 ```toml step
 action = "applescript"
 script = '''
 tell application "TimeFlip" to activate
 tell application "System Events"
     tell process "TimeFlip"
-        click UI element 1 of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
-        delay 0.8
-        return "inactive_rows=" & ((count of checkboxes of group 3 of scroll area 1 of group 1 of window "TimeFlip Settings") as string)
+        tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
+            if (value of attribute "AXIdentifier" of UI element 1 as string) is not "Inactive" then
+                return "group 3 is not the Inactive section"
+            end if
+            if (value of UI element 1 as string) is "false" then
+                click UI element 1
+                delay 0.8
+            end if
+            return "inactive_rows=" & ((count of checkboxes) as string)
+        end tell
     end tell
 end tell'''
-expect_contains = "inactive_rows=2"
+expect_contains = "inactive_rows=4"
 ```
 - [x] Step 3: Tick the retired `Email` row's Active box; confirm the refusal alert.
 ```toml step
@@ -554,28 +582,35 @@ query = "SELECT COUNT(*) FROM category WHERE category_name = 'Email' AND active 
 expect = "1"
 ```
 
-## Scenario E -- a retired row is read-only except for its Active box
+## Scenario E -- a retired row carries no icon, colour or daily limit at all
 
-A retired category is a record of what it was, not a setting worth tuning, so its colour, icon and
-daily limit are disabled. The Active box stays live, since reinstating is the one edit an inactive
-row must still allow.
+A retired category is a record of what it was, not a setting worth tuning, so the tab stopped
+drawing those three on its rows (2026-08-10). They were previously drawn and disabled, which invited
+the reader to try them, and cost the archive the width of three columns it had no use for. The
+Active box stays live, since reinstating is the one edit a retired row must still allow.
 
-**Preconditions:** the Inactive section expanded, showing one retired `Email`.
+**Preconditions:** the Inactive section expanded, with the retired `Email` first in it. The seeded
+`ZZ Retired` and the two `ZZ Lapsed` rows sit below it and are not what this scenario
+is about; `Email` is `checkbox 1` because it sorts before all three.
 
-- [x] Step 1: Confirm the disabled and enabled controls on the retired row.
-      Icon and colour are `button 1` and `button 2` of the row, the limit is `text field 1`, and the
-      Active box is `checkbox 1`.
+- [x] Step 1: Confirm the whole Inactive list holds no buttons and no fields, and its Active box works.
+      Counted across the section rather than probed per row, so a control returning on *any* retired
+      row fails here, not just on the first one. Zero is the right figure for buttons because the
+      disclosure triangle is a `UI element` rather than a `button` and the section label is not
+      exposed at all: while these rows still had icons, `button 1` and `button 2` of this group were
+      row 1's icon and colour swatch, so nothing else was ever being counted. All three values come
+      back in one string so a failure names which part came back.
 ```toml step
 action = "applescript"
 script = '''
 tell application "System Events"
     tell process "TimeFlip"
         tell group 3 of scroll area 1 of group 1 of window "TimeFlip Settings"
-            return "icon=" & (enabled of button 1 as string) & " colour=" & (enabled of button 2 as string) & " limit=" & (enabled of text field 1 as string) & " active=" & (enabled of checkbox 1 as string)
+            return "buttons=" & ((count of buttons) as string) & " fields=" & ((count of text fields) as string) & " active=" & (enabled of checkbox 1 as string)
         end tell
     end tell
 end tell'''
-expect_contains = "icon=false colour=false limit=false active=true"
+expect_contains = "buttons=0 fields=0 active=true"
 ```
 
 ## Scenario F -- the colour and icon popovers

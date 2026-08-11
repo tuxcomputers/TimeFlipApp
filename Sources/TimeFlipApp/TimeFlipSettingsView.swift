@@ -122,6 +122,9 @@ struct TimeFlipSettingsView: View {
                     appState.isMoreExpanded.toggle()
                 }
             }
+            // Names this disclosure for a test; see `CategorySection` for why it is an identifier
+            // rather than a label.
+            .accessibilityIdentifier("More")
         }
     }
 
@@ -226,6 +229,9 @@ struct TimeFlipSettingsView: View {
                     appState.isLEDExpanded.toggle()
                 }
             }
+            // Names this disclosure for a test; see `CategorySection` for why it is an identifier
+            // rather than a label.
+            .accessibilityIdentifier("LED")
             DisclosureGroup(isExpanded: $appState.isDoubleTapExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Disable", isOn: Binding(
@@ -243,6 +249,9 @@ struct TimeFlipSettingsView: View {
                     appState.isDoubleTapExpanded.toggle()
                 }
             }
+            // Names this disclosure for a test; see `CategorySection` for why it is an identifier
+            // rather than a label.
+            .accessibilityIdentifier("Double tap")
         }
     }
 

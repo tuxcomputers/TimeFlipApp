@@ -1,6 +1,6 @@
 # Low-Battery Indicator Checklist (Interactive)
 
-### Last run - 2026-08-10 20:24 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:29 on the branch 'feature/inactiveID'
 
 The visual half of the low-battery test: confirming the menu-bar activity name and the Battery line
 on the Device tab actually *flash* in lockstep. The flash is a color animation, not text/state, on a

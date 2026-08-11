@@ -1,6 +1,6 @@
 # LED Settings Persistence Checklist
 
-### Last run - 2026-08-10 20:10 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 17:39 on the branch 'feature/inactiveID'
 
 Covers LED brightness/blink interval moving from UserDefaults to being DB-backed via
 `AppDataStore`/the `led_settings` row -- confirms a value set in the Settings UI survives an app
@@ -44,8 +44,15 @@ tell application "System Events"
         delay 0.3
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             if not (exists text field "Brightness") then
-                click UI element 6
-                delay 0.3
+                repeat with e in UI elements
+                    try
+                        if (value of attribute "AXIdentifier" of e) is "LED" then
+                            click e
+                            delay 0.3
+                            exit repeat
+                        end if
+                    end try
+                end repeat
             end if
         end tell
     end tell
@@ -133,8 +140,15 @@ tell application "System Events"
         delay 0.3
         tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
             if not (exists text field "Brightness") then
-                click UI element 6
-                delay 0.3
+                repeat with e in UI elements
+                    try
+                        if (value of attribute "AXIdentifier" of e) is "LED" then
+                            click e
+                            delay 0.3
+                            exit repeat
+                        end if
+                    end try
+                end repeat
             end if
             return (value of text field "Brightness") & "|" & (value of text field "Blink Interval")
         end tell

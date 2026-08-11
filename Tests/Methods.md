@@ -446,8 +446,46 @@ directions, full deceleration curve), and the hold-interrupted-by-window-close c
 <a id="method-15"></a>
 ## Method 15: Expand or collapse a disclosure group
 
-A `DisclosureGroup` shows as role `AXDisclosureTriangle` ("UI element", no readable label) --
-identify it by position among siblings, `click` to expand/collapse.
+A `DisclosureGroup` shows as role `AXDisclosureTriangle` ("UI element"). It carries no readable
+name, but since 2026-08-10 every one of them carries an **`AXIdentifier`** naming its section, so
+address it by that and `click` to expand/collapse:
+
+```applescript
+tell group 2 of scroll area 1 of group 1 of window "TimeFlip Settings"
+    repeat with e in UI elements
+        try
+            if (value of attribute "AXIdentifier" of e) is "LED" then
+                click e
+                exit repeat
+            end if
+        end try
+    end repeat
+end tell
+```
+
+The `try` is not decoration: a `whose value of attribute "AXIdentifier" is ...` clause errors
+`-1728` the moment it meets a sibling without the attribute, and this section has them (the
+auto-pause field sits outside any disclosure). See the traps under Method 13.
+
+Identifiers: `Active` and `Inactive` on the Categories tab, `More`, `LED` and `Double tap` on the
+Device tab. They are the same strings the labels draw (`CategorySection`,
+`TimeFlipSettingsView`).
+
+**Read `value` to know the state before clicking.** `true` is expanded, `false` collapsed, so a step
+that clicks unconditionally is a toggle: the runner retries a failed step whole, and a retry then
+undoes what the first attempt did rather than re-reading it. `14b` lost a run to exactly that on
+2026-08-10, reporting a count of `0` that was really the section shutting under it.
+
+Two things this replaced, both still worth recognising if they turn up elsewhere:
+
+- **A hardcoded index** (`click UI element 6`). Right until a row is inserted above it, then it
+  silently opens the neighbouring section and the checklist tests the wrong one without complaining.
+- **A blind search** -- clicking each element in turn until the wanted state appears. It gets there,
+  but it clicks unrelated controls on the way and its behaviour depends on iteration order.
+
+(Note: the identifier is inherited by every descendant of the section, so `every UI element whose
+AXIdentifier is "Inactive"` matches the whole subtree, not one element. Address the triangle as the
+`first` match, or as `UI element 1` of the group once you know which group it is.)
 
 <a id="method-16"></a>
 ## Method 16: Confirm a confirmation-dialog sheet

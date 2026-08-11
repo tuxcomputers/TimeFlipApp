@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-10 20:26 on the branch 'feature/singleInstance'
+### Last run - 2026-08-11 18:31 on the branch 'feature/inactiveID'
 
 The half of the day-totals feature that needs a hand on the cube. `Bench/10b` proves the sum from
 inserted rows with the device held still; this proves it from real flips, which is the case a user
