@@ -5,8 +5,9 @@ enum ManualModeAnswer: Equatable {
     /// Try again: one more scan, and the offer again if it finds nothing. There is no limit on how
     /// many times this can be chosen.
     case retry
-    /// Switch to manual mode. Final for this launch -- the app makes no further connection attempt
-    /// of any kind, and quitting and restarting is the only way back to the device.
+    /// Switch to manual mode. The app makes no further connection attempt *of its own* -- see
+    /// `AppState.enterManualMode` -- so the mode ends only by an act of the user's: pairing a device
+    /// from the Device tab, or quitting and starting again.
     case switchToManualMode
 }
 

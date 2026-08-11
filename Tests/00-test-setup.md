@@ -226,7 +226,8 @@ query = "SELECT COALESCE((SELECT json_extract(setting_value, '$.paired') FROM se
 capture = "paired_state"
 ```
 - [x] Step 11: Pair the device by script
- -- only when it isn't paired (`paired_state != 1`; e.g. a prior run's cleanup reset left it never-paired). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](Methods.md#method-9) / `cgevent_click_element`), and wait for the pairing-complete marker (`"Device password confirmed set to:"`, `> current_log_id`). Skipped (and ticked) when already paired. If the automated click doesn't land, the prompt asks you to click the row yourself. Closes the Settings window afterwards ([Method: Number 23](Methods.md#method-23)) so setup leaves no stray window open.
+ -- only when it isn't paired (`paired_state != 1`; e.g. a prior run's cleanup reset left it never-paired). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](Methods.md#method-9) / `cgevent_click_element`), and wait for `paired` to read true. Skipped (and ticked) when already paired. If the automated click doesn't land, the prompt asks you to click the row yourself. Closes the Settings window afterwards ([Method: Number 23](Methods.md#method-23)) so setup leaves no stray window open.
+It waited on `"Device password confirmed set to:"` and timed out at 60s **against a pairing that had already succeeded** (2026-08-12). That message is the *rotation* marker: only a cube answering on the factory default has its PIN changed, and one reached on the stored PIN is left alone (`PairingPasswordRules`). Both are pairings, and this step's normal case is only the first because the end-of-run cleanup reset leaves the cube on the default -- so the assumption held until something else left the app unpaired with the cube still on a rotated PIN, which a plain Forget does. `paired` reading true covers both, and is the thing this step is actually about.
 ```toml step
 when = '$paired_state != 1'
 
@@ -253,8 +254,8 @@ element = 'first static text of group 3 of scroll area 1 of group 1 of window "T
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Device password confirmed set to:%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Device password confirmed set to:"
+query = "SELECT setting_value FROM setting WHERE setting_name='paired';"
+expect_contains = "true"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 

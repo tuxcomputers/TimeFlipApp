@@ -695,6 +695,11 @@ keeping the query -- that's how the same SQL serves both an immediate read and a
   paused, so a step asserting the cube had resumed passed without any resume having happened, and the
   step after it waited two minutes for a consequence that could never come. Use **c** for the newest
   row of any kind, **k** whenever the assertion is about what the **device** is doing.
+- **l** -- one column of the latest **manual** `device_event` row (`column`), i.e. the newest row on
+  face 13. What **c** cannot do once a cube is timing again: pairing from inside a manual session ends
+  that session and the cube's own rows land after it, so the newest row of any kind is no longer the
+  manual one. Use this whenever the assertion is about the **manual session's** segment -- that it is
+  still open, or that ending the session closed it.
 
 ```toml method
 [a]
@@ -741,6 +746,10 @@ query = "SELECT message FROM debug_log WHERE tag='battery' AND message NOT LIKE 
 [k]
 action = "sql_query"
 query = "SELECT $column FROM device_event WHERE event_number < 900000 ORDER BY device_event_id DESC LIMIT 1;"
+
+[l]
+action = "sql_query"
+query = "SELECT $column FROM device_event WHERE device_face = 13 ORDER BY device_event_id DESC LIMIT 1;"
 ```
 
 <a id="method-25"></a>

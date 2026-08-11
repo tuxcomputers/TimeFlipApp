@@ -318,17 +318,16 @@ final class AppState: ObservableObject {
         !isAwaitingManualModeDecision && !isManualMode
     }
 
-    /// Whether the user chose manual mode for this launch.
+    /// Whether this launch is timing manually rather than from a device.
     ///
     /// **Derived, not stored.** It was a flag of its own until `ConnectionStatus.manual` existed,
     /// and a flag beside the status is two answers to one question: they can disagree, and the
     /// disagreement that mattered was manual mode running while the status said `.connected` --
     /// exactly the pair a write guard was once proposed to catch. One enum cannot say both.
     ///
-    /// Nothing is persisted either, and there is nowhere to persist it to: quitting and restarting
-    /// is the only way out of manual mode (see `docs/TODO-features-under-development.md`), so a
-    /// stored answer would outlive the very restart meant to end it and strand a user who quit
-    /// specifically to get their cube back.
+    /// Nothing is persisted either, and there is nowhere to persist it to: the mode is per-launch,
+    /// so a stored answer would outlive a restart made specifically to get out of it and strand the
+    /// user in it.
     var isManualMode: Bool { connectionStatus == .manual }
 
     /// The app has stopped trying and is asking. Nothing may attempt a connection until this is
@@ -342,10 +341,19 @@ final class AppState: ObservableObject {
         isAwaitingManualModeDecision = false
     }
 
-    /// Manual mode: no further connection attempt this launch, from any path.
+    /// Manual mode: the app times from itself, and reaches for no device on its own again.
     ///
-    /// The status *is* the mode, so this one assignment both records the choice and closes the gate
-    /// on every attempt path. There is no matching `leaveManualMode()`, on purpose.
+    /// The status *is* the mode, so this one assignment both records it and closes the gate on every
+    /// automatic attempt path (`shouldAttemptConnection`). What it does not close is a deliberate
+    /// one: scanning and pairing are the user's own act, and they end the mode by replacing the
+    /// virtual device with a real one. That is the only thing that does, and the distinction is the
+    /// point -- nothing happens behind the user, and an app that never looks by itself cannot be
+    /// surprised by a cube drifting into range for a few seconds.
+    ///
+    /// Three callers, all of them arrivals at the same state: the offer being answered, a launch
+    /// with nothing paired (there is no device to reach, so there is nothing to ask about), and a
+    /// pairing attempt that started from a manual session and did not pair, which leaves the session
+    /// exactly where it was.
     func enterManualMode() {
         isAwaitingManualModeDecision = false
         connectionStatus = .manual
@@ -968,15 +976,25 @@ final class AppState: ObservableObject {
             // `ApplicationDelegate`.
             devicePassword = TimeFlipConstants.defaultPassword
         }
-        connectionStatus = .disconnected
-        currentFaceID = TimeFlipConstants.unassignedFaceID
-        isPaused = true
-        isLocked = false
-        batteryLevel = nil
-        systemState = nil
-        lastEventDescription = nil
-        lastEventDate = nil
-        deviceInfo = nil
+        // Everything above is the pairing. Everything below is the live reading, and in a manual
+        // session that reading does not belong to the device being forgotten: it comes from a virtual
+        // one that has nothing to do with which cube is remembered. Forgetting mid-manual-session is
+        // an ordinary thing to do -- it is how the scan list appears, which is how a manual session
+        // reaches a device at all -- and clearing the reading would stop the clock the user is timing
+        // with. Each line does its own damage: `.disconnected` tears the menu bar's display down,
+        // `currentFaceID` drops the Faces tab's timer back to `idle` (`ManualTimerRules.state`), and
+        // `isPaused` claims the session stopped while the virtual device goes on writing segments.
+        if !isManualMode {
+            connectionStatus = .disconnected
+            currentFaceID = TimeFlipConstants.unassignedFaceID
+            isPaused = true
+            isLocked = false
+            batteryLevel = nil
+            systemState = nil
+            lastEventDescription = nil
+            lastEventDate = nil
+            deviceInfo = nil
+        }
         onPairingChange?(false)
     }
 
@@ -1291,8 +1309,9 @@ enum ConnectionStatus: Equatable {
     /// Manual mode: the app is timing from the Faces tab against a virtual device standing in for
     /// the cube. Connected, in the only sense that matters to anything drawing a reading -- there
     /// is a session running, and its source is one this app drives itself -- to something that is
-    /// not a cube. Entered from the offer after a failed scan and held for the rest of the launch,
-    /// quitting being the only way out, so nothing ever moves off it.
+    /// not a cube. Entered from the offer after a failed scan, or at launch when there is nothing
+    /// paired to scan for; held until the user either quits or pairs a device, and moved off by
+    /// nothing the app decides on its own.
     ///
     /// Deliberately **not** `.connected`: `isConnected` gates every command that goes out over BLE,
     /// and there is no radio on the other end of this one.
