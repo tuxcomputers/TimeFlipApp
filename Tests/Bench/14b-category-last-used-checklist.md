@@ -1,6 +1,6 @@
 # Category Last Used Checklist
 
-### Last run - 2026-08-10 23:49 on the branch 'feature/inactiveID'
+### Last run - 2026-08-11 18:26 on the branch 'feature/inactiveID'
 
 Covers the **Last used** column on the Categories tab: when a retired category last recorded time,
 so two retired rows sharing a name can be told apart by the history behind them (see

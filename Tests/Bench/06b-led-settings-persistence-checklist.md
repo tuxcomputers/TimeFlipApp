@@ -1,6 +1,6 @@
 # LED Settings Persistence Checklist
 
-### Last run - 2026-08-10 23:40 on the branch 'feature/inactiveID'
+### Last run - 2026-08-11 17:39 on the branch 'feature/inactiveID'
 
 Covers LED brightness/blink interval moving from UserDefaults to being DB-backed via
 `AppDataStore`/the `led_settings` row -- confirms a value set in the Settings UI survives an app

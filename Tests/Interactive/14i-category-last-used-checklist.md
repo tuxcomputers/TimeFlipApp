@@ -1,5 +1,7 @@
 # Category Last Used Checklist
 
+### Last run - 2026-08-11 18:35 on the branch 'feature/inactiveID'
+
 Nothing needed.
 
 The Last used column is a date drawn from rows already in the database, and a date is text: it is

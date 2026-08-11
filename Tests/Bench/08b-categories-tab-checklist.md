@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-10 22:47 on the branch 'feature/inactiveID'
+### Last run - 2026-08-11 17:41 on the branch 'feature/inactiveID'
 
 Covers the parts of the Categories tab that CI cannot reach: alerts actually appearing with the
 right buttons, popovers opening, a field taking focus, Escape going to the field rather than the

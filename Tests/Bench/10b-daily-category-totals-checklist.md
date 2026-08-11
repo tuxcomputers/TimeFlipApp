@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-10 23:43 on the branch 'feature/inactiveID'
+### Last run - 2026-08-11 18:20 on the branch 'feature/inactiveID'
 
 Covers the menu bar's day figure being a **category** total rather than a face total: the number
 drawn beside the activity name, and the `daily_limit` tested against it, both key off
@@ -267,7 +267,7 @@ use = "method-27"
 expect_contains = "1:00:00"
 timeout_seconds = 30
 ```
-- [ ] Step 3: Confirm the menu bar is drawing the over-limit state.
+- [x] Step 3: Confirm the menu bar is drawing the over-limit state.
 The only part of this checklist with no readable equivalent: `overLimit` reaches the screen as
 colour, not text. Screenshot the menu bar and confirm the activity name and duration are drawn in
 the over-limit colour rather than the normal one.

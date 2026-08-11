@@ -1,6 +1,6 @@
 # Lock / pause_on_lock Checklist (Bench)
 
-### Last run - 2026-08-10 23:36 on the branch 'feature/inactiveID'
+### Last run - 2026-08-11 17:34 on the branch 'feature/inactiveID'
 
 Covers the app's own "Lock"/"Unlock"/"Pause"/"Resume" status-item **menu** actions
 (`MenuBarController`/`ApplicationDelegate.handleLockRequest`) and the `pause_on_lock` setting, for
@@ -90,7 +90,7 @@ use = "method-24.c"
 column = "paused"
 expect = "1"
 ```
-- [ ] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
+- [x] Step 5: Check the menu bar shows the lock badge and the pause icon (⏸).
       [Method: Number 17](../Methods.md#method-17).
 - [x] Step 6: Open the menu; confirm the item reads "Unlock" and the Pause item is disabled.
 ```toml step
@@ -130,7 +130,7 @@ use = "method-24.c"
 column = "paused"
 expect = "1"
 ```
-- [ ] Step 9: Check the menu bar: the lock badge is gone and the icon shows pause (⏸).
+- [x] Step 9: Check the menu bar: the lock badge is gone and the icon shows pause (⏸).
       [Method: Number 17](../Methods.md#method-17).
 - [x] Step 10: Confirm menu reads "Lock" and "Resume".
 ```toml step
@@ -212,7 +212,7 @@ column = "paused"
 expect = "1"
 timeout_seconds = 30
 ```
-- [ ] Step 6: Check the menu bar shows the lock badge and the pause icon (⏸).
+- [x] Step 6: Check the menu bar shows the lock badge and the pause icon (⏸).
  [Method: Number 17](../Methods.md#method-17).
 - [x] Step 7: Confirm menu reads "Unlock" and the Pause item is disabled.
 ```toml step
@@ -434,7 +434,7 @@ tag = "TimeFlip"
 expect_contains = "Lock verification confirmed: requested=OFF actual=OFF"
 timeout_seconds = 30
 ```
-- [ ] Step 7: Check the menu bar: the lock badge is gone and the icon shows the play icon (▶).
+- [x] Step 7: Check the menu bar: the lock badge is gone and the icon shows the play icon (▶).
       [Method: Number 17](../Methods.md#method-17). The only visual check of the *cleared* badge in
       this file -- Scenario A's Steps 5 and 9 both look at the locked rendering, and every other
       "unlocked" step here reads the DB or the dropdown instead, neither of which can see the badge.

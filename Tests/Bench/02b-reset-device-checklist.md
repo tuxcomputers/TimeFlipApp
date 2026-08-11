@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-10 23:34 on the branch 'feature/inactiveID'
+### Last run - 2026-08-11 17:32 on the branch 'feature/inactiveID'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
