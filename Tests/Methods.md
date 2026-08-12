@@ -1,7 +1,12 @@
 # Methods
 
 Reusable techniques for checking this app against a running copy of itself. A checklist step says
-`Method: <name>` and points here rather than repeating the mechanics.
+`Method: N` and points here rather than repeating the mechanics.
+
+**Numbers are permanent.** Once a checklist cites one, renumbering silently repoints that step at
+another method, which is the same class of fault as addressing a tab by index -- the step goes on
+passing while testing something else. A new method takes the next unused number and goes at the end,
+however tidy it would be to slot it in beside a related one.
 
 Everything here has been done, not guessed. When you discover something new, add the fact and the
 command, not the story of finding it. Keep entries short: a rule buried in prose is a rule nobody
@@ -12,7 +17,8 @@ The suite these serve is being rebuilt from scratch, per the device-test section
 old app's accessibility tree and do not apply, but its **device measurements** still do, because they
 are facts about the hardware.
 
-## Method: Build and bundle
+<a id="method-1"></a>
+## Method 1: Build and bundle
 
 `swift build` compiles; it does not make something launchable. Accessibility ignores a bare executable
 -- no status item appears in the tree at all -- so anything driven by a script has to be bundled:
@@ -22,7 +28,8 @@ swift build && mint run stackotter/swift-bundler@main bundle TimeFlip
 open .build/bundler/apps/TimeFlip/TimeFlip.app
 ```
 
-## Method: Press anything by name
+<a id="method-2"></a>
+## Method 2: Press anything by name
 
 ```sh
 scripts/ax-press.py create-category          # by AXIdentifier
@@ -41,7 +48,8 @@ anything AppKit draws for itself, like a window's traffic lights.
 Exits non-zero when nothing matches, so a missing element is distinguishable from a click that did
 nothing.
 
-## Method: Open the status item's menu
+<a id="method-3"></a>
+## Method 3: Open the status item's menu
 
 ```sh
 scripts/status-item-click.py            # left half: opens the menu
@@ -50,13 +58,14 @@ scripts/status-item-click.py --right    # right half
 
 The **only** gesture that needs a real mouse event: a status item exposes no accessibility action, so
 there is nothing to press. Its menu items are ordinary named elements once it is open --
-`scripts/ax-press.py open-settings`, `scripts/ax-press.py quit-app` -- and they are absent from the tree
-while it is closed, so open it first.
+`scripts/ax-press.py open-settings`, `scripts/ax-press.py quit-app` (Method 2) -- and they are absent
+from the tree while it is closed, so open it first.
 
 The item's position is read at click time, never remembered: its width follows its title, which becomes
 a live duration once something is being timed.
 
-## Method: Read the accessibility tree
+<a id="method-4"></a>
+## Method 4: Read the accessibility tree
 
 ```sh
 scripts/ax-dump.py                 # every window
@@ -68,7 +77,8 @@ This is how "is everything named?" gets answered rather than assumed. A status i
 `AXExtrasMenuBar`, which is a different attribute from `AXMenuBar` -- an accessory app has none of the
 latter, so asking for it alone comes back empty and reads as an app with nothing in the menu bar.
 
-## Method: Confirm what the app did, from `debug_log`
+<a id="method-5"></a>
+## Method 5: Confirm what the app did, from `debug_log`
 
 Every click the app handles writes a row. Take the high-water mark first, act, then read past it:
 
@@ -82,7 +92,8 @@ sqlite3 -header -column "$DB" "SELECT logged_at, tag, message FROM debug_log WHE
 Rows, not console text: stdout only reaches a terminal when the app is launched from one, and a row
 survives the session either way.
 
-## Method: Confirm an appearance by measuring it
+<a id="method-6"></a>
+## Method 6: Confirm an appearance by measuring it
 
 Screenshot the region, then sample the pixels rather than trusting an eye on a scaled-down image:
 

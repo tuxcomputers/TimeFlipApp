@@ -136,8 +136,8 @@ not addressable and steps had to hunt by position; every element this app builds
 then poll for the row". `scripts/ax-press.py`, `scripts/ax-dump.py` and
 `scripts/status-item-click.py` are that whole layer.
 
-**`Tests/Methods.md` is the new suite's shared methods, and it starts now rather than when the first
-checklist does.** Anything learned while checking the app against a running copy of itself goes there
+**`Tests/Methods.md` is the new suite's shared methods, numbered, and it starts now rather than when
+the first checklist does.** Anything learned while checking the app against a running copy of itself goes there
 as it is learned -- the command and the fact, not the story -- because a technique rediscovered is a
 technique that was written down too late. It already carries the ones that cost the most: what needs a
 real mouse event and what does not, why a status item is not in `AXMenuBar`, and the two reasons
