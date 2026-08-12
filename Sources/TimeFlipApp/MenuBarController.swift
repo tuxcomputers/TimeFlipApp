@@ -2,42 +2,53 @@ import AppKit
 
 /// The status item and its dropdown. Owns the AppKit; decides nothing (see `StatusItemClickRouter`).
 ///
-/// At this point in the rebuild the menu holds one item, Quit, and the item's title is the app's
-/// name. Both grow as there is something to say and something to do.
+/// At this point in the rebuild the menu holds one item, Quit, and the title is the database badge
+/// followed by the app's name. Both grow as there is something to say and something to do.
 @MainActor
 final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
 
+    /// The database tag drawn ahead of everything else, or `nil` for no tag at all. Fixed for the
+    /// life of the launch, so it is stored rather than looked up per redraw.
+    private let databaseBadge: DatabaseBadge?
+
+    /// The app's own name, as the title's last element and the base of its accessibility label.
+    private static let appLabel = "TimeFlip"
+
     /// Accessibility identifiers, which are how a script addresses these rather than by position.
     ///
-    /// Every element gets one, from the first element onwards. The archived suite shows what the
-    /// alternative costs: steps that said `checkbox 1` and `static text 5` and so depended on sort
-    /// order, and a step that read `group 3` where it wanted `group 1` and failed for a reason that
-    /// took a run on the device to find. `AXIdentifier` is the attribute the runner already prefers
-    /// (`first button whose value of attribute "AXIdentifier" is "scan-for-devices"`), so these
-    /// follow the same kebab-case naming.
+    /// Every element gets one, from the first element onwards. Addressing by position is the
+    /// alternative, and it means `checkbox 1` and `static text 5` -- which depend on the order the
+    /// tree happens to come back in, and fail by finding the wrong element rather than by finding
+    /// nothing. `AXIdentifier` is the attribute a UI script can match on directly, so these follow
+    /// its kebab-case convention.
     enum Identifier {
         static let statusItem = "status-item"
         static let quit = "quit-app"
     }
 
+    init(databaseBadge: DatabaseBadge?) {
+        self.databaseBadge = databaseBadge
+        super.init()
+    }
+
     /// Creates the item and puts it in the menu bar.
     func start() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "TimeFlip"
-        // Carried from the archived controller's own setup: a status item draws unbordered, and
-        // truncating rather than wrapping matters once the title is a live duration whose width
-        // changes on every tick. `variableLength` is why the width moves at all -- which the test
-        // harness knows about, re-reading the item's rect on every click rather than caching it
-        // (`scripts/testrunner/locators.py`), after a synthetic click missed an item that had grown.
+        item.button?.attributedTitle = makeTitle()
+        // A status item draws unbordered, and truncating rather than wrapping matters once the title
+        // is a live duration whose width changes on every tick. `variableLength` is what lets the
+        // width move at all, which anything driving this by synthetic click has to account for: the
+        // item's rect has to be re-read per click rather than cached.
         item.button?.isBordered = false
         item.button?.cell?.truncatesLastVisibleLine = true
         item.button?.setAccessibilityIdentifier(Identifier.statusItem)
         // A label as well as an identifier: the identifier is for scripts, the label is what
         // VoiceOver reads, and a button whose only name is its title reads as its title -- which will
-        // become a duration, and "0:07" is not a description of anything.
-        item.button?.setAccessibilityLabel("TimeFlip")
+        // become a duration, and "0:07" is not a description of anything. The badge goes in here too,
+        // since its colour says nothing to a screen reader.
+        item.button?.setAccessibilityLabel(accessibilityLabel())
         // Our own handler rather than `item.menu`, which would make AppKit present the menu for a
         // click anywhere on the item and take the left/right distinction away entirely. `showMenu`
         // below is how the menu still gets presented in AppKit's own way when we do want it.
@@ -48,6 +59,33 @@ final class MenuBarController: NSObject {
         statusMenu = buildMenu()
     }
 
+    /// The status item's title: the database badge, then the app's name.
+    ///
+    /// Attributed rather than a plain string because the badge carries its own colour and weight --
+    /// it is a tag, not part of the sentence. Sized off `.small` rather than the menu bar's own font
+    /// because of where the title is going: an icon, a category name, a pause glyph and a running
+    /// duration all end up on this one line, and it has to fit beside everything else up there.
+    private func makeTitle() -> NSAttributedString {
+        let size = NSFont.systemFontSize(for: .small)
+        let title = NSMutableAttributedString()
+        if let databaseBadge {
+            title.append(NSAttributedString(
+                string: "\(databaseBadge.text) ",
+                attributes: [.font: NSFont.boldSystemFont(ofSize: size), .foregroundColor: databaseBadge.color]
+            ))
+        }
+        title.append(NSAttributedString(
+            string: Self.appLabel,
+            attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.labelColor]
+        ))
+        return title
+    }
+
+    private func accessibilityLabel() -> String {
+        guard let databaseBadge else { return Self.appLabel }
+        return "\(Self.appLabel), \(databaseBadge.spokenDescription)"
+    }
+
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
         // No key equivalent: ⌘Q belongs to the app-wide menu an accessory app does not have, and
@@ -56,8 +94,7 @@ final class MenuBarController: NSObject {
         quit.target = self
         // Both, deliberately. `identifier` is AppKit's own and is what a menu item exposes as
         // AXIdentifier; `setAccessibilityIdentifier` is the accessibility one. Which of the two
-        // actually surfaces is a question for the accessibility tree rather than the documentation --
-        // the archived code carries a note that `.accessibilityDescription` never appeared at all --
+        // actually surfaces is a question for the accessibility tree rather than the documentation,
         // so both are set and the tree is what settles it.
         quit.identifier = NSUserInterfaceItemIdentifier(Identifier.quit)
         quit.setAccessibilityIdentifier(Identifier.quit)

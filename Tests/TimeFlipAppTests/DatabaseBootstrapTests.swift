@@ -11,19 +11,9 @@ import XCTest
 final class DatabaseBootstrapTests: XCTestCase {
     private var directory: URL!
 
-    /// The one real copy of the DDL, located from this file's own path so the test does not depend on
-    /// bundling or on the working directory a runner happens to use.
-    ///
-    /// Deliberately the real path rather than the `database/` symlink at the repository root: the
-    /// symlink is there for the short paths humans and scripts use, and a test that went through it
-    /// would fail confusingly if it were ever removed, rather than saying the schema is missing.
-    private var ddlDirectory: URL {
-        URL(fileURLWithPath: #filePath)          // .../Tests/TimeFlipAppTests/DatabaseBootstrapTests.swift
-            .deletingLastPathComponent()        // .../Tests/TimeFlipAppTests
-            .deletingLastPathComponent()        // .../Tests
-            .deletingLastPathComponent()        // repository root
-            .appendingPathComponent("Sources/TimeFlipApp/Resources/Database", isDirectory: true)
-    }
+    /// The one real copy of the DDL. Shared with every other test that needs a database, so the walk
+    /// up from a test file to the repository root is written once (see `TemporaryDatabase`).
+    private var ddlDirectory: URL { TemporaryDatabase.ddlDirectory }
 
     override func setUpWithError() throws {
         try super.setUpWithError()
