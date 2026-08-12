@@ -10,10 +10,19 @@ import XCTest
 /// next person a field with the last name still in it.
 @MainActor
 final class CategoryCreateControlTests: XCTestCase {
+    /// Kept alive for the length of a test: a click needs a window, and losing it takes the view's away.
+    private var window: NSWindow?
+
+    override func tearDown() {
+        window = nil
+        super.tearDown()
+    }
+
     private func laidOutControl() -> CategoryCreateControl {
         let control = CategoryCreateControl()
-        control.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
-        control.layoutSubtreeIfNeeded()
+        // Hosted in a window rather than left loose, because `performClick` does nothing without one -- see
+        // `OffscreenWindow`.
+        window = OffscreenWindow.host(control, width: 200, height: 40)
         return control
     }
 

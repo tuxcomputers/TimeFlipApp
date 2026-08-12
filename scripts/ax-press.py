@@ -73,8 +73,13 @@ def main():
         sys.exit(f"{arguments.app} is not running")
     app = AXUIElementCreateApplication(pid)
 
-    # Windows first, then the menu bar, so a status item can be clicked by name too.
-    roots = list(attribute(app, "AXWindows") or []) + list(attribute(app, "AXMenuBar") or [])
+    # Windows first, then the menu bar, so a status item -- or an item of the menu it has open -- can be
+    # pressed by name too. The extras menu bar is where a status item lives, and is a different attribute from
+    # the application menu bar an accessory app does not have.
+    roots = list(attribute(app, "AXWindows") or [])
+    for name in ("AXExtrasMenuBar", "AXMenuBar"):
+        if (bar := attribute(app, name)) is not None:
+            roots.append(bar)
     target = next((found for root in roots if (found := find(root, axattribute, wanted)) is not None), None)
     if target is None:
         sys.exit(f"no element with {axattribute} {wanted!r} in {arguments.app}")

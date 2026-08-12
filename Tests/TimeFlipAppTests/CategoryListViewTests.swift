@@ -110,6 +110,9 @@ final class CategoryListViewTests: XCTestCase {
 
     func testClickingARowReportsItsCategory() {
         let list = CategoryListView()
+        // A click needs a window -- see `OffscreenWindow`.
+        let window = OffscreenWindow.host(list, width: 240, height: 200)
+        defer { _ = window }
         var picked: [String] = []
         list.onSelect = { picked.append($0.name) }
         list.show([category(1, "Break"), category(2, "Meeting")])

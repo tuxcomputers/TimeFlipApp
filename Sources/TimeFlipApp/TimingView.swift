@@ -2,9 +2,15 @@ import AppKit
 
 /// The Timing column: what is being timed, whether the clock is running, and for how long.
 ///
-/// Three things, top to bottom: the play/pause control in the category's own colour, the elapsed time
-/// under it, and the category's name under that. Empty when nothing is being timed -- an empty column is
-/// the honest picture of a session that has not started.
+/// Laid out as the previous app laid it out. The column's width defines a square -- the space the device
+/// graphic occupies when there is a cube to draw -- and everything inside is sized from that square rather
+/// than in fixed points, so the whole group stays in proportion as the window is resized. Centred in the
+/// square: the play/pause glyph, with the elapsed time under it. Under the square: the category's name, set
+/// large enough to fill the space the squared-off graphic leaves at the bottom of the column.
+///
+/// **The glyph takes the category's colour; nothing behind it does.** It stands where the lit device would
+/// be, and the device is what carries colour as a body -- a filled tile here would be inventing an object
+/// that is not in the design.
 ///
 /// Draws what it is told. Whether the clock is running is `TimingSession`'s to know, what the icons mean is
 /// `ManualTimerRules`', and the click goes back out to whoever wired it.
@@ -16,13 +22,21 @@ final class TimingView: NSView {
         static let categoryName = "timing-category-name"
     }
 
-    private enum Layout {
-        /// The control, sized to be the thing your eye lands on in an otherwise empty column, and to be a
-        /// comfortable click target.
-        static let controlSize: CGFloat = 96
-        static let symbolSize: CGFloat = 44
-        static let spacing: CGFloat = 12
-        static let cornerRadius: CGFloat = 12
+    enum Layout {
+        /// The glyph, as a fraction of the square. The device's centre face is a regular pentagon, and the
+        /// largest centred square that fits inside it is about 0.297 of the artwork's width -- the limit
+        /// comes from the two upper edges meeting at the point -- so this stays just inside.
+        static let glyphScale: CGFloat = 0.29
+        /// The elapsed time and the gap above it, both sized off the glyph so the pair stays in proportion:
+        /// a fixed point size crowds the glyph at one width and looks stranded at another.
+        static let elapsedFontScale: CGFloat = 0.3
+        static let elapsedGapScale: CGFloat = 0.12
+        /// The category name under the square. Sized to fill the space the square leaves rather than to any
+        /// system text style, and shrinking rather than wrapping, since a name has no length limit.
+        static let nameFontSize: CGFloat = 56
+        static let nameMinimumScale: CGFloat = 0.4
+        /// Between the square and the name.
+        static let nameSpacing: CGFloat = 12
     }
 
     /// Called when the control is clicked, which is only possible while something is being timed.
@@ -32,7 +46,13 @@ final class TimingView: NSView {
     let elapsedLabel = NSTextField(labelWithString: "")
     let categoryNameLabel = NSTextField(labelWithString: "")
 
-    private let swatch = NSBox()
+    /// The square the glyph and the clock are centred in: as wide as the column, and as tall as it is wide.
+    private let squareArea = NSView()
+    private let centred = NSStackView()
+    private var glyphWidth: NSLayoutConstraint!
+    private var glyphHeight: NSLayoutConstraint!
+    private var symbolName: String?
+
     private(set) var state: TimingState = .idle
 
     init() {
@@ -54,38 +74,90 @@ final class TimingView: NSView {
     /// something the table no longer says.
     func show(category: CategoryRecord?, state: TimingState, elapsed: TimeInterval) {
         self.state = state
-        let symbolName = ManualTimerRules.symbolName(for: state)
+        symbolName = ManualTimerRules.symbolName(for: state)
         let isHidden = symbolName == nil
-        swatch.isHidden = isHidden
-        playPauseButton.isHidden = isHidden
-        elapsedLabel.isHidden = isHidden
+        centred.isHidden = isHidden
         categoryNameLabel.isHidden = isHidden
         // Not merely inert: an idle control is not drawn at all, so there is nothing to click at.
         playPauseButton.isEnabled = ManualTimerRules.isClickable(state)
 
-        guard let symbolName else { return }
-        swatch.fillColor = category?.colour ?? .controlBackgroundColor
-        playPauseButton.image = symbol(symbolName)
-        // The glyph takes the same white-on-dark decision the category's icon takes in the list, from the
-        // colour's own `white_lines` column.
-        playPauseButton.contentTintColor = (category?.usesWhiteLines ?? false) ? .white : .labelColor
-        playPauseButton.setAccessibilityLabel(state == .running ? "Running, click to pause" : "Paused, click to resume")
+        guard !isHidden else { return }
+        // No colour set falls back to the ordinary label colour, which is what the previous app drew for a
+        // category without one.
+        playPauseButton.contentTintColor = category?.colour ?? .labelColor
         elapsedLabel.stringValue = DurationFormat.hoursMinutesSeconds(
             elapsed,
             // Truncated, not rounded: a ticking clock must never read ahead of the time actually recorded.
             rounding: .truncate,
             showingSeconds: true
         )
+        playPauseButton.setAccessibilityLabel(state == .running ? "Running, click to pause" : "Paused, click to resume")
         categoryNameLabel.stringValue = category?.name ?? ""
+        // Applied here as well as in `layout()`: the fitted size depends on the text, which only changes
+        // here, and a view with no window may not be asked to lay out again just because it wants to.
+        apply(nameFontFitting: bounds.width)
+        needsLayout = true
+    }
+
+    /// Sizes everything from the square, which is what the column's width makes it.
+    ///
+    /// The AppKit equivalent of the `GeometryReader` the previous app sized this from: the numbers are ratios
+    /// rather than points, so they have to be applied once the view knows how wide it is.
+    override func layout() {
+        super.layout()
+        let side = bounds.width
+        guard side > 0 else { return }
+        let glyphSize = (side * Layout.glyphScale).rounded()
+        if glyphWidth.constant != glyphSize {
+            glyphWidth.constant = glyphSize
+            glyphHeight.constant = glyphSize
+        }
+        centred.spacing = (glyphSize * Layout.elapsedGapScale).rounded()
+        apply(glyphSize: glyphSize)
+        apply(elapsedFontSize: (glyphSize * Layout.elapsedFontScale).rounded())
+        apply(nameFontFitting: side)
+    }
+
+    private func apply(glyphSize: CGFloat) {
+        guard let symbolName else { return }
+        let configuration = NSImage.SymbolConfiguration(pointSize: glyphSize, weight: .regular)
+        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        image.isTemplate = true
+        // Sized to the box and scaled into it, so the glyph fills the space rather than sitting inside it: a
+        // symbol's point size sets its cap height, which draws a play triangle appreciably smaller than the
+        // square it was given. The previous app scaled the artwork to fit, and this is that.
+        image.size = NSSize(width: glyphSize, height: glyphSize)
+        playPauseButton.imageScaling = .scaleProportionallyUpOrDown
+        playPauseButton.image = image
+    }
+
+    private func apply(elapsedFontSize: CGFloat) {
+        guard elapsedLabel.font?.pointSize != elapsedFontSize else { return }
+        // Monospaced digits: this ticks once a second, and proportional figures change width as they go, so a
+        // centred line would twitch on every tick.
+        elapsedLabel.font = .monospacedDigitSystemFont(ofSize: elapsedFontSize, weight: .medium)
+    }
+
+    /// Shrinks the name to fit the column rather than wrapping or clipping it, down to a floor -- past which
+    /// it truncates, because a name shrunk indefinitely stops being readable before it stops being long.
+    private func apply(nameFontFitting width: CGFloat) {
+        guard width > 0, !categoryNameLabel.stringValue.isEmpty else { return }
+        let floor = (Layout.nameFontSize * Layout.nameMinimumScale).rounded()
+        var size = Layout.nameFontSize
+        while size > floor {
+            let font = NSFont.systemFont(ofSize: size, weight: .semibold)
+            let measured = (categoryNameLabel.stringValue as NSString)
+                .size(withAttributes: [.font: font]).width
+            if measured <= width { break }
+            size -= 1
+        }
+        guard categoryNameLabel.font?.pointSize != size else { return }
+        categoryNameLabel.font = .systemFont(ofSize: size, weight: .semibold)
     }
 
     private func addContent() {
-        swatch.boxType = .custom
-        swatch.borderWidth = 0
-        swatch.cornerRadius = Layout.cornerRadius
-        swatch.contentViewMargins = .zero
-        swatch.titlePosition = .noTitle
-        swatch.translatesAutoresizingMaskIntoConstraints = false
+        squareArea.translatesAutoresizingMaskIntoConstraints = false
 
         playPauseButton.isBordered = false
         playPauseButton.bezelStyle = .inline
@@ -96,56 +168,52 @@ final class TimingView: NSView {
         playPauseButton.identifier = NSUserInterfaceItemIdentifier(Identifier.playPause)
         playPauseButton.setAccessibilityIdentifier(Identifier.playPause)
 
-        // Monospaced digits: this ticks once a second, and proportional figures change width as they go, so
-        // a centred line would twitch on every tick.
-        elapsedLabel.font = .monospacedDigitSystemFont(ofSize: 22, weight: .medium)
+        elapsedLabel.font = .monospacedDigitSystemFont(ofSize: Layout.nameFontSize / 2, weight: .medium)
         elapsedLabel.textColor = .secondaryLabelColor
         elapsedLabel.alignment = .center
         elapsedLabel.translatesAutoresizingMaskIntoConstraints = false
         elapsedLabel.setAccessibilityIdentifier(Identifier.elapsed)
 
-        categoryNameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        categoryNameLabel.font = .systemFont(ofSize: Layout.nameFontSize, weight: .semibold)
         categoryNameLabel.alignment = .center
         categoryNameLabel.lineBreakMode = .byTruncatingTail
+        categoryNameLabel.maximumNumberOfLines = 1
         categoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         categoryNameLabel.setAccessibilityIdentifier(Identifier.categoryName)
 
-        addSubview(swatch)
-        swatch.contentView?.addSubview(playPauseButton)
-        addSubview(elapsedLabel)
+        centred.orientation = .vertical
+        centred.alignment = .centerX
+        centred.translatesAutoresizingMaskIntoConstraints = false
+        centred.addView(playPauseButton, in: .top)
+        centred.addView(elapsedLabel, in: .top)
+
+        addSubview(squareArea)
+        squareArea.addSubview(centred)
         addSubview(categoryNameLabel)
 
+        glyphWidth = playPauseButton.widthAnchor.constraint(equalToConstant: 1)
+        glyphHeight = playPauseButton.heightAnchor.constraint(equalToConstant: 1)
+
         NSLayoutConstraint.activate([
-            swatch.topAnchor.constraint(equalTo: topAnchor),
-            swatch.centerXAnchor.constraint(equalTo: centerXAnchor),
-            swatch.widthAnchor.constraint(equalToConstant: Layout.controlSize),
-            swatch.heightAnchor.constraint(equalToConstant: Layout.controlSize),
+            squareArea.topAnchor.constraint(equalTo: topAnchor),
+            squareArea.leadingAnchor.constraint(equalTo: leadingAnchor),
+            squareArea.trailingAnchor.constraint(equalTo: trailingAnchor),
+            // As tall as it is wide: the space the device graphic occupies, kept whether or not anything is
+            // drawn in it, so the name below does not move when a session starts.
+            squareArea.heightAnchor.constraint(equalTo: squareArea.widthAnchor),
 
-            elapsedLabel.topAnchor.constraint(equalTo: swatch.bottomAnchor, constant: Layout.spacing),
-            elapsedLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            elapsedLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            centred.centerXAnchor.constraint(equalTo: squareArea.centerXAnchor),
+            centred.centerYAnchor.constraint(equalTo: squareArea.centerYAnchor),
+            centred.leadingAnchor.constraint(greaterThanOrEqualTo: squareArea.leadingAnchor),
+            centred.trailingAnchor.constraint(lessThanOrEqualTo: squareArea.trailingAnchor),
+            glyphWidth,
+            glyphHeight,
 
-            categoryNameLabel.topAnchor.constraint(equalTo: elapsedLabel.bottomAnchor, constant: Layout.spacing / 2),
+            categoryNameLabel.topAnchor.constraint(equalTo: squareArea.bottomAnchor, constant: Layout.nameSpacing),
             categoryNameLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
             categoryNameLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
             categoryNameLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        if let content = swatch.contentView {
-            NSLayoutConstraint.activate([
-                playPauseButton.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-                playPauseButton.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-                playPauseButton.widthAnchor.constraint(equalToConstant: Layout.symbolSize),
-                playPauseButton.heightAnchor.constraint(equalToConstant: Layout.symbolSize),
-            ])
-        }
-    }
-
-    private func symbol(_ name: String) -> NSImage? {
-        let configuration = NSImage.SymbolConfiguration(pointSize: Layout.symbolSize, weight: .bold)
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration)
-        image?.isTemplate = true
-        return image
     }
 
     @objc

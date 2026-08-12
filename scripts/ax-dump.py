@@ -81,7 +81,7 @@ def main():
     parser.add_argument(
         "--menu-bar",
         action="store_true",
-        help="dump the menu bar's status items instead of the windows (an accessory app's is menu bar 1)",
+        help="dump the app's status items instead of its windows, including any menu it has open",
     )
     arguments = parser.parse_args()
 
@@ -91,8 +91,17 @@ def main():
     app = AXUIElementCreateApplication(pid)
 
     if arguments.menu_bar:
-        for bar in attribute(app, "AXMenuBar") or []:
-            walk(bar, arguments.frames)
+        # A status item is in the *extras* menu bar, which is a separate attribute from the application menu
+        # bar -- and an accessory app has no application menu bar at all, so asking for AXMenuBar alone comes
+        # back empty and looks like the app has nothing up there.
+        bars = [attribute(app, "AXExtrasMenuBar"), attribute(app, "AXMenuBar")]
+        found = False
+        for bar in bars:
+            if bar is not None:
+                walk(bar, arguments.frames)
+                found = True
+        if not found:
+            print(f"{arguments.app} has nothing in the menu bar", file=sys.stderr)
         return
     windows = attribute(app, "AXWindows") or []
     if not windows:
