@@ -25,11 +25,17 @@ final class MenuBarController: NSObject {
     /// its kebab-case convention.
     enum Identifier {
         static let statusItem = "status-item"
+        static let settings = "open-settings"
         static let quit = "quit-app"
     }
 
-    init(databaseBadge: DatabaseBadge?) {
+    /// What to do when Settings is chosen. A closure rather than a window this class owns: it draws
+    /// the menu, it does not decide what the app's windows are.
+    private let openSettings: () -> Void
+
+    init(databaseBadge: DatabaseBadge?, openSettings: @escaping () -> Void) {
         self.databaseBadge = databaseBadge
+        self.openSettings = openSettings
         super.init()
     }
 
@@ -88,18 +94,32 @@ final class MenuBarController: NSObject {
 
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
-        // No key equivalent: ⌘Q belongs to the app-wide menu an accessory app does not have, and
-        // putting it here would claim the shortcut only while the dropdown was already open.
-        let quit = NSMenuItem(title: "Quit", action: #selector(menuQuit), keyEquivalent: "")
-        quit.target = self
-        // Both, deliberately. `identifier` is AppKit's own and is what a menu item exposes as
-        // AXIdentifier; `setAccessibilityIdentifier` is the accessibility one. Which of the two
-        // actually surfaces is a question for the accessibility tree rather than the documentation,
-        // so both are set and the tree is what settles it.
-        quit.identifier = NSUserInterfaceItemIdentifier(Identifier.quit)
-        quit.setAccessibilityIdentifier(Identifier.quit)
-        menu.addItem(quit)
+        // Trailing ellipsis, the platform's way of saying a choice opens something rather than doing
+        // something. No ⌘, for the same reason Quit carries no ⌘Q, below.
+        menu.addItem(item(title: "Settings…", identifier: Identifier.settings, action: #selector(menuSettings)))
+        // Quit sits under a separator, away from anything ordinary: it is the only way out of the app,
+        // so it should not be adjacent to a choice somebody makes routinely.
+        menu.addItem(.separator())
+        menu.addItem(item(title: "Quit", identifier: Identifier.quit, action: #selector(menuQuit)))
         return menu
+    }
+
+    /// One menu item, targeted at this controller and named for a script.
+    ///
+    /// No key equivalent on any of these: a shortcut belongs to the app-wide menu an accessory app
+    /// does not have, and one declared here would only work while the dropdown was already open --
+    /// which is not a shortcut.
+    ///
+    /// Both identifiers are set, deliberately. `identifier` is AppKit's own and is what a menu item
+    /// exposes as AXIdentifier; `setAccessibilityIdentifier` is the accessibility one. Which of the
+    /// two actually surfaces is a question for the accessibility tree rather than the documentation,
+    /// so both are set and the tree is what settles it.
+    private func item(title: String, identifier: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.identifier = NSUserInterfaceItemIdentifier(identifier)
+        item.setAccessibilityIdentifier(identifier)
+        return item
     }
 
     @objc
@@ -134,6 +154,11 @@ final class MenuBarController: NSObject {
         statusItem?.menu = menu
         button.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    @objc
+    private func menuSettings() {
+        openSettings()
     }
 
     @objc

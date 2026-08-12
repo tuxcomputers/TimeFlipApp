@@ -32,7 +32,9 @@ let app = NSApplication.shared
 // carries no ⌘Q -- there is no application menu for the shortcut to live in.
 app.setActivationPolicy(.accessory)
 
-let menuBar = MenuBarController(databaseBadge: databaseBadge)
+// The window is built on its first open, so this costs nothing until Settings is chosen.
+let settingsWindow = SettingsWindowController()
+let menuBar = MenuBarController(databaseBadge: databaseBadge, openSettings: { settingsWindow.show() })
 menuBar.start()
 
 app.run()
