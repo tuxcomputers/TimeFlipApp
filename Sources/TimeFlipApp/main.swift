@@ -38,6 +38,10 @@ do {
     exit(EXIT_FAILURE)
 }
 
+// One reader, held open for the life of the app, and asked again every time an answer is wanted. It
+// caches nothing: see the first design rule in `CLAUDE.md`.
+let settings = SettingReader(databaseURL: databaseURL)
+
 // Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
 // or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
 // build.
@@ -46,9 +50,14 @@ do {
 // only ever has the real one, so a permanent "PROD" tag would occupy the menu bar to answer something
 // nobody asked.
 let databaseBadge = DeveloperMode.isEnabled
-    ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: databaseURL))
+    ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
     : nil
 let debugLog = DeveloperMode.isEnabled ? DebugLog(databaseURL: databaseURL) : nil
+
+// With no device paired there is nothing to follow, so the app times by hand. Startup is the first
+// place that needs the answer, which is why the read happens here and not sooner.
+let manualMode = ManualMode(debugLog: debugLog)
+manualMode.startIfNoDeviceIsPaired(settings)
 
 let app = NSApplication.shared
 // `.accessory`: a menu bar app, so no Dock icon and no app menu. It is also why the dropdown's Quit

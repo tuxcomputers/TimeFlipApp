@@ -33,6 +33,8 @@ final class DebugLog {
         case menu
         /// Moving between the Settings window's tabs.
         case tab
+        /// Which mode a launch is running in.
+        case mode
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 
