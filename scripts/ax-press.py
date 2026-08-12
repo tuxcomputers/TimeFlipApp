@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Click one element of a running app, found by name anywhere in its accessibility tree.
+
+    scripts/ax-press.py create-category         # by AXIdentifier
+    scripts/ax-press.py --desc Faces            # by AXDescription, for elements that have no identifier
+    scripts/ax-press.py --title Close           # by AXTitle
+    scripts/ax-press.py --app "Some App" quit-app
+
+Searched for rather than pathed to, which is the point. An AppleScript path like
+`button 1 of group 1 of group 1 of window "TimeFlip Settings"` breaks the moment a container is
+added between them -- and it breaks by finding the wrong element rather than nothing. Names do not
+move: whatever the button ends up nested inside, `create-category` is still `create-category`.
+
+Which is also why everything the app builds carries an AXIdentifier. Where an element cannot have
+one -- a segmented control's segments, for instance -- `--desc` matches the label it does carry.
+
+Exits non-zero when nothing matches, so a script can tell a missing element from a click that did
+nothing. Needs accessibility permission for whatever runs it.
+"""
+
+import argparse
+import sys
+
+from AppKit import NSWorkspace
+from ApplicationServices import (
+    AXUIElementCopyAttributeValue,
+    AXUIElementCreateApplication,
+    AXUIElementPerformAction,
+)
+
+
+def attribute(element, name):
+    error, value = AXUIElementCopyAttributeValue(element, name, None)
+    return value if error == 0 else None
+
+
+def find(element, axattribute, wanted):
+    if (value := attribute(element, axattribute)) is not None and str(value) == wanted:
+        return element
+    for child in attribute(element, "AXChildren") or []:
+        if (found := find(child, axattribute, wanted)) is not None:
+            return found
+    return None
+
+
+def pid_of(app_name):
+    for app in NSWorkspace.sharedWorkspace().runningApplications():
+        if app.localizedName() == app_name:
+            return app.processIdentifier()
+    return None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("identifier", nargs="?", help="the element's AXIdentifier")
+    parser.add_argument("--desc", help="match AXDescription instead (for elements with no identifier)")
+    parser.add_argument("--title", help="match AXTitle instead")
+    parser.add_argument("--app", default="TimeFlip", help="the running app (default: TimeFlip)")
+    arguments = parser.parse_args()
+
+    chosen = [
+        ("AXIdentifier", arguments.identifier),
+        ("AXDescription", arguments.desc),
+        ("AXTitle", arguments.title),
+    ]
+    chosen = [(axattribute, value) for axattribute, value in chosen if value]
+    if len(chosen) != 1:
+        parser.error("name the element exactly one way: an identifier, --desc, or --title")
+    axattribute, wanted = chosen[0]
+
+    pid = pid_of(arguments.app)
+    if pid is None:
+        sys.exit(f"{arguments.app} is not running")
+    app = AXUIElementCreateApplication(pid)
+
+    # Windows first, then the menu bar, so a status item can be clicked by name too.
+    roots = list(attribute(app, "AXWindows") or []) + list(attribute(app, "AXMenuBar") or [])
+    target = next((found for root in roots if (found := find(root, axattribute, wanted)) is not None), None)
+    if target is None:
+        sys.exit(f"no element with {axattribute} {wanted!r} in {arguments.app}")
+
+    if AXUIElementPerformAction(target, "AXPress") != 0:
+        sys.exit(f"{wanted!r} was found but would not accept a press")
+    print(f"pressed {wanted}")
+
+
+if __name__ == "__main__":
+    main()

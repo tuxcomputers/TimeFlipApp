@@ -7,7 +7,7 @@
 #   scripts/switch-database.sh prod         switch back to production.sqlite (no-op if already there)
 #   scripts/switch-database.sh -keep        swap, as above, without rebuilding what it lands on
 #
-# test.sqlite is what an interactive testing session (see Tests/CLAUDE.md) runs against, so it
+# test.sqlite is what an interactive testing session (see Archive/Tests/CLAUDE.md) runs against, so it
 # never touches real data; production.sqlite is the real one. Only meaningful under Developer
 # Mode -- AppDataStore only creates the symlink at all when DeveloperMode.isEnabled is true (see
 # AppDataStore.ensureDatabaseSymlink).

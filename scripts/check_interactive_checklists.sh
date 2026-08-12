@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks the two things that make a checklist's ticks mean something, over every
 # Tests/Bench/*-checklist.md and Tests/Interactive/*-checklist.md. Bench is reported first, then
-# Interactive, mirroring the run order. See Tests/CLAUDE.md for the conventions this enforces.
+# Interactive, mirroring the run order. See Archive/Tests/CLAUDE.md for the conventions this enforces:
+# the suite it was written for is archived, and the globs below are where a rebuilt one goes.
 #
 #   1. No unchecked (`- [ ]`) item is left anywhere.
 #   2. With `--branch <name>`: every file's `### Last run` heading names <name>.

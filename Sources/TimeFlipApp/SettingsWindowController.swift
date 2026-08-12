@@ -160,7 +160,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// So a script matches on `description`: `radio button "Report"` finds nothing, while `first radio
     /// button whose description is "Report"` finds it (measured, both ways round). That is the same
-    /// contract the previous app exposed and the one `Tests/Methods.md` Method 10 is already written
+    /// contract the previous app exposed and the one `Archive/Tests/Methods.md` Method 10 is already written
     /// against -- `NSTabView`'s own bar, with its `AXTitle`s, was the odd one out. The path is one level
     /// shorter here: the segments are `radio group 1 of window`, where they used to be inside
     /// `group 1 of toolbar 1`, so that method needs its path updated when the checklists come back.

@@ -112,7 +112,7 @@ and don't count it when reasoning about the schema.
   by one (highest number first, so no rename overwrites another), add the new file at that number,
   then grep for and fix **every** reference to the old filenames — DDL files, `docs/`, code comments
   (`Sources/`), and the test checklists (`Tests/`) all cite them by name. This mirrors the checklist
-  renumber rule in [`../Tests/CLAUDE.md`](../Tests/CLAUDE.md).
+  renumber rule in [`Archive/Tests/CLAUDE.md`](../../../../Archive/Tests/CLAUDE.md).
 - Renumbering also **moves that table's section in [`../docs/database-design.md`](../docs/database-design.md)**,
   whose sections are ordered by DDL number so every foreign key points at a table described above it.
 

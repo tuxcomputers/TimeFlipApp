@@ -65,8 +65,8 @@ earn it, and "it would be a read per tick" is a reason to be explicit, not a rea
 ## Read how the archived app did it, before building anything
 
 The app is being rebuilt from the ground up, and the previous implementation is in `Archive/`
-(`TimeFlipApp/`, `TimeFlipAppTests/`, `Bench/`, `Interactive/`), with its supporting material still
-live in `Tests/Methods.md` and `docs/`. **For every feature request, read how the old code did it
+(`TimeFlipApp/`, `TimeFlipAppTests/`, `Tests/`, `testrunner/`), with its supporting material in
+`Archive/Tests/Methods.md` and in `docs/`. **For every feature request, read how the old code did it
 first.** Not to copy it, and not as a courtesy to it: to find out what it knows.
 
 Then decide, explicitly, which of three applies -- and **say which in the reply**, so the choice is
@@ -88,7 +88,7 @@ that cost a real experiment to obtain, and re-deriving them costs the same again
 
 - `SingleInstanceLock` records that an instance launched directly reports a `nil` `launchDate`, which
   is why "whoever started first wins" could not work and a kernel lock was used instead.
-- `Tests/Methods.md` Method 10 records that a Settings tab button has no `AXTitle` and must be matched
+- `Archive/Tests/Methods.md` Method 10 records that a Settings tab button has no `AXTitle` and must be matched
   on `description`. Without reading it, the same discovery in the rebuild looked like a regression to
   be worked around, when it was the contract the suite already expected.
 
@@ -106,15 +106,40 @@ a real device or a real accessibility tree outranks reasoning about what should 
   explain the actual constraint before implementing anything -- don't silently build something
   that looks like it does what was asked but can't actually behave that way on real hardware.
 
-## Running the device tests
+## The device tests are archived, and are being rebuilt per feature
 
-- When the user asks to "run the device tests" (or to run the bench/interactive checklists), read
-  `Tests/CLAUDE.md` first and follow it. It defines the procedure: run the **Bench** suite (the
-  script-drivable on-device checklists) first, then the **Interactive** suite (the ones needing a
-  person).
-- These on-device checklists under `Tests/Bench/` and `Tests/Interactive/` are separate from
-  `swift test` (the hermetic unit suite) -- "run the device tests" means the checklists, not
-  `swift test`.
+There is no device-test suite at the moment. The previous one -- the Bench and Interactive
+checklists, the shared methods, the setup, and the Python harness that drove them -- is in
+`Archive/Tests/` and `Archive/testrunner/`, kept as reference and as code to reuse where it still
+fits. **`swift test` is the only suite that runs today**, and it is hermetic: it never touches a
+radio, so a feature can be entirely green and still be broken on hardware.
+
+Most of the old suite cannot come back as it is. Every locator in it addresses the previous app's
+accessibility tree (`Archive/Tests/Methods.md` Method 10 reaches the Settings tabs through
+`toolbar 1`, which this app does not have), and every checklist tests a feature this app has not
+rebuilt yet. What *does* carry over is worth taking deliberately:
+
+- The **engine** knows nothing about the app: `md_checklist.py`, `run_record.py`, the supervisor loop
+  and `logs/testruns.sqlite`. What knew about the app -- `locators.py`, the app-specific actions,
+  `session_setup.py` -- is what died.
+- The **procedure**, which cost real runs to learn and is written down in `Archive/Tests/CLAUDE.md`:
+  Bench (script-drivable) before Interactive (needs a person); refresh `current_log_id` before every
+  step; a cross-step wait needs its own named baseline; a scenario is the atomic resume unit; an
+  indefinite wait gets no silent grace period; poll the database for a physical side effect rather
+  than asking the user to confirm one.
+- The **device measurements**, which are facts about the hardware and so still true. See
+  `Archive/Tests/Methods.md` and `docs/timeflip2-firmware-observations.md`.
+
+It should also come back much smaller. The old `locators.py` existed largely because elements were
+not addressable and steps had to hunt by position; every element this app builds carries an
+`AXIdentifier`, and every click it handles writes a `debug_log` row, so a step is now "press by name,
+then poll for the row". `scripts/ax-press.py` and `scripts/ax-dump.py` are that whole layer.
+
+So: write each checklist as its feature lands, keep it small, and let the harness grow back around
+what the first few actually need. CI already tolerates none of them --
+`scripts/check_interactive_checklists.sh` prints "No test checklists found; skipping" and exits 0 --
+and it still enforces the two rules that matter the moment one exists: no unchecked box, and a
+`### Last run` heading naming the PR's own branch.
 
 ## Ask for the device whenever you need it
 
