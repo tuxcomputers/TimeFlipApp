@@ -133,7 +133,15 @@ rebuilt yet. What *does* carry over is worth taking deliberately:
 It should also come back much smaller. The old `locators.py` existed largely because elements were
 not addressable and steps had to hunt by position; every element this app builds carries an
 `AXIdentifier`, and every click it handles writes a `debug_log` row, so a step is now "press by name,
-then poll for the row". `scripts/ax-press.py` and `scripts/ax-dump.py` are that whole layer.
+then poll for the row". `scripts/ax-press.py`, `scripts/ax-dump.py` and
+`scripts/status-item-click.py` are that whole layer.
+
+**`Tests/Methods.md` is the new suite's shared methods, and it starts now rather than when the first
+checklist does.** Anything learned while checking the app against a running copy of itself goes there
+as it is learned -- the command and the fact, not the story -- because a technique rediscovered is a
+technique that was written down too late. It already carries the ones that cost the most: what needs a
+real mouse event and what does not, why a status item is not in `AXMenuBar`, and the two reasons
+`performClick` silently does nothing.
 
 So: write each checklist as its feature lands, keep it small, and let the harness grow back around
 what the first few actually need. CI already tolerates none of them --
