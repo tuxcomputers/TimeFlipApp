@@ -232,6 +232,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         reloadSelectedPane()
     }
 
+    private func makeFacesPane() -> FacesPane {
+        let faces = FacesPane()
+        faces.onCreateCategory = { [weak self] in
+            self?.debugLog?.record(.click, "Button clicked: Create category")
+            // Where the create flow lands: a name field in place of the button, then a save that has to
+            // check the whole category table before inserting. It needs the first write path in the app,
+            // so it is its own piece of work rather than a tail of this one.
+        }
+        return faces
+    }
+
     @objc
     private func closeWindow() {
         debugLog?.record(.click, "Button clicked: Close (Settings window)")
@@ -246,7 +257,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// it came back as an untitled `AXGroup` with no identifier). `.group` is what an empty container
     /// should be anyway -- it is about to hold this tab's controls.
     private func makePane(for tab: SettingsTab) -> NSView {
-        let pane: NSView = tab == .faces ? FacesPane() : NSView()
+        let pane: NSView = tab == .faces ? makeFacesPane() : NSView()
         // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
         // its autoresizing frame rather than being pinned by constraints from out here.
         pane.autoresizingMask = [.width, .height]

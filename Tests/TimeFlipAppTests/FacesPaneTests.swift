@@ -68,6 +68,38 @@ final class FacesPaneTests: XCTestCase {
         XCTAssertTrue(pane.categoriesColumn.isAccessibilityElement())
     }
 
+    // MARK: - the create button
+
+    func testCreateSitsUnderTheListAtTheColumnsLeadingEdge() {
+        let pane = laidOutPane()
+        pane.show([CategoryRecord(id: 1, name: "Break", iconName: nil, colour: nil, usesWhiteLines: false)])
+        pane.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(pane.createButton.title, "Create")
+        XCTAssertEqual(
+            pane.createButton.frame.minX, pane.categoryList.frame.minX, accuracy: 0.5,
+            "flush with the list above it, not indented"
+        )
+        XCTAssertLessThan(
+            pane.createButton.frame.maxY, pane.categoryList.frame.minY,
+            "below the list: in this coordinate space, lower on screen means a smaller y"
+        )
+    }
+
+    func testCreateReportsItsClick() {
+        let pane = laidOutPane()
+        var clicks = 0
+        pane.onCreateCategory = { clicks += 1 }
+
+        pane.createButton.performClick(nil)
+
+        XCTAssertEqual(clicks, 1, "the pane reports the click rather than acting on it")
+    }
+
+    func testCreateIsNamedForAScript() {
+        XCTAssertEqual(laidOutPane().createButton.accessibilityIdentifier(), FacesPane.Identifier.createCategory)
+    }
+
     func testEachColumnHasItsHeading() {
         let pane = laidOutPane()
 
