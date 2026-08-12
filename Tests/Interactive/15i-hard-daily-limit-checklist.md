@@ -1,5 +1,7 @@
 # Hard Daily Limit Checklist
 
+### Last run - 2026-08-12 12:10 on the branch 'feature/dailyLimit'
+
 The physical half of the hard `daily_limit`: what a flip does to a cube the limit has stopped, and
 what a double tap does. `15b` covers the crossing itself and the refused resume, neither of which
 needs a hand on the cube.
@@ -27,13 +29,13 @@ matter of what the rest of the day recorded, and this scenario needs it to be ce
 
 **Preconditions:** the test database, the device connected, established by `Tests/00-test-setup.md`.
 
-- [ ] **(Claude)** Step 1: Confirm `db_type` reads **test** before anything writes to it.
+- [x] **(Claude)** Step 1: Confirm `db_type` reads **test** before anything writes to it.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] **(Claude)** Step 2: Capture the day window and the anchor the synthetic segment sits behind.
+- [x] **(Claude)** Step 2: Capture the day window and the anchor the synthetic segment sits behind.
 The same window `DailyCategoryTotals` computes, and the same reason `10b` places its rows behind the
 newest recorded event: ahead of it, the resume position moves and every later history fetch starts
 again from event 0. Ten minutes of room, against the two the segment needs.
@@ -53,7 +55,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN $anchor_epoch - 600 >= $window_start THEN 'ok' ELSE 'anchor ' || $anchor_epoch || ' leaves no room after window start ' || $window_start END;"
 expect = "ok"
 ```
-- [ ] **(Claude)** Step 3: Capture both stickered faces' current categories for the teardown to restore.
+- [x] **(Claude)** Step 3: Capture both stickered faces' current categories for the teardown to restore.
 The guard comes first for the reason `15b` records under its own Setup: captured off a face that a
 halted run left pointed at one of this file's fixture categories, the "original" would be the
 fixture's own id, and Step 2 of the teardown would restore the face to a category it had just deleted.
@@ -75,7 +77,7 @@ action = "sql_query"
 query = "SELECT category_id FROM face WHERE face_id = 8;"
 capture = "face8_category_original"
 ```
-- [ ] **(Claude)** Step 4: Build the fixture: a spent category on **Break** and an unlimited one on **Meeting**.
+- [x] **(Claude)** Step 4: Build the fixture: a spent category on **Break** and an unlimited one on **Meeting**.
 Leftovers from an abandoned run are dropped first, so this is idempotent -- `UN1_category` is unique on
 name among active rows, and a stale synthetic segment would still sit in today's window. Two minutes of
 recorded time against a one-minute limit puts `ZZ Hard Limit` past its budget before the app ever
@@ -146,7 +148,7 @@ expect = "120"
 **Preconditions:** the fixture from Setup, and -- resolved by Step 1 below rather than assumed -- the
 app running against a cube that is unlocked and **not** paused, resting on **Meeting**.
 
-- [ ] **(Claude)** Step 1: Restart the app so the fixture loads, and leave the cube unlocked and running.
+- [x] **(Claude)** Step 1: Restart the app so the fixture loads, and leave the cube unlocked and running.
 The limits and the face assignments ride along on the activity record, so they arrive on a reload
 rather than being watched for. Methods: [Number 3](../Methods.md#method-3),
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
@@ -165,7 +167,7 @@ timeout_seconds = 60
 [[actions]]
 action = "ensure_unlocked_unpaused"
 ```
-- [ ] **(You)** Step 2: Rest the cube on the **Meeting** face (face 2) if it is not there already.
+- [x] **(You)** Step 2: Rest the cube on the **Meeting** face (face 2) if it is not there already.
 The starting side, so the flip in Step 3 is onto the spent face rather than off it. Nothing to answer:
 the step reads the device's own face and continues by itself, and passes immediately if the cube is
 already there. **No timeout** -- taking your time cannot fail the run.
@@ -177,11 +179,17 @@ expect = "2"
 poll_interval = 2
 timeout_seconds = 0
 ```
-- [ ] **(You)** Step 3: Flip the cube to the **Break** face (face 8) and leave it there.
+- [x] **(You)** Step 3: Flip the cube to the **Break** face (face 8) and leave it there.
 Break holds the category whose budget is already spent, so this is the arrival the scenario is about.
 Detected from the new `device_event` row rather than waiting on an answer
-([Method: Number 19](../Methods.md#method-19)).
+([Method: Number 19](../Methods.md#method-19)). The log baseline is taken here rather than in a step
+of its own, so that nothing can ever sit between it and the flip it has to precede.
 ```toml step
+[[actions]]
+use = "method-24.b"
+capture = "before_limit_flip_id"
+
+[[actions]]
 action = "ask_user_or_detect"
 prompt = "Flip the cube to the Break face (face 8), then leave it resting there."
 detect_query = "SELECT device_face FROM device_event ORDER BY device_event_id DESC LIMIT 1;"
@@ -189,15 +197,23 @@ expect = "8"
 timeout_seconds = 0
 ```
 - [ ] **(Claude)** Step 4: Confirm the app pauses the cube on arrival.
-Not a crossing: the budget was spent before the flip, so the pause is a response to the face itself.
+Not a crossing: the budget was spent before the flip, so the pause is a response to the face itself,
+and it lands about a second behind the flip -- inside the gap between Step 3 returning and this step
+starting. So the baseline is Step 3's named one, not `$current_log_id`: that one is re-read
+immediately before every step, which here would be *after* the pause it is meant to be waiting for.
+Same reasoning as Scenario B's Step 1, which is where this checklist got it right first.
 ```toml step
 use = "method-24.e"
 action = "wait_for_sql"
 tag = "daily-limit"
-since_id = "$current_log_id"
+since_id = "$before_limit_flip_id"
 expect_contains = "Limit reached, pausing device"
 timeout_seconds = 60
 ```
+### Bugs found and fixed - branch 'feature/dailyLimit'
+2026-08-12 - Scoped on `$current_log_id`, which the runner re-reads before every step, so the pause
+logged ~1s after Step 3's flip was already below the baseline and the step waited 60s for a second
+message the app is right not to send; now scoped on a baseline captured before the flip.
 - [ ] **(Claude)** Step 5: Confirm the cube itself is paused, not just the app's record of it.
 `device_event.paused` comes from the device's own history frames.
 ```toml step

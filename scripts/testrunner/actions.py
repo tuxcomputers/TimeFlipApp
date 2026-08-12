@@ -473,9 +473,18 @@ def act_wait_for_sql(spec, ctx):
     # `Login accepted`, and alerting instantly meant every relaunch cried "the device hasn't
     # reconnected" and then passed 2s later. So we poll quietly for a grace period first and only
     # alert if it still hasn't happened by then. `alert_after_seconds` overrides the 5s default.
+    #
+    # An *indefinite* wait is the exception, and gets no grace period at all: `timeout_seconds = 0`
+    # with a prompt means nothing but a hand will ever satisfy this step, so there is no relaunch
+    # that might satisfy it on its own and nothing to cry wolf about. Staying quiet there is the
+    # opposite of what a `(You)` step needs. Measured 2026-08-12: 08i Scenario A Step 6 (unlock face
+    # 8 by hand) polled silently, the developer acted off the step text inside the 5s grace, and the
+    # banner the step's own prose calls "the only thing that raises the ACTION NEEDED banner" never
+    # appeared -- a person fast enough to beat the grace period is never told they were needed.
+    # An explicit `alert_after_seconds` still wins, for a wait that wants a delay either way.
     prompt = spec.get("prompt")
     prompt = _sub(prompt, ctx) if prompt else None
-    alert_after = spec.get("alert_after_seconds", ALERT_AFTER_SECONDS)
+    alert_after = spec.get("alert_after_seconds", 0 if wait_forever else ALERT_AFTER_SECONDS)
 
     def matched(text):
         if expect is not None:
@@ -491,6 +500,12 @@ def act_wait_for_sql(spec, ctx):
     started = time.time()
     deadline = None if wait_forever else started + timeout
     alerted = False
+    # No grace period means the nudge belongs on screen *before* the first poll, not one
+    # `poll_interval` into the wait: the loop only reaches its own alert check after a sleep, so
+    # leaving it to fire there would still open with a silent pause on a step asking for a hand.
+    if prompt and alert_after <= 0:
+        _announce(prompt, ctx)
+        alerted = True
     while wait_forever or time.time() < deadline:
         time.sleep(interval)
         rows, cols = _run_sql(ctx["db_path"], query)
