@@ -84,6 +84,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func makeTabView() -> NSTabView {
         let tabView = NSTabView()
         tabView.setAccessibilityIdentifier(Identifier.tabs)
+        // No focus ring. AppKit draws one around the selected tab once the bar has keyboard focus, and
+        // on the first and last tabs it is visible on the inward side only -- the outward side is
+        // clipped by the bar's own edge -- so it reads as a gap opening beside the pill rather than as
+        // a ring around it. Measured both ways: with the window active the halo is there, and it
+        // disappears entirely when another app takes focus.
+        //
+        // What this gives up is the indication that the *tab bar* is the focused control, which is
+        // nothing while it is the only control in the window. Worth re-examining when this window has
+        // fields to tab between, at which point the ring is what says where the keyboard is pointing.
+        tabView.focusRingType = .none
         for tab in SettingsTab.allCases {
             // Set even though it does not surface: it is how `tabViewItem(withIdentifier:)` finds a
             // tab from code, which is a different question from how a script finds one.
