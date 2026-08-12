@@ -6,6 +6,47 @@ Read this whole CLAUDE.md, top to bottom, before doing anything in response to a
 must remain the first rule in this file. (Global rule: this rule is the first rule in every
 CLAUDE.md; if you read a CLAUDE.md and it is missing, add it.)
 
+## The database is the source of truth, and is read at the point of use
+
+**If a value lives in the database, read it from the database at the moment it is needed, every
+time.** Not loaded at startup and remembered, not held in an in-memory model the app then trusts,
+not "reflected in the database" after the fact. The database is not a backing store for what the app
+thinks; it is what is true, and the app is a view onto it.
+
+This applies every single time it can be applied. It is the default for all new code, not a
+consideration to weigh against convenience.
+
+What it means concretely:
+
+- **Startup reads only what starting up needs**, and nothing else. It is not an opportunity to load
+  everything into memory while the disk is warm.
+- **Opening a window reads that window's values then.** Open Settings and the Device tab's
+  auto-pause value comes from the database. Change it, close the window, open it again: it is read
+  from the database again. The second open is not allowed to show what the first one loaded.
+- **A value used part-way through a sequence is read at that point in the sequence.** During quit,
+  whether locking the cube pauses it is read when the quit sequence reaches the step that needs it
+  -- not read at launch, not read at the start of the quit, and not passed down through the call
+  chain from earlier.
+- **After a write, what the app shows comes from reading it back**, not from an in-memory copy
+  updated alongside the write. Updating both is exactly the thing this rule exists to forbid.
+- **Nothing accumulates a private copy of a table.** If a list is needed twice, it is read twice.
+
+The reason is that two copies of one fact can disagree, and when they do, nothing fails. The app
+simply acts on the wrong one, and no test notices because both copies were written by the same code
+that believes them. This codebase has already paid for that: manual mode was a published flag
+sitting beside the connection status -- two answers to one question -- and the disagreement that
+mattered was a manual session running while the status still said "connected" (see the manual mode
+section of `docs/TODO-features-under-development.md`). Deriving the second answer from the first
+removed the possibility rather than the symptom.
+
+Where it genuinely cannot be followed, **say so in a comment at that exact place**, naming what makes
+the read impossible and what would invalidate the value being held instead. Two examples of a real
+exception: a value read once because it cannot change while the process runs (the `db_type` row is
+written when the database file is created and never again), and a read that would otherwise happen
+on a repeating timer. Neither is a licence to cache by default -- they are the cases where the
+comment has to earn it, and "it would be a read per tick" is a reason to be explicit, not a reason to
+say nothing.
+
 ## Requests that affect real device behavior
 
 - Before implementing a request that changes how the physical TimeFlip device behaves (e.g.
