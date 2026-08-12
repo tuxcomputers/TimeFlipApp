@@ -4,9 +4,44 @@ import AppKit
 ///
 /// At this point in the rebuild the menu holds Settings, Pause and Quit, and the title is the database
 /// badge followed by the app's name. Both grow as there is something to say and something to do.
+/// Carries one value across a queue hop that the compiler cannot check for us.
+private struct UncheckedSend<Value>: @unchecked Sendable {
+    let value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+}
+
 @MainActor
-final class MenuBarController: NSObject, NSMenuDelegate {
-    private var statusItem: NSStatusItem?
+final class MenuBarController: NSObject {
+    /// Holds the status item so it can be taken out of the menu bar when this controller goes away.
+    ///
+    /// Its own object because a `@MainActor` class's `deinit` cannot touch the class's own non-Sendable
+    /// properties -- and the removal has to happen there. `NSStatusBar` retains what it is given, so without
+    /// this a controller nobody kept would leave its item in the menu bar: still drawn, and dead, because the
+    /// button's target is weak. A visible failure beats an invisible one, so the item leaves with its owner.
+    private final class StatusItemHolder {
+        var item: NSStatusItem?
+
+        deinit {
+            guard let item else { return }
+            // Removed on the main actor, where AppKit wants it, with the item carried across as an unchecked
+            // send: an `NSStatusItem` is not `Sendable`, and this is the one moment it has to cross -- nothing
+            // else holds it by now, since this object dying is what brought us here.
+            let carried = UncheckedSend(item)
+            DispatchQueue.main.async {
+                NSStatusBar.system.removeStatusItem(carried.value)
+            }
+        }
+    }
+
+    private let holder = StatusItemHolder()
+    private var statusItem: NSStatusItem? {
+        get { holder.item }
+        set { holder.item = newValue }
+    }
+
     private var statusMenu: NSMenu?
 
     /// The database tag drawn ahead of everything else, or `nil` for no tag at all. Fixed for the
@@ -129,15 +164,19 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(item(title: "Quit", identifier: Identifier.quit, action: #selector(menuQuit)))
         // Off, because AppKit would otherwise decide each item's enabled state from whether its action can be
-        // found -- which is always -- and overwrite what `menuNeedsUpdate` sets.
+        // found -- which is always -- and overwrite what `refresh` sets.
         menu.autoenablesItems = false
-        menu.delegate = self
         return menu
     }
 
-    /// Names the Pause item and decides whether it can be chosen, from the state at the moment the menu is
-    /// opened. Nothing has to tell the menu when the clock changes, because the menu never remembers.
-    func menuNeedsUpdate(_ menu: NSMenu) {
+    /// Names the Pause item and decides whether it can be chosen, from the state at that moment. Nothing has
+    /// to tell the menu when the clock changes, because the menu never remembers.
+    ///
+    /// Called from `showMenu`, which is the only place a menu of ours is ever presented, rather than through
+    /// `NSMenuDelegate`. A delegate is a **weak** reference, so wiring it makes the menu depend on somebody
+    /// else keeping this object alive -- and when that fails the menu simply stops updating, with nothing to
+    /// see. We are already the code that opens it, so there is no reason to be told.
+    func refresh(_ menu: NSMenu) {
         guard let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) else {
             return
         }
@@ -203,6 +242,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// again -- so it is detached immediately, and the next click comes back to us.
     private func showMenu() {
         guard let button = statusItem?.button, let menu = statusMenu else { return }
+        refresh(menu)
         statusItem?.menu = menu
         button.performClick(nil)
         statusItem?.menu = nil

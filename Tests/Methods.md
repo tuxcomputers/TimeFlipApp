@@ -132,3 +132,16 @@ Worth the trouble when the question is a few points or a shade: an eyeballed "7p
 - **Layout is testable without a window.** Set a frame, call `layoutSubtreeIfNeeded()`, and assert the
   frames -- see `FacesPaneTests`. A missing or fighting constraint fails nothing on its own; it just
   produces a size nobody chose.
+- **An `NSMenuItem`'s `target` and an `NSMenu`'s `delegate` are both weak.** A controller nothing retains
+  is deallocated the moment it is built, and then choosing an item reaches nobody and the menu updates
+  nothing -- silently, so every such test passes or fails on what else the run happens to keep alive. Hold
+  the controller for the length of the test (`MenuBarControllerTests`). In the app, `main.swift` holding it
+  is what makes it work, which is why `MenuBarController` takes its status item out of the menu bar when it
+  dies: an icon that vanishes says something, an icon that sits there dead does not.
+- **`NSApp` is nil in a test bundle** until an application object has been made, and it is implicitly
+  unwrapped -- so reading it crashes the whole run rather than failing one case. Use
+  `NSApplication.shared`, which makes one.
+- **A `@MainActor` class cannot touch its own non-Sendable properties in `deinit`.** It is a compile
+  error, not a subtlety. Put the handle in a small unisolated object whose own `deinit` does the cleanup --
+  `DebugLog`, `DatabaseConnection` and `MenuBarController` all do this, and it is the only way to close an
+  sqlite handle or remove a status item at the right moment.

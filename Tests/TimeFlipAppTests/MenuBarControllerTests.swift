@@ -15,9 +15,12 @@ final class MenuBarControllerTests: XCTestCase {
     private var state: TimingState = .idle
     private var toggles = 0
 
-    /// Held for the length of the test. A menu's delegate and an item's target are both **weak**, so a
-    /// controller nobody keeps is deallocated the moment it is built -- and then the menu updates nothing and
-    /// choosing an item reaches nobody, silently. (Which is why `main.swift` keeps it in a binding too.)
+    /// Held for the length of the test, because an item's `target` is **weak**: a controller nobody keeps is
+    /// deallocated the moment it is built, and then choosing an item reaches nobody, silently.
+    ///
+    /// The menu's *state* no longer depends on this -- `refresh` is called directly rather than through a weak
+    /// delegate -- but the action still does, which is the same reason `main.swift` keeps the controller in a
+    /// binding.
     private var kept: MenuBarController?
 
     override func tearDown() {
@@ -38,9 +41,10 @@ final class MenuBarControllerTests: XCTestCase {
     }
 
     private func menu() -> NSMenu {
-        let menu = controller().makeMenu()
-        // What AppKit does as the menu opens, which is when the Pause item is named and enabled.
-        menu.delegate?.menuNeedsUpdate?(menu)
+        let controller = controller()
+        let menu = controller.makeMenu()
+        // What the controller does as it presents the menu, which is when the Pause item is named and enabled.
+        controller.refresh(menu)
         return menu
     }
 
@@ -105,11 +109,11 @@ final class MenuBarControllerTests: XCTestCase {
         let menu = controller.makeMenu()
 
         state = .running
-        menu.delegate?.menuNeedsUpdate?(menu)
+        controller.refresh(menu)
         XCTAssertEqual(pauseItem(in: menu)?.title, "Pause")
 
         state = .paused
-        menu.delegate?.menuNeedsUpdate?(menu)
+        controller.refresh(menu)
 
         // Asked as the menu opens rather than pushed when the clock changes: a menu that never remembers
         // cannot be stale, and nothing else has to know the menu exists.
