@@ -1,0 +1,98 @@
+@testable import TimeFlipApp
+import AppKit
+import XCTest
+
+/// Covers `CategoryCreateControl`: the swap between a Create button and a name field, and that it reports
+/// the typed name rather than acting on it.
+///
+/// The state swap is worth testing because both halves being visible at once, or neither, is a layout
+/// fault that fails nothing -- and because a control left in editing state after a save would show the
+/// next person a field with the last name still in it.
+@MainActor
+final class CategoryCreateControlTests: XCTestCase {
+    private func laidOutControl() -> CategoryCreateControl {
+        let control = CategoryCreateControl()
+        control.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
+        control.layoutSubtreeIfNeeded()
+        return control
+    }
+
+    func testItStartsAsAButtonAlone() {
+        let control = laidOutControl()
+
+        XCTAssertFalse(control.isEditing)
+        XCTAssertFalse(control.createButton.isHidden)
+        XCTAssertTrue(control.nameField.isHidden, "the column is a list of categories, not an open form")
+        XCTAssertTrue(control.saveButton.isHidden)
+        XCTAssertEqual(control.createButton.title, "Create")
+    }
+
+    func testClickingCreateOpensTheNameField() {
+        let control = laidOutControl()
+
+        control.createButton.performClick(nil)
+
+        XCTAssertTrue(control.isEditing)
+        XCTAssertTrue(control.createButton.isHidden)
+        XCTAssertFalse(control.nameField.isHidden)
+        XCTAssertFalse(control.saveButton.isHidden)
+    }
+
+    func testSaveReportsWhatWasTypedWithoutTidyingItUp() {
+        let control = laidOutControl()
+        var saved: [String] = []
+        control.onSave = { saved.append($0) }
+        control.createButton.performClick(nil)
+
+        control.nameField.stringValue = "  Deep   Work "
+        control.saveButton.performClick(nil)
+
+        // Raw, spaces and all: normalising is the rules' job, and a control that trimmed first would be a
+        // second place where the name could be decided.
+        XCTAssertEqual(saved, ["  Deep   Work "])
+    }
+
+    func testItDoesNotCollapseOnItsOwnWhenSaved() {
+        let control = laidOutControl()
+        control.createButton.performClick(nil)
+
+        control.saveButton.performClick(nil)
+
+        // Whoever handles the save decides when the field goes away, because the answer can be an alert
+        // that has to be raised while the name is still on screen.
+        XCTAssertTrue(control.isEditing)
+    }
+
+    func testCollapsingClearsTheNameSoTheNextOneStartsEmpty() {
+        let control = laidOutControl()
+        control.createButton.performClick(nil)
+        control.nameField.stringValue = "Abandoned"
+
+        control.collapse()
+
+        XCTAssertFalse(control.isEditing)
+        XCTAssertEqual(control.nameField.stringValue, "")
+        XCTAssertFalse(control.createButton.isHidden)
+    }
+
+    func testOpeningAndClosingIsReported() {
+        let control = laidOutControl()
+        var reported: [Bool] = []
+        control.onEditingChanged = { reported.append($0) }
+
+        control.startEditing()
+        control.collapse()
+
+        // What the window needs to hear: while a field is open, Escape has to belong to it rather than to
+        // the window's Close button.
+        XCTAssertEqual(reported, [true, false])
+    }
+
+    func testEachPartIsNamedForAScript() {
+        let control = laidOutControl()
+
+        XCTAssertEqual(control.createButton.accessibilityIdentifier(), CategoryCreateControl.Identifier.create)
+        XCTAssertEqual(control.nameField.accessibilityIdentifier(), CategoryCreateControl.Identifier.nameField)
+        XCTAssertEqual(control.saveButton.accessibilityIdentifier(), CategoryCreateControl.Identifier.save)
+    }
+}

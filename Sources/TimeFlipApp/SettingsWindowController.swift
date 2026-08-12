@@ -43,11 +43,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// `nil` in a build without the dev flag.
     private let debugLog: DebugLog?
 
-    /// Where the Faces tab's list comes from. `nil` leaves it empty, which is what a test that only cares
-    /// about layout wants.
-    private let categories: CategoryReader?
+    /// Where the Faces tab's list comes from, and what a new category is written through. `nil` leaves the
+    /// list empty, which is what a test that only cares about layout wants.
+    private let categories: CategoryStore?
 
-    init(debugLog: DebugLog?, categories: CategoryReader?) {
+    /// Held so the create flow can reach the pane it belongs to without going through the selected tab.
+    private var facesPane: FacesPane?
+
+    /// Held so Escape can be lent to a name field while one is open.
+    private var closeButton: NSButton?
+
+    init(debugLog: DebugLog?, categories: CategoryStore?) {
         self.debugLog = debugLog
         self.categories = categories
         super.init()
@@ -141,6 +147,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         close.translatesAutoresizingMaskIntoConstraints = false
         close.identifier = NSUserInterfaceItemIdentifier(Identifier.close)
         close.setAccessibilityIdentifier(Identifier.close)
+        closeButton = close
         // Escape closes the window, which is what a Close button is expected to answer to, and matters
         // more than usual here: an accessory app has no application menu, so ⌘W does not exist.
         //
@@ -234,13 +241,70 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     private func makeFacesPane() -> FacesPane {
         let faces = FacesPane()
-        faces.onCreateCategory = { [weak self] in
-            self?.debugLog?.record(.click, "Button clicked: Create category")
-            // Where the create flow lands: a name field in place of the button, then a save that has to
-            // check the whole category table before inserting. It needs the first write path in the app,
-            // so it is its own piece of work rather than a tail of this one.
+        faces.createControl.onSave = { [weak self] typed in
+            self?.saveNewCategory(typed)
         }
+        faces.createControl.onEditingChanged = { [weak self] isEditing in
+            // Escape belongs to whichever of the two needs it more. While a name is being typed that is
+            // the field, since a key equivalent is dispatched before the focused field ever sees the key
+            // -- so without this, Escape would close the window instead of abandoning the name, and the
+            // field could not win that on its own.
+            self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
+        }
+        facesPane = faces
         return faces
+    }
+
+    /// Acts on a typed category name.
+    ///
+    /// The decision is `CategoryCreateRules`', taken against the whole `category` table rather than the
+    /// list on screen -- which shows only active categories, so a retired namesake is invisible to it and
+    /// the one thing standing between a typo and two identical categories would be missing.
+    private func saveNewCategory(_ typed: String) {
+        guard let categories, let control = facesPane?.createControl else { return }
+        switch CategoryCreateRules.decision(rawName: typed, matching: categories.matching(name:)) {
+        case .ignore:
+            control.collapse()
+
+        case let .insert(name):
+            let created = categories.insert(name: name)
+            debugLog?.record(
+                .click,
+                "Button clicked: Save new category \"\(name)\" -> \(created.map { "category_id \($0)" } ?? "refused")"
+            )
+            control.collapse()
+            // Re-read rather than adding the new row to the list by hand: the database is what the list
+            // shows, and a row put there by the writer would be a second answer to what it holds.
+            reloadSelectedPane()
+
+        case let .reactivate(existing):
+            let succeeded = categories.reactivate(id: existing.id)
+            debugLog?.record(
+                .click,
+                "Button clicked: Save new category \"\(existing.name)\" -> reactivated category_id "
+                    + "\(existing.id)\(succeeded ? "" : " REFUSED")"
+            )
+            control.collapse()
+            reloadSelectedPane()
+
+        case let .alreadyActive(existing):
+            debugLog?.record(
+                .click,
+                "Button clicked: Save new category \"\(existing.name)\" -> already active as category_id \(existing.id)"
+            )
+            control.collapse()
+            showAlreadyActive(existing)
+        }
+    }
+
+    /// The dead end: an active category already holds the name, so there is nothing to decide and only
+    /// something to say. Wording carried over from the previous app.
+    private func showAlreadyActive(_ existing: CategoryRecord) {
+        let alert = NSAlert()
+        alert.messageText = "That category already exists"
+        alert.informativeText = "\"\(existing.name)\" is already in the Active list. Scroll up -- it is right there."
+        alert.addButton(withTitle: "Ok")
+        alert.beginSheetModal(for: window)
     }
 
     @objc

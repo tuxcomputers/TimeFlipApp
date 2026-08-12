@@ -68,36 +68,34 @@ final class FacesPaneTests: XCTestCase {
         XCTAssertTrue(pane.categoriesColumn.isAccessibilityElement())
     }
 
-    // MARK: - the create button
+    // MARK: - the create control
 
     func testCreateSitsUnderTheListAtTheColumnsLeadingEdge() {
         let pane = laidOutPane()
-        pane.show([CategoryRecord(id: 1, name: "Break", iconName: nil, colour: nil, usesWhiteLines: false)])
+        pane.show([
+            CategoryRecord(id: 1, name: "Break", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true),
+        ])
         pane.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(pane.createButton.title, "Create")
         XCTAssertEqual(
-            pane.createButton.frame.minX, pane.categoryList.frame.minX, accuracy: 0.5,
+            pane.createControl.frame.minX, pane.categoryList.frame.minX, accuracy: 0.5,
             "flush with the list above it, not indented"
         )
         XCTAssertLessThan(
-            pane.createButton.frame.maxY, pane.categoryList.frame.minY,
+            pane.createControl.frame.maxY, pane.categoryList.frame.minY,
             "below the list: in this coordinate space, lower on screen means a smaller y"
         )
     }
 
-    func testCreateReportsItsClick() {
+    func testTheCreateControlSpansTheColumnSoTheNameFieldCanStretch() {
         let pane = laidOutPane()
-        var clicks = 0
-        pane.onCreateCategory = { clicks += 1 }
 
-        pane.createButton.performClick(nil)
-
-        XCTAssertEqual(clicks, 1, "the pane reports the click rather than acting on it")
-    }
-
-    func testCreateIsNamedForAScript() {
-        XCTAssertEqual(laidOutPane().createButton.accessibilityIdentifier(), FacesPane.Identifier.createCategory)
+        // Widths rather than edges: the control's frame is in its column's coordinate space, and the
+        // column's is in the pane's.
+        XCTAssertEqual(
+            pane.createControl.frame.width, pane.categoriesColumn.frame.width, accuracy: 0.5,
+            "the collapsed button is narrow, but the control it sits in is column-wide"
+        )
     }
 
     func testEachColumnHasItsHeading() {

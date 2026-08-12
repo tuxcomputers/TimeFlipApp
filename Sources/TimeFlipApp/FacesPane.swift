@@ -16,7 +16,6 @@ final class FacesPane: NSView {
         static let timingHeading = "faces-timing-heading"
         static let categoriesColumn = "faces-categories-column"
         static let categoriesHeading = "faces-categories-heading"
-        static let createCategory = "create-category"
     }
 
     private enum Layout {
@@ -40,13 +39,8 @@ final class FacesPane: NSView {
     /// The categories to pick from, filling the right column below its heading.
     let categoryList = CategoryListView()
 
-    /// Starts making a category. Collapsed to a button on purpose: the column stays a list of
-    /// categories rather than a permanently open form.
-    let createButton = NSButton()
-
-    /// Called when Create is clicked. A closure rather than work done here, for the same reason the menu
-    /// bar takes one: this draws, the window decides.
-    var onCreateCategory: (() -> Void)?
+    /// Creating a category, collapsed to a Create button until it is clicked.
+    let createControl = CategoryCreateControl()
 
     init() {
         super.init(frame: .zero)
@@ -113,8 +107,7 @@ final class FacesPane: NSView {
 
     private func addCategoryList() {
         categoriesColumn.addSubview(categoryList)
-        configureCreateButton()
-        categoriesColumn.addSubview(createButton)
+        categoriesColumn.addSubview(createControl)
         guard let heading = categoriesColumn.subviews.first else { return }
         NSLayoutConstraint.activate([
             categoryList.topAnchor.constraint(
@@ -127,39 +120,18 @@ final class FacesPane: NSView {
             // Under the list, at the column's leading edge. Follows the list rather than sitting at the
             // bottom of the column, so it stays with what it adds to: the panel is as tall as its rows,
             // so a short list keeps the button near it instead of stranding it at the foot of the pane.
-            createButton.topAnchor.constraint(
+            createControl.topAnchor.constraint(
                 equalTo: categoryList.bottomAnchor,
                 constant: Layout.sectionSpacing
             ),
-            createButton.leadingAnchor.constraint(equalTo: categoriesColumn.leadingAnchor),
-            createButton.trailingAnchor.constraint(lessThanOrEqualTo: categoriesColumn.trailingAnchor),
+            createControl.leadingAnchor.constraint(equalTo: categoriesColumn.leadingAnchor),
+            // Full column width, unlike the button it collapses to: the name field stretches into it, and
+            // Save rides at the far end.
+            createControl.trailingAnchor.constraint(equalTo: categoriesColumn.trailingAnchor),
             // Which also means a long list pushes the button down and both can outgrow the pane: nothing
             // scrolls yet, and the window is deep enough for the categories that exist.
-            createButton.bottomAnchor.constraint(lessThanOrEqualTo: categoriesColumn.bottomAnchor),
+            createControl.bottomAnchor.constraint(lessThanOrEqualTo: categoriesColumn.bottomAnchor),
         ])
-    }
-
-    /// The collapsed create control.
-    ///
-    /// A button and nothing else, for now. In the previous app clicking it swapped in a name field and a
-    /// Save button, and behind that sat the part worth respecting: Save checked the whole `category`
-    /// table and then offered a real choice between reinstating a retired namesake and creating a second
-    /// category with the same name. That flow was deliberately **shared** between this tab and the
-    /// Categories tab rather than written twice, and it should be shared again when it arrives here --
-    /// which is why it is not being started inside this pane.
-    private func configureCreateButton() {
-        createButton.title = "Create"
-        createButton.bezelStyle = .rounded
-        createButton.target = self
-        createButton.action = #selector(createCategory)
-        createButton.translatesAutoresizingMaskIntoConstraints = false
-        createButton.identifier = NSUserInterfaceItemIdentifier(Identifier.createCategory)
-        createButton.setAccessibilityIdentifier(Identifier.createCategory)
-    }
-
-    @objc
-    private func createCategory() {
-        onCreateCategory?()
     }
 
     private func configure(_ column: NSView, identifier: String, label: String) {

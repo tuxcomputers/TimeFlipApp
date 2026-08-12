@@ -42,7 +42,7 @@ do {
 // again every time an answer is wanted, and caching nothing: see the first design rule in `CLAUDE.md`.
 let database = DatabaseConnection(databaseURL: databaseURL)
 let settings = SettingReader(connection: database)
-let categories = CategoryReader(connection: database)
+let categories = CategoryStore(connection: database)
 
 // Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
 // or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
