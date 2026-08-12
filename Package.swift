@@ -24,6 +24,10 @@ let package = Package(
             name: "TimeFlipApp",
             path: "Sources/TimeFlipApp",
             exclude: [
+                // Carried across with the icon itself: Swift Bundler copies AppIcon.icns into the
+                // bundle from Bundler.toml, so processing it here as well would ship two copies.
+                // (The archived package excluded it for exactly this reason.)
+                "Resources/AppIcon.icns",
                 // Documentation living beside the schema it describes, not something to ship inside
                 // the app. `database/` at the repository root is a symlink to this directory, which
                 // is why the docs are here at all: one set of files, reachable by the short path
@@ -33,6 +37,11 @@ let package = Package(
             ],
             resources: [
                 .process("Resources")
+            ],
+            linkerSettings: [
+                // The menu bar item lives in AppKit. Linked from the step that introduced it, not
+                // carried forward from the archived package on the assumption it would be needed.
+                .linkedFramework("AppKit")
             ]
         ),
         .testTarget(

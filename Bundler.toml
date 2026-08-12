@@ -4,6 +4,8 @@ format_version = 2
 identifier = 'dev.evernoob.timeflip'
 product = 'TimeFlipApp'
 version = '1.0'
+# Swift Bundler copies this in; Package.swift excludes it from the target's own resources so
+# there is only ever one copy in the bundle.
 icon = 'Sources/TimeFlipApp/Resources/AppIcon.icns'
 
 [apps.TimeFlip.plist]

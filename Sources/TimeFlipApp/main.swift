@@ -1,22 +1,30 @@
+import AppKit
 import Foundation
 
-// The whole app, at this point in the rebuild: make sure the database is there and matches the
-// schema, say what happened, and exit. No window, no menu bar, no radio -- those arrive as the
-// modules that need them are written.
+// Startup, in order. The database comes up first and the menu bar second, because the second has
+// nothing to draw from if the first did not happen -- and from here on **Quit is the only way out**.
 //
-// It exits rather than staying resident on purpose, so this step can be run and re-run from a
-// terminal and the second run observably does nothing the first did not already do.
+// The one exception is a database that cannot be brought up, which is a refusal to start rather than
+// an exit: there is no useful app on the other side of it, so it says why on stderr and stops. Every
+// other failure from here has to be something the running app copes with.
 
 do {
     let outcome = try DatabaseBootstrap.ensureDatabase()
     print("database: \(outcome.databaseURL.path)")
     print(outcome.createdDatabase ? "created it" : "already existed")
-    print("applied \(outcome.filesApplied.count) file(s): \(outcome.filesApplied.joined(separator: ", "))")
-    exit(EXIT_SUCCESS)
+    print("applied \(outcome.filesApplied.count) file(s)")
 } catch {
-    // stderr, and a non-zero exit: a database that could not be brought up is not something to
-    // mention in passing on the way to carrying on regardless.
     let message = (error as? DatabaseBootstrap.Failure)?.description ?? error.localizedDescription
     FileHandle.standardError.write(Data("timeflip: \(message)\n".utf8))
     exit(EXIT_FAILURE)
 }
+
+let app = NSApplication.shared
+// `.accessory`: a menu bar app, so no Dock icon and no app menu. It is also why the dropdown's Quit
+// carries no ⌘Q -- there is no application menu for the shortcut to live in.
+app.setActivationPolicy(.accessory)
+
+let menuBar = MenuBarController()
+menuBar.start()
+
+app.run()
