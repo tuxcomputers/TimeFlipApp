@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-12 10:38 on the branch 'feature/dailyLimit'
+### Last run - 2026-08-12 10:56 on the branch 'feature/dailyLimit'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -36,11 +36,17 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 - [x] Step 1: Confirm `db_type` still reads `{"type":"test"}` and the device is connected.
 (The database is left active by `01b-history-refresh-checklist.md`. If it reads `production`, `01b`'s
 Setup needs (re-)running first rather than switching databases from here.)
-The connection half was prose only until 2026-08-12, and it is the premise Scenario B rests on: the app
-presents the *stored* PIN and never guesses when connecting, so a live connection is the proof that the
-cube is on the PIN Scenario A Step 2 writes. Without it, a cube left on the factory default reached
-Scenario B, where pairing got in on its first candidate and the failure the scenario is built to observe
-never happened.
+The connection half was prose only until 2026-08-12. It proves one thing exactly: the cube holds whatever
+PIN the app has stored, since connecting presents that PIN and never guesses (`PairingPasswordRules`).
+**It does not prove the cube is off the factory default**, and reading it that way is what let a reset
+cube through to Scenario B. A reset puts `000000` on the device *and* in `config.json`, so the two agree
+and the app connects perfectly well to a cube sitting on the default. (What supplied the pairing it
+connected *as* was a copy of production's `paired`/`device_uuid`/`device_name` into the fresh
+`test.sqlite`. That copy is gone since 2026-08-12 -- setup pairs for real now -- so this particular route
+in is closed, but the reasoning stands: a connection says the stored PIN is right, not that it is not the
+default.)
+So Scenario B's premise needs both halves: connected, **and** a stored PIN that is not the default, which
+Scenario A Step 2 checks. Either alone is satisfied by the state that broke this file.
 ```toml step
 [[actions]]
 use = "method-24.a"
@@ -82,28 +88,20 @@ item = "Settings..."
 use = "method-10"
 tab = "Device"
 ```
-- [x] Step 2: Make sure the stored PIN is `123456`, in `config.json` where a dev build keeps it.
-Written, then read back, rather than captured. `123456` is not this machine's PIN, it is the compiled
-constant a dev build rotates onto every cube it pairs with on the factory default
-(`DeveloperMode.devicePassword`), so the right value is knowable and worth stating. Both of this file's
-PINs are literals for the same reason: a captured value is one that can arrive wrong, and this is the
-file most likely to be resumed mid-way.
-**It resolves rather than asserts, which is what the precondition rule asks for.** Scenario B stages
-`123457`, so a run halted anywhere inside it leaves the fixture in the file -- and the next run then
-starts against a stored PIN the cube does not have, which used to need fixing by hand before anything
-would pair. Writing the right value costs one line and removes that entirely.
-What it cannot fix is the *cube* being on a different PIN, which is why Setup Step 1 checks the app is
-connected: connecting never guesses (`PairingPasswordRules`), so a live connection is the proof that
-the cube holds the PIN this file just wrote. A freshly reset cube sitting on `000000` fails there, with
-a message about a connection, rather than two scenarios later as a probe count that reads like an app
-bug. (In a production build the stored password is in the Keychain instead; the two are the same role,
-and `AppState.loadDevicePassword` picks between them.)
+- [x] Step 2: Confirm the stored PIN reads `123456`. If it reads `000000`, pair the cube and start again.
+Checked, never written, and the difference is Scenario B's whole premise. `123456` is not this machine's
+PIN, it is the compiled constant a dev build rotates onto any cube it pairs with on the factory default
+(`DeveloperMode.devicePassword`), so a stored `123456` means the cube has been through a pairing and is
+*off* the default -- which is what makes a wrong PIN unable to reach it later. A stored `000000` means it
+has not, and the fix is to pair the cube (Device tab, Scan, click it), not to edit anything here.
+**Writing the right value here was tried, on 2026-08-12, and made things worse.** A write cannot move the
+*cube*, only what the app believes, so it turned a truthful mismatch into a silent lie: Setup Step 1 had
+just proved the cube held the stored PIN by connecting with it, this step replaced that PIN, and Scenario
+B then set out to watch a pairing fail against a cube that accepted the first candidate it was offered.
+The stored PIN and the live connection are only evidence together, and only while nothing rewrites either.
+(In a production build the stored password is in the Keychain instead; the two are the same role, and
+`AppState.loadDevicePassword` picks between them.)
 ```toml step
-[[actions]]
-action = "shell"
-command = '''python3 -c "import json,os;p=os.path.expanduser('~/Library/Application Support/TimeFlip/config.json');d=json.load(open(p));d['PIN']='123456';json.dump(d,open(p,'w'),indent=2)"'''
-
-[[actions]]
 action = "shell"
 command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
 expect = "123456"
@@ -203,7 +201,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'listed
 expect_contains = "TimeFlip"
 timeout_seconds = 60
 ```
-- [x] Step 3: Click the discovered row, and confirm the pairing is refused.
+- [ ] Step 3: Click the discovered row, and confirm the pairing is refused.
 [Method: Number 9](../Methods.md#method-9) -- the row is a `Text` with an `.onTapGesture`, so it needs a
 real CGEvent click at its centre.
 ```toml step
@@ -336,11 +334,15 @@ failed exactly as the scenario wanted. It waits for two now. Both PINs are also 
 captured: Scenario A's capture was feeding Scenario B's restore, a cross-scenario dependency in the one
 file most likely to be resumed mid-way, and a run halted with the fixture staged would have had the
 fixture captured as the real PIN and written back permanently. `123456` and `123457` are now literals
-everywhere they appear, and Scenario A Step 2 *writes* the right one rather than only checking it, so a
-halt inside Scenario B no longer needs the file fixing by hand before anything will pair. The premise a
-write cannot establish -- that the cube holds that PIN -- is Setup Step 1's connection check, which was
-prose and is now a step: it is what would have caught this run's real starting problem, a cube on the
-factory default, at the top of the file instead of as a probe count in Scenario B.
+everywhere they appear, and Setup Step 1's connection check -- prose until now -- is a step, because a
+live connection is the only proof the cube holds the stored PIN.
+2026-08-12 - Scenario A Step 2 was briefly made to *write* `123456` rather than check it, which broke
+Scenario B on the next run: the cube was on the factory default, Setup Step 1 had just proved that by
+connecting with a stored `000000`, and the write replaced the one honest piece of evidence with a value
+the cube did not hold. Scenario B then watched for a refusal from a cube that accepted `000000` on the
+first candidate, and rotated its PIN in the process. A write can only move what the app believes, so it
+is back to a check, and a stored `000000` now means what it should: the cube needs pairing before this
+file can say anything.
 
 ## Scenario C -- factory reset wipes the device's own event counter and ends never-paired
 

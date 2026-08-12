@@ -144,32 +144,32 @@ else
     done
     sqlite3 "$TEST_DB" "UPDATE setting SET setting_value = '{\"type\":\"test\"}' WHERE setting_name = 'db_type';"
 
-    # Carry the pairing across from production. Which device this Mac is paired to (`device_uuid`,
-    # plus the name it is carrying in `device_name`) and whether it is paired at all (`paired`) are
-    # per-database rows, so a freshly seeded
-    # test.sqlite reads as never-paired and the app would have to pair from scratch -- against a
-    # device whose PIN is no longer the factory default, because the earlier production pairing
-    # rotated it. Copying these two rows lets the app simply connect, using the password it already
-    # has (a dev build's config.json PIN, otherwise the Keychain), neither of which lives in the
-    # database. Pairing itself is 02b's subject, not setup's.
+    # A fresh test.sqlite reads as never-paired, and that is now deliberate: it used to be handed
+    # production's `paired`, `device_uuid` and `device_name` so the app could simply connect to the
+    # device it was already paired to, rather than spending a scan and a click pairing again against
+    # a cube whose PIN an earlier pairing had rotated off the factory default.
     #
-    # The stored `uuid` does not have to be current: the app finds the device by scanning for its
-    # name or service and connects to that (see TimeFlipBLEDevice.scanAndConnect), which is why
-    # production keeps working with a peripheral id from an earlier pairing.
-    if [ -e "$PRODUCTION" ]; then
-      for setting_name in paired device_uuid device_name; do
-        # quote() returns the value as a ready-escaped SQL literal, quotes included, so a device name
-        # containing an apostrophe cannot break the UPDATE below.
-        literal="$(sqlite3 -readonly "$PRODUCTION" \
-          "SELECT quote(setting_value) FROM setting WHERE setting_name = '$setting_name';")"
-        if [ -n "$literal" ]; then
-          sqlite3 "$TEST_DB" \
-            "UPDATE setting SET setting_value = $literal WHERE setting_name = '$setting_name';"
-        fi
-      done
-      echo "Copied the pairing (paired, device_uuid, device_name) from production.sqlite, so the app connects" \
-        "to the already-paired device instead of pairing again."
-    fi
+    # **Stopped on 2026-08-12, and it was sound until then.** The copy asserts a pairing, and that
+    # assertion used to imply which PIN the cube was on: Forget Device reset the device's password to
+    # the factory default over `0x30`, so unpaired meant a cube on the default and paired meant a cube
+    # on a rotated one. `paired` was a usable proxy for the device's own state.
+    #
+    # Two changes on this branch removed that. Forget no longer touches the cube's PIN at all -- it is
+    # local bookkeeping now, which is the whole point of it, so being unpaired says nothing about what
+    # the cube holds. And `02b` Scenario B made the cube's PIN load-bearing for the first time, by
+    # testing that a wrong stored PIN cannot reach it. So the proxy can now be wrong in a way nothing
+    # in the database can detect: reset the cube by hand and production still says paired, so the fresh
+    # database says paired, so `00-test-setup` Step 11 skips the pairing that would have rotated the
+    # PIN, and the run proceeds against a cube on the factory default. It even connects, because the
+    # reset writes `000000` into `config.json` too and both sides agree -- so the state survives a
+    # connection check and surfaces two checklists later as a pairing that succeeded where a refusal
+    # was the entire point of the scenario.
+    #
+    # Pairing from scratch costs a scan and a click, and it establishes by observation what the copy
+    # only asserted. It also cannot be wrong about which PIN the cube is on: pairing presents the
+    # factory default and then the stored PIN (`PairingPasswordRules`), so a reset cube and a rotated
+    # one are both reached, and a reset one is rotated on the way -- leaving the state every checklist
+    # after it assumes.
   fi
 fi
 
