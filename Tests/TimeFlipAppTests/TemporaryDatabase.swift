@@ -49,6 +49,25 @@ struct TemporaryDatabase {
         return sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK
     }
 
+    /// The first column of the first row, or `nil` if the query returned nothing.
+    func string(_ sql: String) -> String? {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            sqlite3_close(handle)
+            return nil
+        }
+        defer { sqlite3_close(handle) }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              let value = sqlite3_column_text(statement, 0)
+        else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
     func remove() {
         try? FileManager.default.removeItem(at: directory)
     }

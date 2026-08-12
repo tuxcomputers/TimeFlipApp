@@ -33,8 +33,12 @@ final class MenuBarController: NSObject {
     /// the menu, it does not decide what the app's windows are.
     private let openSettings: () -> Void
 
-    init(databaseBadge: DatabaseBadge?, openSettings: @escaping () -> Void) {
+    /// `nil` in a build without the dev flag, which is the whole of how logging is switched off here.
+    private let debugLog: DebugLog?
+
+    init(databaseBadge: DatabaseBadge?, debugLog: DebugLog?, openSettings: @escaping () -> Void) {
         self.databaseBadge = databaseBadge
+        self.debugLog = debugLog
         self.openSettings = openSettings
         super.init()
     }
@@ -128,6 +132,7 @@ final class MenuBarController: NSObject {
         // No event to read a side from -- a synthetic `performClick`, say. The menu is the safe
         // answer, being the one thing reachable in every state, and the only way out of the app.
         guard let event = NSApp.currentEvent else {
+            debugLog?.record(.click, "Status item clicked: no event, side unknown -> showMenu")
             showMenu()
             return
         }
@@ -135,8 +140,17 @@ final class MenuBarController: NSObject {
         // `<=` so the exact midpoint counts as the left half, i.e. as the menu: of the two, it is the
         // one that cannot leave someone stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
+        let action = StatusItemClickRouter.action(isLeftSide: isLeftSide)
 
-        switch StatusItemClickRouter.action(isLeftSide: isLeftSide) {
+        // Recorded whatever the outcome, including `ignore`. A click that deliberately did nothing and
+        // a click that never arrived look identical afterwards unless one of them left a row -- and
+        // telling those two apart is the difference between a routing bug and a missed hit.
+        debugLog?.record(
+            .click,
+            "Status item clicked: side=\(isLeftSide ? "left" : "right") clicks=\(event.clickCount) -> \(action)"
+        )
+
+        switch action {
         case .showMenu:
             showMenu()
         case .ignore:
@@ -158,11 +172,14 @@ final class MenuBarController: NSObject {
 
     @objc
     private func menuSettings() {
+        debugLog?.record(.menu, "Menu item clicked: Settings")
         openSettings()
     }
 
     @objc
     private func menuQuit() {
+        // Before terminating, not after: there is no after.
+        debugLog?.record(.menu, "Menu item clicked: Quit")
         NSApp.terminate(nil)
     }
 }

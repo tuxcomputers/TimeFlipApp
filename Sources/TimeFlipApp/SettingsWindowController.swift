@@ -5,7 +5,7 @@ import AppKit
 /// Owns the window and nothing else. Which tabs exist is `SettingsTab`'s business, and what goes in
 /// them is each pane's, once there is anything to put there.
 @MainActor
-final class SettingsWindowController: NSObject, NSWindowDelegate {
+final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDelegate {
     /// Accessibility identifiers for the parts a script needs to address. The tabs themselves are
     /// addressed by their titles, which `SettingsTab` already owns.
     enum Identifier {
@@ -28,6 +28,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// -- closing orders it out rather than destroying it, so it reopens on the tab it was left on and
     /// where it was left on screen.
     private lazy var window: NSWindow = makeWindow()
+
+    /// `nil` in a build without the dev flag.
+    private let debugLog: DebugLog?
+
+    init(debugLog: DebugLog?) {
+        self.debugLog = debugLog
+        super.init()
+    }
 
     func show() {
         // An accessory app has no application menu, and the standard editing shortcuts (⌘X/⌘C/⌘V,
@@ -84,7 +92,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             item.view = makePane(for: tab)
             tabView.addTabViewItem(item)
         }
+        // Set after the items are added, so the first tab landing selected as a side effect of being
+        // added is not logged as somebody choosing it.
+        tabView.delegate = self
         return tabView
+    }
+
+    /// Records the tab that is now showing.
+    ///
+    /// "Selected", not "clicked": this fires for a tab chosen in code as well as one clicked, and the
+    /// app will eventually choose one itself (a window that opens straight to the tab you need). A
+    /// message that said "clicked" would then be a lie in exactly the case worth investigating.
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        guard let label = tabViewItem?.label else { return }
+        debugLog?.record(.tab, "Settings tab selected: \(label)")
     }
 
     /// An empty pane, named so a script can confirm which tab it is looking at.

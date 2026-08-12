@@ -18,14 +18,17 @@ do {
     exit(EXIT_FAILURE)
 }
 
-// The dev flag's first job. Which database this launch opened is a developer's question -- in a
-// shipped copy there is only ever the real one, so a permanent "PROD" tag would take space in the
-// menu bar to answer a question nobody has. A `nil` badge is no badge at all, which is why the gate
-// lives here rather than inside the badge or the menu bar: one place decides, and the rest of the
-// app never asks whether this is a dev build.
+// Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
+// or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
+// build.
+//
+// The badge names which database this launch opened, which is a developer's question -- a shipped copy
+// only ever has the real one, so a permanent "PROD" tag would occupy the menu bar to answer something
+// nobody asked.
 let databaseBadge = DeveloperMode.isEnabled
     ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: databaseURL))
     : nil
+let debugLog = DeveloperMode.isEnabled ? DebugLog(databaseURL: databaseURL) : nil
 
 let app = NSApplication.shared
 // `.accessory`: a menu bar app, so no Dock icon and no app menu. It is also why the dropdown's Quit
@@ -33,8 +36,12 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 // The window is built on its first open, so this costs nothing until Settings is chosen.
-let settingsWindow = SettingsWindowController()
-let menuBar = MenuBarController(databaseBadge: databaseBadge, openSettings: { settingsWindow.show() })
+let settingsWindow = SettingsWindowController(debugLog: debugLog)
+let menuBar = MenuBarController(
+    databaseBadge: databaseBadge,
+    debugLog: debugLog,
+    openSettings: { settingsWindow.show() }
+)
 menuBar.start()
 
 app.run()
