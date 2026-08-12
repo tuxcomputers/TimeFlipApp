@@ -282,7 +282,7 @@ use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] Step 15: Build up device history to **≥ 10 events**
+- [x] Step 15: Build up device history to **≥ 10 events**
 -- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it clicks the status item's right half the number of times the shortfall needs, which needs nobody and never moves the cube. Confirmed on the test DB (Step 14 above) so the rows record to `test.sqlite`.
 It was ten physical flips until 2026-08-12, with a prompt and no timeout. Each pause ends the interval the device is recording and each unpause opens another, so the device numbers a toggle exactly as it numbers a flip -- and `01b` resumes a fetch *from an event number*, so the counter is all that has to climb.
 **Click, check, click, check, end.** No arithmetic: it clicks, reads the counter, and stops the moment it is at the target, so it cannot be wrong about how many event numbers a toggle produces -- measured 2026-08-12, six clicks against a counter of 4 left it reading 11. Each click is confirmed to have reached the app before the next one, from the `Status item clicked` line the app logs for every click it receives, and retried once if it did not: one silently missed on the first live run, because the status item's width tracks its own title and pausing changes that title, so a point computed from the previous layout can fall outside the item. Clicks are 1s apart, which is a floor rather than a preference -- a `togglePause` fires `NSEvent.doubleClickInterval` after the click that scheduled it, so a shorter gap lands a click while the previous toggle is still pending. `max_clicks` stops it clicking forever at a device that has stopped answering.
@@ -306,13 +306,13 @@ resolver exists for. Each click is confirmed against the click log and retried o
 2026-08-12 - The entry above was written between the step's prose and its `toml` fence, which
 detached the fence: the step parsed as having no body at all, so the runner would have *asked* about
 it instead of running it. Bug entries go after the fence, as they do everywhere else in the suite.
-- [ ] Step 16: Confirm the device is **not paused** before any checklist runs
+- [x] Step 16: Confirm the device is **not paused** before any checklist runs
  -- the last thing setup does to the device, and the state everything after it assumes. Step 13 already reached it, but Step 15 is the one step that can undo it: a toggle that goes astray leaves the cube stopped, and a stopped cube records nothing, so a checklist waiting on a flip would wait forever against a device that is working perfectly. Resolved rather than asserted, with the same action as Step 13, so a paused device is put right rather than halting the run over a click.
 Ungated on purpose, unlike Step 15. It costs a few seconds on a run that skips the history building, and it makes "the suite starts with a running device" true of every run rather than of most of them. Polls over a settle window instead of reading the label once -- the pause state can arrive a couple of seconds late, which is how a paused device passed for clean before ([Method: Number 30](Methods.md#method-30) reads the same labels).
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [ ] Step 17: Confirm the report fixture is in place, and behind everything the run records
+- [x] Step 17: Confirm the report fixture is in place, and behind everything the run records
  -- the five categories and five segments `Bench/11b` and `Bench/14b` measure, seeded back in Step 9. **Seeded there, not here, and the position is the whole point.** These rows are synthetic `device_event`s, and several checklists read *the latest* `device_event` by `device_event_id` -- `01b` Setup asserts it is the open, growing one (`finalised = 0`), and `Method 24.c` hands that row to whoever asks. Seeded at the end of setup they took the highest ids and became that row, failing `01b` with `finalised = 1` (measured 2026-08-08, ids 10-12 against real rows 1-9). Inserted into the freshly-created `test.sqlite` before the app has ever launched, they take ids 1-5 instead and every real row lands after them, so the newest is always a real one. Three of the categories are for `11b`, in three states -- active on a face, active on no face, and retired -- because a report shows *time*, not *current* categories: it must include one the Faces list and `loadCategories()` both filter out. Durations of 30:29, 45:30 and 60:31 on the days 5, 4 and 3 back make every range `11b` asserts a different figure, and dating them days back keeps them clear of anything the cube records today. The seconds are not decoration: they straddle the half-minute (29 below, 30 exactly on it, 31 above), so `11b`'s seconds-off assertions prove the figure is **truncated** to the minute rather than rounded. On round durations those assertions read the same either way and proved nothing.
 
 The other two are **both called `ZZ Lapsed`**, retired from the moment they are inserted, and exist for `14b`. The shared name is the point rather than an oversight: `UN1_category` is a partial index (`WHERE active = 1`), so one name can be held by any number of retired categories, and two identical-looking rows in the Inactive list owning different history is the exact situation the Last used column was built to resolve. A fixture that told them apart by name would be testing an easier problem than the real one.
@@ -353,7 +353,7 @@ expect = "ok"
 real flip onto face 5 (which `ZZ Assigned` holds) counted as fixture damage: `8199` against `8190`.
 Scoped by `event_number`.
 
-- [ ] Step 18: Retire bug history belonging to another branch, on the checklists this run will cover.
+- [x] Step 18: Retire bug history belonging to another branch, on the checklists this run will cover.
 `Tests/CLAUDE.md`'s rule is that a **Bugs found and fixed** entry belongs to the branch that found
 it, so arriving on a new branch retires it -- and that a checklist this run does not reach keeps
 both its entries and its `Last run` heading exactly as the previous branch left them. This does the

@@ -124,8 +124,6 @@ tell application "System Events"
 end tell'''
 expect_contains = "inactive_rows=3"
 ```
-### Bugs found and fixed - branch 'feature/inactiveID'
-2026-08-10 - Expected `inactive_rows=4`, copied from `08b`, whose count includes the `Email` row its
 own teardown deletes. Three rows reach this checklist, not four.
 2026-08-10 - The disclosure click was unconditional, so the runner's retry toggled the section shut
 and reported `inactive_rows=0` instead of the count that was actually wrong. Guarded on its value.
@@ -180,8 +178,6 @@ tell application "System Events"
 end tell'''
 expect_contains = "$recent_expected"
 ```
-### Bugs found and fixed - branch 'feature/inactiveID'
-2026-08-10 - The step compared the rendered date against one built by `date`, which writes a plain
 space before `am`; `DateFormatter` writes U+202F. Normalised in the script.
 
 - [ ] Step 4: Confirm the **20 days back** row shows a different date, its own.

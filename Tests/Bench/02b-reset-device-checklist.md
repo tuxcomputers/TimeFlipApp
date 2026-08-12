@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-11 17:32 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 10:38 on the branch 'feature/dailyLimit'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -33,14 +33,27 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 
 ## Setup
 
-- [ ] Step 1: Confirm `db_type` still reads `{"type":"test"}`
-(left active by `01b-history-refresh-checklist.md`) and the device is connected. If it reads `production`, `01b`'s Setup needs (re-)running first rather than switching databases from here.
+- [x] Step 1: Confirm `db_type` still reads `{"type":"test"}` and the device is connected.
+(The database is left active by `01b-history-refresh-checklist.md`. If it reads `production`, `01b`'s
+Setup needs (re-)running first rather than switching databases from here.)
+The connection half was prose only until 2026-08-12, and it is the premise Scenario B rests on: the app
+presents the *stored* PIN and never guesses when connecting, so a live connection is the proof that the
+cube is on the PIN Scenario A Step 2 writes. Without it, a cube left on the factory default reached
+Scenario B, where pairing got in on its first candidate and the failure the scenario is built to observe
+never happened.
 ```toml step
+[[actions]]
 use = "method-24.a"
 setting = "db_type"
 expect = "{\"type\":\"test\"}"
+
+[[actions]]
+use = "method-24.f"
+setting = "connection"
+field = "connected"
+expect = "1"
 ```
-- [ ] Step 2: Note the device's current event counter as the pre-reset baseline.
+- [x] Step 2: Note the device's current event counter as the pre-reset baseline.
 Query `device_event` by `device_event_id DESC` for the latest `event_number`, and/or read a `history` fetch's `device_last_event=`. It must be > 0 -- `01b`'s Setup backfill should already guarantee this. (Note: `device_event` has no timestamp column named `logged_at` -- use `start_epoch`/`start_time` if a time is needed, or omit entirely and just order by `device_event_id DESC`.)
 ```toml step
 use = "method-24.c"
@@ -58,7 +71,7 @@ refused to unpair unless that was confirmed, which made it useless in the one si
 -- a cube the app cannot log in to. The proof that it leaves the **device's** PIN alone is Scenario B:
 the cube is still on its rotated PIN there, which is why a wrong stored PIN cannot pair with it.
 
-- [ ] Step 1: Open Settings on the Device tab.
+- [x] Step 1: Open Settings on the Device tab.
 Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
@@ -69,16 +82,33 @@ item = "Settings..."
 use = "method-10"
 tab = "Device"
 ```
-- [ ] Step 2: Capture the PIN in `config.json`, which is where a dev build keeps the **stored** PIN.
-The file is the developer's, so this reads it rather than assuming a value, and Scenario B puts exactly
-this back. (In a production build the stored password is in the Keychain instead; the two are the same
-role, and `AppState.loadDevicePassword` picks between them.)
+- [x] Step 2: Make sure the stored PIN is `123456`, in `config.json` where a dev build keeps it.
+Written, then read back, rather than captured. `123456` is not this machine's PIN, it is the compiled
+constant a dev build rotates onto every cube it pairs with on the factory default
+(`DeveloperMode.devicePassword`), so the right value is knowable and worth stating. Both of this file's
+PINs are literals for the same reason: a captured value is one that can arrive wrong, and this is the
+file most likely to be resumed mid-way.
+**It resolves rather than asserts, which is what the precondition rule asks for.** Scenario B stages
+`123457`, so a run halted anywhere inside it leaves the fixture in the file -- and the next run then
+starts against a stored PIN the cube does not have, which used to need fixing by hand before anything
+would pair. Writing the right value costs one line and removes that entirely.
+What it cannot fix is the *cube* being on a different PIN, which is why Setup Step 1 checks the app is
+connected: connecting never guesses (`PairingPasswordRules`), so a live connection is the proof that
+the cube holds the PIN this file just wrote. A freshly reset cube sitting on `000000` fails there, with
+a message about a connection, rather than two scenarios later as a probe count that reads like an app
+bug. (In a production build the stored password is in the Keychain instead; the two are the same role,
+and `AppState.loadDevicePassword` picks between them.)
 ```toml step
+[[actions]]
+action = "shell"
+command = '''python3 -c "import json,os;p=os.path.expanduser('~/Library/Application Support/TimeFlip/config.json');d=json.load(open(p));d['PIN']='123456';json.dump(d,open(p,'w'),indent=2)"'''
+
+[[actions]]
 action = "shell"
 command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
-capture = "config_pin_original"
+expect = "123456"
 ```
-- [ ] Step 3: Click **Forget Device**, and confirm it unpaired without touching a password.
+- [x] Step 3: Click **Forget Device**, and confirm it unpaired without touching a password.
 The count asserts an absence, which is the whole point of the change: no `0x30` write, no rotation, no
 confirming re-login. The Name row dropping to `Not paired` is the positive half.
 [Method: Number 13](../Methods.md#method-13).
@@ -103,13 +133,14 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $current_log_id AND (message LIKE '%reset to default%' OR message LIKE 'Rotating device password%' OR message LIKE 'Device password confirmed%');"
 expect = "0"
 ```
-- [ ] Step 4: Confirm the stored PIN is exactly as it was.
+- [x] Step 4: Confirm the stored PIN still reads `123456`.
 Forgetting must not rewrite it. It used to write the factory default here, which is how a Forget came
-to stamp `000000` over a hand-set PIN on 2026-08-01.
+to stamp `000000` over a hand-set PIN on 2026-08-01, so `000000` is the specific wrong answer this is
+watching for. Nothing follows it: the file is untouched, so there is nothing to undo.
 ```toml step
 action = "shell"
 command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
-expect = "$config_pin_original"
+expect = "123456"
 ```
 
 ## Scenario B -- pairing tries two PINs, in order, and fails when neither is right
@@ -124,7 +155,7 @@ pins three things at once: that the failure is reported rather than papered over
 left on its own PIN by the forget above, and -- once the real PIN is restored -- that a cube reached on
 the **stored** password is not rotated, because its PIN is already the one on record.
 
-- [ ] Step 1: Point `config.json` at a PIN the cube does not have, and relaunch so the app loads it.
+- [x] Step 1: Point `config.json` at a PIN the cube does not have, and relaunch so the app loads it.
 `123457`, one digit off the PIN the cube is actually on, so it is obviously deliberate in a log. The relaunch is what
 makes it take effect: the file is read at startup (`AppState.applyDeveloperConfig`). Methods:
 [Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2).
@@ -144,7 +175,7 @@ action = "shell"
 command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
 expect = "123457"
 ```
-- [ ] Step 2: Open Settings on the Device tab and scan.
+- [x] Step 2: Open Settings on the Device tab and scan.
 An unpaired app shows a single **Scan for Devices** button where the Forget/Reset pair was. Methods:
 [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10),
 [Number 13](../Methods.md#method-13).
@@ -172,7 +203,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'listed
 expect_contains = "TimeFlip"
 timeout_seconds = 60
 ```
-- [ ] Step 3: Click the discovered row, and confirm the pairing is refused.
+- [x] Step 3: Click the discovered row, and confirm the pairing is refused.
 [Method: Number 9](../Methods.md#method-9) -- the row is a `Text` with an `.onTapGesture`, so it needs a
 real CGEvent click at its centre.
 ```toml step
@@ -193,11 +224,18 @@ timeout_seconds = 90
 - [ ] Step 4: Confirm both PINs were presented, in order, and only those two.
 The rule itself, read off the wire: `30 30 30 30 30 30` is `000000` and `31 32 33 34 35 37` is
 `123457`. Two probe logins, no third -- a dev build used to append two more candidates here.
+**Waits for the second, rather than reading once.** Step 3 returns on the *first* refusal, and the
+second candidate is deliberately a second behind it (`probeSettleSeconds`, because CoreBluetooth will
+not reconnect to a peripheral it is still tearing down), so an immediate count catches one probe and
+reads it as a missing candidate. Waiting for two is also still a real assertion that there is no
+third: the two `ORDER BY` reads below pin which is which, and a third would have to be identical to
+one of them to slip past all three.
 ```toml step
 [[actions]]
-action = "sql_query"
+action = "wait_for_sql"
 query = "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $before_pair_attempt_id AND message LIKE 'Probe logging in using password:%';"
 expect = "2"
+timeout_seconds = 30
 
 [[actions]]
 action = "sql_query"
@@ -216,9 +254,15 @@ use = "method-24.a"
 setting = "paired"
 expect_contains = "false"
 ```
-- [ ] Step 6: Put the real PIN back, relaunch, and pair -- on the **stored** password this time.
-The cube is on that PIN, so the default is refused and the second candidate gets in. Methods:
-[Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2),
+- [ ] Step 6: Put `123456` back, relaunch, and pair -- on the **stored** password this time.
+The cube is on that PIN, so the default is refused and the second candidate gets in.
+**Written out rather than captured from Scenario A.** `123456` is not this machine's PIN, it is the
+compiled constant a dev build rotates onto every cube it pairs with on the factory default
+(`DeveloperMode.devicePassword`), so it is knowable without reading anything -- which is the point:
+this scenario stages a wrong PIN, so it is the one that has to restore a right one, and a value
+captured in an earlier scenario is a value that can arrive wrong. A run halted between Step 1 and here
+leaves `123457` in the file, and a capture taken afterwards would restore the fixture as though it
+were real. Methods: [Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2),
 [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10),
 [Number 13](../Methods.md#method-13), [Number 9](../Methods.md#method-9).
 ```toml step
@@ -228,7 +272,7 @@ capture = "before_restore_id"
 
 [[actions]]
 action = "shell"
-command = '''python3 -c "import json,os,sys;p=os.path.expanduser('~/Library/Application Support/TimeFlip/config.json');d=json.load(open(p));d['PIN']=sys.argv[1];json.dump(d,open(p,'w'),indent=2)" "$config_pin_original"'''
+command = '''python3 -c "import json,os;p=os.path.expanduser('~/Library/Application Support/TimeFlip/config.json');d=json.load(open(p));d['PIN']='123456';json.dump(d,open(p,'w'),indent=2)"'''
 
 [[actions]]
 use = "method-3"
@@ -282,8 +326,21 @@ expect = "0"
 [[actions]]
 action = "shell"
 command = '''python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])"'''
-expect = "$config_pin_original"
+expect = "123456"
 ```
+### Bugs found and fixed - branch 'feature/dailyLimit'
+2026-08-12 - Step 4 counted the probe logins the instant Step 3 returned, and Step 3 returns on the
+**first** refusal: the second candidate is a second behind it by design (`probeSettleSeconds`), so the
+count read 1 and reported a missing candidate against a pairing that had presented both, in order, and
+failed exactly as the scenario wanted. It waits for two now. Both PINs are also written out rather than
+captured: Scenario A's capture was feeding Scenario B's restore, a cross-scenario dependency in the one
+file most likely to be resumed mid-way, and a run halted with the fixture staged would have had the
+fixture captured as the real PIN and written back permanently. `123456` and `123457` are now literals
+everywhere they appear, and Scenario A Step 2 *writes* the right one rather than only checking it, so a
+halt inside Scenario B no longer needs the file fixing by hand before anything will pair. The premise a
+write cannot establish -- that the cube holds that PIN -- is Setup Step 1's connection check, which was
+prose and is now a step: it is what would have caught this run's real starting problem, a cube on the
+factory default, at the top of the file instead of as a probe count in Scenario B.
 
 ## Scenario C -- factory reset wipes the device's own event counter and ends never-paired
 
