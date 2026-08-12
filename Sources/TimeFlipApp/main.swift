@@ -1,12 +1,32 @@
 import AppKit
 import Foundation
 
-// Startup, in order. The database comes up first and the menu bar second, because the second has
-// nothing to draw from if the first did not happen -- and from here on **Quit is the only way out**.
+// Startup, in order: prove this is the only instance, bring the database up, then the menu bar. Each
+// step is ahead of the one that would be wrong to do twice -- a duplicate launch stands down before it
+// has opened a database or claimed a status item -- and from here on **Quit is the only way out**.
 //
-// The one exception is a database that cannot be brought up, which is a refusal to start rather than
-// an exit: there is no useful app on the other side of it, so it says why on stderr and stops. Every
-// other failure from here has to be something the running app copes with.
+// The exceptions are the two ways a launch can end early below, both of them refusals to start rather
+// than exits. Every other failure from here has to be something the running app copes with.
+
+// Kept for the life of the process, which is the whole of what it does: the lock lives on an open file
+// descriptor, so letting this go would hand the app's identity to the next launch mid-run.
+let instanceLock: InstanceLock?
+switch InstanceLock.claim() {
+case let .success(lock):
+    instanceLock = lock
+case .failure(.heldByAnotherInstance):
+    // stderr rather than the debug log, which lives in the database a duplicate must not open. Exit 0
+    // because standing down is this code working, not failing -- a non-zero status would tell a script
+    // that launched the app that the launch was broken.
+    FileHandle.standardError.write(Data("timeflip: already running, so this copy is exiting.\n".utf8))
+    exit(EXIT_SUCCESS)
+case let .failure(.cannotTell(reason)):
+    // No answer either way, so carry on rather than refuse: a lock file that cannot be opened is not
+    // evidence of a second instance, and standing down here would turn a read-only home directory into
+    // an app that never starts at all.
+    FileHandle.standardError.write(Data("timeflip: could not check for a second instance: \(reason)\n".utf8))
+    instanceLock = nil
+}
 
 let databaseURL: URL
 do {
