@@ -35,6 +35,16 @@ final class ManualTimerRulesTests: XCTestCase {
         )
     }
 
+    func testTheMenuItemSaysWhatClickingDoes() {
+        // Deliberately the opposite of the glyph: a glyph is a status readout, a menu item is an instruction.
+        XCTAssertEqual(ManualTimerRules.pauseMenuTitle(for: .running), "Pause")
+        XCTAssertEqual(ManualTimerRules.pauseMenuTitle(for: .paused), "Resume")
+        XCTAssertEqual(
+            ManualTimerRules.pauseMenuTitle(for: .idle), "Pause",
+            "a dead item claiming there is something to resume is worse than one claiming there is something to pause"
+        )
+    }
+
     func testTheManualFaceIsThirteen() {
         // Seeded in `database/008_face.sql` alongside the twelve physical faces.
         XCTAssertEqual(ManualFace.id, 13)

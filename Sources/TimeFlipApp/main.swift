@@ -81,7 +81,13 @@ let settingsWindow = SettingsWindowController(
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
     debugLog: debugLog,
-    openSettings: { settingsWindow.show() }
+    openSettings: { settingsWindow.show() },
+    // Asked as the menu opens rather than pushed when it changes, so the menu cannot be stale.
+    timingState: {
+        ManualTimerRules.state(categoryID: timingSession.categoryID, isRunning: timingSession.isRunning)
+    },
+    // The same entry point the Timing column's control uses. Two ways in, one implementation.
+    togglePause: { settingsWindow.togglePause() }
 )
 menuBar.start()
 

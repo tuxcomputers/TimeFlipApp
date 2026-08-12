@@ -49,7 +49,25 @@ enum ManualTimerRules {
     /// Whether clicking the control does anything. Nothing is being timed when idle, so there is no clock
     /// to stop, and the click is ignored rather than starting one -- starting is what picking a category is
     /// for, and a click on a blank space names no category to start.
+    ///
+    /// The dropdown's Pause item asks the same question and gets the same answer, deliberately. The previous
+    /// app had these as two separate expressions and they came to disagree: the status item's right half was
+    /// taught about manual mode and the menu item beside it was not, leaving a dead Pause above a live one,
+    /// and nothing failed.
     static func isClickable(_ state: TimingState) -> Bool {
         state != .idle
+    }
+
+    /// What the dropdown's Pause item is called.
+    ///
+    /// **A menu item says what clicking does**, which is the opposite of the glyph beside it -- and both are
+    /// deliberate. A glyph is a status readout, so play showing means recording; a menu item is an
+    /// instruction, so it reads "Pause" while time is being recorded.
+    ///
+    /// With nothing being timed it reads "Pause" rather than "Resume", carried over from the previous app
+    /// with its reasoning: the item is disabled either way, and a dead item claiming there is something to
+    /// resume is worse than a dead item claiming there is something to pause.
+    static func pauseMenuTitle(for state: TimingState) -> String {
+        state == .paused ? "Resume" : "Pause"
     }
 }

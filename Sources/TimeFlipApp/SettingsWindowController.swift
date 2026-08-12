@@ -120,8 +120,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         startTicking()
     }
 
-    /// The control was clicked: stop the clock, or start it again.
-    private func toggleTiming() {
+    /// Stop the clock, or start it again.
+    ///
+    /// **One path for both ways in**: the control in the Timing column and the dropdown's Pause item both end
+    /// here, so they cannot come to disagree about what pausing means. The previous app had them as two
+    /// implementations and they did exactly that.
+    ///
+    /// It lives here because this is the only thing that draws a session. When the menu bar shows one too,
+    /// this becomes a small coordinator both views observe rather than one view the other calls.
+    func togglePause() {
         guard let session else { return }
         session.togglePause()
         debugLog?.record(
@@ -334,7 +341,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.startTiming(category)
         }
         faces.timingView.onTogglePause = { [weak self] in
-            self?.toggleTiming()
+            self?.togglePause()
         }
         faces.createControl.onSave = { [weak self] typed in
             self?.saveNewCategory(typed)

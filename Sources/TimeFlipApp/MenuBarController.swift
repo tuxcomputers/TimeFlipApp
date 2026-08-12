@@ -2,10 +2,10 @@ import AppKit
 
 /// The status item and its dropdown. Owns the AppKit; decides nothing (see `StatusItemClickRouter`).
 ///
-/// At this point in the rebuild the menu holds one item, Quit, and the title is the database badge
-/// followed by the app's name. Both grow as there is something to say and something to do.
+/// At this point in the rebuild the menu holds Settings, Pause and Quit, and the title is the database
+/// badge followed by the app's name. Both grow as there is something to say and something to do.
 @MainActor
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
 
@@ -26,6 +26,7 @@ final class MenuBarController: NSObject {
     enum Identifier {
         static let statusItem = "status-item"
         static let settings = "open-settings"
+        static let togglePause = "toggle-pause"
         static let quit = "quit-app"
     }
 
@@ -33,13 +34,30 @@ final class MenuBarController: NSObject {
     /// the menu, it does not decide what the app's windows are.
     private let openSettings: () -> Void
 
+    /// What is being timed right now, asked as the menu opens rather than pushed here when it changes. The
+    /// menu cannot be stale if it never remembers anything, which is the same reasoning the database rule
+    /// rests on -- and it saves every state change having to know the menu exists.
+    private let timingState: () -> TimingState
+
+    /// Stops the clock, or starts it again. **The same closure the on-screen control ends in**, not a second
+    /// implementation of pausing.
+    private let togglePause: () -> Void
+
     /// `nil` in a build without the dev flag, which is the whole of how logging is switched off here.
     private let debugLog: DebugLog?
 
-    init(databaseBadge: DatabaseBadge?, debugLog: DebugLog?, openSettings: @escaping () -> Void) {
+    init(
+        databaseBadge: DatabaseBadge?,
+        debugLog: DebugLog?,
+        openSettings: @escaping () -> Void,
+        timingState: @escaping () -> TimingState = { .idle },
+        togglePause: @escaping () -> Void = {}
+    ) {
         self.databaseBadge = databaseBadge
         self.debugLog = debugLog
         self.openSettings = openSettings
+        self.timingState = timingState
+        self.togglePause = togglePause
         super.init()
     }
 
@@ -66,7 +84,7 @@ final class MenuBarController: NSObject {
         item.button?.action = #selector(handleClick(_:))
         item.button?.sendAction(on: [.leftMouseUp])
         statusItem = item
-        statusMenu = buildMenu()
+        statusMenu = makeMenu()
     }
 
     /// The status item's title: the database badge, then the app's name.
@@ -96,16 +114,36 @@ final class MenuBarController: NSObject {
         return "\(Self.appLabel), \(databaseBadge.spokenDescription)"
     }
 
-    private func buildMenu() -> NSMenu {
+    /// The dropdown. Internal so its shape can be asserted without putting a real status item in the menu
+    /// bar, which is what `start()` does.
+    func makeMenu() -> NSMenu {
         let menu = NSMenu()
         // Trailing ellipsis, the platform's way of saying a choice opens something rather than doing
         // something. No ⌘, for the same reason Quit carries no ⌘Q, below.
         menu.addItem(item(title: "Settings…", identifier: Identifier.settings, action: #selector(menuSettings)))
+        // Under Settings, because it acts on what Settings is showing. Its title and whether it can be
+        // chosen at all are set when the menu opens, not here.
+        menu.addItem(item(title: "Pause", identifier: Identifier.togglePause, action: #selector(menuTogglePause)))
         // Quit sits under a separator, away from anything ordinary: it is the only way out of the app,
         // so it should not be adjacent to a choice somebody makes routinely.
         menu.addItem(.separator())
         menu.addItem(item(title: "Quit", identifier: Identifier.quit, action: #selector(menuQuit)))
+        // Off, because AppKit would otherwise decide each item's enabled state from whether its action can be
+        // found -- which is always -- and overwrite what `menuNeedsUpdate` sets.
+        menu.autoenablesItems = false
+        menu.delegate = self
         return menu
+    }
+
+    /// Names the Pause item and decides whether it can be chosen, from the state at the moment the menu is
+    /// opened. Nothing has to tell the menu when the clock changes, because the menu never remembers.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) else {
+            return
+        }
+        let state = timingState()
+        pause.title = ManualTimerRules.pauseMenuTitle(for: state)
+        pause.isEnabled = ManualTimerRules.isClickable(state)
     }
 
     /// One menu item, targeted at this controller and named for a script.
@@ -174,6 +212,13 @@ final class MenuBarController: NSObject {
     private func menuSettings() {
         debugLog?.record(.menu, "Menu item clicked: Settings")
         openSettings()
+    }
+
+    @objc
+    private func menuTogglePause() {
+        // What it was called when it was chosen, which is what the person clicking it meant.
+        debugLog?.record(.menu, "Menu item clicked: \(ManualTimerRules.pauseMenuTitle(for: timingState()))")
+        togglePause()
     }
 
     @objc
