@@ -1,5 +1,7 @@
 # Manual Mode Pairing Checklist (Interactive)
 
+### Last run - 2026-08-12 16:34 on the branch 'feature/dailyLimit'
+
 The one part of pairing out of a manual session that needs a person: proving the app really is timing
 from the **cube** afterwards, and not still from the stand-in it replaced.
 
@@ -11,7 +13,7 @@ thing that cannot.
 **Preconditions:** `Tests/Bench/16b-manual-mode-pairing-checklist.md` complete, so the app is paired and
 connected having paired out of a manual session, with no Settings window open.
 
-- [ ] **(Claude)** Step 1: Note the face the cube is not resting on, and the log baseline.
+- [x] **(Claude)** Step 1: Note the face the cube is not resting on, and the log baseline.
 [Method: Number 24.h](../Methods.md#method-24) names the face to ask for; the baseline scopes the wait to
 this flip. [Method: Number 24.b](../Methods.md#method-24).
 ```toml step
@@ -23,8 +25,8 @@ capture = "flip_target"
 use = "method-24.b"
 capture = "before_flip"
 ```
-- [ ] **(You)** Step 2: Flip the cube to the face named above.
-- [ ] **(Claude)** Step 3: Confirm the flip reached the app as a cube event on that face.
+- [x] **(You)** Step 2: Flip the cube to the face named above.
+- [x] **(Claude)** Step 3: Confirm the flip reached the app as a cube event on that face.
 A face between 1 and 12 is the whole assertion: manual mode owns face 13, so a row on a real face can only
 have come from the device. [Method: Number 19](../Methods.md#method-19) -- detected from the database rather
 than asked about.
@@ -40,7 +42,7 @@ use = "method-24.k"
 column = "paused"
 expect = "0"
 ```
-- [ ] **(Claude)** Step 4: Confirm the menu bar is showing the flipped-to category.
+- [x] **(Claude)** Step 4: Confirm the menu bar is showing the flipped-to category.
 The display is the same in device mode as it was in manual mode, which is the point -- what changed is
 where the reading comes from. [Method: Number 27](../Methods.md#method-27).
 ```toml step

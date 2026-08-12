@@ -1,6 +1,6 @@
 # Reset Device Checklist
 
-### Last run - 2026-08-12 10:56 on the branch 'feature/dailyLimit'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 Covers the Device tab's **Reset Device** button (factory reset, command `0xFF`) -- confirms it
 actually wipes the device's own event-number counter, not just app-side/DB state, by comparing the
@@ -201,7 +201,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'listed
 expect_contains = "TimeFlip"
 timeout_seconds = 60
 ```
-- [ ] Step 3: Click the discovered row, and confirm the pairing is refused.
+- [x] Step 3: Click the discovered row, and confirm the pairing is refused.
 [Method: Number 9](../Methods.md#method-9) -- the row is a `Text` with an `.onTapGesture`, so it needs a
 real CGEvent click at its centre.
 ```toml step
@@ -219,7 +219,7 @@ query = "SELECT message FROM debug_log WHERE message LIKE 'Probe login commandRe
 expect_contains = "rejected"
 timeout_seconds = 90
 ```
-- [ ] Step 4: Confirm both PINs were presented, in order, and only those two.
+- [x] Step 4: Confirm both PINs were presented, in order, and only those two.
 The rule itself, read off the wire: `30 30 30 30 30 30` is `000000` and `31 32 33 34 35 37` is
 `123457`. Two probe logins, no third -- a dev build used to append two more candidates here.
 **Waits for the second, rather than reading once.** Step 3 returns on the *first* refusal, and the
@@ -245,14 +245,14 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT message FROM debug_log WHERE debug_log_id > $before_pair_attempt_id AND message LIKE 'Probe logging in using password:%' ORDER BY debug_log_id DESC LIMIT 1) LIKE '%31 32 33 34 35 37%' THEN 'ok' ELSE 'second candidate was not the stored PIN' END;"
 expect = "ok"
 ```
-- [ ] Step 5: Confirm the app is still unpaired.
+- [x] Step 5: Confirm the app is still unpaired.
 A refused pairing must leave it exactly as it was, rather than half-adopting a device it never reached.
 ```toml step
 use = "method-24.a"
 setting = "paired"
 expect_contains = "false"
 ```
-- [ ] Step 6: Put `123456` back, relaunch, and pair -- on the **stored** password this time.
+- [x] Step 6: Put `123456` back, relaunch, and pair -- on the **stored** password this time.
 The cube is on that PIN, so the default is refused and the second candidate gets in.
 **Written out rather than captured from Scenario A.** `123456` is not this machine's PIN, it is the
 compiled constant a dev build rotates onto every cube it pairs with on the factory default
@@ -311,7 +311,7 @@ query = "SELECT setting_value FROM setting WHERE setting_name='paired';"
 expect_contains = "true"
 timeout_seconds = 90
 ```
-- [ ] Step 7: Confirm that pairing did **not** rotate the cube's PIN.
+- [x] Step 7: Confirm that pairing did **not** rotate the cube's PIN.
 The other half of the rule: a cube reached on the stored password already holds the PIN on record, so
 rotating it would change a device PIN nobody asked to change and rewrite a stored password that was
 already right. Only a cube on the factory default is rotated, which Scenario C's re-pair exercises.
@@ -350,7 +350,7 @@ file can say anything.
 noted -- the baseline from Setup, and the pairing re-established by Scenario B, which this scenario
 runs straight on from.
 
-- [ ] Step 1: Open Settings (status-item menu -> "Settings...")
+- [x] Step 1: Open Settings (status-item menu -> "Settings...")
 and switch to the Device tab (selected by name). Methods: [Number 6](../Methods.md#method-6), [Number 10](../Methods.md#method-10).
 ```toml step
 [[actions]]
@@ -361,7 +361,7 @@ item = "Settings..."
 use = "method-10"
 tab = "Device"
 ```
-- [ ] Step 2: Click **Reset Device** and confirm the destructive-action dialog.
+- [x] Step 2: Click **Reset Device** and confirm the destructive-action dialog.
  The button is an `AXButton` in the pairing section's `AXGroup`, right of **Forget Device**. [Method: Number 16](../Methods.md#method-16) -- **Cancel** is button 1, **Reset Device** (the destructive confirm) is button 2. (Note: the pairing section shows **Forget/Reset** whenever the app is paired, and a single **Scan for Devices** button when it isn't. Pairing is durable, so after a restart the buttons are there as soon as the window opens rather than waiting on the history backfill -- but the first action below still waits for the Reset button to exist before clicking, since clicking `button 2` when only Scan is present fails with `-1719 Invalid index`.)
 ```toml step
 [[actions]]
@@ -398,7 +398,7 @@ tell application "System Events"
  end tell
 end tell'''
 ```
-- [ ] Step 3: Confirm the reset sequence via `debug_log`
+- [x] Step 3: Confirm the reset sequence via `debug_log`
 (`TimeFlip` tag): a `"Factory reset (0xFF) sent; ... awaiting device reboot to confirm via default-password login"` row, then reconnect/login attempts, then `"Factory reset confirmed: device is back on the default password; returning to never-paired state"`.
       **The wait has to outlast the app's own budget, not the reset's typical duration.**
       `ApplicationDelegate.factoryResetConfirmTimeout` is 120s, and until it expires the app is still
@@ -424,7 +424,7 @@ action = "sql_query"
 query = "SELECT debug_log_id FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Factory reset confirmed%' AND debug_log_id > $before_reset_id ORDER BY debug_log_id DESC LIMIT 1;"
 capture = "confirmed_id"
 ```
-- [ ] Step 4: Confirm the UI reaches the pristine never-paired state.
+- [x] Step 4: Confirm the UI reaches the pristine never-paired state.
  During the confirm window the `Connection` row reads `Resetting...` (the Forget/Reset buttons replaced by a "Resetting device…" progress row); it then settles with `Name` = `Not paired`, `Connection` = `Not paired`, and `Battery` = `Not paired` (all greyed). It must **not** end on `Reconnecting...` or `Connected`.
 ```toml step
 action = "applescript"
@@ -438,14 +438,14 @@ end tell
 return n & "|" & c'''
 expect_contains = "Not paired"
 ```
-- [ ] Step 5: Confirm no auto-reconnect follows the forget
+- [x] Step 5: Confirm no auto-reconnect follows the forget
  no further `TimeFlip` `"Login accepted"` / reconnect rows after the `"returning to never-paired state"` row, until the manual re-pair below. (Scope this on `debug_log_id > $confirmed_id` -- the id of that row, captured in Step 3 -- **not** `before_reset_id`: the confirm sequence itself relogins to test the password and logs one or two `"Login accepted, code=0x02"` rows before it settles, which a pre-reset baseline would wrongly flag as an auto-reconnect.)
 ```toml step
 action = "sql_query"
 query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Login accepted%' AND debug_log_id > $confirmed_id ORDER BY debug_log_id DESC LIMIT 1;"
 expect = "(no rows)"
 ```
-- [ ] Step 6: Click **Scan for Devices** and wait for the device to appear in the list.
+- [x] Step 6: Click **Scan for Devices** and wait for the device to appear in the list.
  The device is a `static text` matching its name, e.g. `"TimeFlip v2.0"`, under "Click a device below to pair with it.". [Method: Number 13](../Methods.md#method-13). (Note: the device can take a few seconds to show up in the scan, so the read below polls once a second for up to 6s and returns as soon as a `TimeFlip` row appears, rather than reading the list
  once after a fixed delay.)
 ```toml step
@@ -476,7 +476,7 @@ tell application "System Events"
 end tell'''
 expect_contains = "TimeFlip"
 ```
-- [ ] Step 7: Click the discovered device's row to select and pair
+- [x] Step 7: Click the discovered device's row to select and pair
 (it is on the factory default PIN `000000` now). [Method: Number 9](../Methods.md#method-9) -- a coordinate CGEvent click on the row's centre (`cgevent_click_element`), since the row is a `Text`+`.onTapGesture` an AX press won't actuate. Wait for the pairing to **complete**, not merely for the first login: a fresh pair logs in with the default PIN, then rotates the device password and logs `"Device password confirmed set to: <pw>"` (`> current_log_id`) about a second later. Waiting for *that* marker (not the earlier `"Login accepted"`, which fires mid-rotation) is what keeps Step 8's `Connected` check from racing the rotation. If the automated click doesn't land, the prompt asks you to click the row yourself.
 ```toml step
 [[actions]]
@@ -490,7 +490,7 @@ expect_contains = "Device password confirmed set to:"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 ```
-- [ ] Step 8: Confirm the Device tab shows the device paired and connected again
+- [x] Step 8: Confirm the Device tab shows the device paired and connected again
  read the `Connection` row (`Connected`), `Name` (the device name, no longer "Not paired"), and `Battery` (a `%`, no longer "Not paired").
  ```toml step
 action = "applescript"
@@ -502,7 +502,7 @@ tell application "System Events"
 end tell'''
 expect = "Connected"
 ```
-- [ ] Step 9: Confirm the device's own event counter was wiped by the reset
+- [x] Step 9: Confirm the device's own event counter was wiped by the reset
  the first `history` fetch after re-pairing (Steps 6-8 above) reads `device_last_event=nil` (a wiped counter with no events yet), not resuming from the pre-reset baseline. (`MAX(event_number)` in the local `device_event` table still reads old rows -- a reset doesn't delete rows recorded locally before it -- so query by `device_event_id DESC`, and rely on the live `device_last_event=nil` for the wipe evidence. This must run **after** the re-pair, not before: the app stops history fetches while forgotten (see Step 5), so the only post-reset fetch is the one the re-pair's startup triggers. Seeing a *real* post-reset event with the device's own low numbering needs a physical flip -- that's the Interactive counterpart.)
 ```toml step
 use = "method-24.e"
@@ -512,7 +512,7 @@ since_id = "$before_reset_id"
 expect_contains = "device_last_event=nil"
 timeout_seconds = 30
 ```
-- [ ] Step 10: Close the Settings window
+- [x] Step 10: Close the Settings window
 (opened in Scenario A Step 1) so the next checklist starts with no stray window open. [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"

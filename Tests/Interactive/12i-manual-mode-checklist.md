@@ -1,6 +1,6 @@
 # Manual Mode Checklist
 
-### Last run - 2026-08-11 18:34 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 The half of manual mode that needs the airspace to be genuinely empty.
 
@@ -31,13 +31,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 `Tests/00-test-setup.md`. `Bench/12b` has already run and restored `config.json`, so the PIN in that
 file is the real one -- this scenario must fail on the radio, not on a password.
 
-- [ ] **(Claude)** Step 1: Confirm `db_type` reads **test**.
+- [x] **(Claude)** Step 1: Confirm `db_type` reads **test**.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [ ] **(Claude)** Step 2: Confirm the app is currently connected to the cube.
+- [x] **(Claude)** Step 2: Confirm the app is currently connected to the cube.
 The premise: the only thing that changes below is the radio. Starting from an already-unreachable
 device would make every assertion here pass for a reason the checklist is not testing.
 Read from the live `connection` setting rather than the newest `TimeFlip` log row, for the reason
@@ -56,20 +56,20 @@ expect = "1"
 **Preconditions:** Setup complete: test database, device connected, `config.json` holding the real
 PIN.
 
-- [ ] **(Claude)** Step 1: Quit the app before the radio goes off.
+- [x] **(Claude)** Step 1: Quit the app before the radio goes off.
 Quitting first keeps the disconnect out of the picture: what is under test is a **scan** that finds
 nothing at startup, not a connection being lost. [Method: Number 3](../Methods.md#method-3).
 ```toml step
 use = "method-3"
 ```
-- [ ] **(You)** Step 2: Turn Bluetooth off.
+- [x] **(You)** Step 2: Turn Bluetooth off.
 Menu bar Bluetooth icon, or System Settings -> Bluetooth. Detected automatically once the app is
 launched below; this step only waits for you to say it is off.
 ```toml step
 action = "ask_user"
 prompt = "Turn Bluetooth OFF (do this only if your keyboard and mouse are NOT Bluetooth). Is it off? (y/n)"
 ```
-- [ ] **(Claude)** Step 3: Capture the log baseline, then launch.
+- [x] **(Claude)** Step 3: Capture the log baseline, then launch.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -78,7 +78,7 @@ capture = "before_radio_off_launch"
 [[actions]]
 use = "method-2"
 ```
-- [ ] **(Claude)** Step 4: Confirm the scan found **nothing**.
+- [x] **(Claude)** Step 4: Confirm the scan found **nothing**.
 The line that separates this run from `12b`'s, where the same dialog is reached with the cube listed
 by name.
 ```toml step
@@ -87,7 +87,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'eligib
 expect_contains = "none"
 timeout_seconds = 90
 ```
-- [ ] **(Claude)** Step 5: Confirm the offer blames the empty scan and not a PIN.
+- [x] **(Claude)** Step 5: Confirm the offer blames the empty scan and not a PIN.
 The other half of the pair `12b` Step 6 pins. Both wordings come from one place, chosen from what the
 attempt actually counted rather than from which code path happened to get there first -- which is the
 bug that made a refused PIN read as a range problem.
@@ -97,7 +97,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "nothing eligible found in the scan"
 timeout_seconds = 60
 ```
-- [ ] **(Claude)** Step 6: Confirm the dialog is on screen.
+- [x] **(Claude)** Step 6: Confirm the dialog is on screen.
 An `NSAlert` from an app with no window open, raised here with no radio at all -- the state a user
 who has left their cube at home actually meets. [Method: Number 29](../Methods.md#method-29).
 ```toml step
@@ -110,7 +110,7 @@ tell application "System Events"
 end tell"""
 expect_contains = "Switch to Manual Mode"
 ```
-- [ ] **(Claude)** Step 7: Take manual mode and confirm a session starts with no device at all.
+- [x] **(Claude)** Step 7: Take manual mode and confirm a session starts with no device at all.
 `12b` proves the same thing with a cube sitting a metre away, refusing. This proves it with nothing
 there, which is the case the feature exists for.
 [Method: Number 29](../Methods.md#method-29).
@@ -134,14 +134,14 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM debug_log WHERE tag='manual-mode' AND message LIKE 'Offering manual mode:%' AND debug_log_id > $before_offline_answer;"
 expect = "0"
 ```
-- [ ] **(Claude)** Step 8: Confirm the menu bar draws the session rather than the bare app name.
+- [x] **(Claude)** Step 8: Confirm the menu bar draws the session rather than the bare app name.
 Nothing has ever been reached this launch, and that is exactly the state the display rules used to
 read as "nothing is happening". [Method: Number 27](../Methods.md#method-27).
 ```toml step
 use = "method-27"
 expect_contains = "0:00:00"
 ```
-- [ ] **(Claude)** Step 9: Quit, and confirm the mode does not survive it.
+- [x] **(Claude)** Step 9: Quit, and confirm the mode does not survive it.
 Quitting is the only way out, so the next launch has to come up trying for the device again rather
 than remembering the choice -- which is why nothing about manual mode is persisted, and why there is
 nowhere to persist it to. [Method: Number 3](../Methods.md#method-3).
@@ -153,12 +153,12 @@ use = "method-3"
 
 **Preconditions:** Scenario A complete: the app quit, Bluetooth still off.
 
-- [ ] **(You)** Step 1: Turn Bluetooth back on.
+- [x] **(You)** Step 1: Turn Bluetooth back on.
 ```toml step
 action = "ask_user"
 prompt = "Turn Bluetooth back ON. Is it on? (y/n)"
 ```
-- [ ] **(Claude)** Step 2: Relaunch and confirm the app reaches the cube again with no dialog.
+- [x] **(Claude)** Step 2: Relaunch and confirm the app reaches the cube again with no dialog.
 The state the next checklist inherits, and the proof that manual mode was per-launch: this launch
 had no memory of it and went straight back to the device. Methods:
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
