@@ -701,50 +701,35 @@ def act_ensure_unlocked_unpaused(spec, ctx):
     return StepResult(True, detail)
 
 
-def _clicks_to_reach(target, from_count, running):
-    """How many pause-toggle clicks take the device's event counter to `target` and leave it running.
-
-    One click is one event, so it is the shortfall, rounded up to the parity that ends unpaused.
-    Worked example, the one this was specified against: 9 events and running needs two clicks, the
-    first pausing (which makes it 10) and the second unpausing. A device found *already* paused
-    needs the opposite parity, and needs a click even at the target, to leave it running.
-    """
-    needed = max(0, target - from_count)
-    if running:
-        return needed if needed % 2 == 0 else needed + 1
-    return needed if needed % 2 == 1 else needed + 1
-
-
 def act_build_device_history(spec, ctx):
-    """Drive the device's own event counter up to `target` by pausing and unpausing it, with the
-    status item's right half.
+    """Click the status item's right half until the device's own event counter reaches `target`.
 
-    Each pause ends the interval the device is recording and each unpause opens another, so the
-    device allocates a fresh event number per click -- which is what `01b` needs. That checklist
-    resumes a history fetch *from an event number*, so the counter is the thing that has to climb;
-    a row count would not do.
+    Each pause ends the interval the device is recording and each unpause opens another, so it
+    allocates a fresh event number per toggle -- which is what `01b` needs. That checklist resumes a
+    history fetch *from an event number*, so the counter is the thing that has to climb; a row count
+    would not do.
 
     This used to be ten physical flips: a prompt, and a poll with no timeout, while somebody turned
     the cube over and over. The cube does not have to move to produce history, and the intervals a
     toggle produces are the *harmless* kind: `convertEligibleEvents` filters on `paused = 0`, so
     every second one never becomes a `time_entry` and cannot land in the totals `10b` and `11b`
-    measure, where ten real flips onto real faces could (see Step 16's bug entry, where a 9-second
+    measure, where ten real flips onto real faces could (see Step 17's bug entry, where a 9-second
     flip onto face 5 read as fixture damage).
 
-    **The click count is computed, not polled for.** One click is one event, so the arithmetic is
-    the shortfall plus whatever parity leaves the device *running* at the end, which is the state
-    Step 13 guarantees and every checklist after it assumes. At 9 events and running, that is two
-    clicks: the first pauses and makes it 10, the second unpauses. The counter is re-read afterwards
-    and topped up **in pairs** if a toggle turned out not to allocate a number, so the calculation
-    is the plan rather than an assumption nothing checks.
+    **A loop, not a computed click count.** It was computed first, and the arithmetic was sound: the
+    shortfall, rounded up to whatever parity left the device unpaused. The parity was the only reason
+    for it, and leaving the device unpaused is the *next* step's job, so once that moved out there
+    was nothing left for the calculation to buy. A loop also cannot be wrong about how many event
+    numbers a toggle produces, which any calculation has to assume: measured 2026-08-12, six clicks
+    against a counter of 4 left it reading 11.
 
     `click_gap_seconds` has a floor rather than a preference behind it: a `togglePause` fires
     `NSEvent.doubleClickInterval` after the click that scheduled it (`MenuBarController`), so the
     gap has to exceed that or a click lands while the previous toggle is still pending. 1s clears
     the 0.5s default. It is not a double-click hazard -- `cgevent_click` posts an explicit
-    `clickState` of 1, so each arrives as `clickCount=1` -- but the `-> togglePause` check below
-    proves that per click rather than trusting it, because a click read as a lock would freeze face
-    switching for every checklist that follows.
+    `clickState` of 1, so each arrives as `clickCount=1` -- but the `-> lockDevice` check below
+    proves that rather than trusting it, because a click read as a lock would freeze face switching
+    for every checklist that follows.
 
     Reads only real rows (`event_number < 900000`). The seeded report fixture numbers from 900001,
     and a fixture row read as the newest would satisfy any target instantly -- the same trap
@@ -752,8 +737,8 @@ def act_build_device_history(spec, ctx):
     """
     target = int(spec.get("target", 10))
     gap = float(spec.get("click_gap_seconds", 1.0))
-    settle = float(spec.get("settle_seconds", 8))
-    max_top_ups = int(spec.get("max_top_up_pairs", 5))
+    settle = float(spec.get("settle_seconds", 6))
+    max_clicks = int(spec.get("max_clicks", 25))
     db_path = ctx["db_path"]
 
     def counter():
@@ -774,46 +759,63 @@ def act_build_device_history(spec, ctx):
             f"the dropdown offers neither Pause nor Resume ({', '.join(names)}) -- there is no "
             "device to pause, so no history can be built",
         )
-    running = "Resume" not in names
     started_at = counter()
-    planned = _clicks_to_reach(target, started_at, running)
-    if planned == 0:
-        return StepResult(True, f"event counter already {started_at} (target {target}), device running",
+    if started_at >= target:
+        return StepResult(True, f"event counter already {started_at} (target {target})",
                           value=str(started_at))
 
     baseline = log_head()
     clicked = 0
 
-    def click_once():
-        nonlocal clicked
-        result = act_cgevent_click({"target": "status_item_right", "mode": "single"}, ctx)
-        if not result.success:
-            return False, result.detail
-        clicked += 1
-        time.sleep(gap)
-        return True, None
+    def clicks_logged_since(log_id):
+        rows, _ = _run_sql(db_path, (
+            "SELECT COUNT(*) FROM debug_log WHERE tag='click' "
+            f"AND debug_log_id > {log_id} AND message LIKE 'Status item clicked:%';"
+        ))
+        return int(rows[0][0]) if rows else 0
 
-    for _ in range(planned):
+    def click_once():
+        """One right-half click, confirmed to have landed.
+
+        Confirmed rather than assumed, because one silently did not: measured 2026-08-12, six clicks
+        were posted and five reached `handleStatusItemClick`. The status item's width tracks its own
+        title, and pausing changes that title, so the point computed from the previous layout can
+        fall outside the item -- the locator is re-read per click, but the app has not necessarily
+        re-laid out by then. The app logs every click it receives, so a missing line is the signal,
+        and one retry is enough for a layout that has since settled.
+        """
+        nonlocal clicked
+        for attempt in (1, 2):
+            before = log_head()
+            result = act_cgevent_click({"target": "status_item_right", "mode": "single"}, ctx)
+            if not result.success:
+                return False, result.detail
+            time.sleep(gap)
+            if clicks_logged_since(before):
+                clicked += 1
+                return True, None
+            if attempt == 2:
+                return False, "the click did not reach the app (no 'Status item clicked' line), twice"
+        return False, "unreachable"
+
+    while True:
+        current = counter()
+        if current >= target:
+            break
+        if clicked >= max_clicks:
+            return StepResult(
+                False,
+                f"event counter reached {current} of {target} after {max_clicks} clicks -- giving up "
+                "rather than clicking forever. Is the device still connected?",
+            )
         ok, detail = click_once()
         if not ok:
-            return StepResult(False, f"click {clicked + 1} of {planned} failed: {detail}")
-
-    # Give the last toggle's history refresh time to land before reading the counter.
-    deadline = time.time() + settle
-    while time.time() < deadline and counter() < target:
-        time.sleep(1)
-
-    # A toggle that allocated no number leaves the counter short. Top up in pairs, which keeps the
-    # parity, so the device is still running whatever this loop does.
-    top_ups = 0
-    while counter() < target and top_ups < max_top_ups:
-        for _ in range(2):
-            ok, detail = click_once()
-            if not ok:
-                return StepResult(False, f"top-up click failed: {detail}")
-        top_ups += 1
+            return StepResult(False, f"click {clicked + 1} failed: {detail}")
+        # The app refreshes history straight after a pause toggle, so the row lands in a second or
+        # two. Poll for it, then click again regardless: a toggle that produced no new number is not
+        # an error, it just means another click is needed.
         deadline = time.time() + settle
-        while time.time() < deadline and counter() < target:
+        while time.time() < deadline and counter() == current:
             time.sleep(1)
 
     finished_at = counter()
@@ -825,18 +827,14 @@ def act_build_device_history(spec, ctx):
     if locks:
         return StepResult(False, f"{locks} of {clicked} clicks resolved to lockDevice, not togglePause -- "
                                  f"raise click_gap_seconds above NSEvent.doubleClickInterval")
-    if finished_at < target:
-        return StepResult(
-            False,
-            f"event counter reached {finished_at} of {target} after {clicked} clicks "
-            f"({landed} logged). Is the device still connected?",
-        )
-    if "Resume" in _menu_item_names():
-        return StepResult(False, f"counter reached {finished_at}, but the device was left paused")
+    # The counter is the whole gate, and the loop above is the only way out of it, so there is nothing
+    # left to assert here. Whether the device ended up paused is deliberately not asked: it is the
+    # next step's question, and asking it here -- once, and fatally -- is what halted a run at a
+    # perfectly good counter of 11 on 2026-08-12.
     return StepResult(
         True,
         f"event counter {started_at} -> {finished_at} (target {target}) via {clicked} right-half "
-        f"clicks, {landed} logged, device left running",
+        f"clicks, {landed} logged",
         value=str(finished_at),
     )
 
