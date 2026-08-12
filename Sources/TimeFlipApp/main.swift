@@ -10,10 +10,14 @@ import Foundation
 
 do {
     let outcome = try DatabaseBootstrap.ensureDatabase()
-    print("database: \(outcome.databaseURL.path)")
-    print(outcome.createdDatabase ? "created it" : "already existed")
-    print("applied \(outcome.filesApplied.count) file(s)")
+    DeveloperMode.debugPrint(.database, "\(outcome.databaseURL.path)")
+    DeveloperMode.debugPrint(
+        .database,
+        "\(outcome.createdDatabase ? "created" : "already existed"), applied \(outcome.filesApplied.count) file(s)"
+    )
 } catch {
+    // Not gated on the dev flag, unlike the lines above. This is the app refusing to start, and the
+    // reason has to reach whoever launched it whether or not they are running a dev build.
     let message = (error as? DatabaseBootstrap.Failure)?.description ?? error.localizedDescription
     FileHandle.standardError.write(Data("timeflip: \(message)\n".utf8))
     exit(EXIT_FAILURE)

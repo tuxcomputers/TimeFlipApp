@@ -79,14 +79,20 @@ final class MenuBarController: NSObject {
         // one that cannot leave someone stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
 
-        // TODO, when the debug log is rebuilt: the archived controller logged every click here as
-        // `Status item clicked: side=left clickCount=1 -> showMenu`, and that line is not decoration.
-        // The test harness confirms a *synthetic* click actually landed by finding it (see
-        // `build_device_history` in `scripts/testrunner/actions.py`), which is how a click that never
-        // reached the app was caught: six clicks posted, five log lines. With no debug log yet there
-        // is nothing to write it to, so the harness has no confirmation to read until there is.
+        let action = StatusItemClickRouter.action(isLeftSide: isLeftSide)
+        // Not decoration. The test harness confirms a *synthetic* click actually landed by finding this
+        // line, which is how a click that never reached the app was caught: six posted, five logged
+        // (`build_device_history` in `scripts/testrunner/actions.py`). Same wording as the archived
+        // controller's, so the harness's existing matcher still finds it.
+        //
+        // TODO: the harness reads `debug_log` **rows**, not console text, so this only becomes usable
+        // to it again when `DeveloperMode.logSink` and the table's writer are back.
+        DeveloperMode.debugPrint(
+            .click,
+            "Status item clicked: side=\(isLeftSide ? "left" : "right") clickCount=\(event.clickCount) -> \(action)"
+        )
 
-        switch StatusItemClickRouter.action(isLeftSide: isLeftSide) {
+        switch action {
         case .showMenu:
             showMenu()
         case .ignore:
@@ -108,6 +114,7 @@ final class MenuBarController: NSObject {
 
     @objc
     private func menuQuit() {
+        DeveloperMode.debugPrint(.menu, "Menu clicked: Quit")
         NSApp.terminate(nil)
     }
 }
