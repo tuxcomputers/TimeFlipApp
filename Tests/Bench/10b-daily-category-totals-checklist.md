@@ -1,6 +1,6 @@
 # Daily Category Totals Checklist
 
-### Last run - 2026-08-11 18:20 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 Covers the menu bar's day figure being a **category** total rather than a face total: the number
 drawn beside the activity name, and the `daily_limit` tested against it, both key off

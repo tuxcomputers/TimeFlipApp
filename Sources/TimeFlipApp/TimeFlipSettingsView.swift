@@ -278,24 +278,24 @@ struct TimeFlipSettingsView: View {
                     // `.accessibilityLabel` does NOT fix this here -- verified on the device
                     // 2026-07-31, AXDescription still never appears. `.accessibilityIdentifier`
                     // does: it adds AXIdentifier, which System Events can filter on.
-                    // No confirmation here, deliberately. Forgetting cannot leave the device on a
-                    // PIN nobody knows: `resetAndForgetDevice` writes the factory default over
-                    // 0x30, logs in again with that default to prove the device took it, and only
-                    // then unpairs. A failed reset leaves the device paired and says so, so there
-                    // is no state to warn the user about in advance.
+                    // No confirmation here, deliberately, and nothing async: forgetting is local
+                    // bookkeeping, so there is no device round trip to await and no failure to
+                    // report. It drops the pairing and leaves both the cube and the stored PIN
+                    // exactly as they are -- see `AppState.forgetDevice`, which also records why it
+                    // must never need the device.
                     Button("Forget Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Forget Device")
-                        Task { await appState.resetAndForgetDevice() }
+                        appState.forgetDevice()
                     }
                     .accessibilityIdentifier("forget-device")
-                    .disabled(!pairingActionsEnabled)
+                    .disabled(!forgetEnabled)
 
                     Button("Reset Device") {
                         DeveloperMode.debugPrint(.click, "Button clicked: Reset Device")
                         showingFactoryResetConfirmation = true
                     }
                     .accessibilityIdentifier("reset-device")
-                    .disabled(!pairingActionsEnabled)
+                    .disabled(!resetEnabled)
                     .confirmationDialog(
                         "Reset this TimeFlip to factory settings?",
                         isPresented: $showingFactoryResetConfirmation,
@@ -670,10 +670,17 @@ struct TimeFlipSettingsView: View {
         appState.isConnected || appState.connectionStatus == .reconnecting
     }
 
-    /// Whether Forget Device and Reset Device are live. See `DeviceTabRules.allowsPairingActions`
-    /// for why manual mode has to switch them off, which is not the reason it sounds like.
-    private var pairingActionsEnabled: Bool {
-        DeviceTabRules.allowsPairingActions(connectionStatus: appState.connectionStatus)
+    /// Whether **Forget Device** is live. Nearly always: it is local, so it stays available exactly
+    /// when the device is not -- see `DeviceTabRules.allowsForget`.
+    private var forgetEnabled: Bool {
+        DeviceTabRules.allowsForget(connectionStatus: appState.connectionStatus)
+    }
+
+    /// Whether **Reset Device** is live. A separate rule from Forget's, because manual mode has to
+    /// switch this one off and that is not the reason it sounds like -- see
+    /// `DeviceTabRules.allowsReset`.
+    private var resetEnabled: Bool {
+        DeviceTabRules.allowsReset(connectionStatus: appState.connectionStatus)
     }
 
     /// Name/Connection value colour: black (primary) while the values are live, greyed (secondary)

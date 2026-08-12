@@ -128,7 +128,7 @@ query = "SELECT COALESCE((SELECT CASE WHEN paused = 0 THEN 'TIMING' ELSE 'ok' EN
 expect = "ok"
 ```
 - [x] Step 9: Switch to the test database
--- quit the app (if running), run `scripts/switch-database.sh test $db_mode`, relaunch. On a fresh run (`db_mode` empty) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = -keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). A fresh `test.sqlite` also gets production's `paired`/`device_uuid`/`device_name` rows copied into it, before the relaunch, so the app connects to the device it is already paired to rather than pairing again from scratch: those rows are per-database, and the device's PIN is no longer the factory default once a pairing has rotated it. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
+-- quit the app (if running), run `scripts/switch-database.sh test $db_mode`, relaunch. On a fresh run (`db_mode` empty) the script creates a fresh empty `test.sqlite`; on a resume (`db_mode = -keep`) it preserves the existing `test.sqlite` so state earlier scenarios built survives. Either way it repoints the `appdata.sqlite` symlink at the test DB, and the relaunch still happens (so a rebuilt binary is picked up on resume). A fresh `test.sqlite` therefore reads as **never-paired**, and Step 11 below pairs the cube for real. It used to be handed production's `paired`/`device_uuid`/`device_name` rows instead, so the app could simply connect rather than spending a scan and a click; that stopped on 2026-08-12 because the copy asserts a pairing, and this branch removed the invariant that made the assertion safe. Forget Device used to reset the cube's PIN to the factory default, so `paired` was a usable proxy for which PIN the device held; it touches nothing now, and `02b` Scenario B has made the device's PIN load-bearing. A hand reset then leaves production claiming a pairing that the cube has lost, Step 11 skips on the copied flag, and the run continues against a cube on the factory default -- connecting perfectly well, because the reset writes `000000` into `config.json` too. See the comment in `switch-database.sh` for the full sequence. Methods: [Number 3](Methods.md#method-3) to quit, [Number 2](Methods.md#method-2) to start.
 ```toml step
 [[actions]]
 use = "method-3"
@@ -226,7 +226,9 @@ query = "SELECT COALESCE((SELECT json_extract(setting_value, '$.paired') FROM se
 capture = "paired_state"
 ```
 - [x] Step 11: Pair the device by script
- -- only when it isn't paired (`paired_state != 1`; e.g. a prior run's cleanup reset left it never-paired). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](Methods.md#method-9) / `cgevent_click_element`), and wait for the pairing-complete marker (`"Device password confirmed set to:"`, `> current_log_id`). Skipped (and ticked) when already paired. If the automated click doesn't land, the prompt asks you to click the row yourself. Closes the Settings window afterwards ([Method: Number 23](Methods.md#method-23)) so setup leaves no stray window open.
+ -- which is **every fresh run** since 2026-08-12, because a rebuilt `test.sqlite` no longer inherits production's pairing (see Step 9). Open the Device tab, click **Scan for Devices**, coordinate-click the discovered row ([Method: Number 9](Methods.md#method-9) / `cgevent_click_element`), and wait for `paired` to read true. Still gated on `paired_state != 1`, so a resume (`--keep-db`, which preserves the database and its pairing) skips it and ticks. If the automated click doesn't land, the prompt asks you to click the row yourself. Closes the Settings window afterwards ([Method: Number 23](Methods.md#method-23)) so setup leaves no stray window open.
+Pairing rather than assuming is the point: it presents the factory default and then the stored PIN, so it reaches a cube in either state without anything having to know which, and a cube on the default is rotated on the way -- which is the state `02b` Scenario B needs and the state a copied `paired` flag could not guarantee.
+It waited on `"Device password confirmed set to:"` and timed out at 60s **against a pairing that had already succeeded** (2026-08-12). That message is the *rotation* marker: only a cube answering on the factory default has its PIN changed, and one reached on the stored PIN is left alone (`PairingPasswordRules`). Both are pairings, and this step's normal case is only the first because the end-of-run cleanup reset leaves the cube on the default -- so the assumption held until something else left the app unpaired with the cube still on a rotated PIN, which a plain Forget does. `paired` reading true covers both, and is the thing this step is actually about.
 ```toml step
 when = '$paired_state != 1'
 
@@ -253,8 +255,8 @@ element = 'first static text of group 3 of scroll area 1 of group 1 of window "T
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='TimeFlip' AND message LIKE 'Device password confirmed set to:%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "Device password confirmed set to:"
+query = "SELECT setting_value FROM setting WHERE setting_name='paired';"
+expect_contains = "true"
 prompt = "Pairing the device automatically -- if it doesn't complete within a few seconds, click its row in the discovered list yourself."
 timeout_seconds = 60
 
@@ -271,7 +273,7 @@ prompt = "The device isn't connecting on the test database. It's already paired 
 timeout_seconds = 120
 ```
 - [x] Step 13: Leave the device unlocked and unpaused
- so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave Step 15's flips dead (a lock freezes face switching).
+ so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave the state Step 15 computes its click count from wrong (it reads the Pause/Resume label to know which parity ends with the device running).
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
@@ -282,22 +284,34 @@ setting = "db_type"
 expect = '{"type":"test"}'
 ```
 - [x] Step 15: Build up device history to **≥ 10 events**
--- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it prompts you to flip and polls with **no timeout** -- take as long as you need, it won't fail the run. Confirmed on the test DB (Step 14 above) so real flips record to `test.sqlite`.
+-- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it clicks the status item's right half the number of times the shortfall needs, which needs nobody and never moves the cube. Confirmed on the test DB (Step 14 above) so the rows record to `test.sqlite`.
+It was ten physical flips until 2026-08-12, with a prompt and no timeout. Each pause ends the interval the device is recording and each unpause opens another, so the device numbers a toggle exactly as it numbers a flip -- and `01b` resumes a fetch *from an event number*, so the counter is all that has to climb.
+**Click, check, click, check, end.** No arithmetic: it clicks, reads the counter, and stops the moment it is at the target, so it cannot be wrong about how many event numbers a toggle produces -- measured 2026-08-12, six clicks against a counter of 4 left it reading 11. Each click is confirmed to have reached the app before the next one, from the `Status item clicked` line the app logs for every click it receives, and retried once if it did not: one silently missed on the first live run, because the status item's width tracks its own title and pausing changes that title, so a point computed from the previous layout can fall outside the item. Clicks are 1s apart, which is a floor rather than a preference -- a `togglePause` fires `NSEvent.doubleClickInterval` after the click that scheduled it, so a shorter gap lands a click while the previous toggle is still pending. `max_clicks` stops it clicking forever at a device that has stopped answering.
+The paused half of each cycle is also the harmless kind of row: `convertEligibleEvents` filters `paused = 0`, so it never becomes a `time_entry` and cannot land in the totals `10b` and `11b` measure, which ten real flips onto real faces could (see Step 17's bug entry below). `build_device_history` in `scripts/testrunner/actions.py` holds the arithmetic and the rest of the reasoning.
+**The counter reaching the target is the whole gate here.** Whether the toggling left the device paused is Step 16's question, not this one: the parity aims to leave it running, but a stray toggle is not a reason to fail a step that got what it came for, and one step asking two questions is what made this fail the first time it ran.
 ```toml step
 when = '$needs_history == y'
-action = "wait_for_sql"
-query = "SELECT COALESCE((SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'building=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1), 'building=0');"
-expect = "ok"
-prompt = "The history-refresh checklist needs at least 10 device events. Flip the device between faces (e.g. Break and Meeting) until this proceeds, then leave it resting on one face."
-timeout_seconds = 0
-poll_interval = 3
+action = "build_device_history"
+target = 10
 ```
-- [x] Step 16: Confirm you've **stopped flipping**
- and the device is resting on one face before any checklist runs -- the ≥10 monitor above returns the instant the count hits 10, which can be mid-flip, so `01b`'s "event count unchanged" scenario would otherwise race a still-climbing counter. Only when history was being built (`needs_history = y`).
+### Bugs found and fixed - branch 'feature/dailyLimit'
+2026-08-12 - Failed on its first live run at a counter of **11**, against a target of 10. It asked two
+questions and reported a state problem as a history-building failure: an end-state check treated
+"left paused" as fatal and halted a run that had reached its target. The state is Step 16's now, and
+the click count is a loop rather than a calculation, so nothing depends on the parity that check was
+protecting. Two real faults behind it: one of the six posted clicks never reached the app at all
+(five `Status item clicked` lines for six clicks -- the status item's width tracks its own title,
+which pausing changes, so a point computed from the previous layout can miss), leaving an odd number
+of toggles and therefore a paused device; and the pause state was read once, the exact trap Step 13's
+resolver exists for. Each click is confirmed against the click log and retried once now.
+2026-08-12 - The entry above was written between the step's prose and its `toml` fence, which
+detached the fence: the step parsed as having no body at all, so the runner would have *asked* about
+it instead of running it. Bug entries go after the fence, as they do everywhere else in the suite.
+- [x] Step 16: Confirm the device is **not paused** before any checklist runs
+ -- the last thing setup does to the device, and the state everything after it assumes. Step 13 already reached it, but Step 15 is the one step that can undo it: a toggle that goes astray leaves the cube stopped, and a stopped cube records nothing, so a checklist waiting on a flip would wait forever against a device that is working perfectly. Resolved rather than asserted, with the same action as Step 13, so a paused device is put right rather than halting the run over a click.
+Ungated on purpose, unlike Step 15. It costs a few seconds on a run that skips the history building, and it makes "the suite starts with a running device" true of every run rather than of most of them. Polls over a settle window instead of reading the label once -- the pause state can arrive a couple of seconds late, which is how a paused device passed for clean before ([Method: Number 30](Methods.md#method-30) reads the same labels).
 ```toml step
-when = '$needs_history == y'
-action = "ask_user"
-prompt = "Stop flipping and leave the device resting on one face. Is it resting and settled now? (y once it's stopped)"
+action = "ensure_unlocked_unpaused"
 ```
 - [x] Step 17: Confirm the report fixture is in place, and behind everything the run records
  -- the five categories and five segments `Bench/11b` and `Bench/14b` measure, seeded back in Step 9. **Seeded there, not here, and the position is the whole point.** These rows are synthetic `device_event`s, and several checklists read *the latest* `device_event` by `device_event_id` -- `01b` Setup asserts it is the open, growing one (`finalised = 0`), and `Method 24.c` hands that row to whoever asks. Seeded at the end of setup they took the highest ids and became that row, failing `01b` with `finalised = 1` (measured 2026-08-08, ids 10-12 against real rows 1-9). Inserted into the freshly-created `test.sqlite` before the app has ever launched, they take ids 1-5 instead and every real row lands after them, so the newest is always a real one. Three of the categories are for `11b`, in three states -- active on a face, active on no face, and retired -- because a report shows *time*, not *current* categories: it must include one the Faces list and `loadCategories()` both filter out. Durations of 30:29, 45:30 and 60:31 on the days 5, 4 and 3 back make every range `11b` asserts a different figure, and dating them days back keeps them clear of anything the cube records today. The seconds are not decoration: they straddle the half-minute (29 below, 30 exactly on it, 31 above), so `11b`'s seconds-off assertions prove the figure is **truncated** to the minute rather than rounded. On round durations those assertions read the same either way and proved nothing.
@@ -309,7 +323,7 @@ Their entries are 10 and 20 days back, well clear of the 3-to-5 the `11b` rows o
 **The sums below are scoped by `event_number`, not by category**, and that distinction is the
 difference between measuring the fixture and measuring the room. `ZZ Assigned` owns face 5, because
 `11b` needs a category that is *currently on a face*, so real time lands on it whenever the cube
-rests there: during Step 15's flipping, or from an earlier run the cube still remembers, since a
+rests there: from an earlier run the cube still remembers, since a
 halted run skips the cleanup reset and the next run's history fetch pours those events into the
 fresh test database. Measured 2026-08-10: a 9-second segment on face 5, recorded at 20:42 during a
 run that halted, re-ingested an hour later and read as `8199` against an expected `8190`. Nothing

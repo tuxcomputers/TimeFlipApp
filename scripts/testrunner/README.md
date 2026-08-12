@@ -20,8 +20,10 @@ scripts/testrunner/run_tests.sh --keep-db              # everything, against the
 `--keep-db` passes `-keep` to `switch-database.sh test` even on a from-the-top run, so an existing
 `test.sqlite` survives instead of being deleted and reseeded. It exists for a test database
 **seeded by hand** -- `device_event` rows copied in from production, which satisfy
-`00-test-setup.md` Step 15's ≥10-event gate immediately and save flipping the cube ten times to
-build history that already exists. Without the flag a full run wipes exactly that work. It forces
+`00-test-setup.md` Step 15's ≥10-event gate immediately. Without the flag a full run wipes exactly
+that work, though it costs less than it used to: since 2026-08-12 that gate builds its own history
+by pausing and unpausing the device (`build_device_history`) instead of asking somebody to flip the
+cube ten times. It forces
 only `db_mode`, not `resume`, so Step 1 still asks whether to record production history first
 rather than skipping that as a side effect. A resume (`s`) already keeps the database anyway.
 

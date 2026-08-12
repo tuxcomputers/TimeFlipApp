@@ -1,6 +1,6 @@
 # Categories Tab Checklist
 
-### Last run - 2026-08-11 18:30 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 One scenario, and only because of where the lock control lives.
 
@@ -113,7 +113,9 @@ tab = "Faces"
       broken step rather than as a finding. The write is what confirms it, not an answer
       ([Method: Number 19](../Methods.md#method-19)) -- but a detected step still needs a `prompt`,
       which is the only thing that raises the ACTION NEEDED banner; without one the runner polls in
-      silence and the step reads as though nothing is being asked for. No timeout, as in Step 3.
+      silence and the step reads as though nothing is being asked for. No timeout, as in Step 3 --
+      which is also what makes the banner immediate: an indefinite wait gets no grace period, since
+      nothing but a hand will ever satisfy it (see `act_wait_for_sql`, and the bug below).
 ```toml step
 action = "wait_for_sql"
 query = "SELECT locked FROM face WHERE face_id = 8;"
@@ -122,6 +124,11 @@ prompt = "On the Faces tab, click the lock toggle over the top-left of the drawn
 timeout_seconds = 0
 poll_interval = 2
 ```
+### Bugs found and fixed - branch 'feature/dailyLimit'
+2026-08-12 - The step asked for a hand with no ACTION NEEDED banner: `wait_for_sql` held its nudge
+back for a 5s grace period, and an unlock done inside that window satisfied the poll first, so the
+banner only ever appeared for a person slow enough to need it. An indefinite wait now nudges before
+its first poll; a timed one keeps the grace period that stops a relaunch crying wolf.
 - [x] **(Claude)** Step 7: Back on the Categories tab, confirm `Break`'s Active box is now live.
       No relaunch and no re-read between the unlock and this: the box is driven by published state,
       which is the whole reason it can answer at all.

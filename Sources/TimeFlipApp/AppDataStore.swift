@@ -198,6 +198,26 @@ final class AppDataStore {
     // takes the insert path without needing Optional handling at every comparison site.
     private var maxKnownStartEpoch: Int64 = -1
 
+    // The event_number of the newest row *within* maxKnownStartEpoch, which is what tells two events
+    // sharing one second apart. start_epoch stays the ordering source of truth for the reason above,
+    // and this is only ever consulted as its tie-break -- so a device-side reset, which arrives with
+    // a later epoch, still wins on the epoch alone and never has its low event_number compared.
+    //
+    // Needed because start_epoch is whole seconds and events genuinely arrive inside one. Measured
+    // 2026-08-12: a daily limit's pause produced events 72 (the flip) through 76 in the same second,
+    // and with the epoch as the only test, the close-out that finalises the previous open row never
+    // fired again after 72 -- leaving 72 permanently claiming to be the live segment, unpaused and
+    // unfinalised, alongside the row that really was live. A row stuck like that is never converted
+    // (conversion wants finalised = 1), so with a duration worth keeping it would have been lost.
+    //
+    // Scope deliberately matches maxKnownStartEpoch, manual-mode rows included (see resumeCursor for
+    // why they are excluded *there*). Their event numbers are seeded from the wall clock and so are
+    // not comparable with a cube's counter, which only matters if a manual row and a device event
+    // land in the same second -- then the manual row's ~1.79 billion wins the tie-break and the
+    // device event is inserted already finalised. It cannot strand the manual row, which is closed by
+    // closeOpenManualSegment on its own path.
+    private var maxKnownEventNumber: Int64 = -1
+
     // The `timezone.timezone_id` of the device's current IANA time zone, resolved once at startup
     // (get-or-create, see `resolveTimezoneID`) and bound into every date/time row's
     // `<name>_timezone_id` foreign key. Cached because the zone identifier changes only if the OS's
@@ -239,22 +259,38 @@ final class AppDataStore {
         loadMaxKnownStartEpoch()
     }
 
-    /// Seeds `maxKnownStartEpoch` from whatever `device_event` rows already exist on disk, so
-    /// the update-vs-insert and finalised logic in `recordDeviceEvent` is correct across app
-    /// restarts, not just within this process's lifetime. Leaves it at -1 (see property comment)
-    /// when the table is empty and `MAX(start_epoch)` comes back NULL.
+    /// Seeds `maxKnownStartEpoch` and its `maxKnownEventNumber` tie-break from whatever
+    /// `device_event` rows already exist on disk, so the update-vs-insert and finalised logic in
+    /// `recordDeviceEvent` is correct across app restarts, not just within this process's lifetime.
+    /// Leaves both at -1 (see property comments) when the table is empty and `MAX(start_epoch)`
+    /// comes back NULL.
+    ///
+    /// One statement for both, so they can never be seeded from different reads of a table another
+    /// connection is writing: the event number is scoped to the epoch by the subquery rather than
+    /// being a second `MAX` over the whole table, which would pick up a higher number from an
+    /// earlier second after a device reset.
     private func loadMaxKnownStartEpoch() {
         guard let db else { return }
+        let sql = """
+        SELECT MAX(start_epoch),
+               (SELECT MAX(event_number) FROM device_event
+                 WHERE start_epoch = (SELECT MAX(start_epoch) FROM device_event))
+        FROM device_event;
+        """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_event;", -1, &stmt, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             logger.error("loadMaxKnownStartEpoch prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return
         }
         if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
             maxKnownStartEpoch = sqlite3_column_int64(stmt, 0)
+            maxKnownEventNumber = sqlite3_column_type(stmt, 1) != SQLITE_NULL
+                ? sqlite3_column_int64(stmt, 1)
+                : -1
         } else {
             maxKnownStartEpoch = -1
+            maxKnownEventNumber = -1
         }
         sqlite3_finalize(stmt)
     }
@@ -351,16 +387,21 @@ final class AppDataStore {
     ///
     /// - A row already exists for `(event_number, start_epoch)`: this is a re-ingestion of a
     ///   segment already recorded -- either the still-open live frame growing in duration, or an
-    ///   already-closed frame being resent. Updated in place; `finalised` is `0` only if
-    ///   `start_epoch == maxKnownStartEpoch` (it's still the newest thing on record), else `1`.
-    /// - No existing row, and `start_epoch > maxKnownStartEpoch` (a new high-water mark): any
-    ///   previously-open row is closed out (`finalised` set to `1` wherever it isn't already), and
-    ///   the new row is inserted with `finalised = 0` (it's now the in-progress segment -- always
-    ///   the last frame in a history dump, per `docs/timeflip.md` §5). `maxKnownStartEpoch`
-    ///   advances to `startEpoch`.
-    /// - No existing row, but `start_epoch <= maxKnownStartEpoch`: a segment never seen before,
-    ///   arriving out of chronological order (unusual, but not fatal) -- inserted already
-    ///   `finalised = 1`, since it can't be the current live segment.
+    ///   already-closed frame being resent. Updated in place; `finalised` is `0` only if this is
+    ///   still the newest thing on record, else `1`.
+    /// - No existing row, and this is newer than the high-water mark: any previously-open row is
+    ///   closed out (`finalised` set to `1` wherever it isn't already), and the new row is inserted
+    ///   with `finalised = 0` (it's now the in-progress segment -- always the last frame in a
+    ///   history dump, per `docs/timeflip.md` §5). The high-water mark advances.
+    /// - No existing row, but not newer: a segment never seen before, arriving out of chronological
+    ///   order (unusual, but not fatal) -- inserted already `finalised = 1`, since it can't be the
+    ///   current live segment.
+    ///
+    /// "Newest" is the pair `(start_epoch, event_number)`, not `start_epoch` alone, because the epoch
+    /// is whole seconds and several events really do arrive inside one -- see `maxKnownEventNumber`
+    /// for the measured case that made this necessary. The epoch still dominates, so a device reset
+    /// (later epoch, low counter) is unaffected; the event number only separates events the epoch
+    /// cannot.
     ///
     /// `processed` is a separate flag (time_entry creation) and is never touched here.
     @discardableResult
@@ -378,8 +419,16 @@ final class AppDataStore {
         queue.sync {
             let startEpoch = Int64(startedAt.timeIntervalSince1970)
 
+            // The pair the two branches below both order against; see the doc comment.
+            let isNewest = startEpoch > maxKnownStartEpoch
+                || (startEpoch == maxKnownStartEpoch && Int64(eventNumber) > maxKnownEventNumber)
+
             if let existingRowID = selectDeviceEventsRowID(eventNumber: eventNumber, startEpoch: startEpoch) {
-                let finalised = startEpoch == maxKnownStartEpoch ? false : true
+                // Equality, not `isNewest`: a re-send of the live row is the high-water mark rather
+                // than past it. Testing the epoch alone here re-opened an earlier row from the same
+                // second every time the device re-sent it, which is the other half of the stranding
+                // `maxKnownEventNumber` describes.
+                let finalised = !(startEpoch == maxKnownStartEpoch && Int64(eventNumber) == maxKnownEventNumber)
                 let sql = """
                 UPDATE device_event SET
                     event_type_id = (SELECT event_type_id FROM event_type WHERE event_name = ?),
@@ -413,7 +462,7 @@ final class AppDataStore {
                 }
                 sqlite3_finalize(stmt)
             } else {
-                let isNewMax = startEpoch > maxKnownStartEpoch
+                let isNewMax = isNewest
                 if isNewMax {
                     if sqlite3_exec(db, "UPDATE device_event SET finalised = 1 WHERE finalised != 1;", nil, nil, nil) != SQLITE_OK {
                         logger.error("device_event close-out failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
@@ -444,7 +493,10 @@ final class AppDataStore {
                 sqlite3_bind_int(stmt, 9, isNewMax ? 0 : 1)
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     success = true
-                    if isNewMax { maxKnownStartEpoch = startEpoch }
+                    if isNewMax {
+                        maxKnownStartEpoch = startEpoch
+                        maxKnownEventNumber = Int64(eventNumber)
+                    }
                     logger.debug("device_event ev=\(eventNumber, privacy: .public) face=\(deviceFace, privacy: .public) dur=\(durationSeconds, privacy: .public) paused=\(isPaused, privacy: .public) finalised=\(!isNewMax, privacy: .public) inserted=true")
                 } else {
                     logger.error("device_event insert failed ev=\(eventNumber, privacy: .public): \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
@@ -821,29 +873,49 @@ final class AppDataStore {
     func verifyMaxKnownStartEpochConsistency() {
         guard DeveloperMode.isEnabled else { return }
         guard let db else { return }
+        // Both halves of the high-water mark, re-derived the same way loadMaxKnownStartEpoch seeds
+        // them, so the check cannot pass on a tracker that is right about the second and wrong about
+        // which event inside it is live.
+        let sql = """
+        SELECT MAX(start_epoch),
+               (SELECT MAX(event_number) FROM device_event
+                 WHERE start_epoch = (SELECT MAX(start_epoch) FROM device_event))
+        FROM device_event;
+        """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT MAX(start_epoch) FROM device_event;", -1, &stmt, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             logger.error("verifyMaxKnownStartEpochConsistency prepare failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             sqlite3_finalize(stmt)
             return
         }
         var dbMax: Int64 = -1
+        var dbMaxEvent: Int64 = -1
         if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
             dbMax = sqlite3_column_int64(stmt, 0)
+            if sqlite3_column_type(stmt, 1) != SQLITE_NULL {
+                dbMaxEvent = sqlite3_column_int64(stmt, 1)
+            }
         }
         sqlite3_finalize(stmt)
 
-        if dbMax == maxKnownStartEpoch {
-            DeveloperMode.debugPrint(.devCheck, "device_event max_start_epoch OK: in_memory=\(maxKnownStartEpoch) db=\(dbMax)")
+        // The leading "device_event max_start_epoch OK" is asserted by 02i Scenario A, so the event
+        // number is appended rather than woven into it.
+        if dbMax == maxKnownStartEpoch, dbMaxEvent == maxKnownEventNumber {
+            DeveloperMode.debugPrint(
+                .devCheck,
+                "device_event max_start_epoch OK: in_memory=\(maxKnownStartEpoch) db=\(dbMax), newest ev in_memory=\(maxKnownEventNumber) db=\(dbMaxEvent)"
+            )
         } else {
             DeveloperMode.debugPrint(.devCheck, """
             ############################################################
             MISMATCH: device_event max(start_epoch) drifted from the in-memory tracker!
             in-memory maxKnownStartEpoch = \(maxKnownStartEpoch)
             SELECT MAX(start_epoch) FROM device_event = \(dbMax)
+            in-memory maxKnownEventNumber = \(maxKnownEventNumber)
+            newest event_number in that second = \(dbMaxEvent)
             ############################################################
             """)
-            logger.fault("device_event max_start_epoch MISMATCH in_memory=\(self.maxKnownStartEpoch, privacy: .public) db=\(dbMax, privacy: .public)")
+            logger.fault("device_event max_start_epoch MISMATCH in_memory=\(self.maxKnownStartEpoch, privacy: .public) db=\(dbMax, privacy: .public) in_memory_ev=\(self.maxKnownEventNumber, privacy: .public) db_ev=\(dbMaxEvent, privacy: .public)")
         }
     }
 

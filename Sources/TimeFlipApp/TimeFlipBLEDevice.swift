@@ -845,13 +845,17 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// own ack isn't treated as sufficient proof the device will honor it on the next connect.
     func rotateDevicePassword() async -> String? {
         guard isLoggedIn else { return nil }
-        let generatedRandomPassword = DeveloperMode.isEnabled
+        // The **only** difference a dev build makes to pairing: what the PIN is rotated *to*. A fixed
+        // constant, so a dev cube's PIN is always known and typeable if something goes wrong; a random
+        // six digits otherwise. Everything around it -- which passwords pairing tries, when a rotation
+        // happens at all, and where the result is stored -- is identical in both.
+        let newPassword = DeveloperMode.isEnabled
             ? DeveloperMode.devicePassword
             : String(format: "%06d", Int.random(in: 0...999_999))
-        DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(generatedRandomPassword)")
+        DeveloperMode.debugPrint(.timeFlip, "Rotating device password to: \(newPassword)")
         let clock = ContinuousClock()
         let begin = clock.now
-        let payload = Data([0x30]) + Data(generatedRandomPassword.utf8)
+        let payload = Data([0x30]) + Data(newPassword.utf8)
         do {
             _ = try await performCommand(payload)
         } catch {
@@ -862,9 +866,9 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
         let written = clock.now
         DeveloperMode.debugPrint(.connPhase, "password rotate 0x30 write: \(Self.elapsed(from: begin, to: written))")
         do {
-            guard try await attemptLogin(with: generatedRandomPassword) else {
+            guard try await attemptLogin(with: newPassword) else {
                 logger.error("Device rejected re-login with new password; not saving")
-                DeveloperMode.debugPrint(.timeFlip, "Device did NOT confirm new password \(generatedRandomPassword) — not saving")
+                DeveloperMode.debugPrint(.timeFlip, "Device did NOT confirm new password \(newPassword) — not saving")
                 return nil
             }
         } catch {
@@ -873,12 +877,12 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
             return nil
         }
         logger.notice("Device password rotated and confirmed")
-        DeveloperMode.debugPrint(.timeFlip, "Device password confirmed set to: \(generatedRandomPassword)")
+        DeveloperMode.debugPrint(.timeFlip, "Device password confirmed set to: \(newPassword)")
         DeveloperMode.debugPrint(
             .connPhase,
             "password rotate confirm re-login: \(Self.elapsed(from: written, to: clock.now)), total: \(Self.elapsed(from: begin, to: clock.now))"
         )
-        return generatedRandomPassword
+        return newPassword
     }
 
     /// Sets the device password back to the factory default before "Forget Device" clears our
@@ -1047,7 +1051,11 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// -- confirmed against real hardware: a missing event number turned out to be a genuine,
     /// valid 4-second segment the device holds and will return via a single-event (0x01) read, but
     /// deliberately omits from the 0x02 stream. Below this duration, an "absent" event number is
-    /// the device's own documented filtering, not something to recover.
+    /// the device's own documented filtering rather than a dropped notification.
+    ///
+    /// That makes this a **diagnostic** threshold and nothing more: it explains *why* an event was
+    /// missing from the stream, and never decides whether the event is worth keeping. See
+    /// `fillHistoryGaps`.
     private static let minimumStreamedIntervalSeconds: TimeInterval = 5
 
     /// A BLE notification can also be dropped mid-stream (confirmed separately against real
@@ -1056,10 +1064,22 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
     /// because it's under 5 seconds" vs either of those, so this checks for any event number in
     /// [startingFrom...last received] that's absent from the batch, and re-requests each one
     /// individually (the same single-event command readLastEvent uses, just with a real event
-    /// number instead of the 0xFFFFFFFF sentinel). A recovered entry only gets kept if it meets the
-    /// same minimum duration the stream itself requires -- otherwise it's the device's own filter
-    /// working as documented, not a gap. Also recovers frames streamHistory itself skipped due to a
-    /// local parse failure, since that takes the same "missing from entries" shape.
+    /// number instead of the 0xFFFFFFFF sentinel). Also recovers frames streamHistory itself
+    /// skipped due to a local parse failure, since that takes the same "missing from entries" shape.
+    ///
+    /// **Every event the device hands back is kept, whatever its duration.** `device_event` is the
+    /// faithful record of what the cube reported; how short a segment has to be before it stops
+    /// counting as time spent is a separate question, asked once, later, by `blip_time` when
+    /// `convertEligibleEvents` decides what becomes a `time_entry`. A sub-5s recovery used to be
+    /// discarded here on the grounds that the device's own filter explained it -- true as a
+    /// diagnosis, but it also meant the same 0.0s event was recorded when it arrived in a stream and
+    /// dropped when it arrived by gap probe (measured 2026-08-12: events 66 and 69 got rows, 67 did
+    /// not, all three 0.0s pause artefacts of one limit pause). Two paths, two answers, for events
+    /// the device holds either way.
+    ///
+    /// Kept rows are harmless downstream by construction: a recovered gap sits below a later event
+    /// in the same batch, so `recordDeviceEvent` never mistakes it for the live segment, and
+    /// `blip_time` declines to give it a `time_entry`, so no total moves.
     private func fillHistoryGaps(_ entries: [TimeFlipHistoryEntry], startingFrom start: UInt32) async -> [TimeFlipHistoryEntry] {
         guard let lastEventNumber = entries.compactMap(\.eventNumber).max(), lastEventNumber >= start else {
             return entries
@@ -1074,15 +1094,21 @@ final class TimeFlipBLEDevice: NSObject, TimeFlipSessionManaging {
                 DeveloperMode.debugPrint(.histGap, "history gap NOT recovered ev=\(candidate)")
                 continue
             }
-            guard recovered.duration >= Self.minimumStreamedIntervalSeconds else {
-                logger.notice("History gap explained ev=\(candidate, privacy: .public) dur=\(recovered.duration, privacy: .public) (under 5s, device's own filter)")
-                DeveloperMode.debugPrint(.histGap, "history gap explained: ev=\(candidate) dur=\(recovered.duration)s under 5s, device's own filter")
-                continue
-            }
             filled.append(recovered)
             recoveredAny = true
-            logger.notice("History gap recovered ev=\(candidate, privacy: .public)")
-            DeveloperMode.debugPrint(.histGap, "history gap recovered ev=\(candidate)")
+            // Both branches keep the event; they differ only in what the log calls it, because the
+            // distinction is still worth reading. "Explained" means the stream was right to omit it
+            // and nothing was dropped on the way; "recovered" means a frame really did go missing.
+            // The threshold is interpolated rather than written as "5s", so the line cannot outlive
+            // the constant it describes.
+            let seconds = Int(Self.minimumStreamedIntervalSeconds)
+            if recovered.duration < Self.minimumStreamedIntervalSeconds {
+                logger.notice("History gap explained ev=\(candidate, privacy: .public) dur=\(recovered.duration, privacy: .public) (under \(seconds, privacy: .public)s, device's own filter) -- recorded")
+                DeveloperMode.debugPrint(.histGap, "history gap explained: ev=\(candidate) dur=\(recovered.duration)s under \(seconds)s, device's own filter; recorded anyway")
+            } else {
+                logger.notice("History gap recovered ev=\(candidate, privacy: .public)")
+                DeveloperMode.debugPrint(.histGap, "history gap recovered ev=\(candidate)")
+            }
         }
 
         if recoveredAny {

@@ -1,6 +1,6 @@
 # Double-Tap Enabled Persistence Checklist
 
-### Last run - 2026-08-11 17:34 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 Covers the Double-tap **Disable** checkbox's `enabled` flag moving from UserDefaults to being
 DB-backed via `AppDataStore`/the `double_tap_settings` row -- confirms the flag set in the

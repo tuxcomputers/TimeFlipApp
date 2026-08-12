@@ -1,6 +1,6 @@
 # Device Rename Checklist
 
-### Last run - 2026-08-11 18:19 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 Covers renaming the cube: the three right-click targets that open the menu, the write itself, the
 notice that explains why the new name does not show up everywhere, and the documented workaround
@@ -257,8 +257,12 @@ This is the procedure documented for users under "Renaming Your Device" in
 `docs/configuration.md`. It runs here so the documentation cannot quietly go stale.
 
 - [x] Step 1: Forget the device and confirm the notice goes with it.
-      Forget also resets the device password to the factory default and proves it with a real
-      login, which is what makes the re-pair below work.
+      Forgetting is local: it drops the pairing and touches neither the cube's PIN nor the stored one
+      (`AppState.forgetDevice`). The re-pair below therefore reaches the cube on the **stored**
+      password rather than the factory default, which is the second of pairing's two candidates
+      (`PairingPasswordRules`). Until 2026-08-11 this step waited on
+      `Device password confirmed reset to default`, which Forget no longer produces because it no
+      longer resets anything.
 ```toml step
 [[actions]]
 action = "applescript"
@@ -271,9 +275,14 @@ end tell'''
 
 [[actions]]
 action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE message LIKE 'Device password confirmed reset to default%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "confirmed reset to default"
+query = "SELECT message FROM debug_log WHERE tag='click' AND message LIKE 'Button clicked: Forget Device%' AND debug_log_id > $current_log_id ORDER BY debug_log_id DESC LIMIT 1;"
+expect_contains = "Forget Device"
 timeout_seconds = 20
+
+[[actions]]
+action = "sql_query"
+query = "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $current_log_id AND (message LIKE '%reset to default%' OR message LIKE 'Rotating device password%');"
+expect = "0"
 
 [[actions]]
 action = "applescript"

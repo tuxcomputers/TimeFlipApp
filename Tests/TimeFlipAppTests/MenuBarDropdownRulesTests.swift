@@ -8,8 +8,20 @@ import XCTest
 /// right half was taught to pause in manual mode and the menu item above it was left dead, and no
 /// test noticed because none could.
 final class MenuBarDropdownRulesTests: XCTestCase {
-    private func allowsPause(_ status: ConnectionStatus, paired: Bool = true, locked: Bool = false) -> Bool {
-        MenuBarDropdownRules.allowsPause(connectionStatus: status, isPaired: paired, isLocked: locked)
+    private func allowsPause(
+        _ status: ConnectionStatus,
+        paired: Bool = true,
+        locked: Bool = false,
+        paused: Bool = false,
+        limitReached: Bool = false
+    ) -> Bool {
+        MenuBarDropdownRules.allowsPause(
+            connectionStatus: status,
+            isPaired: paired,
+            isLocked: locked,
+            isPaused: paused,
+            isDailyLimitReached: limitReached
+        )
     }
 
     private func allowsLock(_ status: ConnectionStatus, paired: Bool = true) -> Bool {
@@ -95,5 +107,38 @@ final class MenuBarDropdownRulesTests: XCTestCase {
         for status in [ConnectionStatus.disconnected, .pairing, .reconnecting, .resetting, .failed(nil)] {
             XCTAssertEqual(title(status, paused: true), "Pause", "\(status)")
         }
+    }
+
+    // MARK: - A spent daily limit
+
+    func testASpentLimitTakesResumeAway() {
+        // The visible half of the hard limit. `togglePause` refuses the unpause whether or not the
+        // item is live, so this is what stops the refusal being a click that appears to work.
+        XCTAssertFalse(allowsPause(.connected, paused: true, limitReached: true))
+    }
+
+    func testASpentLimitStillAllowsPausing() {
+        // One direction only. A limit is reached with the cube still running -- the pause takes a
+        // write and a history frame to come back -- and a double tap can start it again at any
+        // moment, so the item has to stay live for the gesture that agrees with the limit.
+        XCTAssertTrue(allowsPause(.connected, paused: false, limitReached: true))
+    }
+
+    func testAPausedCubeUnderItsLimitCanStillResume() {
+        // The ordinary pause, which the limit must not touch: nothing is spent, so nothing is held.
+        XCTAssertTrue(allowsPause(.connected, paused: true, limitReached: false))
+    }
+
+    func testAManualSessionIsNeverHeldByALimit() {
+        // The limit is enforced by pausing a cube and manual mode has none, so blocking Resume here
+        // would refuse to restart a timer that nothing ever stopped.
+        XCTAssertTrue(allowsPause(.manual, paused: true, limitReached: true))
+    }
+
+    func testALockedCubeStaysDeadWhateverTheLimitSays() {
+        // Two separate reasons to be dead, and the lock's is not weakened by the limit agreeing
+        // with it: the unlock gesture is still the only thing on offer.
+        XCTAssertFalse(allowsPause(.connected, locked: true, paused: true, limitReached: true))
+        XCTAssertFalse(allowsPause(.connected, locked: true, paused: false, limitReached: true))
     }
 }

@@ -473,9 +473,18 @@ def act_wait_for_sql(spec, ctx):
     # `Login accepted`, and alerting instantly meant every relaunch cried "the device hasn't
     # reconnected" and then passed 2s later. So we poll quietly for a grace period first and only
     # alert if it still hasn't happened by then. `alert_after_seconds` overrides the 5s default.
+    #
+    # An *indefinite* wait is the exception, and gets no grace period at all: `timeout_seconds = 0`
+    # with a prompt means nothing but a hand will ever satisfy this step, so there is no relaunch
+    # that might satisfy it on its own and nothing to cry wolf about. Staying quiet there is the
+    # opposite of what a `(You)` step needs. Measured 2026-08-12: 08i Scenario A Step 6 (unlock face
+    # 8 by hand) polled silently, the developer acted off the step text inside the 5s grace, and the
+    # banner the step's own prose calls "the only thing that raises the ACTION NEEDED banner" never
+    # appeared -- a person fast enough to beat the grace period is never told they were needed.
+    # An explicit `alert_after_seconds` still wins, for a wait that wants a delay either way.
     prompt = spec.get("prompt")
     prompt = _sub(prompt, ctx) if prompt else None
-    alert_after = spec.get("alert_after_seconds", ALERT_AFTER_SECONDS)
+    alert_after = spec.get("alert_after_seconds", 0 if wait_forever else ALERT_AFTER_SECONDS)
 
     def matched(text):
         if expect is not None:
@@ -491,6 +500,18 @@ def act_wait_for_sql(spec, ctx):
     started = time.time()
     deadline = None if wait_forever else started + timeout
     alerted = False
+    # No grace period means the nudge belongs on screen *before* the first poll, not one
+    # `poll_interval` into the wait: the loop only reaches its own alert check after a sleep, so
+    # leaving it to fire there would still open with a silent pause on a step asking for a hand.
+    #
+    # Banner without the step header, unlike the deferred nudge below: the supervisor printed the
+    # header immediately above, and repeating it here reads as the step having been asked twice.
+    # The deferred path does want it, a wait that has been polling for minutes having scrolled the
+    # step it belongs to off the screen -- which is the whole reason `print_action_required` takes
+    # a header at all.
+    if prompt and alert_after <= 0:
+        print_action_required(prompt)
+        alerted = True
     while wait_forever or time.time() < deadline:
         time.sleep(interval)
         rows, cols = _run_sql(ctx["db_path"], query)
@@ -701,6 +722,144 @@ def act_ensure_unlocked_unpaused(spec, ctx):
     return StepResult(True, detail)
 
 
+def act_build_device_history(spec, ctx):
+    """Click the status item's right half until the device's own event counter reaches `target`.
+
+    Each pause ends the interval the device is recording and each unpause opens another, so it
+    allocates a fresh event number per toggle -- which is what `01b` needs. That checklist resumes a
+    history fetch *from an event number*, so the counter is the thing that has to climb; a row count
+    would not do.
+
+    This used to be ten physical flips: a prompt, and a poll with no timeout, while somebody turned
+    the cube over and over. The cube does not have to move to produce history, and the intervals a
+    toggle produces are the *harmless* kind: `convertEligibleEvents` filters on `paused = 0`, so
+    every second one never becomes a `time_entry` and cannot land in the totals `10b` and `11b`
+    measure, where ten real flips onto real faces could (see Step 17's bug entry, where a 9-second
+    flip onto face 5 read as fixture damage).
+
+    **A loop, not a computed click count.** It was computed first, and the arithmetic was sound: the
+    shortfall, rounded up to whatever parity left the device unpaused. The parity was the only reason
+    for it, and leaving the device unpaused is the *next* step's job, so once that moved out there
+    was nothing left for the calculation to buy. A loop also cannot be wrong about how many event
+    numbers a toggle produces, which any calculation has to assume: measured 2026-08-12, six clicks
+    against a counter of 4 left it reading 11.
+
+    `click_gap_seconds` has a floor rather than a preference behind it: a `togglePause` fires
+    `NSEvent.doubleClickInterval` after the click that scheduled it (`MenuBarController`), so the
+    gap has to exceed that or a click lands while the previous toggle is still pending. 1s clears
+    the 0.5s default. It is not a double-click hazard -- `cgevent_click` posts an explicit
+    `clickState` of 1, so each arrives as `clickCount=1` -- but the `-> lockDevice` check below
+    proves that rather than trusting it, because a click read as a lock would freeze face switching
+    for every checklist that follows.
+
+    Reads only real rows (`event_number < 900000`). The seeded report fixture numbers from 900001,
+    and a fixture row read as the newest would satisfy any target instantly -- the same trap
+    `Method 24.k` exists for.
+    """
+    target = int(spec.get("target", 10))
+    gap = float(spec.get("click_gap_seconds", 1.0))
+    settle = float(spec.get("settle_seconds", 6))
+    max_clicks = int(spec.get("max_clicks", 25))
+    db_path = ctx["db_path"]
+
+    def counter():
+        rows, _ = _run_sql(db_path, (
+            "SELECT COALESCE((SELECT event_number FROM device_event "
+            "WHERE event_number < 900000 ORDER BY device_event_id DESC LIMIT 1), 0);"
+        ))
+        return int(rows[0][0]) if rows and rows[0][0] is not None else 0
+
+    def log_head():
+        rows, _ = _run_sql(db_path, "SELECT COALESCE(MAX(debug_log_id), 0) FROM debug_log;")
+        return int(rows[0][0]) if rows else 0
+
+    names = _menu_item_names()
+    if "Pause" not in names and "Resume" not in names:
+        return StepResult(
+            False,
+            f"the dropdown offers neither Pause nor Resume ({', '.join(names)}) -- there is no "
+            "device to pause, so no history can be built",
+        )
+    started_at = counter()
+    if started_at >= target:
+        return StepResult(True, f"event counter already {started_at} (target {target})",
+                          value=str(started_at))
+
+    baseline = log_head()
+    clicked = 0
+
+    def clicks_logged_since(log_id):
+        rows, _ = _run_sql(db_path, (
+            "SELECT COUNT(*) FROM debug_log WHERE tag='click' "
+            f"AND debug_log_id > {log_id} AND message LIKE 'Status item clicked:%';"
+        ))
+        return int(rows[0][0]) if rows else 0
+
+    def click_once():
+        """One right-half click, confirmed to have landed.
+
+        Confirmed rather than assumed, because one silently did not: measured 2026-08-12, six clicks
+        were posted and five reached `handleStatusItemClick`. The status item's width tracks its own
+        title, and pausing changes that title, so the point computed from the previous layout can
+        fall outside the item -- the locator is re-read per click, but the app has not necessarily
+        re-laid out by then. The app logs every click it receives, so a missing line is the signal,
+        and one retry is enough for a layout that has since settled.
+        """
+        nonlocal clicked
+        for attempt in (1, 2):
+            before = log_head()
+            result = act_cgevent_click({"target": "status_item_right", "mode": "single"}, ctx)
+            if not result.success:
+                return False, result.detail
+            time.sleep(gap)
+            if clicks_logged_since(before):
+                clicked += 1
+                return True, None
+            if attempt == 2:
+                return False, "the click did not reach the app (no 'Status item clicked' line), twice"
+        return False, "unreachable"
+
+    while True:
+        current = counter()
+        if current >= target:
+            break
+        if clicked >= max_clicks:
+            return StepResult(
+                False,
+                f"event counter reached {current} of {target} after {max_clicks} clicks -- giving up "
+                "rather than clicking forever. Is the device still connected?",
+            )
+        ok, detail = click_once()
+        if not ok:
+            return StepResult(False, f"click {clicked + 1} failed: {detail}")
+        # The app refreshes history straight after a pause toggle, so the row lands in a second or
+        # two. Poll for it, then click again regardless: a toggle that produced no new number is not
+        # an error, it just means another click is needed.
+        deadline = time.time() + settle
+        while time.time() < deadline and counter() == current:
+            time.sleep(1)
+
+    finished_at = counter()
+    rows, _ = _run_sql(db_path, (
+        "SELECT COUNT(*), SUM(message LIKE '%-> lockDevice%') FROM debug_log "
+        f"WHERE tag='click' AND debug_log_id > {baseline} AND message LIKE 'Status item clicked:%';"
+    ))
+    landed, locks = (rows[0][0] or 0, rows[0][1] or 0) if rows else (0, 0)
+    if locks:
+        return StepResult(False, f"{locks} of {clicked} clicks resolved to lockDevice, not togglePause -- "
+                                 f"raise click_gap_seconds above NSEvent.doubleClickInterval")
+    # The counter is the whole gate, and the loop above is the only way out of it, so there is nothing
+    # left to assert here. Whether the device ended up paused is deliberately not asked: it is the
+    # next step's question, and asking it here -- once, and fatally -- is what halted a run at a
+    # perfectly good counter of 11 on 2026-08-12.
+    return StepResult(
+        True,
+        f"event counter {started_at} -> {finished_at} (target {target}) via {clicked} right-half "
+        f"clicks, {landed} logged",
+        value=str(finished_at),
+    )
+
+
 def act_ask_user(spec, ctx):
     """A real yes/no question -- 'y' passes, 'n' fails (any case), and anything else
     (a stray keystroke, a blank Enter) re-prompts instead of being silently treated
@@ -897,6 +1056,7 @@ ACTIONS = {
     "cgevent_key": act_cgevent_key,
     "click_menu_item": act_click_menu_item,
     "ensure_unlocked_unpaused": act_ensure_unlocked_unpaused,
+    "build_device_history": act_build_device_history,
     "ask_user": act_ask_user,
     "ask_user_or_detect": act_ask_user_or_detect,
 }

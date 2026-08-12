@@ -1,6 +1,6 @@
 # Report Tab Checklist
 
-### Last run - 2026-08-11 18:22 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 Covers the **Report** tab: a date range picked on two hand-drawn calendars, and what each category
 took over it. The figures come from `AppDataStore.loadCategoryTotals(from:to:)`, which sums
@@ -292,8 +292,6 @@ action = "sql_query"
 query = "WITH b AS (SELECT $window_start - 432000 AS f, $window_start - 259200 + 86400 AS t) SELECT CAST(SUM(min(de.start_epoch + te.duration_seconds, (SELECT t FROM b)) - max(de.start_epoch, (SELECT f FROM b))) AS INT) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id JOIN category c ON c.category_id = te.category_id WHERE c.category_name IN ('ZZ Assigned','ZZ NoFace','ZZ Retired') AND de.start_epoch < (SELECT t FROM b) AND de.start_epoch + te.duration_seconds > (SELECT f FROM b);"
 expect = "8190"
 ```
-### Bugs found and fixed - branch 'feature/inactiveID'
-2026-08-10 - The clipped sum had no overlap predicate, so a row lying wholly outside the range
 contributed the gap as a negative: one real 9-second flip onto `ZZ Assigned`'s face turned `8190`
 into `-228354`. Found while investigating the setup failure that shares its cause.
 

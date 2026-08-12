@@ -18,8 +18,28 @@ enum MenuBarDropdownRules {
     /// command, and it is refused while locked: the only valid action then is the unlock gesture, so
     /// pause must not be reachable from the menu either. Manual mode has nothing to lock, and the
     /// lock state it would read is left over from a device this launch never reached.
-    static func allowsPause(connectionStatus: ConnectionStatus, isPaired: Bool, isLocked: Bool) -> Bool {
+    ///
+    /// `isDailyLimitReached` refuses the item in **one direction only**: a cube stopped by a spent
+    /// `daily_limit` cannot be resumed from here (that is what makes the limit hard -- see
+    /// `DailyLimitEnforcement`), but one still running over a spent limit can still be paused. Both
+    /// halves matter. A limit is reached with the cube running for as long as it takes the pause to
+    /// go out and be reported back, and a double tap can start it again at any moment; disabling the
+    /// item outright in that window would take away the pause the user is reaching for at exactly
+    /// the moment they agree with it.
+    ///
+    /// Manual mode is tested **before** the limit, so a manual session is never held by one. The
+    /// limit is enforced by pausing a cube, and manual mode has no cube to pause: blocking Resume
+    /// there would be half a feature, refusing to restart a timer that nothing ever stopped. Same
+    /// order, and the same reason, as `MenuBarController.togglePause`'s own two guards.
+    static func allowsPause(
+        connectionStatus: ConnectionStatus,
+        isPaired: Bool,
+        isLocked: Bool,
+        isPaused: Bool,
+        isDailyLimitReached: Bool
+    ) -> Bool {
         if connectionStatus == .manual { return true }
+        if isPaused, isDailyLimitReached { return false }
         return isPaired && connectionStatus == .connected && !isLocked
     }
 

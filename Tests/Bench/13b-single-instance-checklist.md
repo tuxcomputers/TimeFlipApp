@@ -1,6 +1,6 @@
 # Single Instance Checklist
 
-### Last run - 2026-08-11 18:25 on the branch 'feature/inactiveID'
+### Last run - 2026-08-12 16:32 on the branch 'feature/dailyLimit'
 
 Covers `SingleInstanceLock`: a second copy of the app stands down instead of running alongside the
 first. Two instances used to be possible, each with its own status item and its own BLE client

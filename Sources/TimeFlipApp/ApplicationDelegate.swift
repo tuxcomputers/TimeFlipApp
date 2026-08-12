@@ -125,7 +125,22 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         lowBatteryThresholdPercent: dataStore.loadLowBatteryLevelPercent()
     )
     private let enableMockEvents = false
-    private lazy var device: TimeFlipSessionManaging? = enableMockEvents ? MockTimeFlipDevice() : TimeFlipBLEDevice()
+    /// The radio, held for the whole launch whatever `device` currently points at.
+    ///
+    /// A second reference rather than a cast, and the difference is what makes scanning work in
+    /// manual mode. `device` is what the app is *timing from*, and a manual session replaces it with
+    /// a virtual device -- so `device as? TimeFlipBLEDevice`, which is how discovery and pairing used
+    /// to reach the radio, finds a mock, fails the cast, and returns having done nothing at all. The
+    /// button reported a scan that never started. Worse, the real object was dropped on the way in:
+    /// nothing else held it, so entering manual mode deallocated the radio along with the
+    /// `CBCentralManager` inside it and there was nothing left to scan with.
+    ///
+    /// Everything about the *session* still goes through `device`, and must: in manual mode those
+    /// paths are meant to reach the virtual device, not the cube that is not there.
+    ///
+    /// `nil` only in the mock-events build, which has no radio to hold.
+    private lazy var bleDevice: TimeFlipBLEDevice? = enableMockEvents ? nil : TimeFlipBLEDevice()
+    private lazy var device: TimeFlipSessionManaging? = bleDevice ?? MockTimeFlipDevice()
     /// The same object as `device` while a manual session is running, held at its own type so the
     /// timing controls can drive it. `nil` outside manual mode, which is what makes those controls
     /// no-ops rather than something that has to be guarded at every call site.
@@ -256,7 +271,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // quickly: these are the attempts the manual-mode offer is counting, and at the full
         // watchdog three of them leave someone watching an app that looks like it is doing nothing
         // for minutes. Restored to the full watchdog by the first successful connect.
-        (device as? TimeFlipBLEDevice)?.connectScanTimeoutSeconds = TimeFlipConstants.startupConnectScanTimeoutSeconds
+        bleDevice?.connectScanTimeoutSeconds = TimeFlipConstants.startupConnectScanTimeoutSeconds
         appState.onManualTimingStart = { [weak self] categoryID in
             self?.startManualTiming(categoryID: categoryID)
         }
@@ -270,6 +285,16 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             // on forget/factory-reset/pairing-failure. Routine connects and drops don't reach here
             // (see AppState.confirmConnected), so the `paired` setting stays put across them.
             self.dataStore.recordPaired(paired)
+            // A running manual session is not the pairing's to start or stop, and both lines below
+            // would do it harm. `stopDeviceEvents()` would cancel the virtual device's event task and
+            // its history timer, freezing the clock the user is timing with -- and it would do that
+            // on the two things a manual session now does routinely: forgetting the old cube (which
+            // is how the scan list appears) and a pairing attempt that failed, which reports itself
+            // through `pairingFailed` and so arrives here as `paired = false`. The mock controls are
+            // the same mistake in miniature: the stand-in would be told to forget a pairing it is not
+            // party to. Asked as "is a session running" rather than `isManualMode`, because during a
+            // pairing attempt the status has already left `.manual` for `.pairing`.
+            guard self.manualDevice == nil else { return }
             if let controller = self.device as? TimeFlipMockControlling {
                 if paired {
                     controller.pair()
@@ -283,7 +308,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 self.stopDeviceEvents()
             }
         }
-        if let bleDevice = device as? TimeFlipBLEDevice {
+        if let bleDevice {
             bleDevice.onDeviceDiscovered = { [weak appState] discovered in
                 appState?.addDiscoveredDevice(discovered)
             }
@@ -292,38 +317,21 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
         appState.onStartDeviceScan = { [weak self] filterToTimeFlip in
-            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return }
+            guard let bleDevice = self?.bleDevice else { return }
             Task { await bleDevice.startDiscoveryScan(filterToTimeFlip: filterToTimeFlip) }
         }
         appState.onStopDeviceScan = { [weak self] in
-            (self?.device as? TimeFlipBLEDevice)?.stopDiscoveryScan()
+            self?.bleDevice?.stopDiscoveryScan()
         }
         appState.onDeviceSelectedForPairing = { [weak self] id in
-            guard let self, let bleDevice = self.device as? TimeFlipBLEDevice else { return }
+            guard let self, let bleDevice = self.bleDevice else { return }
             Task { @MainActor in
                 self.appState.connectionStatus = .pairing
-                // A newly selected device is almost always still on the factory default —
-                // reusing whatever password a previous (different) device rotated to would
-                // just be wrong here. So: the default first, then in a dev build the PIN dev
-                // devices are left on, then `config.json`'s PIN (a known custom PIN a developer
-                // set by hand for recovery), then the current password. Each is only tried if the
-                // one before was rejected as wrong -- any other outcome stops the sequence.
-                //
-                // Pairing is the only place a password is guessed. The default and the dev constant
-                // belong to this list and nowhere else: they are the two states a cube whose PIN
-                // the app does not know yet can be in. Once paired there is exactly one right
-                // answer -- `config.json`'s PIN, which is also what the rotation below leaves the
-                // cube on (see AppState.applyDeveloperConfig) -- and connecting presents that and
-                // fails if it is rejected, because being paired means the app is meant to know it
-                // (see startDeviceEvents).
-                var candidates = [TimeFlipConstants.defaultPassword]
-                if DeveloperMode.isEnabled {
-                    candidates.append(DeveloperMode.devicePassword)
-                    if let configuredPassword = self.appState.developerConfigDevicePassword {
-                        candidates.append(configuredPassword)
-                    }
-                }
-                candidates.append(self.appState.devicePassword)
+                // The default first, then the stored password, and nothing else -- see
+                // `PairingPasswordRules`, which holds the policy and the reasoning. Each is tried
+                // only if the one before was rejected as wrong; any other outcome stops the
+                // sequence, and both being rejected is a pairing failure.
+                let candidates = PairingPasswordRules.candidates(storedPassword: self.appState.devicePassword)
                 var tried: Set<String> = []
                 var attemptedPassword = TimeFlipConstants.defaultPassword
                 var outcome = DeviceConnectOutcome.wrongPassword
@@ -355,6 +363,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     // follow-up login() call in startDeviceEvents uses the same one, not
                     // whatever was left over from a previous device.
                     self.appState.devicePassword = attemptedPassword
+                    // A real device has answered, so the stand-in's work is over. Before
+                    // `startDeviceEvents`, which would otherwise run the whole connected session
+                    // against the virtual device still sitting in `device`.
+                    self.endManualSession()
                     self.startDeviceEvents(skipConnect: true)
                 case .notTimeFlip:
                     self.appState.markDeviceInvalid(id)
@@ -366,18 +378,25 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                 case .cancelled:
                     break // state already reset by AppState.cancelPairingAttempt()
                 }
+                // An attempt that started from a manual session and did not pair leaves that session
+                // exactly as it was, so the status has to go back to saying so. Every branch above
+                // lands somewhere that describes an app timing from nothing -- `.failed`, or the
+                // `.disconnected` that `markDeviceInvalid`'s branch and `cancelPairingAttempt` set --
+                // while the virtual device is still running and still writing segments. The menu bar
+                // would clear, the Faces tab's timer would go with it, and the clock would carry on
+                // underneath. Deliberately after the switch and not inside four branches: what
+                // matters is that the attempt is over and nothing came of it, not which way.
+                //
+                // Only the failures. `.connected` ended the session above, which is what makes
+                // `manualDevice` nil here and this a no-op on the one path that did pair.
+                if self.manualDevice != nil, self.appState.connectionStatus != .connected {
+                    DeveloperMode.debugPrint(.manualMode, "Pairing attempt ended without pairing; manual session continues")
+                    self.appState.enterManualMode()
+                }
             }
         }
         appState.onCancelPairingAttempt = { [weak self] in
-            (self?.device as? TimeFlipBLEDevice)?.cancelConnectionAttempt()
-        }
-        appState.onResetDevicePasswordRequest = { [weak self] in
-            guard let bleDevice = self?.device as? TimeFlipBLEDevice else { return true }
-            let confirmed = await bleDevice.resetDevicePasswordToDefault()
-            if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false) {
-                try? TimeFlipDevicePasswordStore.shared.savePassword(nil)
-            }
-            return confirmed
+            self?.bleDevice?.cancelConnectionAttempt()
         }
         appState.onFactoryResetRequest = { [weak self] in
             // Against the protocol, not `as? TimeFlipBLEDevice`: the cast made this path
@@ -586,10 +605,26 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         menuBarController.start()
         // Being paired is what makes a connection attempt worth making at all -- an app that has
-        // never been paired, or has been told to forget, has no device to reach for and sits idle
-        // until the user pairs one.
+        // never been paired, or has been told to forget, has no device to reach for.
         if appState.isPaired {
             startDeviceEvents()
+        } else {
+            // So it times manually instead, from the moment it opens and without being asked. The
+            // offer exists to settle a question ("your cube isn't answering -- keep trying, or time
+            // it yourself?"), and with nothing paired there is no question: no device was expected, no
+            // scan has failed, and there is nothing to retry. Asking anyway would be asking somebody
+            // who has never owned a cube to decide about one.
+            //
+            // What it replaces is an app that sat inert -- no timer, no way to record anything, and a
+            // menu bar showing its own name -- until the user found the Device tab and paired
+            // something. That is the state a brand-new user starts in, and the state anybody who
+            // forgets their device restarts into. Both can now use the app straight away, and pair
+            // when there is something to pair: scanning works from inside a manual session (see
+            // `bleDevice`), so buying a cube later costs a scan and a click, not a reinstall's worth
+            // of confusion.
+            DeveloperMode.debugPrint(.manualMode, "Nothing paired at launch; starting in manual mode")
+            appState.enterManualMode()
+            startManualSession()
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
@@ -636,7 +671,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         // against the database, rather than by pausing the virtual device and refreshing history:
         // that path is async and coalesces against a fetch already running, either of which would
         // lose the race with termination.
-        if appState.isManualMode {
+        // Asked of the virtual device itself rather than of the status, which can have left `.manual`
+        // for `.pairing` with the session still running underneath it (see `endManualSession`) -- and
+        // a quit during that attempt would otherwise leave the segment open.
+        if manualDevice != nil {
             dataStore.closeOpenManualSegment(endingAt: Date())
         }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -897,9 +935,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
             }
-            // Only rotate the password during the pairing flow itself (skipConnect is only ever
-            // true there) — routine reconnects afterward must keep reusing that same password.
-            if skipConnect, let bleDevice = device as? TimeFlipBLEDevice,
+            // Rotate only in the pairing flow itself (`skipConnect` is only ever true there), and
+            // only for a cube that answered to the vendor default -- `PairingPasswordRules` holds
+            // why. Routine reconnects afterward keep reusing the same password.
+            if skipConnect, PairingPasswordRules.rotatesPassword(passwordUsed: passwordUsed),
+               let bleDevice = device as? TimeFlipBLEDevice,
                let rotatedPassword = await bleDevice.rotateDevicePassword() {
                 await MainActor.run {
                     self.appState.devicePassword = rotatedPassword
@@ -1162,8 +1202,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             No TimeFlip answered: either none is in range, or none of the ones found would accept \
             this app's PIN.
 
-            Manual mode lets you track time from the app instead, and lasts until you quit and \
-            start the app again.
+            Manual mode lets you track time from the app instead. It won't try your device again on \
+            its own -- quit and start the app when you want it back.
             """
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Retry")
@@ -1288,6 +1328,40 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         mock.start()
         DeveloperMode.debugPrint(.manualMode, "Manual session started on face \(TimeFlipConstants.manualFaceID)")
+    }
+
+    /// Stands the virtual device down, because a real one has just been paired.
+    ///
+    /// The one way a manual session ends without the app quitting, and it is a deliberate act of the
+    /// user's: they scanned, they picked a cube, and it answered. Nothing automatic reaches here --
+    /// see `AppState.enterManualMode` for why that matters.
+    ///
+    /// **The segment is closed first, and closing it is the whole reason this is not just
+    /// `stopDeviceEvents()`.** Every other segment in `device_event` is closed by the frame that
+    /// follows it, and a manual session's last one has no frame coming: the virtual device is about to
+    /// stop existing, so left alone the row the user was timing stays `finalised = 0` and never
+    /// becomes a `time_entry`. `applicationWillTerminate` does the same thing for the same reason on
+    /// the quit path; this is that path's twin, for a session that ends while the app keeps running.
+    ///
+    /// It also settles the double-counting question this codebase has been careful about (see
+    /// `docs/TODO-features-under-development.md`, Manual mode): the manual row is closed and the
+    /// virtual device torn down *before* anything connects, so a manual segment and a cube's can
+    /// still never describe the same span. `manualDevice` going nil is what the timing controls and
+    /// `applicationWillTerminate` read to know the session is over.
+    private func endManualSession() {
+        guard manualDevice != nil else { return }
+        let closed = dataStore.closeOpenManualSegment(endingAt: Date())
+        DeveloperMode.debugPrint(.manualMode, "Manual session ending, a device has been paired; open segment closed: \(closed)")
+        stopDeviceEvents()
+        manualDevice = nil
+        // Back to the radio, which was never anywhere else -- see `bleDevice`. The probe that just
+        // succeeded ran on it, and it is what `startDeviceEvents` is about to log in with. Left alone
+        // if there is no radio at all: only the mock-events build is in that position, and it has no
+        // way to reach this in the first place, so putting `nil` in `device` would be inventing a
+        // state rather than restoring one.
+        if let bleDevice {
+            device = bleDevice
+        }
     }
 
     /// Picks the category being timed, and starts the clock on it.
@@ -1617,7 +1691,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.currentFaceID = entry.faceID
         appState.isPaused = isPaused
-        menuBarController.applyElapsed(faceID: entry.faceID, elapsedSeconds: elapsed, isPaused: isPaused)
+        // The event number rides along so a daily limit can tell a genuinely new event from the same
+        // one re-reported with a longer duration; see MenuBarController.limitWriteSentAtEventNumber.
+        menuBarController.applyElapsed(
+            faceID: entry.faceID,
+            elapsedSeconds: elapsed,
+            isPaused: isPaused,
+            eventNumber: entry.eventNumber
+        )
     }
 
     private func seedDailyTotals(now: Date = Date()) {

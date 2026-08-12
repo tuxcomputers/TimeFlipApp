@@ -118,7 +118,24 @@ The app will now automatically sync your time tracking data to Google Calendar.
    - If pairing fails because the device is on a non-default password (e.g. previously set by the official app, or by this app during an earlier pairing), the row shows "Wrong PIN" — see Troubleshooting below for how to recover
 7. Once connected, the menu bar will show the current activity, and the scan controls are replaced by a single **"Forget Device"** button
 
-**Forget Device** resets the device's password back to `000000` before unpairing (confirmed via a real login attempt on the device — the app's own stored password isn't cleared unless that reset is actually confirmed), so the device isn't left behind on a password nobody knows.
+**Forget Device** is local bookkeeping: the app drops the pairing and stops trying to reconnect. It does **not** talk to the device, does not change the device's PIN, and does not change the PIN the app has stored (`config.json` in developer mode, the Keychain otherwise). It works whether or not the device is connected or even in range, which is the point — forgetting is how you recover from a device the app can no longer reach.
+
+It used to reset the device's password to `000000` first and refuse to unpair unless that reset was confirmed. That made it useless in exactly the situation it exists for: a cube whose PIN has changed underneath the app (pulling the battery reverts it to the vendor default) refuses the app's login, so the reset could never be sent, and the app reported "Could not confirm password reset — device left paired" with no way out through the UI. Changed 2026-08-11.
+
+Since forgetting leaves the device's PIN alone, a cube that was given a PIN of its own still holds it afterwards — and re-pairing still reaches it, because the PIN the app stored is the second of the two passwords pairing presents.
+
+**Pairing presents exactly two PINs, in this order, in every build:**
+
+1. `000000`, the factory default — a cube that is new to the app, or has been power-cycled (pulling the battery reverts the PIN).
+2. **The stored PIN** — the cube this app paired before, whose PIN it set itself.
+
+If neither is accepted, pairing fails and says "Wrong PIN". There is no third attempt: a cube on some other PIN is one neither the app nor its user can name, and searching for it would be a lockout dressed up as a feature.
+
+A cube that answers to `000000` is given a PIN of its own, which is then stored. A cube that answers to the stored PIN is left exactly as it is — same device, previously forgotten, nothing to change.
+
+**Developer builds differ in two narrow ways and no others**, and neither adds a third password to the list above. Where the PIN is stored: `config.json`'s `PIN` field, rather than the Keychain. And what a new PIN is set to: the fixed `123456`, rather than random digits, so a dev cube's PIN is always known and typeable.
+
+If `config.json` names no PIN at all, that constant stands in as the stored one — which is the point of a known dev PIN: with nothing stored, a dev build can still reach a cube on either `000000` or `123456`, the two values a dev cube is ever left on. It is standing in *as* the second candidate, not joining as a third.
 
 ![Preferences - Device](../image/preferences-device.png)
 

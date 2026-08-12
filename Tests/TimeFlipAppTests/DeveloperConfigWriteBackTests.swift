@@ -114,27 +114,44 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         XCTAssertEqual(appState.devicePassword, DeveloperMode.devicePassword)
     }
 
-    /// The other half of the reversal, and the one that looks most like the original bug.
+    /// Forgetting must not touch the PIN in the file, because forgetting does not change the cube's.
     ///
-    /// Forgetting a device resets the cube over `0x30` and only proceeds once that is confirmed, so
-    /// the cube really is back on the factory default and the file has to say so. This is the write
-    /// that caused the 2026-08-01 evening, and what makes it right now is what was missing then: the
-    /// **re-pair also writes**, so the file tracks the cube through both transitions rather than
-    /// being stamped on the way out and abandoned on the way back in.
+    /// This is the reversal of what this test used to assert, and the reason is what happened on
+    /// 2026-08-11. Forget Device used to reset the cube over `0x30` first and record the factory
+    /// default here, on the strength of that reset having been confirmed. Both halves fail together
+    /// the moment the cube is on a PIN the app cannot present -- a battery pull reverts it to the
+    /// vendor default -- because the reset needs a login it cannot get. The old behaviour then
+    /// refused to unpair at all, so the cube could be neither reached nor forgotten.
     ///
-    /// Leaving it stale is not the safe option it looks like. The file is what a paired build
-    /// presents, so a forget that left `123456` in place would name a password the cube no longer
-    /// holds -- which is the lockout, not the protection from it.
-    func testForgettingADeviceRecordsTheFactoryDefault() async {
+    /// With the reset gone, writing the default here would be recording something untrue: the cube
+    /// keeps whatever PIN it holds, so the file must keep naming it. What the file says and what the
+    /// cube holds only ever change together, at a pairing.
+    func testForgettingADeviceLeavesTheConfiguredPINAlone() {
         let configStore = handEditedConfig
         let appState = makeAppState(configStore: configStore)
         XCTAssertTrue(appState.isDeveloperConfigLoaded, "the dev-config path must actually be live, or this proves nothing")
 
-        await appState.resetAndForgetDevice()
+        appState.forgetDevice()
 
-        XCTAssertEqual(configStore.stored?.devicePassword, TimeFlipConstants.defaultPassword)
+        XCTAssertTrue(configStore.saves.isEmpty, "forgetting is local -- it must not write config.json at all")
+        XCTAssertEqual(configStore.stored?.devicePassword, "123456", "the hand-set PIN must survive a forget")
         XCTAssertEqual(configStore.stored?.googleClientID, "client-id", "the keys sharing the file must survive it")
         XCTAssertEqual(configStore.stored?.googleClientSecret, "secret")
+    }
+
+    func testForgettingNeedsNoDeviceAndCannotFail() {
+        // The requirement itself: forgetting is the recovery move for a cube the app cannot talk to,
+        // so it must complete with no device present and no hook wired. There is deliberately no
+        // callback left for it to await -- see the note where `onFactoryResetRequest` is declared.
+        let appState = makeAppState(configStore: handEditedConfig)
+        appState.isPaired = true
+
+        appState.forgetDevice()
+
+        XCTAssertFalse(appState.isPaired)
+        XCTAssertEqual(appState.pairedDeviceName, "Not paired")
+        XCTAssertNil(appState.pairedDeviceUUID)
+        XCTAssertEqual(appState.connectionStatus, .disconnected, "no failure state -- there was nothing that could fail")
     }
 
     func testThePlainUnpairPrimitiveWritesNothing() {
@@ -150,12 +167,26 @@ final class DeveloperConfigWriteBackTests: XCTestCase {
         XCTAssertEqual(configStore.stored?.devicePassword, "123456")
     }
 
-    func testTheInMemoryPasswordStillReturnsToTheFactoryDefaultOnForget() {
-        // The suppression is about persistence only. Forget Device resets the cube over 0x30, so
-        // the factory default genuinely is what the next pairing attempt should present.
+    func testAPlainForgetLeavesTheInMemoryPasswordAlone() {
+        // Nothing about forgetting changes the cube's PIN, so nothing about it may change the app's
+        // record of that PIN either. In production `devicePassword` is persisted by a sink, so an
+        // assignment here reaches the Keychain -- which is how a Forget stamped `000000` over a
+        // hand-set PIN on 2026-08-01.
         let appState = makeAppState(configStore: handEditedConfig)
+        appState.devicePassword = "654321"
 
         appState.forgetDevice()
+
+        XCTAssertEqual(appState.devicePassword, "654321")
+    }
+
+    func testAWipedForgetDoesReturnToTheFactoryDefault() {
+        // The one branch where the default is the truth: `0xFF` has erased the cube, so it really is
+        // back on the vendor default and the next pairing attempt should present it.
+        let appState = makeAppState(configStore: handEditedConfig)
+        appState.devicePassword = "654321"
+
+        appState.forgetDevice(deviceWasWiped: true)
 
         XCTAssertEqual(appState.devicePassword, TimeFlipConstants.defaultPassword)
     }

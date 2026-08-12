@@ -11,32 +11,23 @@ import OSLog
 enum DeveloperMode {
     static let isEnabled = true
 
-    /// The PIN dev devices are left on. A **pairing** candidate only, tried after the factory
-    /// default: it is what a cube an older build paired is still sitting on. Only ever reached
-    /// when `isEnabled`.
+    /// The PIN a dev build **sets on a cube it has just paired with**, in place of the random six
+    /// digits a production build would generate (`TimeFlipBLEDevice.rotateDevicePassword`). Fixed, so
+    /// a dev cube's PIN is always known and typeable if something goes wrong.
     ///
-    /// Deliberately not what a paired cube is talked to with -- see `pairedDevicePassword`.
+    /// It also **stands in as the stored PIN when `config.json` names none** (see
+    /// `AppState.loadDevicePassword`), which is the other half of why a known constant is worth having:
+    /// with nothing stored, a dev build can still reach a cube on either `000000` or this, the two a
+    /// dev cube is ever left on.
+    ///
+    /// What it must **never** be is a candidate *alongside* a real stored PIN. Pairing presents exactly
+    /// two passwords in every build -- the factory default, then the stored one (`PairingPasswordRules`)
+    /// -- and this was appended as a third until 2026-08-11, which gave a dev build a way into a cube
+    /// whose PIN the app had no record of and gave "the stored PIN" two rival meanings.
+    ///
+    /// A rotation only happens for a cube reached on the factory default, so as a *rotation target* this
+    /// is only ever written to a device that was, a moment earlier, on `000000`.
     static let devicePassword = "123456"
-
-    /// The PIN a dev build presents to a cube it is **already paired to**: `config.json`'s, which
-    /// the app writes at the pairing that rotated the cube onto it and the developer edits by hand
-    /// after that.
-    ///
-    /// The split is the rule that guessing stops at pairing. The factory default and
-    /// `devicePassword` above exist to reach a cube whose PIN this app does not know yet -- one
-    /// still on the vendor default, or left on the constant by an older build. Once there is a
-    /// pairing, the app is meant to know the answer, and there is exactly one.
-    ///
-    /// Falls back to `devicePassword` when the file has no PIN, so a missing or unreadable
-    /// config.json leaves a dev build behaving exactly as it did before this existed -- and, since
-    /// the constant is also what pairing rotates to, that fallback is a working password rather
-    /// than a guess.
-    ///
-    /// **Read fresh on every access**, not cached, which is what lets the PIN be changed by editing
-    /// the file and relaunching rather than by rebuilding.
-    static var pairedDevicePassword: String {
-        DeveloperConfigStore.shared.load()?.devicePassword ?? devicePassword
-    }
 
     /// Whether debug messages are actually emitted right now -- true only when `isEnabled` (the
     /// compile-time dev flag above) is also on. Set once at startup from the `debug` setting's
@@ -134,6 +125,11 @@ enum DeveloperMode {
         // Giving up on an unreachable device at startup, and what the user picked when asked.
         // Eleven characters, the same as the longest existing tag, so adding it re-pads nothing.
         case manualMode = "manual-mode"
+        // The hard `daily_limit`: the pause it sends when a category spends its budget, the resume
+        // when a flip lands on a category that still has some, and every refused resume in between
+        // (DailyLimitEnforcement). Eleven characters, the same as the longest existing tag, so
+        // adding it re-pads nothing.
+        case dailyLimit = "daily-limit"
 
         private static let width = allCases.map { $0.rawValue.count }.max() ?? 0
 

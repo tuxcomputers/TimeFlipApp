@@ -116,7 +116,7 @@ Owner asked for this specifically, flipping between the factory default and the 
 
 The two operations are triggered only from the UI, so this needs the app driven with the owner hands-off (root `CLAUDE.md`'s live-interaction ritual):
 
-- **Forget Device** -> `resetDevicePasswordToDefault()` -> device back to `000000`
+- **Forget Device** -> `resetDevicePasswordToDefault()` -> device back to `000000` (**historic**: Forget stopped doing this on 2026-08-11 -- it is local now and touches no PIN, see `AppState.forgetDevice`. The timings below were measured through it while it did, and `resetDevicePasswordToDefault()` itself is unchanged and still parity-tested; nothing in the app calls it any more.)
 - **Scan, tap the device, pair** -> `rotateDevicePassword()` -> device to `123456` (rotation runs *only* in the pairing flow -- `ApplicationDelegate:708`, `skipConnect` -- routine reconnects reuse the stored password, so a plain restart will not exercise it)
 
 Both operations now self-report their legs (commit `69c6266`), split into the 0x30 write and the confirming re-login, so the extraction is just a matter of running them a few times.
