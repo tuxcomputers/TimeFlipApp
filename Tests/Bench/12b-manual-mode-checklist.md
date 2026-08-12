@@ -35,13 +35,13 @@ Config path: `~/Library/Application Support/TimeFlip/config.json`
 **Preconditions:** the test database and the device connected, both established by
 `Tests/00-test-setup.md`, which the supervisor always runs first.
 
-- [x] Step 1: Confirm `db_type` reads **test** before anything writes to it.
+- [ ] Step 1: Confirm `db_type` reads **test** before anything writes to it.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [x] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
+- [ ] Step 2: Capture the real PIN from `config.json`, so Teardown can put it back.
 Everything after this depends on being able to restore it: get it wrong and the next launch cannot
 reach the cube. Captured rather than assumed, because a re-pair may have rewritten it.
 **Refuses to run if the staged fixture is already there.** A run that halts anywhere between
@@ -60,7 +60,7 @@ action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 capture = "real_pin"
 ```
-- [x] Step 3: Confirm the app can currently reach the cube with that PIN.
+- [ ] Step 3: Confirm the app can currently reach the cube with that PIN.
 The premise of the whole checklist is that only the PIN is wrong afterwards. If the device is
 already unreachable, every assertion below would pass for the wrong reason -- and Scenario A's proof
 that the cube was *found* is what separates this file from `12i`.
@@ -88,13 +88,13 @@ premise is actually about. Same fix in `Interactive/12i` Step 2, which was a cop
 
 **Preconditions:** Setup complete: test database, device connected, the real PIN captured.
 
-- [x] Step 1: Quit the app, so the staged PIN is read at the next launch.
+- [ ] Step 1: Quit the app, so the staged PIN is read at the next launch.
 `config.json` is read at startup, so editing it under a running app changes nothing.
 [Method: Number 3](../Methods.md#method-3).
 ```toml step
 use = "method-3"
 ```
-- [x] Step 2: Stage the refusal by setting the PIN to `123457`.
+- [ ] Step 2: Stage the refusal by setting the PIN to `123457`.
 One digit off the real one, deliberately: a value that is obviously a test fixture and obviously not
 a real PIN. The Google keys in the same file are read and rewritten around it rather than the file
 being replaced, because losing a client secret to a test fixture would be a bad way to find this out.
@@ -108,7 +108,7 @@ action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 expect = "123457"
 ```
-- [x] Step 3: Capture the log baseline, then launch.
+- [ ] Step 3: Capture the log baseline, then launch.
 Everything asserted below has to be a row *this* launch produced: the same messages are sitting in
 the table from earlier runs. Methods: [Number 24.b](../Methods.md#method-24),
 [Number 2](../Methods.md#method-2).
@@ -120,7 +120,7 @@ capture = "before_staged_launch"
 [[actions]]
 use = "method-2"
 ```
-- [x] Step 4: Confirm the scan **found** the cube.
+- [ ] Step 4: Confirm the scan **found** the cube.
 The line that separates this run from `12i`'s. Without it, a refusal and an empty airspace are
 indistinguishable from the offer alone.
 ```toml step
@@ -129,7 +129,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'eligib
 expect_contains = "TimeFlip"
 timeout_seconds = 60
 ```
-- [x] Step 5: Confirm the cube answered and rejected the PIN.
+- [ ] Step 5: Confirm the cube answered and rejected the PIN.
 A real `0x01` from the device, not a timeout: it was reached, it understood, and it said no.
 ```toml step
 action = "wait_for_sql"
@@ -137,7 +137,7 @@ query = "SELECT message FROM debug_log WHERE tag='scan' AND message LIKE 'none o
 expect_contains = "accepted this app's PIN"
 timeout_seconds = 60
 ```
-- [x] Step 6: Confirm the offer names the **refusal**, not an empty scan.
+- [ ] Step 6: Confirm the offer names the **refusal**, not an empty scan.
 The regression this pins shipped once. Two callers race here -- the attempt's own result, and the
 disconnect the refused probe causes -- and the one that knows the true answer lost by 3ms, so the log
 blamed the absence of a cube that was on the desk. "Not in range" and "there and refused" are
@@ -148,7 +148,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "refused this app's PIN"
 timeout_seconds = 30
 ```
-- [x] Step 7: Confirm the dialog is actually on screen with both answers.
+- [ ] Step 7: Confirm the dialog is actually on screen with both answers.
 An `NSAlert` raised by an app with no window open, which is the part least likely to survive a macOS
 change. [Method: Number 29](../Methods.md#method-29).
 ```toml step
@@ -172,7 +172,7 @@ tell application "System Events"
 end tell"""
 expect_contains = "Retry"
 ```
-- [x] Step 8: Press **Retry** and confirm it scans again rather than giving up.
+- [ ] Step 8: Press **Retry** and confirm it scans again rather than giving up.
 Retry is the whole reason the threshold was dropped to one failure: the cost of asking too early is
 a click. It must produce a fresh scan, and land back on the same dialog while the PIN is still wrong.
 [Method: Number 29](../Methods.md#method-29).
@@ -205,7 +205,7 @@ attempt before its first line ran. `eventTaskGeneration` already existed for exa
 consulted only by the task's `defer`; it is now checked **inside** the `MainActor.run` that acts on
 the outcome. Checking before that hop was tried first on the device and changed nothing, because the
 generation is still current on that side of the await.
-- [x] Step 9: Press **Switch to Manual Mode** and confirm the session starts.
+- [ ] Step 9: Press **Switch to Manual Mode** and confirm the session starts.
 ```toml step
 [[actions]]
 use = "method-24.b"
@@ -227,7 +227,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "face 13"
 timeout_seconds = 30
 ```
-- [x] Step 10: Confirm answering the question did not re-ask it.
+- [ ] Step 10: Confirm answering the question did not re-ask it.
 The bug this pins was user-facing and shipped: the losing caller's offer sat blocked behind the modal
 and fired the instant the dialog closed, putting it straight back up and tearing down the session
 that had just started. The mode could only be entered by answering twice. Zero windows and no second
@@ -248,7 +248,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM debug_log WHERE tag='manual-mode' AND message LIKE 'Offering manual mode:%' AND debug_log_id > $before_answer;"
 expect = "0"
 ```
-- [x] Step 11: Confirm the menu bar shows a live display rather than the bare app name.
+- [ ] Step 11: Confirm the menu bar shows a live display rather than the bare app name.
 Manual mode reports its own `ConnectionStatus`, and the menu bar's three display rules read it. Read
 literally as a disconnection, they emptied the status item to `TEST TimeFlip`.
 [Method: Number 27](../Methods.md#method-27).
@@ -262,7 +262,7 @@ expect_contains = "0:00:00"
 **Preconditions:** Scenario A complete: the app in manual mode with a session running and no dialog
 on screen.
 
-- [x] Step 1: Open Settings from the dropdown and confirm it lands on **Faces**.
+- [ ] Step 1: Open Settings from the dropdown and confirm it lands on **Faces**.
 Manual timing is driven entirely from that tab, so it is forced open there on every open rather than
 reopening wherever the window was last closed. Methods: [Number 6](../Methods.md#method-6),
 [Number 11](../Methods.md#method-11).
@@ -276,7 +276,7 @@ use = "method-11"
 tab = "Faces"
 expect = "1"
 ```
-- [x] Step 2: Confirm the tab is in its manual shape.
+- [ ] Step 2: Confirm the tab is in its manual shape.
 The left column's label reads `Timing` rather than `Top face`, and the device artwork is not drawn
 at all -- there is no cube in this mode, so a picture of one would be reporting nothing.
 ```toml step
@@ -293,7 +293,7 @@ tell application "System Events"
 end tell"""
 expect_contains = "Timing|"
 ```
-- [x] Step 3: Click the first category row and confirm it starts the clock.
+- [ ] Step 3: Click the first category row and confirm it starts the clock.
 The click is a real CGEvent one at the row's centre: these rows expose no name, title or identifier
 to accessibility, so the app's own `click`-tagged log is what proves which row was hit.
 [Method: Number 7](../Methods.md#method-7).
@@ -318,7 +318,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "on face 13"
 timeout_seconds = 30
 ```
-- [x] Step 4: Confirm the segment landed on face 13 and is still open.
+- [ ] Step 4: Confirm the segment landed on face 13 and is still open.
 A manual segment is an ordinary `device_event`, which is the whole point of the design: no second
 kind of record, and the same conversion into `time_entry` a cube's history gets.
 ```toml step
@@ -332,7 +332,7 @@ use = "method-24.c"
 column = "finalised"
 expect = "0"
 ```
-- [x] Step 5: Confirm the duration is climbing.
+- [ ] Step 5: Confirm the duration is climbing.
 Read from the status item's rendered title rather than a screenshot; two reads ten seconds apart is
 what proves movement, which a single frame cannot. [Method: Number 27](../Methods.md#method-27).
 ```toml step
@@ -353,7 +353,7 @@ action = "shell"
 command = "test \"$duration_first\" != \"$duration_second\" && echo moved || echo stuck"
 expect = "moved"
 ```
-- [x] Step 6: Confirm the Faces tab and the menu bar agree.
+- [ ] Step 6: Confirm the Faces tab and the menu bar agree.
 Two views of one session, and the requirement was that they cannot disagree. The elapsed figure sits
 under the play/pause control, inside the square, and is the same string the status item renders.
 ```toml step
@@ -370,7 +370,7 @@ tell application "System Events"
 end tell"""
 capture = "faces_tab_row"
 ```
-- [x] Step 7: Close the Settings window, so the next checklist starts with none open.
+- [ ] Step 7: Close the Settings window, so the next checklist starts with none open.
 [Method: Number 23](../Methods.md#method-23).
 ```toml step
 use = "method-23"
@@ -381,7 +381,7 @@ use = "method-23"
 **Preconditions:** Scenario B complete: a category being timed, the clock running, no Settings window
 open.
 
-- [x] Step 1: Confirm the dropdown offers Pause and refuses Lock.
+- [ ] Step 1: Confirm the dropdown offers Pause and refuses Lock.
 Pause survives manual mode because the thing it acts on moved into the app. Lock has no such half:
 it is a device command with a device state behind it, and there is no device. This item was dead in
 manual mode until the status item's right half had already been taught to pause, so the same gesture
@@ -395,7 +395,7 @@ expect_contains = "Lock=false"
 use = "method-30"
 expect_contains = "Pause=true"
 ```
-- [x] Step 2: Pause from the dropdown and confirm the timer stops.
+- [ ] Step 2: Pause from the dropdown and confirm the timer stops.
 It routes to the manual timer's own path, not to the device command the ordinary pause sends -- which
 would be refused anyway, manual mode never being connected.
 [Method: Number 6](../Methods.md#method-6).
@@ -414,7 +414,7 @@ query = "SELECT message FROM debug_log WHERE tag='manual-mode' AND message LIKE 
 expect_contains = "stopped"
 timeout_seconds = 30
 ```
-- [x] Step 3: Confirm the duration is frozen, not merely slower.
+- [ ] Step 3: Confirm the duration is frozen, not merely slower.
 ```toml step
 [[actions]]
 use = "method-27"
@@ -428,7 +428,7 @@ command = "sleep 12"
 use = "method-27"
 expect = "$paused_first"
 ```
-- [x] Step 4: Confirm the item now reads Resume and is still live, with Lock still dead.
+- [ ] Step 4: Confirm the item now reads Resume and is still live, with Lock still dead.
 A live item saying `Pause` over a stopped timer would be the same lie the greyed-out case exists to
 avoid. [Method: Number 30](../Methods.md#method-30).
 ```toml step
@@ -440,7 +440,7 @@ expect_contains = "Resume=true"
 use = "method-30"
 expect_contains = "Lock=false"
 ```
-- [x] Step 5: Resume from the status item's right half and confirm it drives the same timer.
+- [ ] Step 5: Resume from the status item's right half and confirm it drives the same timer.
 The other trigger for one gesture. It fires immediately rather than waiting out the double-click
 interval, because that wait exists only to let a second click upgrade to lock, and manual mode has
 nothing to lock. Methods: [Number 7](../Methods.md#method-7), [Number 8](../Methods.md#method-8).
@@ -521,7 +521,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN '$manual_mode_buttons' LIKE '%reset-device=false%' AND '$manual_mode_buttons' LIKE '%forget-device=true%' THEN 'ok' ELSE 'buttons read [$manual_mode_buttons] -- wanted a dead Reset beside a live Forget' END;"
 expect = "ok"
 ```
-- [x] Step 2: Close the Settings window this scenario opened.
+- [ ] Step 2: Close the Settings window this scenario opened.
 So Scenario E quits with nothing on screen, matching how every other scenario here leaves it.
 [Method: Number 23](../Methods.md#method-23).
 ```toml step
@@ -535,7 +535,7 @@ own now. Found on the first run that ever reached Scenario D.
 
 **Preconditions:** Scenario D complete: the app in manual mode with the timer running on face 13.
 
-- [x] Step 1: Capture the open segment's id and duration.
+- [ ] Step 1: Capture the open segment's id and duration.
 Every other segment in `device_event` is closed by the frame that follows it. A manual session has no
 frame after its last one, so without the quit handler the segment being timed would stay open and
 never become a `time_entry`. For a cube that self-heals on the next flip; here nothing is coming.
@@ -555,7 +555,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM time_entry te JOIN device_event de ON de.device_event_id = te.device_event_id WHERE de.device_event_id = $open_manual_row;"
 expect = "0"
 ```
-- [x] Step 2: Let it run a little, then quit.
+- [ ] Step 2: Let it run a little, then quit.
 The row is only as current as the last periodic fetch left it, so the close-off has to give it its
 true duration rather than accept whatever was last written. [Method: Number 3](../Methods.md#method-3).
 ```toml step
@@ -566,7 +566,7 @@ command = "sleep 15"
 [[actions]]
 use = "method-3"
 ```
-- [x] Step 3: Confirm the segment was finalised, and grew on the way out.
+- [ ] Step 3: Confirm the segment was finalised, and grew on the way out.
 ```toml step
 [[actions]]
 action = "sql_query"
@@ -578,7 +578,7 @@ action = "shell"
 command = "sqlite3 ~/Library/Application\\ Support/TimeFlip/appdata.sqlite \"SELECT CASE WHEN duration_seconds > $duration_before_quit THEN 'grew' ELSE 'stuck' END FROM device_event WHERE device_event_id = $open_manual_row;\""
 expect = "grew"
 ```
-- [x] Step 4: Confirm it became a `time_entry`.
+- [ ] Step 4: Confirm it became a `time_entry`.
 "And all that entails": finalising is only half of it, the row has to be converted too, and against
 the category face 13 held at the time.
 ```toml step
@@ -587,7 +587,7 @@ action = "sql_query"
 query = "SELECT COUNT(*) FROM time_entry WHERE device_event_id = $open_manual_row;"
 expect = "1"
 ```
-- [x] Step 5: Confirm the app said so on the way out.
+- [ ] Step 5: Confirm the app said so on the way out.
 A SQLite write during `applicationWillTerminate` is the part of this feature least likely to survive
 first contact, so it is worth asserting from both ends.
 ```toml step
@@ -600,7 +600,7 @@ expect_contains = "Manual segment closed off"
 
 **Preconditions:** Scenario E complete: the app quit, the staged PIN still in `config.json`.
 
-- [x] Step 1: Put the real PIN back.
+- [ ] Step 1: Put the real PIN back.
 Everything after this run depends on it. Restored before the relaunch, so the very next launch proves
 it worked rather than leaving a broken file for the next checklist to trip over.
 ```toml step
@@ -613,7 +613,7 @@ action = "shell"
 command = "python3 -c \"import json,os; print(json.load(open(os.path.expanduser('~/Library/Application Support/TimeFlip/config.json')))['PIN'])\""
 expect = "$real_pin"
 ```
-- [x] Step 2: Relaunch and confirm the app reaches the cube again.
+- [ ] Step 2: Relaunch and confirm the app reaches the cube again.
 The proof that the restore worked, and the state the next checklist expects to inherit. Methods:
 [Number 2](../Methods.md#method-2), [Number 4](../Methods.md#method-4).
 ```toml step

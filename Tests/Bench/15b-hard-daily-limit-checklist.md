@@ -43,13 +43,13 @@ DB path: `~/Library/Application Support/TimeFlip/appdata.sqlite`
 `Tests/00-test-setup.md`, which the supervisor always runs first. Setup holds only reads and
 captures, so a restart-from-scenario resume, which skips this section, loses nothing it established.
 
-- [x] Step 1: Confirm `db_type` reads **test** before anything writes to it.
+- [ ] Step 1: Confirm `db_type` reads **test** before anything writes to it.
 ```toml step
 use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [x] Step 2: Confirm the menu bar is showing seconds.
+- [ ] Step 2: Confirm the menu bar is showing seconds.
 Every duration this checklist asserts is `H:MM:SS`, and with the preference off the same reading
 renders `H:MM` and the assertions fail on a formatting difference rather than a real one. It is the
 seeded default ([Method: Number 18](../Methods.md#method-18) asks for it to stay on during testing),
@@ -60,7 +60,7 @@ setting = "display_seconds"
 field = "enabled"
 expect = "1"
 ```
-- [x] Step 3: Confirm `pause_on_lock` is enabled.
+- [ ] Step 3: Confirm `pause_on_lock` is enabled.
 Checked, not set, and a real dependency rather than a formality: with it on, every quit in this file
 locks the cube on its way out, so each of the three scenarios that restarts the app knows it comes back
 to a **locked** cube and unlocks it by name. Were it off, those `Unlock` clicks would error `-1728`
@@ -71,7 +71,7 @@ setting = "pause_on_lock"
 field = "enabled"
 expect = "1"
 ```
-- [x] Step 4: Capture the current day window's start epoch, derived from `daily_reset_time`.
+- [ ] Step 4: Capture the current day window's start epoch, derived from `daily_reset_time`.
 Mirrors `DailyCategoryTotals.computeWindowStart`: today's boundary at that local time, or yesterday's
 if now is still before it. (Note: the yesterday branch subtracts a flat 86400, which is exact only
 where the local offset doesn't shift; Brisbane has no DST, and the steps below only ever use the
@@ -81,7 +81,7 @@ action = "sql_query"
 query = "WITH r AS (SELECT CAST(json_extract(setting_value,'$.hour') AS INT) h, CAST(json_extract(setting_value,'$.minute') AS INT) m FROM setting WHERE setting_name='daily_reset_time'), t AS (SELECT CAST(strftime('%s', date('now','localtime') || ' ' || substr('0'||h,-2) || ':' || substr('0'||m,-2) || ':00', 'utc') AS INT) AS today_reset FROM r) SELECT CASE WHEN CAST(strftime('%s','now') AS INT) >= today_reset THEN today_reset ELSE today_reset - 86400 END FROM t;"
 capture = "window_start"
 ```
-- [x] Step 5: Capture the anchor the synthetic segment sits behind, and confirm there is room for it
+- [ ] Step 5: Capture the anchor the synthetic segment sits behind, and confirm there is room for it
 inside today's window. Ten minutes, against the 4:40 segment placed there -- a run started within ten
 minutes of the daily reset has nowhere to put it and cannot measure a limit today.
 ```toml step
@@ -95,7 +95,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN $anchor_epoch - 600 >= $window_start THEN 'ok' ELSE 'anchor ' || $anchor_epoch || ' leaves no room after window start ' || $window_start END;"
 expect = "ok"
 ```
-- [x] Step 6: Capture the face the cube is resting on and the category it currently holds, for the
+- [ ] Step 6: Capture the face the cube is resting on and the category it currently holds, for the
 teardown to put back. Any face will do here, no sticker needed -- nothing physical happens in this
 file -- but it has to be one the app will resolve an activity for, which is the stored range 1-12
 (`TimeFlipConstants.isValidStoredFaceID`); an out-of-range face would leave the status item on `Idle`
@@ -150,14 +150,14 @@ Moving it to the face's own category is where it belonged all along.
 `resting_face` captured by Setup, and -- resolved by Step 1 below rather than assumed -- the device
 unlocked and running.
 
-- [x] Step 1: Resolve this scenario's own device state: unlocked and unpaused.
+- [ ] Step 1: Resolve this scenario's own device state: unlocked and unpaused.
 Deliberately not inherited from an earlier checklist. A locked cube would refuse nothing here but
 would leave the pause item dead for its own reason, and the cube has to be **running** for Step 2 to
 have a segment to close.
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
-- [x] Step 2: Pause the cube, and wait for the segment it closes to be recorded.
+- [ ] Step 2: Pause the cube, and wait for the segment it closes to be recorded.
 Pausing does two jobs, and the order of them against Step 3 is the whole reason this step exists
 separately. It makes the twenty seconds after Step 6's resume the only live time there is: the
 interval the cube is running now is however old its current rest happens to be, and a resume replaces
@@ -188,7 +188,7 @@ query = "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM device_event de WHERE de.fin
 expect = "ok"
 timeout_seconds = 90
 ```
-- [x] Step 3: Create the category the limit under test belongs to, and point the resting face at it.
+- [ ] Step 3: Create the category the limit under test belongs to, and point the resting face at it.
 Every leftover of an abandoned run is dropped first, so re-running this scenario is idempotent:
 `UN1_category` is unique on name among **active** rows, so a second insert would otherwise fail, and
 a stale synthetic segment would still sit inside today's window and quietly add 4:40 to the figure
@@ -227,7 +227,7 @@ capture = "limit_category_id"
 action = "sql_exec"
 query = "UPDATE face SET category_id = $limit_category_id WHERE face_id = $resting_face;"
 ```
-- [x] Step 4: Seed 4:40 of recorded time against it -- twenty seconds short of the limit Step 5 sets.
+- [ ] Step 4: Seed 4:40 of recorded time against it -- twenty seconds short of the limit Step 5 sets.
 Inside today's window and behind the anchor. `finalised`/`processed` are set so the time-entry sweep
 treats the row as already converted rather than writing a second entry over the top.
 The closing assertion is exact (`280`, not "at least 280") on purpose: it is the check that the
@@ -259,7 +259,7 @@ the face's own category is not a fudge: that is the category the face held while
 which is what the entry should have said. An entry is **moved** rather than deleted deliberately --
 `sweepTimeEntries` deliberately ignores the `processed` flag and would recreate a deleted one, since to
 it a finalised event with no entry is a defect to repair.
-- [x] Step 5: Set the limit to 5 minutes, restart the app, and confirm it came up on 4:40.
+- [ ] Step 5: Set the limit to 5 minutes, restart the app, and confirm it came up on 4:40.
 The limit rides along on the activity record, so it is picked up when that is reloaded rather than
 watched for -- which is why this is a restart and not just a write. The reading proves both halves of
 the setup arrived: the face's new category (the name) and the seeded segment (the figure). Exact
@@ -316,7 +316,7 @@ expects, so the app is not at fault -- the step was reading a starting-up app. F
 `Unlock` to appear before clicking it, in Scenario C and in Scenario D, which restarts the same way.
 Scenario A Step 6 was never exposed to it: `ensure_unlocked_unpaused` polls the menu, so it already
 waits the window out.
-- [x] Step 6: Unlock and resume the cube, and confirm this resume was allowed.
+- [ ] Step 6: Unlock and resume the cube, and confirm this resume was allowed.
 The limit is not spent yet -- 4:40 against 5:00 -- so the app has no reason to refuse, and the same
 gesture being refused twenty seconds later is what Scenario B rests on. `paused = 0` on the newest
 **real** event is the device's own word for it, rather than the menu's.
@@ -338,7 +338,7 @@ column = "paused"
 expect = "0"
 timeout_seconds = 60
 ```
-- [x] Step 7: Confirm the app pauses the cube on reaching the limit.
+- [ ] Step 7: Confirm the app pauses the cube on reaching the limit.
 The assertion the checklist exists for. The pause is timed by a one-shot timer on the crossing second
 (`MenuBarController.updateDailyLimitTimer`), so roughly twenty seconds after the resume above; the
 timeout is far longer than that so a slow BLE round trip cannot fail a working limit.
@@ -350,7 +350,7 @@ since_id = "$current_log_id"
 expect_contains = "Limit reached, pausing device"
 timeout_seconds = 120
 ```
-- [x] Step 8: Confirm the cube itself is paused, not just the app's record of it.
+- [ ] Step 8: Confirm the cube itself is paused, not just the app's record of it.
 `device_event.paused` comes from the history frames the device sends back, so this is the device
 reporting its own state rather than the app repeating its intent.
 ```toml step
@@ -360,7 +360,7 @@ column = "paused"
 expect = "1"
 timeout_seconds = 60
 ```
-- [x] Step 9: Confirm the recorded total has reached the budget, and note what the menu bar shows.
+- [ ] Step 9: Confirm the recorded total has reached the budget, and note what the menu bar shows.
 The accounting behind the pause: the segment the pause closed has become a `time_entry`, so the spent
 budget is in the recorded data rather than only in the app's memory -- which is what the hold is
 re-armed from on the next launch (Scenario C).
@@ -386,7 +386,7 @@ capture = "title_at_limit"
 **Preconditions:** Scenario A complete and left in place -- the cube paused by the limit on a
 category whose budget is spent, the app running.
 
-- [x] Step 1: Confirm the dropdown's Resume item is dead, **and dead because of the limit**.
+- [ ] Step 1: Confirm the dropdown's Resume item is dead, **and dead because of the limit**.
 The visible half of the refusal, so a click that will do nothing looks like it. This reads the enabled
 state rather than the names ([Method: Number 30](../Methods.md#method-30)); the item is still *called*
 Resume, since it still names the cube's real state.
@@ -407,7 +407,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN '$menu_when_spent' LIKE '%Resume=false%' AND '$menu_when_spent' NOT LIKE '%Unlock%' THEN 'ok' ELSE 'menu read [$menu_when_spent] -- wanted a dead Resume on an unlocked cube' END;"
 expect = "ok"
 ```
-- [x] Step 2: Single-click the status item's right half and confirm the click landed.
+- [ ] Step 2: Single-click the status item's right half and confirm the click landed.
 The gesture, not the menu item: this reaches `togglePause` directly, so it tests the refusal itself
 rather than the disabled label in front of it. Methods: [Number 7](../Methods.md#method-7),
 [Number 8](../Methods.md#method-8).
@@ -423,7 +423,7 @@ query = "SELECT message FROM debug_log WHERE tag='click' AND debug_log_id > $cur
 expect_contains = "-> togglePause"
 timeout_seconds = 30
 ```
-- [x] Step 3: Confirm the app refused it rather than sending the unpause.
+- [ ] Step 3: Confirm the app refused it rather than sending the unpause.
 ```toml step
 use = "method-24.d"
 action = "wait_for_sql"
@@ -431,7 +431,7 @@ tag = "daily-limit"
 expect_contains = "Resume refused"
 timeout_seconds = 30
 ```
-- [x] Step 4: Confirm the cube is still paused.
+- [ ] Step 4: Confirm the cube is still paused.
 The refusal's actual consequence, read from the device's own frames. A `0` here would mean the
 unpause went out regardless of everything above.
 ```toml step
@@ -444,7 +444,7 @@ expect = "1"
 
 **Preconditions:** Scenario B complete -- the cube paused by the spent limit, the app running.
 
-- [x] Step 1: Restart the app.
+- [ ] Step 1: Restart the app.
 Nothing about the hold is persisted: the flag saying "this app paused the cube" is in memory and does
 not survive this. What does survive is the cube's own pause and the recorded total, which is what the
 app has to re-arm from. Methods: [Number 3](../Methods.md#method-3),
@@ -461,7 +461,7 @@ use = "method-4"
 since_id = "$current_log_id"
 timeout_seconds = 60
 ```
-- [x] Step 2: Unlock the cube, then confirm the fresh launch still refuses to resume.
+- [ ] Step 2: Unlock the cube, then confirm the fresh launch still refuses to resume.
 Unlock **without** resuming, which is why this is a single named click rather than the resolver Step 6
 of Scenario A uses: the resolver would go on to click Resume, and a Resume this scenario expects to be
 refused is not something to hand to a poller that retries until it succeeds. Unlocking does not touch
@@ -504,7 +504,7 @@ expect = "1"
 
 **Preconditions:** Scenario C complete -- the cube paused, the app refusing to resume.
 
-- [x] Step 1: Raise the limit to 15 minutes and restart the app.
+- [ ] Step 1: Raise the limit to 15 minutes and restart the app.
 The one deliberate act that clears a spent category the same day. Written to the database and picked
 up on the reload, for the reason Scenario A Step 5 gives.
 ```toml step
@@ -523,7 +523,7 @@ use = "method-4"
 since_id = "$current_log_id"
 timeout_seconds = 60
 ```
-- [x] Step 2: Unlock the cube, and confirm Resume is offered again.
+- [ ] Step 2: Unlock the cube, and confirm Resume is offered again.
 The unlock is Step 1's quit being undone, exactly as in Scenario C: with the cube still locked the item
 would read `Resume=false` for the lock's sake and this scenario would look like a failure of the
 release. The same wait precedes it, and for the same reason -- see Scenario C Step 2. Methods:
@@ -544,7 +544,7 @@ use = "method-30"
 expect_contains = "Resume=true"
 timeout_seconds = 30
 ```
-- [x] Step 3: Resume, and confirm the cube actually starts again.
+- [ ] Step 3: Resume, and confirm the cube actually starts again.
 What proves the refusal in Scenario B was the limit's doing and not something else that had stopped
 the cube for good. Methods: [Number 6](../Methods.md#method-6),
 [Number 24.k](../Methods.md#method-24).
@@ -566,12 +566,12 @@ timeout_seconds = 60
 **Preconditions:** Scenarios A to D complete. Runs even if any failed -- the row and the reassigned
 face it removes are what would otherwise follow the run into `15i` and `01i`.
 
-- [x] Step 1: Quit the app before unpicking the rows underneath it.
+- [ ] Step 1: Quit the app before unpicking the rows underneath it.
 [Method: Number 3](../Methods.md#method-3).
 ```toml step
 use = "method-3"
 ```
-- [x] Step 2: Delete the synthetic segment, restore the face, and drop the test category.
+- [ ] Step 2: Delete the synthetic segment, restore the face, and drop the test category.
 Ordered entry-then-event-then-category so no foreign key is ever left dangling.
 ```toml step
 [[actions]]
@@ -594,7 +594,7 @@ query = "DELETE FROM time_entry WHERE category_id IN (SELECT category_id FROM ca
 action = "sql_exec"
 query = "DELETE FROM category WHERE category_name = 'ZZ Hard Limit';"
 ```
-- [x] Step 3: Confirm nothing synthetic survives and the resume position is a real event again.
+- [ ] Step 3: Confirm nothing synthetic survives and the resume position is a real event again.
 `01i` resumes history from the newest recorded segment, so this is the check that the Interactive
 phase starts from the device's own record rather than an invented one.
 ```toml step
@@ -613,7 +613,7 @@ action = "sql_query"
 query = "SELECT CASE WHEN (SELECT start_epoch FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1) >= $anchor_epoch THEN 'ok' ELSE 'resume position moved behind the anchor' END;"
 expect = "ok"
 ```
-- [x] Step 4: Restart the app and leave the device unlocked and unpaused.
+- [ ] Step 4: Restart the app and leave the device unlocked and unpaused.
 The state every other checklist assumes it starts from. Methods:
 [Number 3](../Methods.md#method-3), [Number 2](../Methods.md#method-2),
 [Number 4](../Methods.md#method-4).

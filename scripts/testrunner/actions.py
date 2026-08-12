@@ -701,6 +701,146 @@ def act_ensure_unlocked_unpaused(spec, ctx):
     return StepResult(True, detail)
 
 
+def _clicks_to_reach(target, from_count, running):
+    """How many pause-toggle clicks take the device's event counter to `target` and leave it running.
+
+    One click is one event, so it is the shortfall, rounded up to the parity that ends unpaused.
+    Worked example, the one this was specified against: 9 events and running needs two clicks, the
+    first pausing (which makes it 10) and the second unpausing. A device found *already* paused
+    needs the opposite parity, and needs a click even at the target, to leave it running.
+    """
+    needed = max(0, target - from_count)
+    if running:
+        return needed if needed % 2 == 0 else needed + 1
+    return needed if needed % 2 == 1 else needed + 1
+
+
+def act_build_device_history(spec, ctx):
+    """Drive the device's own event counter up to `target` by pausing and unpausing it, with the
+    status item's right half.
+
+    Each pause ends the interval the device is recording and each unpause opens another, so the
+    device allocates a fresh event number per click -- which is what `01b` needs. That checklist
+    resumes a history fetch *from an event number*, so the counter is the thing that has to climb;
+    a row count would not do.
+
+    This used to be ten physical flips: a prompt, and a poll with no timeout, while somebody turned
+    the cube over and over. The cube does not have to move to produce history, and the intervals a
+    toggle produces are the *harmless* kind: `convertEligibleEvents` filters on `paused = 0`, so
+    every second one never becomes a `time_entry` and cannot land in the totals `10b` and `11b`
+    measure, where ten real flips onto real faces could (see Step 16's bug entry, where a 9-second
+    flip onto face 5 read as fixture damage).
+
+    **The click count is computed, not polled for.** One click is one event, so the arithmetic is
+    the shortfall plus whatever parity leaves the device *running* at the end, which is the state
+    Step 13 guarantees and every checklist after it assumes. At 9 events and running, that is two
+    clicks: the first pauses and makes it 10, the second unpauses. The counter is re-read afterwards
+    and topped up **in pairs** if a toggle turned out not to allocate a number, so the calculation
+    is the plan rather than an assumption nothing checks.
+
+    `click_gap_seconds` has a floor rather than a preference behind it: a `togglePause` fires
+    `NSEvent.doubleClickInterval` after the click that scheduled it (`MenuBarController`), so the
+    gap has to exceed that or a click lands while the previous toggle is still pending. 1s clears
+    the 0.5s default. It is not a double-click hazard -- `cgevent_click` posts an explicit
+    `clickState` of 1, so each arrives as `clickCount=1` -- but the `-> togglePause` check below
+    proves that per click rather than trusting it, because a click read as a lock would freeze face
+    switching for every checklist that follows.
+
+    Reads only real rows (`event_number < 900000`). The seeded report fixture numbers from 900001,
+    and a fixture row read as the newest would satisfy any target instantly -- the same trap
+    `Method 24.k` exists for.
+    """
+    target = int(spec.get("target", 10))
+    gap = float(spec.get("click_gap_seconds", 1.0))
+    settle = float(spec.get("settle_seconds", 8))
+    max_top_ups = int(spec.get("max_top_up_pairs", 5))
+    db_path = ctx["db_path"]
+
+    def counter():
+        rows, _ = _run_sql(db_path, (
+            "SELECT COALESCE((SELECT event_number FROM device_event "
+            "WHERE event_number < 900000 ORDER BY device_event_id DESC LIMIT 1), 0);"
+        ))
+        return int(rows[0][0]) if rows and rows[0][0] is not None else 0
+
+    def log_head():
+        rows, _ = _run_sql(db_path, "SELECT COALESCE(MAX(debug_log_id), 0) FROM debug_log;")
+        return int(rows[0][0]) if rows else 0
+
+    names = _menu_item_names()
+    if "Pause" not in names and "Resume" not in names:
+        return StepResult(
+            False,
+            f"the dropdown offers neither Pause nor Resume ({', '.join(names)}) -- there is no "
+            "device to pause, so no history can be built",
+        )
+    running = "Resume" not in names
+    started_at = counter()
+    planned = _clicks_to_reach(target, started_at, running)
+    if planned == 0:
+        return StepResult(True, f"event counter already {started_at} (target {target}), device running",
+                          value=str(started_at))
+
+    baseline = log_head()
+    clicked = 0
+
+    def click_once():
+        nonlocal clicked
+        result = act_cgevent_click({"target": "status_item_right", "mode": "single"}, ctx)
+        if not result.success:
+            return False, result.detail
+        clicked += 1
+        time.sleep(gap)
+        return True, None
+
+    for _ in range(planned):
+        ok, detail = click_once()
+        if not ok:
+            return StepResult(False, f"click {clicked + 1} of {planned} failed: {detail}")
+
+    # Give the last toggle's history refresh time to land before reading the counter.
+    deadline = time.time() + settle
+    while time.time() < deadline and counter() < target:
+        time.sleep(1)
+
+    # A toggle that allocated no number leaves the counter short. Top up in pairs, which keeps the
+    # parity, so the device is still running whatever this loop does.
+    top_ups = 0
+    while counter() < target and top_ups < max_top_ups:
+        for _ in range(2):
+            ok, detail = click_once()
+            if not ok:
+                return StepResult(False, f"top-up click failed: {detail}")
+        top_ups += 1
+        deadline = time.time() + settle
+        while time.time() < deadline and counter() < target:
+            time.sleep(1)
+
+    finished_at = counter()
+    rows, _ = _run_sql(db_path, (
+        "SELECT COUNT(*), SUM(message LIKE '%-> lockDevice%') FROM debug_log "
+        f"WHERE tag='click' AND debug_log_id > {baseline} AND message LIKE 'Status item clicked:%';"
+    ))
+    landed, locks = (rows[0][0] or 0, rows[0][1] or 0) if rows else (0, 0)
+    if locks:
+        return StepResult(False, f"{locks} of {clicked} clicks resolved to lockDevice, not togglePause -- "
+                                 f"raise click_gap_seconds above NSEvent.doubleClickInterval")
+    if finished_at < target:
+        return StepResult(
+            False,
+            f"event counter reached {finished_at} of {target} after {clicked} clicks "
+            f"({landed} logged). Is the device still connected?",
+        )
+    if "Resume" in _menu_item_names():
+        return StepResult(False, f"counter reached {finished_at}, but the device was left paused")
+    return StepResult(
+        True,
+        f"event counter {started_at} -> {finished_at} (target {target}) via {clicked} right-half "
+        f"clicks, {landed} logged, device left running",
+        value=str(finished_at),
+    )
+
+
 def act_ask_user(spec, ctx):
     """A real yes/no question -- 'y' passes, 'n' fails (any case), and anything else
     (a stray keystroke, a blank Enter) re-prompts instead of being silently treated
@@ -897,6 +1037,7 @@ ACTIONS = {
     "cgevent_key": act_cgevent_key,
     "click_menu_item": act_click_menu_item,
     "ensure_unlocked_unpaused": act_ensure_unlocked_unpaused,
+    "build_device_history": act_build_device_history,
     "ask_user": act_ask_user,
     "ask_user_or_detect": act_ask_user_or_detect,
 }

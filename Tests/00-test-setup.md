@@ -272,7 +272,7 @@ prompt = "The device isn't connecting on the test database. It's already paired 
 timeout_seconds = 120
 ```
 - [x] Step 13: Leave the device unlocked and unpaused
- so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave Step 15's flips dead (a lock freezes face switching).
+ so every checklist starts from a clean state -- unlocking first if needed, then resuming if paused (no-op if already clean). Polls over a settle window rather than reading once: the device's lock/pause state can arrive a couple of seconds after the reconnect, and until it does the menu looks clean, so a single read would miss a locked/paused device and leave the state Step 15 computes its click count from wrong (it reads the Pause/Resume label to know which parity ends with the device running).
 ```toml step
 action = "ensure_unlocked_unpaused"
 ```
@@ -282,25 +282,17 @@ use = "method-24.a"
 setting = "db_type"
 expect = '{"type":"test"}'
 ```
-- [x] Step 15: Build up device history to **≥ 10 events**
--- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it prompts you to flip and polls with **no timeout** -- take as long as you need, it won't fail the run. Confirmed on the test DB (Step 14 above) so real flips record to `test.sqlite`.
+- [ ] Step 15: Build up device history to **≥ 10 events**
+-- but only when this run includes a history-refresh checklist (`needs_history = y`, set by the supervisor from the requested set). Other runs (LED, battery, ...) don't need the history, so they skip this and tick it. Already-≥10 satisfies instantly; otherwise it clicks the status item's right half the number of times the shortfall needs, which needs nobody and never moves the cube. Confirmed on the test DB (Step 14 above) so the rows record to `test.sqlite`.
+It was ten physical flips until 2026-08-12, with a prompt and no timeout. Each pause ends the interval the device is recording and each unpause opens another, so the device numbers a toggle exactly as it numbers a flip -- and `01b` resumes a fetch *from an event number*, so the counter is all that has to climb.
+**The click count is computed rather than polled for.** One click is one event, so it is the shortfall plus whatever parity leaves the device **running**, which is the state Step 13 guarantees and everything after it assumes: at 9 events and running, two clicks, the first making it 10 and the second unpausing. Clicks are 1s apart, which has a floor behind it rather than a preference -- a `togglePause` fires `NSEvent.doubleClickInterval` after the click that scheduled it, so a shorter gap lands a click while the previous toggle is still pending. The counter is re-read afterwards and topped up in pairs if a toggle turned out to allocate no number, so the arithmetic is a plan and not an assumption nothing checks.
+The paused half of each cycle is also the harmless kind of row: `convertEligibleEvents` filters `paused = 0`, so it never becomes a `time_entry` and cannot land in the totals `10b` and `11b` measure, which ten real flips onto real faces could (see Step 16's bug entry below). `build_device_history` in `scripts/testrunner/actions.py` holds the arithmetic and the rest of the reasoning.
 ```toml step
 when = '$needs_history == y'
-action = "wait_for_sql"
-query = "SELECT COALESCE((SELECT CASE WHEN event_number >= 10 THEN 'ok' ELSE 'building=' || event_number END FROM device_event ORDER BY device_event_id DESC LIMIT 1), 'building=0');"
-expect = "ok"
-prompt = "The history-refresh checklist needs at least 10 device events. Flip the device between faces (e.g. Break and Meeting) until this proceeds, then leave it resting on one face."
-timeout_seconds = 0
-poll_interval = 3
+action = "build_device_history"
+target = 10
 ```
-- [x] Step 16: Confirm you've **stopped flipping**
- and the device is resting on one face before any checklist runs -- the ≥10 monitor above returns the instant the count hits 10, which can be mid-flip, so `01b`'s "event count unchanged" scenario would otherwise race a still-climbing counter. Only when history was being built (`needs_history = y`).
-```toml step
-when = '$needs_history == y'
-action = "ask_user"
-prompt = "Stop flipping and leave the device resting on one face. Is it resting and settled now? (y once it's stopped)"
-```
-- [x] Step 17: Confirm the report fixture is in place, and behind everything the run records
+- [ ] Step 16: Confirm the report fixture is in place, and behind everything the run records
  -- the five categories and five segments `Bench/11b` and `Bench/14b` measure, seeded back in Step 9. **Seeded there, not here, and the position is the whole point.** These rows are synthetic `device_event`s, and several checklists read *the latest* `device_event` by `device_event_id` -- `01b` Setup asserts it is the open, growing one (`finalised = 0`), and `Method 24.c` hands that row to whoever asks. Seeded at the end of setup they took the highest ids and became that row, failing `01b` with `finalised = 1` (measured 2026-08-08, ids 10-12 against real rows 1-9). Inserted into the freshly-created `test.sqlite` before the app has ever launched, they take ids 1-5 instead and every real row lands after them, so the newest is always a real one. Three of the categories are for `11b`, in three states -- active on a face, active on no face, and retired -- because a report shows *time*, not *current* categories: it must include one the Faces list and `loadCategories()` both filter out. Durations of 30:29, 45:30 and 60:31 on the days 5, 4 and 3 back make every range `11b` asserts a different figure, and dating them days back keeps them clear of anything the cube records today. The seconds are not decoration: they straddle the half-minute (29 below, 30 exactly on it, 31 above), so `11b`'s seconds-off assertions prove the figure is **truncated** to the minute rather than rounded. On round durations those assertions read the same either way and proved nothing.
 
 The other two are **both called `ZZ Lapsed`**, retired from the moment they are inserted, and exist for `14b`. The shared name is the point rather than an oversight: `UN1_category` is a partial index (`WHERE active = 1`), so one name can be held by any number of retired categories, and two identical-looking rows in the Inactive list owning different history is the exact situation the Last used column was built to resolve. A fixture that told them apart by name would be testing an easier problem than the real one.
@@ -310,7 +302,7 @@ Their entries are 10 and 20 days back, well clear of the 3-to-5 the `11b` rows o
 **The sums below are scoped by `event_number`, not by category**, and that distinction is the
 difference between measuring the fixture and measuring the room. `ZZ Assigned` owns face 5, because
 `11b` needs a category that is *currently on a face*, so real time lands on it whenever the cube
-rests there: during Step 15's flipping, or from an earlier run the cube still remembers, since a
+rests there: from an earlier run the cube still remembers, since a
 halted run skips the cleanup reset and the next run's history fetch pours those events into the
 fresh test database. Measured 2026-08-10: a 9-second segment on face 5, recorded at 20:42 during a
 run that halted, re-ingested an hour later and read as `8199` against an expected `8190`. Nothing
@@ -341,7 +333,7 @@ expect = "ok"
 real flip onto face 5 (which `ZZ Assigned` holds) counted as fixture damage: `8199` against `8190`.
 Scoped by `event_number`.
 
-- [x] Step 18: Retire bug history belonging to another branch, on the checklists this run will cover.
+- [ ] Step 17: Retire bug history belonging to another branch, on the checklists this run will cover.
 `Tests/CLAUDE.md`'s rule is that a **Bugs found and fixed** entry belongs to the branch that found
 it, so arriving on a new branch retires it -- and that a checklist this run does not reach keeps
 both its entries and its `Last run` heading exactly as the previous branch left them. This does the
