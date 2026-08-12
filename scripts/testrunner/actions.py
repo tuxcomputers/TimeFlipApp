@@ -503,8 +503,14 @@ def act_wait_for_sql(spec, ctx):
     # No grace period means the nudge belongs on screen *before* the first poll, not one
     # `poll_interval` into the wait: the loop only reaches its own alert check after a sleep, so
     # leaving it to fire there would still open with a silent pause on a step asking for a hand.
+    #
+    # Banner without the step header, unlike the deferred nudge below: the supervisor printed the
+    # header immediately above, and repeating it here reads as the step having been asked twice.
+    # The deferred path does want it, a wait that has been polling for minutes having scrolled the
+    # step it belongs to off the screen -- which is the whole reason `print_action_required` takes
+    # a header at all.
     if prompt and alert_after <= 0:
-        _announce(prompt, ctx)
+        print_action_required(prompt)
         alerted = True
     while wait_forever or time.time() < deadline:
         time.sleep(interval)

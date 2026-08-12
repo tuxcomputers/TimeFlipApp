@@ -1,6 +1,6 @@
 # Hard Daily Limit Checklist
 
-### Last run - 2026-08-12 12:10 on the branch 'feature/dailyLimit'
+### Last run - 2026-08-12 16:11 on the branch 'feature/dailyLimit'
 
 The physical half of the hard `daily_limit`: what a flip does to a cube the limit has stopped, and
 what a double tap does. `15b` covers the crossing itself and the refused resume, neither of which
@@ -196,7 +196,7 @@ detect_query = "SELECT device_face FROM device_event ORDER BY device_event_id DE
 expect = "8"
 timeout_seconds = 0
 ```
-- [ ] **(Claude)** Step 4: Confirm the app pauses the cube on arrival.
+- [x] **(Claude)** Step 4: Confirm the app pauses the cube on arrival.
 Not a crossing: the budget was spent before the flip, so the pause is a response to the face itself,
 and it lands about a second behind the flip -- inside the gap between Step 3 returning and this step
 starting. So the baseline is Step 3's named one, not `$current_log_id`: that one is re-read
@@ -214,7 +214,7 @@ timeout_seconds = 60
 2026-08-12 - Scoped on `$current_log_id`, which the runner re-reads before every step, so the pause
 logged ~1s after Step 3's flip was already below the baseline and the step waited 60s for a second
 message the app is right not to send; now scoped on a baseline captured before the flip.
-- [ ] **(Claude)** Step 5: Confirm the cube itself is paused, not just the app's record of it.
+- [x] **(Claude)** Step 5: Confirm the cube itself is paused, not just the app's record of it.
 `device_event.paused` comes from the device's own history frames.
 ```toml step
 use = "method-24.k"
@@ -229,14 +229,14 @@ timeout_seconds = 60
 **Preconditions:** Scenario A complete -- the cube paused by the limit, resting on **Break**, the app
 running.
 
-- [ ] **(Claude)** Step 1: Note where the log is up to, so the resume below is read as this scenario's.
+- [x] **(Claude)** Step 1: Note where the log is up to, so the resume below is read as this scenario's.
 `current_log_id` moves before every step, so a baseline that has to survive a flip needs its own name.
 [Method: Number 24.b](../Methods.md#method-24).
 ```toml step
 use = "method-24.b"
 capture = "before_flip_away_id"
 ```
-- [ ] **(You)** Step 2: Flip the cube to the **Meeting** face (face 2) and leave it there.
+- [x] **(You)** Step 2: Flip the cube to the **Meeting** face (face 2) and leave it there.
 Meeting holds the category with no limit, so the cube has budget again the moment it lands.
 ```toml step
 action = "ask_user_or_detect"
@@ -245,23 +245,35 @@ detect_query = "SELECT device_face FROM device_event ORDER BY device_event_id DE
 expect = "2"
 timeout_seconds = 0
 ```
-- [ ] **(Claude)** Step 3: Confirm the app sent the resume of its own accord.
-Nobody asked it to: the pause belonged to a category that is no longer on show. This asserts the app's
-decision rather than the cube's resulting state, for the reason Step 4 gives.
+- [ ] **(Claude)** Step 3: Confirm the limit let the cube go, sending nothing after the flip.
+This is the scenario's claim, stated as the app's silence: the pause belonged to a category that is
+no longer on show, so nothing here may put it back. A `pausing device` line would mean the limit had
+followed the cube off its own face.
+It does **not** assert that the app sent the resume, which is what it asked for until 2026-08-12 and
+could never get: **a flip resumes the cube in firmware**, the app having no part in it (see the bug
+below and `docs/timeflip2-firmware-observations.md`), so the first frame after the flip already
+reports it running and there is nothing left to send. `DailyLimitEnforcement.resume` still exists for
+a pause that *survives* -- the limit raised while the cube sits paused on the spent face, where
+nothing physical has lifted it -- and `15b` is where that path is exercised, no hand required.
 ```toml step
-action = "wait_for_sql"
-query = "SELECT message FROM debug_log WHERE tag='daily-limit' AND debug_log_id > $before_flip_away_id ORDER BY debug_log_id DESC LIMIT 1;"
-expect_contains = "resuming device"
-timeout_seconds = 60
+action = "sql_query"
+query = "SELECT COALESCE((SELECT message FROM debug_log WHERE tag='daily-limit' AND debug_log_id > $before_flip_away_id AND message LIKE '%pausing device%' ORDER BY debug_log_id DESC LIMIT 1), 'quiet');"
+expect = "quiet"
 ```
+### Bugs found and fixed - branch 'feature/dailyLimit'
+2026-08-12 - Waited for the app to log a resume it can never send: the cube unpauses itself on a
+flip, so the frame the app acts on already reports it running. Step now asserts the app sent nothing.
+2026-08-12 - Found by the above: the app went on claiming the firmware-lifted pause as its own
+(`isPausedByLimit` was only cleared when it sent the resume itself), so a pause the **user** then
+asked for on a face with budget was read as the limit's and undone on the next frame.
 - [ ] **(Claude)** Step 4: Read whether the cube is running, and record it rather than assert it.
 It should read `0`, and normally does. It is not an assertion because a physical flip can itself
 register as a double tap, which the firmware pauses on unconditionally
 ([Method: Number 22](../Methods.md#method-22), measured in `10i` on 2026-08-06) -- and a pause
 arriving *after* the resume, on a category with budget to spare, is one the app leaves alone, exactly
 as it leaves any pause it did not ask for. So a `1` here means the cube was double-tapped on the way
-over, not that the resume failed; Step 3 is what proves the app resumed it. The run log keeps the
-reading either way.
+over, not that the resume failed; Step 3 is what proves the limit did not put the pause back. The run
+log keeps the reading either way.
 ```toml step
 use = "method-24.k"
 column = "paused"

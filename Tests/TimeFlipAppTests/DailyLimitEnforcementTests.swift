@@ -74,14 +74,49 @@ final class DailyLimitEnforcementTests: XCTestCase {
 
     // MARK: - Flipping off the spent face, and back
 
-    func testFlippingToACategoryWithBudgetResumesTheCube() {
+    func testAPauseThatSurvivesOntoABudgetedCategoryIsLifted() {
         // Pause belongs to the cube, a limit to a category: leaving it paused would spend one
         // category's budget and stop the day's tracking with it.
+        //
+        // The state this models -- paused, on a category with budget -- is **not** what a flip
+        // produces on real hardware, where the firmware resumes the cube itself (see the type doc,
+        // measured 2026-08-12). It is what an edit produces: the limit raised or cleared while the
+        // cube sits paused on the face that spent it, so nothing physical has lifted the pause and
+        // this type's own `.resume` is the only thing that will.
         var enforcement = DailyLimitEnforcement()
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
         XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, paused: true), .resume)
         XCTAssertFalse(enforcement.isReachedForCurrentCategory)
         XCTAssertFalse(enforcement.isPausedByLimit)
+    }
+
+    func testTheFirmwareLiftingThePauseDropsTheClaimOnIt() {
+        // What a flip actually looks like: the cube arrives on the new face already running. Nothing
+        // is sent, and the claim must not outlive the pause it was about.
+        var enforcement = DailyLimitEnforcement()
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertTrue(enforcement.isPausedByLimit, "precondition: this type placed the pause")
+
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 120, paused: false), .none)
+        XCTAssertFalse(
+            enforcement.isPausedByLimit,
+            "the firmware resumed the cube on the flip, so there is no longer a pause of this type's to claim"
+        )
+    }
+
+    func testTheUsersOwnPauseIsNotUndoneAfterALimitPauseWasLiftedByAFlip() {
+        // The sequence the stale claim broke, all of it reachable in a few seconds on the desk: spend
+        // a limit, flip away (firmware resumes), then pause deliberately on the new face. That pause
+        // is the user's, and a limit that had not noticed losing its own would send `.resume` on the
+        // next frame and take it away again.
+        var enforcement = DailyLimitEnforcement()
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 120, paused: false), .none)
+
+        XCTAssertEqual(
+            evaluate(&enforcement, category: meetingCategory, limit: 0, total: 180, paused: true), .none,
+            "the user paused this; nothing here asked for it and nothing here undoes it"
+        )
     }
 
     func testFlippingBackToTheSpentFacePausesItAgain() {

@@ -26,11 +26,20 @@ enum DailyLimitAction: Equatable {
 /// answered: it arrives as a history frame reporting the cube running again, `evaluate` sees a spent
 /// category unpaused, and the pause goes straight back out.
 ///
-/// Flipping to a face whose own category has budget lifts the pause automatically, because pause is
-/// a property of the **cube** and a limit is a property of a **category**: leaving it paused would
-/// spend one category's budget and stop the day's tracking. Flipping back pauses it again. Only a
-/// pause this type asked for is lifted (`isPausedByLimit`) -- a pause the user asked for is theirs,
-/// and auto-resuming it would make the Pause item a control that undoes itself on the next flip.
+/// Flipping to a face whose own category has budget leaves the cube running, because pause is a
+/// property of the **cube** and a limit is a property of a **category**: leaving it paused would
+/// spend one category's budget and stop the day's tracking. Flipping back pauses it again.
+///
+/// **The firmware is what lifts it, not this type** (measured 2026-08-12: a flip always resumes the
+/// cube, the one exception being a locked cube, which refuses the flip and reports no event). So the
+/// frame after a flip reports the cube already running and `.resume` is never needed for it. What
+/// `.resume` is actually for is a pause that *survives* -- the limit raised or cleared on the
+/// Categories tab while the cube sits paused on that same spent face, where nothing physical has
+/// happened to lift it. Only a pause this type asked for is lifted (`isPausedByLimit`) -- a pause the
+/// user asked for is theirs, and auto-resuming it would make the Pause item a control that undoes
+/// itself. The claim is therefore dropped as soon as a frame reports the cube running with budget in
+/// hand, however it came to be running; holding it past that turned the *user's* own pause into one
+/// this type believed it had placed.
 ///
 /// ## Why the latch, and not just today's total against the limit
 ///
@@ -128,9 +137,21 @@ struct DailyLimitEnforcement {
         isReachedForCurrentCategory = reached
 
         guard reached else {
-            // Budget again on this face. Only lift a pause of this type's own making; see the note
-            // above on why a user's pause is not this type's to undo.
-            guard isPaused, isPausedByLimit else { return .none }
+            // Budget again on this face, and the cube already running: whatever pause this type
+            // placed is gone, so the claim goes with it. On real hardware this is the ordinary way a
+            // limit's pause ends -- **a flip resumes the cube in firmware**, the app having no part
+            // in it (measured 2026-08-12; the sole exception is a locked cube, which refuses the flip
+            // outright and reports no event at all). Clearing here is what stops the *user's* next
+            // pause on a budgeted face being read as this type's own and undone on the following
+            // frame: before this, the claim survived the firmware's resume, and Pause on a budgeted
+            // face was a control that undid itself one frame later.
+            guard isPaused else {
+                isPausedByLimit = false
+                return .none
+            }
+            // Still paused with budget to spare. Only lift a pause of this type's own making; see the
+            // note above on why a user's pause is not this type's to undo.
+            guard isPausedByLimit else { return .none }
             isPausedByLimit = false
             return .resume
         }
