@@ -47,6 +47,39 @@ on a repeating timer. Neither is a licence to cache by default -- they are the c
 comment has to earn it, and "it would be a read per tick" is a reason to be explicit, not a reason to
 say nothing.
 
+## Read how the archived app did it, before building anything
+
+The app is being rebuilt from the ground up, and the previous implementation is in `Archive/`
+(`TimeFlipApp/`, `TimeFlipAppTests/`, `Bench/`, `Interactive/`), with its supporting material still
+live in `Tests/Methods.md` and `docs/`. **For every feature request, read how the old code did it
+first.** Not to copy it, and not as a courtesy to it: to find out what it knows.
+
+Then decide, explicitly, which of three applies -- and **say which in the reply**, so the choice is
+visible rather than buried in a diff:
+
+- **Ignore it.** It solved a problem this design does not have, or it was working around something
+  that no longer exists. Say what it did and why the new shape does not need it.
+- **Massage it.** The intent is right, the shape is not. Take the intent and build it the new way.
+  This is the common answer.
+- **Copy it as is.** It is right, and rewriting it would land in the same place. Copy it, and say
+  what makes it worth keeping verbatim.
+
+Treat the old code as prior art written by somebody else, and this as a better version of it: reading
+it is not permission to import it, and "the old code did X" is not a reason for anything on its own.
+Judge it on merit. When it wins, it wins because the reason survives inspection today.
+
+**What is actually valuable in there is the measurements**, not the habits. The archive holds facts
+that cost a real experiment to obtain, and re-deriving them costs the same again:
+
+- `SingleInstanceLock` records that an instance launched directly reports a `nil` `launchDate`, which
+  is why "whoever started first wins" could not work and a kernel lock was used instead.
+- `Tests/Methods.md` Method 10 records that a Settings tab button has no `AXTitle` and must be matched
+  on `description`. Without reading it, the same discovery in the rebuild looked like a regression to
+  be worked around, when it was the contract the suite already expected.
+
+So the archive's comments and its test methods are the first place to look, and a fact it recorded from
+a real device or a real accessibility tree outranks reasoning about what should happen.
+
 ## Requests that affect real device behavior
 
 - Before implementing a request that changes how the physical TimeFlip device behaves (e.g.
