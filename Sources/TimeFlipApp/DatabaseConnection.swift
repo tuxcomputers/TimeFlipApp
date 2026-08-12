@@ -92,6 +92,17 @@ final class DatabaseConnection {
         return sqlite3_step(statement) == SQLITE_DONE
     }
 
+    /// How many rows the last statement on this connection changed.
+    ///
+    /// Needed because "the statement ran" and "the statement did something" are different questions, and
+    /// sqlite answers the first one for both. An `UPDATE ... WHERE locked = 0` against a locked row completes
+    /// perfectly happily having changed nothing, so a caller that reported success from the step alone would
+    /// tell the app a write took when it was refused.
+    var changes: Int {
+        guard let db = handle.db else { return 0 }
+        return Int(sqlite3_changes(db))
+    }
+
     /// The row id the last insert on this connection produced, and `nil` if that insert changed nothing.
     ///
     /// Read straight after the insert, on the same connection, or it is somebody else's row id.

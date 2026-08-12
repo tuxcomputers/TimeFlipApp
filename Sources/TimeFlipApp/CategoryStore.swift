@@ -106,6 +106,15 @@ final class CategoryStore {
         )
     }
 
+    /// One category by id, whatever state it is in.
+    ///
+    /// Retired ones included on purpose: this answers "what is this row", and the caller that asked -- a
+    /// face holding a category, a session timing one -- needs the answer even if the category has since
+    /// been retired out of the pickable list.
+    func category(id: Int) -> CategoryRecord? {
+        read(where: "c.category_id = \(id)", order: "c.category_id").first
+    }
+
     private func read(where condition: String, order: String, bind: [String] = []) -> [CategoryRecord] {
         var categories: [CategoryRecord] = []
         connection.forEachRow(
@@ -163,7 +172,10 @@ final class CategoryStore {
     /// Can be refused, and the refusal matters: only one active category may hold a name, so a retired
     /// row whose name has since been taken by an active one cannot come back under it.
     func reactivate(id: Int) -> Bool {
-        connection.execute("UPDATE category SET active = 1 WHERE category_id = \(id);")
+        // The row count as well as the step, so a category that is not there reads as refused rather than as
+        // done. A name collision is refused by the index and fails the step; a missing id changes nothing and
+        // would otherwise pass.
+        connection.execute("UPDATE category SET active = 1 WHERE category_id = \(id);") && connection.changes > 0
     }
 }
 

@@ -3,8 +3,8 @@ import AppKit
 /// The list of categories, drawn the way the previous app drew it: one row each, a colour swatch holding
 /// the icon, the name beside it, hairlines between rows, all on a rounded panel.
 ///
-/// **Nothing here responds to a click.** The rows are what a face is assigned from, so each one becomes a
-/// control -- but not yet.
+/// Each row is a control: clicking one is how a category is picked. What that *means* is the window's --
+/// this reports which row was clicked.
 @MainActor
 final class CategoryListView: NSView {
     enum Identifier {
@@ -32,6 +32,9 @@ final class CategoryListView: NSView {
 
     private(set) var shownCategories: [CategoryRecord] = []
 
+    /// Called with the category whose row was clicked.
+    var onSelect: ((CategoryRecord) -> Void)?
+
     init() {
         super.init(frame: .zero)
         addPanel()
@@ -54,7 +57,9 @@ final class CategoryListView: NSView {
             if index > 0 {
                 add(divider())
             }
-            add(CategoryRowView(category: category))
+            let row = CategoryRowView(category: category)
+            row.onClick = { [weak self] in self?.onSelect?(category) }
+            add(row)
         }
         shownCategories = categories
     }
@@ -116,20 +121,37 @@ final class CategoryListView: NSView {
     }
 }
 
-/// One category: its colour swatch with the icon on it, then its name.
+/// One category: its colour swatch with the icon on it, then its name. The whole row is the click target.
+///
+/// An `NSButton` rather than a view with a click handler bolted on, so it is a button to the keyboard and to
+/// accessibility as well as to the mouse -- which is also what lets a script press it by name. Borderless
+/// and titleless: the swatch and the name are subviews, and the button underneath is only there to be
+/// pressed.
 @MainActor
-final class CategoryRowView: NSView {
+final class CategoryRowView: NSButton {
     let category: CategoryRecord
+
+    /// Called when the row is clicked.
+    var onClick: (() -> Void)?
 
     init(category: CategoryRecord) {
         self.category = category
         super.init(frame: .zero)
+        title = ""
+        isBordered = false
+        setButtonType(.momentaryChange)
+        target = self
+        action = #selector(clicked)
         translatesAutoresizingMaskIntoConstraints = false
-        setAccessibilityElement(true)
-        setAccessibilityRole(.group)
+        identifier = NSUserInterfaceItemIdentifier(CategoryListView.Identifier.row(category))
         setAccessibilityIdentifier(CategoryListView.Identifier.row(category))
         setAccessibilityLabel(category.name)
         addContent()
+    }
+
+    @objc
+    private func clicked() {
+        onClick?()
     }
 
     @available(*, unavailable)

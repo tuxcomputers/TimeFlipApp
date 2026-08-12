@@ -71,7 +71,9 @@ final class CategoryListViewTests: XCTestCase {
 
         XCTAssertEqual(row.accessibilityIdentifier(), "category-row-7")
         XCTAssertEqual(row.accessibilityLabel(), "Meeting")
-        XCTAssertTrue(row.isAccessibilityElement(), "otherwise the identifier is never asked for")
+        // No `setAccessibilityElement(true)` here, unlike the plain views: a control is one already, and
+        // `isAccessibilityElement()` reads false on it because the answer comes from the cell rather than the
+        // view. The tree is what settles it, and it shows these as buttons carrying their identifiers.
     }
 
     func testARowIsTheSameHeightWhateverItHolds() {
@@ -102,5 +104,27 @@ final class CategoryListViewTests: XCTestCase {
             .compactMap { $0 as? NSImageView }
             .first
         return try XCTUnwrap(imageView, "the row should draw an icon at all").contentTintColor
+    }
+
+    // MARK: - picking one
+
+    func testClickingARowReportsItsCategory() {
+        let list = CategoryListView()
+        var picked: [String] = []
+        list.onSelect = { picked.append($0.name) }
+        list.show([category(1, "Break"), category(2, "Meeting")])
+
+        rowViews(of: list).first { $0.category.name == "Meeting" }?.performClick(nil)
+
+        XCTAssertEqual(picked, ["Meeting"], "the row reports which category, and decides nothing")
+    }
+
+    func testARowIsAButtonSoItIsReachableWithoutAMouse() {
+        let list = CategoryListView()
+        list.show([category(1, "Break")])
+
+        // Not a view with a click handler bolted on: a real control, which is what makes it keyboard- and
+        // script-reachable as well as clickable.
+        XCTAssertTrue(rowViews(of: list).first is NSButton)
     }
 }

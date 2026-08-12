@@ -3,8 +3,9 @@ import AppKit
 /// The Faces tab's layout in manual mode: a wide left column for the thing being timed, and a narrow
 /// right column for the categories to pick from.
 ///
-/// The right column lists the categories it is handed. The left column is empty, and **nothing here
-/// responds to a click**: the rows are what a face will be assigned from, but not yet.
+/// The left column shows what is being timed; the right lists the categories to pick from. Clicking a
+/// category is what starts a session, and the control in the left column is what stops it -- both reported
+/// outwards, since this pane draws and does not decide.
 ///
 /// This is the manual-mode arrangement, which is the only one built so far. Following a cube puts a
 /// picture of the device and its lock in the left column instead, under a "Top face" heading, and that
@@ -42,9 +43,13 @@ final class FacesPane: NSView {
     /// Creating a category, collapsed to a Create button until it is clicked.
     let createControl = CategoryCreateControl()
 
+    /// What is being timed, filling the left column below its heading.
+    let timingView = TimingView()
+
     init() {
         super.init(frame: .zero)
         addColumns()
+        addTimingView()
         addCategoryList()
     }
 
@@ -103,6 +108,17 @@ final class FacesPane: NSView {
     /// `SettingsWindowController`, which reads on every open and every switch to this tab).
     func show(_ categories: [CategoryRecord]) {
         categoryList.show(categories)
+    }
+
+    private func addTimingView() {
+        timingColumn.addSubview(timingView)
+        guard let heading = timingColumn.subviews.first else { return }
+        NSLayoutConstraint.activate([
+            timingView.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: Layout.sectionSpacing),
+            timingView.leadingAnchor.constraint(equalTo: timingColumn.leadingAnchor),
+            timingView.trailingAnchor.constraint(equalTo: timingColumn.trailingAnchor),
+            timingView.bottomAnchor.constraint(lessThanOrEqualTo: timingColumn.bottomAnchor),
+        ])
     }
 
     private func addCategoryList() {

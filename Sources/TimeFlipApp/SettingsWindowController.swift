@@ -53,9 +53,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// Held so Escape can be lent to a name field while one is open.
     private var closeButton: NSButton?
 
-    init(debugLog: DebugLog?, categories: CategoryStore?) {
+    /// Which category each face holds, including the manual face. `nil` in a test that only cares about
+    /// layout.
+    private let faces: FaceStore?
+
+    /// The one thing that knows whether time is being recorded, and for what.
+    private let session: TimingSession?
+
+    /// Redraws the elapsed time while the window is open. Only while it is open: a clock nobody can see does
+    /// not need repainting, and the session's elapsed time is worked out from when it started rather than
+    /// counted up, so nothing is lost by not ticking.
+    private var tick: Timer?
+
+    init(debugLog: DebugLog?, categories: CategoryStore?, faces: FaceStore?, session: TimingSession?) {
         self.debugLog = debugLog
         self.categories = categories
+        self.faces = faces
+        self.session = session
         super.init()
     }
 
@@ -68,6 +82,75 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func reloadSelectedPane() {
         guard let categories, let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
         pane.show(categories.activeCategories())
+        redrawTiming()
+    }
+
+    /// Draws the session: which category from the database, whether it is running from the session.
+    ///
+    /// The category comes from `face` 13 every time rather than being remembered from the click that started
+    /// it -- so a category renamed or recoloured elsewhere shows correctly here, and there is only ever one
+    /// answer to what the manual face holds.
+    private func redrawTiming() {
+        guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
+        guard let session, let faces, let categories else {
+            pane.timingView.show(category: nil, state: .idle, elapsed: 0)
+            return
+        }
+        let assigned = faces.categoryID(forFace: ManualFace.id).flatMap { categories.category(id: $0) }
+        pane.timingView.show(
+            category: assigned,
+            state: ManualTimerRules.state(categoryID: assigned == nil ? nil : session.categoryID, isRunning: session.isRunning),
+            elapsed: session.elapsed
+        )
+    }
+
+    /// A category was clicked: it goes on the manual face and the clock starts.
+    ///
+    /// The order matters and is the same order the previous app was careful about: the face is written
+    /// first, then the clock starts, so no time can be recorded against the category that was there before.
+    private func startTiming(_ category: CategoryRecord) {
+        guard let session, let faces else { return }
+        guard faces.assign(categoryID: category.id, toFace: ManualFace.id) else {
+            debugLog?.record(.mode, "Timing: face \(ManualFace.id) refused category \"\(category.name)\"")
+            return
+        }
+        session.start(categoryID: category.id)
+        debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(ManualFace.id)")
+        redrawTiming()
+        startTicking()
+    }
+
+    /// The control was clicked: stop the clock, or start it again.
+    private func toggleTiming() {
+        guard let session else { return }
+        session.togglePause()
+        debugLog?.record(
+            .mode,
+            "Timing: \(session.isRunning ? "running" : "stopped") after \(Int(session.elapsed))s"
+        )
+        redrawTiming()
+        if session.isRunning {
+            startTicking()
+        } else {
+            // Nothing left to repaint once it is stopped: the elapsed figure cannot change again until it
+            // is started, and the redraw above has already shown its final value.
+            stopTicking()
+        }
+    }
+
+    private func startTicking() {
+        guard tick == nil else { return }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let session = self.session, session.isRunning else { return }
+                self.redrawTiming()
+            }
+        }
+    }
+
+    private func stopTicking() {
+        tick?.invalidate()
+        tick = nil
     }
 
     func show() {
@@ -81,11 +164,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         reloadSelectedPane()
+        if session?.isRunning == true {
+            startTicking()
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
         // Back to a menu bar app, so the Dock icon goes away with the window that needed it.
         NSApp.setActivationPolicy(.accessory)
+        // The clock keeps running; only the repainting stops. Elapsed time is worked out from when the
+        // session started, so a closed window costs nothing and misses nothing.
+        stopTicking()
     }
 
     private func makeWindow() -> NSWindow {
@@ -241,6 +330,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     private func makeFacesPane() -> FacesPane {
         let faces = FacesPane()
+        faces.categoryList.onSelect = { [weak self] category in
+            self?.startTiming(category)
+        }
+        faces.timingView.onTogglePause = { [weak self] in
+            self?.toggleTiming()
+        }
         faces.createControl.onSave = { [weak self] typed in
             self?.saveNewCategory(typed)
         }

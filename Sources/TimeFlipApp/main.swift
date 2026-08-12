@@ -43,6 +43,11 @@ do {
 let database = DatabaseConnection(databaseURL: databaseURL)
 let settings = SettingReader(connection: database)
 let categories = CategoryStore(connection: database)
+let faces = FaceStore(connection: database)
+
+// The one owner of what is being timed. In memory, like the mode it belongs to: which category the manual
+// face holds is in the database, and how long it has been running is this launch's business.
+let timingSession = TimingSession()
 
 // Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
 // or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
@@ -67,7 +72,12 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 // The window is built on its first open, so this costs nothing until Settings is chosen.
-let settingsWindow = SettingsWindowController(debugLog: debugLog, categories: categories)
+let settingsWindow = SettingsWindowController(
+    debugLog: debugLog,
+    categories: categories,
+    faces: faces,
+    session: timingSession
+)
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
     debugLog: debugLog,
