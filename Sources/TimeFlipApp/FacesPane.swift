@@ -3,8 +3,8 @@ import AppKit
 /// The Faces tab's layout in manual mode: a wide left column for the thing being timed, and a narrow
 /// right column for the categories to pick from.
 ///
-/// **Layout only.** Both columns are empty apart from their headings, and nothing here reads the
-/// database, responds to a click, or knows what a category is yet.
+/// The right column lists the categories it is handed. The left column is empty, and **nothing here
+/// responds to a click**: the rows are what a face will be assigned from, but not yet.
 ///
 /// This is the manual-mode arrangement, which is the only one built so far. Following a cube puts a
 /// picture of the device and its lock in the left column instead, under a "Top face" heading, and that
@@ -36,9 +36,13 @@ final class FacesPane: NSView {
     let timingColumn = NSView()
     let categoriesColumn = NSView()
 
+    /// The categories to pick from, filling the right column below its heading.
+    let categoryList = CategoryListView()
+
     init() {
         super.init(frame: .zero)
         addColumns()
+        addCategoryList()
     }
 
     @available(*, unavailable)
@@ -87,6 +91,32 @@ final class FacesPane: NSView {
             timingColumn.widthAnchor.constraint(
                 equalTo: categoriesColumn.widthAnchor,
                 multiplier: Layout.leftToRightWidthRatio
+            ),
+        ])
+    }
+
+    /// Shows `categories` in the right column. The pane is handed the list rather than fetching it: what
+    /// it draws is its business, when to read the database is the window's (see
+    /// `SettingsWindowController`, which reads on every open and every switch to this tab).
+    func show(_ categories: [CategoryRecord]) {
+        categoryList.show(categories)
+    }
+
+    private func addCategoryList() {
+        categoriesColumn.addSubview(categoryList)
+        guard let heading = categoriesColumn.subviews.first else { return }
+        NSLayoutConstraint.activate([
+            categoryList.topAnchor.constraint(
+                equalTo: heading.bottomAnchor,
+                constant: Layout.sectionSpacing
+            ),
+            categoryList.leadingAnchor.constraint(equalTo: categoriesColumn.leadingAnchor),
+            categoryList.trailingAnchor.constraint(equalTo: categoriesColumn.trailingAnchor),
+            // Not pinned to the bottom: the panel is as tall as its rows, so a short list draws a short
+            // panel rather than a tall empty one. Which also means a long list can outgrow the pane, and
+            // nothing scrolls yet -- the window is deep enough for the categories that exist.
+            categoryList.bottomAnchor.constraint(
+                lessThanOrEqualTo: categoriesColumn.bottomAnchor
             ),
         ])
     }

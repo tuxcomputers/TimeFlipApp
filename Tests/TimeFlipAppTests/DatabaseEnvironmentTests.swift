@@ -15,7 +15,7 @@ final class DatabaseEnvironmentTests: XCTestCase {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
-        settings = SettingReader(databaseURL: database.url)
+        settings = SettingReader(connection: database.connection())
     }
 
     override func tearDown() {
@@ -63,7 +63,7 @@ final class DatabaseEnvironmentTests: XCTestCase {
 
     func testAMissingDatabaseIsUnknownRatherThanProduction() {
         // A launch that reads production while opening nothing is the worst of the three answers.
-        let missing = SettingReader(databaseURL: database.directory.appendingPathComponent("nowhere.sqlite"))
+        let missing = SettingReader(connection: DatabaseConnection(databaseURL: database.directory.appendingPathComponent("nowhere.sqlite")))
 
         XCTAssertNil(DatabaseEnvironment.read(from: missing))
     }

@@ -38,9 +38,11 @@ do {
     exit(EXIT_FAILURE)
 }
 
-// One reader, held open for the life of the app, and asked again every time an answer is wanted. It
-// caches nothing: see the first design rule in `CLAUDE.md`.
-let settings = SettingReader(databaseURL: databaseURL)
+// One read connection, held open for the life of the app, with a reader per table on top of it. Asked
+// again every time an answer is wanted, and caching nothing: see the first design rule in `CLAUDE.md`.
+let database = DatabaseConnection(databaseURL: databaseURL)
+let settings = SettingReader(connection: database)
+let categories = CategoryReader(connection: database)
 
 // Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
 // or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
@@ -65,7 +67,7 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 // The window is built on its first open, so this costs nothing until Settings is chosen.
-let settingsWindow = SettingsWindowController(debugLog: debugLog)
+let settingsWindow = SettingsWindowController(debugLog: debugLog, categories: categories)
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
     debugLog: debugLog,

@@ -12,7 +12,7 @@ final class ManualModeTests: XCTestCase {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
-        settings = SettingReader(databaseURL: database.url)
+        settings = SettingReader(connection: database.connection())
     }
 
     override func tearDown() {

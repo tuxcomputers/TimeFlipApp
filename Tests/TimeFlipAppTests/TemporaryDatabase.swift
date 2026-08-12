@@ -36,6 +36,12 @@ struct TemporaryDatabase {
         try DatabaseBootstrap.ensureDatabase(at: url, ddlDirectory: Self.ddlDirectory)
     }
 
+    /// A read connection to this database, for the readers that sit on one.
+    @MainActor
+    func connection() -> DatabaseConnection {
+        DatabaseConnection(databaseURL: url)
+    }
+
     /// Runs a statement against the built database. Returns whether it succeeded, so a caller can
     /// fail its own test rather than have this one silently do nothing.
     @discardableResult

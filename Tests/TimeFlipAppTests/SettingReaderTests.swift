@@ -12,7 +12,7 @@ final class SettingReaderTests: XCTestCase {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
-        settings = SettingReader(databaseURL: database.url)
+        settings = SettingReader(connection: database.connection())
     }
 
     override func tearDown() {
@@ -75,7 +75,7 @@ final class SettingReaderTests: XCTestCase {
     }
 
     func testADatabaseThatWillNotOpenReadsAsNilRatherThanCrashing() {
-        let missing = SettingReader(databaseURL: database.directory.appendingPathComponent("nowhere.sqlite"))
+        let missing = SettingReader(connection: DatabaseConnection(databaseURL: database.directory.appendingPathComponent("nowhere.sqlite")))
 
         XCTAssertNil(missing.flag("paired", field: "paired"))
     }

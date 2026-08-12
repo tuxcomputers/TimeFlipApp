@@ -43,9 +43,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// `nil` in a build without the dev flag.
     private let debugLog: DebugLog?
 
-    init(debugLog: DebugLog?) {
+    /// Where the Faces tab's list comes from. `nil` leaves it empty, which is what a test that only cares
+    /// about layout wants.
+    private let categories: CategoryReader?
+
+    init(debugLog: DebugLog?, categories: CategoryReader?) {
         self.debugLog = debugLog
+        self.categories = categories
         super.init()
+    }
+
+    /// Reads what the visible pane shows, now.
+    ///
+    /// Called when the window opens and again on every switch between tabs, which is the database rule
+    /// applied literally (see `CLAUDE.md`): the values a window shows are read when it is about to show
+    /// them, so closing and reopening it, or leaving a tab and coming back, reads the table again rather
+    /// than redrawing what was true the first time.
+    private func reloadSelectedPane() {
+        guard let categories, let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
+        pane.show(categories.activeCategories())
     }
 
     func show() {
@@ -58,6 +74,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        reloadSelectedPane()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -89,11 +106,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **Why the tab bar is a segmented control of our own** rather than the one `NSTabView` draws: with
     /// its tabs on top, `NSTabView` centres the bar on the top edge of its box, so the box begins
-    /// half-way up the buttons and the shading starts mid-tab. `tabViewBorderType` cannot fix it -- it
-    /// only applies when the tab position is `.none`, measured by setting it and watching nothing move.
-    /// So the tab position *is* `.none` here: the tab view keeps the panes and the box, its own bar is
-    /// gone, and the bar above is ours to place -- which is what lets the box start below the buttons
-    /// instead of half-way up them, with the same gap under the bar as over it.
+    /// half-way up the buttons and the shading starts mid-tab. `tabViewBorderType` cannot fix that while
+    /// the tabs are on top -- it only applies when the tab position is `.none`, measured by setting it and
+    /// watching nothing move. So the tab position *is* `.none` here: the tab view keeps only the panes and
+    /// the switching between them, and the bar above is ours to place.
+    ///
+    /// With the box gone as well, a pane sits on the window's white, which is what the previous app looked
+    /// like. The bar has the same gap under it as over it, so it reads as a band of its own.
     private func makeContentView() -> NSView {
         let content = NSView()
         let close = makeCloseButton()
@@ -174,10 +193,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         panes.translatesAutoresizingMaskIntoConstraints = false
         panes.setAccessibilityIdentifier(Identifier.panes)
         panes.tabPosition = .none
-        // The shaded box, which is the whole reason the tab view is still here rather than a plain
-        // container: with no tabs of its own to straddle, it draws that box around the content and
-        // nothing else.
-        panes.tabViewBorderType = .bezel
+        // No box and no border, so a pane sits on the window's own white. Measured against the previous
+        // app (`image/preferences-device.png`, `image/preferences-faces.png`): its content area was pure
+        // white, and the only grey in the window was the section panels *inside* a pane. A bezel here
+        // tinted the whole pane instead, which is the tinge that made the tab bar look like it was
+        // resting on a shelf.
+        panes.tabViewBorderType = .none
         for tab in SettingsTab.allCases {
             // Does not surface to accessibility, but it is how `tabViewItem(withIdentifier:)` finds a
             // tab from code, which is a different question from how a script finds one.
@@ -208,6 +229,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         guard let label = tabViewItem?.label else { return }
         debugLog?.record(.tab, "Settings tab selected: \(label)")
+        reloadSelectedPane()
     }
 
     @objc

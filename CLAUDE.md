@@ -39,13 +39,28 @@ mattered was a manual session running while the status still said "connected" (s
 section of `docs/TODO-features-under-development.md`). Deriving the second answer from the first
 removed the possibility rather than the symptom.
 
-Where it genuinely cannot be followed, **say so in a comment at that exact place**, naming what makes
-the read impossible and what would invalidate the value being held instead. Two examples of a real
-exception: a value read once because it cannot change while the process runs (the `db_type` row is
-written when the database file is created and never again), and a read that would otherwise happen
-on a repeating timer. Neither is a licence to cache by default -- they are the cases where the
-comment has to earn it, and "it would be a read per tick" is a reason to be explicit, not a reason to
-say nothing.
+### The reference tables are the standing exception
+
+`icon` (`database/004_icon.sql`), `colour` (`005_colour.sql`) and `event_type` (`001_event_type.sql`)
+are **reference tables**: seeded by the DDL, never written by the app, and fixed for the life of a
+launch. They may be read into memory at startup and referenced from there for as long as the app runs.
+
+This is not a hole in the rule, it is the rule's own reasoning applied: two copies of a fact are only
+dangerous because one can change without the other, and nothing can change these. A held copy of the
+`icon` table cannot go stale, because nothing in the app writes an icon.
+
+It covers those tables and no others. In particular it does **not** extend to `setting`, `category`,
+`face`, or anything holding recorded time -- all of which the app or the user edits while it runs, which
+is exactly the case the rule exists for.
+
+### Anywhere else
+
+Where the rule genuinely cannot be followed, **say so in a comment at that exact place**, naming what
+makes the read impossible and what would invalidate the value being held instead. Two examples of a
+real exception: a value read once because it cannot change while the process runs (the `db_type` row is
+written when the database file is created and never again), and a read that would otherwise happen on a
+repeating timer. Neither is a licence to cache by default -- they are the cases where the comment has to
+earn it, and "it would be a read per tick" is a reason to be explicit, not a reason to say nothing.
 
 ## Read how the archived app did it, before building anything
 
