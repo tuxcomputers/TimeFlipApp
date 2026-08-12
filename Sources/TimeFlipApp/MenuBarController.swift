@@ -58,6 +58,45 @@ final class MenuBarController: NSObject {
     /// `updateStatusView` and so leads straight back to it. Without it the crossing tick evaluates
     /// twice and sends the pause twice, the cube not yet having reported the first one.
     private var isEnforcingDailyLimit = false
+    /// The cube's event number as it stood when a limit last sent a pause or a resume, or `nil` when
+    /// nothing is outstanding. A write is only repeated once the device has reported a **different**
+    /// event number, which is the whole cycle: read the counter, send, wait for the counter to move,
+    /// then judge the event that moved it -- a pause means the write landed and nothing more is sent,
+    /// anything else means it did not and the next evaluation sends again.
+    ///
+    /// It is what makes the repeat in `enforceDailyLimit` fire once per *answer* rather than once per
+    /// evaluation: evaluation is the per-second tick plus every rebuild it triggers, while the answer
+    /// is a BLE round trip and an ingest behind it, so the limit got several writes in before the
+    /// first could possibly have been reported.
+    ///
+    /// Keyed on the event number rather than merely "a frame arrived", because a frame is not proof of
+    /// a new event: the cheap-check path re-delivers the *same* live entry with a grown duration on
+    /// every refresh (`HistoryIngestor`), and treating that as the answer would let a second write out
+    /// while the first was still in flight.
+    ///
+    /// Compared for *inequality*, not for having grown. A factory reset restarts the counter from a
+    /// low number, and waiting for it to exceed the pre-reset value would strand the latch set for the
+    /// rest of the session, silently retiring the limit.
+    ///
+    /// That was believed to cost nothing, on the grounds that `0x06 0x01` is idempotent. **It is not,
+    /// measured on real hardware 2026-08-12:** the cube mints a `device_event` per write, so one
+    /// limit pause left four events (72's flip, then 73, 74, 75, 76 for four identical writes), all
+    /// inside one second -- which then stranded the arrival row unfinalised, `finalised` being decided
+    /// on whole seconds. See `docs/timeflip2-firmware-observations.md`.
+    ///
+    /// The self-healing this replaces is kept: an event that is not the pause means the write did not
+    /// land, and the next evaluation sends it again, so a dropped write is still re-sent -- just once
+    /// per event that proves it was needed.
+    private var limitWriteSentAtEventNumber: UInt32?
+    /// Whether that write is still outstanding. Held separately from the number rather than inferred
+    /// from it being non-nil, because the number a write is sent at can legitimately *be* nil -- no
+    /// frame has arrived yet -- and reading that as "nothing outstanding" would let every evaluation
+    /// write, which is the storm this exists to stop. Cleared in `applyElapsed` the moment a frame
+    /// reports a different event number.
+    private var isLimitWriteOutstanding = false
+    /// The event number on the most recent frame, `nil` before the first one (and in manual mode,
+    /// where the virtual device has no cube counter and no limit is enforced anyway).
+    private var lastReportedEventNumber: UInt32?
     private var lastSnapshot: StatusSnapshot?
     private var cachedIcon: NSImage?
     private var cachedIconName: String?
@@ -96,8 +135,17 @@ final class MenuBarController: NSObject {
     }
 
     /// Drive the timer from device-reported elapsed seconds (cmd 0x14).
-    func applyElapsed(faceID: UInt8, elapsedSeconds: TimeInterval, isPaused: Bool) {
+    func applyElapsed(faceID: UInt8, elapsedSeconds: TimeInterval, isPaused: Bool, eventNumber: UInt32? = nil) {
         guard let activity = appState.categoryActivity(for: faceID) else { return }
+        // Released before the evaluation below (`updateStatusView` -> `enforceDailyLimit`) reads it, so
+        // a limit judges this frame rather than the one before it. A different number is the cube
+        // saying "something happened since you wrote"; `isPaused`, carried on the same frame, is what
+        // the evaluation then reads to decide whether that something was the pause landing. See
+        // `limitWriteSentAtEventNumber`.
+        if isLimitWriteOutstanding, eventNumber != limitWriteSentAtEventNumber {
+            isLimitWriteOutstanding = false
+        }
+        lastReportedEventNumber = eventNumber
         currentActivity = activity
         appState.currentFaceID = faceID
         appState.isPaused = isPaused
@@ -432,12 +480,15 @@ final class MenuBarController: NSObject {
     /// one `0x06` write, then the history refresh that closes the segment it stopped. Nothing here
     /// short-circuits to the device.
     ///
-    /// Nothing suppresses a repeat while the cube is still reported running: the limit is hard, so it
-    /// keeps asking until a history frame says the cube stopped. That is the self-healing direction --
-    /// a dropped write would otherwise leave a spent category running until something else happened --
-    /// and it is cheap to be wrong about, `0x06 0x01` being idempotent and the refresh behind it
-    /// folding into whichever fetch is already running (see `HistoryIngestor.refreshHistory`). What it
-    /// must not do is ask twice in one pass, which is what `isEnforcingDailyLimit` is for.
+    /// The repeat while the cube is still reported running is kept, because the limit is hard: it keeps
+    /// asking until a history frame says the cube stopped, so a dropped write cannot leave a spent
+    /// category running until something else happens to come along. What changed is the **cadence** --
+    /// once per frame rather than once per evaluation, see `limitWriteAwaitingFrame`. Repeating per
+    /// evaluation was believed to be free (`0x06 0x01` idempotent, and the refresh behind it folding
+    /// into whichever fetch is already running, see `HistoryIngestor.refreshHistory`); the cube's
+    /// event counter says otherwise, one event per write. Two guards, two different jobs:
+    /// `isEnforcingDailyLimit` stops a single pass asking twice, `limitWriteAwaitingFrame` stops
+    /// successive passes asking before the first answer is in.
     @discardableResult
     private func enforceDailyLimit(
         limitMinutes: Int,
@@ -472,18 +523,27 @@ final class MenuBarController: NSObject {
             switch action {
             case .none:
                 break
-            case .pause:
+            case .pause, .resume:
+                let wantsPause = action == .pause
+                // Decided above and logged either way, so the console still shows the limit holding
+                // its position on every tick; only the write is held back until the cube reports a new
+                // event. Logged as "waiting" rather than silently skipped, because a run that looks
+                // like it asked once needs to be readable as such.
+                let verb = wantsPause
+                    ? "Limit reached, pausing device"
+                    : "Budget on this face, resuming device"
+                let held = isLimitWriteOutstanding
+                    ? " (already sent at ev=\(limitWriteSentAtEventNumber.map(String.init) ?? "nil"), waiting for the next event)"
+                    : ""
                 DeveloperMode.debugPrint(
                     .dailyLimit,
-                    "Limit reached, pausing device: category=\"\(name)\" limit=\(limitMinutes)m tracked=\(Int(totalSeconds))s"
+                    "\(verb): category=\"\(name)\" limit=\(limitMinutes)m tracked=\(Int(totalSeconds))s\(held)"
                 )
-                onPauseToggle?(true)
-            case .resume:
-                DeveloperMode.debugPrint(
-                    .dailyLimit,
-                    "Budget on this face, resuming device: category=\"\(name)\" limit=\(limitMinutes)m tracked=\(Int(totalSeconds))s"
-                )
-                onPauseToggle?(false)
+                if !isLimitWriteOutstanding {
+                    isLimitWriteOutstanding = true
+                    limitWriteSentAtEventNumber = lastReportedEventNumber
+                    onPauseToggle?(wantsPause)
+                }
             }
         }
         // The Pause/Resume item's enabled state follows this, and the dropdown is built once and

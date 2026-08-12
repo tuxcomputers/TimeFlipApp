@@ -1691,7 +1691,14 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         appState.currentFaceID = entry.faceID
         appState.isPaused = isPaused
-        menuBarController.applyElapsed(faceID: entry.faceID, elapsedSeconds: elapsed, isPaused: isPaused)
+        // The event number rides along so a daily limit can tell a genuinely new event from the same
+        // one re-reported with a longer duration; see MenuBarController.limitWriteSentAtEventNumber.
+        menuBarController.applyElapsed(
+            faceID: entry.faceID,
+            elapsedSeconds: elapsed,
+            isPaused: isPaused,
+            eventNumber: entry.eventNumber
+        )
     }
 
     private func seedDailyTotals(now: Date = Date()) {
