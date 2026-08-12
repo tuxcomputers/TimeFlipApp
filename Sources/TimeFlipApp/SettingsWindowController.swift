@@ -11,6 +11,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     enum Identifier {
         static let window = "settings-window"
         static let tabs = "settings-tabs"
+        static let close = "close-settings"
     }
 
     private enum Layout {
@@ -22,6 +23,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         static let defaultHeight: CGFloat = 680
         static let minimumWidth: CGFloat = 560
         static let minimumHeight: CGFloat = 400
+        /// Around the Close button, and between it and the tabs above.
+        static let buttonPadding: CGFloat = 12
+        static let buttonSpacing: CGFloat = 6
     }
 
     /// Built on first open, not at launch: a window nobody opens should not exist. Reused after that
@@ -69,18 +73,57 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // tab and the position on screen.
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentView = makeTabView()
+        window.contentView = makeContentView()
         window.center()
         return window
     }
 
+    /// The tabs, with the Close button on its own row beneath them.
+    private func makeContentView() -> NSView {
+        let content = NSView()
+        let tabView = makeTabView()
+        let close = makeCloseButton()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(tabView)
+        content.addSubview(close)
+        NSLayoutConstraint.activate([
+            tabView.topAnchor.constraint(equalTo: content.topAnchor),
+            tabView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            tabView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            tabView.bottomAnchor.constraint(equalTo: close.topAnchor, constant: -Layout.buttonSpacing),
+
+            // Bottom right, where a window's dismissal belongs on this platform.
+            close.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Layout.buttonPadding),
+            close.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Layout.buttonPadding),
+        ])
+        return content
+    }
+
+    private func makeCloseButton() -> NSButton {
+        let close = NSButton(title: "Close", target: self, action: #selector(closeWindow))
+        close.bezelStyle = .rounded
+        close.translatesAutoresizingMaskIntoConstraints = false
+        close.identifier = NSUserInterfaceItemIdentifier(Identifier.close)
+        close.setAccessibilityIdentifier(Identifier.close)
+        // Escape closes the window, which is what a Close button is expected to answer to, and matters
+        // more than usual here: an accessory app has no application menu, so ⌘W does not exist.
+        //
+        // It will need giving up once this window has text fields in it. A key equivalent is dispatched
+        // before the focused field sees the key, so Escape would close the window out from under
+        // somebody cancelling an edit, and the field cannot win that on its own.
+        close.keyEquivalent = "\u{1b}"
+        return close
+    }
+
     /// The tab bar and the five panes behind it.
     ///
-    /// The tab buttons themselves are addressed **by their titles**, not by an identifier. Measured in
-    /// the accessibility tree: they arrive as `AXRadioButton`s carrying `AXTitle`, and
-    /// `NSTabViewItem.identifier` does not reach `AXIdentifier` at all -- AppKit builds those buttons
-    /// itself and the item's identifier stays on the AppKit side of the fence. Each tab's *pane* does
-    /// carry an identifier, which is what a script confirms the switch actually landed with.
+    /// The tab buttons themselves are addressed **by their titles**, which is the only name they can
+    /// have. Two things establish that, and neither is in the documentation: `NSTabViewItem.identifier`
+    /// does not reach `AXIdentifier` (checked in the tree -- AppKit builds those buttons itself and the
+    /// item's identifier stays on its own side of the fence), and `NSTabViewItem` has no
+    /// `setAccessibilityIdentifier` at all, so there is no second way to try. They arrive as
+    /// `AXRadioButton`s carrying `AXTitle`, and each tab's *pane* carries the identifier that confirms a
+    /// switch actually landed.
     private func makeTabView() -> NSTabView {
         let tabView = NSTabView()
         tabView.setAccessibilityIdentifier(Identifier.tabs)
@@ -118,6 +161,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         debugLog?.record(.tab, "Settings tab selected: \(label)")
     }
 
+    @objc
+    private func closeWindow() {
+        debugLog?.record(.click, "Button clicked: Close (Settings window)")
+        window.performClose(nil)
+    }
+
     /// An empty pane, named so a script can confirm which tab it is looking at.
     ///
     /// All three calls are load-bearing, and the first is the one that is easy to miss: an ordinary
@@ -126,7 +175,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// it came back as an untitled `AXGroup` with no identifier). `.group` is what an empty container
     /// should be anyway -- it is about to hold this tab's controls.
     private func makePane(for tab: SettingsTab) -> NSView {
-        let pane = NSView()
+        let pane: NSView = tab == .faces ? FacesPane() : NSView()
+        // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
+        // its autoresizing frame rather than being pinned by constraints from out here.
+        pane.autoresizingMask = [.width, .height]
         pane.setAccessibilityElement(true)
         pane.setAccessibilityRole(.group)
         pane.setAccessibilityIdentifier(tab.paneIdentifier)
