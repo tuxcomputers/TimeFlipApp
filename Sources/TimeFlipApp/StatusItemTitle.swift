@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// What the status item spells out: the pieces, in the order they are drawn, decided apart from the drawing.
 ///
@@ -24,6 +24,21 @@ struct StatusItemTitle: Equatable {
     /// The figure, already formatted. `nil` while nothing is being timed: a "0:00" with nothing behind it reads as
     /// a session that has started and got nowhere.
     let duration: String?
+
+    /// What the whole line is drawn in, images included. The database badge keeps its own colour: it names which
+    /// file this launch writes to, which is a different question from what the app is doing.
+    ///
+    /// **Green means there is a live reading behind the figure**, which is the previous app's rule
+    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`) and the reason its menu bar could be believed at a glance. Every
+    /// reading here is live, the app itself being the source while no cube is paired, so the other two answers it
+    /// had are absent rather than reinterpreted: yellow for a reading gone stale when the device dropped, red for a
+    /// category over its `daily_limit`. Both come back as further answers *here* when there is a device and a limit
+    /// to report, which is why this is a field on the title rather than a constant at the drawing.
+    ///
+    /// A dynamic colour, resolved as it draws: the menu bar tints from the wallpaper rather than from the
+    /// appearance setting, so anything resolved earlier than the draw is one of the two answers frozen (see
+    /// `MenuBarController.attachment(of:colour:size:font:)`).
+    let colour: NSColor
 
     /// What VoiceOver reads. Spelled out, because a glyph says nothing to a screen reader and neither does the
     /// badge's colour -- and the item's own title would otherwise read as "0:07", which is not a description of
@@ -51,6 +66,9 @@ struct StatusItemTitle: Equatable {
                 iconName: nil,
                 glyphName: nil,
                 duration: nil,
+                // The ordinary text colour, as the previous app's own no-device placeholder drew it: green is a
+                // claim about a reading, and there is no reading here to make it about.
+                colour: .labelColor,
                 spoken: spoken([appLabel], badgeDescription: badgeDescription)
             )
         }
@@ -66,6 +84,7 @@ struct StatusItemTitle: Equatable {
             iconName: category.iconName,
             glyphName: glyphName,
             duration: duration,
+            colour: .systemGreen,
             spoken: spoken(
                 // The name first, then what the glyph means, then the figure, then whose menu bar item this is.
                 // Reading order, so the answer comes before the qualifications.

@@ -188,7 +188,8 @@ final class MenuBarController: NSObject {
     /// Internal so the order can be asserted without putting a real item in the menu bar.
     func makeTitle(_ parts: StatusItemTitle) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+        // One colour for the whole line, images included, and `StatusItemTitle`'s to choose.
+        let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour]
         let title = NSMutableAttributedString()
         if let databaseBadge {
             title.append(NSAttributedString(
@@ -197,9 +198,9 @@ final class MenuBarController: NSObject {
             ))
         }
         let size = max(Layout.minimumAttachmentSize, font.capHeight * Layout.attachmentScale)
-        // Both images take the colour of the text beside them, which is the previous app's rule -- whatever is
-        // legible for the category's name is legible for its icon -- with the label colour standing in for the
-        // status colours it had.
+        // Both images take the colour of the text beside them, which is the previous app's rule: whatever is legible
+        // for the category's name is legible for its icon, and the icon then carries the same state the rest of the
+        // line does rather than saying something of its own.
         //
         // **Not the category's own colour**, which is what the Timing column draws its glyph in. That works there
         // because it sits on the window's white; here the strip behind it is the wallpaper's, and the palette in
@@ -207,13 +208,13 @@ final class MenuBarController: NSObject {
         // against a dark menu bar and Peach `#ffdab9` against a light one. The `white_lines` column exists because
         // half of these colours cannot be read against an arbitrary background.
         if let iconName = parts.iconName, let icon = ActivityIcon.image(named: iconName, pointSize: size) {
-            title.append(attachment(of: icon, colour: .labelColor, size: size, font: font))
+            title.append(attachment(of: icon, colour: parts.colour, size: size, font: font))
             title.append(NSAttributedString(string: " ", attributes: plain))
         }
         title.append(NSAttributedString(string: parts.text, attributes: plain))
         if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
             title.append(NSAttributedString(string: " ", attributes: plain))
-            title.append(attachment(of: glyph, colour: .labelColor, size: size, font: font))
+            title.append(attachment(of: glyph, colour: parts.colour, size: size, font: font))
         }
         if let duration = parts.duration {
             title.append(NSAttributedString(string: " \(duration)", attributes: plain))
@@ -224,11 +225,12 @@ final class MenuBarController: NSObject {
     /// One image sitting in the line of text, tinted and dropped to the type's baseline.
     ///
     /// **The tint is applied inside a drawing handler rather than baked into a bitmap here**, which is the fix for
-    /// something the previous app measured and left a warning about: `NSColor.labelColor` resolves against
-    /// whatever appearance is current *when it is set*, so painting it into an image at composition time freezes
-    /// one of the two answers. The menu bar tints from the wallpaper rather than from the appearance setting, so a
-    /// Light-appearance Mac with a dark wallpaper then drew a black icon on a dark strip. A handler re-runs each
-    /// time the image is drawn, in the appearance it is being drawn into, so the colour follows the strip.
+    /// something the previous app measured and left a warning about: a dynamic colour -- `.labelColor`,
+    /// `.systemGreen`, any of them -- resolves against whatever appearance is current *when it is set*, so painting
+    /// it into an image at composition time freezes one of its two answers. The menu bar tints from the wallpaper
+    /// rather than from the appearance setting, so a Light-appearance Mac with a dark wallpaper then drew a black
+    /// icon on a dark strip. A handler re-runs each time the image is drawn, in the appearance it is being drawn
+    /// into, so the colour follows the strip the way the text beside it does.
     private func attachment(of image: NSImage, colour: NSColor, size: CGFloat, font: NSFont) -> NSAttributedString {
         let drawn = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             image.draw(in: rect)

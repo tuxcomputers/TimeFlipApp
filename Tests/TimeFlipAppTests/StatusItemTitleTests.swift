@@ -98,6 +98,28 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title.duration, "1:02")
     }
 
+    // MARK: - the colour
+
+    func testASessionIsGreen() {
+        let title = title(TimingReadout.Reading(category: category(), state: .running, seconds: 60))
+
+        // The previous app's live colour, and the reason its menu bar could be believed at a glance: green says
+        // there is a reading behind the figure.
+        XCTAssertEqual(title.colour, .systemGreen)
+    }
+
+    func testAStoppedClockIsStillGreen() {
+        // Paused is not stale. The figure is still this category's time today, and it is still the app's own
+        // reading -- what changed is the glyph. Yellow belonged to a reading that could no longer be confirmed,
+        // which needs a device to be possible at all.
+        XCTAssertEqual(title(TimingReadout.Reading(category: category(), state: .paused, seconds: 60)).colour, .systemGreen)
+    }
+
+    func testWithNothingBeingTimedItIsTheOrdinaryTextColour() {
+        // Green is a claim about a reading, and there is none to make it about.
+        XCTAssertEqual(title(.idle).colour, .labelColor)
+    }
+
     // MARK: - what VoiceOver reads
 
     func testTheSpokenLabelSaysWhatTheGlyphAndTheBadgeCannot() {

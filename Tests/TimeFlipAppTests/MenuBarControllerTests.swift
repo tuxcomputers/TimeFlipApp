@@ -140,7 +140,7 @@ final class MenuBarControllerTests: XCTestCase {
     /// What an image in a line of text comes back as when the string is read as plain text.
     private let attachment = "\u{FFFC}"
 
-    private func line(_ controller: MenuBarController) -> String {
+    private func title(_ controller: MenuBarController) -> NSAttributedString {
         controller.makeTitle(
             StatusItemTitle.make(
                 appLabel: "TimeFlip",
@@ -148,7 +148,18 @@ final class MenuBarControllerTests: XCTestCase {
                 reading: reading,
                 showingSeconds: true
             )
-        ).string
+        )
+    }
+
+    private func line(_ controller: MenuBarController) -> String {
+        title(controller).string
+    }
+
+    /// The colour a stretch of the drawn line carries.
+    private func colour(of substring: String, in title: NSAttributedString) -> NSColor? {
+        let range = (title.string as NSString).range(of: substring)
+        guard range.location != NSNotFound else { return nil }
+        return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
     }
 
     func testTheOrderIsBadgeIconCategoryGlyphThenTime() {
@@ -180,6 +191,30 @@ final class MenuBarControllerTests: XCTestCase {
         // A shipped copy only ever has the real database, so a permanent "PROD" tag would take up menu bar space
         // answering something nobody asked.
         XCTAssertEqual(line(controller()), "TimeFlip")
+    }
+
+    func testTheBadgeKeepsItsOwnColourWhileTheSessionIsGreen() {
+        reading = TimingReadout.Reading(
+            category: CategoryRecord(
+                id: 2, name: "Meeting", iconName: "ic_calls", colour: nil, usesWhiteLines: false, isActive: true
+            ),
+            state: .running,
+            seconds: 30
+        )
+
+        let title = title(controller(badge: .forEnvironment(.test)))
+
+        // Two separate things being said: which database this launch writes to, and what the app is doing. A green
+        // "TEST" would lose the warning the red is there to carry.
+        XCTAssertEqual(colour(of: "TEST", in: title), .systemRed)
+        XCTAssertEqual(colour(of: "Meeting", in: title), .systemGreen)
+        XCTAssertEqual(colour(of: "0:00:30", in: title), .systemGreen)
+    }
+
+    func testWithNothingBeingTimedTheAppsNameIsNotGreen() {
+        reading = .idle
+
+        XCTAssertEqual(colour(of: "TimeFlip", in: title(controller())), .labelColor)
     }
 
     func testACategoryWithNoIconDrawsOneAttachmentRatherThanTwo() {
