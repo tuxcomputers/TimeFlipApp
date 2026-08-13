@@ -340,19 +340,27 @@ final class MenuBarController: NSObject {
         // `<=` so the exact midpoint counts as the left half, i.e. as the menu: of the two, it is the
         // one that cannot leave someone stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
-        let action = StatusItemClickRouter.action(isLeftSide: isLeftSide)
+        let state = timing().state
+        let action = StatusItemClickRouter.action(isLeftSide: isLeftSide, timing: state)
 
         // Recorded whatever the outcome, including `ignore`. A click that deliberately did nothing and
         // a click that never arrived look identical afterwards unless one of them left a row -- and
-        // telling those two apart is the difference between a routing bug and a missed hit.
+        // telling those two apart is the difference between a routing bug and a missed hit. The state
+        // rides along because it is what the right half's answer turns on.
         debugLog?.record(
             .click,
-            "Status item clicked: side=\(isLeftSide ? "left" : "right") clicks=\(event.clickCount) -> \(action)"
+            "Status item clicked: side=\(isLeftSide ? "left" : "right") clicks=\(event.clickCount) "
+                + "state=\(state) -> \(action)"
         )
 
         switch action {
         case .showMenu:
             showMenu()
+        case .togglePause:
+            // The same closure the dropdown's Pause item and the Timing column's control end in, so the three
+            // ways to pause cannot come to mean different things. What it draws afterwards comes back here as a
+            // `redraw()` (see `main.swift`), rather than this knowing what it changed.
+            togglePause()
         case .ignore:
             break
         }
