@@ -120,6 +120,13 @@ Worth the trouble when the question is a few points or a shade: an eyeballed "7p
 - **The app writes to whichever database `appdata.sqlite` points at.** Check `db_type` before trusting a
   session with real data: `sqlite3 "$DB" "SELECT setting_value FROM setting WHERE setting_name='db_type';"`,
   and the menu bar's own badge says which one it opened.
+- **Switching database keeps it; `-clean` is what empties it.**
+  ```bash
+  scripts/switch-database.sh test          # -> test.sqlite, exactly as it was left
+  scripts/switch-database.sh test -clean   # -> a new test.sqlite, seeded from database/*.sql
+  scripts/switch-database.sh prod          # -> production.sqlite (never rebuilt; -clean is refused)
+  ```
+  Quit and relaunch afterwards: the running app already has the old file open.
 
 ## Notes for the hermetic suite (`swift test`)
 
