@@ -259,6 +259,24 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertEqual(categories.category(id: id)?.name, "Break")
     }
 
+    func testARetiredCategoryMovesToTheInactiveList() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first { $0.name == "Break" }?.id)
+        XCTAssertFalse(categories.inactiveCategories().contains { $0.id == id }, "precondition")
+
+        XCTAssertTrue(categories.setActive(id: id, false))
+
+        XCTAssertEqual(categories.inactiveCategories().map(\.name), ["Break"])
+        XCTAssertEqual(categories.inactiveCategories().first?.isActive, false)
+    }
+
+    func testTheInactiveListLeavesUnassignedOutToo() throws {
+        // Id 0 is the placeholder a face points at when it holds nothing, not a category anybody retired -- and it is
+        // seeded inactive, so a list that only asked `active = 0` would show it.
+        XCTAssertTrue(database.execute("UPDATE category SET active = 0 WHERE category_id = 0;"))
+
+        XCTAssertFalse(categories.inactiveCategories().contains { $0.id == 0 })
+    }
+
     func testRetiringACategoryThatIsNotThereIsRefused() {
         XCTAssertFalse(categories.setActive(id: 9_999, false))
     }

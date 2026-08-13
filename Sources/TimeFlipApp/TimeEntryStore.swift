@@ -45,4 +45,33 @@ final class TimeEntryStore {
         }
         return total
     }
+
+    /// When this category last finished recording time, or `nil` if it never has.
+    ///
+    /// The end of its last entry rather than the start: "last used" is when the using stopped. **From the epoch on
+    /// the segment, not from `started_at`**, which is the archive's finding rather than a preference -- a local-time
+    /// string cannot be compared or ordered across a daylight-saving change, so the two rows either side of a
+    /// changeover would sort wrongly.
+    ///
+    /// Asked per retired row as the Inactive list is built, rather than joined onto every category read. The archive
+    /// carried it as a column on its category load, which this app cannot afford: `CategoryStore.category(id:)` is
+    /// read once a second while a clock is on screen, and a subquery over `time_entry` on each of those buys nothing
+    /// -- an active row draws no date at all (see `CategoryLastUsedText`).
+    func lastUsed(categoryID: Int) -> Date? {
+        var epoch: Double?
+        connection.forEachRow(
+            """
+            SELECT MAX(de.start_epoch + te.duration_seconds)
+            FROM time_entry te
+            JOIN device_event de ON de.device_event_id = te.device_event_id
+            WHERE te.category_id = \(categoryID);
+            """
+        ) { row in
+            // MAX over no rows is one row holding NULL, which reads back as 0 -- a category that has never recorded
+            // time, not one used at the epoch.
+            let value = row.double(0)
+            epoch = value > 0 ? value : nil
+        }
+        return epoch.map(Date.init(timeIntervalSince1970:))
+    }
 }

@@ -93,9 +93,10 @@ let deviceEvents = DeviceEventRecorder(
 deviceEvents.closeSegmentsStrandedOnAppFaces()
 
 // What the Timing column draws: the category's total for the day, read every time rather than counted.
+let entries = TimeEntryStore(connection: database)
 let dayTotal = DayTotal(
     settings: settings,
-    entries: TimeEntryStore(connection: database),
+    entries: entries,
     events: deviceEvents,
     faces: faces
 )
@@ -122,7 +123,8 @@ let settingsWindow = SettingsWindowController(
     categories: categories,
     faces: faces,
     deviceEvents: deviceEvents,
-    timing: timingReadout
+    timing: timingReadout,
+    entries: entries
 )
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the

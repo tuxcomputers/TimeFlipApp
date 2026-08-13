@@ -2,13 +2,14 @@ import AppKit
 
 /// The Categories tab: the categories themselves, as opposed to which of them is being timed.
 ///
-/// **Laid out as the previous app laid this window out**: a bold section heading with a rounded panel under it, the
+/// **Laid out as the previous app laid this window out**: a titled section with a rounded panel under it, the
 /// pattern the Device tab used for every group it had (see `image/preferences-device.png`, measured rather than
-/// recalled). Active is the section somebody works in, so it comes first and is the only one built.
+/// recalled). Two sections now, Active then Inactive, each folding away behind its own triangle -- Active open,
+/// because it is the one somebody works in, and Inactive closed, because it is an archive to go looking in
+/// occasionally.
 ///
-/// The previous app made both sections collapsible, with Active open and Inactive folded away. That is worth having
-/// when there are two and one of them is an archive to go looking in occasionally; with one section there is nothing
-/// to fold away *from*, so the triangles arrive with the Inactive list rather than ahead of it.
+/// The create control sits between them, which is where the archive put it: in the gap rather than inside either
+/// list, so it belongs to the tab and not to one section of it.
 ///
 /// Draws what it is given. Reading the categories is the window's job, per the database rule -- so a tab left and
 /// come back to is a fresh read rather than a redraw of what was true the first time.
@@ -16,32 +17,34 @@ import AppKit
 final class CategoriesPane: NSView {
     enum Identifier {
         static let activeSection = "categories-active-section"
-        static let activeHeading = "categories-active-heading"
+        static let activeHeading = "categories-active-section-heading"
+        static let inactiveSection = "categories-inactive-section"
+        static let inactiveHeading = "categories-inactive-section-heading"
     }
 
     private enum Layout {
         /// Room between the pane's edge and its content, on all four sides. The Faces tab's number, so the two tabs
         /// sit at the same rhythm.
         static let padding: CGFloat = 20
-        /// Between a heading and what sits under it. Also the Faces tab's.
-        static let sectionSpacing: CGFloat = 12
+        /// Between one section and the next, and around the create control between them.
+        static let sectionSpacing: CGFloat = 16
     }
 
-    /// Exposed so what it holds can be asserted without a window on screen, and so the window can wire what its
+    /// Exposed so what they hold can be asserted without a window on screen, and so the window can wire what their
     /// edits do: the pane draws, it does not write.
     let activeTable = CategoryTable()
+    let retiredTable = RetiredCategoryTable()
 
-    /// The same control the Faces tab offers, wired to the same rules and the same writer by the window. Two ways in,
-    /// one implementation.
-    ///
-    /// **Under the Active list**, which is where the archive put it: in the gap between the two lists rather than
-    /// inside either, so it belongs to the tab instead of to one section of it. With Inactive still to come, that gap
-    /// is the bottom of the tab.
+    /// The same control the Faces tab offers, wired to the same rules and the same writer by the window. Two ways
+    /// in, one implementation.
     let createControl = CategoryCreateControl()
+
+    private(set) var activeSection: CategorySection!
+    private(set) var inactiveSection: CategorySection!
 
     init() {
         super.init(frame: .zero)
-        addActiveSection()
+        addSections()
     }
 
     @available(*, unavailable)
@@ -50,57 +53,49 @@ final class CategoriesPane: NSView {
         fatalError("init(coder:) is not used")
     }
 
-    /// Shows `categories` as the Active list.
+    /// Shows the two lists.
     ///
-    /// Handed the active ones rather than filtering here: which rows count as active is a question about the table
-    /// (`CategoryStore.activeCategories`), and a pane that filtered would be a second answer to it.
-    func show(_ categories: [CategoryRecord]) {
-        activeTable.show(categories)
+    /// Handed each list rather than one list to filter, because which rows count as active is a question about the
+    /// table (`CategoryStore.activeCategories`, `inactiveCategories`) and a pane that split them would be a second
+    /// answer to it.
+    func show(active: [CategoryRecord], inactive: [CategoryRecord] = []) {
+        activeTable.show(active)
+        retiredTable.show(inactive)
     }
 
-    private func addActiveSection() {
-        let heading = NSTextField(labelWithString: "Active")
-        heading.font = .preferredFont(forTextStyle: .headline)
-        heading.translatesAutoresizingMaskIntoConstraints = false
-        heading.setAccessibilityIdentifier(Identifier.activeHeading)
+    private func addSections() {
+        activeSection = CategorySection(
+            title: "Active",
+            identifier: Identifier.activeSection,
+            isExpanded: true,
+            content: activeTable
+        )
+        inactiveSection = CategorySection(
+            title: "Inactive",
+            identifier: Identifier.inactiveSection,
+            isExpanded: false,
+            content: retiredTable
+        )
 
-        let section = NSView()
-        section.translatesAutoresizingMaskIntoConstraints = false
-        // Named and made an element, or it is absent from the tree entirely: an ordinary `NSView` is not an
-        // accessibility element, so its role and identifier are simply never asked for (measured on the Settings
-        // panes, see `SettingsWindowController.makePane`).
-        section.setAccessibilityElement(true)
-        section.setAccessibilityRole(.group)
-        section.setAccessibilityIdentifier(Identifier.activeSection)
-        section.setAccessibilityLabel("Active categories")
+        let stack = NSStackView(views: [activeSection, createControl, inactiveSection])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = Layout.sectionSpacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(section)
-        section.addSubview(heading)
-        section.addSubview(activeTable)
-        addSubview(createControl)
-
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            section.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
-            section.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-            section.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
-
-            heading.topAnchor.constraint(equalTo: section.topAnchor),
-            heading.leadingAnchor.constraint(equalTo: section.leadingAnchor),
-            heading.trailingAnchor.constraint(lessThanOrEqualTo: section.trailingAnchor),
-
-            activeTable.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: Layout.sectionSpacing),
-            activeTable.leadingAnchor.constraint(equalTo: section.leadingAnchor),
-            activeTable.trailingAnchor.constraint(equalTo: section.trailingAnchor),
-            activeTable.bottomAnchor.constraint(equalTo: section.bottomAnchor),
-
-            createControl.topAnchor.constraint(equalTo: section.bottomAnchor, constant: Layout.sectionSpacing),
-            createControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-            // Trailing rather than a width: the field it becomes has the rest of the tab to grow into, which is what
-            // a name being typed wants and what the collapsed button ignores.
-            createControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
-            // Only as tall as its content: the list and the control grow downward from the top of the tab rather
-            // than being stretched to fill a height they have nothing to put in.
-            createControl.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.padding),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
+            // Only as tall as its content: the sections grow downward from the top of the tab rather than being
+            // stretched to fill a height they have nothing to put in.
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.padding),
         ])
+        // Each section spans the tab, so the two panels line up rather than sizing to their own widest row.
+        for section in [activeSection, inactiveSection] {
+            section?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        createControl.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
 }

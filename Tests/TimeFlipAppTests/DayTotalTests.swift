@@ -195,6 +195,38 @@ final class DayTotalTests: XCTestCase {
         )
     }
 
+    // MARK: - when a category was last used
+
+    func testACategoryThatHasNeverRecordedTimeHasNoLastUse() {
+        XCTAssertNil(entries.lastUsed(categoryID: breakID))
+    }
+
+    func testTheLastUseIsTheEndOfTheLastStretch() {
+        record(category: breakID, face: 8, from: -7_200, seconds: 600)
+        record(category: breakID, face: 8, from: -3_600, seconds: 900)
+
+        // The end, not the start: "last used" is when the using stopped. The later stretch began an hour before
+        // `noon` and ran for fifteen minutes.
+        XCTAssertEqual(
+            entries.lastUsed(categoryID: breakID),
+            noon.addingTimeInterval(-3_600 + 900)
+        )
+    }
+
+    func testAnotherCategorysTimeIsNotItsLastUse() {
+        record(category: meetingID, face: 2, from: -600, seconds: 60)
+
+        XCTAssertNil(entries.lastUsed(categoryID: breakID))
+    }
+
+    func testTheLastUseIgnoresTheDayWindowEntirely() {
+        // Unlike a total, this is not a question about today: a category retired last year still says when it was
+        // last used.
+        record(category: breakID, face: 8, from: -400_000, seconds: 600)
+
+        XCTAssertEqual(entries.lastUsed(categoryID: breakID), noon.addingTimeInterval(-400_000 + 600))
+    }
+
     // MARK: - the window it is summed over
 
     func testTheResetTimeIsReadWhenTheTotalIsAsked() {

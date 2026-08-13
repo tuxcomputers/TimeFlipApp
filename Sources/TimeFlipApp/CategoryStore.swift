@@ -97,6 +97,16 @@ final class CategoryStore {
             .sorted(by: CategoryRecord.displayOrder)
     }
 
+    /// The retired categories, in the same display order as the active ones.
+    ///
+    /// Kept rather than deleted, which is what this list is a view of: a retired row stays so every `time_entry`
+    /// recorded against it still resolves, and it drops out of the lists a category can be picked from. Id 0 is
+    /// excluded for the same reason as above -- *Unassigned* is a placeholder, not a category anybody retired.
+    func inactiveCategories() -> [CategoryRecord] {
+        read(where: "c.active = 0 AND c.category_id >= 1", order: "c.category_id")
+            .sorted(by: CategoryRecord.displayOrder)
+    }
+
     /// Every category holding `name`, whatever state it is in, **the active one first**.
     ///
     /// `COLLATE NOCASE`, so "meeting" finds "Meeting" -- which is the point of looking at all: the unique

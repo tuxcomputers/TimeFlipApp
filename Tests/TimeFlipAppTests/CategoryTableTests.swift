@@ -231,7 +231,7 @@ final class CategoryTableTests: XCTestCase {
 
     func testTheCreateControlSitsUnderTheList() {
         let pane = CategoriesPane()
-        pane.show([category(1, "Break")])
+        pane.show(active: [category(1, "Break")])
         pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         pane.layoutSubtreeIfNeeded()
 
@@ -249,26 +249,27 @@ final class CategoryTableTests: XCTestCase {
     func testThePaneShowsWhatItIsGiven() {
         let pane = CategoriesPane()
 
-        pane.show([category(1, "Break"), category(2, "Meeting")])
+        pane.show(active: [category(1, "Break"), category(2, "Meeting")])
 
         XCTAssertEqual(pane.activeTable.shownCategories.map(\.name), ["Break", "Meeting"])
     }
 
     func testTheListSitsUnderTheHeadingAndSpansTheTab() throws {
         let pane = CategoriesPane()
-        pane.show([category(1, "Break")])
+        pane.show(active: [category(1, "Break")])
         pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         pane.layoutSubtreeIfNeeded()
 
+        let section = pane.activeSection!
         let heading = try XCTUnwrap(
-            pane.subviews.flatMap { $0.subviews }.first { $0.accessibilityIdentifier() == CategoriesPane.Identifier.activeHeading }
+            section.subviews.first { $0.accessibilityIdentifier() == CategoriesPane.Identifier.activeHeading }
         )
         let table = pane.activeTable
         XCTAssertLessThan(
             table.frame.maxY, heading.frame.minY,
             "the list is below the heading: in this coordinate space, lower means a smaller y"
         )
-        XCTAssertEqual(table.frame.width, heading.superview?.frame.width, "the list spans the section")
+        XCTAssertEqual(table.frame.width, section.frame.width, "the list spans the section")
         XCTAssertGreaterThan(table.frame.height, 0, "a table with a row in it has a height")
     }
 }

@@ -63,6 +63,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// What is being timed, for drawing. `nil` draws an idle column, which is what a layout test wants.
     private let timing: TimingReadout?
 
+    /// Recorded time, for the one thing this window asks of it: when a retired category was last used.
+    private let entries: TimeEntryStore?
+
     /// Called when this window changes what is being timed, so the status item can repaint at the same moment.
     ///
     /// A settable property rather than a constructor argument because the two need each other: the item's menu is
@@ -80,13 +83,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         categories: CategoryStore?,
         faces: FaceStore?,
         deviceEvents: DeviceEventRecorder? = nil,
-        timing: TimingReadout? = nil
+        timing: TimingReadout? = nil,
+        entries: TimeEntryStore? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
         self.faces = faces
         self.deviceEvents = deviceEvents
         self.timing = timing
+        self.entries = entries
         super.init()
     }
 
@@ -107,7 +112,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
         case let pane as CategoriesPane:
             wire(pane)
-            pane.show(categories.activeCategories())
+            pane.show(active: categories.activeCategories(), inactive: categories.inactiveCategories())
 
         default:
             break
@@ -133,6 +138,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         pane.activeTable.onRetire = { [weak self] category in
             self?.retire(category)
+        }
+        // Read per row as the Inactive list is drawn, which is why it is a closure rather than a field on the record:
+        // an active category draws no date at all, so joining it onto every category read would cost a subquery on
+        // the reads that happen once a second.
+        pane.retiredTable.lastUsed = { [weak self] category in
+            self?.entries?.lastUsed(categoryID: category.id)
+        }
+        pane.activeSection.onToggle = { [weak self] isExpanded in
+            self?.debugLog?.record(.tab, "Categories section Active \(isExpanded ? "opened" : "folded")")
+        }
+        pane.inactiveSection.onToggle = { [weak self] isExpanded in
+            self?.debugLog?.record(.tab, "Categories section Inactive \(isExpanded ? "opened" : "folded")")
         }
         wire(pane.createControl)
     }
