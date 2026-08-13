@@ -467,6 +467,20 @@ final class DeviceEventRecorder {
         return found
     }
 
+    /// The app's own face in use right now: the one the last manual segment was recorded on, or the first of them
+    /// when nothing has been timed yet.
+    ///
+    /// One expression of it, here, because more than one thing asks: the window writes the next segment against it
+    /// and `TimingReadout` resolves the category being timed through it. Two copies of this line would be two
+    /// answers to which face is current, and they would only differ in the case that matters -- a fresh database,
+    /// where the difference is `nil` versus `ManualFace.first`.
+    ///
+    /// Not the face the *next* segment goes on: that is `ManualFace.next(after: latestFace(in:))`, which must see
+    /// the raw `nil` to start the rotation at its beginning rather than one past it.
+    func currentManualFace() -> Int {
+        latestFace(in: ManualFace.all) ?? ManualFace.first
+    }
+
     /// The rows that still claim to be open, before a close-out takes that away from them.
     ///
     /// `onFacesAbove` narrows it to the app's own faces, which is what startup recovery wants and what an

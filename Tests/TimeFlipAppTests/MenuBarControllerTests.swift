@@ -2,17 +2,23 @@
 import AppKit
 import XCTest
 
-/// Covers the dropdown: what is in it, and how the Pause item reads and behaves for each timing state.
+/// Covers the dropdown -- what is in it, and how the Pause item reads and behaves for each timing state -- and the
+/// order of the status item's own line.
 ///
-/// The menu is built without calling `start()`, which would put a real status item in the menu bar of
-/// whoever is running the tests.
+/// Both are checked without calling `start()`, which would put a real status item in the menu bar of whoever is
+/// running the tests. What the line *says* is `StatusItemTitle`'s to decide and is tested there; this covers the
+/// composition, which is where the order lives.
 ///
 /// Worth testing at all because the previous app's equivalent was three expressions inside a method that
 /// built `NSMenuItem`s, out of reach of any test -- and that is how the dropdown came to disagree with the
 /// status item about pausing, with nothing failing.
 @MainActor
 final class MenuBarControllerTests: XCTestCase {
-    private var state: TimingState = .idle
+    private var reading: TimingReadout.Reading = .idle
+    private var state: TimingState {
+        get { reading.state }
+        set { reading = TimingReadout.Reading(category: reading.category, state: newValue, seconds: reading.seconds) }
+    }
     private var toggles = 0
 
     /// Held for the length of the test, because an item's `target` is **weak**: a controller nobody keeps is
@@ -28,12 +34,13 @@ final class MenuBarControllerTests: XCTestCase {
         super.tearDown()
     }
 
-    private func controller() -> MenuBarController {
+    private func controller(badge: DatabaseBadge? = nil, showingSeconds: Bool = true) -> MenuBarController {
         let controller = MenuBarController(
-            databaseBadge: nil,
+            databaseBadge: badge,
             debugLog: nil,
             openSettings: {},
-            timingState: { self.state },
+            timing: { self.reading },
+            showingSeconds: { showingSeconds },
             togglePause: { self.toggles += 1 }
         )
         kept = controller
@@ -124,6 +131,67 @@ final class MenuBarControllerTests: XCTestCase {
         // Left on, AppKit enables an item whose action can be found -- which is always -- and overwrites
         // what the delegate just set.
         XCTAssertFalse(menu().autoenablesItems)
+    }
+
+    // MARK: - what choosing it does
+
+    // MARK: - the line the item draws
+
+    /// What an image in a line of text comes back as when the string is read as plain text.
+    private let attachment = "\u{FFFC}"
+
+    private func line(_ controller: MenuBarController) -> String {
+        controller.makeTitle(
+            StatusItemTitle.make(
+                appLabel: "TimeFlip",
+                badgeDescription: nil,
+                reading: reading,
+                showingSeconds: true
+            )
+        ).string
+    }
+
+    func testTheOrderIsBadgeIconCategoryGlyphThenTime() {
+        reading = TimingReadout.Reading(
+            category: CategoryRecord(
+                id: 2, name: "Meeting", iconName: "ic_calls", colour: nil, usesWhiteLines: false, isActive: true
+            ),
+            state: .running,
+            seconds: 30
+        )
+
+        // The badge is first because it qualifies everything to its right, and the icon is inside the line rather
+        // than the button's own image, which would draw it to the badge's left.
+        XCTAssertEqual(
+            line(controller(badge: .forEnvironment(.test))),
+            "TEST \(attachment) Meeting \(attachment) 0:00:30"
+        )
+    }
+
+    func testWithNothingBeingTimedItIsTheAppsNameAlone() {
+        reading = .idle
+
+        XCTAssertEqual(line(controller(badge: .forEnvironment(.test))), "TEST TimeFlip")
+    }
+
+    func testWithoutTheDevFlagThereIsNoBadgeInTheLine() {
+        reading = .idle
+
+        // A shipped copy only ever has the real database, so a permanent "PROD" tag would take up menu bar space
+        // answering something nobody asked.
+        XCTAssertEqual(line(controller()), "TimeFlip")
+    }
+
+    func testACategoryWithNoIconDrawsOneAttachmentRatherThanTwo() {
+        reading = TimingReadout.Reading(
+            category: CategoryRecord(
+                id: 2, name: "Meeting", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true
+            ),
+            state: .paused,
+            seconds: 30
+        )
+
+        XCTAssertEqual(line(controller()), "Meeting \(attachment) 0:00:30", "the glyph, and no artwork before the name")
     }
 
     // MARK: - what choosing it does

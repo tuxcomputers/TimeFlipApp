@@ -104,6 +104,16 @@ let dayTotal = DayTotal(
     faces: faces
 )
 
+// What is being timed, for both things that draw it. The Faces tab and the status item read one answer rather
+// than each resolving the face, the category and the total for itself.
+let timingReadout = TimingReadout(
+    session: timingSession,
+    categories: categories,
+    faces: faces,
+    events: deviceEvents,
+    dayTotal: dayTotal
+)
+
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
 // immediately and the app then ends without running any of it, silently.
@@ -117,7 +127,7 @@ let settingsWindow = SettingsWindowController(
     faces: faces,
     session: timingSession,
     deviceEvents: deviceEvents,
-    dayTotal: dayTotal
+    timing: timingReadout
 )
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the
@@ -136,13 +146,19 @@ let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
     debugLog: debugLog,
     openSettings: { settingsWindow.show() },
-    // Asked as the menu opens rather than pushed when it changes, so the menu cannot be stale.
-    timingState: {
-        ManualTimerRules.state(categoryID: timingSession.categoryID, isRunning: timingSession.isRunning)
-    },
+    // Asked as the item is drawn and as the menu opens, rather than pushed when it changes, so neither can be
+    // stale. The same readout the Faces tab draws from.
+    timing: { timingReadout.read() },
+    // `display_seconds`, read per draw like everything else, and defaulting to showing them: a menu bar clock
+    // without seconds looks stopped.
+    showingSeconds: { settings.flag("display_seconds", field: "enabled") ?? true },
     // The same entry point the Timing column's control uses. Two ways in, one implementation.
     togglePause: { settingsWindow.togglePause() }
 )
 menuBar.start()
+
+// A category picked or paused in the window has to reach the item in the same moment, rather than on its next
+// tick. Assigned here because each side needs the other: the item's menu is what opens the window.
+settingsWindow.onTimingChanged = { menuBar.redraw() }
 
 app.run()

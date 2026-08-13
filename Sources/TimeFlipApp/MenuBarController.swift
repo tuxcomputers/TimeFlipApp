@@ -1,9 +1,11 @@
 import AppKit
 
-/// The status item and its dropdown. Owns the AppKit; decides nothing (see `StatusItemClickRouter`).
+/// The status item and its dropdown. Owns the AppKit; decides nothing (see `StatusItemClickRouter` for the
+/// clicks, `StatusItemTitle` for what the item says, and `TimingReadout` for what is being timed).
 ///
-/// At this point in the rebuild the menu holds Settings, Pause and Quit, and the title is the database
-/// badge followed by the app's name. Both grow as there is something to say and something to do.
+/// At this point in the rebuild the menu holds Settings, Pause and Quit. The title is the database badge, then
+/// the session -- icon, category, play/pause, the category's time today -- and the app's name in place of all
+/// of it while nothing is being timed. Both grow as there is something to say and something to do.
 /// Carries one value across a queue hop that the compiler cannot check for us.
 private struct UncheckedSend<Value>: @unchecked Sendable {
     let value: Value
@@ -48,8 +50,18 @@ final class MenuBarController: NSObject {
     /// life of the launch, so it is stored rather than looked up per redraw.
     private let databaseBadge: DatabaseBadge?
 
-    /// The app's own name, as the title's last element and the base of its accessibility label.
+    /// The app's own name, which is the whole title while nothing is being timed, and the tail of the spoken
+    /// label the rest of the time.
     private static let appLabel = "TimeFlip"
+
+    private enum Layout {
+        /// The attachments (the category's icon, the play/pause glyph) as a multiple of the type's cap height,
+        /// with a floor. Both numbers are the previous app's, which drew this line for a year: a glyph the size
+        /// of the letters beside it reads as punctuation rather than as a symbol, and the floor keeps it legible
+        /// at the small type the menu bar uses.
+        static let attachmentScale: CGFloat = 1.6
+        static let minimumAttachmentSize: CGFloat = 14
+    }
 
     /// Accessibility identifiers, which are how a script addresses these rather than by position.
     ///
@@ -69,10 +81,18 @@ final class MenuBarController: NSObject {
     /// the menu, it does not decide what the app's windows are.
     private let openSettings: () -> Void
 
-    /// What is being timed right now, asked as the menu opens rather than pushed here when it changes. The
-    /// menu cannot be stale if it never remembers anything, which is the same reasoning the database rule
-    /// rests on -- and it saves every state change having to know the menu exists.
-    private let timingState: () -> TimingState
+    /// What is being timed right now, asked when the item is about to be drawn rather than pushed here when it
+    /// changes. The item cannot be stale if it never remembers anything, which is the same reasoning the database
+    /// rule rests on -- and it saves every state change having to know the menu bar exists.
+    ///
+    /// The dropdown asks the same closure as it opens, so the Pause item and the glyph above it cannot disagree.
+    private let timing: () -> TimingReadout.Reading
+
+    /// Whether the figure carries seconds, from `display_seconds` -- read per draw, like everything else.
+    ///
+    /// Asked here and not by the Faces tab because that is what the setting is about: its own description names
+    /// the menu bar duration, this being the one place a duration is on show all day with no window open.
+    private let showingSeconds: () -> Bool
 
     /// Stops the clock, or starts it again. **The same closure the on-screen control ends in**, not a second
     /// implementation of pausing.
@@ -81,17 +101,29 @@ final class MenuBarController: NSObject {
     /// `nil` in a build without the dev flag, which is the whole of how logging is switched off here.
     private let debugLog: DebugLog?
 
+    /// What was last painted, so an unchanged title is not re-applied. **What was drawn, not what is true**: it is
+    /// compared against a fresh reading every time and never read as an answer, which is what keeps it clear of the
+    /// database rule. Without it the fixed one-second tick would re-lay-out the item every second even with
+    /// `display_seconds` off, where the figure only changes once a minute.
+    private var lastDrawn: StatusItemTitle?
+
+    /// Repaints while the clock is running, and only then: with it stopped, nothing on the item can change until
+    /// something the app itself did, and each of those redraws by hand.
+    private var tick: Timer?
+
     init(
         databaseBadge: DatabaseBadge?,
         debugLog: DebugLog?,
         openSettings: @escaping () -> Void,
-        timingState: @escaping () -> TimingState = { .idle },
+        timing: @escaping () -> TimingReadout.Reading = { .idle },
+        showingSeconds: @escaping () -> Bool = { true },
         togglePause: @escaping () -> Void = {}
     ) {
         self.databaseBadge = databaseBadge
         self.debugLog = debugLog
         self.openSettings = openSettings
-        self.timingState = timingState
+        self.timing = timing
+        self.showingSeconds = showingSeconds
         self.togglePause = togglePause
         super.init()
     }
@@ -99,19 +131,13 @@ final class MenuBarController: NSObject {
     /// Creates the item and puts it in the menu bar.
     func start() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.attributedTitle = makeTitle()
-        // A status item draws unbordered, and truncating rather than wrapping matters once the title
+        // A status item draws unbordered, and truncating rather than wrapping matters now that the title
         // is a live duration whose width changes on every tick. `variableLength` is what lets the
         // width move at all, which anything driving this by synthetic click has to account for: the
         // item's rect has to be re-read per click rather than cached.
         item.button?.isBordered = false
         item.button?.cell?.truncatesLastVisibleLine = true
         item.button?.setAccessibilityIdentifier(Identifier.statusItem)
-        // A label as well as an identifier: the identifier is for scripts, the label is what
-        // VoiceOver reads, and a button whose only name is its title reads as its title -- which will
-        // become a duration, and "0:07" is not a description of anything. The badge goes in here too,
-        // since its colour says nothing to a screen reader.
-        item.button?.setAccessibilityLabel(accessibilityLabel())
         // Our own handler rather than `item.menu`, which would make AppKit present the menu for a
         // click anywhere on the item and take the left/right distinction away entirely. `showMenu`
         // below is how the menu still gets presented in AppKit's own way when we do want it.
@@ -120,33 +146,128 @@ final class MenuBarController: NSObject {
         item.button?.sendAction(on: [.leftMouseUp])
         statusItem = item
         statusMenu = makeMenu()
+        redraw()
     }
 
-    /// The status item's title: the database badge, then the app's name.
+    /// Reads the session and paints it, starting or stopping the tick to match.
     ///
-    /// Attributed rather than a plain string because the badge carries its own colour and weight --
-    /// it is a tag, not part of the sentence. Sized off `.small` rather than the menu bar's own font
-    /// because of where the title is going: an icon, a category name, a pause glyph and a running
-    /// duration all end up on this one line, and it has to fit beside everything else up there.
-    private func makeTitle() -> NSAttributedString {
-        let size = NSFont.systemFontSize(for: .small)
+    /// Called on every tick, and by hand the moment the app changes what is being timed -- a category picked, a
+    /// pause. Waiting for the next tick instead would leave a click's own feedback up to a second behind it.
+    func redraw() {
+        guard let button = statusItem?.button else { return }
+        let reading = timing()
+        let title = StatusItemTitle.make(
+            appLabel: Self.appLabel,
+            badgeDescription: databaseBadge?.spokenDescription,
+            reading: reading,
+            showingSeconds: showingSeconds()
+        )
+        if title != lastDrawn {
+            button.attributedTitle = makeTitle(title)
+            // A label as well as an identifier: the identifier is for scripts, the label is what VoiceOver reads,
+            // and a button whose only name is its title reads as its title -- which is now a duration, and "0:07"
+            // is not a description of anything.
+            button.setAccessibilityLabel(title.spoken)
+            lastDrawn = title
+        }
+        if reading.state == .running {
+            startTicking()
+        } else {
+            stopTicking()
+        }
+    }
+
+    /// The status item's line: the database badge, the category's icon, its name, the play/pause glyph, and the
+    /// time that category has today. The app's name alone while nothing is being timed.
+    ///
+    /// Attributed rather than a plain string because the badge carries its own colour and weight -- it is a tag,
+    /// not part of the sentence -- and because the two images ride inside the text (see `StatusItemTitle` for why
+    /// they cannot be the button's own image). Sized off `.small` rather than the menu bar's own font because of
+    /// how much ends up on this one line, all of which has to fit beside everybody else's status items.
+    ///
+    /// Internal so the order can be asserted without putting a real item in the menu bar.
+    func makeTitle(_ parts: StatusItemTitle) -> NSAttributedString {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
         let title = NSMutableAttributedString()
         if let databaseBadge {
             title.append(NSAttributedString(
                 string: "\(databaseBadge.text) ",
-                attributes: [.font: NSFont.boldSystemFont(ofSize: size), .foregroundColor: databaseBadge.color]
+                attributes: [.font: NSFont.boldSystemFont(ofSize: font.pointSize), .foregroundColor: databaseBadge.color]
             ))
         }
-        title.append(NSAttributedString(
-            string: Self.appLabel,
-            attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.labelColor]
-        ))
+        let size = max(Layout.minimumAttachmentSize, font.capHeight * Layout.attachmentScale)
+        // Both images take the colour of the text beside them, which is the previous app's rule -- whatever is
+        // legible for the category's name is legible for its icon -- with the label colour standing in for the
+        // status colours it had.
+        //
+        // **Not the category's own colour**, which is what the Timing column draws its glyph in. That works there
+        // because it sits on the window's white; here the strip behind it is the wallpaper's, and the palette in
+        // `database/005_colour.sql` proves the problem rather than merely risking it: Navy `#000080` disappears
+        // against a dark menu bar and Peach `#ffdab9` against a light one. The `white_lines` column exists because
+        // half of these colours cannot be read against an arbitrary background.
+        if let iconName = parts.iconName, let icon = ActivityIcon.image(named: iconName, pointSize: size) {
+            title.append(attachment(of: icon, colour: .labelColor, size: size, font: font))
+            title.append(NSAttributedString(string: " ", attributes: plain))
+        }
+        title.append(NSAttributedString(string: parts.text, attributes: plain))
+        if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
+            title.append(NSAttributedString(string: " ", attributes: plain))
+            title.append(attachment(of: glyph, colour: .labelColor, size: size, font: font))
+        }
+        if let duration = parts.duration {
+            title.append(NSAttributedString(string: " \(duration)", attributes: plain))
+        }
         return title
     }
 
-    private func accessibilityLabel() -> String {
-        guard let databaseBadge else { return Self.appLabel }
-        return "\(Self.appLabel), \(databaseBadge.spokenDescription)"
+    /// One image sitting in the line of text, tinted and dropped to the type's baseline.
+    ///
+    /// **The tint is applied inside a drawing handler rather than baked into a bitmap here**, which is the fix for
+    /// something the previous app measured and left a warning about: `NSColor.labelColor` resolves against
+    /// whatever appearance is current *when it is set*, so painting it into an image at composition time freezes
+    /// one of the two answers. The menu bar tints from the wallpaper rather than from the appearance setting, so a
+    /// Light-appearance Mac with a dark wallpaper then drew a black icon on a dark strip. A handler re-runs each
+    /// time the image is drawn, in the appearance it is being drawn into, so the colour follows the strip.
+    private func attachment(of image: NSImage, colour: NSColor, size: CGFloat, font: NSFont) -> NSAttributedString {
+        let drawn = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            image.draw(in: rect)
+            colour.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = drawn
+        // Dropped by the descender, so a glyph taller than the letters hangs level with them rather than lifting
+        // the whole line.
+        attachment.bounds = NSRect(x: 0, y: font.descender, width: size, height: size)
+        return NSAttributedString(attachment: attachment)
+    }
+
+    private func symbol(named name: String, size: CGFloat) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .bold)
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return nil }
+        image.isTemplate = true
+        return image
+    }
+
+    private func startTicking() {
+        guard tick == nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.redraw()
+            }
+        }
+        // `.common` rather than the default mode, which stops dead while a menu is tracking -- and the menu that
+        // does it is this item's own, so the clock would freeze in exactly the second somebody is looking at it.
+        RunLoop.main.add(timer, forMode: .common)
+        tick = timer
+    }
+
+    private func stopTicking() {
+        tick?.invalidate()
+        tick = nil
     }
 
     /// The dropdown. Internal so its shape can be asserted without putting a real status item in the menu
@@ -180,7 +301,7 @@ final class MenuBarController: NSObject {
         guard let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) else {
             return
         }
-        let state = timingState()
+        let state = timing().state
         pause.title = ManualTimerRules.pauseMenuTitle(for: state)
         pause.isEnabled = ManualTimerRules.isClickable(state)
     }
@@ -257,7 +378,7 @@ final class MenuBarController: NSObject {
     @objc
     private func menuTogglePause() {
         // What it was called when it was chosen, which is what the person clicking it meant.
-        debugLog?.record(.menu, "Menu item clicked: \(ManualTimerRules.pauseMenuTitle(for: timingState()))")
+        debugLog?.record(.menu, "Menu item clicked: \(ManualTimerRules.pauseMenuTitle(for: timing().state))")
         togglePause()
     }
 
