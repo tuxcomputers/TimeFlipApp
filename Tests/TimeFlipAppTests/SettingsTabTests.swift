@@ -11,9 +11,18 @@ final class SettingsTabTests: XCTestCase {
     func testTheTabsAndTheirOrder() {
         XCTAssertEqual(
             SettingsTab.allCases.map(\.title),
-            ["Device", "Faces", "Categories", "Report", "App"],
+            ["Faces", "Categories", "Report", "App", "Device"],
             "the order here is the order they are drawn in"
         )
+    }
+
+    /// `@MainActor` for one reason: `tabOnOpen` belongs to the window controller, which is main-actor isolated.
+    @MainActor
+    func testTheWindowOpensAtTheFirstTabRatherThanOneAlongFromIt() {
+        // Faces is where the time is and every open lands on it, so it is also the leftmost. Device is last, being
+        // the tab somebody visits to set a cube up or to find out what is wrong with it.
+        XCTAssertEqual(SettingsTab.allCases.first, SettingsWindowController.tabOnOpen)
+        XCTAssertEqual(SettingsTab.allCases.last, .device)
     }
 
     func testEveryTitleIsItsOwnCaseName() {

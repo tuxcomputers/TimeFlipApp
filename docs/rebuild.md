@@ -23,7 +23,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[App tab](#app-tab)**: nothing so far.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
 
-The tabs sit in the Settings window in their own order (Device, Faces, Categories, Report, App). They are listed here by how much of them exists, and every open of that window lands on Faces whatever it was last left on, because that is where the time is.
+The Settings window draws its tabs Faces, Categories, Report, App, Device, so this list is the window's own order with the menu bar slotted in second. Faces is leftmost because every open of that window lands on it whatever it was last left on, and a tab that is always opened should not be one along from the first. Device is last, being where somebody goes to set a cube up or to work out what is wrong with it.
 
 ## Faces tab
 
