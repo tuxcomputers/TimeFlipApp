@@ -224,6 +224,47 @@ final class DeviceEventRecorder {
         Double(max(0, Int(moment.timeIntervalSince1970) - startEpoch))
     }
 
+    /// Finalises segments left open on the app's own faces, **keeping the duration each already has**, and
+    /// reports which rows they were.
+    ///
+    /// For startup. A launch that ended without its quit sequence -- a crash, a force quit, a power cut -- leaves
+    /// its segment open, and the next launch would otherwise close it with `closeOpenSegment`, measuring from its
+    /// start to now: every hour the app was not running, recorded as time spent, and now an entry rather than
+    /// just a duration. One session came back as 39 minutes having run for 14 seconds.
+    ///
+    /// So the duration is not recomputed. The last value written is the last moment anything knows the segment
+    /// was running -- the history timer's final tick before the launch ended -- and a figure that is short by up
+    /// to one interval is the honest answer where "now" is a guess that can be wrong by days.
+    ///
+    /// **Only faces above `ManualFace.highestDeviceFace`.** A cube's open segment is not stranded, because the
+    /// cube keeps timing whether this app is running or not: a face left up overnight is still being timed at
+    /// breakfast, and the duration the device reports for it will include every hour the app was closed. Nothing
+    /// here has any business finalising that, and the history the next connection reads is what closes it -- with
+    /// a figure the device measured rather than one this app guessed.
+    ///
+    /// Which is the whole difference between the two kinds of face: the app's own segments stop existing when the
+    /// app does, and a cube's do not.
+    @discardableResult
+    func closeSegmentsStrandedOnAppFaces() -> [Int] {
+        let stranded = openRowIDs(onFacesAbove: ManualFace.highestDeviceFace)
+        guard !stranded.isEmpty else { return [] }
+        guard connection.execute(
+            "UPDATE device_event SET finalised = 1 "
+                + "WHERE finalised = 0 AND device_face > \(ManualFace.highestDeviceFace);"
+        ) else {
+            debugLog?.record(.event, "device_event failed to close stranded rows \(stranded)")
+            return []
+        }
+        debugLog?.record(
+            .event,
+            "device_event closed \(stranded.count) stranded by an earlier launch: \(stranded), durations left as they were"
+        )
+        // Same hand-over as any other close: a finished segment is a finished segment, and whether it counts is
+        // the time entry side's answer -- including deciding it is too short to.
+        handOver(stranded)
+        return stranded
+    }
+
     /// The number the app takes for a segment it is reporting itself: **the unix epoch second it started**,
     /// which is what the previous app used (`MockTimeFlipDevice` seeded its counter from
     /// `UInt32(now.timeIntervalSince1970)`), and the magnitude keeps these plainly distinguishable from a
@@ -427,9 +468,15 @@ final class DeviceEventRecorder {
     }
 
     /// The rows that still claim to be open, before a close-out takes that away from them.
-    private func openRowIDs() -> [Int] {
+    ///
+    /// `onFacesAbove` narrows it to the app's own faces, which is what startup recovery wants and what an
+    /// ordinary close-out must not do: that one closes everything open, stranded rows included.
+    private func openRowIDs(onFacesAbove face: Int? = nil) -> [Int] {
+        let onlyAppFaces = face.map { " AND device_face > \($0)" } ?? ""
         var ids: [Int] = []
-        connection.forEachRow("SELECT device_event_id FROM device_event WHERE finalised != 1;") { row in
+        connection.forEachRow(
+            "SELECT device_event_id FROM device_event WHERE finalised != 1\(onlyAppFaces);"
+        ) { row in
             ids.append(Int(row.int(0)))
         }
         return ids

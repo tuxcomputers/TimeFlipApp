@@ -201,6 +201,63 @@ final class TimeEntryRecorderTests: XCTestCase {
         XCTAssertEqual(entries.consider(deviceEventID: segment), .created(timeEntryID: 1, categoryID: 0))
     }
 
+    // MARK: - what a previous launch left open
+
+    func testAStrandedAppSegmentIsClosedKeepingTheDurationItAlreadyHad() throws {
+        // A launch that ended without its quit sequence. The last duration written is the last moment anything
+        // knows the segment was running, so recomputing it to now would record every hour the app was closed --
+        // which is how a 14-second session came back as 39 minutes.
+        let stranded = finishedSegment(face: ManualFace.first, duration: 40, finalised: false)
+
+        let closed = events.closeSegmentsStrandedOnAppFaces()
+
+        XCTAssertEqual(closed, [stranded])
+        XCTAssertEqual(database.string("SELECT finalised FROM device_event WHERE device_event_id = \(stranded);"), "1")
+        XCTAssertEqual(
+            database.string("SELECT duration_seconds FROM device_event WHERE device_event_id = \(stranded);"),
+            "40.0",
+            "short by at most one history interval, rather than wrong by however long the app was shut"
+        )
+    }
+
+    func testAStrandedAppSegmentBecomesTrackedTime() throws {
+        let stranded = finishedSegment(face: ManualFace.first, duration: 40, finalised: false)
+        XCTAssertTrue(faces.assign(categoryID: try categoryID(named: "Break"), toFace: ManualFace.first))
+
+        events.closeSegmentsStrandedOnAppFaces()
+
+        XCTAssertEqual(entryColumn("duration_seconds", forSegment: stranded), "40.0")
+        XCTAssertEqual(processed(stranded), "1")
+    }
+
+    func testADevicesOpenSegmentIsLeftAlone() {
+        // A cube keeps timing whether this app is running or not, so its open segment is not stranded: it is
+        // still being timed, and the duration the device reports will cover the time the app was closed.
+        let cube = finishedSegment(face: 4, duration: 300, finalised: false)
+
+        XCTAssertEqual(events.closeSegmentsStrandedOnAppFaces(), [])
+
+        XCTAssertEqual(database.string("SELECT finalised FROM device_event WHERE device_event_id = \(cube);"), "0")
+        XCTAssertEqual(database.string("SELECT COUNT(*) FROM time_entry;"), "0")
+    }
+
+    func testEveryStrandedAppSegmentIsClosed() {
+        // More than one open row is a fault in itself; a startup that fixed only the newest would leave the rest
+        // to be found by the next close-out, having grown in the meantime.
+        let first = finishedSegment(face: 13, duration: 10, finalised: false)
+        let second = finishedSegment(face: 14, duration: 20, finalised: false)
+
+        XCTAssertEqual(Set(events.closeSegmentsStrandedOnAppFaces()), Set([first, second]))
+        XCTAssertEqual(database.string("SELECT COUNT(*) FROM device_event WHERE finalised = 0;"), "0")
+    }
+
+    func testAStartupWithNothingStrandedDoesNothing() {
+        _ = finishedSegment(face: ManualFace.first, duration: 60)
+
+        XCTAssertEqual(events.closeSegmentsStrandedOnAppFaces(), [], "the ordinary case, after a clean quit")
+        XCTAssertEqual(database.string("SELECT COUNT(*) FROM time_entry;"), "0", "and nothing is re-counted")
+    }
+
     // MARK: - the two modules together
 
     func testClosingASegmentIsWhatRaisesTheQuestion() throws {

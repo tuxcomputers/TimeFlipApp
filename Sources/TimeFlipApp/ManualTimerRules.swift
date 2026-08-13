@@ -19,6 +19,11 @@ import Foundation
 /// later than the close (a row stranded by a crash, say, swept up on the next launch), which is why this is
 /// a list rather than a pair of constants: adding 15 here and to the DDL is the whole change.
 enum ManualFace {
+    /// The highest face a cube can report. **Nothing above this ever comes from a device**, which is what makes
+    /// the numbers above it the app's to use, and what lets anything tell one kind of segment from the other
+    /// without a column saying which it is.
+    static let highestDeviceFace = 12
+
     /// In rotation order. `device_face`'s `CHECK` in `003_device_event.sql` bounds what the table will hold,
     /// so growing this list means changing that too.
     static let all = [13, 14]

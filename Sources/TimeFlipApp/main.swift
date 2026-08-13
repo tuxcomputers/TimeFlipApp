@@ -88,6 +88,14 @@ let deviceEvents = DeviceEventRecorder(
     debugLog: debugLog
 )
 
+
+// A launch inherits whatever the last one left behind. A segment still open on one of the app's own faces is a
+// launch that ended without its quit sequence -- a crash, a force quit -- and closing it here, before the window
+// or the history timer can touch it, is what stops either of them measuring it from its start to now.
+//
+// Before anything else reads the table, and deliberately not a step the user can arrive in the middle of.
+deviceEvents.closeSegmentsStrandedOnAppFaces()
+
 // What the Timing column draws: the category's total for the day, read every time rather than counted.
 let dayTotal = DayTotal(
     settings: settings,
