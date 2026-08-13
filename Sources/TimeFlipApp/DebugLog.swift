@@ -41,6 +41,8 @@ final class DebugLog {
         case history
         /// Whether a finished segment became tracked time, and what it was filed under.
         case entry
+        /// The steps the app takes on its way out (`QuitSequence`).
+        case quit
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

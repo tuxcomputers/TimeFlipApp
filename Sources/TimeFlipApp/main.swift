@@ -88,6 +88,12 @@ let deviceEvents = DeviceEventRecorder(
     debugLog: debugLog
 )
 
+// What happens on the way out, and it has to be set before `run()`. Kept in a binding because
+// `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
+// immediately and the app then ends without running any of it, silently.
+let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
+app.delegate = quitSequence
+
 // The window is built on its first open, so this costs nothing until Settings is chosen.
 let settingsWindow = SettingsWindowController(
     debugLog: debugLog,
@@ -101,11 +107,10 @@ let settingsWindow = SettingsWindowController(
 // recorder recognises it as the same event and grows its duration. When a device arrives, the fetch request
 // goes in here beside this and the recorder is handed frames instead.
 //
-// Only while the clock is running. Pausing writes nothing yet, so the open row is still the running segment
-// and growing it through a pause would record time nobody spent. That guard goes when pause closes its own
-// segment, because then a paused session simply has no open row to find.
+// No check on whether anything is running: an open row **is** that answer, and pausing closes its segment, so a
+// paused session has nothing here to find. This used to ask `timingSession.isRunning` first, which was a second
+// copy of a question the table already answers.
 let historyTimer = HistoryTimer(settings: settings, debugLog: debugLog) {
-    guard timingSession.isRunning else { return }
     deviceEvents.refreshOpenSegment(at: Date())
 }
 historyTimer.start()

@@ -117,6 +117,10 @@ Worth the trouble when the question is a few points or a shade: an eyeballed "7p
   Settings window closes with `ax-press.py close-settings`, and menus close by pressing an item.
 - **Synthetic keystrokes are a last resort generally.** They go wherever focus is, which is not
   necessarily the app; a named press cannot miss.
+- **`open` on an already-running app activates it; it does not launch the new build.** So the change under
+  test is not the code being driven, and the single-instance lock means a genuinely new process would
+  stand down anyway. `pgrep -x TimeFlip` before every launch, and quit what is there first. This cost a
+  wrong diagnosis: a new quit step looked broken when the running copy simply predated it.
 - **A menu item pressed while its menu is closed reports success and does nothing.**
   `scripts/ax-press.py toggle-pause` exits 0 with `pressed toggle-pause` and the app is unchanged.
   Open the menu first ([Method 3](#method-3)), or press the on-screen control instead
