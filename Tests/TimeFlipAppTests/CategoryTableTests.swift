@@ -14,9 +14,18 @@ final class CategoryTableTests: XCTestCase {
         _ id: Int,
         _ name: String,
         icon: String? = "ic_break",
-        colour: NSColor? = .red
+        colour: NSColor? = .red,
+        limit: Int = 0
     ) -> CategoryRecord {
-        CategoryRecord(id: id, name: name, iconName: icon, colour: colour, usesWhiteLines: false, isActive: true)
+        CategoryRecord(
+            id: id,
+            name: name,
+            iconName: icon,
+            colour: colour,
+            usesWhiteLines: false,
+            dailyLimitMinutes: limit,
+            isActive: true
+        )
     }
 
     private func rows(of table: CategoryTable) -> [CategoryTableRow] {
@@ -88,7 +97,84 @@ final class CategoryTableTests: XCTestCase {
 
         let captions = try XCTUnwrap(header(of: table)).subviews
             .compactMap { ($0 as? NSTextField)?.stringValue }
-        XCTAssertEqual(captions, ["Name", "Colour"], "no caption over the icon, there being nothing useful to call it")
+        XCTAssertEqual(
+            captions,
+            // The archive's five columns, and its wording. No caption over the icon, there being nothing useful to
+            // call it; the limit's says what 0 means, since a limit of nothing and no limit at all are opposites.
+            ["Name", "Colour", "Daily limit (0 = disabled)", "Active"],
+            "the icon column is the only one without a caption"
+        )
+    }
+
+    // MARK: - the daily limit
+
+    private func limitField(of row: CategoryTableRow) -> SteppedNumberField? {
+        row.subviews.flatMap { $0.subviews }.compactMap { $0 as? SteppedNumberField }.first
+    }
+
+    private func activeBox(of row: CategoryTableRow) -> NSButton? {
+        row.subviews.flatMap { $0.subviews }.compactMap { $0 as? NSButton }.first
+    }
+
+    func testTheLimitFieldShowsWhatTheCategoryHolds() throws {
+        let table = CategoryTable()
+        table.show([category(1, "Break", limit: 45)])
+
+        let field = try XCTUnwrap(limitField(of: try XCTUnwrap(rows(of: table).first)))
+        XCTAssertEqual(field.value, 45)
+    }
+
+    func testAChangedLimitIsReportedWithTheCategory() throws {
+        let table = CategoryTable()
+        var reported: (name: String, minutes: Int)?
+        table.onSetDailyLimit = { reported = ($0.name, $1) }
+        table.show([category(1, "Break", limit: 0)])
+
+        try XCTUnwrap(limitField(of: try XCTUnwrap(rows(of: table).first))).onChange?(90)
+
+        XCTAssertEqual(reported?.name, "Break")
+        XCTAssertEqual(reported?.minutes, 90)
+    }
+
+    // MARK: - the Active box
+
+    func testTheBoxIsTickedAndUntickingRetires() throws {
+        let table = CategoryTable()
+        var retired: String?
+        table.onRetire = { retired = $0.name }
+        table.show([category(1, "Break")])
+
+        let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))
+        XCTAssertEqual(box.state, .on, "this is the active list, so every box in it is ticked")
+        XCTAssertTrue(box.isEnabled)
+
+        box.performClick(nil)
+
+        XCTAssertEqual(retired, "Break")
+    }
+
+    func testALockedFaceTakesTheBoxAwayRatherThanRefusingIt() throws {
+        // Retiring takes a category off every face it is on, and a locked face is one the user has said keeps what it
+        // has. A box that offered the edit and bounced back would be worse than one that says it is not on offer.
+        let table = CategoryTable()
+        table.facesHolding = { _ in [(face: 8, isLocked: true)] }
+        table.show([category(1, "Break")])
+
+        let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))
+        XCTAssertFalse(box.isEnabled)
+        // The row gives no clue which face is in the way, so the tooltip names it.
+        XCTAssertEqual(box.toolTip?.contains("Face 8"), true)
+        XCTAssertEqual(box.toolTip?.contains("Break"), true)
+    }
+
+    func testAnUnlockedFaceLeavesTheBoxAlone() throws {
+        let table = CategoryTable()
+        table.facesHolding = { _ in [(face: 13, isLocked: false), (face: 14, isLocked: false)] }
+        table.show([category(1, "Break")])
+
+        let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))
+        XCTAssertTrue(box.isEnabled)
+        XCTAssertNil(box.toolTip)
     }
 
     func testTheColumnsLineUpWithTheirCaptions() throws {

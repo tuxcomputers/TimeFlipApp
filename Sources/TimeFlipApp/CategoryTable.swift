@@ -10,11 +10,9 @@ import AppKit
 /// x on every row whatever the name's length, and a 46pt colour column, wide enough for the caption above it
 /// (`Archive/TimeFlipApp/SettingsLayoutConstants.CategoryList`).
 ///
-/// **Read-only so far.** In the previous app every cell here was a control: the icon opened a picker, the swatch
-/// opened another, the name became a field on a right-click, and there were two more columns after these, a daily
-/// limit and an Active checkbox. Each of those is its own piece of work, and a column drawn dead invites the reader
-/// to try it -- which is the reason the archive gave for dropping three columns from its retired list rather than
-/// disabling them.
+/// **The columns are the archive's five**: icon, name, colour, daily limit, Active. The last two are live -- the
+/// limit writes `category.daily_limit`, the box retires a category -- and the first three are still readouts, the
+/// pickers behind the icon and the swatch and the inline rename behind the name each being their own piece of work.
 @MainActor
 final class CategoryTable: NSView {
     enum Identifier {
@@ -30,6 +28,11 @@ final class CategoryTable: NSView {
         /// would put the next column at a different x on every row.
         static let nameColumnWidth: CGFloat = 160
         static let colourColumnWidth: CGFloat = 46
+        /// Exactly one number field wide, since that is what fills it, and wide enough for the caption over it.
+        static let limitColumnWidth: CGFloat = SteppedNumberField.Layout.fieldWidth
+            + SteppedNumberField.Layout.suffixWidth + 2 * SteppedNumberField.Layout.spacing + 16
+        /// A checkbox is narrower than the word "Active" above it, so the column is fixed to the caption's width.
+        static let activeColumnWidth: CGFloat = 44
         /// The icon, which has no caption over it because there is nothing useful to call it.
         static let iconSize: CGFloat = 20
         /// Between the columns of a row, and between the rows.
@@ -48,6 +51,18 @@ final class CategoryTable: NSView {
     private let rows = NSStackView()
 
     private(set) var shownCategories: [CategoryRecord] = []
+
+    /// Called with a category and its new daily limit, in minutes, already inside the allowed range.
+    var onSetDailyLimit: ((CategoryRecord, Int) -> Void)?
+
+    /// Called when a category's Active box is unticked. Ticking is not possible here, this being the active list, so
+    /// there is one direction rather than a flag.
+    var onRetire: ((CategoryRecord) -> Void)?
+
+    /// Which faces hold a category, and whether they are locked, which is what decides whether its Active box can be
+    /// unticked at all. Asked per row as the row is built, so it is read when it is needed rather than passed in
+    /// alongside the categories and going stale between the two.
+    var facesHolding: ((CategoryRecord) -> [(face: Int, isLocked: Bool)])?
 
     init() {
         super.init(frame: .zero)
@@ -75,7 +90,13 @@ final class CategoryTable: NSView {
         } else {
             rows.addView(headerRow(), in: .top)
             for category in categories {
-                rows.addView(CategoryTableRow(category: category), in: .top)
+                let row = CategoryTableRow(
+                    category: category,
+                    retireRefusal: CategoryEditRules.retireRefusal(facesHolding: facesHolding?(category) ?? [])
+                )
+                row.onSetDailyLimit = { [weak self] minutes in self?.onSetDailyLimit?(category, minutes) }
+                row.onRetire = { [weak self] in self?.onRetire?(category) }
+                rows.addView(row, in: .top)
             }
         }
         shownCategories = categories
@@ -86,7 +107,14 @@ final class CategoryTable: NSView {
         // An NSBox rather than a layer with a background colour, as on the Faces tab: it keeps the fill a dynamic
         // colour, so the panel follows the appearance instead of freezing whichever one it was built under.
         panel.boxType = .custom
-        panel.fillColor = .textBackgroundColor
+        // Tinted, which the previous app's grouped form did for every panel on this tab (see
+        // `image/preferences-device.png`, the same style). A translucent fill rather than a fixed grey, so it darkens
+        // the page it is on whichever appearance that page is in.
+        //
+        // The Faces tab's list is deliberately *not* tinted, and that is the archive's own split rather than an
+        // inconsistency: `image/preferences-faces.png` shows its pick list on plain white with only hairlines. A pick
+        // list is part of the page; a panel of settings is a thing on it.
+        panel.fillColor = .quaternarySystemFill
         panel.borderWidth = 0
         panel.cornerRadius = Layout.cornerRadius
         panel.contentViewMargins = .zero
@@ -121,6 +149,10 @@ final class CategoryTable: NSView {
             spacer(width: Layout.iconSize),
             caption("Name", width: Layout.nameColumnWidth),
             caption("Colour", width: Layout.colourColumnWidth),
+            // The caption says what 0 means, because a limit of nothing and no limit at all are opposites and the
+            // field cannot tell them apart on its own. The archive's wording.
+            caption("Daily limit (0 = disabled)", width: Layout.limitColumnWidth),
+            caption("Active", width: Layout.activeColumnWidth),
         ])
         row.orientation = .horizontal
         row.alignment = .centerY
@@ -165,8 +197,19 @@ final class CategoryTable: NSView {
 final class CategoryTableRow: NSStackView {
     let category: CategoryRecord
 
-    init(category: CategoryRecord) {
+    /// Why this category cannot be retired, or `nil` when it can. Decided by `CategoryEditRules` and handed in, so
+    /// the row draws the answer rather than working it out.
+    let retireRefusal: CategoryEditRules.RetireRefusal?
+
+    /// Called with the new limit in minutes, already inside the allowed range.
+    var onSetDailyLimit: ((Int) -> Void)?
+
+    /// Called when the Active box is unticked.
+    var onRetire: (() -> Void)?
+
+    init(category: CategoryRecord, retireRefusal: CategoryEditRules.RetireRefusal? = nil) {
         self.category = category
+        self.retireRefusal = retireRefusal
         super.init(frame: .zero)
         orientation = .horizontal
         alignment = .centerY
@@ -189,6 +232,60 @@ final class CategoryTableRow: NSStackView {
         addView(icon(), in: .leading)
         addView(name(), in: .leading)
         addView(swatch(), in: .leading)
+        addView(dailyLimitField(), in: .leading)
+        addView(activeBox(), in: .leading)
+    }
+
+    /// The category's budget for a day, in minutes, with 0 meaning no limit.
+    private func dailyLimitField() -> NSView {
+        let field = SteppedNumberField(
+            value: category.dailyLimitMinutes,
+            range: CategoryEditRules.disabledDailyLimit ... CategoryEditRules.maximumDailyLimitMinutes,
+            suffix: "min",
+            identifier: "category-limit-\(category.id)"
+        )
+        field.onChange = { [weak self] minutes in self?.onSetDailyLimit?(minutes) }
+        return column(field, width: CategoryTable.Layout.limitColumnWidth)
+    }
+
+    /// Ticked, this being the active list. Unticking retires the category.
+    ///
+    /// **Disabled rather than refused when a locked face holds it**, which is the archive's decision and its
+    /// reasoning: retiring takes a category off every face it is on, and a locked face is one the user has said keeps
+    /// what it has, so the two instructions contradict each other and the app does not get to choose. A box that
+    /// offered the edit and then bounced back would be worse than one that says it is not on offer, and the tooltip
+    /// names the face, since the row gives no clue which one is in the way.
+    private func activeBox() -> NSView {
+        let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(activeChanged))
+        box.state = .on
+        box.isEnabled = retireRefusal == nil
+        box.toolTip = CategoryEditRules.retireRefusalHelp(retireRefusal, categoryName: category.name)
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.identifier = NSUserInterfaceItemIdentifier("category-active-\(category.id)")
+        box.setAccessibilityIdentifier("category-active-\(category.id)")
+        box.setAccessibilityLabel("\(category.name) active")
+        return column(box, width: CategoryTable.Layout.activeColumnWidth)
+    }
+
+    @objc
+    private func activeChanged() {
+        onRetire?()
+    }
+
+    /// Holds a control's column open at a fixed width, left-aligned inside it, so the column after it starts at the
+    /// same x on every row.
+    private func column(_ view: NSView, width: CGFloat) -> NSView {
+        let cell = NSView()
+        cell.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(view)
+        NSLayoutConstraint.activate([
+            cell.widthAnchor.constraint(equalToConstant: width),
+            view.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+            view.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            cell.topAnchor.constraint(lessThanOrEqualTo: view.topAnchor),
+            cell.bottomAnchor.constraint(greaterThanOrEqualTo: view.bottomAnchor),
+        ])
+        return cell
     }
 
     /// The category's artwork, or a "no sign" glyph for one that has none -- the archive's answer, and better than a
@@ -223,20 +320,10 @@ final class CategoryTableRow: NSStackView {
         return label
     }
 
+    /// The swatch is 14pt in a 46pt column, left-aligned, so the column's own width comes from its caption rather
+    /// than from the square: what has to line up is where the *next* column starts.
     private func swatch() -> NSView {
-        let swatch = ColourSwatch(colour: category.colour)
-        // The swatch is 14pt in a 46pt column, left-aligned, so the column's own width comes from its caption
-        // rather than from the square: what has to line up is where the *next* column starts.
-        let cell = NSView()
-        cell.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(swatch)
-        NSLayoutConstraint.activate([
-            cell.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.colourColumnWidth),
-            cell.heightAnchor.constraint(equalToConstant: CategoryTable.Layout.swatchSize),
-            swatch.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
-            swatch.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-        return cell
+        column(ColourSwatch(colour: category.colour), width: CategoryTable.Layout.colourColumnWidth)
     }
 }
 

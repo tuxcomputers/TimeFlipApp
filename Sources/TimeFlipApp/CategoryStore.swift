@@ -13,6 +13,15 @@ struct CategoryRecord: Equatable {
     /// From the colour's own row: `true` for colours dark enough to swallow a black glyph, so the icon
     /// on top of them is drawn white instead.
     let usesWhiteLines: Bool
+
+    /// The budget for this category's tracked time in one day, in minutes. `0` disables it, which is what every
+    /// category starts with.
+    ///
+    /// **Stored, and enforced by nothing yet.** What reads it is the over-limit colouring and the pause the previous
+    /// app sent the cube when a category was spent, neither of which this app has rebuilt. Editable ahead of that
+    /// deliberately: the column belongs on the tab with the rest of what a category is, and a value already set is
+    /// what the enforcement will find when it arrives.
+    let dailyLimitMinutes: Int
     /// `false` once retired: the row stays so historical `time_entry` rows keep resolving, but it drops
     /// out of the lists a category can be picked from.
     let isActive: Bool
@@ -119,7 +128,8 @@ final class CategoryStore {
         var categories: [CategoryRecord] = []
         connection.forEachRow(
             """
-            SELECT c.category_id, c.category_name, i.icon_name, l.device_hex, l.white_lines, c.active
+            SELECT c.category_id, c.category_name, i.icon_name, l.device_hex, l.white_lines, c.active,
+                   c.daily_limit
               FROM category c
               JOIN icon i ON i.icon_id = c.icon_id
               JOIN colour l ON l.colour_id = c.colour_id
@@ -137,6 +147,7 @@ final class CategoryStore {
                     iconName: iconName == "None" ? nil : iconName,
                     colour: row.string(3).flatMap(NSColor.init(hex:)),
                     usesWhiteLines: row.bool(4),
+                    dailyLimitMinutes: Int(row.int(6)),
                     isActive: row.bool(5)
                 )
             )
@@ -172,10 +183,35 @@ final class CategoryStore {
     /// Can be refused, and the refusal matters: only one active category may hold a name, so a retired
     /// row whose name has since been taken by an active one cannot come back under it.
     func reactivate(id: Int) -> Bool {
+        setActive(id: id, true)
+    }
+
+    /// Retires a category or brings it back.
+    ///
+    /// The retired row stays, which is the point of the column rather than a delete: every `time_entry` recorded
+    /// against it still has to resolve. What changes is that it drops out of the lists a category can be picked
+    /// from.
+    ///
+    /// Reinstating can be refused, by the unique index over active names rather than by a check here: only one
+    /// active category may hold a name. Retiring cannot be refused by the database, so a `false` from that
+    /// direction means the id is not there.
+    func setActive(id: Int, _ isActive: Bool) -> Bool {
         // The row count as well as the step, so a category that is not there reads as refused rather than as
         // done. A name collision is refused by the index and fails the step; a missing id changes nothing and
         // would otherwise pass.
-        connection.execute("UPDATE category SET active = 1 WHERE category_id = \(id);") && connection.changes > 0
+        connection.execute(
+            "UPDATE category SET active = \(isActive ? 1 : 0) WHERE category_id = \(id);"
+        ) && connection.changes > 0
+    }
+
+    /// Sets a category's daily budget, in minutes, and reports whether it took.
+    ///
+    /// The value is bounded by the caller (`CategoryEditRules.dailyLimitMinutes`) rather than here: what a sensible
+    /// limit is belongs with the rest of the rules, and this writes what it is given.
+    func setDailyLimit(id: Int, minutes: Int) -> Bool {
+        connection.execute(
+            "UPDATE category SET daily_limit = \(minutes) WHERE category_id = \(id);"
+        ) && connection.changes > 0
     }
 }
 

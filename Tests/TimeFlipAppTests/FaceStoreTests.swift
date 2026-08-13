@@ -80,6 +80,35 @@ final class FaceStoreTests: XCTestCase {
         XCTAssertNil(faces.categoryID(forFace: 99))
     }
 
+    // MARK: - which faces hold a category
+
+    func testEveryFaceHoldingACategoryIsReported() throws {
+        let meeting = try categoryID(named: "Meeting")
+        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: 13))
+        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: 14))
+
+        let holding = faces.facesHolding(categoryID: meeting).map(\.face)
+
+        // Face 2 is seeded with Meeting, and both manual faces now hold it too: one category, many faces, which is
+        // exactly why retiring has to look at all of them.
+        XCTAssertEqual(holding, [2, 13, 14])
+    }
+
+    func testALockedFaceIsReportedAsLocked() throws {
+        // Face 8 is seeded locked, holding Break.
+        let holding = faces.facesHolding(categoryID: try categoryID(named: "Break"))
+
+        XCTAssertEqual(holding.first { $0.face == 8 }?.isLocked, true)
+        XCTAssertEqual(holding.filter(\.isLocked).map(\.face), [8], "and nothing else is")
+    }
+
+    func testACategoryOnNoFaceHoldsNothing() throws {
+        // A category nobody has put anywhere, which is what every newly created one is.
+        let fresh = try XCTUnwrap(categories.insert(name: "Reading"))
+
+        XCTAssertTrue(faces.facesHolding(categoryID: fresh).isEmpty)
+    }
+
     // MARK: - the design rule
 
     func testAChangeMadeElsewhereIsSeenByTheNextRead() throws {

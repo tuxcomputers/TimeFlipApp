@@ -27,7 +27,8 @@ final class CategoriesPane: NSView {
         static let sectionSpacing: CGFloat = 12
     }
 
-    /// Exposed so what it holds can be asserted without a window on screen.
+    /// Exposed so what it holds can be asserted without a window on screen, and so the window can wire what its
+    /// edits do: the pane draws, it does not write.
     let activeTable = CategoryTable()
 
     init() {

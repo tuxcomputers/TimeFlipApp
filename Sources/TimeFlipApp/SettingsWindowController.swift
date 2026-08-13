@@ -109,11 +109,78 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             redrawTiming()
 
         case let pane as CategoriesPane:
+            wire(pane)
             pane.show(categories.activeCategories())
 
         default:
             break
         }
+    }
+
+    /// Points the Categories tab's edits at the tables they write to.
+    ///
+    /// Set on every reload rather than once, because it costs nothing and because a pane wired in only one place is a
+    /// pane that draws dead controls the day something else builds it.
+    ///
+    /// **A write is not followed by a re-read here, and the retire is the exception.** Settings reads the database
+    /// when it opens and what it shows is then the answer until it closes, so a limit typed into a field is already on
+    /// screen and re-reading would only rebuild the row -- taking the field out from under whoever is still typing in
+    /// it. Retiring is different in kind: it changes *which* rows belong in the list, so the list is read again and
+    /// the row leaves because the table no longer calls it active.
+    private func wire(_ pane: CategoriesPane) {
+        pane.activeTable.facesHolding = { [weak self] category in
+            self?.faces?.facesHolding(categoryID: category.id) ?? []
+        }
+        pane.activeTable.onSetDailyLimit = { [weak self] category, minutes in
+            self?.setDailyLimit(minutes, on: category)
+        }
+        pane.activeTable.onRetire = { [weak self] category in
+            self?.retire(category)
+        }
+    }
+
+    /// Stores a category's daily limit.
+    ///
+    /// A refused write is the one case that reads the row back. The field is showing what was typed, and if the table
+    /// did not take it then the screen and the database now disagree -- which is the whole thing the first rule in
+    /// `CLAUDE.md` exists to prevent. Losing the field's focus is the smaller cost of the two.
+    private func setDailyLimit(_ minutes: Int, on category: CategoryRecord) {
+        guard let categories else { return }
+        let allowed = CategoryEditRules.dailyLimitMinutes(minutes)
+        let stored = categories.setDailyLimit(id: category.id, minutes: allowed)
+        debugLog?.record(
+            .field,
+            "Category \"\(category.name)\" daily limit -> \(allowed)min\(stored ? "" : " REFUSED")"
+        )
+        guard !stored else { return }
+        reloadSelectedPane()
+    }
+
+    /// Retires a category and takes it off the faces holding it.
+    ///
+    /// **Both, or neither.** A retired category left on a face would still be what that face is timing while being
+    /// absent from every list a category can be picked from, which is a state nothing else in the app is prepared to
+    /// explain. The archive did the same, and the faces are cleared after the retire rather than before so a refused
+    /// retire leaves the faces alone.
+    ///
+    /// Nothing here has to check for a locked face: `CategoryEditRules` decided that before the box was drawn, and a
+    /// locked face's box is disabled, so this is not reachable for one.
+    private func retire(_ category: CategoryRecord) {
+        guard let categories else { return }
+        guard categories.setActive(id: category.id, false) else {
+            debugLog?.record(.click, "Category \"\(category.name)\" retire REFUSED")
+            return
+        }
+        let cleared = (faces?.facesHolding(categoryID: category.id) ?? []).filter { faces?.clear(face: $0.face) == true }
+        debugLog?.record(
+            .click,
+            "Category \"\(category.name)\" retired, cleared from face(s) \(cleared.map(\.face))"
+        )
+        // The list is read again because retiring changes which rows belong in it, not merely what one of them says.
+        reloadSelectedPane()
+        // The Faces tab and the status item draw from the same tables, and a face this cleared may be the one being
+        // timed.
+        onTimingChanged?()
     }
 
     /// Draws the session: which category, whether it is running, and how much time that category has.

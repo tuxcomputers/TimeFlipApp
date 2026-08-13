@@ -93,16 +93,16 @@ final class CategoryStoreTests: XCTestCase {
     func testTwoRowsSharingANameAreBrokenOnID() {
         // Legitimate: a category created alongside retired namesakes. Left to an unstable sort, the list
         // could come back in a different order each time it was read.
-        let first = CategoryRecord(id: 4, name: "Reading", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true)
-        let second = CategoryRecord(id: 9, name: "Reading", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true)
+        let first = CategoryRecord(id: 4, name: "Reading", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let second = CategoryRecord(id: 9, name: "Reading", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
 
         XCTAssertTrue(CategoryRecord.displayOrder(first, second))
         XCTAssertFalse(CategoryRecord.displayOrder(second, first))
     }
 
     func testTheSameNumberWrittenTwoWaysStillOrdersStably() {
-        let padded = CategoryRecord(id: 9, name: "01", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true)
-        let plain = CategoryRecord(id: 4, name: "1", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true)
+        let padded = CategoryRecord(id: 9, name: "01", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let plain = CategoryRecord(id: 4, name: "1", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
 
         // Equal as numbers and equal to localizedStandardCompare, so the id decides.
         XCTAssertTrue(CategoryRecord.displayOrder(plain, padded))
@@ -243,5 +243,42 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertNotNil(categories.insert(name: "Break"))
 
         XCTAssertFalse(categories.reactivate(id: retiredID))
+    }
+
+    // MARK: - retiring
+
+    func testRetiringTakesACategoryOutOfTheActiveList() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first { $0.name == "Break" }?.id)
+
+        XCTAssertTrue(categories.setActive(id: id, false))
+
+        XCTAssertFalse(categories.activeCategories().contains { $0.name == "Break" })
+        // The row stays, which is the point of the column rather than a delete: every `time_entry` recorded against
+        // it still has to resolve.
+        XCTAssertEqual(categories.category(id: id)?.isActive, false)
+        XCTAssertEqual(categories.category(id: id)?.name, "Break")
+    }
+
+    func testRetiringACategoryThatIsNotThereIsRefused() {
+        XCTAssertFalse(categories.setActive(id: 9_999, false))
+    }
+
+    // MARK: - the daily limit
+
+    func testEveryCategoryStartsWithNoDailyLimit() throws {
+        // Zero is the seeded value and means no limit at all, rather than a limit of nothing.
+        XCTAssertEqual(categories.activeCategories().map(\.dailyLimitMinutes).allSatisfy { $0 == 0 }, true)
+    }
+
+    func testSettingTheDailyLimitIsReadBack() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first?.id)
+
+        XCTAssertTrue(categories.setDailyLimit(id: id, minutes: 90))
+
+        XCTAssertEqual(categories.category(id: id)?.dailyLimitMinutes, 90)
+    }
+
+    func testSettingTheDailyLimitOfACategoryThatIsNotThereIsRefused() {
+        XCTAssertFalse(categories.setDailyLimit(id: 9_999, minutes: 30))
     }
 }

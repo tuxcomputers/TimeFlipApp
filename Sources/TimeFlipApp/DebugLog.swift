@@ -41,6 +41,8 @@ final class DebugLog {
         case history
         /// Whether a finished segment became tracked time, and what it was filed under.
         case entry
+        /// A value typed or stepped into a field, and what became of it.
+        case field
         /// The steps the app takes on its way out (`QuitSequence`).
         case quit
 

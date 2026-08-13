@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class CategoryListViewTests: XCTestCase {
     private func category(_ id: Int, _ name: String, icon: String? = "ic_break", colour: NSColor? = .red) -> CategoryRecord {
-        CategoryRecord(id: id, name: name, iconName: icon, colour: colour, usesWhiteLines: false, isActive: true)
+        CategoryRecord(id: id, name: name, iconName: icon, colour: colour, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
     }
 
     private func rowViews(of list: CategoryListView) -> [CategoryRowView] {
@@ -90,8 +90,8 @@ final class CategoryListViewTests: XCTestCase {
     }
 
     func testTheIconIsWhiteOnAColourThatNeedsIt() throws {
-        let dark = CategoryRecord(id: 1, name: "Dark", iconName: "ic_break", colour: .black, usesWhiteLines: true, isActive: true)
-        let light = CategoryRecord(id: 2, name: "Light", iconName: "ic_break", colour: .yellow, usesWhiteLines: false, isActive: true)
+        let dark = CategoryRecord(id: 1, name: "Dark", iconName: "ic_break", colour: .black, usesWhiteLines: true, dailyLimitMinutes: 0, isActive: true)
+        let light = CategoryRecord(id: 2, name: "Light", iconName: "ic_break", colour: .yellow, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
 
         XCTAssertEqual(try iconTint(of: CategoryRowView(category: dark)), .white)
         XCTAssertEqual(try iconTint(of: CategoryRowView(category: light)), .black)

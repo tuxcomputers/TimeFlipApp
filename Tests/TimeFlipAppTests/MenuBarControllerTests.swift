@@ -165,7 +165,7 @@ final class MenuBarControllerTests: XCTestCase {
     func testTheOrderIsBadgeIconCategoryGlyphThenTime() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colour: nil, usesWhiteLines: false, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
             ),
             state: .running,
             seconds: 30
@@ -196,7 +196,7 @@ final class MenuBarControllerTests: XCTestCase {
     func testTheBadgeKeepsItsOwnColourWhileTheSessionIsGreen() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colour: nil, usesWhiteLines: false, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
             ),
             state: .running,
             seconds: 30
@@ -220,7 +220,7 @@ final class MenuBarControllerTests: XCTestCase {
     func testACategoryWithNoIconDrawsOneAttachmentRatherThanTwo() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: nil, colour: nil, usesWhiteLines: false, isActive: true
+                id: 2, name: "Meeting", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
             ),
             state: .paused,
             seconds: 30

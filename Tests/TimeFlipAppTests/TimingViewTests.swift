@@ -9,7 +9,7 @@ final class TimingViewTests: XCTestCase {
     private func category(colour: NSColor? = .red, whiteLines: Bool = false) -> CategoryRecord {
         CategoryRecord(
             id: 7, name: "Deep Work", iconName: "ic_admin",
-            colour: colour, usesWhiteLines: whiteLines, isActive: true
+            colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isActive: true
         )
     }
 
@@ -90,7 +90,7 @@ final class TimingViewTests: XCTestCase {
 
         let long = CategoryRecord(
             id: 8, name: "Quarterly planning and review workshop", iconName: nil,
-            colour: .red, usesWhiteLines: false, isActive: true
+            colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
         )
         view.show(category: long, state: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()

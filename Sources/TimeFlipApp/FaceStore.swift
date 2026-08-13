@@ -42,4 +42,19 @@ final class FaceStore {
     func clear(face faceID: Int) -> Bool {
         assign(categoryID: 0, toFace: faceID)
     }
+
+    /// Every face holding this category, and whether each is locked.
+    ///
+    /// Both halves in one read because both answers are needed together: retiring a category takes it off the faces
+    /// it is on, and a locked face is one the user has said keeps what it has, so the question is never "which faces"
+    /// without "and may I".
+    func facesHolding(categoryID: Int) -> [(face: Int, isLocked: Bool)] {
+        var found: [(face: Int, isLocked: Bool)] = []
+        connection.forEachRow(
+            "SELECT face_id, locked FROM face WHERE category_id = \(categoryID) ORDER BY face_id;"
+        ) { row in
+            found.append((face: Int(row.int(0)), isLocked: row.bool(1)))
+        }
+        return found
+    }
 }
