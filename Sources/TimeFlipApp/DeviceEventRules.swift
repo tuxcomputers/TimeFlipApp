@@ -118,6 +118,21 @@ enum DeviceEventRules {
         return segment.eventNumber > mark.eventNumber
     }
 
+    /// A duration as the table stores it: **whole seconds, the way the device reports them.**
+    ///
+    /// The cube has no finer resolution to offer -- a history frame's duration is an integer field (five-byte
+    /// little-endian, `docs/timeflip.md`), and its timestamps are "number of seconds" -- so every row written
+    /// from a device is a whole number, and one written by the app should not be the odd one out. A report
+    /// summing a mix of `17.803` and `20673` is summing two different kinds of measurement.
+    ///
+    /// Nearest rather than down, because this is for a duration handed in already measured: dropping the
+    /// fraction of every one of them would make a table of segments read consistently short. Where the app is
+    /// the reporter it does not come through here at all -- see `DeviceEventRecorder.closeOpenSegment`, which
+    /// takes the difference of two whole-second stamps and so has no fraction to resolve.
+    static func wholeSeconds(_ duration: TimeInterval) -> Double {
+        max(0, duration).rounded()
+    }
+
     /// The `event_type` row this segment belongs to, by name rather than by id: the id is the reference
     /// table's business, and naming it here means a renumbered seed cannot silently retype every event.
     ///

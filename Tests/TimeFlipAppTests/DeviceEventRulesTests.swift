@@ -160,6 +160,23 @@ final class DeviceEventRulesTests: XCTestCase {
         XCTAssertFalse(DeviceEventRules.isNewer(segment(eventNumber: 9_999, at: -1), than: base))
     }
 
+    // MARK: - how long it ran
+
+    func testADurationIsStoredInWholeSecondsLikeTheDeviceReportsThem() {
+        // A history frame's duration is an integer field, so every row a cube writes is whole. One the app
+        // writes should not be the odd one out: a report summing 17.803 alongside 20673 is summing two
+        // different kinds of measurement.
+        XCTAssertEqual(DeviceEventRules.wholeSeconds(17.803), 18)
+        XCTAssertEqual(DeviceEventRules.wholeSeconds(17.4), 17)
+        XCTAssertEqual(DeviceEventRules.wholeSeconds(0.733), 1, "nearest, so a table of segments does not read short")
+        XCTAssertEqual(DeviceEventRules.wholeSeconds(0), 0)
+    }
+
+    func testANegativeDurationBecomesZeroRatherThanBeingRefused() {
+        // `CHECK (duration_seconds >= 0)` would refuse it, and a refused write leaves the row open for good.
+        XCTAssertEqual(DeviceEventRules.wholeSeconds(-30), 0)
+    }
+
     // MARK: - which event type
 
     func testASegmentIsAFlipOrAPauseAndNothingElse() {

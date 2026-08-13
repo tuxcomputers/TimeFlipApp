@@ -134,9 +134,16 @@ final class DeviceEventRecorder {
     @discardableResult
     func closeOpenSegment(at moment: Date) -> Outcome? {
         guard let open = openSegment() else { return nil }
-        // Never negative: the table's `CHECK (duration_seconds >= 0)` would refuse it, and a clock that moved
-        // backwards is the only way to get one. Zero is the honest answer to "how long did it run" then.
-        let duration = max(0, moment.timeIntervalSince1970 - Double(open.startEpoch))
+        // The difference between two whole-second stamps, which is how the device arrives at its own durations
+        // and so what this table holds. Not a rounding of the interval: the row's `start_epoch` is already
+        // truncated to a second, and the segment that replaces this one starts from the same truncation, so
+        // taking the difference is what makes one segment end exactly where the next begins. Rounding the
+        // interval up instead would leave a duration reaching a second past the next segment's start, which is
+        // two segments claiming the same second.
+        //
+        // Never negative: `CHECK (duration_seconds >= 0)` would refuse it and the row would stay open for good.
+        // Only a clock that moved backwards gets here, and zero is the honest answer then.
+        let duration = Double(max(0, Int(moment.timeIntervalSince1970) - open.startEpoch))
         let ran = connection.execute(
             """
             UPDATE device_event SET duration_seconds = \(duration), finalised = 1
@@ -239,7 +246,7 @@ final class DeviceEventRecorder {
                 device_face = \(segment.face),
                 start_time = ?,
                 timezone_id = \(timezones.currentID()),
-                duration_seconds = \(segment.durationSeconds),
+                duration_seconds = \(DeviceEventRules.wholeSeconds(segment.durationSeconds)),
                 paused = \(segment.isPaused ? 1 : 0),
                 finalised = \(finalised ? 1 : 0)
             WHERE device_event_id = \(rowID);
@@ -283,7 +290,7 @@ final class DeviceEventRecorder {
                     ?,
                     \(timezones.currentID()),
                     \(segment.startEpoch),
-                    \(segment.durationSeconds),
+                    \(DeviceEventRules.wholeSeconds(segment.durationSeconds)),
                     \(segment.isPaused ? 1 : 0),
                     \(open ? 0 : 1)
                 );

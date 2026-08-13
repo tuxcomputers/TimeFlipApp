@@ -294,6 +294,32 @@ final class DeviceEventRecorderTests: XCTestCase {
         XCTAssertEqual(column("finalised", ofRow: started.deviceEventID), "1")
     }
 
+    func testAClosedSegmentIsWholeSecondsAndEndsWhereTheNextOneStarts() throws {
+        // Whole seconds because that is all the device can report, and the difference of the two stamps rather
+        // than a rounding of the interval: the next segment's `start_epoch` truncates the same moment, so this
+        // is what makes one segment end exactly where the next begins instead of overlapping it by a second.
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let switchedAt = moment.addingTimeInterval(95.803)
+
+        let closed = try XCTUnwrap(recorder.closeOpenSegment(at: switchedAt))
+        let next = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: switchedAt))
+
+        XCTAssertEqual(column("duration_seconds", ofRow: closed.deviceEventID), "95.0")
+        let startEpoch = try XCTUnwrap(column("start_epoch", ofRow: started.deviceEventID).flatMap { Int($0) })
+        XCTAssertEqual(
+            column("start_epoch", ofRow: next.deviceEventID).flatMap { Int($0) }, startEpoch + 95,
+            "the fraction is dropped once, not twice"
+        )
+    }
+
+    func testAReportedDurationIsStoredWhole() throws {
+        // A cube's frames carry integer seconds, so this is a source that is not one. Nearest, and the column
+        // never holds a fraction whoever wrote it.
+        let outcome = try XCTUnwrap(recorder.record(segment(duration: 41.6)))
+
+        XCTAssertEqual(column("duration_seconds", ofRow: outcome.deviceEventID), "42.0")
+    }
+
     func testClosingWithNothingOpenIsNotAFailure() {
         XCTAssertNil(recorder.closeOpenSegment(at: moment), "the ordinary state of a first click")
         XCTAssertEqual(rowCount, "0")
