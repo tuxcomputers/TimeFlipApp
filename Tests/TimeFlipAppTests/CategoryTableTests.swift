@@ -220,6 +220,32 @@ final class CategoryTableTests: XCTestCase {
 
     // MARK: - the pane around it
 
+    func testThePaneOffersToCreateACategory() {
+        let pane = CategoriesPane()
+
+        // The same control the Faces tab has, not a second implementation of creating one: the window wires both to
+        // the same rules and the same writer.
+        XCTAssertEqual(pane.createControl.createButton.title, "Create")
+        XCTAssertFalse(pane.createControl.isEditing, "collapsed until it is clicked")
+    }
+
+    func testTheCreateControlSitsUnderTheList() {
+        let pane = CategoriesPane()
+        pane.show([category(1, "Break")])
+        pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        pane.layoutSubtreeIfNeeded()
+
+        // Converted into the pane, because the table is inside the section view and the control is not: two frames
+        // read straight off `frame` would be measured against different origins and compare as nonsense.
+        let listBottom = pane.activeTable.convert(pane.activeTable.bounds, to: pane).minY
+        // Under the list rather than inside it, which is the archive's placement: in the gap between the two lists,
+        // so it belongs to the tab rather than to one section of it.
+        XCTAssertLessThan(
+            pane.createControl.frame.maxY, listBottom,
+            "lower means a smaller y in this coordinate space"
+        )
+    }
+
     func testThePaneShowsWhatItIsGiven() {
         let pane = CategoriesPane()
 

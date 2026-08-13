@@ -48,9 +48,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// list empty, which is what a test that only cares about layout wants.
     private let categories: CategoryStore?
 
-    /// Held so the create flow can reach the pane it belongs to without going through the selected tab.
-    private var facesPane: FacesPane?
-
     /// Held so Escape can be lent to a name field while one is open.
     private var closeButton: NSButton?
 
@@ -137,6 +134,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.activeTable.onRetire = { [weak self] category in
             self?.retire(category)
         }
+        wire(pane.createControl)
     }
 
     /// Stores a category's daily limit.
@@ -548,18 +546,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         faces.timingView.onTogglePause = { [weak self] in
             self?.togglePause()
         }
-        faces.createControl.onSave = { [weak self] typed in
-            self?.saveNewCategory(typed)
+        wire(faces.createControl)
+        return faces
+    }
+
+    /// Points a create control at the rules and the writer, wherever it is drawn.
+    ///
+    /// Both tabs offer one and both end here: the Faces tab because that is where the list is picked from, so it is
+    /// where somebody notices a category is missing, and the Categories tab because that is where a category is made
+    /// and looked after. Two ways in, one implementation, which is the same reason the three ways to pause end in one
+    /// method.
+    private func wire(_ control: CategoryCreateControl) {
+        control.onSave = { [weak self, weak control] typed in
+            guard let control else { return }
+            self?.saveNewCategory(typed, from: control)
         }
-        faces.createControl.onEditingChanged = { [weak self] isEditing in
+        control.onEditingChanged = { [weak self] isEditing in
             // Escape belongs to whichever of the two needs it more. While a name is being typed that is
             // the field, since a key equivalent is dispatched before the focused field ever sees the key
             // -- so without this, Escape would close the window instead of abandoning the name, and the
             // field could not win that on its own.
             self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
         }
-        facesPane = faces
-        return faces
     }
 
     /// Acts on a typed category name.
@@ -567,8 +575,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The decision is `CategoryCreateRules`', taken against the whole `category` table rather than the
     /// list on screen -- which shows only active categories, so a retired namesake is invisible to it and
     /// the one thing standing between a typo and two identical categories would be missing.
-    private func saveNewCategory(_ typed: String) {
-        guard let categories, let control = facesPane?.createControl else { return }
+    ///
+    /// The control that raised it is handed in rather than looked up, since there is now more than one and only the
+    /// one that was typed into should fold up.
+    private func saveNewCategory(_ typed: String, from control: CategoryCreateControl) {
+        guard let categories else { return }
         switch CategoryCreateRules.decision(rawName: typed, matching: categories.matching(name:)) {
         case .ignore:
             control.collapse()

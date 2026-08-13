@@ -31,6 +31,14 @@ final class CategoriesPane: NSView {
     /// edits do: the pane draws, it does not write.
     let activeTable = CategoryTable()
 
+    /// The same control the Faces tab offers, wired to the same rules and the same writer by the window. Two ways in,
+    /// one implementation.
+    ///
+    /// **Under the Active list**, which is where the archive put it: in the gap between the two lists rather than
+    /// inside either, so it belongs to the tab instead of to one section of it. With Inactive still to come, that gap
+    /// is the bottom of the tab.
+    let createControl = CategoryCreateControl()
+
     init() {
         super.init(frame: .zero)
         addActiveSection()
@@ -69,14 +77,12 @@ final class CategoriesPane: NSView {
         addSubview(section)
         section.addSubview(heading)
         section.addSubview(activeTable)
+        addSubview(createControl)
 
         NSLayoutConstraint.activate([
             section.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
             section.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
             section.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
-            // Only as tall as its content: the list grows downward from the top of the tab, rather than being
-            // stretched to fill a height it has nothing to put in.
-            section.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.padding),
 
             heading.topAnchor.constraint(equalTo: section.topAnchor),
             heading.leadingAnchor.constraint(equalTo: section.leadingAnchor),
@@ -86,6 +92,15 @@ final class CategoriesPane: NSView {
             activeTable.leadingAnchor.constraint(equalTo: section.leadingAnchor),
             activeTable.trailingAnchor.constraint(equalTo: section.trailingAnchor),
             activeTable.bottomAnchor.constraint(equalTo: section.bottomAnchor),
+
+            createControl.topAnchor.constraint(equalTo: section.bottomAnchor, constant: Layout.sectionSpacing),
+            createControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+            // Trailing rather than a width: the field it becomes has the rest of the tab to grow into, which is what
+            // a name being typed wants and what the collapsed button ignores.
+            createControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
+            // Only as tall as its content: the list and the control grow downward from the top of the tab rather
+            // than being stretched to fill a height they have nothing to put in.
+            createControl.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.padding),
         ])
     }
 }

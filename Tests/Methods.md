@@ -110,6 +110,40 @@ colour = rep.colorAtX_y_(x, y)   # note: the image is 2x on a retina display
 Worth the trouble when the question is a few points or a shade: an eyeballed "7pt above, 5pt below" was
 5 and 5 when measured.
 
+<a id="method-7"></a>
+## Method 7: Type into a field without keystrokes
+
+Set the field's `AXValue` instead, then press whatever commits it (Method 2):
+
+```sh
+scripts/ax-set.py category-name-field "Admin"
+scripts/ax-press.py save-category
+```
+
+Confirmed on the Categories tab: the field showed the text and Save wrote `category_id 11`. This is the
+way to fill a field, because synthetic keystrokes go wherever focus happens to be and that is not
+necessarily the app -- see the note below.
+
+An `NSTextField`'s `action` fires on Return and on losing focus, not on this write, so something still
+has to commit it: press the Save button beside it, or move focus.
+
+<a id="method-8"></a>
+## Method 8: Hold a button down
+
+Accessibility has no hold: `AXPress` is always a click, so anything that repeats while held needs real
+mouse events.
+
+```sh
+scripts/ax-hold.py category-limit-1-up 2.0     # down, wait two seconds, up
+```
+
+It reads the element's own `AXPosition`/`AXSize` and posts the events there, so the app has to be on
+screen and nobody should be touching the mouse while it runs.
+
+Used to confirm the daily-limit arrows accelerate. **Read the result from `debug_log` rather than the
+final value**, since the timing is the thing being checked: the rows showed 5 immediately, 6 after
+0.403s, then 7, 8, 9, 10 at ~0.104s, then 15, 20, 25 at ~0.304s.
+
 ## Notes that have cost time
 
 - **Never post Escape (key code 53) while driving this app.** It reaches whatever has focus, and if that
@@ -147,6 +181,11 @@ Worth the trouble when the question is a few points or a shade: an eyeballed "7p
 - **Layout is testable without a window.** Set a frame, call `layoutSubtreeIfNeeded()`, and assert the
   frames -- see `FacesPaneTests`. A missing or fighting constraint fails nothing on its own; it just
   produces a size nobody chose.
+- **`frame` is in the superview's space, so two views at different depths cannot be compared directly.**
+  Convert first: `view.convert(view.bounds, to: commonAncestor)`. A comparison across two spaces does not
+  error, it just fails oddly -- a control 279pt up the pane read as *below* a list whose own frame said 0,
+  because that 0 was measured inside the section view it sits in. Cost a hunt for a layout bug that was
+  not there.
 - **An `NSMenuItem`'s `target` and an `NSMenu`'s `delegate` are both weak.** A controller nothing retains
   is deallocated the moment it is built, and then choosing an item reaches nobody and the menu updates
   nothing -- silently, so every such test passes or fails on what else the run happens to keep alive. Hold
