@@ -117,6 +117,10 @@ Worth the trouble when the question is a few points or a shade: an eyeballed "7p
   Settings window closes with `ax-press.py close-settings`, and menus close by pressing an item.
 - **Synthetic keystrokes are a last resort generally.** They go wherever focus is, which is not
   necessarily the app; a named press cannot miss.
+- **A menu item pressed while its menu is closed reports success and does nothing.**
+  `scripts/ax-press.py toggle-pause` exits 0 with `pressed toggle-pause` and the app is unchanged.
+  Open the menu first ([Method 3](#method-3)), or press the on-screen control instead
+  (`timing-play-pause`). Check the effect, never the exit code.
 - **The app writes to whichever database `appdata.sqlite` points at.** Check `db_type` before trusting a
   session with real data: `sqlite3 "$DB" "SELECT setting_value FROM setting WHERE setting_name='db_type';"`,
   and the menu bar's own badge says which one it opened.

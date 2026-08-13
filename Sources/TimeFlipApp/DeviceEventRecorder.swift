@@ -54,7 +54,7 @@ final class DeviceEventRecorder {
     /// means is the caller's to decide, and a caller handed nothing but `nil` and a line in a log somewhere
     /// could not decide anything.
     @discardableResult
-    func record(_ segment: DeviceEventSegment) -> Outcome? {
+    func record(_ segment: DeviceEventSegment, logging: Bool = true) -> Outcome? {
         // Both reads happen here, immediately before the decision that uses them, and neither is kept: the
         // table is what is true about what has been recorded, and this module holds no opinion of its own
         // between calls. See the first rule in `CLAUDE.md`, and `DeviceEventMark` for what the previous app
@@ -74,14 +74,18 @@ final class DeviceEventRecorder {
         }
 
         guard let outcome else {
+            // A refusal is always worth a row, whatever the caller asked for: `logging` exists to keep a
+            // routine tick quiet, not to hide the tick that failed.
             debugLog?.record(.event, "device_event refused: \(describe(segment))")
             return nil
         }
-        debugLog?.record(
-            .event,
-            "device_event \(outcome.wasInserted ? "inserted" : "updated") id=\(outcome.deviceEventID) "
-                + "\(describe(segment)) open=\(outcome.isOpen) closed=\(outcome.closedRows)"
-        )
+        if logging {
+            debugLog?.record(
+                .event,
+                "device_event \(outcome.wasInserted ? "inserted" : "updated") id=\(outcome.deviceEventID) "
+                    + "\(describe(segment)) open=\(outcome.isOpen) closed=\(outcome.closedRows)"
+            )
+        }
 
         // Where the time entry module will be asked, once it exists: `outcome.closedRows` and a row that
         // arrived already closed are the two ways a finished segment appears, and a finished segment is the
@@ -143,7 +147,7 @@ final class DeviceEventRecorder {
         //
         // Never negative: `CHECK (duration_seconds >= 0)` would refuse it and the row would stay open for good.
         // Only a clock that moved backwards gets here, and zero is the honest answer then.
-        let duration = Double(max(0, Int(moment.timeIntervalSince1970) - open.startEpoch))
+        let duration = Self.wholeSecondsRun(from: open.startEpoch, to: moment)
         let ran = connection.execute(
             """
             UPDATE device_event SET duration_seconds = \(duration), finalised = 1
@@ -156,6 +160,43 @@ final class DeviceEventRecorder {
         }
         debugLog?.record(.event, "device_event closed id=\(open.rowID) after \(Int(duration))s")
         return Outcome(deviceEventID: open.rowID, isOpen: false, wasInserted: false, closedRows: 1)
+    }
+
+    /// Brings the open segment up to date, as of `moment`, without closing it. `nil` when nothing is open.
+    ///
+    /// **This is what the history timer's timeout ends in.** In manual mode nothing is going to tell the app
+    /// what it is doing, so the timeout is the app reporting its own segment: the same segment, running longer.
+    /// The identity is read back off the row rather than remembered between ticks, and then `record` decides,
+    /// on its own terms, that this is the same event -- which is why the duration lands in the row that is
+    /// already there instead of a new one every interval. It is the same path a cube's re-sent live frame takes.
+    ///
+    /// Quiet by default. At one tick every ten seconds a row apiece would bury everything else in `debug_log`,
+    /// and a tick that did what the last one did says nothing; a refused write still reports itself.
+    @discardableResult
+    func refreshOpenSegment(at moment: Date) -> Outcome? {
+        guard let open = openSegment() else { return nil }
+        return record(
+            DeviceEventSegment(
+                eventNumber: open.eventNumber,
+                face: open.face,
+                // Rebuilt from the row's own whole second, so the `start_time` written back is the string
+                // already there rather than a fresh formatting of a slightly different instant.
+                startedAt: Date(timeIntervalSince1970: Double(open.startEpoch)),
+                durationSeconds: Self.wholeSecondsRun(from: open.startEpoch, to: moment),
+                isPaused: open.isPaused
+            ),
+            logging: false
+        )
+    }
+
+    /// How long a segment starting on a whole second has run by `moment`, in whole seconds.
+    ///
+    /// The difference of two whole-second stamps rather than a rounding of the interval between them: the next
+    /// segment's `start_epoch` truncates the same moment, so this is what makes one segment end exactly where
+    /// the next begins instead of overlapping it. Clamped at zero, which only a clock that moved backwards
+    /// reaches -- and `CHECK (duration_seconds >= 0)` would refuse the write, leaving the row open for good.
+    private static func wholeSecondsRun(from startEpoch: Int, to moment: Date) -> Double {
+        Double(max(0, Int(moment.timeIntervalSince1970) - startEpoch))
     }
 
     /// The number the app takes for a segment it is reporting itself: **the unix epoch second it started**,
@@ -181,15 +222,21 @@ final class DeviceEventRecorder {
 
     // MARK: - what is already on record
 
-    /// The row that is still open, if there is one. More than one is a fault; the newest wins here and the
-    /// close-out in `insert` is what sweeps up the rest.
-    private func openSegment() -> (rowID: Int, startEpoch: Int)? {
-        var found: (rowID: Int, startEpoch: Int)?
+    /// The row that is still open, if there is one, with everything needed to report it again. More than one is
+    /// a fault; the newest wins here and the close-out in `insert` is what sweeps up the rest.
+    private func openSegment() -> (rowID: Int, eventNumber: Int, face: Int, startEpoch: Int, isPaused: Bool)? {
+        var found: (rowID: Int, eventNumber: Int, face: Int, startEpoch: Int, isPaused: Bool)?
         connection.forEachRow(
-            "SELECT device_event_id, start_epoch FROM device_event WHERE finalised = 0 "
-                + "ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
+            "SELECT device_event_id, event_number, device_face, start_epoch, paused FROM device_event "
+                + "WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
         ) { row in
-            found = (rowID: Int(row.int(0)), startEpoch: Int(row.int(1)))
+            found = (
+                rowID: Int(row.int(0)),
+                eventNumber: Int(row.int(1)),
+                face: Int(row.int(2)),
+                startEpoch: Int(row.int(3)),
+                isPaused: row.bool(4)
+            )
         }
         return found
     }

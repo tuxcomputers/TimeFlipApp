@@ -42,4 +42,14 @@ final class SettingReader {
     func string(_ name: String, field: String) -> String? {
         json(name)?[field] as? String
     }
+
+    /// One field of a setting, as a whole number:
+    /// `integer("fetch_history_interval_seconds", field: "seconds")`.
+    ///
+    /// `nil` rather than a default for a missing row or a value that is not a number, so the caller can
+    /// decide what absence means. What a sensible fallback is depends entirely on the setting, and it is
+    /// never this type's to guess.
+    func integer(_ name: String, field: String) -> Int? {
+        json(name)?[field] as? Int
+    }
 }

@@ -320,6 +320,59 @@ final class DeviceEventRecorderTests: XCTestCase {
         XCTAssertEqual(column("duration_seconds", ofRow: outcome.deviceEventID), "42.0")
     }
 
+    func testRefreshingGrowsTheOpenSegmentWithoutClosingIt() throws {
+        // What the history timer's timeout ends in: the same segment, running longer. One row, not one per
+        // interval, because `record` recognises the identity read back off the row as the same event.
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+
+        let first = try XCTUnwrap(recorder.refreshOpenSegment(at: moment.addingTimeInterval(10)))
+        let second = try XCTUnwrap(recorder.refreshOpenSegment(at: moment.addingTimeInterval(20)))
+
+        XCTAssertEqual(first.deviceEventID, started.deviceEventID)
+        XCTAssertEqual(second.deviceEventID, started.deviceEventID)
+        XCTAssertFalse(second.wasInserted)
+        XCTAssertTrue(second.isOpen, "the segment is still what is happening")
+        XCTAssertEqual(column("duration_seconds", ofRow: started.deviceEventID), "20.0")
+        XCTAssertEqual(rowCount, "1")
+    }
+
+    func testRefreshingLeavesTheRestOfTheRowAsItWas() throws {
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let before = column("start_time", ofRow: started.deviceEventID)
+
+        recorder.refreshOpenSegment(at: moment.addingTimeInterval(45))
+
+        XCTAssertEqual(column("event_number", ofRow: started.deviceEventID), "1786600000")
+        XCTAssertEqual(column("device_face", ofRow: started.deviceEventID), "13")
+        XCTAssertEqual(
+            column("start_time", ofRow: started.deviceEventID), before,
+            "the start is rebuilt from the row's own second, so it is written back unchanged"
+        )
+    }
+
+    func testRefreshingWithNothingOpenDoesNothing() throws {
+        // Every timeout while nothing is being timed, which is most of them.
+        let closed = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        recorder.closeOpenSegment(at: moment.addingTimeInterval(30))
+
+        XCTAssertNil(recorder.refreshOpenSegment(at: moment.addingTimeInterval(300)))
+
+        XCTAssertEqual(column("duration_seconds", ofRow: closed.deviceEventID), "30.0", "a finished segment is finished")
+        XCTAssertEqual(rowCount, "1")
+    }
+
+    func testRefreshingOnlyEverTouchesTheOpenSegment() throws {
+        let finished = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let switchedAt = moment.addingTimeInterval(60)
+        recorder.closeOpenSegment(at: switchedAt)
+        let live = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: switchedAt))
+
+        recorder.refreshOpenSegment(at: switchedAt.addingTimeInterval(15))
+
+        XCTAssertEqual(column("duration_seconds", ofRow: live.deviceEventID), "15.0")
+        XCTAssertEqual(column("duration_seconds", ofRow: finished.deviceEventID), "60.0", "untouched")
+    }
+
     func testClosingWithNothingOpenIsNotAFailure() {
         XCTAssertNil(recorder.closeOpenSegment(at: moment), "the ordinary state of a first click")
         XCTAssertEqual(rowCount, "0")

@@ -84,6 +84,20 @@ let settingsWindow = SettingsWindowController(
     session: timingSession,
     deviceEvents: deviceEvents
 )
+// Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
+// there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the
+// recorder recognises it as the same event and grows its duration. When a device arrives, the fetch request
+// goes in here beside this and the recorder is handed frames instead.
+//
+// Only while the clock is running. Pausing writes nothing yet, so the open row is still the running segment
+// and growing it through a pause would record time nobody spent. That guard goes when pause closes its own
+// segment, because then a paused session simply has no open row to find.
+let historyTimer = HistoryTimer(settings: settings, debugLog: debugLog) {
+    guard timingSession.isRunning else { return }
+    deviceEvents.refreshOpenSegment(at: Date())
+}
+historyTimer.start()
+
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
     debugLog: debugLog,
