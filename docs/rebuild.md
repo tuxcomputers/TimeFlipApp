@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (292 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (303 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -18,7 +18,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
-- [ ] **[Categories tab](#categories-tab)**: nothing so far.
+- [ ] **[Categories tab](#categories-tab)**: the active categories are listed; nothing about a category can be changed yet.
 - [ ] **[Report tab](#report-tab)**: nothing so far.
 - [ ] **[App tab](#app-tab)**: nothing so far.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
@@ -96,11 +96,15 @@ Nothing so far. Nothing talks to the cube yet, and manual mode stands in for all
 
 ## Categories tab
 
-Nothing so far. This is where a category is looked after, and the only part of that built anywhere is creating one, which is on the Faces tab today and stays there as well as arriving here.
+This is where a category is looked after, as opposed to picked to time. The Active list is on it; every way of changing a category is still to come.
+
+### Done, in the order it was built
+
+- [x] **The Active list** ([CategoriesPane.swift](../Sources/TimeFlipApp/CategoriesPane.swift), [CategoryTable.swift](../Sources/TimeFlipApp/CategoryTable.swift)): a bold heading over a rounded panel, captioned columns, one row per active category showing its icon, its name and its colour. The previous app's shape and its measurements, and a different list from the Faces tab's on purpose: that one is a pick list, this is a record of what each category is, in columns that line up so one property can be read across every category at a glance. Read-only, since every remaining column is a control and each is its own item below.
 
 ### Still to do
 
-- [ ] **The list itself**, including retired categories, which the Faces tab deliberately hides.
+- [ ] **The Inactive list**, which the Faces tab deliberately hides. It also brings the disclosure triangles the archive had: collapsing earns its keep once one of the two sections is an archive to go looking in occasionally.
 - [ ] **Creating a category here too.** The rules and the writer exist already ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift) [CategoryStore.swift](../Sources/TimeFlipApp/CategoryStore.swift)), so this is a second way in rather than a second implementation. Two places both want it: on Faces because that is where the list is picked from, and here because this is where a category is made and dressed.
 - [ ] **Renaming a category.**
 - [ ] **Choosing an icon** (`icon`, a reference table already seeded and read).

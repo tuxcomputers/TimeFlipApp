@@ -272,6 +272,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         NSApp.setActivationPolicy(.regular)
         // Before the window is on screen, so it never appears on one tab and switches to another.
         select(Self.tabOnOpen)
+        // Logged here rather than left to the tab view's delegate, which does not fire for a tab that is already
+        // selected -- and since Faces became the *first* tab, that is now every ordinary open. The row is the only
+        // evidence of which tab an open landed on, so it says so itself rather than depending on a change happening.
+        debugLog?.record(.tab, "Settings opened on \(Self.tabOnOpen.title)")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         reloadSelectedPane()
@@ -457,8 +461,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// Records the tab that is now showing.
     ///
     /// "Selected", not "clicked": this fires for a tab chosen in code as well as one clicked, and the
-    /// app will eventually choose one itself (a window that opens straight to the tab you need). A
-    /// message that said "clicked" would then be a lie in exactly the case worth investigating.
+    /// app does choose one itself (see `show`). A message that said "clicked" would then be a lie in
+    /// exactly the case worth investigating.
+    ///
+    /// **It fires on a change, not on a selection.** Choosing the tab already showing is not a change, so this says
+    /// nothing at all on an ordinary open now that Faces is both the first tab and the tab every open lands on --
+    /// which is why `show` logs the open itself rather than leaving the evidence to this.
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         guard let label = tabViewItem?.label else { return }
         debugLog?.record(.tab, "Settings tab selected: \(label)")
