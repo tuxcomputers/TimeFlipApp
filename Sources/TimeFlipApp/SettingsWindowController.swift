@@ -35,9 +35,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         static let panesSideInset: CGFloat = 4
     }
 
-    /// Built on first open, not at launch: a window nobody opens should not exist. Reused after that
-    /// -- closing orders it out rather than destroying it, so it reopens on the tab it was left on and
-    /// where it was left on screen.
+    /// Built on first open, not at launch: a window nobody opens should not exist. Reused after that --
+    /// closing orders it out rather than destroying it, so it reopens where it was left on screen.
+    ///
+    /// The *tab* it was left on is deliberately not kept: every open selects `tabOnOpen`. See there.
     private lazy var window: NSWindow = makeWindow()
 
     /// `nil` in a build without the dev flag.
@@ -250,6 +251,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // throughout; worth revisiting when the first editable field lands here, which is the point
         // at which the difference is testable rather than theoretical.
         NSApp.setActivationPolicy(.regular)
+        // Before the window is on screen, so it never appears on one tab and switches to another.
+        select(Self.tabOnOpen)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         reloadSelectedPane()
@@ -397,6 +400,32 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         panes.delegate = self
         return panes
     }()
+
+    /// The tab every open lands on.
+    ///
+    /// **Faces, always**, whatever the window was last left on. It is where the time is: the category list,
+    /// the clock, and starting or stopping it are all there and nowhere else, so it is what somebody opening
+    /// this window came for. The previous app forced it only in manual mode and otherwise reopened wherever
+    /// the user left off -- reasoning that moving somebody's window under them is worse than useless -- but
+    /// that left a glance at Report costing a click to get back to the tab that does the work.
+    ///
+    /// A single value rather than a rule taking arguments, because there is nothing yet to weigh against it.
+    /// The archive's version answered a second case (jump to Device while a low battery is blinking); when
+    /// something here has a claim that strong, this becomes a decision again.
+    static let tabOnOpen: SettingsTab = .faces
+
+    /// Shows a tab, moving the bar and the pane together.
+    ///
+    /// Through the bar's selection rather than the tab view's, so the two cannot disagree: `tabBarChanged`
+    /// is what drives the panes, and it is the only thing that does.
+    ///
+    /// Internal so what `show()` does to the tabs can be asserted without putting a window on somebody's
+    /// screen, which is the only other thing `show()` does that a test would have to tolerate.
+    func select(_ tab: SettingsTab) {
+        guard let index = SettingsTab.allCases.firstIndex(of: tab) else { return }
+        tabBar.selectedSegment = index
+        tabBarChanged()
+    }
 
     @objc
     private func tabBarChanged() {

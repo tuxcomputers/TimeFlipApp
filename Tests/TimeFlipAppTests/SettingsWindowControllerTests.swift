@@ -61,6 +61,30 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
     }
 
+    func testEveryOpenLandsOnFaces() throws {
+        // Whatever the window was last left on. Faces is where the time is -- the list, the clock, and starting
+        // or stopping it -- so a glance at another tab should not cost a click to get back to work.
+        XCTAssertEqual(SettingsWindowController.tabOnOpen, .faces)
+
+        let controller = controller()
+        let report = try XCTUnwrap(SettingsTab.allCases.firstIndex(of: .report))
+        controller.tabBar.selectedSegment = report
+        controller.tabBar.performClick(nil)
+        XCTAssertEqual(
+            controller.panes.selectedTabViewItem?.identifier as? String, SettingsTab.report.rawValue,
+            "precondition: left on Report"
+        )
+
+        // What `show()` does before the window reaches the screen.
+        controller.select(SettingsWindowController.tabOnOpen)
+
+        XCTAssertEqual(controller.panes.selectedTabViewItem?.identifier as? String, SettingsTab.faces.rawValue)
+        XCTAssertEqual(
+            controller.tabBar.selectedSegment, SettingsTab.allCases.firstIndex(of: .faces),
+            "the bar has to move with the pane, or the two disagree about which tab is showing"
+        )
+    }
+
     func testTheFacesTabGetsTheFacesLayout() throws {
         let controller = controller()
         let faces = try XCTUnwrap(SettingsTab.allCases.firstIndex(of: .faces))
