@@ -7,11 +7,15 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (296 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (292 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+
+## The order of work
+
+**Manual mode across every tab first, then the device.** Nothing here talks to a cube, and the app times by hand until something does, so a tab is worth building as far as manual mode takes it and no further. Every item below that needs a device to mean anything is deliberately parked, including the rest of the Faces tab: the cube graphic, the twelve device faces and locking one all wait for the device work rather than being half-built against a device that is not there.
 
 ## The list
 
-- [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, the cube half is not started.
+- [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
 - [ ] **[Categories tab](#categories-tab)**: nothing so far.
@@ -34,15 +38,17 @@ The tabs sit in the Settings window in their own order (Device, Faces, Categorie
 - [x] **Pause and resume** from the glyph: pausing ends the segment, resuming begins another, so a paused gap is not counted as time spent.
 - [x] **Re-clicking the category already being timed does nothing**, rather than restarting its clock.
 - [x] **The figure is the category's total for the day**, not this session's stopwatch, so a category picked up after lunch still shows the morning.
+- [x] **A relaunch comes back on the last category, paused, showing the day's total.** Not restored from anywhere: whether the clock is running is read from whether `device_event` holds an open segment, so a launch inherits the answer by asking. That deleted the last in-memory copy of what is being timed.
 
 ### Still to do
+
+Nothing until the device work, which the three items below all need. See [The order of work](#the-order-of-work).
 
 - [ ] **The cube arrangement**: the device graphic and its lock in the left column under a "Top face" heading, which is what this pane looks like when there is a cube to follow.
 - [ ] **Assigning categories to the twelve device faces.** The `face` table seeds them and nothing in the app can change what they hold.
 - [ ] **Locking a face** (`face.locked`): writes honour the column already, an assign to a locked face being refused, and there is no way to set it.
-- [ ] **The Timing column after a relaunch**: it draws empty until something is clicked, even when the category has time today. Showing the last category paused would read better now that the figure outlives the session.
 
-Retiring a category is not on this list on purpose: this tab picks a category to time, and the Categories tab is where a category is looked after. See [Categories tab](#categories-tab).
+Creating a category stays here as well as arriving on the Categories tab: this is where the list is, so it is where somebody realises a category is missing. Retiring one is not here on purpose, this tab picking a category to time rather than looking after it. See [Categories tab](#categories-tab).
 
 ## Menu bar
 
@@ -91,23 +97,24 @@ Nothing so far. Nothing talks to the cube yet, and manual mode stands in for all
 
 ## Categories tab
 
-Nothing so far. Creating a category currently lives on the Faces tab, next to the list it appears in.
+Nothing so far. This is where a category is looked after, and the only part of that built anywhere is creating one, which is on the Faces tab today and stays there as well as arriving here.
 
 ### Still to do
 
 - [ ] **The list itself**, including retired categories, which the Faces tab deliberately hides.
+- [ ] **Creating a category here too.** The rules and the writer exist already
+      ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift),
+      [CategoryStore.swift](../Sources/TimeFlipApp/CategoryStore.swift)), so this is a second way in rather than a
+      second implementation. Two places both want it: on Faces because that is where the list is picked from, and
+      here because this is where a category is made and dressed.
 - [ ] **Renaming a category.**
 - [ ] **Choosing an icon** (`icon`, a reference table already seeded and read).
 - [ ] **Choosing a colour** (`colour`, likewise, including its `white_lines` flag for dark colours).
 - [ ] **A daily limit** (`category.daily_limit`), which is what the menu bar's over-limit red reports.
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
 - [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
-- [ ] **Retiring a category**, which today needs a hand-edited row. This tab is where it belongs: retiring is
-      looking after a category, not picking one to time, and the Faces tab shows only the active ones anyway, so a
-      category would have to disappear from the list that retired it.
-- [ ] **Reactivating one**, from here rather than only as a side effect of typing its name on Faces. The rule
-      already exists ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift)) and can be
-      refused, since only one active category may hold a name.
+- [ ] **Retiring a category**, which today needs a hand-edited row. This tab is where it belongs: retiring is looking after a category, not picking one to time, and the Faces tab shows only the active ones anyway, so a category would have to disappear from the list that retired it.
+- [ ] **Reactivating one**, from here rather than only as a side effect of typing its name on Faces. The rule already exists ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift)) and can be refused, since only one active category may hold a name.
 
 ## Report tab
 
@@ -143,7 +150,7 @@ Nothing so far. Several of the settings it will edit are already read at the poi
 - [x] **The developer flag and the debug log** ([DeveloperMode.swift](../Sources/TimeFlipApp/DeveloperMode.swift), [DebugLog.swift](../Sources/TimeFlipApp/DebugLog.swift)): one flag decides what exists, every message is timestamped and tagged with the tags padded to a common width, and rows go to `debug_log` as well as the console. This is what makes checking the app against a running copy possible: press by name, then poll for the row.
 - [x] **One instance only** ([InstanceLock.swift](../Sources/TimeFlipApp/InstanceLock.swift)): a kernel lock on an  open file descriptor, claimed before a database is opened or a status item claimed. A kernel lock rather than "whoever started first wins", because an instance launched directly reports no launch date.
 - [x] **Manual mode** ([ManualMode.swift](../Sources/TimeFlipApp/ManualMode.swift)), derived from whether a device is paired rather than published as a second flag beside the connection status.
-- [x] **The timing session** ([TimingSession.swift](../Sources/TimeFlipApp/TimingSession.swift)): the only thing that knows what is being timed and since when, in memory because it describes this launch.
+- [x] **The timing session, built and then removed.** It held what was being timed and since when, in memory, on the reading that it described this launch. It was a second answer to a question `device_event` already answered, and a relaunch is where the two parted company: the table knew the category, the flag did not. An open segment is now what running means, and nothing holds it. Kept on this list because the shape it left is why the readout looks as it does.
 - [x] **The `device_event` writer** ([DeviceEventRecorder.swift](../Sources/TimeFlipApp/DeviceEventRecorder.swift), [DeviceEventRules.swift](../Sources/TimeFlipApp/DeviceEventRules.swift)): the one writer of that table, and the module that decides whether a segment opens a row, grows the open one, or closes it out. Identity is `(event_number, start_epoch)`; durations are whole seconds, as the device reports them; in manual mode the  event number is the unix second.
 - [x] **The history timer** ([HistoryTimer.swift](../Sources/TimeFlipApp/HistoryTimer.swift)): one-shot, re-armed after every timeout, re-reading its interval each time. With no cube to ask, the timeout is the source: the app reports its own open segment and the recorder recognises it as the same event.
 - [x] **Two manual faces** ([ManualTimerRules.swift](../Sources/TimeFlipApp/ManualTimerRules.swift)): faces 13 and 14, above the twelve a cube can report, used in rotation so a finished segment and the one starting are never on the same face. That removes the category-attribution race rather than ordering around it.
@@ -151,7 +158,7 @@ Nothing so far. Several of the settings it will edit are already read at the poi
 - [x] **The day's total** ([TimeEntryStore.swift](../Sources/TimeFlipApp/TimeEntryStore.swift), [DayWindow.swift](../Sources/TimeFlipApp/DayWindow.swift), [DayTotal.swift](../Sources/TimeFlipApp/DayTotal.swift)): per category rather than per face, over the window `daily_reset_time` defines, clipped at both ends, plus the segment still running. Derived every time rather than accumulated, which is what makes double counting impossible.
 - [x] **The quit sequence** ([QuitSequence.swift](../Sources/TimeFlipApp/QuitSequence.swift)): the open segment is closed on the way out.
 - [x] **Startup recovery**: a segment left open on one of the app's own faces is closed before anything else reads the table, keeping its last written duration, because "now" can be wrong by days. Rows on device faces are left alone, a cube timing whether or not the app is running.
-- [x] **One reading of what is being timed** ([TimingReadout.swift](../Sources/TimeFlipApp/TimingReadout.swift)): the face, the category on it, the state and the day's total, read together and drawn by both the Faces tab and the status item.
+- [x] **One reading of what is being timed** ([TimingReadout.swift](../Sources/TimeFlipApp/TimingReadout.swift)): the face, the category on it, whether an open segment says it is running, and the day's total, read together and drawn by both the Faces tab and the status item. Nothing in the app holds any of it, which is what lets a launch pick up where the last one stopped.
 
 ### Still to do
 
