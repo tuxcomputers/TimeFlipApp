@@ -14,7 +14,7 @@ import XCTest
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
     private func controller() -> SettingsWindowController {
-        SettingsWindowController(debugLog: nil, categories: nil, faces: nil, session: nil)
+        SettingsWindowController(debugLog: nil, categories: nil, faces: nil)
     }
 
     func testTheBarHasOneSegmentPerTab() {

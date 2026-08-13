@@ -10,9 +10,16 @@ import Foundation
 /// of them keeps a copy.
 ///
 /// **Every field is a read taken when the answer is wanted**, per the first rule in `CLAUDE.md`. Which of the app's
-/// faces is in use comes from `device_event`, the category on it from `face`, and the figure from `time_entry` (see
-/// `DayTotal`). Nothing is held between calls, which is what makes this right after a category is renamed, after a
-/// relaunch mid-session, and after somebody edits a row by hand.
+/// faces is in use comes from `device_event`, the category on it from `face`, whether the clock is running from
+/// whether that table holds an open segment, and the figure from `time_entry` (see `DayTotal`). Nothing is held
+/// between calls, which is what makes this right after a category is renamed, after a relaunch mid-session, and
+/// after somebody edits a row by hand.
+///
+/// **A relaunch is the case that made the running flag a read.** It used to come from an in-memory session that a
+/// new launch started empty, so an app reopened after lunch drew nothing at all until something was clicked, even
+/// though the table knew exactly which category had been left and how much time it had. There is no restoring step
+/// here and nothing to restore: an open row means running, no open row means paused, and a launch inherits the
+/// answer by asking.
 @MainActor
 final class TimingReadout {
     /// What a view needs in order to draw the session, and nothing else.
@@ -28,22 +35,21 @@ final class TimingReadout {
 
         /// Nothing being timed, which is what a view built without a database draws.
         static let idle = Reading(category: nil, state: .idle, seconds: 0)
+
+        /// Whether the clock is running on this category right now, which is the one case where picking it again
+        /// means nothing: the clock is already where it should be, and starting it over would rotate the face and
+        /// close a segment for a click that asked for no change.
+        func isTiming(_ categoryID: Int) -> Bool {
+            state == .running && category?.id == categoryID
+        }
     }
 
-    private let session: TimingSession
     private let categories: CategoryStore
     private let faces: FaceStore
     private let events: DeviceEventRecorder
     private let dayTotal: DayTotal
 
-    init(
-        session: TimingSession,
-        categories: CategoryStore,
-        faces: FaceStore,
-        events: DeviceEventRecorder,
-        dayTotal: DayTotal
-    ) {
-        self.session = session
+    init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
         self.faces = faces
         self.events = events
@@ -52,16 +58,29 @@ final class TimingReadout {
 
     /// The session as it stands at `now`.
     func read(at now: Date = Date()) -> Reading {
-        let category = faces.categoryID(forFace: events.currentManualFace()).flatMap { categories.category(id: $0) }
+        let face = events.currentManualFace()
+        let category = faces.categoryID(forFace: face).flatMap { categories.category(id: $0) }
         return Reading(
             category: category,
-            // The face says whether there is anything to name and the session says whether it is moving. A face
-            // holding no category is idle whatever the clock claims: there would be nothing to draw beside it.
-            state: ManualTimerRules.state(
-                categoryID: category == nil ? nil : session.categoryID,
-                isRunning: session.isRunning
-            ),
+            // The face says whether there is anything to name and the open row says whether it is moving. A face
+            // holding no category is idle whatever the table says about segments: there would be nothing to draw
+            // beside the clock.
+            state: ManualTimerRules.state(categoryID: category?.id, isRunning: isRunning(on: face)),
             seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0
         )
+    }
+
+    /// Whether time is being recorded on `face` at this moment, which is a question `device_event` answers on its
+    /// own: **an open segment is what running means.**
+    ///
+    /// Nothing else is consulted, and there is no flag beside it. That is the manual-mode scar in `CLAUDE.md`
+    /// applied to the clock: two answers to one question cannot fail, they can only disagree, and pausing already
+    /// closes the segment -- so a second flag saying "paused" would be restating what the absence of a row says.
+    ///
+    /// The face is checked as well as the row's existence. A segment open on some other face is not this face's
+    /// session, which is what keeps a cube's own timing (faces 1 to 12) from reading as the app's.
+    private func isRunning(on face: Int) -> Bool {
+        guard let open = events.openSegment() else { return false }
+        return open.face == face && !open.isPaused
     }
 }

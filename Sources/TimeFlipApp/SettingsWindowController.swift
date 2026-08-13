@@ -58,9 +58,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// layout.
     private let faces: FaceStore?
 
-    /// The one thing that knows whether time is being recorded, and for what.
-    private let session: TimingSession?
-
     /// Where a segment goes. `nil` in a test that only cares about layout, and in that case a click times
     /// without recording anything -- which is the difference between the window's own behaviour and what it
     /// leaves behind, and worth being able to test apart.
@@ -76,23 +73,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// class from knowing the menu bar's type.
     var onTimingChanged: (@MainActor () -> Void)?
 
-    /// Redraws the elapsed time while the window is open. Only while it is open: a clock nobody can see does
-    /// not need repainting, and the session's elapsed time is worked out from when it started rather than
-    /// counted up, so nothing is lost by not ticking.
+    /// Redraws the figure while the window is open. Only while it is open: a clock nobody can see does not need
+    /// repainting, and the figure is worked out from what is recorded rather than counted up, so nothing is lost
+    /// by not ticking.
     private var tick: Timer?
 
     init(
         debugLog: DebugLog?,
         categories: CategoryStore?,
         faces: FaceStore?,
-        session: TimingSession?,
         deviceEvents: DeviceEventRecorder? = nil,
         timing: TimingReadout? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
         self.faces = faces
-        self.session = session
         self.deviceEvents = deviceEvents
         self.timing = timing
         super.init()
@@ -117,8 +112,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// piece is read from and why the figure is the category's total for the day rather than this session's
     /// stopwatch.
     private func redrawTiming() {
+        draw(timing?.read() ?? .idle)
+    }
+
+    /// Draws a reading already taken, which is what the tick wants: it has to look at the state anyway to decide
+    /// whether to keep going, and reading twice for one repaint would be two answers where one will do.
+    private func draw(_ reading: TimingReadout.Reading) {
         guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
-        let reading = timing?.read() ?? .idle
         pane.timingView.show(category: reading.category, state: reading.state, elapsed: reading.seconds)
     }
 
@@ -142,15 +142,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// What each step means for the rows is `DeviceEventRecorder`'s, not this method's: it is handed a moment
     /// and decides the rest.
     private func startTiming(_ category: CategoryRecord) {
-        guard let session, let faces else { return }
+        guard let faces else { return }
         // Already timing this one, so the click has nothing to ask for: the clock is where it should be, and
-        // restarting it would put the figure back to zero and lose the seconds it held. Ahead of the face
-        // write as well as the clock, since the face already holds this category too.
+        // restarting it would rotate the face and close a segment for a gesture that asked for no change. Ahead of
+        // the face write as well as the segment, since the face already holds this category too.
         //
         // Recorded even though nothing happened. A click that deliberately did nothing and a click that never
         // landed look identical afterwards unless one of them leaves a row, and telling those apart is the
         // difference between this working and the list having stopped responding.
-        if session.isTiming(category.id) {
+        if timing?.read().isTiming(category.id) == true {
             debugLog?.record(.mode, "Timing: already timing \"\(category.name)\", so the click changes nothing")
             return
         }
@@ -168,7 +168,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         deviceEvents?.startSegment(face: face, at: moment)
-        session.start(categoryID: category.id)
         debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(face)")
         redrawTiming()
         onTimingChanged?()
@@ -181,22 +180,27 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// here, so they cannot come to disagree about what pausing means. The previous app had them as two
     /// implementations and they did exactly that.
     ///
-    /// It lives here because this is the only thing that draws a session. When the menu bar shows one too,
-    /// this becomes a small coordinator both views observe rather than one view the other calls.
+    /// It lives here because this was the only thing that drew a session. The status item draws one now too, and
+    /// both reach this same method, so this is that coordinator: the decision is here, what it changed is read back
+    /// out of the table by whoever draws.
     ///
     /// **Pausing ends the segment; resuming begins another.** A segment's duration is the wall time from its
     /// start, so a pause left sitting inside one would be counted as time spent -- and it was, until this: the
     /// clock read 14 seconds against a row claiming 20. Ending it at the pause is also what hands the stretch
     /// to the time entry module, which is the moment it can be asked whether it counts.
+    ///
+    /// **Which of the two this is comes from the table**, not from a flag: an open segment is what running means.
+    /// So a launch that inherits a paused session can resume it, which an in-memory flag could not -- a new launch
+    /// started that flag empty, and the toggle refused, leaving a category on show that could not be started.
     func togglePause() {
-        // Nothing picked means no clock and no row, so there is nothing here to stop or start. `TimingSession`
-        // refuses the toggle for the same reason; this keeps the writes from happening around a toggle that
-        // will not.
-        guard let session, session.categoryID != nil else { return }
+        // Read before anything is written, since it is what decides which of the two this is.
+        let before = timing?.read() ?? .idle
+        // Nothing being timed means no clock and no row, so there is nothing here to stop or start. The same
+        // question the dropdown's Pause item and the status item's right side ask, and the same answer.
+        guard ManualTimerRules.isClickable(before.state) else { return }
+        // One moment for both halves, so the segment that ends and the one that begins meet exactly.
         let moment = Date()
-        // Read before the toggle, since it is what decides which of the two this is, and one moment for both
-        // halves so the segment that ends and the one that begins meet exactly.
-        if session.isRunning {
+        if before.state == .running {
             deviceEvents?.closeOpenSegment(at: moment)
         } else {
             // The same face the paused stretch was on, not the next one, and nothing is written to it. Rotating
@@ -205,18 +209,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // pause-heavy session from cycling the pool for no reason.
             deviceEvents?.startSegment(face: currentManualFace(), at: moment)
         }
-        session.togglePause()
+        // Read back rather than assumed, which is the rule applied to the app's own writes as well as to what it
+        // shows: this says what the table now holds, so a write that did not take says so here.
+        let after = timing?.read() ?? .idle
         debugLog?.record(
             .mode,
-            "Timing: \(session.isRunning ? "running" : "stopped") after \(Int(session.elapsed))s"
+            "Timing: \(after.state == .running ? "running" : "stopped") "
+                + "\"\(after.category?.name ?? "nothing")\", \(Int(after.seconds))s today"
         )
-        redrawTiming()
+        draw(after)
         onTimingChanged?()
-        if session.isRunning {
+        if after.state == .running {
             startTicking()
         } else {
-            // Nothing left to repaint once it is stopped: the elapsed figure cannot change again until it
-            // is started, and the redraw above has already shown its final value.
+            // Nothing left to repaint once it is stopped: the figure cannot change again until it is started, and
+            // the redraw above has already shown its final value.
             stopTicking()
         }
     }
@@ -225,8 +232,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         guard tick == nil else { return }
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let session = self.session, session.isRunning else { return }
-                self.redrawTiming()
+                guard let self else { return }
+                let reading = self.timing?.read() ?? .idle
+                // Stopped behind our back -- there is no such path today, every pause going through `togglePause`
+                // above, and a clock that kept repainting a frozen figure would be the sort of thing nobody
+                // notices. So the tick asks rather than trusting it was stopped.
+                guard reading.state == .running else {
+                    self.stopTicking()
+                    return
+                }
+                self.draw(reading)
             }
         }
     }
@@ -249,7 +264,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         reloadSelectedPane()
-        if session?.isRunning == true {
+        if timing?.read().state == .running {
             startTicking()
         }
     }
@@ -257,8 +272,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     func windowWillClose(_ notification: Notification) {
         // Back to a menu bar app, so the Dock icon goes away with the window that needed it.
         NSApp.setActivationPolicy(.accessory)
-        // The clock keeps running; only the repainting stops. Elapsed time is worked out from when the
-        // session started, so a closed window costs nothing and misses nothing.
+        // The clock keeps running; only the repainting stops. The figure comes from what is recorded rather than
+        // from anything counting up in here, so a closed window costs nothing and misses nothing.
         stopTicking()
     }
 

@@ -12,7 +12,7 @@ import AppKit
 /// be, and the device is what carries colour as a body -- a filled tile here would be inventing an object
 /// that is not in the design.
 ///
-/// Draws what it is told. Whether the clock is running is `TimingSession`'s to know, what the icons mean is
+/// Draws what it is told. Whether the clock is running is `TimingReadout`'s to answer, what the icons mean is
 /// `ManualTimerRules`', and the click goes back out to whoever wired it.
 @MainActor
 final class TimingView: NSView {

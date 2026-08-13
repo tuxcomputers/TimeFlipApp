@@ -46,10 +46,6 @@ let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
 let timezones = TimezoneStore(connection: database)
 
-// The one owner of what is being timed. In memory, like the mode it belongs to: which category the manual
-// face holds is in the database, and how long it has been running is this launch's business.
-let timingSession = TimingSession()
-
 // Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
 // or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
 // build.
@@ -105,9 +101,9 @@ let dayTotal = DayTotal(
 )
 
 // What is being timed, for both things that draw it. The Faces tab and the status item read one answer rather
-// than each resolving the face, the category and the total for itself.
+// than each resolving the face, the category and the total for itself -- and it is all read, including whether the
+// clock is running, so a launch inherits the session the last one left instead of starting blank.
 let timingReadout = TimingReadout(
-    session: timingSession,
     categories: categories,
     faces: faces,
     events: deviceEvents,
@@ -125,7 +121,6 @@ let settingsWindow = SettingsWindowController(
     debugLog: debugLog,
     categories: categories,
     faces: faces,
-    session: timingSession,
     deviceEvents: deviceEvents,
     timing: timingReadout
 )
@@ -135,8 +130,8 @@ let settingsWindow = SettingsWindowController(
 // goes in here beside this and the recorder is handed frames instead.
 //
 // No check on whether anything is running: an open row **is** that answer, and pausing closes its segment, so a
-// paused session has nothing here to find. This used to ask `timingSession.isRunning` first, which was a second
-// copy of a question the table already answers.
+// paused session has nothing here to find. This used to ask an in-memory session first, which was a second copy of
+// a question the table already answers, and that session is now gone for the same reason (see `TimingReadout`).
 let historyTimer = HistoryTimer(settings: settings, debugLog: debugLog) {
     deviceEvents.refreshOpenSegment(at: Date())
 }
