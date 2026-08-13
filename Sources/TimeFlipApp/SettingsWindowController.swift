@@ -100,9 +100,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// them, so closing and reopening it, or leaving a tab and coming back, reads the table again rather
     /// than redrawing what was true the first time.
     private func reloadSelectedPane() {
-        guard let categories, let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
-        pane.show(categories.activeCategories())
-        redrawTiming()
+        guard let categories else { return }
+        // Only the pane on show is read. The others are read when they are switched to, which is the same rule
+        // applied one level down: a tab nobody is looking at has no values worth having.
+        switch panes.selectedTabViewItem?.view {
+        case let pane as FacesPane:
+            pane.show(categories.activeCategories())
+            redrawTiming()
+
+        case let pane as CategoriesPane:
+            pane.show(categories.activeCategories())
+
+        default:
+            break
+        }
     }
 
     /// Draws the session: which category, whether it is running, and how much time that category has.
@@ -542,7 +553,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// it came back as an untitled `AXGroup` with no identifier). `.group` is what an empty container
     /// should be anyway -- it is about to hold this tab's controls.
     private func makePane(for tab: SettingsTab) -> NSView {
-        let pane: NSView = tab == .faces ? makeFacesPane() : NSView()
+        let pane: NSView
+        switch tab {
+        case .faces: pane = makeFacesPane()
+        case .categories: pane = CategoriesPane()
+        // Empty, and each becomes its own view when there is something to put in it.
+        case .report, .app, .device: pane = NSView()
+        }
         // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
         // its autoresizing frame rather than being pinned by constraints from out here.
         pane.autoresizingMask = [.width, .height]

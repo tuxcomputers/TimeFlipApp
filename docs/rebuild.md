@@ -60,8 +60,7 @@ Creating a category stays here as well as arriving on the Categories tab: this i
 - [x] **Every click recorded** in `debug_log`, including the clicks that deliberately do nothing.
 - [x] **Settings**, opening the window.
 - [x] **Pause and Resume in the dropdown**, named and enabled from the state at the moment the menu opens.
-- [x] **The menu stopped depending on a delegate**, which AppKit holds weakly: the item refreshes its own menu as it
-      presents it.
+- [x] **The menu stopped depending on a delegate**, which AppKit holds weakly: the item refreshes its own menu as it presents it.
 - [x] **The category and its time**: badge, icon, name, play/pause glyph, and the category's time today, with the app's name alone in place of all of it while nothing is being timed. `display_seconds` decides whether the figure carries seconds, read per draw.
 - [x] **The live green** ([StatusItemTitle.swift](../Sources/TimeFlipApp/StatusItemTitle.swift)): the whole line, images included, while a session is on show.
 - [x] **The right side pauses and resumes.** The left half stays the menu in every state, being the only route to Quit, and both halves ask the same question the dropdown item asks about whether there is a clock to stop.
@@ -102,11 +101,7 @@ Nothing so far. This is where a category is looked after, and the only part of t
 ### Still to do
 
 - [ ] **The list itself**, including retired categories, which the Faces tab deliberately hides.
-- [ ] **Creating a category here too.** The rules and the writer exist already
-      ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift),
-      [CategoryStore.swift](../Sources/TimeFlipApp/CategoryStore.swift)), so this is a second way in rather than a
-      second implementation. Two places both want it: on Faces because that is where the list is picked from, and
-      here because this is where a category is made and dressed.
+- [ ] **Creating a category here too.** The rules and the writer exist already ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift) [CategoryStore.swift](../Sources/TimeFlipApp/CategoryStore.swift)), so this is a second way in rather than a second implementation. Two places both want it: on Faces because that is where the list is picked from, and here because this is where a category is made and dressed.
 - [ ] **Renaming a category.**
 - [ ] **Choosing an icon** (`icon`, a reference table already seeded and read).
 - [ ] **Choosing a colour** (`colour`, likewise, including its `white_lines` flag for dark colours).
