@@ -39,6 +39,8 @@ final class DebugLog {
         case event
         /// The history timer: when it asks, and when the interval it asks on changes.
         case history
+        /// Whether a finished segment became tracked time, and what it was filed under.
+        case entry
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

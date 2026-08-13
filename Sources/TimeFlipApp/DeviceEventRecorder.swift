@@ -39,12 +39,23 @@ final class DeviceEventRecorder {
     private let connection: DatabaseConnection
     private let timezones: TimezoneStore
 
+    /// Told about every row this finalises, and answers the question closing one raises: does that stretch
+    /// count? `nil` leaves segments recorded and nothing counted, which is what a test about this table alone
+    /// wants.
+    private let timeEntries: TimeEntryRecorder?
+
     /// `nil` in a build without the dev flag, which is all there is to switching this off.
     private let debugLog: DebugLog?
 
-    init(connection: DatabaseConnection, timezones: TimezoneStore, debugLog: DebugLog?) {
+    init(
+        connection: DatabaseConnection,
+        timezones: TimezoneStore,
+        timeEntries: TimeEntryRecorder?,
+        debugLog: DebugLog?
+    ) {
         self.connection = connection
         self.timezones = timezones
+        self.timeEntries = timeEntries
         self.debugLog = debugLog
     }
 
@@ -63,14 +74,28 @@ final class DeviceEventRecorder {
         let mark = newestOnRecord()
         let decision = DeviceEventRules.decision(for: segment, existingRowID: existingRowID, mark: mark)
 
+        // Collected as they are found and handed over below, once the writes have landed. Every arm can finish
+        // a segment: an update whose row is no longer the newest, the close-out a newer segment triggers, and a
+        // segment that arrives already closed.
+        var finished: [Int] = []
         let outcome: Outcome?
         switch decision {
         case let .update(rowID, finalised):
             outcome = update(rowID: rowID, to: segment, finalised: finalised)
+            if finalised, outcome != nil {
+                finished.append(rowID)
+            }
         case .insertAsOpen:
-            outcome = insert(segment, open: true)
+            let inserted = insert(segment, open: true)
+            outcome = inserted
+            if inserted != nil {
+                finished.append(contentsOf: lastClosedRowIDs)
+            }
         case .insertClosed:
             outcome = insert(segment, open: false)
+            if let outcome {
+                finished.append(outcome.deviceEventID)
+            }
         }
 
         guard let outcome else {
@@ -87,13 +112,10 @@ final class DeviceEventRecorder {
             )
         }
 
-        // Where the time entry module will be asked, once it exists: `outcome.closedRows` and a row that
-        // arrived already closed are the two ways a finished segment appears, and a finished segment is the
-        // only thing that can become tracked time. Asking here rather than from each of the three places a
-        // row gets closed is deliberate -- the previous app hooked the paths instead of the question, and a
-        // fourth path added later simply forgot to call it.
-        //
-        // Nothing is asked yet, and no time is tracked from a segment as a result.
+        // A finished segment is the only thing that can become tracked time, so closing one is what raises the
+        // question -- and this is where it gets asked, after the writes rather than inside them: an entry is
+        // derived from a segment, and deriving it must not be able to roll the segment back.
+        handOver(finished)
 
         return outcome
     }
@@ -159,6 +181,9 @@ final class DeviceEventRecorder {
             return nil
         }
         debugLog?.record(.event, "device_event closed id=\(open.rowID) after \(Int(duration))s")
+        // The segment has finished, so the entry question is now answerable. Pausing is the path that brought
+        // this here, and the row it just closed is the stretch that either counts or was too short to.
+        handOver([open.rowID])
         return Outcome(deviceEventID: open.rowID, isOpen: false, wasInserted: false, closedRows: 1)
     }
 
@@ -314,12 +339,17 @@ final class DeviceEventRecorder {
     private func insert(_ segment: DeviceEventSegment, open: Bool) -> Outcome? {
         var closedRows = 0
         var insertedID: Int?
+        lastClosedRowIDs = []
 
         connection.transaction {
             if open {
                 // Every row that still claims to be open, not just the newest one. A row stranded by an
                 // earlier fault is exactly what this is for, and asking the question rather than tracking
                 // which row it should be is what stops a second stranding.
+                //
+                // Named before they are closed, because afterwards nothing distinguishes them from every other
+                // finished row -- and they are the segments the time entry side has to be told about.
+                lastClosedRowIDs = openRowIDs()
                 guard connection.execute("UPDATE device_event SET finalised = 1 WHERE finalised != 1;") else {
                     return false
                 }
@@ -353,8 +383,64 @@ final class DeviceEventRecorder {
             return insertedID != nil
         }
 
-        guard let insertedID else { return nil }
+        guard let insertedID else {
+            // Rolled back, so nothing was closed after all and there is nothing to hand over.
+            lastClosedRowIDs = []
+            return nil
+        }
         return Outcome(deviceEventID: insertedID, isOpen: open, wasInserted: true, closedRows: closedRows)
+    }
+
+    /// The face the most recent segment among `faces` was on, or `nil` if none of them has ever been used.
+    ///
+    /// How manual mode finds out where it is: the face of the last segment it recorded, from which
+    /// `ManualFace.next(after:)` gives the face the next one goes on. Read rather than remembered, so a
+    /// relaunch picks up the rotation where the previous one left it instead of starting over and overwriting
+    /// a mapping a finished segment still depends on.
+    ///
+    /// By `device_event_id`, not by `start_epoch`: this asks which segment was recorded last, and two segments
+    /// inside one second are exactly the case the epoch cannot separate.
+    func latestFace(in faces: [Int]) -> Int? {
+        guard !faces.isEmpty else { return nil }
+        let list = faces.map(String.init).joined(separator: ",")
+        var found: Int?
+        connection.forEachRow(
+            "SELECT device_face FROM device_event WHERE device_face IN (\(list)) "
+                + "ORDER BY device_event_id DESC LIMIT 1;"
+        ) { row in
+            found = Int(row.int(0))
+        }
+        return found
+    }
+
+    /// The rows that still claim to be open, before a close-out takes that away from them.
+    private func openRowIDs() -> [Int] {
+        var ids: [Int] = []
+        connection.forEachRow("SELECT device_event_id FROM device_event WHERE finalised != 1;") { row in
+            ids.append(Int(row.int(0)))
+        }
+        return ids
+    }
+
+    // MARK: - handing a finished segment on
+
+    /// What the last close-out closed, for `record` to hand over once the writes have committed.
+    ///
+    /// A property rather than a return value because `insert` already reports an `Outcome`, and this is not part
+    /// of what recording a segment *came to* -- it is bookkeeping between two steps of the same call. Cleared at
+    /// the start of every insert, so a later hand-over cannot pick up an earlier one's rows.
+    private var lastClosedRowIDs: [Int] = []
+
+    /// Asks the time entry module about each segment that has just finished.
+    ///
+    /// One place, called from `record` and from `closeOpenSegment`, rather than at each of the arms that can
+    /// finish a row. The previous app hooked the paths instead of the question and a path added later forgot to
+    /// call it, which is how a finished segment could sit unconverted with nothing failing.
+    private func handOver(_ deviceEventIDs: [Int]) {
+        guard let timeEntries else { return }
+        for id in deviceEventIDs {
+            timeEntries.consider(deviceEventID: id)
+        }
     }
 
     // MARK: - saying what happened

@@ -45,9 +45,35 @@ final class ManualTimerRulesTests: XCTestCase {
         )
     }
 
-    func testTheManualFaceIsThirteen() {
-        // Seeded in `database/008_face.sql` alongside the twelve physical faces.
-        XCTAssertEqual(ManualFace.id, 13)
+    // MARK: - which face manual mode times on
+
+    func testTheAppsFacesStartAboveTheCubes() {
+        // Seeded in `database/008_face.sql` alongside the twelve physical faces. Nothing above 12 is ever
+        // reported by a device, which is what leaves these numbers free.
+        XCTAssertEqual(ManualFace.all, [13, 14])
+        XCTAssertEqual(ManualFace.first, 13)
+        XCTAssertTrue(ManualFace.all.allSatisfy { $0 > 12 })
+    }
+
+    func testConsecutiveSegmentsNeverShareAFace() {
+        // The whole reason there is more than one. A finished segment's face keeps its category while the next
+        // segment runs, so nothing can be filed under the category that replaced it.
+        XCTAssertEqual(ManualFace.next(after: 13), 14)
+        XCTAssertEqual(ManualFace.next(after: 14), 13)
+        for face in ManualFace.all {
+            XCTAssertNotEqual(ManualFace.next(after: face), face)
+        }
+    }
+
+    func testTheFirstEverSegmentStartsAtTheFirstFace() {
+        XCTAssertEqual(ManualFace.next(after: nil), ManualFace.first, "nothing has been timed yet")
+    }
+
+    func testARotationStartsOverWhenTheLastSegmentWasNotOneOfOurs() {
+        // A cube's flip, not manual mode's. Continuing a rotation this app was not part of would mean reading
+        // a position into a number that never had one.
+        XCTAssertEqual(ManualFace.next(after: 4), ManualFace.first)
+        XCTAssertEqual(ManualFace.next(after: 12), ManualFace.first)
     }
 
     // MARK: - how a duration reads

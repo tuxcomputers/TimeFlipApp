@@ -1,13 +1,40 @@
 import Foundation
 
-/// The face the app times against when there is no cube: face 13.
+/// The faces the app times against when there is no cube: 13 and 14.
 ///
-/// A real face, seeded in `database/008_face.sql` alongside the twelve physical ones, so a manual session
+/// Real faces, seeded in `database/008_face.sql` alongside the twelve physical ones, so a manual session
 /// resolves its category exactly as a flip does -- through `face` -- instead of needing a second path that
-/// means the same thing. One face is enough because manual mode times one thing at a time: whatever
-/// category face 13 holds is what is being timed.
+/// means the same thing. **Nothing above 12 ever comes from a device**, which is what leaves the numbers
+/// above it free for the app to use.
+///
+/// **More than one, and that is the whole point.** A segment names a face, and the face's category is what
+/// later says whose time it was, so reassigning a face while a finished segment is still waiting for its
+/// `time_entry` changes the answer underneath it. One face made that the ordinary case: every switch of
+/// category rewrote the same row's meaning, and only the order of three statements kept it correct. Two
+/// faces make it impossible instead -- the segment that just ended and the one starting are never on the
+/// same face, which is exactly why a cube never had this problem. Flipping from face 3 to face 5 leaves
+/// face 3's mapping alone.
+///
+/// Two is the smallest pool that gives that. Widening it only buys grace for a conversion that happens
+/// later than the close (a row stranded by a crash, say, swept up on the next launch), which is why this is
+/// a list rather than a pair of constants: adding 15 here and to the DDL is the whole change.
 enum ManualFace {
-    static let id = 13
+    /// In rotation order. `device_face`'s `CHECK` in `003_device_event.sql` bounds what the table will hold,
+    /// so growing this list means changing that too.
+    static let all = [13, 14]
+
+    /// Where a session with no history starts.
+    static var first: Int { all[0] }
+
+    /// The face a new segment goes on, given the face the last one used.
+    ///
+    /// `nil` means nothing has been timed yet. A face that is not one of ours means the last segment came
+    /// from somewhere else entirely -- a cube's flip -- and manual mode starts its own run from the top
+    /// rather than trying to continue a rotation it was not part of.
+    static func next(after face: Int?) -> Int {
+        guard let face, let index = all.firstIndex(of: face) else { return first }
+        return all[(index + 1) % all.count]
+    }
 }
 
 /// What the timing control is doing, as far as the Faces tab needs to draw it.

@@ -99,16 +99,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Draws the session: which category from the database, whether it is running from the session.
     ///
-    /// The category comes from `face` 13 every time rather than being remembered from the click that started
-    /// it -- so a category renamed or recoloured elsewhere shows correctly here, and there is only ever one
-    /// answer to what the manual face holds.
+    /// The category comes from the `face` table every time rather than being remembered from the click that
+    /// started it -- so a category renamed or recoloured elsewhere shows correctly here, and there is only ever
+    /// one answer to what is being timed.
+    ///
+    /// **Which** face is read is itself a question, since manual mode rotates: the one the current segment is
+    /// on, which is the one the last segment it recorded used.
     private func redrawTiming() {
         guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
         guard let session, let faces, let categories else {
             pane.timingView.show(category: nil, state: .idle, elapsed: 0)
             return
         }
-        let assigned = faces.categoryID(forFace: ManualFace.id).flatMap { categories.category(id: $0) }
+        let assigned = faces.categoryID(forFace: currentManualFace()).flatMap { categories.category(id: $0) }
         pane.timingView.show(
             category: assigned,
             state: ManualTimerRules.state(categoryID: assigned == nil ? nil : session.categoryID, isRunning: session.isRunning),
@@ -116,18 +119,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         )
     }
 
-    /// A category was clicked: the segment that was running ends, the manual face takes the new category, and
-    /// a new segment starts.
+    /// The manual face in use right now: the one the last manual segment was recorded on, or the first of them
+    /// when nothing has been timed yet.
     ///
-    /// **The order is the whole of it, and it is the order the previous app was careful about.** One moment is
-    /// read for the entire gesture, so the segment that ends and the one that begins meet exactly rather than
-    /// overlapping or leaving a gap nobody timed. The outgoing segment is closed *before* the face is remapped,
-    /// because a `device_event` records the face and it is the face's mapping that later says which category
-    /// the time belonged to -- remapping first would file the stretch that just ended under the category that
-    /// replaced it. Then the clock, which is the part the screen is drawn from.
+    /// Asked rather than held, so nothing has to stay in step with the rotation -- and a relaunch mid-session
+    /// finds the same answer the launch before it had.
+    private func currentManualFace() -> Int {
+        deviceEvents?.latestFace(in: ManualFace.all) ?? ManualFace.first
+    }
+
+    /// A category was clicked: the segment that was running ends, the **next** manual face takes the new
+    /// category, and a new segment starts on it.
     ///
-    /// What each of those means for the rows is `DeviceEventRecorder`'s, not this method's: it is handed a
-    /// moment and decides the rest.
+    /// One moment is read for the whole gesture, so the segment that ends and the one that begins meet exactly
+    /// rather than overlapping or leaving a gap nobody timed.
+    ///
+    /// **The new category goes on a different face from the one the finished segment named**, which is what
+    /// makes the outgoing segment's category safe no matter when anything reads it. Closing before writing the
+    /// face is still the right order and still done, but it is no longer the only thing standing between a
+    /// finished stretch and being filed under the category that replaced it -- see `ManualFace`.
+    ///
+    /// What each step means for the rows is `DeviceEventRecorder`'s, not this method's: it is handed a moment
+    /// and decides the rest.
     private func startTiming(_ category: CategoryRecord) {
         guard let session, let faces else { return }
         // Already timing this one, so the click has nothing to ask for: the clock is where it should be, and
@@ -142,18 +155,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         let moment = Date()
+        // Read before anything is written, so the face the finished segment is on is not the face about to be
+        // reassigned.
+        let face = ManualFace.next(after: deviceEvents?.latestFace(in: ManualFace.all))
         deviceEvents?.closeOpenSegment(at: moment)
         // A refused write here leaves the outgoing segment closed with no new one open, and the clock still
         // claiming to run. That is worth naming rather than guarding: the close is right on its own terms (the
         // stretch did end when the click arrived), and the only way to reach this is the database refusing an
-        // update -- face 13 is never locked, being reassigned is the whole point of it.
-        guard faces.assign(categoryID: category.id, toFace: ManualFace.id) else {
-            debugLog?.record(.mode, "Timing: face \(ManualFace.id) refused category \"\(category.name)\"")
+        // update -- the app's own faces are never locked, being reassigned is the whole point of them.
+        guard faces.assign(categoryID: category.id, toFace: face) else {
+            debugLog?.record(.mode, "Timing: face \(face) refused category \"\(category.name)\"")
             return
         }
-        deviceEvents?.startSegment(face: ManualFace.id, at: moment)
+        deviceEvents?.startSegment(face: face, at: moment)
         session.start(categoryID: category.id)
-        debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(ManualFace.id)")
+        debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(face)")
         redrawTiming()
         startTicking()
     }
@@ -166,8 +182,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// It lives here because this is the only thing that draws a session. When the menu bar shows one too,
     /// this becomes a small coordinator both views observe rather than one view the other calls.
+    ///
+    /// **Pausing ends the segment; resuming begins another.** A segment's duration is the wall time from its
+    /// start, so a pause left sitting inside one would be counted as time spent -- and it was, until this: the
+    /// clock read 14 seconds against a row claiming 20. Ending it at the pause is also what hands the stretch
+    /// to the time entry module, which is the moment it can be asked whether it counts.
     func togglePause() {
-        guard let session else { return }
+        // Nothing picked means no clock and no row, so there is nothing here to stop or start. `TimingSession`
+        // refuses the toggle for the same reason; this keeps the writes from happening around a toggle that
+        // will not.
+        guard let session, session.categoryID != nil else { return }
+        let moment = Date()
+        // Read before the toggle, since it is what decides which of the two this is, and one moment for both
+        // halves so the segment that ends and the one that begins meet exactly.
+        if session.isRunning {
+            deviceEvents?.closeOpenSegment(at: moment)
+        } else {
+            // The same face the paused stretch was on, not the next one, and nothing is written to it. Rotating
+            // exists to stop a face's category changing under a finished segment, and resuming does not change
+            // it: this is the same category continuing. Reusing the face is therefore safe, and it keeps a
+            // pause-heavy session from cycling the pool for no reason.
+            deviceEvents?.startSegment(face: currentManualFace(), at: moment)
+        }
         session.togglePause()
         debugLog?.record(
             .mode,

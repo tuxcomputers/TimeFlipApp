@@ -72,9 +72,21 @@ let app = NSApplication.shared
 // carries no ⌘Q -- there is no application menu for the shortcut to live in.
 app.setActivationPolicy(.accessory)
 
-// The `device_event` table's one writer. Built after the debug log so a segment can say what it did, and
-// before the window, which is where the clicks that produce segments arrive.
-let deviceEvents = DeviceEventRecorder(connection: database, timezones: timezones, debugLog: debugLog)
+// The two tables that record time, in the order the answer flows: a segment is recorded first, and closing one
+// raises the question the second module answers. `device_event` is what a source says happened; `time_entry` is
+// what the app counts, and they are deliberately not the same question.
+let timeEntries = TimeEntryRecorder(
+    connection: database,
+    settings: settings,
+    faces: faces,
+    debugLog: debugLog
+)
+let deviceEvents = DeviceEventRecorder(
+    connection: database,
+    timezones: timezones,
+    timeEntries: timeEntries,
+    debugLog: debugLog
+)
 
 // The window is built on its first open, so this costs nothing until Settings is chosen.
 let settingsWindow = SettingsWindowController(

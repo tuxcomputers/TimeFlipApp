@@ -1,14 +1,14 @@
 -- face
--- The 12 physical faces of the TimeFlip device plus the app's own face 13, each linked to its assigned category.
+-- The 12 physical faces of the TimeFlip device, then the app's own faces from 13 up, each linked to its
+-- assigned category. Nothing above 12 is ever reported by a device; manual mode times on 13 and 14 and
+-- alternates between them, so the face a finished segment names keeps its category while the next segment
+-- runs (see ManualFace and the device_face note in 003_device_event.sql).
 
 CREATE TABLE IF NOT EXISTS face (
   face_id       INTEGER CONSTRAINT PK_face PRIMARY KEY
   , category_id INTEGER NOT NULL REFERENCES category(category_id)
   , locked      INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1))
 );
-
--- Migration (run by hand against a database that predates this column, see CLAUDE.md):
--- ALTER TABLE face ADD COLUMN locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0,1));
 
 INSERT INTO face (face_id, category_id)
 SELECT 1, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 1);
@@ -36,3 +36,5 @@ INSERT INTO face (face_id, category_id)
 SELECT 12, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 12);
 INSERT INTO face (face_id, category_id)
 SELECT 13, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 13);
+INSERT INTO face (face_id, category_id)
+SELECT 14, (SELECT category_id FROM category WHERE category_name = 'Unassigned') WHERE NOT EXISTS (SELECT 1 FROM face WHERE face_id = 14);

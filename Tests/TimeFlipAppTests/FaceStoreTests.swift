@@ -31,7 +31,7 @@ final class FaceStoreTests: XCTestCase {
     func testTheManualFaceStartsEmpty() {
         // Seeded pointing at Unassigned, which is a face with nothing on it rather than a face holding a
         // category called Unassigned -- so it reads as nil.
-        XCTAssertNil(faces.categoryID(forFace: ManualFace.id))
+        XCTAssertNil(faces.categoryID(forFace: ManualFace.first))
     }
 
     func testASeededFaceReportsItsCategory() throws {
@@ -42,19 +42,19 @@ final class FaceStoreTests: XCTestCase {
     func testAssigningToTheManualFaceTakes() throws {
         let meeting = try categoryID(named: "Meeting")
 
-        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: ManualFace.id))
+        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: ManualFace.first))
 
-        XCTAssertEqual(faces.categoryID(forFace: ManualFace.id), meeting)
+        XCTAssertEqual(faces.categoryID(forFace: ManualFace.first), meeting)
     }
 
     func testReassigningReplacesWhatWasThere() throws {
         let meeting = try categoryID(named: "Meeting")
         let breakID = try categoryID(named: "Break")
-        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: ManualFace.id))
+        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: ManualFace.first))
 
-        XCTAssertTrue(faces.assign(categoryID: breakID, toFace: ManualFace.id))
+        XCTAssertTrue(faces.assign(categoryID: breakID, toFace: ManualFace.first))
 
-        XCTAssertEqual(faces.categoryID(forFace: ManualFace.id), breakID, "one category at a time")
+        XCTAssertEqual(faces.categoryID(forFace: ManualFace.first), breakID, "one category at a time")
     }
 
     func testALockedFaceKeepsWhatItHas() throws {
@@ -69,11 +69,11 @@ final class FaceStoreTests: XCTestCase {
     }
 
     func testClearingPutsAFaceBackToNothing() throws {
-        XCTAssertTrue(faces.assign(categoryID: try categoryID(named: "Meeting"), toFace: ManualFace.id))
+        XCTAssertTrue(faces.assign(categoryID: try categoryID(named: "Meeting"), toFace: ManualFace.first))
 
-        XCTAssertTrue(faces.clear(face: ManualFace.id))
+        XCTAssertTrue(faces.clear(face: ManualFace.first))
 
-        XCTAssertNil(faces.categoryID(forFace: ManualFace.id))
+        XCTAssertNil(faces.categoryID(forFace: ManualFace.first))
     }
 
     func testAFaceThatDoesNotExistHoldsNothing() {
@@ -85,8 +85,8 @@ final class FaceStoreTests: XCTestCase {
     func testAChangeMadeElsewhereIsSeenByTheNextRead() throws {
         let meeting = try categoryID(named: "Meeting")
 
-        XCTAssertTrue(database.execute("UPDATE face SET category_id = \(meeting) WHERE face_id = \(ManualFace.id);"))
+        XCTAssertTrue(database.execute("UPDATE face SET category_id = \(meeting) WHERE face_id = \(ManualFace.first);"))
 
-        XCTAssertEqual(faces.categoryID(forFace: ManualFace.id), meeting, "read again, not remembered")
+        XCTAssertEqual(faces.categoryID(forFace: ManualFace.first), meeting, "read again, not remembered")
     }
 }

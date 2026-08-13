@@ -58,6 +58,13 @@ final class DatabaseConnection {
         func bool(_ column: Int32) -> Bool {
             sqlite3_column_int64(statement, column) != 0
         }
+
+        /// For a `REAL` column. `int` would read one too, having quietly dropped the fraction, and
+        /// `duration_seconds` is the column that matters here: rows written before durations were whole still
+        /// hold one.
+        func double(_ column: Int32) -> Double {
+            sqlite3_column_double(statement, column)
+        }
     }
 
     /// Runs `sql`, handing each row to `read` in turn. Does nothing if the statement will not prepare or
@@ -107,7 +114,13 @@ final class DatabaseConnection {
         guard let db = handle.db else { return false }
         guard sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil) == SQLITE_OK else { return false }
         if body() {
-            return sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK
+            if sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK { return true }
+            // A failed `COMMIT` leaves the transaction **open**, and an open transaction holds its lock for as
+            // long as the connection lives: every later write through it fails, and so does every other
+            // connection's. Rolling back here is what stops one refused commit taking the rest of the session
+            // with it.
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            return false
         }
         sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
         return false

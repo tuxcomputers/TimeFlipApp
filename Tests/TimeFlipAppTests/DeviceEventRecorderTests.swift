@@ -24,6 +24,9 @@ final class DeviceEventRecorderTests: XCTestCase {
         recorder = DeviceEventRecorder(
             connection: connection,
             timezones: TimezoneStore(connection: connection),
+            // nil, so these are about `device_event` alone: what closing a row means for tracked time is
+            // `TimeEntryRecorderTests`, including the two of them together.
+            timeEntries: nil,
             debugLog: nil
         )
     }
@@ -241,7 +244,7 @@ final class DeviceEventRecorderTests: XCTestCase {
     // MARK: - segments the app is timing itself
 
     func testAStartedSegmentTakesTheUnixEpochAsItsEventNumber() throws {
-        let outcome = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let outcome = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
 
         // What the previous app used: `MockTimeFlipDevice` seeded its counter from
         // `UInt32(now.timeIntervalSince1970)`, so the first number it handed out was the epoch second itself.
@@ -256,8 +259,8 @@ final class DeviceEventRecorderTests: XCTestCase {
         // The pair `(event_number, start_epoch)` is a row's identity, so reusing the epoch for both would have
         // made the second click silently overwrite the first. The number derives from the table, so the second
         // takes the next one up -- exactly what the old counter's increment did.
-        let first = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
-        let second = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let first = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
+        let second = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
 
         XCTAssertNotEqual(second.deviceEventID, first.deviceEventID)
         XCTAssertEqual(column("event_number", ofRow: second.deviceEventID), "1786600001")
@@ -266,7 +269,7 @@ final class DeviceEventRecorderTests: XCTestCase {
     }
 
     func testTheEventNumberIsNotRememberedBetweenRecorders() throws {
-        _ = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        _ = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
 
         // A second recorder, standing in for the next launch: it allocates from the table, so it cannot hand
         // out a number an earlier launch already used.
@@ -274,15 +277,18 @@ final class DeviceEventRecorderTests: XCTestCase {
         let relaunched = DeviceEventRecorder(
             connection: connection,
             timezones: TimezoneStore(connection: connection),
+            // nil, so these are about `device_event` alone: what closing a row means for tracked time is
+            // `TimeEntryRecorderTests`, including the two of them together.
+            timeEntries: nil,
             debugLog: nil
         )
-        let second = try XCTUnwrap(relaunched.startSegment(face: ManualFace.id, at: moment))
+        let second = try XCTUnwrap(relaunched.startSegment(face: ManualFace.first, at: moment))
 
         XCTAssertEqual(column("event_number", ofRow: second.deviceEventID), "1786600001")
     }
 
     func testClosingTheOpenSegmentWorksOutHowLongItRan() throws {
-        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
 
         let closed = try XCTUnwrap(recorder.closeOpenSegment(at: moment.addingTimeInterval(95)))
 
@@ -298,11 +304,11 @@ final class DeviceEventRecorderTests: XCTestCase {
         // Whole seconds because that is all the device can report, and the difference of the two stamps rather
         // than a rounding of the interval: the next segment's `start_epoch` truncates the same moment, so this
         // is what makes one segment end exactly where the next begins instead of overlapping it by a second.
-        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
         let switchedAt = moment.addingTimeInterval(95.803)
 
         let closed = try XCTUnwrap(recorder.closeOpenSegment(at: switchedAt))
-        let next = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: switchedAt))
+        let next = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: switchedAt))
 
         XCTAssertEqual(column("duration_seconds", ofRow: closed.deviceEventID), "95.0")
         let startEpoch = try XCTUnwrap(column("start_epoch", ofRow: started.deviceEventID).flatMap { Int($0) })
@@ -323,7 +329,7 @@ final class DeviceEventRecorderTests: XCTestCase {
     func testRefreshingGrowsTheOpenSegmentWithoutClosingIt() throws {
         // What the history timer's timeout ends in: the same segment, running longer. One row, not one per
         // interval, because `record` recognises the identity read back off the row as the same event.
-        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
 
         let first = try XCTUnwrap(recorder.refreshOpenSegment(at: moment.addingTimeInterval(10)))
         let second = try XCTUnwrap(recorder.refreshOpenSegment(at: moment.addingTimeInterval(20)))
@@ -337,7 +343,7 @@ final class DeviceEventRecorderTests: XCTestCase {
     }
 
     func testRefreshingLeavesTheRestOfTheRowAsItWas() throws {
-        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
         let before = column("start_time", ofRow: started.deviceEventID)
 
         recorder.refreshOpenSegment(at: moment.addingTimeInterval(45))
@@ -352,7 +358,7 @@ final class DeviceEventRecorderTests: XCTestCase {
 
     func testRefreshingWithNothingOpenDoesNothing() throws {
         // Every timeout while nothing is being timed, which is most of them.
-        let closed = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let closed = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
         recorder.closeOpenSegment(at: moment.addingTimeInterval(30))
 
         XCTAssertNil(recorder.refreshOpenSegment(at: moment.addingTimeInterval(300)))
@@ -362,10 +368,10 @@ final class DeviceEventRecorderTests: XCTestCase {
     }
 
     func testRefreshingOnlyEverTouchesTheOpenSegment() throws {
-        let finished = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let finished = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
         let switchedAt = moment.addingTimeInterval(60)
         recorder.closeOpenSegment(at: switchedAt)
-        let live = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: switchedAt))
+        let live = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: switchedAt))
 
         recorder.refreshOpenSegment(at: switchedAt.addingTimeInterval(15))
 
@@ -379,7 +385,7 @@ final class DeviceEventRecorderTests: XCTestCase {
     }
 
     func testAClockThatWentBackwardsClosesAtZeroRatherThanBeingRefused() throws {
-        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let started = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
 
         let closed = try XCTUnwrap(recorder.closeOpenSegment(at: moment.addingTimeInterval(-60)))
 
@@ -391,11 +397,11 @@ final class DeviceEventRecorderTests: XCTestCase {
     func testASwitchOfCategoryIsOneClosedSegmentAndOneOpenOne() throws {
         // The click's own sequence, which is `SettingsWindowController.startTiming`: one moment for the whole
         // gesture, so the two segments meet rather than overlapping or leaving a gap nobody timed.
-        let first = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: moment))
+        let first = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: moment))
         let switchedAt = moment.addingTimeInterval(300)
 
         recorder.closeOpenSegment(at: switchedAt)
-        let second = try XCTUnwrap(recorder.startSegment(face: ManualFace.id, at: switchedAt))
+        let second = try XCTUnwrap(recorder.startSegment(face: ManualFace.first, at: switchedAt))
 
         XCTAssertEqual(column("duration_seconds", ofRow: first.deviceEventID), "300.0")
         XCTAssertEqual(column("finalised", ofRow: first.deviceEventID), "1")
@@ -415,6 +421,9 @@ final class DeviceEventRecorderTests: XCTestCase {
         let relaunched = DeviceEventRecorder(
             connection: connection,
             timezones: TimezoneStore(connection: connection),
+            // nil, so these are about `device_event` alone: what closing a row means for tracked time is
+            // `TimeEntryRecorderTests`, including the two of them together.
+            timeEntries: nil,
             debugLog: nil
         )
 

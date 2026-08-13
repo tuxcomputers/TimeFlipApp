@@ -75,10 +75,14 @@ final class DatabaseBootstrapTests: XCTestCase {
         // A table from the DDL, and rows from the seeds that later work depends on: 12 cube faces,
         // and the settings the app reads on startup.
         XCTAssertEqual(try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='face';"), 1)
-        // Thirteen, not twelve: the cube's twelve physical faces plus face 13, which is the app's
-        // own and is what a manual-mode segment is recorded against (`database/008_face.sql`, and
-        // `manualFaceID` in the archived constants).
-        XCTAssertEqual(try scalar("SELECT COUNT(*) FROM face;"), 13, "12 cube faces plus the manual face")
+        // Fourteen, not twelve: the cube's twelve physical faces plus the app's own two, which is what a
+        // manual-mode segment is recorded against. There are two of those rather than one so consecutive
+        // manual segments never share a face -- see `ManualFace` and `database/008_face.sql`.
+        XCTAssertEqual(
+            try scalar("SELECT COUNT(*) FROM face;"),
+            Int64(12 + ManualFace.all.count),
+            "12 cube faces plus the app's own"
+        )
         XCTAssertGreaterThan(try scalar("SELECT COUNT(*) FROM setting;"), 0)
         XCTAssertGreaterThan(try scalar("SELECT COUNT(*) FROM category;"), 0)
     }
