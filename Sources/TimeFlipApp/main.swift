@@ -44,6 +44,7 @@ let database = DatabaseConnection(databaseURL: databaseURL)
 let settings = SettingReader(connection: database)
 let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
+let timezones = TimezoneStore(connection: database)
 
 // The one owner of what is being timed. In memory, like the mode it belongs to: which category the manual
 // face holds is in the database, and how long it has been running is this launch's business.
@@ -71,12 +72,17 @@ let app = NSApplication.shared
 // carries no ⌘Q -- there is no application menu for the shortcut to live in.
 app.setActivationPolicy(.accessory)
 
+// The `device_event` table's one writer. Built after the debug log so a segment can say what it did, and
+// before the window, which is where the clicks that produce segments arrive.
+let deviceEvents = DeviceEventRecorder(connection: database, timezones: timezones, debugLog: debugLog)
+
 // The window is built on its first open, so this costs nothing until Settings is chosen.
 let settingsWindow = SettingsWindowController(
     debugLog: debugLog,
     categories: categories,
     faces: faces,
-    session: timingSession
+    session: timingSession,
+    deviceEvents: deviceEvents
 )
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,

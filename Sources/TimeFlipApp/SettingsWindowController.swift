@@ -60,16 +60,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The one thing that knows whether time is being recorded, and for what.
     private let session: TimingSession?
 
+    /// Where a segment goes. `nil` in a test that only cares about layout, and in that case a click times
+    /// without recording anything -- which is the difference between the window's own behaviour and what it
+    /// leaves behind, and worth being able to test apart.
+    private let deviceEvents: DeviceEventRecorder?
+
     /// Redraws the elapsed time while the window is open. Only while it is open: a clock nobody can see does
     /// not need repainting, and the session's elapsed time is worked out from when it started rather than
     /// counted up, so nothing is lost by not ticking.
     private var tick: Timer?
 
-    init(debugLog: DebugLog?, categories: CategoryStore?, faces: FaceStore?, session: TimingSession?) {
+    init(
+        debugLog: DebugLog?,
+        categories: CategoryStore?,
+        faces: FaceStore?,
+        session: TimingSession?,
+        deviceEvents: DeviceEventRecorder? = nil
+    ) {
         self.debugLog = debugLog
         self.categories = categories
         self.faces = faces
         self.session = session
+        self.deviceEvents = deviceEvents
         super.init()
     }
 
@@ -104,10 +116,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         )
     }
 
-    /// A category was clicked: it goes on the manual face and the clock starts.
+    /// A category was clicked: the segment that was running ends, the manual face takes the new category, and
+    /// a new segment starts.
     ///
-    /// The order matters and is the same order the previous app was careful about: the face is written
-    /// first, then the clock starts, so no time can be recorded against the category that was there before.
+    /// **The order is the whole of it, and it is the order the previous app was careful about.** One moment is
+    /// read for the entire gesture, so the segment that ends and the one that begins meet exactly rather than
+    /// overlapping or leaving a gap nobody timed. The outgoing segment is closed *before* the face is remapped,
+    /// because a `device_event` records the face and it is the face's mapping that later says which category
+    /// the time belonged to -- remapping first would file the stretch that just ended under the category that
+    /// replaced it. Then the clock, which is the part the screen is drawn from.
+    ///
+    /// What each of those means for the rows is `DeviceEventRecorder`'s, not this method's: it is handed a
+    /// moment and decides the rest.
     private func startTiming(_ category: CategoryRecord) {
         guard let session, let faces else { return }
         // Already timing this one, so the click has nothing to ask for: the clock is where it should be, and
@@ -121,10 +141,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             debugLog?.record(.mode, "Timing: already timing \"\(category.name)\", so the click changes nothing")
             return
         }
+        let moment = Date()
+        deviceEvents?.closeOpenSegment(at: moment)
+        // A refused write here leaves the outgoing segment closed with no new one open, and the clock still
+        // claiming to run. That is worth naming rather than guarding: the close is right on its own terms (the
+        // stretch did end when the click arrived), and the only way to reach this is the database refusing an
+        // update -- face 13 is never locked, being reassigned is the whole point of it.
         guard faces.assign(categoryID: category.id, toFace: ManualFace.id) else {
             debugLog?.record(.mode, "Timing: face \(ManualFace.id) refused category \"\(category.name)\"")
             return
         }
+        deviceEvents?.startSegment(face: ManualFace.id, at: moment)
         session.start(categoryID: category.id)
         debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(ManualFace.id)")
         redrawTiming()

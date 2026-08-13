@@ -92,6 +92,27 @@ final class DatabaseConnection {
         return sqlite3_step(statement) == SQLITE_DONE
     }
 
+    /// Runs several statements as one, and keeps them only if `body` returns `true`.
+    ///
+    /// For a write that is two statements and would be wrong as one of them. Recording a segment closes
+    /// whatever row was still open and then inserts the new one: interrupted between the two, the table
+    /// holds a closed row where the live segment used to be and nothing that is live, which no later write
+    /// can tell from an ordinary pair of finished segments.
+    ///
+    /// `IMMEDIATE` because the transaction exists to write. A deferred one takes its lock at the first
+    /// write instead, which is where a second connection can be found already holding it -- and the busy
+    /// handler cannot wait that out mid-transaction without risking a deadlock.
+    @discardableResult
+    func transaction(_ body: () -> Bool) -> Bool {
+        guard let db = handle.db else { return false }
+        guard sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil) == SQLITE_OK else { return false }
+        if body() {
+            return sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK
+        }
+        sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+        return false
+    }
+
     /// How many rows the last statement on this connection changed.
     ///
     /// Needed because "the statement ran" and "the statement did something" are different questions, and

@@ -35,6 +35,8 @@ final class DebugLog {
         case tab
         /// Which mode a launch is running in.
         case mode
+        /// Segments written to `device_event`, and what recording each one did to the rows already there.
+        case event
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

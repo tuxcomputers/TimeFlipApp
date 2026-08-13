@@ -148,6 +148,9 @@ Worth the trouble when the question is a few points or a shade: an eyeballed "7p
 - **`NSApp` is nil in a test bundle** until an application object has been made, and it is implicitly
   unwrapped -- so reading it crashes the whole run rather than failing one case. Use
   `NSApplication.shared`, which makes one.
+- **`swift test` walks up for `Package.swift`.** Run from `Archive/`, which has none, it still builds and
+  tests the rebuilt app -- so a stray `cd` looks like the archive passing 179 tests. Check `pwd` before
+  reading anything into a result.
 - **A `@MainActor` class cannot touch its own non-Sendable properties in `deinit`.** It is a compile
   error, not a subtlety. Put the handle in a small unisolated object whose own `deinit` does the cleanup --
   `DebugLog`, `DatabaseConnection` and `MenuBarController` all do this, and it is the only way to close an
