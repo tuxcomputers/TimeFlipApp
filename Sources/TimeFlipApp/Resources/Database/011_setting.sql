@@ -81,14 +81,3 @@ WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'device_name');
 INSERT INTO setting (setting_name, setting_value, setting_description)
 SELECT 'time_entry_check', '{"last_check":"' || strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime') || '"}', 'last_check (local date-time, YYYY-MM-DDTHH:MM:SS) is when the app last swept device_event for segments to turn into time_entry rows, seeded to when this row was created so the first sweep has a starting point rather than a null. A segment is eligible when finalised = 1, paused = 0, processed = 0, and its device_event_id is not already in time_entry -- that last condition is guaranteed by UN1_time_entry rather than merely checked, so a double sweep cannot double-count. See docs/operation-spec.md § 3, and note that a segment shorter than blip_time is merged into the following one instead of becoming its own entry, so an eligible segment does not always produce a row.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'time_entry_check');
-
--- Migration (run by hand against a database that predates these two rows, see CLAUDE.md).
--- They replace the single paired_device row, which held both fields under one lifecycle; the
--- guarded inserts above create them empty, so carry the existing pairing across before dropping it.
--- Copying the uuid is what matters -- it cannot be recovered except by scanning again. Copying the
--- name is optional and, in a database written before 2026-08-01, actively wrong: paired_device.name
--- held the hardcoded "TimeFlip" literal rather than anything the cube said, so leaving device_name
--- empty and letting the next connect read the real name is the better outcome there.
--- UPDATE setting SET setting_value = json_object('uuid', json_extract((SELECT setting_value FROM setting WHERE setting_name = 'paired_device'), '$.uuid')) WHERE setting_name = 'device_uuid';
--- UPDATE setting SET setting_value = json_object('name', json_extract((SELECT setting_value FROM setting WHERE setting_name = 'paired_device'), '$.name')) WHERE setting_name = 'device_name';
--- DELETE FROM setting WHERE setting_name = 'paired_device';

@@ -8,9 +8,6 @@ CREATE TABLE IF NOT EXISTS colour (
   , white_lines INTEGER NOT NULL DEFAULT 0 CHECK (white_lines IN (0,1))
 );
 
--- Migration (run by hand against a database that predates this column, see CLAUDE.md):
--- ALTER TABLE colour ADD COLUMN white_lines INTEGER NOT NULL DEFAULT 0 CHECK (white_lines IN (0,1));
-
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_colour ON colour(colour_name);
 
 INSERT INTO colour (colour_id, colour_name, device_hex, white_lines)

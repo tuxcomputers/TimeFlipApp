@@ -6,9 +6,6 @@ CREATE TABLE IF NOT EXISTS event_type (
   , event_name  TEXT NOT NULL
 );
 
--- Migration (run by hand against a database seeded before this row was renamed, see CLAUDE.md):
--- UPDATE event_type SET event_name = 'face_flip' WHERE event_type_id = 1 AND event_name = 'facet_flip';
-
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_event_type ON event_type(event_name);
 
 INSERT INTO event_type (event_type_id, event_name)

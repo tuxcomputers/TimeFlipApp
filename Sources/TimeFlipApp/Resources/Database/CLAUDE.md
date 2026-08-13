@@ -116,6 +116,46 @@ and don't count it when reasoning about the schema.
 - Renumbering also **moves that table's section in [`../docs/database-design.md`](../docs/database-design.md)**,
   whose sections are ordered by DDL number so every foreign key points at a table described above it.
 
+## Until this app is released: how a schema change reaches an existing database
+
+**Standing instruction, in force until the owner says the app is to be released.** Nothing here is
+released software yet, which is what makes the last two options below acceptable: no user's data is at
+stake, only two developer databases. When that changes, this section is the first thing to revisit --
+a released app needs versioned, non-destructive migrations (the planned `099` script and a
+`database_version` setting), and "delete it and start again" stops being an option.
+
+Every schema change follows the same four steps, in order:
+
+1. **Write the DDL as if the database were brand new.** The `CREATE TABLE`, the `CHECK`, the index, the
+   seed rows: all of it reads as the schema a clean database gets on its first open. No accumulated
+   history, no live `ALTER`, nothing that only makes sense to someone who knows the previous shape.
+2. **Apply it to `production.sqlite` and `test.sqlite` as part of making the change**, not later. A DDL
+   change is finished when both databases match the files, and confirmed with
+   `scripts/compare-database-to-ddl.sh`, which must come back clean.
+3. **If an `ALTER TABLE` can do it, that is the whole job.** Adding a column is the common case; see the
+   section below for the exact shape and why the statement lives in the file commented out.
+4. **If sqlite cannot `ALTER` it, rebuild the table**, which is sqlite's own documented procedure and
+   the only way to change a `CHECK`, a primary key, or a column's type:
+   1. copy the current rows into a temporary table
+   2. drop the current table
+   3. create the new table from the new DDL
+   4. copy the rows back in
+
+   Foreign keys have to come off around it (`PRAGMA foreign_keys = OFF`) or dropping the old table takes
+   its children's references with it, and `PRAGMA foreign_key_check` afterwards is what confirms they all
+   still land. `003_device_event.sql` carries a worked example, from when `device_face`'s `CHECK` was
+   raised to include the app's own face.
+
+Two shortcuts, both allowed for as long as this section is in force:
+
+- **For production, replacing the file is fine if it is easier than rebuilding a table in place.** Create
+  a new database from the DDL, copy the contents across, **confirm the contents**, delete the old file,
+  rename the new one into place. Confirming is not optional and not a glance: row counts per table at a
+  minimum, against the old file, before anything is deleted.
+- **For test, don't migrate it at all.** Delete it and build a clean one:
+  `scripts/switch-database.sh test -clean`. It holds nothing that matters, and a fresh database from the
+  new DDL is a better check of the DDL than a migrated one.
+
 ## Adding a column to an existing table
 
 - Add the column to the table's `CREATE TABLE IF NOT EXISTS` statement, so a **fresh** database
