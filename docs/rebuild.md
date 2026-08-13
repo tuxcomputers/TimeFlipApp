@@ -41,7 +41,8 @@ The tabs sit in the Settings window in their own order (Device, Faces, Categorie
 - [ ] **Assigning categories to the twelve device faces.** The `face` table seeds them and nothing in the app can change what they hold.
 - [ ] **Locking a face** (`face.locked`): writes honour the column already, an assign to a locked face being refused, and there is no way to set it.
 - [ ] **The Timing column after a relaunch**: it draws empty until something is clicked, even when the category has time today. Showing the last category paused would read better now that the figure outlives the session.
-- [ ] **Retiring a category from the list**, which currently needs a hand-edited row.
+
+Retiring a category is not on this list on purpose: this tab picks a category to time, and the Categories tab is where a category is looked after. See [Categories tab](#categories-tab).
 
 ## Menu bar
 
@@ -101,7 +102,12 @@ Nothing so far. Creating a category currently lives on the Faces tab, next to th
 - [ ] **A daily limit** (`category.daily_limit`), which is what the menu bar's over-limit red reports.
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
 - [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
-- [ ] **Retiring and reactivating**, from here rather than as a side effect of typing a name on Faces.
+- [ ] **Retiring a category**, which today needs a hand-edited row. This tab is where it belongs: retiring is
+      looking after a category, not picking one to time, and the Faces tab shows only the active ones anyway, so a
+      category would have to disappear from the list that retired it.
+- [ ] **Reactivating one**, from here rather than only as a side effect of typing its name on Faces. The rule
+      already exists ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift)) and can be
+      refused, since only one active category may hold a name.
 
 ## Report tab
 
