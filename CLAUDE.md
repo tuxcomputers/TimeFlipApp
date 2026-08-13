@@ -23,6 +23,15 @@ What it means concretely:
 - **Opening a window reads that window's values then.** Open Settings and the Device tab's
   auto-pause value comes from the database. Change it, close the window, open it again: it is read
   from the database again. The second open is not allowed to show what the first one loaded.
+- **While a Settings window is open, an edit in progress owns its own field, and nothing else.** The
+  window reads when it opens, and a value the user is typing into is not re-read underneath them: a
+  read-back per keystroke clamps "1" on the way to "15", and rebuilding a row to show a value it is
+  already showing takes the field out from under whoever is in it. That licence covers the field being
+  edited and stops there. Anything the app itself changes behind the window keeps being read on its own
+  terms -- the clock in the Timing column ticks, a pause from the menu bar shows up, and an edit that
+  changes *which* rows belong in a list (retiring a category) re-reads the list. **A refused write
+  re-reads too**, since a field still showing what was typed while the table holds something else is
+  exactly the two-answers problem this rule exists to prevent.
 - **A value used part-way through a sequence is read at that point in the sequence.** During quit,
   whether locking the cube pauses it is read when the quit sequence reaches the step that needs it
   -- not read at launch, not read at the start of the quit, and not passed down through the call
