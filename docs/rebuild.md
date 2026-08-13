@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (303 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (347 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -18,7 +18,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
-- [ ] **[Categories tab](#categories-tab)**: the active categories are listed; nothing about a category can be changed yet.
+- [ ] **[Categories tab](#categories-tab)**: the active categories are listed with the archive's columns; a limit and retiring are live, the rest of the editing is not.
 - [ ] **[Report tab](#report-tab)**: nothing so far.
 - [ ] **[App tab](#app-tab)**: nothing so far.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
@@ -70,7 +70,7 @@ Three gestures now pause: the glyph on the Faces tab, the dropdown item, and the
 ### Still to do
 
 - [ ] **Yellow for a reading gone stale**, once there is a connection to lose.
-- [ ] **Red for a category over its `daily_limit`**, and the pause that goes with it.
+- [ ] **Red for a category over its `daily_limit`**, and the pause that goes with it. The limit itself is now settable on the Categories tab, so this is the half that reads it.
 - [ ] **The low-battery red/white blink**, gated on `low_battery_level`.
 - [ ] **The lock badge**, to the left of the play/pause glyph rather than in place of it.
 - [ ] **The double-click gesture that locks the cube**, which is also what makes the right side's pause wait out the  double-click interval instead of firing at once.
@@ -96,11 +96,14 @@ Nothing so far. Nothing talks to the cube yet, and manual mode stands in for all
 
 ## Categories tab
 
-This is where a category is looked after, as opposed to picked to time. The Active list is on it; every way of changing a category is still to come.
+This is where a category is looked after, as opposed to picked to time. The Active list is on it, with the archive's five columns and two of them live.
 
 ### Done, in the order it was built
 
-- [x] **The Active list** ([CategoriesPane.swift](../Sources/TimeFlipApp/CategoriesPane.swift), [CategoryTable.swift](../Sources/TimeFlipApp/CategoryTable.swift)): a bold heading over a rounded panel, captioned columns, one row per active category showing its icon, its name and its colour. The previous app's shape and its measurements, and a different list from the Faces tab's on purpose: that one is a pick list, this is a record of what each category is, in columns that line up so one property can be read across every category at a glance. Read-only, since every remaining column is a control and each is its own item below.
+- [x] **The Active list** ([CategoriesPane.swift](../Sources/TimeFlipApp/CategoriesPane.swift), [CategoryTable.swift](../Sources/TimeFlipApp/CategoryTable.swift)): a bold heading over a tinted panel, captioned columns, one row per active category. The previous app's shape and its measurements, and a different list from the Faces tab's on purpose: that one is a pick list, this is a record of what each category is, in columns that line up so one property can be read down the tab. The tint follows the same split, the archive's pick list being plain white with hairlines and its settings panels tinted.
+- [x] **The daily limit** ([CategoryEditRules.swift](../Sources/TimeFlipApp/CategoryEditRules.swift), [SteppedNumberField.swift](../Sources/TimeFlipApp/SteppedNumberField.swift)): a number field bounded 0 to 1440, a day of minutes being the most a day's budget can hold. **Stored and enforced by nothing yet**, since what reads it is the over-limit colouring and the pause sent to a spent cube, both still to come.
+- [x] **The arrows accelerate while held** ([StepperHoldRules.swift](../Sources/TimeFlipApp/StepperHoldRules.swift)): ticks of 1 until the value passes the second multiple of 5 beyond where the hold began, then 5s at a slower cadence. The archive's rule copied as it stands, tests included; the arrows themselves are a hand-built chevron pair, a stock stepper repeating at one fixed increment.
+- [x] **Retiring a category**, by unticking Active. It comes off every face holding it at the same time, and is barred outright while a *locked* face holds it: retiring clears faces and a locked face keeps what it has, so the app does neither and the tooltip names the face.
 
 ### Still to do
 
@@ -109,11 +112,10 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 - [ ] **Renaming a category.**
 - [ ] **Choosing an icon** (`icon`, a reference table already seeded and read).
 - [ ] **Choosing a colour** (`colour`, likewise, including its `white_lines` flag for dark colours).
-- [ ] **A daily limit** (`category.daily_limit`), which is what the menu bar's over-limit red reports.
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
 - [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
-- [ ] **Retiring a category**, which today needs a hand-edited row. This tab is where it belongs: retiring is looking after a category, not picking one to time, and the Faces tab shows only the active ones anyway, so a category would have to disappear from the list that retired it.
-- [ ] **Reactivating one**, from here rather than only as a side effect of typing its name on Faces. The rule already exists ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift)) and can be refused, since only one active category may hold a name.
+- [ ] **Reactivating a category**, which arrives with the Inactive list above, that being where a retired one can be seen at all. Today it comes back only by typing its name on Faces. The rule already exists ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift)) and can be refused, since only one active category may hold a name -- so unlike retiring, this direction needs somewhere to say why it was refused.
+- [ ] **Unlocking a face**, which is what the disabled Active box points at: a category on a locked face cannot be retired, and nothing in the app can unlock one. It is a Faces tab item and it waits for the device work, which is what makes a locked face reachable at all.
 
 ## Report tab
 
