@@ -90,9 +90,26 @@ final class TimingSessionTests: XCTestCase {
         XCTAssertTrue(session.isRunning)
     }
 
-    func testStartingTheSameCategoryAgainAlsoStartsFromZero() {
-        // One path for picking a category, whatever was running. The alternative -- treating a re-pick as a
-        // resume -- is a second meaning for the same click, decided by state the user cannot see.
+    func testTheClockIsOnlyAlreadyTimingTheCategoryItIsRunningOn() {
+        let session = session()
+
+        XCTAssertFalse(session.isTiming(7), "nothing is being timed at all")
+
+        session.start(categoryID: 7)
+        XCTAssertTrue(session.isTiming(7))
+        XCTAssertFalse(session.isTiming(9))
+
+        session.togglePause()
+        XCTAssertFalse(
+            session.isTiming(7),
+            "picked, but stopped -- clicking it again has a clock to start, so it is not a click that means nothing"
+        )
+    }
+
+    func testStartingTheSameCategoryAgainStillStartsFromZero() {
+        // `start` is unconditional by design: it is the caller that declines to call it while the clock is
+        // already running on the category (`isTiming`), because that click also has a face write behind it and
+        // a `start` that quietly did nothing would report having started something.
         let session = session()
         session.start(categoryID: 7)
         advance(45)

@@ -110,6 +110,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// first, then the clock starts, so no time can be recorded against the category that was there before.
     private func startTiming(_ category: CategoryRecord) {
         guard let session, let faces else { return }
+        // Already timing this one, so the click has nothing to ask for: the clock is where it should be, and
+        // restarting it would put the figure back to zero and lose the seconds it held. Ahead of the face
+        // write as well as the clock, since the face already holds this category too.
+        //
+        // Recorded even though nothing happened. A click that deliberately did nothing and a click that never
+        // landed look identical afterwards unless one of them leaves a row, and telling those apart is the
+        // difference between this working and the list having stopped responding.
+        if session.isTiming(category.id) {
+            debugLog?.record(.mode, "Timing: already timing \"\(category.name)\", so the click changes nothing")
+            return
+        }
         guard faces.assign(categoryID: category.id, toFace: ManualFace.id) else {
             debugLog?.record(.mode, "Timing: face \(ManualFace.id) refused category \"\(category.name)\"")
             return

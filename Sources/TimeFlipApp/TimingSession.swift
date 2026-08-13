@@ -31,11 +31,25 @@ final class TimingSession {
         self.now = now
     }
 
+    /// Whether the clock is running on this category right now, which is the one case where picking it
+    /// again means nothing.
+    ///
+    /// Asked by the caller rather than folded into `start`, because picking a category is more than the
+    /// clock -- the face is written too -- and a `start` that quietly did nothing would still report having
+    /// started something.
+    func isTiming(_ categoryID: Int) -> Bool {
+        isRunning && self.categoryID == categoryID
+    }
+
     /// Starts timing `categoryID`, from zero.
     ///
-    /// Any previous session ends here, banked time and all. Picking a category is an instruction to time
-    /// *that*, whether something else was running, the same thing was running, or nothing was -- so it is
-    /// one path rather than three, and there is no state in which picking a category does nothing.
+    /// Any previous session ends here, banked time and all: picking a category is an instruction to time
+    /// *that*, whether something else was running or nothing was.
+    ///
+    /// **The clock already running on this same category is the exception, and it is the caller's to make**
+    /// -- see `isTiming(_:)`. Restarting it would throw away the seconds it holds for a click that asked for
+    /// nothing to change, and the figure beside it is meant to be the category's total for the day (see
+    /// `Archive/TimeFlipApp/AppState.replaceDailyTotals`), which nothing makes smaller.
     func start(categoryID: Int) {
         self.categoryID = categoryID
         banked = 0
