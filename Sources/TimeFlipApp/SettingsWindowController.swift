@@ -65,6 +65,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// leaves behind, and worth being able to test apart.
     private let deviceEvents: DeviceEventRecorder?
 
+    /// How much time the category being timed has today. `nil` draws zero, which is what a layout test wants.
+    private let dayTotal: DayTotal?
+
     /// Redraws the elapsed time while the window is open. Only while it is open: a clock nobody can see does
     /// not need repainting, and the session's elapsed time is worked out from when it started rather than
     /// counted up, so nothing is lost by not ticking.
@@ -75,13 +78,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         categories: CategoryStore?,
         faces: FaceStore?,
         session: TimingSession?,
-        deviceEvents: DeviceEventRecorder? = nil
+        deviceEvents: DeviceEventRecorder? = nil,
+        dayTotal: DayTotal? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
         self.faces = faces
         self.session = session
         self.deviceEvents = deviceEvents
+        self.dayTotal = dayTotal
         super.init()
     }
 
@@ -97,14 +102,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         redrawTiming()
     }
 
-    /// Draws the session: which category from the database, whether it is running from the session.
+    /// Draws the session: which category, whether it is running, and how much time that category has.
     ///
     /// The category comes from the `face` table every time rather than being remembered from the click that
     /// started it -- so a category renamed or recoloured elsewhere shows correctly here, and there is only ever
-    /// one answer to what is being timed.
+    /// one answer to what is being timed. **Which** face is read is itself a question, since manual mode
+    /// rotates: the one the current segment is on, which is the one the last segment it recorded used.
     ///
-    /// **Which** face is read is itself a question, since manual mode rotates: the one the current segment is
-    /// on, which is the one the last segment it recorded used.
+    /// **The figure is the category's total for the day, not this session's stopwatch.** That is what the
+    /// previous app drew, and it is the difference between a number that means something and one that resets
+    /// whenever the app is relaunched: pick a category up again after lunch and its morning is still there. It
+    /// comes from `DayTotal`, which reads it rather than counting it.
     private func redrawTiming() {
         guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
         guard let session, let faces, let categories else {
@@ -115,7 +123,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.timingView.show(
             category: assigned,
             state: ManualTimerRules.state(categoryID: assigned == nil ? nil : session.categoryID, isRunning: session.isRunning),
-            elapsed: session.elapsed
+            elapsed: assigned.map { dayTotal?.seconds(categoryID: $0.id) ?? 0 } ?? 0
         )
     }
 

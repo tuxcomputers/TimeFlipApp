@@ -173,18 +173,18 @@ final class DeviceEventRecorder {
         let ran = connection.execute(
             """
             UPDATE device_event SET duration_seconds = \(duration), finalised = 1
-            WHERE device_event_id = \(open.rowID);
+            WHERE device_event_id = \(open.deviceEventID);
             """
         )
         guard ran, connection.changes > 0 else {
-            debugLog?.record(.event, "device_event failed to close id=\(open.rowID)")
+            debugLog?.record(.event, "device_event failed to close id=\(open.deviceEventID)")
             return nil
         }
-        debugLog?.record(.event, "device_event closed id=\(open.rowID) after \(Int(duration))s")
+        debugLog?.record(.event, "device_event closed id=\(open.deviceEventID) after \(Int(duration))s")
         // The segment has finished, so the entry question is now answerable. Pausing is the path that brought
         // this here, and the row it just closed is the stretch that either counts or was too short to.
-        handOver([open.rowID])
-        return Outcome(deviceEventID: open.rowID, isOpen: false, wasInserted: false, closedRows: 1)
+        handOver([open.deviceEventID])
+        return Outcome(deviceEventID: open.deviceEventID, isOpen: false, wasInserted: false, closedRows: 1)
     }
 
     /// Brings the open segment up to date, as of `moment`, without closing it. `nil` when nothing is open.
@@ -247,16 +247,29 @@ final class DeviceEventRecorder {
 
     // MARK: - what is already on record
 
-    /// The row that is still open, if there is one, with everything needed to report it again. More than one is
-    /// a fault; the newest wins here and the close-out in `insert` is what sweeps up the rest.
-    private func openSegment() -> (rowID: Int, eventNumber: Int, face: Int, startEpoch: Int, isPaused: Bool)? {
-        var found: (rowID: Int, eventNumber: Int, face: Int, startEpoch: Int, isPaused: Bool)?
+    /// The segment still open: what is happening right now, as far as the table is concerned.
+    struct OpenSegment: Equatable {
+        let deviceEventID: Int
+        let eventNumber: Int
+        let face: Int
+        let startEpoch: Int
+        let isPaused: Bool
+    }
+
+    /// The row that is still open, if there is one, with everything needed to report it again or to add its
+    /// time to a total. More than one is a fault; the newest wins here and the close-out in `insert` is what
+    /// sweeps up the rest.
+    ///
+    /// Internal because a running segment has no `time_entry` yet, so anything summing a category's time has to
+    /// add this on top -- which is also what stops it being counted twice.
+    func openSegment() -> OpenSegment? {
+        var found: OpenSegment?
         connection.forEachRow(
             "SELECT device_event_id, event_number, device_face, start_epoch, paused FROM device_event "
                 + "WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
         ) { row in
-            found = (
-                rowID: Int(row.int(0)),
+            found = OpenSegment(
+                deviceEventID: Int(row.int(0)),
                 eventNumber: Int(row.int(1)),
                 face: Int(row.int(2)),
                 startEpoch: Int(row.int(3)),

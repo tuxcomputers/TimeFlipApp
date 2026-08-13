@@ -88,6 +88,14 @@ let deviceEvents = DeviceEventRecorder(
     debugLog: debugLog
 )
 
+// What the Timing column draws: the category's total for the day, read every time rather than counted.
+let dayTotal = DayTotal(
+    settings: settings,
+    entries: TimeEntryStore(connection: database),
+    events: deviceEvents,
+    faces: faces
+)
+
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
 // immediately and the app then ends without running any of it, silently.
@@ -100,7 +108,8 @@ let settingsWindow = SettingsWindowController(
     categories: categories,
     faces: faces,
     session: timingSession,
-    deviceEvents: deviceEvents
+    deviceEvents: deviceEvents,
+    dayTotal: dayTotal
 )
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the
