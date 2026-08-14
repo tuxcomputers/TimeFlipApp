@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (518 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (563 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -19,7 +19,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
 - [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, renamed, given an icon, a colour or a limit, retired or brought back. Its cost and its project still cannot be changed.
-- [ ] **[Report tab](#report-tab)**: nothing so far.
+- [ ] **[Report tab](#report-tab)**: the date range is there, as two hand-drawn calendars. Nothing reads the range yet.
 - [ ] **[App tab](#app-tab)**: the App settings section is built and all six rows write to the database.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
 
@@ -124,7 +124,13 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 
 ## Report tab
 
-Nothing so far.
+### Done, in the order it was built
+
+- [x] **The date range**, as two calendars drawn by hand rather than two date pickers ([ReportPane.swift](../Sources/TimeFlipApp/ReportPane.swift), [ReportCalendar.swift](../Sources/TimeFlipApp/ReportCalendar.swift), [ReportCalendarGrid.swift](../Sources/TimeFlipApp/ReportCalendarGrid.swift), [ReportCalendarMetrics.swift](../Sources/TimeFlipApp/ReportCalendarMetrics.swift), [ReportRangeRules.swift](../Sources/TimeFlipApp/ReportRangeRules.swift)). The archive established by measurement that neither `NSDatePicker` nor SwiftUI's `DatePicker` can do the two things this screen needs: draw the selected span bold across **both** calendars, and stop the month arrows at the last month holding a selectable day (a date bound governs which days can be *selected*, not which month is *displayed*). The grid arithmetic came across as it stood, being pure and already right; the drawing is new, AppKit rather than SwiftUI.
+  - **The end starts unset**, which is the common case said in one click: pick a day on the left and the report covers that day. The To calendar cannot reach a day before the start, so an inverted range is unreachable rather than rejected, and the tab has no error state for one.
+  - **Both stop at today**, this being a time recorder rather than a time planner: a future day could only ever answer "nothing tracked", which is indistinguishable from a real day on which nothing was.
+  - Every size inside a calendar is a ratio of the day cell, and the cell is whatever divides the width the tab is given into seven columns, so a resize cannot leave 17pt digits in a 28pt cell. The floor is the archive's fixed 28pt.
+  - **Nothing reads the range yet.** The totals under it are the next piece of work, and they need the day boundary (`DayWindow`) and a read of `time_entry` behind them rather than names put on screen to fill the space.
 
 ### Still to do
 

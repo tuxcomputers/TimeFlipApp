@@ -212,6 +212,13 @@ then the sheet's own buttons are ordinary named elements (`action-button-1` is t
   clicking it on screen and reading `debug_log`.** A knock-on effect worth expecting: a label inside a button
   stops appearing in `ax-dump.py` as an element of its own, the button absorbing it, so match the button.
 
+- **A view pinned top *and* bottom can be stretched, and nothing fails when it is.** The Report tab's calendars were
+  pinned to both edges of the row holding them, and a calendar's height is decided from the inside, so the whole chain
+  became elastic: the row filled the tab, the box filled the row, and the stack inside spread its three rows 147pt
+  apart. The constraints were satisfiable, so there was no broken-constraint log and `swift test` was green. Pin one
+  edge and let the content decide the other. **`ax-dump.py --frames` is how this was found** -- a box 564pt tall where
+  327pt was expected is obvious in the frames and invisible in the tree.
+
 - **A hidden view keeps its height.** Auto Layout ignores `isHidden`; only an `NSStackView` collapses a hidden
   *arranged* subview. So folding a section by hiding its list leaves the list's full height behind, which shows up
   as blank space rather than as a fault. `CategorySection` swaps the constraint pinning its bottom edge instead.

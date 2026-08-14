@@ -43,6 +43,8 @@ final class DebugLog {
         case entry
         /// A value typed or stepped into a field, and what became of it.
         case field
+        /// The Report tab's date range: which days are picked, and which month a calendar is showing.
+        case report
         /// The steps the app takes on its way out (`QuitSequence`).
         case quit
 

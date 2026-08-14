@@ -148,6 +148,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // staying on it. See the source-of-truth rule in `CLAUDE.md`.
             wire(pane)
 
+        case let pane as ReportPane:
+            // Nothing to read: the range is a question somebody is asking, not a setting. Today moves, though, and
+            // today is what both calendars are bounded by, so a window left open across midnight gets the new bounds
+            // when the tab is next shown rather than going on refusing today.
+            pane.refresh()
+
         default:
             break
         }
@@ -930,6 +936,39 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         return faces
     }
 
+    /// The Report tab's date range.
+    ///
+    /// Nothing is read or written here yet: the range is a question, not a setting, and what answers it -- the totals
+    /// under the calendars -- is the next piece of work. What the window does with it now is write down what was
+    /// picked, so a step driving the app can see a click land the way it can everywhere else.
+    private func makeReportPane() -> ReportPane {
+        let report = ReportPane()
+        report.onRangeChange = { [weak self] start, end in
+            self?.debugLog?.record(
+                .report,
+                "Report range \(Self.day(start)) -> \(end.map(Self.day) ?? "not set, reporting one day")"
+            )
+        }
+        report.onShowMonth = { [weak self] calendar, month in
+            self?.debugLog?.record(.report, "\(calendar) calendar showing \(Self.month(month))")
+        }
+        return report
+    }
+
+    /// Local `yyyy-MM-dd` for the log, so a logged range reads against the timestamps around it rather than as an
+    /// epoch.
+    private static func day(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private static func month(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM"
+        return formatter.string(from: date)
+    }
+
     /// Points a create control at the rules and the writer, wherever it is drawn.
     ///
     /// Both tabs offer one and both end here: the Faces tab because that is where the list is picked from, so it is
@@ -1092,8 +1131,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case .faces: pane = makeFacesPane()
         case .categories: pane = CategoriesPane()
         case .app: pane = AppSettingsPane()
-        // Empty, and each becomes its own view when there is something to put in it.
-        case .report, .device: pane = NSView()
+        case .report: pane = makeReportPane()
+        // Empty, and it becomes its own view when there is something to put in it.
+        case .device: pane = NSView()
         }
         // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
         // its autoresizing frame rather than being pinned by constraints from out here.
