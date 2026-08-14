@@ -93,16 +93,16 @@ final class CategoryStoreTests: XCTestCase {
     func testTwoRowsSharingANameAreBrokenOnID() {
         // Legitimate: a category created alongside retired namesakes. Left to an unstable sort, the list
         // could come back in a different order each time it was read.
-        let first = CategoryRecord(id: 4, name: "Reading", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
-        let second = CategoryRecord(id: 9, name: "Reading", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let first = CategoryRecord(id: 4, name: "Reading", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let second = CategoryRecord(id: 9, name: "Reading", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
 
         XCTAssertTrue(CategoryRecord.displayOrder(first, second))
         XCTAssertFalse(CategoryRecord.displayOrder(second, first))
     }
 
     func testTheSameNumberWrittenTwoWaysStillOrdersStably() {
-        let padded = CategoryRecord(id: 9, name: "01", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
-        let plain = CategoryRecord(id: 4, name: "1", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let padded = CategoryRecord(id: 9, name: "01", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let plain = CategoryRecord(id: 4, name: "1", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
 
         // Equal as numbers and equal to localizedStandardCompare, so the id decides.
         XCTAssertTrue(CategoryRecord.displayOrder(plain, padded))
@@ -298,5 +298,55 @@ final class CategoryStoreTests: XCTestCase {
 
     func testSettingTheDailyLimitOfACategoryThatIsNotThereIsRefused() {
         XCTAssertFalse(categories.setDailyLimit(id: 9_999, minutes: 30))
+    }
+
+    // MARK: - the colour
+
+    func testACategoryCreatedHereStartsWithNoColour() throws {
+        // A category is named first and dressed afterwards, so the insert takes the None rows for both columns. The
+        // two seeded ones arrive dressed (`database/007_category.sql` gives Break red and Meeting cyan), which is why
+        // this asks about one it made rather than about the whole table.
+        let id = try XCTUnwrap(categories.insert(name: "Admin"))
+
+        let category = try XCTUnwrap(categories.category(id: id))
+        XCTAssertEqual(category.colourID, 0)
+        XCTAssertNil(category.colour)
+    }
+
+    func testASeededColourIsReadBackAsTheColourItNames() throws {
+        let meeting = try XCTUnwrap(categories.activeCategories().first { $0.name == "Meeting" })
+
+        XCTAssertEqual(meeting.colourID, 13)
+        let rgb = try XCTUnwrap(meeting.colour?.usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb.greenComponent, 1, accuracy: 0.001, "Cyan, #00ffff")
+        XCTAssertEqual(rgb.blueComponent, 1, accuracy: 0.001)
+    }
+
+    func testSettingTheColourIsReadBackAsBothTheIDAndTheColour() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first?.id)
+
+        XCTAssertTrue(categories.setColour(id: id, colourID: 15))
+
+        let category = try XCTUnwrap(categories.category(id: id))
+        // Both, because they answer different questions: which palette entry it is, for the picker to tick, and what
+        // to draw, for the swatch.
+        XCTAssertEqual(category.colourID, 15)
+        let rgb = try XCTUnwrap(category.colour?.usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb.blueComponent, 128.0 / 255, accuracy: 0.001, "Navy, #000080")
+    }
+
+    func testClearingTheColourGoesBackToNone() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first?.id)
+        XCTAssertTrue(categories.setColour(id: id, colourID: 15))
+
+        XCTAssertTrue(categories.setColour(id: id, colourID: CategoryEditRules.noColour))
+
+        // The None row rather than a null, so the foreign key holds either way, and nothing to draw.
+        XCTAssertEqual(categories.category(id: id)?.colourID, 0)
+        XCTAssertNil(categories.category(id: id)?.colour)
+    }
+
+    func testSettingTheColourOfACategoryThatIsNotThereIsRefused() {
+        XCTAssertFalse(categories.setColour(id: 9_999, colourID: 15))
     }
 }

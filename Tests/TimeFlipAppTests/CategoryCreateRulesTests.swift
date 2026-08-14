@@ -8,7 +8,7 @@ import XCTest
 /// bringing a retired category back with its history and leaving two identical rows in every report.
 final class CategoryCreateRulesTests: XCTestCase {
     private func category(_ id: Int, _ name: String, active: Bool) -> CategoryRecord {
-        CategoryRecord(id: id, name: name, iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: active)
+        CategoryRecord(id: id, name: name, iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: active)
     }
 
     /// Stands in for `CategoryStore.matching`, including its guarantee that an active match sorts first.

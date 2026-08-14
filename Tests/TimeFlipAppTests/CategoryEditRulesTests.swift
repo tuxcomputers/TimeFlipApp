@@ -46,6 +46,24 @@ final class CategoryEditRulesTests: XCTestCase {
         XCTAssertEqual(CategoryEditRules.iconSelection(clicked: 7, selected: CategoryEditRules.noIcon), 7)
     }
 
+    // MARK: - picking a colour
+
+    func testPickingAColourStoresIt() {
+        XCTAssertEqual(CategoryEditRules.colourSelection(clicked: 14, selected: 4), 14)
+    }
+
+    func testPickingTheColourAlreadyChosenClearsIt() {
+        // The same rule as the icon column, and for the same reason: `colour_id` 0 is a sentinel row with no hex, so
+        // there is nothing to draw in a list row for it, and a list that could only ever set a colour would make "no
+        // colour" a state a category could leave but never return to.
+        XCTAssertEqual(CategoryEditRules.colourSelection(clicked: 14, selected: 14), CategoryEditRules.noColour)
+        XCTAssertEqual(CategoryEditRules.noColour, 0)
+    }
+
+    func testPickingOneWhenThereIsNoColourStoresIt() {
+        XCTAssertEqual(CategoryEditRules.colourSelection(clicked: 14, selected: CategoryEditRules.noColour), 14)
+    }
+
     // MARK: - bringing one back
 
     private func category(_ id: Int, _ name: String, isActive: Bool) -> CategoryRecord {
@@ -53,6 +71,7 @@ final class CategoryEditRulesTests: XCTestCase {
             id: id,
             name: name,
             iconName: nil,
+            colourID: 0,
             colour: nil,
             usesWhiteLines: false,
             dailyLimitMinutes: 0,

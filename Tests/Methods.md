@@ -144,12 +144,55 @@ Used to confirm the daily-limit arrows accelerate. **Read the result from `debug
 final value**, since the timing is the thing being checked: the rows showed 5 immediately, 6 after
 0.403s, then 7, 8, 9, 10 at ~0.104s, then 15, 20, 25 at ~0.304s.
 
+<a id="method-9"></a>
+## Method 9: Click a point on screen
+
+For anything that cannot be pressed by name, a popover's contents above all. Screenshot the region, work out
+the point, and post real events there:
+
+```python
+import Quartz, time, subprocess
+from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
+pid = int(subprocess.check_output(["pgrep", "-x", "TimeFlip"]).split()[0])
+NSRunningApplication.runningApplicationWithProcessIdentifier_(pid).activateWithOptions_(
+    NSApplicationActivateIgnoringOtherApps)                      # or the click only activates the app
+time.sleep(0.4)
+def post(kind, x, y):
+    e = Quartz.CGEventCreateMouseEvent(None, kind, (x, y), Quartz.kCGMouseButtonLeft)
+    Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, 1)   # 0 is ignored by AppKit
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+post(Quartz.kCGEventMouseMoved, x, y); time.sleep(0.2)
+post(Quartz.kCGEventLeftMouseDown, x, y); time.sleep(0.15)
+post(Quartz.kCGEventLeftMouseUp, x, y)
+```
+
+`screencapture -R x,y,w,h` takes points and writes a 2x image on a retina display, so a feature at image
+`(px, py)` is at `(x + px/2, y + py/2)`. Confirmed against `AXPosition`: they are the same space.
+
+Two things make a click land and do nothing, both silently:
+
+- **The app must be activated first.** A window of an inactive app swallows the first click as activation, and
+  `AXPress` does not activate anything -- so a picker opened by a script is showing while every click into it
+  is thrown away.
+- **`kCGMouseEventClickState` must be set to 1.** Left at 0 the event is posted and the pointer moves, and
+  AppKit does not treat it as a click.
+
 ## Notes that have cost time
 
-- **A popover is invisible to accessibility.** The icon picker is not in the app's `AXWindows`, not in its
-  `AXChildren`, and not under the window that opened it, so `ax-dump.py` shows nothing and `ax-press.py`
-  cannot press a cell by name. Screenshot it, work out the cell's screen position, and click there with a
-  real mouse event ([Method 8](#method-8) posts them). The click that *opens* it is an ordinary named press.
+- **A popover is invisible to accessibility.** The icon picker and the colour list are not in the app's
+  `AXWindows`, not in its `AXChildren`, and not under the window that opened them, so `ax-dump.py` shows nothing
+  and `ax-press.py` cannot press a cell by name. Click them by position ([Method 9](#method-9)). The click that
+  *opens* one is an ordinary named press.
+
+- **A button behind a label is never pressed.** A click on an `NSTextField` label goes up the responder chain to
+  the label's own *superview*, so a borderless button sitting behind it as a **sibling** gets nothing. The row or
+  heading has to **be** the button, with the label and any swatch as its own subviews (`CategoryRowView`,
+  `ColourListRow`, `CategorySection`). This is invisible from a screenshot and from the accessibility tree, and
+  `swift test` cannot see it either -- `performClick` presses the button directly, so a test passes on a control
+  no mouse can reach. It shipped once: the Categories headings drew correctly and folded when the space *after*
+  the words was clicked, while a click on "Inactive" itself did nothing at all. **Check a click target by
+  clicking it on screen and reading `debug_log`.** A knock-on effect worth expecting: a label inside a button
+  stops appearing in `ax-dump.py` as an element of its own, the button absorbing it, so match the button.
 
 - **Never post Escape (key code 53) while driving this app.** It reaches whatever has focus, and if that
   is not the app it interrupts the session driving it. There is nothing in this app that needs it: the

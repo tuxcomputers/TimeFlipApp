@@ -10,9 +10,9 @@ import AppKit
 /// x on every row whatever the name's length, and a 46pt colour column, wide enough for the caption above it
 /// (`Archive/TimeFlipApp/SettingsLayoutConstants.CategoryList`).
 ///
-/// **The columns are the archive's five**: icon, name, colour, daily limit, Active. The last two are live -- the
-/// limit writes `category.daily_limit`, the box retires a category -- and the first three are still readouts, the
-/// pickers behind the icon and the swatch and the inline rename behind the name each being their own piece of work.
+/// **The columns are the archive's five**: Active, icon, name, colour, daily limit. All but the name are live -- the
+/// box retires a category, the icon and the swatch each open a picker, and the limit writes `category.daily_limit`.
+/// The inline rename behind the name is its own piece of work.
 @MainActor
 final class CategoryTable: NSView {
     enum Identifier {
@@ -68,6 +68,9 @@ final class CategoryTable: NSView {
     /// window's to decide, as every other write on this tab is.
     var onPickIcon: ((CategoryRecord, NSView) -> Void)?
 
+    /// Called when a category's colour swatch is clicked, with the view the picker should hang from.
+    var onPickColour: ((CategoryRecord, NSView) -> Void)?
+
     init() {
         super.init(frame: .zero)
         addPanel()
@@ -101,6 +104,7 @@ final class CategoryTable: NSView {
                 row.onSetDailyLimit = { [weak self] minutes in self?.onSetDailyLimit?(category, minutes) }
                 row.onRetire = { [weak self] in self?.onRetire?(category) }
                 row.onPickIcon = { [weak self] anchor in self?.onPickIcon?(category, anchor) }
+                row.onPickColour = { [weak self] anchor in self?.onPickColour?(category, anchor) }
                 rows.addView(row, in: .top)
             }
         }
@@ -194,10 +198,11 @@ final class CategoryTable: NSView {
     }
 }
 
-/// One category as a row of columns: its icon, its name, its colour.
+/// One category as a row of columns: whether it is active, its icon, its name, its colour, its daily limit.
 ///
-/// Not a button. Nothing here is clickable yet, and an `NSButton` would announce itself to the keyboard and to
-/// accessibility as something to press -- which the Faces tab's row genuinely is, and this is not.
+/// **The row itself is not a button**, though several things in it are. The Faces tab's row genuinely is one -- the
+/// whole line picks that category -- and this one is a record with controls along it, so a button here would announce
+/// a press that does nothing to the keyboard and to accessibility.
 @MainActor
 final class CategoryTableRow: NSStackView {
     let category: CategoryRecord
@@ -216,8 +221,12 @@ final class CategoryTableRow: NSStackView {
     /// row is the only thing that knows which view that is.
     var onPickIcon: ((NSView) -> Void)?
 
-    /// Held so the picker can be anchored to it after the click.
+    /// Called when the colour swatch is clicked, with the button itself, for the same reason.
+    var onPickColour: ((NSView) -> Void)?
+
+    /// Held so the pickers can be anchored to them after the click.
     private var iconButton: NSButton?
+    private var colourButton: NSButton?
 
     init(category: CategoryRecord, retireRefusal: CategoryEditRules.RetireRefusal? = nil) {
         self.category = category
@@ -360,8 +369,42 @@ final class CategoryTableRow: NSStackView {
 
     /// The swatch is 14pt in a 46pt column, left-aligned, so the column's own width comes from its caption rather
     /// than from the square: what has to line up is where the *next* column starts.
+    ///
+    /// **A button, because it opens the palette**, as the archive's was. The swatch sits inside it and draws itself:
+    /// an `NSView` handles no mouse event of its own, so a click on the square goes up the responder chain to the
+    /// button holding it -- the same arrangement the folding headings use, and the reason the square can stay a thing
+    /// that only knows how to draw a colour.
     private func swatch() -> NSView {
-        column(ColourSwatch(colour: category.colour), width: CategoryTable.Layout.colourColumnWidth)
+        let button = NSButton()
+        button.title = ""
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.imagePosition = .noImage
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.target = self
+        button.action = #selector(pickColour)
+        button.identifier = NSUserInterfaceItemIdentifier("category-colour-\(category.id)")
+        button.setAccessibilityIdentifier("category-colour-\(category.id)")
+        // Named for what it is rather than for the shade, which the row cannot know: the colour's own name lives in
+        // the `colour` table and the record carries only the colour itself.
+        button.setAccessibilityLabel(category.colour == nil ? "\(category.name) colour, none" : "\(category.name) colour")
+
+        let square = ColourSwatch(colour: category.colour)
+        button.addSubview(square)
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalTo: square.widthAnchor),
+            button.heightAnchor.constraint(equalTo: square.heightAnchor),
+            square.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+            square.topAnchor.constraint(equalTo: button.topAnchor),
+        ])
+        colourButton = button
+        return column(button, width: CategoryTable.Layout.colourColumnWidth)
+    }
+
+    @objc
+    private func pickColour() {
+        guard let colourButton else { return }
+        onPickColour?(colourButton)
     }
 }
 

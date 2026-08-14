@@ -57,6 +57,21 @@ enum CategoryEditRules {
     /// The `icon_id` meaning no icon at all, which is what every category starts with.
     static let noIcon = 0
 
+    /// The `colour_id` a click on the colour list should store.
+    ///
+    /// **The same rule as `iconSelection`, and named for its own column rather than shared with it.** Both columns
+    /// clear by re-picking what is already set, and both have a None row at id 0 that no cell offers -- but they are
+    /// two independent decisions about two different tables, and one of them changing later should not have to be
+    /// untangled from the other first. What they do share is the sentence above, so a call site reads the same way
+    /// whichever it is asking about.
+    static func colourSelection(clicked colourID: Int, selected selectedColourID: Int) -> Int {
+        colourID == selectedColourID ? noColour : colourID
+    }
+
+    /// The `colour_id` meaning no colour at all, which is what every category starts with. The seeded *None* row,
+    /// which is a real row rather than a null, so the foreign key holds when a colour is cleared.
+    static let noColour = 0
+
     /// Whether a retired category can come back, and what stops it.
     enum ReinstateDecision: Equatable {
         case reinstate

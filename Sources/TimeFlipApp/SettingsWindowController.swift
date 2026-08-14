@@ -69,9 +69,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The artwork a category can be given. A reference table, so this only ever reads.
     private let icons: IconStore?
 
+    /// The palette a category can be given. A reference table, so this only ever reads.
+    private let colours: ColourStore?
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
+
+    /// The colour list while it is open, held for the same two reasons.
+    private var colourPicker: NSPopover?
 
     /// Called when this window changes what is being timed, so the status item can repaint at the same moment.
     ///
@@ -92,7 +98,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         deviceEvents: DeviceEventRecorder? = nil,
         timing: TimingReadout? = nil,
         entries: TimeEntryStore? = nil,
-        icons: IconStore? = nil
+        icons: IconStore? = nil,
+        colours: ColourStore? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -101,6 +108,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.timing = timing
         self.entries = entries
         self.icons = icons
+        self.colours = colours
         super.init()
     }
 
@@ -150,6 +158,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         pane.activeTable.onPickIcon = { [weak self] category, anchor in
             self?.pickIcon(for: category, from: anchor)
+        }
+        pane.activeTable.onPickColour = { [weak self] category, anchor in
+            self?.pickColour(for: category, from: anchor)
         }
         // Read per row as the Inactive list is drawn, which is why it is a closure rather than a field on the record:
         // an active category draws no date at all, so joining it onto every category read would cost a subquery on
@@ -201,6 +212,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             "Category \"\(category.name)\" icon -> icon_id \(iconID)\(stored ? "" : " REFUSED")"
         )
         // Read back, which is what redraws the row's icon: this changes what a row says about itself rather than a
+        // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
+        reloadSelectedPane()
+    }
+
+    /// Opens the palette under a category's swatch, on the same terms as the icon grid: a popover belonging to the row
+    /// it was opened from, closing on the one choice it exists to take.
+    private func pickColour(for category: CategoryRecord, from anchor: NSView) {
+        guard let colours else { return }
+        let list = ColourList(colours: colours.all(), selected: category.colourID)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSViewController()
+        popover.contentViewController?.view = list
+        list.onPick = { [weak self, weak popover] colourID in
+            popover?.close()
+            self?.setColour(colourID, on: category)
+        }
+        colourPicker = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+    }
+
+    /// Stores a category's colour, which includes clearing it: re-clicking the colour a category already has answers
+    /// `0`, and that is a write like any other (see `CategoryEditRules.colourSelection`).
+    private func setColour(_ colourID: Int, on category: CategoryRecord) {
+        guard let categories else { return }
+        let stored = categories.setColour(id: category.id, colourID: colourID)
+        debugLog?.record(
+            .click,
+            "Category \"\(category.name)\" colour -> colour_id \(colourID)\(stored ? "" : " REFUSED")"
+        )
+        // Read back, which is what redraws the row's swatch: this changes what a row says about itself rather than a
         // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
         reloadSelectedPane()
     }

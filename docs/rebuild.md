@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (395 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (426 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -18,7 +18,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
-- [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, given a limit, retired or brought back. What a category *is* -- its name, icon, colour, cost, project -- still cannot be changed.
+- [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, given an icon, a colour or a limit, retired or brought back. Its name, its cost and its project still cannot be changed.
 - [ ] **[Report tab](#report-tab)**: nothing so far.
 - [ ] **[App tab](#app-tab)**: nothing so far.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
@@ -111,10 +111,11 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 - [x] **Creating against a retired namesake asks** rather than deciding: a dialogue naming the category, saying how many share the name, and offering Reactivate, Create new one, and Cancel. With more than one retired namesake the Reactivate button is absent, there being no answer to which of them was meant -- and the count is what says why.
 - [x] **The icon picker** ([IconGrid.swift](../Sources/TimeFlipApp/IconGrid.swift), [IconStore.swift](../Sources/TimeFlipApp/IconStore.swift)): the row's icon opens a popover of the 42 seeded icons, six wide, which is what lays them out as an even 6 by 7 with nothing to scroll. Re-clicking the icon a category already has clears it, which is the archive's rule and the reason a grid with no None cell can still unset one.
 
+- [x] **The colour picker** ([ColourList.swift](../Sources/TimeFlipApp/ColourList.swift), [ColourStore.swift](../Sources/TimeFlipApp/ColourStore.swift)): the row's swatch opens a popover of the 20 seeded colours, in the palette's own order rather than alphabetically, each with its name beside it. A list rather than a grid, which is the archive's shape and its reasoning: an icon is recognisable as a picture and a colour is not, so "Maroon" and "Brown" need the word to tell them apart. Re-clicking the colour a category already has clears it, as the icon grid does.
+
 ### Still to do
 
 - [ ] **Renaming a category.**
-- [ ] **Choosing a colour** (`colour`, likewise, including its `white_lines` flag for dark colours).
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
 - [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
 

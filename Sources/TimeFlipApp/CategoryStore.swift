@@ -8,6 +8,12 @@ struct CategoryRecord: Equatable {
     /// The artwork's filename, or `nil` for the None icon (`icon_id` 0) -- a sentinel row rather than a
     /// bundled asset, so there is nothing to draw.
     let iconName: String?
+    /// The row stored against the category, `0` being the seeded *None*.
+    ///
+    /// Carried as well as the colour itself because the two answer different questions: `colour` is what to draw, and
+    /// this is *which* palette entry it is -- which is what the picker needs to tick and what re-picking clears. The
+    /// icon column needs no equivalent, its filename being both at once.
+    let colourID: Int
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
     let colour: NSColor?
     /// From the colour's own row: `true` for colours dark enough to swallow a black glyph, so the icon
@@ -139,7 +145,7 @@ final class CategoryStore {
         connection.forEachRow(
             """
             SELECT c.category_id, c.category_name, i.icon_name, l.device_hex, l.white_lines, c.active,
-                   c.daily_limit
+                   c.daily_limit, c.colour_id
               FROM category c
               JOIN icon i ON i.icon_id = c.icon_id
               JOIN colour l ON l.colour_id = c.colour_id
@@ -155,6 +161,7 @@ final class CategoryStore {
                     name: row.string(1) ?? "",
                     // The None row is named "None" rather than left null, so the name is the sentinel.
                     iconName: iconName == "None" ? nil : iconName,
+                    colourID: Int(row.int(7)),
                     colour: row.string(3).flatMap(NSColor.init(hex:)),
                     usesWhiteLines: row.bool(4),
                     dailyLimitMinutes: Int(row.int(6)),
@@ -221,6 +228,16 @@ final class CategoryStore {
     func setIcon(id: Int, iconID: Int) -> Bool {
         connection.execute(
             "UPDATE category SET icon_id = \(iconID) WHERE category_id = \(id);"
+        ) && connection.changes > 0
+    }
+
+    /// Sets a category's colour, and reports whether it took.
+    ///
+    /// `0` is the seeded *None* row, which is how a colour is cleared: a real row in `colour` rather than a null, so
+    /// the foreign key holds either way. The same shape as `setIcon` for the same reason.
+    func setColour(id: Int, colourID: Int) -> Bool {
+        connection.execute(
+            "UPDATE category SET colour_id = \(colourID) WHERE category_id = \(id);"
         ) && connection.changes > 0
     }
 

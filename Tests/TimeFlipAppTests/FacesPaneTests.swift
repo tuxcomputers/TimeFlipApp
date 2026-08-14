@@ -73,7 +73,7 @@ final class FacesPaneTests: XCTestCase {
     func testCreateSitsUnderTheListAtTheColumnsLeadingEdge() {
         let pane = laidOutPane()
         pane.show([
-            CategoryRecord(id: 1, name: "Break", iconName: nil, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true),
+            CategoryRecord(id: 1, name: "Break", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true),
         ])
         pane.layoutSubtreeIfNeeded()
 

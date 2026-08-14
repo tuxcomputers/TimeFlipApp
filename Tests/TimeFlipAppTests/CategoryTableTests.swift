@@ -15,17 +15,26 @@ final class CategoryTableTests: XCTestCase {
         _ name: String,
         icon: String? = "ic_break",
         colour: NSColor? = .red,
+        colourID: Int = 0,
         limit: Int = 0
     ) -> CategoryRecord {
         CategoryRecord(
             id: id,
             name: name,
             iconName: icon,
+            colourID: colourID,
             colour: colour,
             usesWhiteLines: false,
             dailyLimitMinutes: limit,
             isActive: true
         )
+    }
+
+    /// Every view under `root`, at any depth. Recursive rather than a fixed chain of `flatMap`s, per the note in
+    /// `Tests/Methods.md`: a column that grows a wrapper -- the swatch gaining the button that opens the palette --
+    /// should not make a test fail for the depth it sits at.
+    private func descendants(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
     private func rows(of table: CategoryTable) -> [CategoryTableRow] {
@@ -178,6 +187,50 @@ final class CategoryTableTests: XCTestCase {
         XCTAssertNil(box.toolTip)
     }
 
+    // MARK: - the colour swatch
+
+    private func swatchButton(of row: CategoryTableRow) -> NSButton? {
+        descendants(of: row).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier().hasPrefix("category-colour-") }
+    }
+
+    func testClickingTheSwatchAsksForThePaletteAnchoredToIt() throws {
+        let table = CategoryTable()
+        var asked: (name: String, anchor: NSView)?
+        table.onPickColour = { asked = ($0.name, $1) }
+        table.show([category(1, "Break")])
+        let row = try XCTUnwrap(rows(of: table).first)
+
+        let button = try XCTUnwrap(swatchButton(of: row))
+        button.performClick(nil)
+
+        XCTAssertEqual(asked?.name, "Break")
+        // The button itself, not the row: a popover has to hang under the square that was clicked, and this list is
+        // the only thing that knows which view that is.
+        XCTAssertIdentical(asked?.anchor, button)
+    }
+
+    func testTheSwatchIsInsideTheButtonSoAClickOnTheSquareCounts() throws {
+        let table = CategoryTable()
+        table.show([category(1, "Break")])
+        let row = try XCTUnwrap(rows(of: table).first)
+
+        let button = try XCTUnwrap(swatchButton(of: row))
+        // Drawn by the square, pressed by the button around it. `ColourSwatch` handles no mouse event of its own, so
+        // a click on it reaches the button holding it.
+        XCTAssertTrue(button.subviews.contains { $0 is ColourSwatch })
+        XCTAssertFalse(button.isBordered, "a bordered button here would read as a control in a column of readings")
+    }
+
+    func testASwatchWithNoColourSaysSoOutLoud() throws {
+        let table = CategoryTable()
+        table.show([category(1, "Break", colour: nil), category(2, "Meeting", colour: .red)])
+
+        let labels = rows(of: table).compactMap { swatchButton(of: $0)?.accessibilityLabel() }
+        // Nothing on screen distinguishes a hollow square from a pale one to a screen reader.
+        XCTAssertEqual(labels, ["Break colour, none", "Meeting colour"])
+    }
+
     func testTheColumnsLineUpWithTheirCaptions() throws {
         let table = CategoryTable()
         table.show([category(1, "Break"), category(2, "A much longer category name than the first")])
@@ -189,7 +242,7 @@ final class CategoryTableTests: XCTestCase {
         // cannot turn this into an assertion about something else.
         let swatchColumns = rows(of: table).map { row -> CGFloat? in
             row.subviews
-                .first { $0.subviews.contains { $0 is ColourSwatch } }
+                .first { descendants(of: $0).contains { $0 is ColourSwatch } }
                 .map { row.convert($0.frame.origin, to: table).x }
         }
         XCTAssertEqual(swatchColumns.count, 2)
@@ -285,12 +338,16 @@ final class CategoryTableTests: XCTestCase {
         pane.layoutSubtreeIfNeeded()
 
         let section = pane.activeSection!
+        // Inside the heading button rather than beside it, which is what makes a click on the word fold the section.
         let heading = try XCTUnwrap(
-            section.subviews.first { $0.accessibilityIdentifier() == CategoriesPane.Identifier.activeHeading }
+            descendants(of: section).first { $0.accessibilityIdentifier() == CategoriesPane.Identifier.activeHeading }
         )
         let table = pane.activeTable
+        // Converted, because the label is measured in its button's space and the table in the section's: comparing
+        // the two directly does not error, it just answers about different origins (see `Tests/Methods.md`).
+        let headingFrame = section.convert(heading.bounds, from: heading)
         XCTAssertLessThan(
-            table.frame.maxY, heading.frame.minY,
+            table.frame.maxY, headingFrame.minY,
             "the list is below the heading: in this coordinate space, lower means a smaller y"
         )
         XCTAssertEqual(table.frame.width, section.frame.width, "the list spans the section")
