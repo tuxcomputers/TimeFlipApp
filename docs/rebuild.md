@@ -139,7 +139,6 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 - [ ] **Totals**, per category and eventually per project.
 - [ ] **Costs** (`time_entry.total_cost`).
 - [ ] **A calendar view** of the recorded time.
-- [ ] **Google Calendar sync** (`google_account`, `time_entry.synced_to_google_calendar`).
 
 ## App tab
 
@@ -180,6 +179,11 @@ The section is built and every row writes. Several of these settings were alread
 - [ ] **The BLE driver**, which is all of it: scan, connect, login, the history stream, live face and pause events, and the commands the Device tab needs. See [docs/TimeFlip2 BLE Protocol v4.3.md](TimeFlip2%20BLE%20Protocol%20v4.3.md) for the contract and [docs/timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) for where the real device  disagrees with it.
 - [ ] **Writing settings.** `SettingReader` reads and nothing writes, which every tab above needs before it can save anything.
 - [ ] **Daily limit enforcement**: measuring a category against `category.daily_limit`, pausing the cube when it is spent, and refusing a resume. The archive's own scar to avoid: the pause is not idempotent, so each repeat mints a `device_event`.
+- [ ] **Google Calendar sync** (`google_account`, `time_entry.synced_to_google_calendar`). **Not a screen: a step in recording.** It happens when a `time_entry` is created, marking the row as it goes, so it belongs beside [TimeEntryRecorder](../Sources/TimeFlipApp/TimeEntryRecorder.swift) rather than on the Report tab -- which is where the archive drew its Google *settings*, and the reason that tab is worth remembering as prior art for none of this.
+
+  There is also less prior art than the archive suggests. `google_account`, the auth and the calendar listing were built (`Archive/TimeFlipApp/GoogleIntegrationCoordinator.swift`); **the sync itself never was**, and nothing in that codebase ever wrote `synced_to_google_calendar`. So the column is a stated intention rather than a shipped feature to copy.
+
+  Undecided, and worth deciding before it is built rather than while: **where the account and the calendar choice are set from**. The archive's answer was the Report tab, which this reading rules out.
 - [ ] **`device_notification`**: the table exists and nothing writes it, so a double-tap or a low battery leaves no record.
 - [ ] **Per-tick logging for the history timer**, which currently says nothing between "started" and a segment changing. Logging every timeout that wrote, plus the first skip after a run of writes, would show the cadence without a row a second.
 - [ ] **The real developer-mode gate.** `DeveloperMode.isEnabled` is a hardcoded `true`, which is fine while the app is unreleased and must not ship that way.
