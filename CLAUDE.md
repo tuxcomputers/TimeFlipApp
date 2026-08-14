@@ -104,6 +104,24 @@ that cost a real experiment to obtain, and re-deriving them costs the same again
 So the archive's comments and its test methods are the first place to look, and a fact it recorded from
 a real device or a real accessibility tree outranks reasoning about what should happen.
 
+## A tab's content spans the width of the window
+
+**Every panel, list and section on every Settings tab runs the full width of the window**, inset by the
+tab's own padding and nothing more. Not sized to the widest control in it, and not left hanging with
+empty space to the right of it. This is how the previous app drew every tab it had (`image/preferences-device.png`,
+and the App tab's grouped form), and it is what makes the tabs read as one window rather than as pages
+that each chose their own width.
+
+It applies to whatever a tab grows, and it applies as the window is resized: a panel that spans at one
+size and stops short at another is the same fault seen later.
+
+The trap that produces the wrong version, because it has already happened once: **a pane must keep its
+autoresizing frame.** `SettingsWindowController.makePane` hands each pane `autoresizingMask = [.width, .height]`
+and the tab view resizes it to the content rect from there, so a pane that sets
+`translatesAutoresizingMaskIntoConstraints = false` on *itself* throws that away and is then sized by
+its own contents -- which looks like a panel that stops short of the right-hand edge, with nothing in the
+constraints to explain it. Set it on the subviews, never on the pane.
+
 ## A collapsible group opens on its whole heading, not just its triangle
 
 **Anywhere in this app that a section folds away, the entire heading line is the target**: the triangle, the

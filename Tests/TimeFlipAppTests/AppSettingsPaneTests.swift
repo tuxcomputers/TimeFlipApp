@@ -209,6 +209,55 @@ final class AppSettingsPaneTests: XCTestCase {
 
     // MARK: - layout
 
+    /// Hosts the pane the way `NSTabView` does: a content view of a given width, the pane filling it and resizing
+    /// with it.
+    ///
+    /// **Setting the pane's own frame is not the same test.** A pane on its own keeps whatever frame it is handed,
+    /// even one that has thrown its autoresizing away, so a test that skips the container passes on the broken
+    /// version -- measured: it did, before this was written this way.
+    private func hosted(_ pane: AppSettingsPane, width: CGFloat) -> NSView {
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 500))
+        pane.autoresizingMask = [.width, .height]
+        pane.frame = content.bounds
+        content.addSubview(pane)
+        content.layoutSubtreeIfNeeded()
+        return content
+    }
+
+    private func panel(of pane: AppSettingsPane) throws -> NSView {
+        try XCTUnwrap(
+            descendants(of: pane).first { $0.accessibilityIdentifier() == AppSettingsPane.Identifier.section }
+        )
+    }
+
+    func testThePanelSpansTheWindow() throws {
+        // The rule in CLAUDE.md, for every tab: a panel is inset by the tab's own padding and nothing more. The trap
+        // it exists for is that a pane which sets `translatesAutoresizingMaskIntoConstraints = false` on *itself*
+        // throws away the frame the tab view gives it and is sized by its own contents instead, which looks like a
+        // panel stopping short of the right-hand edge with nothing in the constraints to explain it.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        XCTAssertEqual(pane.frame.width, 640, "the pane fills the tab before anything inside it can span")
+        let frame = content.convert(try panel(of: pane).bounds, from: try panel(of: pane))
+        XCTAssertEqual(frame.minX, 20, accuracy: 0.5, "the tab's padding, on the left")
+        XCTAssertEqual(frame.maxX, 620, accuracy: 0.5, "and the same on the right")
+    }
+
+    func testThePanelStillSpansAfterAResize() throws {
+        // Resizing is where a panel that merely happened to fit gives itself away.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        content.frame = NSRect(x: 0, y: 0, width: 1_000, height: 500)
+        content.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(pane.frame.width, 1_000)
+        XCTAssertEqual(
+            content.convert(try panel(of: pane).bounds, from: try panel(of: pane)).maxX, 980, accuracy: 0.5
+        )
+    }
+
     func testTheControlsLineUpUnderEachOther() throws {
         let pane = AppSettingsPane()
         pane.frame = NSRect(x: 0, y: 0, width: 640, height: 400)

@@ -461,6 +461,24 @@ final class CategoryTableTests: XCTestCase {
         )
     }
 
+    func testTheListSpansTheWindow() throws {
+        // The rule in CLAUDE.md, for every tab, checked on this one as well as the App tab: a panel is inset by the
+        // tab's own padding and nothing more. Hosted the way `NSTabView` hosts a pane, because that is the only
+        // arrangement in which the fault appears -- a pane on its own keeps whatever frame it is handed.
+        let pane = CategoriesPane()
+        pane.show(active: [category(1, "Break")], inactive: [])
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 500))
+        pane.autoresizingMask = [.width, .height]
+        pane.frame = content.bounds
+        content.addSubview(pane)
+        content.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(pane.frame.width, 640)
+        let list = content.convert(pane.activeTable.bounds, from: pane.activeTable)
+        XCTAssertEqual(list.minX, 20, accuracy: 0.5)
+        XCTAssertEqual(list.maxX, 620, accuracy: 0.5)
+    }
+
     func testThePaneShowsWhatItIsGiven() {
         let pane = CategoriesPane()
 

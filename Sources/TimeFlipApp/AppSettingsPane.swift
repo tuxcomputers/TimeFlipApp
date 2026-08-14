@@ -100,8 +100,10 @@ final class AppSettingsPane: NSView {
     }
 
     private func addSection() {
-        translatesAutoresizingMaskIntoConstraints = false
-
+        // **The pane keeps its autoresizing frame**, so it is as wide as the window and the panel inside it spans that
+        // width (see `CLAUDE.md`). The tab view hands each pane the content rect and resizes it from there;
+        // `translatesAutoresizingMaskIntoConstraints = false` here would throw that away and leave the pane sized to
+        // its own contents, which is a panel stopping short of the right-hand edge. It did, until this.
         let heading = NSTextField(labelWithString: "App settings")
         heading.font = .preferredFont(forTextStyle: .headline)
         heading.translatesAutoresizingMaskIntoConstraints = false
