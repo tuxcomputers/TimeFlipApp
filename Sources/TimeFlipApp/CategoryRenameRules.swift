@@ -24,7 +24,8 @@ enum CategoryRenameRules {
     }
 
     /// What a dialogue about a rename can end in. **The order is the order the buttons are added**, which on this
-    /// platform means the first is the default and sits rightmost.
+    /// platform means the first is the default and sits rightmost -- see `choices(for:)`, where Cancel takes that
+    /// place.
     enum Choice: String, Equatable {
         case rename
         /// The same answer as `rename`, under a title that says the name is already in use. A separate case so a
@@ -46,13 +47,17 @@ enum CategoryRenameRules {
 
     /// The buttons a decision offers, in the order they are drawn. Empty for the decisions that raise no dialogue.
     ///
-    /// **Cancel is on every one of them**, including the dead end, where it is the only button: a dialogue that can
-    /// only be agreed with is a dialogue that has taken the decision already.
+    /// **Cancel leads**, which on this platform makes it the rightmost button and the default one, so Return dismisses
+    /// the dialogue rather than agreeing with it. That is the right way round for a question about changing something
+    /// already recorded: the answer that changes nothing is the one to arrive at by accident.
+    ///
+    /// **It is on every one of them**, including the dead end, where it is the only button: a dialogue that can only
+    /// be agreed with is a dialogue that has taken the decision already.
     static func choices(for decision: Decision) -> [Choice] {
         switch decision {
         case .ignore: return []
-        case .confirm: return [.rename, .cancel]
-        case .confirmAgainstRetired: return [.renameAnyway, .cancel]
+        case .confirm: return [.cancel, .rename]
+        case .confirmAgainstRetired: return [.cancel, .renameAnyway]
         case .refuse: return [.cancel]
         }
     }

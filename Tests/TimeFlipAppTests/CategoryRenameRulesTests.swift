@@ -132,23 +132,25 @@ final class CategoryRenameRulesTests: XCTestCase {
             .refuse(activeNamesake: category(9, "Admin")),
         ] {
             XCTAssertEqual(
-                CategoryRenameRules.choices(for: decision).last, .cancel,
-                "a dialogue that can only be agreed with has taken the decision already"
+                CategoryRenameRules.choices(for: decision).first, .cancel,
+                "and it leads, so Return dismisses the question rather than agreeing with it"
             )
         }
     }
 
-    func testTheRenameButtonLeadsAndSaysWhatItIsAgreeingTo() {
+    func testCancelLeadsAndTheRenameButtonSaysWhatItIsAgreeingTo() {
+        // Cancel first, so it is the rightmost and default button: the answer that changes nothing is the one to
+        // arrive at by accident.
         XCTAssertEqual(
             CategoryRenameRules.choices(for: .confirm(name: "Admin")).map(\.buttonTitle),
-            ["Rename", "Cancel"]
+            ["Cancel", "Rename"]
         )
         // "anyway", because this one is agreeing to two categories with one name.
         XCTAssertEqual(
             CategoryRenameRules.choices(
                 for: .confirmAgainstRetired(name: "Admin", retired: [category(9, "Admin", active: false)])
             ).map(\.buttonTitle),
-            ["Rename anyway", "Cancel"]
+            ["Cancel", "Rename anyway"]
         )
     }
 
@@ -161,8 +163,8 @@ final class CategoryRenameRulesTests: XCTestCase {
     func testAnAnswerIsTurnedBackIntoTheChoiceThatWasOffered() {
         let choices = CategoryRenameRules.choices(for: .confirm(name: "Admin"))
 
-        XCTAssertEqual(CategoryRenameRules.choice(forButtonIndex: 0, offering: choices), .rename)
-        XCTAssertEqual(CategoryRenameRules.choice(forButtonIndex: 1, offering: choices), .cancel)
+        XCTAssertEqual(CategoryRenameRules.choice(forButtonIndex: 0, offering: choices), .cancel)
+        XCTAssertEqual(CategoryRenameRules.choice(forButtonIndex: 1, offering: choices), .rename)
         XCTAssertNil(CategoryRenameRules.choice(forButtonIndex: 2, offering: choices), "no button of ours")
     }
 
