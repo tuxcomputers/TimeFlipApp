@@ -44,6 +44,34 @@ enum CategoryEditRules {
         return locked.isEmpty ? nil : .lockedFaces(locked)
     }
 
+    /// Whether a retired category can come back, and what stops it.
+    enum ReinstateDecision: Equatable {
+        case reinstate
+        /// An active category already holds this name, so bringing this one back under it is not possible.
+        case refuse(activeNamesake: CategoryRecord)
+    }
+
+    /// Whether ticking a retired category's Active box can do anything.
+    ///
+    /// **Asked before the write rather than after it.** The unique index over active names would refuse this anyway,
+    /// and that index stays the last word -- but a write that comes back `false` cannot say *which* category is in
+    /// the way, and that is the whole of what somebody needs to hear. So the question is asked first, for the
+    /// message, and the index still has the final say.
+    ///
+    /// Matched case-insensitively, because the index is: `matching(name:)` uses `COLLATE NOCASE`, so a check that
+    /// was stricter would pass a name the write then refuses.
+    ///
+    /// - Parameters:
+    ///   - category: the retired row whose box was ticked.
+    ///   - matches: every category holding that name, whatever state each is in -- `CategoryStore.matching(name:)`.
+    static func reinstateDecision(for category: CategoryRecord, matching matches: [CategoryRecord]) -> ReinstateDecision {
+        // Itself excluded: a retired row always matches its own name, and it is not in its own way.
+        guard let namesake = matches.first(where: { $0.isActive && $0.id != category.id }) else {
+            return .reinstate
+        }
+        return .refuse(activeNamesake: namesake)
+    }
+
     /// What a row says about why its Active box cannot be unticked. `nil` when it can.
     static func retireRefusalHelp(_ refusal: RetireRefusal?, categoryName: String) -> String? {
         switch refusal {

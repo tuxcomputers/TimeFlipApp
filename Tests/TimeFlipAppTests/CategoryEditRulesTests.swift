@@ -29,6 +29,61 @@ final class CategoryEditRulesTests: XCTestCase {
         XCTAssertEqual(CategoryEditRules.dailyLimitMinutes(-30), 0)
     }
 
+    // MARK: - bringing one back
+
+    private func category(_ id: Int, _ name: String, isActive: Bool) -> CategoryRecord {
+        CategoryRecord(
+            id: id,
+            name: name,
+            iconName: nil,
+            colour: nil,
+            usesWhiteLines: false,
+            dailyLimitMinutes: 0,
+            isActive: isActive
+        )
+    }
+
+    func testACategoryWhoseNameIsFreeComesBack() {
+        let retired = category(3, "Reading", isActive: false)
+
+        XCTAssertEqual(
+            CategoryEditRules.reinstateDecision(for: retired, matching: [retired]),
+            .reinstate,
+            "a retired row always matches its own name, and it is not in its own way"
+        )
+    }
+
+    func testAnActiveNamesakeStopsIt() {
+        let retired = category(3, "Reading", isActive: false)
+        let active = category(9, "Reading", isActive: true)
+
+        XCTAssertEqual(
+            CategoryEditRules.reinstateDecision(for: retired, matching: [active, retired]),
+            .refuse(activeNamesake: active),
+            "the one in the way is named, since a refused write could not say which it was"
+        )
+    }
+
+    func testAnotherRetiredNamesakeIsNoBar() {
+        // Any number of retired categories may share a name: only one *active* one may hold it.
+        let retired = category(3, "Reading", isActive: false)
+        let alsoRetired = category(9, "Reading", isActive: false)
+
+        XCTAssertEqual(
+            CategoryEditRules.reinstateDecision(for: retired, matching: [retired, alsoRetired]),
+            .reinstate
+        )
+    }
+
+    func testNoMatchesAtAllComesBack() {
+        // Which the store never produces -- a row always matches its own name -- but the rule should not depend on
+        // being handed itself.
+        XCTAssertEqual(
+            CategoryEditRules.reinstateDecision(for: category(3, "Reading", isActive: false), matching: []),
+            .reinstate
+        )
+    }
+
     // MARK: - retiring
 
     func testACategoryOnNoFaceCanBeRetired() {

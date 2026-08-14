@@ -69,12 +69,11 @@ final class RetiredCategoryTableTests: XCTestCase {
 
         let row = try XCTUnwrap(rows(of: table).first)
 
-        // The name and the date, and nothing else. The icon, the colour and the limit describe what it *was*, and
-        // drawing them invites an edit that means nothing.
-        XCTAssertTrue(row.subviews.compactMap { $0 as? NSImageView }.isEmpty, "no icon")
-        XCTAssertTrue(row.subviews.compactMap { $0 as? SteppedNumberField }.isEmpty, "no daily limit")
-        XCTAssertTrue(row.subviews.compactMap { $0 as? NSButton }.isEmpty, "nothing to press, reinstating not built")
-        XCTAssertEqual(row.subviews.compactMap { ($0 as? NSTextField)?.stringValue }.count, 2)
+        // The box, the name and the date, and nothing else. The icon, the colour and the limit describe what it
+        // *was*, and drawing them invites an edit that means nothing.
+        XCTAssertTrue(descendants(of: row).compactMap { $0 as? NSImageView }.isEmpty, "no icon")
+        XCTAssertTrue(descendants(of: row).compactMap { $0 as? SteppedNumberField }.isEmpty, "no daily limit")
+        XCTAssertEqual(descendants(of: row).compactMap { ($0 as? NSTextField)?.stringValue }.count, 2)
     }
 
     // MARK: - last used
@@ -116,13 +115,47 @@ final class RetiredCategoryTableTests: XCTestCase {
 
     // MARK: - the columns and the empty case
 
-    func testTheColumnsAreNameAndLastUsed() throws {
+    func testTheColumnsAreActiveNameAndLastUsed() throws {
         let table = RetiredCategoryTable()
         table.show([retired(3, "Old")])
 
         let captions = try XCTUnwrap(header(of: table)).subviews
             .compactMap { ($0 as? NSTextField)?.stringValue }
-        XCTAssertEqual(captions, ["Name", CategoryLastUsedText.columnTitle])
+        // Active leads: in the Active list that box is the far end of a row full of settings, and here there are no
+        // settings, so putting it first makes it the point of the row rather than something to read past.
+        XCTAssertEqual(captions, ["Active", "Name", CategoryLastUsedText.columnTitle])
+    }
+
+    // MARK: - bringing one back
+
+    private func activeBox(of row: RetiredCategoryRow) -> NSButton? {
+        row.subviews.flatMap { $0.subviews }.compactMap { $0 as? NSButton }.first
+    }
+
+    func testTheBoxIsUntickedAndTickingItReportsTheCategory() throws {
+        let table = RetiredCategoryTable()
+        var reinstated: String?
+        table.onReinstate = { reinstated = $0.name }
+        table.show([retired(3, "Old")])
+
+        let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))
+        XCTAssertEqual(box.state, .off, "this is the retired list, so nothing in it is active")
+
+        box.performClick(nil)
+
+        XCTAssertEqual(reinstated, "Old")
+    }
+
+    func testTheBoxIsNeverDisabled() throws {
+        // Unlike its opposite number on the Active list. Retiring is barred while a locked face holds the category,
+        // because retiring clears faces; reinstating puts nothing on any face, and a database written before that
+        // rule can hold exactly that case.
+        let table = RetiredCategoryTable()
+        table.show([retired(3, "Old")])
+
+        let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))
+        XCTAssertTrue(box.isEnabled)
+        XCTAssertNil(box.toolTip)
     }
 
     func testAnEmptyListSaysSoAndDrawsNoColumns() {

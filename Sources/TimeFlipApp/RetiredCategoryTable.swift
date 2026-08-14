@@ -14,8 +14,9 @@ import AppKit
 /// last-used column costing the window any width: the widest section sets the width, and that is the one being
 /// worked in.
 ///
-/// **No Active box yet.** In the archive that box led the row, being the only thing a retired row does; reinstating
-/// is not built here, and a box that did nothing would be worse than no box at all.
+/// **The Active box leads the row rather than trailing it**, which is the archive's placement and its reasoning: in
+/// the Active list that box is the last column, the far end of a row full of settings, and here there are no
+/// settings, so putting it first makes it the point of the row rather than something to read past.
 ///
 /// The panel's own look -- the tint, the corner, the padding -- comes from `CategoryTable.Layout` rather than being
 /// restated, since these two sit on one tab and cannot be allowed to drift apart.
@@ -37,6 +38,10 @@ final class RetiredCategoryTable: NSView {
     /// When a category last recorded time. Asked per row as the list is built, so it is read at the moment it is
     /// needed rather than arriving alongside the categories and going stale between the two.
     var lastUsed: ((CategoryRecord) -> Date?)?
+
+    /// Called when a category's Active box is ticked. Unticking is not possible here, this being the retired list,
+    /// so there is one direction rather than a flag.
+    var onReinstate: ((CategoryRecord) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -61,7 +66,9 @@ final class RetiredCategoryTable: NSView {
         } else {
             rows.addView(headerRow(), in: .top)
             for category in categories {
-                rows.addView(RetiredCategoryRow(category: category, lastUsed: lastUsed?(category)), in: .top)
+                let row = RetiredCategoryRow(category: category, lastUsed: lastUsed?(category))
+                row.onReinstate = { [weak self] in self?.onReinstate?(category) }
+                rows.addView(row, in: .top)
             }
         }
         shownCategories = categories
@@ -100,12 +107,14 @@ final class RetiredCategoryTable: NSView {
         ])
     }
 
-    /// Two captions, and the last-used one sized to its own text: it is the final column, so nothing after it has to
-    /// line up.
+    /// Three captions, and the last-used one sized to its own text: it is the final column, so nothing after it has
+    /// to line up.
     private func headerRow() -> NSView {
+        let active = caption("Active")
+        active.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.activeColumnWidth).isActive = true
         let name = caption("Name")
         name.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.nameColumnWidth).isActive = true
-        let row = NSStackView(views: [name, caption(CategoryLastUsedText.columnTitle)])
+        let row = NSStackView(views: [active, name, caption(CategoryLastUsedText.columnTitle)])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = CategoryTable.Layout.columnSpacing
@@ -129,10 +138,7 @@ final class RetiredCategoryTable: NSView {
     }
 }
 
-/// One retired category: its name, and when it last recorded time.
-///
-/// Not a button, and nothing in it is: this row is a reading. What would make it a control is the Active box that
-/// brings a category back, which is not built.
+/// One retired category: the box that brings it back, its name, and when it last recorded time.
 @MainActor
 final class RetiredCategoryRow: NSStackView {
     let category: CategoryRecord
@@ -140,6 +146,9 @@ final class RetiredCategoryRow: NSStackView {
     /// When it last recorded time, or `nil` for a category that never has -- which the label turns into "Never"
     /// rather than a blank, an empty cell reading as something that failed to load.
     let lastUsed: Date?
+
+    /// Called when the Active box is ticked.
+    var onReinstate: (() -> Void)?
 
     init(category: CategoryRecord, lastUsed: Date?) {
         self.category = category
@@ -152,8 +161,45 @@ final class RetiredCategoryRow: NSStackView {
         setAccessibilityIdentifier(RetiredCategoryTable.Identifier.row(category))
         setAccessibilityRole(.group)
         setAccessibilityLabel(category.name)
+        addView(activeBox(), in: .leading)
         addView(nameLabel(), in: .leading)
         addView(lastUsedLabel(), in: .leading)
+    }
+
+    /// Unticked, this being the retired list. Ticking it brings the category back.
+    ///
+    /// **Never disabled**, unlike its opposite number on the Active list. Retiring is barred while a locked face
+    /// holds the category, because retiring clears faces; reinstating puts nothing on any face, so a locked face is
+    /// no reason to stop it -- and a database written before that rule can hold exactly that case.
+    ///
+    /// It can still be refused, by the name: only one active category may hold one. That is a message rather than a
+    /// disabled box, because the clash is with another row entirely and can be fixed by renaming either of them.
+    private func activeBox() -> NSView {
+        let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(activeChanged))
+        box.state = .off
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.identifier = NSUserInterfaceItemIdentifier("retired-category-active-\(category.id)")
+        box.setAccessibilityIdentifier("retired-category-active-\(category.id)")
+        box.setAccessibilityLabel("\(category.name) active")
+
+        // Held open at the Active list's own column width, so the two lists' boxes are the same size of target even
+        // though they sit at opposite ends of their rows.
+        let cell = NSView()
+        cell.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(box)
+        NSLayoutConstraint.activate([
+            cell.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.activeColumnWidth),
+            box.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+            box.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            cell.topAnchor.constraint(lessThanOrEqualTo: box.topAnchor),
+            cell.bottomAnchor.constraint(greaterThanOrEqualTo: box.bottomAnchor),
+        ])
+        return cell
+    }
+
+    @objc
+    private func activeChanged() {
+        onReinstate?()
     }
 
     @available(*, unavailable)

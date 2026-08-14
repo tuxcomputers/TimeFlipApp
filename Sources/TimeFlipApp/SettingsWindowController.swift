@@ -145,6 +145,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.retiredTable.lastUsed = { [weak self] category in
             self?.entries?.lastUsed(categoryID: category.id)
         }
+        pane.retiredTable.onReinstate = { [weak self] category in
+            self?.reinstate(category)
+        }
         pane.activeSection.onToggle = { [weak self] isExpanded in
             self?.debugLog?.record(.tab, "Categories section Active \(isExpanded ? "opened" : "folded")")
         }
@@ -196,6 +199,58 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // The Faces tab and the status item draw from the same tables, and a face this cleared may be the one being
         // timed.
         onTimingChanged?()
+    }
+
+    /// Brings a retired category back, or says why it cannot come back.
+    ///
+    /// **The name is checked before the write.** Only one active category may hold a name, and the unique index
+    /// would refuse this anyway -- but a refused write cannot say *which* category is in the way, and that is the
+    /// whole of what somebody needs to hear. `CategoryEditRules` answers it against the whole table rather than
+    /// against either list on screen, since the clash may be with a row this tab is not showing.
+    ///
+    /// The index still has the last word. If the check and the index ever disagree, the index is the one that is
+    /// right, so a refusal from the write is reported too rather than assumed impossible.
+    ///
+    /// Nothing is put on any face by this, which is why a locked face is no bar here as it is to retiring.
+    private func reinstate(_ category: CategoryRecord) {
+        guard let categories else { return }
+        switch CategoryEditRules.reinstateDecision(
+            for: category,
+            matching: categories.matching(name: category.name)
+        ) {
+        case let .refuse(namesake):
+            debugLog?.record(
+                .click,
+                "Category \"\(category.name)\" reinstate REFUSED: category_id \(namesake.id) is active under that name"
+            )
+            // Redrawn before the alert, so the box the click ticked goes back to unticked: it claimed something the
+            // table never agreed to.
+            reloadSelectedPane()
+            showNameTaken(category)
+
+        case .reinstate:
+            let stored = categories.setActive(id: category.id, true)
+            debugLog?.record(
+                .click,
+                "Category \"\(category.name)\" reinstated\(stored ? "" : " REFUSED by the index")"
+            )
+            // Read again either way: reinstating changes which list the row belongs in, and a refusal has to put the
+            // box back.
+            reloadSelectedPane()
+        }
+    }
+
+    /// The dead end for a name an active category already holds. Wording carried over from the previous app.
+    private func showNameTaken(_ category: CategoryRecord) {
+        let alert = NSAlert()
+        alert.messageText = "That name is already in use"
+        alert.informativeText = """
+        An active category is already called "\(category.name)", so this one cannot be reinstated under that name.
+
+        Rename one of them first, then try again.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     /// Draws the session: which category, whether it is running, and how much time that category has.
