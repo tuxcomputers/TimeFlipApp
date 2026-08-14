@@ -238,6 +238,28 @@ final class CategoryTableTests: XCTestCase {
         XCTAssertEqual(field.disabledHelp?.contains("Face 8"), true)
     }
 
+    func testOneLockedFaceIsEnoughEvenWhenOtherFacesHoldItUnlocked() throws {
+        // The case the database is actually in: Break sits on face 8, which is locked, and on faces 13 and 14, which
+        // are not. **One locked face freezes the row.** Editing the category changes what face 8 shows -- its name,
+        // its artwork, the colour it lights -- and that face has been told to keep what it has. The unlocked faces
+        // are no argument against it: they are not asking for anything.
+        let table = CategoryTable()
+        table.facesHolding = { _ in
+            [(face: 8, isLocked: true), (face: 13, isLocked: false), (face: 14, isLocked: false)]
+        }
+        table.show([category(1, "Break", limit: 45)])
+        let row = try XCTUnwrap(rows(of: table).first)
+
+        XCTAssertFalse(try XCTUnwrap(activeBox(of: row)).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(limitField(of: row)).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(nameCell(of: row)).isEnabled)
+        XCTAssertEqual(row.editRefusal, .lockedFaces([8]), "and only the locked one is named")
+        // Which is what the tooltip says, so the two unlocked faces are not paraded as reasons.
+        let help = try XCTUnwrap(try XCTUnwrap(nameCell(of: row)).disabledHelp)
+        XCTAssertTrue(help.contains("Face 8 is"), help)
+        XCTAssertFalse(help.contains("13"), help)
+    }
+
     func testAnUnlockedRowLeavesEveryControlAlone() throws {
         let table = CategoryTable()
         table.facesHolding = { _ in [(face: 13, isLocked: false)] }
