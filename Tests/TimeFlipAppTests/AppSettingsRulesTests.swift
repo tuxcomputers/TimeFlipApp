@@ -145,6 +145,6 @@ final class AppSettingsRulesTests: XCTestCase {
     func testARowIsNamedByItsLabelWhenSomethingHasToBeSaid() {
         // Nobody reading an alert knows what `low_battery_level` is.
         XCTAssertEqual(AppSettingsRules.title(for: .batteryWarningPercent(15)), "Battery warning at")
-        XCTAssertEqual(AppSettingsRules.title(for: .showsSeconds(true)), "Show seconds in the menu bar")
+        XCTAssertEqual(AppSettingsRules.title(for: .showsSeconds(true)), "Show seconds")
     }
 }

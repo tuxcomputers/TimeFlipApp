@@ -223,7 +223,7 @@ final class AppSettingsPane: NSView {
         )
 
         let built: [(String, NSView)] = [
-            ("Show seconds in the menu bar", showSecondsBox),
+            ("Show seconds", showSecondsBox),
             ("Pause the device when locking it", pauseOnLockBox),
             ("Daily reset at", dailyResetField),
             ("Battery warning at", batteryWarningField),

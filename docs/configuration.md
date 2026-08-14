@@ -212,7 +212,7 @@ All four are raw accelerometer register values (0-255), not a real-world unit li
 
 The **App** tab, under "App settings". Every numeric row here is the same control: type a value or hold the arrows to step it, and it commits on Return or when focus leaves.
 
-- **Show seconds in the menu bar** (`display_seconds`, default on): whether the duration reads `H:MM:SS` and ticks every second, or `H:MM` and refreshes each minute.
+- **Show seconds** (`display_seconds`, default on): whether a time reads to the second or to the minute, wherever the app shows one -- the menu bar duration (which then ticks every second rather than refreshing each minute), and the Report tab's totals, entry durations and start and end times.
 - **Pause the device when locking it** (`pause_on_lock`, default on): whether locking the device also pauses it. Also applies when quitting the app — if enabled, the app pauses and locks the device before exiting, so it isn't left running with nothing controlling it; if disabled, quitting doesn't touch the device at all.
 - **Daily reset at** (`daily_reset_time`, default 3 AM): when each category's daily total rolls over. AM only, deliberately — a reset in the middle of the afternoon would cut a working day's accounting in half.
 - **Battery warning at** (`low_battery_level`, default 10%): the battery percentage at or below which the menu bar activity text starts blinking red/white (see Status Indicators above). Once triggered it only clears again after the battery climbs 5 points above the threshold, so a reading wobbling around the threshold doesn't flicker the warning on and off.

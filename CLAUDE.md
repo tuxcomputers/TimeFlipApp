@@ -166,6 +166,12 @@ behind unless the section's bottom edge moves with it).
 This is about *collapsible* groups. A plain section heading, like the App tab's "App settings", stays above its
 panel: it names the panel, it does not operate it.
 
+**Where a group has no panel of its own, its heading is a row of the list it belongs to** and there is nothing to sit
+on top of. The Report tab's categories are that case: each one is a line of the totals list, carrying a swatch, a name
+and a figure, with its entries folded away underneath. What survives from the paragraph above is the part that is
+really the rule -- the whole heading line is the target, and folding takes the space back rather than merely hiding
+what was in it.
+
 ## Requests that affect real device behavior
 
 - Before implementing a request that changes how the physical TimeFlip device behaves (e.g.

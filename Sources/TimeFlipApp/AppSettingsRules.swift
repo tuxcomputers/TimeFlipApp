@@ -137,7 +137,7 @@ enum AppSettingsRules {
     /// the column it writes: nobody reading an alert knows what `low_battery_level` is.
     static func title(for change: AppSettingsPane.Change) -> String {
         switch change {
-        case .showsSeconds: return "Show seconds in the menu bar"
+        case .showsSeconds: return "Show seconds"
         case .pausesOnLock: return "Pause the device when locking it"
         case .dailyResetHour12: return "Daily reset at"
         case .batteryWarningPercent: return "Battery warning at"

@@ -47,7 +47,7 @@ final class AppSettingsPaneTests: XCTestCase {
         // The archive's six, in its order and its wording (`Archive/TimeFlipApp/ReportSettingsView.swift`).
         for title in [
             "App settings",
-            "Show seconds in the menu bar",
+            "Show seconds",
             "Pause the device when locking it",
             "Daily reset at",
             "Battery warning at",
@@ -66,7 +66,7 @@ final class AppSettingsPaneTests: XCTestCase {
         XCTAssertEqual(
             titles,
             [
-                "Show seconds in the menu bar",
+                "Show seconds",
                 "Pause the device when locking it",
                 "Daily reset at",
                 "Battery warning at",

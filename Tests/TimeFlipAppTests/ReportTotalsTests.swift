@@ -241,6 +241,53 @@ final class ReportTotalsTests: XCTestCase {
         XCTAssertTrue(entries.totals(from: range.start, to: range.end).isEmpty)
     }
 
+    // MARK: - the entries behind a total
+
+    func testTheEntriesUnderACategoryAreEarliestFirst() throws {
+        try entry("Break", start: "2026-08-13 14:00", duration: 300)
+        try entry("Break", start: "2026-08-13 09:00", duration: 600)
+        try entry("Meeting", start: "2026-08-13 11:00", duration: 60)
+
+        let range = bounds("2026-08-13 00:00", nil)
+        let breakID = try XCTUnwrap(categories.matching(name: "Break").first?.id)
+        let records = entries.entries(categoryID: breakID, from: range.start, to: range.end)
+
+        XCTAssertEqual(records.map(\.start), [at("2026-08-13 09:00"), at("2026-08-13 14:00")])
+        XCTAssertEqual(records.map(\.seconds), [600, 300], "and each ends where its duration says")
+        XCTAssertEqual(records.map(\.end), [at("2026-08-13 09:10"), at("2026-08-13 14:05")])
+    }
+
+    func testOnlyTheAskedForCategorysEntriesComeBack() throws {
+        try entry("Break", start: "2026-08-13 09:00", duration: 600)
+        try entry("Meeting", start: "2026-08-13 11:00", duration: 60)
+
+        let range = bounds("2026-08-13 00:00", nil)
+        let meetingID = try XCTUnwrap(categories.matching(name: "Meeting").first?.id)
+
+        XCTAssertEqual(
+            entries.entries(categoryID: meetingID, from: range.start, to: range.end).map(\.seconds),
+            [60]
+        )
+    }
+
+    func testTheEntriesAddUpToTheTotalOnTheHeading() throws {
+        // The pair has to agree: a column of figures that does not sum to the number above it reads as a bug in one of
+        // them. Both are clipped the same way, which is what makes it true even across a boundary.
+        try entry("Break", start: "2026-08-13 09:00", duration: 600)
+        try entry("Break", start: "2026-08-14 02:30", duration: 3_600)
+
+        let range = bounds("2026-08-13 00:00", nil)
+        let breakID = try XCTUnwrap(categories.matching(name: "Break").first?.id)
+        let total = try XCTUnwrap(entries.totals(from: range.start, to: range.end).first)
+        let records = entries.entries(categoryID: breakID, from: range.start, to: range.end)
+
+        XCTAssertEqual(records.map(\.seconds).reduce(0, +), total.seconds)
+        XCTAssertEqual(
+            records.last?.end, at("2026-08-14 03:00"),
+            "the stretch across the reset shows the part inside the range, not the whole of itself"
+        )
+    }
+
     // MARK: - the list
 
     private func descendants(of root: NSView) -> [NSView] {

@@ -1,22 +1,20 @@
 import AppKit
 
-/// What the picked range came to, per category: the icon on its colour, the name, and the time on the right.
+/// What the picked range came to, per category: the icon on its colour, the name, the time on the right, and the
+/// stretches behind that time folded away underneath ([ReportCategoryGroup]).
 ///
 /// **Only the categories that recorded something**, biggest first, which is `TimeEntryStore.totals` doing the deciding.
 /// A category with nothing in the range is absent rather than shown as `0:00`, and a range with nothing in it says so
 /// in words rather than drawing an empty table.
 ///
-/// The archive's row, and its measurements come from the Faces tab's list (`CategoryListView.Layout`) rather than being
-/// restated, since the two are the same treatment: a 36pt row, a 28pt colour square holding a 20pt glyph, the name
-/// beside it. A category with no icon still fills the slot as a hollow square, so every name lines up whether or not
-/// one is set.
+/// The heading measurements come from the Faces tab's list (`CategoryListView.Layout`) rather than being restated,
+/// since they are the same treatment: a 36pt row, a 28pt colour square holding a 20pt glyph, the name beside it. A
+/// category with no icon still fills the slot as a hollow square, so every name lines up whether or not one is set.
 @MainActor
 final class ReportTotalsList: NSView {
     enum Identifier {
         static let list = "report-totals"
         static let empty = "report-totals-empty"
-        static func row(_ total: CategoryTotal) -> String { "report-total-\(total.categoryID)" }
-        static func duration(_ total: CategoryTotal) -> String { "report-total-\(total.categoryID)-duration" }
     }
 
     private let rows = NSStackView()
@@ -30,6 +28,23 @@ final class ReportTotalsList: NSView {
     private let document = FlippedView()
 
     private(set) var shownTotals: [CategoryTotal] = []
+
+    /// The stretches behind one category's total, asked for when its group is opened. **A read, at the moment of use**:
+    /// the window owns the tables and the range, and a closed group asks nothing at all.
+    var entries: ((CategoryTotal) -> [TimeEntryRecord])?
+
+    /// Called when a group is opened or closed, so the window can record it.
+    var onToggle: ((CategoryTotal, Bool) -> Void)?
+
+    /// Which categories are open, by id, kept across a rebuild.
+    ///
+    /// A list rebuilt underneath somebody -- a pause elsewhere in the app turns a stretch into an entry, and the totals
+    /// are re-read -- should not snap shut what they had opened. Ids rather than positions, since the order follows the
+    /// figures and both can change; a category that drops out of the range drops out of here with it.
+    private var expanded: Set<Int> = []
+
+    /// Exposed so a test can reach a group without going through the view tree.
+    private(set) var groups: [ReportCategoryGroup] = []
 
     init() {
         super.init(frame: .zero)
@@ -52,6 +67,7 @@ final class ReportTotalsList: NSView {
         for view in rows.views {
             rows.removeView(view)
         }
+        groups = []
         if totals.isEmpty {
             rows.addView(emptyLabel(), in: .top)
         } else {
@@ -59,10 +75,31 @@ final class ReportTotalsList: NSView {
                 if index > 0 {
                     add(divider())
                 }
-                add(row(total, showingSeconds: showingSeconds))
+                add(group(total, showingSeconds: showingSeconds))
             }
         }
         shownTotals = totals
+    }
+
+    private func group(_ total: CategoryTotal, showingSeconds: Bool) -> ReportCategoryGroup {
+        let group = ReportCategoryGroup(total: total, showingSeconds: showingSeconds)
+        group.entries = { [weak self] in self?.entries?(total) ?? [] }
+        group.onToggle = { [weak self] isExpanded in
+            guard let self else { return }
+            if isExpanded {
+                self.expanded.insert(total.categoryID)
+            } else {
+                self.expanded.remove(total.categoryID)
+            }
+            self.onToggle?(total, isExpanded)
+        }
+        groups.append(group)
+        // Opened again if it was open before the rebuild, which re-reads its entries: the figures above them have just
+        // been re-read too, and the two have to agree.
+        if expanded.contains(total.categoryID) {
+            group.setExpanded(true)
+        }
+        return group
     }
 
     private func add(_ view: NSView) {
@@ -116,106 +153,6 @@ final class ReportTotalsList: NSView {
             rows.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             rows.bottomAnchor.constraint(equalTo: document.bottomAnchor),
         ])
-    }
-
-    private func row(_ total: CategoryTotal, showingSeconds: Bool) -> NSView {
-        let row = NSView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        // A group holding two readings rather than a control: nothing here is clickable, editing an entry being its own
-        // piece of work.
-        row.setAccessibilityElement(true)
-        row.setAccessibilityRole(.group)
-        row.setAccessibilityIdentifier(Identifier.row(total))
-        row.setAccessibilityLabel(total.name)
-
-        let swatch = makeSwatch(total)
-        let name = NSTextField(labelWithString: total.name)
-        name.lineBreakMode = .byTruncatingTail
-        name.translatesAutoresizingMaskIntoConstraints = false
-
-        let duration = NSTextField(
-            labelWithString: DurationFormat.hoursMinutesSeconds(
-                total.seconds,
-                // Rounded rather than truncated, unlike the menu bar's live figure: this is a static historical sum,
-                // so a 59.6-second total should read as a minute rather than one second short of what was logged.
-                rounding: .round,
-                showingSeconds: showingSeconds
-            )
-        )
-        // Monospaced digits, so the colon sits in the same place down the column and the figures can be compared by
-        // eye rather than read one at a time.
-        duration.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        duration.alignment = .right
-        duration.translatesAutoresizingMaskIntoConstraints = false
-        duration.setAccessibilityIdentifier(Identifier.duration(total))
-
-        row.addSubview(swatch)
-        row.addSubview(name)
-        row.addSubview(duration)
-        let padding = CategoryListView.Layout.horizontalPadding
-        NSLayoutConstraint.activate([
-            row.heightAnchor.constraint(equalToConstant: CategoryListView.Layout.rowHeight),
-
-            swatch.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: padding),
-            swatch.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            swatch.widthAnchor.constraint(equalToConstant: CategoryListView.Layout.swatchSize),
-            swatch.heightAnchor.constraint(equalToConstant: CategoryListView.Layout.swatchSize),
-
-            name.leadingAnchor.constraint(
-                equalTo: swatch.trailingAnchor,
-                constant: CategoryListView.Layout.rowSpacing
-            ),
-            name.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            // The name gives way before the figure does: a narrow window truncates a long category name rather than
-            // cutting the number the row exists to show.
-            name.trailingAnchor.constraint(
-                lessThanOrEqualTo: duration.leadingAnchor,
-                constant: -CategoryListView.Layout.rowSpacing
-            ),
-
-            duration.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -padding),
-            duration.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-        ])
-        return row
-    }
-
-    /// The category's colour with its icon on it, or a hollow square for one with no icon -- the same swatch the Faces
-    /// tab's list draws, for the same reason: the outline replaces the colour rather than sitting on it, because with
-    /// no glyph to see through a filled square would just be a coloured box meaning nothing.
-    private func makeSwatch(_ total: CategoryTotal) -> NSView {
-        let swatch = NSBox()
-        swatch.boxType = .custom
-        swatch.cornerRadius = CategoryListView.Layout.swatchCornerRadius
-        swatch.contentViewMargins = .zero
-        swatch.titlePosition = .noTitle
-        swatch.translatesAutoresizingMaskIntoConstraints = false
-
-        guard let iconName = total.iconName,
-              let icon = ActivityIcon.image(named: iconName, pointSize: CategoryListView.Layout.iconSize)
-        else {
-            swatch.fillColor = .clear
-            swatch.borderWidth = 1
-            swatch.borderColor = .labelColor
-            return swatch
-        }
-
-        swatch.borderWidth = 0
-        swatch.fillColor = total.colour ?? .controlBackgroundColor
-        let iconView = NSImageView(image: icon)
-        // White where the colour is dark enough to swallow a black glyph, which is what the colour's own
-        // `white_lines` column is for.
-        iconView.contentTintColor = total.usesWhiteLines ? .white : .black
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        swatch.contentView?.addSubview(iconView)
-        if let content = swatch.contentView {
-            NSLayoutConstraint.activate([
-                iconView.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-                iconView.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-                iconView.widthAnchor.constraint(equalToConstant: CategoryListView.Layout.iconSize),
-                iconView.heightAnchor.constraint(equalToConstant: CategoryListView.Layout.iconSize),
-            ])
-        }
-        return swatch
     }
 
     private func divider() -> NSView {

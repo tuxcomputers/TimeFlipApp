@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (579 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (595 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -19,7 +19,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
 - [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, renamed, given an icon, a colour or a limit, retired or brought back. Its cost and its project still cannot be changed.
-- [ ] **[Report tab](#report-tab)**: a date or range is picked on two hand-drawn calendars, and what each category recorded over it is totalled underneath.
+- [ ] **[Report tab](#report-tab)**: a date or range is picked on two hand-drawn calendars, what each category recorded over it is totalled underneath, and a category folds open to the individual entries behind its total.
 - [ ] **[App tab](#app-tab)**: the App settings section is built and all six rows write to the database.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
 
@@ -133,10 +133,11 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 - [x] **The totals under it** ([ReportTotalsList.swift](../Sources/TimeFlipApp/ReportTotalsList.swift), `TimeEntryStore.totals`, `ReportRangeRules.bounds`): every category that recorded time in the picked range, biggest first, with the icon on its colour and the figure on the right. **The range is the app's own days**: 5 August to 7 August is the 5th at `daily_reset_time` up to the 8th at `daily_reset_time`, so a one-day report is exactly what the menu bar showed that day. A category with nothing in the range is absent rather than shown as `0:00`, and a range with nothing in it says so in words.
   - The boundary, the entries and whether the figures carry seconds are **all read when the range changes**, never held: the reset time can be changed on the App tab, and the entries grow as time is recorded.
   - A stretch across the boundary is clipped, so the two days it spans do not each count it whole. A still-running segment counts for nothing, not being an entry yet -- it arrives here when it stops, which is also when the tab re-reads if it is the one on show.
+- [x] **Each category folds open to its own entries** ([ReportCategoryGroup.swift](../Sources/TimeFlipApp/ReportCategoryGroup.swift), [ReportEntryText.swift](../Sources/TimeFlipApp/ReportEntryText.swift)): closed by default, the total on the heading line, and the stretches behind that total listed underneath in date-time order -- `dd/MM`, the start and end times, then how long. **The entries are read when a group is opened**, not with the totals: a closed group asks nothing, and twelve categories of working would be twelve reads to throw away. Both ends of every stretch are clipped to the range, which is what makes the rows add up to the figure above them. A group left open stays open when the totals are re-read, since a list that snapped shut underneath somebody would be the app undoing what they just did.
+- [x] **"Show seconds in the menu bar" became "Show seconds"** ([AppSettingsRules.swift](../Sources/TimeFlipApp/AppSettingsRules.swift)), the setting now deciding the precision of every time the app draws rather than one figure in one place: the menu bar duration, the Report tab's totals, and each entry's duration *and* its start and end times. All of them together, because it is one question -- to the second or to the minute -- and a row where the answer differed by column is exactly what looks like a bug: a 19-second entry reading "18:59 to 18:59" is only honest when the duration beside it reads `0:00` too.
 
 ### Still to do
 
-- [ ] **The day's entries**, from `time_entry` joined to its `device_event`.
 - [ ] **Editing and deleting an entry**, which is the only way to correct a stretch recorded against the wrong category.
 - [ ] **Totals per project**, once a category can be given one.
 - [ ] **Costs** (`time_entry.total_cost`).

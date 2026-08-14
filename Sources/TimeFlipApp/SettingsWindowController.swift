@@ -968,7 +968,33 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             guard let report else { return }
             self?.loadTotals(into: report, start: start, end: end)
         }
+        // Read when a group is opened, against the range on screen at that moment: the same bounds the total above the
+        // entries was summed over, worked out the same way, so the rows add up to it.
+        report.totalsList.entries = { [weak self, weak report] total in
+            guard let self, let report, let entries = self.entries else { return [] }
+            let bounds = self.reportBounds(start: report.start, end: report.end)
+            return entries.entries(categoryID: total.categoryID, from: bounds.start, to: bounds.end)
+        }
+        report.totalsList.onToggle = { [weak self] total, isExpanded in
+            self?.debugLog?.record(
+                .report,
+                "Report category \"\(total.name)\" \(isExpanded ? "opened" : "closed")"
+            )
+        }
         return report
+    }
+
+    /// The instants a picked range covers, measured against the daily reset **read now**.
+    ///
+    /// One place, because two things ask: the totals, and the entries behind whichever of them is opened. A boundary
+    /// worked out twice is a boundary that can be worked out differently, and the symptom would be a column of figures
+    /// that does not add up to the number above it.
+    private func reportBounds(start: Date, end: Date?) -> (start: Date, end: Date) {
+        let reset = DayWindow.resetTime(
+            hour: settings?.integer("daily_reset_time", field: "hour"),
+            minute: settings?.integer("daily_reset_time", field: "minute")
+        )
+        return ReportRangeRules.bounds(start: start, end: end, resetHour: reset.hour, resetMinute: reset.minute)
     }
 
     /// Reads what the picked range came to, and draws it.
@@ -986,16 +1012,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // that looks right and is not. A controller built without them -- which is what a layout test builds -- draws
         // the calendars and no totals.
         guard let entries, let settings else { return }
-        let reset = DayWindow.resetTime(
-            hour: settings.integer("daily_reset_time", field: "hour"),
-            minute: settings.integer("daily_reset_time", field: "minute")
-        )
-        let bounds = ReportRangeRules.bounds(
-            start: start,
-            end: end,
-            resetHour: reset.hour,
-            resetMinute: reset.minute
-        )
+        let bounds = reportBounds(start: start, end: end)
         let totals = entries.totals(from: bounds.start, to: bounds.end)
         pane.show(totals, showingSeconds: settings.flag("display_seconds", field: "enabled") ?? true)
         debugLog?.record(

@@ -16,6 +16,21 @@ struct CategoryTotal: Equatable {
     let seconds: TimeInterval
 }
 
+/// One recorded stretch, as the Report tab lists it: when it began, when it ended, and how long that was.
+///
+/// **Both ends are clipped to the range being reported**, which is what makes the entries under a category add up to
+/// the total on its heading. A stretch running across the boundary is shown as the part inside, not as the whole of
+/// itself: the alternative is a list whose figures do not sum to the number above them, which reads as a bug in one of
+/// the two.
+struct TimeEntryRecord: Equatable {
+    let timeEntryID: Int
+    let start: Date
+    let end: Date
+
+    /// Derived rather than stored, so it cannot disagree with the two ends beside it.
+    var seconds: TimeInterval { max(0, end.timeIntervalSince(start)) }
+}
+
 /// The `time_entry` table, read. `TimeEntryRecorder` is what writes it.
 ///
 /// Split because the questions are different sizes: writing an entry is a decision about one segment, and
@@ -75,6 +90,10 @@ final class TimeEntryStore {
     /// The start comes from `device_event.start_epoch` rather than `time_entry.started_at`, as everywhere else here:
     /// the epoch is a number, where the text column is local time with no offset and could not be compared.
     ///
+    /// **`Unassigned` is included**, unlike every category list in the app, which starts at `category_id` 1. That is the
+    /// archive's decision and its reason: time on a face with no category of its own was still time spent, and dropping
+    /// it would leave a report that quietly fails to add up to the day.
+    ///
     /// A **still-running** segment contributes nothing, because it is not an entry yet. `time_entry` is what the app
     /// counts, written when a segment closes, so a clock running right now shows on the Faces tab and in the menu bar
     /// and arrives here when it stops.
@@ -113,6 +132,42 @@ final class TimeEntryStore {
             )
         }
         return totals
+    }
+
+    /// What one category recorded inside a range, stretch by stretch, **earliest first**.
+    ///
+    /// Read when a category is opened on the Report tab rather than alongside the totals: a closed group's entries are
+    /// an answer nobody has asked for, and twelve categories of them is twelve reads to throw away. Opening one is the
+    /// moment it is needed, so that is when it is read.
+    ///
+    /// Clipped at both ends, like the totals and for the same reason: these are the figures that have to add up to the
+    /// one on the heading above them.
+    func entries(categoryID: Int, from windowStart: Date, to windowEnd: Date) -> [TimeEntryRecord] {
+        let startEpoch = windowStart.timeIntervalSince1970
+        let endEpoch = windowEnd.timeIntervalSince1970
+        var records: [TimeEntryRecord] = []
+        connection.forEachRow(
+            """
+            SELECT te.time_entry_id,
+                   MAX(de.start_epoch, \(startEpoch)) AS began,
+                   MIN(de.start_epoch + te.duration_seconds, \(endEpoch)) AS ended
+              FROM time_entry te
+              JOIN device_event de ON de.device_event_id = te.device_event_id
+             WHERE te.category_id = \(categoryID)
+               AND de.start_epoch < \(endEpoch)
+               AND (de.start_epoch + te.duration_seconds) > \(startEpoch)
+             ORDER BY began, te.time_entry_id;
+            """
+        ) { row in
+            records.append(
+                TimeEntryRecord(
+                    timeEntryID: Int(row.int(0)),
+                    start: Date(timeIntervalSince1970: row.double(1)),
+                    end: Date(timeIntervalSince1970: row.double(2))
+                )
+            )
+        }
+        return records
     }
 
     /// When this category last finished recording time, or `nil` if it never has.
