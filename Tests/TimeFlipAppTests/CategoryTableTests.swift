@@ -38,21 +38,13 @@ final class CategoryTableTests: XCTestCase {
     }
 
     private func rows(of table: CategoryTable) -> [CategoryTableRow] {
-        // Reaching through the panel because that is where the rows live: the box is a container, not a layer of
-        // meaning.
-        table.subviews
-            .flatMap { $0.subviews }
-            .flatMap { $0.subviews }
-            .flatMap { $0.subviews }
-            .compactMap { $0 as? CategoryTableRow }
+        // Searched rather than walked down a fixed chain of `subviews`: this counted the box the list used to draw
+        // its own tint on, and every one of these tests broke on the day that box moved out to the section.
+        descendants(of: table).compactMap { $0 as? CategoryTableRow }
     }
 
     private func header(of table: CategoryTable) -> NSView? {
-        table.subviews
-            .flatMap { $0.subviews }
-            .flatMap { $0.subviews }
-            .flatMap { $0.subviews }
-            .first { $0.accessibilityIdentifier() == CategoryTable.Identifier.header }
+        descendants(of: table).first { $0.accessibilityIdentifier() == CategoryTable.Identifier.header }
     }
 
     // MARK: - the rows
@@ -425,11 +417,7 @@ final class CategoryTableTests: XCTestCase {
 
         XCTAssertTrue(rows(of: table).isEmpty)
         XCTAssertNil(header(of: table), "columns with nothing under them are a table pretending to be empty")
-        let labels = table.subviews
-            .flatMap { $0.subviews }
-            .flatMap { $0.subviews }
-            .flatMap { $0.subviews }
-            .compactMap { ($0 as? NSTextField)?.stringValue }
+        let labels = descendants(of: table).compactMap { ($0 as? NSTextField)?.stringValue }
         XCTAssertEqual(labels, ["No active categories."])
     }
 
@@ -474,9 +462,15 @@ final class CategoryTableTests: XCTestCase {
         content.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(pane.frame.width, 640)
+        // The tinted panel is what the rule is about, and it is the section's rather than the list's: the list sits
+        // inside it, held off both edges by the panel's own padding.
+        let panel = content.convert(pane.activeSection.panel.bounds, from: pane.activeSection.panel)
+        XCTAssertEqual(panel.minX, 20, accuracy: 0.5)
+        XCTAssertEqual(panel.maxX, 620, accuracy: 0.5)
+
         let list = content.convert(pane.activeTable.bounds, from: pane.activeTable)
-        XCTAssertEqual(list.minX, 20, accuracy: 0.5)
-        XCTAssertEqual(list.maxX, 620, accuracy: 0.5)
+        XCTAssertEqual(list.minX, panel.minX + CategoryTable.Layout.padding, accuracy: 0.5)
+        XCTAssertEqual(list.maxX, panel.maxX - CategoryTable.Layout.padding, accuracy: 0.5)
     }
 
     func testThePaneShowsWhatItIsGiven() {
@@ -506,7 +500,53 @@ final class CategoryTableTests: XCTestCase {
             table.frame.maxY, headingFrame.minY,
             "the list is below the heading: in this coordinate space, lower means a smaller y"
         )
-        XCTAssertEqual(table.frame.width, section.frame.width, "the list spans the section")
+        XCTAssertEqual(
+            table.frame.width, section.frame.width - 2 * CategoryTable.Layout.padding,
+            "the list spans the section, inset by the panel's padding"
+        )
         XCTAssertGreaterThan(table.frame.height, 0, "a table with a row in it has a height")
+    }
+
+    func testTheHeadingSitsOnTheSamePanelAsTheList() throws {
+        // What the archive drew: each section was a `Section` of a grouped form, and a grouped form's box holds the
+        // disclosure label as its first row. So the tint runs from above the heading to below the last category.
+        let pane = CategoriesPane()
+        pane.show(active: [category(1, "Break")])
+        pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        pane.layoutSubtreeIfNeeded()
+
+        let section = pane.activeSection!
+        let heading = try XCTUnwrap(
+            descendants(of: section).first { $0.accessibilityIdentifier() == CategoriesPane.Identifier.activeHeading }
+        )
+        let panel = section.convert(section.panel.bounds, from: section.panel)
+        XCTAssertTrue(
+            panel.contains(section.convert(heading.bounds, from: heading)),
+            "the words are on the tint, not above it"
+        )
+        XCTAssertTrue(panel.contains(pane.activeTable.frame), "and so is the list under them")
+
+        // Behind both, so a click still reaches the heading line: AppKit hit-tests later subviews first.
+        XCTAssertEqual(section.subviews.first, section.panel)
+    }
+
+    func testAFoldedSectionIsOnlyItsHeading() {
+        // Hiding the list is not enough on its own: Auto Layout does not care that a view is hidden, and this
+        // measured 150pt open and 150pt shut until the section's bottom moved up to the heading with it. Invisible
+        // against a plain background, an empty tinted box now.
+        let pane = CategoriesPane()
+        pane.show(active: [category(1, "Break"), category(2, "Meeting")])
+        pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        pane.layoutSubtreeIfNeeded()
+        let open = pane.activeSection.frame.height
+
+        pane.activeSection.setExpanded(false)
+        pane.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(pane.activeSection.frame.height, open)
+        XCTAssertEqual(
+            pane.activeSection.frame.height, pane.activeSection.panel.frame.height,
+            "the panel closes around the heading rather than staying open over nothing"
+        )
     }
 }

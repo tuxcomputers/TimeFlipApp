@@ -1,6 +1,13 @@
 import AppKit
 
-/// The Categories tab's list: a caption row naming the columns, then one row per category, on a rounded panel.
+/// The Categories tab's list: a caption row naming the columns, then one row per category, on the tinted panel its
+/// section draws around both this and the heading.
+///
+/// The tint is the previous app's, for every group of settings on this tab (`image/preferences-device.png`), and a
+/// translucent fill rather than a fixed grey so it darkens whichever appearance the page is in. The Faces tab's list
+/// is deliberately *not* tinted, which is the archive's own split rather than an inconsistency:
+/// `image/preferences-faces.png` shows its pick list on plain white with only hairlines. A pick list is part of the
+/// page; a panel of settings is a thing on it.
 ///
 /// **A different list from the Faces tab's** ([CategoryListView]), deliberately, because the two answer different
 /// questions. That one is a pick list -- a colour swatch with the icon on it, the name beside it, the whole row a
@@ -38,7 +45,8 @@ final class CategoryTable: NSView {
         /// Between the columns of a row, and between the rows.
         static let columnSpacing: CGFloat = 12
         static let rowSpacing: CGFloat = 8
-        /// Inside the panel, around the whole list.
+        /// Inside the panel, around the heading and the list on it. Applied by [CategorySection], which owns the
+        /// panel, and named here because both lists on this tab take their measurements from this one place.
         static let padding: CGFloat = 8
         static let cornerRadius: CGFloat = 8
         /// The colour swatch, and how visible its outline is against a colour of its own.
@@ -47,7 +55,6 @@ final class CategoryTable: NSView {
         static let swatchStrokeOpacity: CGFloat = 0.2
     }
 
-    private let panel = NSBox()
     private let rows = NSStackView()
 
     private(set) var shownCategories: [CategoryRecord] = []
@@ -80,7 +87,7 @@ final class CategoryTable: NSView {
 
     init() {
         super.init(frame: .zero)
-        addPanel()
+        addRows()
     }
 
     @available(*, unavailable)
@@ -120,44 +127,31 @@ final class CategoryTable: NSView {
         shownCategories = categories
     }
 
-    private func addPanel() {
+    /// **The tint is the section's, not this list's** ([CategorySection]). The heading sits on the same panel as the
+    /// rows -- which is what the archive's grouped form did -- and a list drawing its own tinted box inside that one
+    /// would stack two translucent fills, leaving the rows visibly darker than the heading above them.
+    ///
+    /// So this is the rows and nothing else. The padding that used to sit inside the box is the section's now, at the
+    /// same 8pt, since it is the panel's inset rather than the list's.
+    private func addRows() {
         translatesAutoresizingMaskIntoConstraints = false
-        // An NSBox rather than a layer with a background colour, as on the Faces tab: it keeps the fill a dynamic
-        // colour, so the panel follows the appearance instead of freezing whichever one it was built under.
-        panel.boxType = .custom
-        // Tinted, which the previous app's grouped form did for every panel on this tab (see
-        // `image/preferences-device.png`, the same style). A translucent fill rather than a fixed grey, so it darkens
-        // the page it is on whichever appearance that page is in.
-        //
-        // The Faces tab's list is deliberately *not* tinted, and that is the archive's own split rather than an
-        // inconsistency: `image/preferences-faces.png` shows its pick list on plain white with only hairlines. A pick
-        // list is part of the page; a panel of settings is a thing on it.
-        panel.fillColor = .quaternarySystemFill
-        panel.borderWidth = 0
-        panel.cornerRadius = Layout.cornerRadius
-        panel.contentViewMargins = .zero
-        panel.titlePosition = .noTitle
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.setAccessibilityIdentifier(Identifier.table)
+        // An element, or it is absent from the accessibility tree entirely: an ordinary `NSView` is not one, so its
+        // identifier is never asked for. It used to be the box that carried the name, and the box has gone.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier(Identifier.table)
 
         rows.orientation = .vertical
         rows.alignment = .leading
         rows.spacing = Layout.rowSpacing
         rows.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(panel)
-        panel.contentView?.addSubview(rows)
-        guard let content = panel.contentView else { return }
+        addSubview(rows)
         NSLayoutConstraint.activate([
-            panel.topAnchor.constraint(equalTo: topAnchor),
-            panel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            panel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            panel.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            rows.topAnchor.constraint(equalTo: content.topAnchor, constant: Layout.padding),
-            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Layout.padding),
-            rows.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Layout.padding),
-            rows.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Layout.padding),
+            rows.topAnchor.constraint(equalTo: topAnchor),
+            rows.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rows.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            rows.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 

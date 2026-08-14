@@ -18,8 +18,9 @@ import AppKit
 /// the Active list that box is the last column, the far end of a row full of settings, and here there are no
 /// settings, so putting it first makes it the point of the row rather than something to read past.
 ///
-/// The panel's own look -- the tint, the corner, the padding -- comes from `CategoryTable.Layout` rather than being
-/// restated, since these two sit on one tab and cannot be allowed to drift apart.
+/// The panel it sits on is its section's, drawn around the Inactive heading and this list together, and its
+/// measurements come from `CategoryTable.Layout` rather than being restated: these two lists sit on one tab and
+/// cannot be allowed to drift apart.
 @MainActor
 final class RetiredCategoryTable: NSView {
     enum Identifier {
@@ -30,7 +31,6 @@ final class RetiredCategoryTable: NSView {
         static func row(_ category: CategoryRecord) -> String { "retired-category-row-\(category.id)" }
     }
 
-    private let panel = NSBox()
     private let rows = NSStackView()
 
     private(set) var shownCategories: [CategoryRecord] = []
@@ -45,7 +45,7 @@ final class RetiredCategoryTable: NSView {
 
     init() {
         super.init(frame: .zero)
-        addPanel()
+        addRows()
     }
 
     @available(*, unavailable)
@@ -74,36 +74,26 @@ final class RetiredCategoryTable: NSView {
         shownCategories = categories
     }
 
-    private func addPanel() {
+    /// The rows and nothing else: the tint and the padding around them belong to the section this sits in
+    /// ([CategorySection]), which draws one panel for the heading and the list together.
+    private func addRows() {
         translatesAutoresizingMaskIntoConstraints = false
-        panel.boxType = .custom
-        panel.fillColor = .quaternarySystemFill
-        panel.borderWidth = 0
-        panel.cornerRadius = CategoryTable.Layout.cornerRadius
-        panel.contentViewMargins = .zero
-        panel.titlePosition = .noTitle
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.setAccessibilityIdentifier(Identifier.table)
+        // An element, or the identifier is never asked for. The box used to carry it.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier(Identifier.table)
 
         rows.orientation = .vertical
         rows.alignment = .leading
         rows.spacing = CategoryTable.Layout.rowSpacing
         rows.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(panel)
-        panel.contentView?.addSubview(rows)
-        guard let content = panel.contentView else { return }
-        let padding = CategoryTable.Layout.padding
+        addSubview(rows)
         NSLayoutConstraint.activate([
-            panel.topAnchor.constraint(equalTo: topAnchor),
-            panel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            panel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            panel.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            rows.topAnchor.constraint(equalTo: content.topAnchor, constant: padding),
-            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: padding),
-            rows.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -padding),
-            rows.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -padding),
+            rows.topAnchor.constraint(equalTo: topAnchor),
+            rows.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rows.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rows.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 

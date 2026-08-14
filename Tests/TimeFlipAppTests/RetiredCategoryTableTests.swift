@@ -178,7 +178,7 @@ final class RetiredCategoryTableTests: XCTestCase {
         XCTAssertTrue(pane.activeSection.isExpanded)
         XCTAssertFalse(pane.inactiveSection.isExpanded)
         XCTAssertFalse(pane.activeTable.isHidden)
-        XCTAssertTrue(pane.retiredTable.isHidden, "a hidden arranged view collapses, so the section is its heading")
+        XCTAssertTrue(pane.retiredTable.isHidden, "and the section's own bottom moves up to the heading with it")
     }
 
     func testTheWholeHeadingLineFoldsTheSectionRatherThanJustTheTriangle() throws {
@@ -232,9 +232,14 @@ final class RetiredCategoryTableTests: XCTestCase {
         let line = try XCTUnwrap(
             section.subviews.compactMap { $0 as? NSButton }.first { $0.accessibilityIdentifier().hasSuffix("-heading-button") }
         )
-        XCTAssertEqual(line.frame.width, section.frame.width, "the words, the triangle, and the space after them")
-        // Behind them, so the triangle still draws itself and the label is still readable.
-        XCTAssertEqual(section.subviews.first, line)
+        XCTAssertEqual(
+            line.frame.width, section.frame.width,
+            "the words, the triangle, and the space after them, out to the panel's own edges"
+        )
+        // In front of the tint and behind the triangle: the panel would swallow a click on the padding either side of
+        // the words, and the triangle has to keep drawing itself.
+        XCTAssertEqual(section.subviews.first, section.panel)
+        XCTAssertEqual(section.subviews.firstIndex(of: line), 1)
     }
 
     func testFoldingASectionHidesItsListAndSaysSo() {
