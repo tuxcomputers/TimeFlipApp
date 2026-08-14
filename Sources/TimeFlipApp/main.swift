@@ -124,7 +124,8 @@ let settingsWindow = SettingsWindowController(
     faces: faces,
     deviceEvents: deviceEvents,
     timing: timingReadout,
-    entries: entries
+    entries: entries,
+    icons: IconStore(connection: database)
 )
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the

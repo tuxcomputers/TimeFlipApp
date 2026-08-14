@@ -44,6 +44,19 @@ enum CategoryEditRules {
         return locked.isEmpty ? nil : .lockedFaces(locked)
     }
 
+    /// The `icon_id` a click on the icon grid should store.
+    ///
+    /// **Re-clicking the icon already chosen clears it**, which is how a grid with no None cell can still unset one.
+    /// Copied from the previous app along with its reasoning: the None row (`icon_id` 0) is a sentinel rather than a
+    /// bundled asset, so there is nothing to draw in a cell for it, and a grid that could only ever set an icon would
+    /// make "no icon" a state a category could leave but never return to.
+    static func iconSelection(clicked iconID: Int, selected selectedIconID: Int) -> Int {
+        iconID == selectedIconID ? noIcon : iconID
+    }
+
+    /// The `icon_id` meaning no icon at all, which is what every category starts with.
+    static let noIcon = 0
+
     /// Whether a retired category can come back, and what stops it.
     enum ReinstateDecision: Equatable {
         case reinstate

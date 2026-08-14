@@ -219,7 +219,8 @@ final class CategoryTableTests: XCTestCase {
         let table = CategoryTable()
         table.show([category(1, "Break", icon: nil)])
 
-        let images = rows(of: table).flatMap { $0.subviews }.compactMap { ($0 as? NSImageView)?.image }
+        // The icon is a button now, since it opens the picker, so what draws the "no sign" glyph is its image.
+        let images = rows(of: table).flatMap { $0.subviews }.compactMap { ($0 as? NSButton)?.image }
         XCTAssertEqual(images.count, 1, "a gap would read as a column that failed to draw")
     }
 

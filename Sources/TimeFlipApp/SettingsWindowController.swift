@@ -66,6 +66,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// Recorded time, for the one thing this window asks of it: when a retired category was last used.
     private let entries: TimeEntryStore?
 
+    /// The artwork a category can be given. A reference table, so this only ever reads.
+    private let icons: IconStore?
+
+    /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
+    /// because a second click on another row's icon should replace it rather than stack a second one behind it.
+    private var iconPicker: NSPopover?
+
     /// Called when this window changes what is being timed, so the status item can repaint at the same moment.
     ///
     /// A settable property rather than a constructor argument because the two need each other: the item's menu is
@@ -84,7 +91,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         faces: FaceStore?,
         deviceEvents: DeviceEventRecorder? = nil,
         timing: TimingReadout? = nil,
-        entries: TimeEntryStore? = nil
+        entries: TimeEntryStore? = nil,
+        icons: IconStore? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -92,6 +100,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.deviceEvents = deviceEvents
         self.timing = timing
         self.entries = entries
+        self.icons = icons
         super.init()
     }
 
@@ -139,6 +148,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.activeTable.onRetire = { [weak self] category in
             self?.retire(category)
         }
+        pane.activeTable.onPickIcon = { [weak self] category, anchor in
+            self?.pickIcon(for: category, from: anchor)
+        }
         // Read per row as the Inactive list is drawn, which is why it is a closure rather than a field on the record:
         // an active category draws no date at all, so joining it onto every category read would cost a subquery on
         // the reads that happen once a second.
@@ -155,6 +167,42 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.debugLog?.record(.tab, "Categories section Inactive \(isExpanded ? "opened" : "folded")")
         }
         wire(pane.createControl)
+    }
+
+    /// Opens the icon grid under a category's icon.
+    ///
+    /// A popover, as the archive had it: the grid belongs to the row it was opened from, and a sheet or a window
+    /// would take that connection away and have to say which category it was for.
+    ///
+    /// **The picker closes on a pick.** One choice is the whole of what it is for, so leaving it open would mean
+    /// asking somebody to dismiss a thing they have finished with.
+    private func pickIcon(for category: CategoryRecord, from anchor: NSView) {
+        guard let icons else { return }
+        let grid = IconGrid(icons: icons.all(), selected: category.iconName)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSViewController()
+        popover.contentViewController?.view = grid
+        grid.onPick = { [weak self, weak popover] iconID in
+            popover?.close()
+            self?.setIcon(iconID, on: category)
+        }
+        iconPicker = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+    }
+
+    /// Stores a category's artwork, which includes clearing it: re-clicking the icon a category already has answers
+    /// `0`, and that is a write like any other (see `CategoryEditRules.iconSelection`).
+    private func setIcon(_ iconID: Int, on category: CategoryRecord) {
+        guard let categories else { return }
+        let stored = categories.setIcon(id: category.id, iconID: iconID)
+        debugLog?.record(
+            .click,
+            "Category \"\(category.name)\" icon -> icon_id \(iconID)\(stored ? "" : " REFUSED")"
+        )
+        // Read back, which is what redraws the row's icon: this changes what a row says about itself rather than a
+        // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
+        reloadSelectedPane()
     }
 
     /// Stores a category's daily limit.

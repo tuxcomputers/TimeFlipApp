@@ -214,6 +214,16 @@ final class CategoryStore {
         ) && connection.changes > 0
     }
 
+    /// Sets a category's artwork, and reports whether it took.
+    ///
+    /// `0` is the seeded *None* row, which is how an icon is cleared: it is a real row in `icon` rather than a null,
+    /// so the foreign key holds either way.
+    func setIcon(id: Int, iconID: Int) -> Bool {
+        connection.execute(
+            "UPDATE category SET icon_id = \(iconID) WHERE category_id = \(id);"
+        ) && connection.changes > 0
+    }
+
     /// Sets a category's daily budget, in minutes, and reports whether it took.
     ///
     /// The value is bounded by the caller (`CategoryEditRules.dailyLimitMinutes`) rather than here: what a sensible

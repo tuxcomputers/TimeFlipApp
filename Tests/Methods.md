@@ -146,6 +146,11 @@ final value**, since the timing is the thing being checked: the rows showed 5 im
 
 ## Notes that have cost time
 
+- **A popover is invisible to accessibility.** The icon picker is not in the app's `AXWindows`, not in its
+  `AXChildren`, and not under the window that opened it, so `ax-dump.py` shows nothing and `ax-press.py`
+  cannot press a cell by name. Screenshot it, work out the cell's screen position, and click there with a
+  real mouse event ([Method 8](#method-8) posts them). The click that *opens* it is an ordinary named press.
+
 - **Never post Escape (key code 53) while driving this app.** It reaches whatever has focus, and if that
   is not the app it interrupts the session driving it. There is nothing in this app that needs it: the
   Settings window closes with `ax-press.py close-settings`, and menus close by pressing an item.

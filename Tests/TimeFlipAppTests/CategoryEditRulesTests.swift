@@ -29,6 +29,23 @@ final class CategoryEditRulesTests: XCTestCase {
         XCTAssertEqual(CategoryEditRules.dailyLimitMinutes(-30), 0)
     }
 
+    // MARK: - picking an icon
+
+    func testPickingAnIconStoresIt() {
+        XCTAssertEqual(CategoryEditRules.iconSelection(clicked: 7, selected: 4), 7)
+    }
+
+    func testPickingTheIconAlreadyChosenClearsIt() {
+        // The whole of how a grid with no None cell unsets an icon: id 0 is a sentinel row rather than artwork, so
+        // there is nothing to draw in a cell for it.
+        XCTAssertEqual(CategoryEditRules.iconSelection(clicked: 7, selected: 7), CategoryEditRules.noIcon)
+        XCTAssertEqual(CategoryEditRules.noIcon, 0)
+    }
+
+    func testPickingOneWhenThereIsNoneStoresIt() {
+        XCTAssertEqual(CategoryEditRules.iconSelection(clicked: 7, selected: CategoryEditRules.noIcon), 7)
+    }
+
     // MARK: - bringing one back
 
     private func category(_ id: Int, _ name: String, isActive: Bool) -> CategoryRecord {

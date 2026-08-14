@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (379 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (395 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -46,7 +46,7 @@ Nothing until the device work, which the three items below all need. See [The or
 
 - [ ] **The cube arrangement**: the device graphic and its lock in the left column under a "Top face" heading, which is what this pane looks like when there is a cube to follow.
 - [ ] **Assigning categories to the twelve device faces.** The `face` table seeds them and nothing in the app can change what they hold.
-- [ ] **Locking a face** (`face.locked`): writes honour the column already, an assign to a locked face being refused, and there is no way to set it.
+- [ ] **Locking and unlocking a face** (`face.locked`): writes honour the column already, an assign to a locked face being refused, and there is no way to set it either way. Unlocking is also what the disabled Active box on the Categories tab points at, a category on a locked face being one that cannot be retired.
 
 Creating a category stays here as well as arriving on the Categories tab: this is where the list is, so it is where somebody realises a category is missing. Retiring one is not here on purpose, this tab picking a category to time rather than looking after it. See [Categories tab](#categories-tab).
 
@@ -109,15 +109,14 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 - [x] **The sections fold** ([CategorySection.swift](../Sources/TimeFlipApp/CategorySection.swift)): Active open because it is the one being worked in, Inactive closed because it is an archive to go looking in occasionally. The triangles waited for the second list, a lone section having nothing to fold away from.
 - [x] **Reactivating a category**, by ticking Active on a retired row. The name is checked first, since only one active category may hold one: the unique index would refuse it anyway, but a refused write cannot say *which* category is in the way, and that is the whole of what the message needs.
 - [x] **Creating against a retired namesake asks** rather than deciding: a dialogue naming the category, saying how many share the name, and offering Reactivate, Create new one, and Cancel. With more than one retired namesake the Reactivate button is absent, there being no answer to which of them was meant -- and the count is what says why.
+- [x] **The icon picker** ([IconGrid.swift](../Sources/TimeFlipApp/IconGrid.swift), [IconStore.swift](../Sources/TimeFlipApp/IconStore.swift)): the row's icon opens a popover of the 42 seeded icons, six wide, which is what lays them out as an even 6 by 7 with nothing to scroll. Re-clicking the icon a category already has clears it, which is the archive's rule and the reason a grid with no None cell can still unset one.
 
 ### Still to do
 
 - [ ] **Renaming a category.**
-- [ ] **Choosing an icon** (`icon`, a reference table already seeded and read).
 - [ ] **Choosing a colour** (`colour`, likewise, including its `white_lines` flag for dark colours).
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
 - [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
-- [ ] **Unlocking a face**, which is what the disabled Active box points at: a category on a locked face cannot be retired, and nothing in the app can unlock one. It is a Faces tab item and it waits for the device work, which is what makes a locked face reachable at all.
 
 ## Report tab
 

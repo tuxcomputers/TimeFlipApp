@@ -19,6 +19,8 @@ final class CategorySection: NSView {
     private(set) var isExpanded: Bool
 
     private let toggle = NSButton()
+    /// Behind the triangle and the title, spanning the row, so the whole line is the target.
+    private let headingButton = NSButton()
     private let content: NSView
 
     init(title: String, identifier: String, isExpanded: Bool, content: NSView) {
@@ -69,6 +71,21 @@ final class CategorySection: NSView {
 
         content.isHidden = !isExpanded
 
+        // **The whole line folds the section, not just the triangle** (see `CLAUDE.md`). A triangle is a small
+        // target for a gesture the heading beside it is obviously about, and every other list on this platform
+        // opens on its title too. The button sits *behind* the triangle and the words, spanning the row, so the
+        // triangle keeps drawing itself and the click lands here wherever in the line it falls.
+        headingButton.title = ""
+        headingButton.isBordered = false
+        headingButton.bezelStyle = .inline
+        headingButton.imagePosition = .noImage
+        headingButton.target = self
+        headingButton.action = #selector(headingClicked)
+        headingButton.translatesAutoresizingMaskIntoConstraints = false
+        headingButton.setAccessibilityIdentifier("\(identifier)-heading-button")
+        headingButton.setAccessibilityLabel("\(title) categories")
+
+        addSubview(headingButton)
         addSubview(toggle)
         addSubview(heading)
         addSubview(content)
@@ -81,11 +98,25 @@ final class CategorySection: NSView {
             heading.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             heading.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
 
+            // Spanning the row: the words, the triangle, and the space after them.
+            headingButton.topAnchor.constraint(equalTo: topAnchor),
+            headingButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headingButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headingButton.bottomAnchor.constraint(equalTo: heading.bottomAnchor),
+
             content.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: Layout.headingSpacing),
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// A click anywhere on the heading line. It flips the section rather than reading the triangle, since the
+    /// triangle has not moved: it is the button underneath that was pressed.
+    @objc
+    private func headingClicked() {
+        setExpanded(!isExpanded)
+        onToggle?(isExpanded)
     }
 
     private enum Layout {

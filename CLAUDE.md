@@ -104,6 +104,19 @@ that cost a real experiment to obtain, and re-deriving them costs the same again
 So the archive's comments and its test methods are the first place to look, and a fact it recorded from
 a real device or a real accessibility tree outranks reasoning about what should happen.
 
+## A collapsible group opens on its whole heading, not just its triangle
+
+**Anywhere in this app that a section folds away, the entire heading line is the target**: the triangle, the
+words beside it, and the space after them to the end of the row. Not the triangle alone.
+
+A triangle is a small target for a gesture the heading is obviously about, and every other list on this
+platform opens on its title too, so a heading that ignores a click is a control that looks broken rather than
+one being precise. `CategorySection` is the pattern: a borderless button spanning the row sits *behind* the
+triangle and the label, so the triangle still draws itself and a click lands in one place wherever in the line
+it falls.
+
+This applies to every collapsible group the app grows, not only the Categories tab's two.
+
 ## Requests that affect real device behavior
 
 - Before implementing a request that changes how the physical TimeFlip device behaves (e.g.

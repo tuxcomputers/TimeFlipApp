@@ -181,6 +181,44 @@ final class RetiredCategoryTableTests: XCTestCase {
         XCTAssertTrue(pane.retiredTable.isHidden, "a hidden arranged view collapses, so the section is its heading")
     }
 
+    func testTheWholeHeadingLineFoldsTheSectionRatherThanJustTheTriangle() throws {
+        // The rule in CLAUDE.md, for every collapsible group the app grows: a triangle is a small target for a
+        // gesture the heading beside it is obviously about.
+        let pane = CategoriesPane()
+        var reported: [Bool] = []
+        pane.inactiveSection.onToggle = { reported.append($0) }
+
+        let line = try XCTUnwrap(
+            pane.inactiveSection.subviews
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier().hasSuffix("-heading-button") }
+        )
+        line.performClick(nil)
+
+        XCTAssertTrue(pane.inactiveSection.isExpanded)
+        XCTAssertFalse(pane.retiredTable.isHidden)
+        XCTAssertEqual(reported, [true], "and it reports outward, as the triangle does")
+
+        line.performClick(nil)
+        XCTAssertFalse(pane.inactiveSection.isExpanded)
+        XCTAssertEqual(reported, [true, false])
+    }
+
+    func testTheHeadingButtonSpansTheRowBehindTheTriangle() throws {
+        let pane = CategoriesPane()
+        pane.show(active: [], inactive: [retired(3, "Old")])
+        pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        pane.layoutSubtreeIfNeeded()
+
+        let section = pane.inactiveSection!
+        let line = try XCTUnwrap(
+            section.subviews.compactMap { $0 as? NSButton }.first { $0.accessibilityIdentifier().hasSuffix("-heading-button") }
+        )
+        XCTAssertEqual(line.frame.width, section.frame.width, "the words, the triangle, and the space after them")
+        // Behind them, so the triangle still draws itself and the label is still readable.
+        XCTAssertEqual(section.subviews.first, line)
+    }
+
     func testFoldingASectionHidesItsListAndSaysSo() {
         let pane = CategoriesPane()
         var reported: [Bool] = []

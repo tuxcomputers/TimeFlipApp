@@ -64,6 +64,10 @@ final class CategoryTable: NSView {
     /// alongside the categories and going stale between the two.
     var facesHolding: ((CategoryRecord) -> [(face: Int, isLocked: Bool)])?
 
+    /// Called when a category's icon is clicked, with the view the picker should hang from. What opens there is the
+    /// window's to decide, as every other write on this tab is.
+    var onPickIcon: ((CategoryRecord, NSView) -> Void)?
+
     init() {
         super.init(frame: .zero)
         addPanel()
@@ -96,6 +100,7 @@ final class CategoryTable: NSView {
                 )
                 row.onSetDailyLimit = { [weak self] minutes in self?.onSetDailyLimit?(category, minutes) }
                 row.onRetire = { [weak self] in self?.onRetire?(category) }
+                row.onPickIcon = { [weak self] anchor in self?.onPickIcon?(category, anchor) }
                 rows.addView(row, in: .top)
             }
         }
@@ -207,6 +212,13 @@ final class CategoryTableRow: NSStackView {
     /// Called when the Active box is unticked.
     var onRetire: (() -> Void)?
 
+    /// Called when the icon is clicked, with the button itself: a popover has to be anchored to something, and the
+    /// row is the only thing that knows which view that is.
+    var onPickIcon: ((NSView) -> Void)?
+
+    /// Held so the picker can be anchored to it after the click.
+    private var iconButton: NSButton?
+
     init(category: CategoryRecord, retireRefusal: CategoryEditRules.RetireRefusal? = nil) {
         self.category = category
         self.retireRefusal = retireRefusal
@@ -296,25 +308,45 @@ final class CategoryTableRow: NSStackView {
 
     /// The category's artwork, or a "no sign" glyph for one that has none -- the archive's answer, and better than a
     /// gap, which reads as a column that failed to draw rather than as a category nobody has dressed yet.
+    ///
+    /// **A button, because it opens the picker**, which is what the archive's was too. It stays borderless and shows
+    /// only the artwork: a bordered button here would read as a control in a column of readings.
     private func icon() -> NSView {
-        let view = NSImageView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.imageScaling = .scaleProportionallyUpOrDown
+        let button = NSButton()
+        button.title = ""
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.target = self
+        button.action = #selector(pickIcon)
+        button.identifier = NSUserInterfaceItemIdentifier("category-icon-\(category.id)")
+        button.setAccessibilityIdentifier("category-icon-\(category.id)")
         if let iconName = category.iconName, let image = ActivityIcon.image(named: iconName, pointSize: CategoryTable.Layout.iconSize) {
-            view.image = image
+            button.image = image
             // The previous app drew this black, which it could: its form was white in every appearance. This panel
             // is a dynamic colour, so black would disappear into it in dark mode. `.labelColor` is the same intent
             // -- the colour text is drawn in -- resolved as it draws.
-            view.contentTintColor = .labelColor
+            button.contentTintColor = .labelColor
+            button.setAccessibilityLabel("\(category.name) icon, \(IconStore.displayName(for: iconName))")
         } else {
-            view.image = NSImage(systemSymbolName: "nosign", accessibilityDescription: "No icon")
-            view.contentTintColor = .secondaryLabelColor
+            button.image = NSImage(systemSymbolName: "nosign", accessibilityDescription: "No icon")
+            button.contentTintColor = .secondaryLabelColor
+            button.setAccessibilityLabel("\(category.name) icon, none")
         }
+        iconButton = button
         NSLayoutConstraint.activate([
-            view.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.iconSize),
-            view.heightAnchor.constraint(equalToConstant: CategoryTable.Layout.iconSize),
+            button.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.iconSize),
+            button.heightAnchor.constraint(equalToConstant: CategoryTable.Layout.iconSize),
         ])
-        return view
+        return button
+    }
+
+    @objc
+    private func pickIcon() {
+        guard let iconButton else { return }
+        onPickIcon?(iconButton)
     }
 
     private func name() -> NSTextField {
