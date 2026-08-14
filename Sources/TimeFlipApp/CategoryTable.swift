@@ -146,13 +146,13 @@ final class CategoryTable: NSView {
     /// The column captions, at the same widths as the row under them so each sits over its own column.
     private func headerRow() -> NSView {
         let row = NSStackView(views: [
+            caption("Active", width: Layout.activeColumnWidth),
             spacer(width: Layout.iconSize),
             caption("Name", width: Layout.nameColumnWidth),
             caption("Colour", width: Layout.colourColumnWidth),
             // The caption says what 0 means, because a limit of nothing and no limit at all are opposites and the
             // field cannot tell them apart on its own. The archive's wording.
             caption("Daily limit (0 = disabled)", width: Layout.limitColumnWidth),
-            caption("Active", width: Layout.activeColumnWidth),
         ])
         row.orientation = .horizontal
         row.alignment = .centerY
@@ -228,12 +228,18 @@ final class CategoryTableRow: NSStackView {
         fatalError("init(coder:) is not used")
     }
 
+    /// **The Active box leads, matching the Inactive list.**
+    ///
+    /// The archive put it last here and first there, reasoning that in a row full of settings the toggle belongs at
+    /// the far end, while a retired row has no settings for it to be the end of. That is true of either list read on
+    /// its own, and wrong once they are stacked on one tab: the box means the same thing in both, so it reads as one
+    /// column running down the tab rather than as two controls that happen to share a name.
     private func addViews() {
+        addView(activeBox(), in: .leading)
         addView(icon(), in: .leading)
         addView(name(), in: .leading)
         addView(swatch(), in: .leading)
         addView(dailyLimitField(), in: .leading)
-        addView(activeBox(), in: .leading)
     }
 
     /// The category's budget for a day, in minutes, with 0 meaning no limit.

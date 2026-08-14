@@ -99,9 +99,10 @@ final class CategoryTableTests: XCTestCase {
             .compactMap { ($0 as? NSTextField)?.stringValue }
         XCTAssertEqual(
             captions,
-            // The archive's five columns, and its wording. No caption over the icon, there being nothing useful to
-            // call it; the limit's says what 0 means, since a limit of nothing and no limit at all are opposites.
-            ["Name", "Colour", "Daily limit (0 = disabled)", "Active"],
+            // The archive's five columns and its wording, with Active moved to the front to match the Inactive
+            // list. No caption over the icon, there being nothing useful to call it; the limit's says what 0 means,
+            // since a limit of nothing and no limit at all are opposites.
+            ["Active", "Name", "Colour", "Daily limit (0 = disabled)"],
             "the icon column is the only one without a caption"
         )
     }
@@ -184,12 +185,34 @@ final class CategoryTableTests: XCTestCase {
         table.layoutSubtreeIfNeeded()
 
         // The point of fixing the name column's width: a label sized to its own content would put the colour column
-        // at a different x on every row.
-        let swatchColumns = rows(of: table).map { row in
-            row.subviews.last.map { row.convert($0.frame.origin, to: table).x }
+        // at a different x on every row. Found by what it holds rather than by position, so a column added before it
+        // cannot turn this into an assertion about something else.
+        let swatchColumns = rows(of: table).map { row -> CGFloat? in
+            row.subviews
+                .first { $0.subviews.contains { $0 is ColourSwatch } }
+                .map { row.convert($0.frame.origin, to: table).x }
         }
         XCTAssertEqual(swatchColumns.count, 2)
+        XCTAssertNotNil(swatchColumns[0])
         XCTAssertEqual(swatchColumns[0], swatchColumns[1], "the colour column starts at the same x whatever the name")
+    }
+
+    func testTheActiveBoxLeadsTheRowAndLinesUpWithTheInactiveList() throws {
+        let table = CategoryTable()
+        table.show([category(1, "Break")])
+        // Laid out before measuring: a constraint is a promise about a frame, and nothing has produced one yet.
+        table.frame = NSRect(x: 0, y: 0, width: 480, height: 200)
+        table.layoutSubtreeIfNeeded()
+        let row = try XCTUnwrap(rows(of: table).first)
+
+        // First, matching the Inactive list. The archive put it last here on the reading that a row of settings ends
+        // with its toggle, which is true of either list alone and wrong once the two are stacked on one tab: the box
+        // means the same thing in both, so it should be one column running down the tab.
+        let box = try XCTUnwrap(activeBox(of: row))
+        XCTAssertEqual(row.subviews.first, box.superview, "the box's own column is the leading one")
+
+        // Both lists hold that column open at the same width, so the boxes land at the same x.
+        XCTAssertEqual(box.superview?.frame.width, CategoryTable.Layout.activeColumnWidth)
     }
 
     func testACategoryWithNoIconStillDrawsSomething() {
