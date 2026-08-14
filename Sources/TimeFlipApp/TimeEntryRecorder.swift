@@ -29,11 +29,11 @@ final class TimeEntryRecorder {
     }
 
     private let connection: DatabaseConnection
-    private let settings: SettingReader
+    private let settings: SettingStore
     private let faces: FaceStore
     private let debugLog: DebugLog?
 
-    init(connection: DatabaseConnection, settings: SettingReader, faces: FaceStore, debugLog: DebugLog?) {
+    init(connection: DatabaseConnection, settings: SettingStore, faces: FaceStore, debugLog: DebugLog?) {
         self.connection = connection
         self.settings = settings
         self.faces = faces

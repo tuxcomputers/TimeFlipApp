@@ -72,7 +72,7 @@ extension CategoryRecord {
 
 /// The `category` table: reads and the writes that go with them.
 ///
-/// One read per ask and nothing kept -- see `SettingReader` for the rule. Writes report whether they
+/// One read per ask and nothing kept -- see `SettingStore` for the rule. Writes report whether they
 /// took, and never work around a refusal: the unique index on an active name is the last thing standing
 /// between a typo and two identical categories, so a caller that meant to insert has to hear "no".
 @MainActor

@@ -30,7 +30,7 @@ final class ManualMode {
     /// An unreadable `paired` setting counts as not paired. Of the two ways to be wrong, sitting in
     /// manual mode with a perfectly good cube on the desk is visible and recoverable, while waiting
     /// forever for a device the app was never paired to looks exactly like a broken app.
-    func startIfNoDeviceIsPaired(_ settings: SettingReader) {
+    func startIfNoDeviceIsPaired(_ settings: SettingStore) {
         let isPaired = settings.flag("paired", field: "paired") ?? false
         guard !isPaired else {
             debugLog?.record(.mode, "Manual mode: off, a device is paired")

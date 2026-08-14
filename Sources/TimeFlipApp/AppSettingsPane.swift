@@ -6,11 +6,10 @@ import AppKit
 /// (`Archive/TimeFlipApp/ReportSettingsView.swift`). The Google section that sat above it there is not here: it
 /// belongs to an integration this app has not rebuilt, and drawing an empty one would promise something.
 ///
-/// **Nothing here writes yet.** The values are read from the `setting` table when the tab is shown, as every other
-/// pane's are, and a change bounces back to what the table says -- which is the database rule applied exactly as it
-/// is written for a refused write: a field showing what was typed while the table holds something else is the
-/// two-answers problem the rule exists to prevent. So the rows can be laid out and judged now, and each one becomes
-/// live when its writer lands.
+/// **The values are read once, when the window opens, and this pane then holds them** -- see the source-of-truth rule
+/// in `CLAUDE.md` for why a Settings window is the one place that is allowed to. A change is written straight through
+/// and read back by the window; this pane adopts it only once the table has it, and puts the row back if the table
+/// refused. So the two copies can only differ for as long as one write takes.
 @MainActor
 final class AppSettingsPane: NSView {
     enum Identifier {
@@ -64,11 +63,23 @@ final class AppSettingsPane: NSView {
         )
     }
 
-    /// Called when a row is changed, with the row's identifier and the number or flag it was changed to.
+    /// One row's new value, named for the row rather than for the setting it lands in: which row this came from is
+    /// what the pane knows, and which column that maps to is `AppSettingsRules`' to say.
     ///
-    /// **A request, and one nothing answers yet.** The window records it and reads the tab again, which puts the row
-    /// back to what the table holds. When a setting gains a writer, this is where it is wired.
-    var onChange: ((String, String) -> Void)?
+    /// Each number is in the unit the *row* shows -- a 12-hour face, whole minutes -- rather than the unit the table
+    /// stores, for the same reason: converting is a rule, and doing it here would be a second place it happens.
+    enum Change: Equatable {
+        case showsSeconds(Bool)
+        case pausesOnLock(Bool)
+        case dailyResetHour12(Int)
+        case batteryWarningPercent(Int)
+        case fetchIntervalMinutes(Int)
+        case blipSeconds(Int)
+    }
+
+    /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
+    /// did not. What the row shows is left alone either way -- it is showing what somebody just typed.
+    var onChange: ((Change) -> Void)?
 
     private(set) var values = Values.seeded
     private let rows = NSStackView()
@@ -87,6 +98,28 @@ final class AppSettingsPane: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    /// Takes on a change the table accepted, so what this pane holds is what the table holds.
+    ///
+    /// The controls are not redrawn: they are already showing it, and rebuilding a row around the value somebody just
+    /// typed takes the field out from under them. This is the in-memory half of the window's source of truth (see
+    /// `CLAUDE.md`), kept true by only ever adopting a change that has been read back.
+    func adopt(_ change: Change) {
+        switch change {
+        case let .showsSeconds(value): values.showsSeconds = value
+        case let .pausesOnLock(value): values.pausesOnLock = value
+        case let .dailyResetHour12(value): values.dailyResetHour24 = AppSettingsRules.hour24(fromFace: value)
+        case let .batteryWarningPercent(value): values.batteryWarningPercent = value
+        case let .fetchIntervalMinutes(value): values.fetchIntervalSeconds = AppSettingsRules.seconds(fromMinutes: value)
+        case let .blipSeconds(value): values.blipSeconds = value
+        }
+    }
+
+    /// Puts every row back to what this pane holds, which is what a refused write needs: the row is showing something
+    /// the table does not.
+    func restore() {
+        show(values)
     }
 
     /// Draws what the table says. Rebuilt rather than patched, for the reason every other pane is: the values arrive
@@ -164,25 +197,29 @@ final class AppSettingsPane: NSView {
             identifier: Identifier.dailyReset,
             value: AppSettingsRules.hour12(from: values.dailyResetHour24),
             range: AppSettingsRules.resetHours,
-            suffix: AppSettingsRules.resetSuffix
+            suffix: AppSettingsRules.resetSuffix,
+            change: Change.dailyResetHour12
         )
         batteryWarningField = field(
             identifier: Identifier.batteryWarning,
             value: values.batteryWarningPercent,
             range: AppSettingsRules.batteryWarningPercent,
-            suffix: AppSettingsRules.batterySuffix
+            suffix: AppSettingsRules.batterySuffix,
+            change: Change.batteryWarningPercent
         )
         fetchIntervalField = field(
             identifier: Identifier.fetchInterval,
             value: AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds),
             range: AppSettingsRules.fetchIntervalMinutes,
-            suffix: AppSettingsRules.unit("min", "mins", for: AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds))
+            suffix: AppSettingsRules.unit("min", "mins", for: AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds)),
+            change: Change.fetchIntervalMinutes
         )
         blipTimeField = field(
             identifier: Identifier.blipTime,
             value: values.blipSeconds,
             range: AppSettingsRules.blipSeconds,
-            suffix: AppSettingsRules.unit("sec", "secs", for: values.blipSeconds)
+            suffix: AppSettingsRules.unit("sec", "secs", for: values.blipSeconds),
+            change: Change.blipSeconds
         )
 
         let built: [(String, NSView)] = [
@@ -260,21 +297,38 @@ final class AppSettingsPane: NSView {
         return box
     }
 
-    private func field(identifier: String, value: Int, range: ClosedRange<Int>, suffix: String) -> SteppedNumberField {
+    private func field(
+        identifier: String,
+        value: Int,
+        range: ClosedRange<Int>,
+        suffix: String,
+        change: @escaping (Int) -> Change
+    ) -> SteppedNumberField {
         let field = SteppedNumberField(value: value, range: range, suffix: suffix, identifier: identifier)
-        field.onChange = { [weak self] changed in
-            self?.onChange?(identifier, String(changed))
+        field.onChange = { [weak self, weak field] changed in
+            // The two rows whose unit is a word keep it in step with the number as it moves: "1 min" against
+            // "2 mins". Done as the value changes rather than on the read-back, since the read-back is what does not
+            // happen while a window is open.
+            switch change(changed) {
+            case .fetchIntervalMinutes:
+                field?.suffix = AppSettingsRules.unit("min", "mins", for: changed)
+            case .blipSeconds:
+                field?.suffix = AppSettingsRules.unit("sec", "secs", for: changed)
+            default:
+                break
+            }
+            self?.onChange?(change(changed))
         }
         return field
     }
 
     @objc
     private func showSecondsChanged() {
-        onChange?(Identifier.showSeconds, showSecondsBox.state == .on ? "on" : "off")
+        onChange?(.showsSeconds(showSecondsBox.state == .on))
     }
 
     @objc
     private func pauseOnLockChanged() {
-        onChange?(Identifier.pauseOnLock, pauseOnLockBox.state == .on ? "on" : "off")
+        onChange?(.pausesOnLock(pauseOnLockBox.state == .on))
     }
 }

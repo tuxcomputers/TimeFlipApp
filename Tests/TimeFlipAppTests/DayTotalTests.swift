@@ -39,7 +39,7 @@ final class DayTotalTests: XCTestCase {
             timeEntries: nil,
             debugLog: nil
         )
-        total = DayTotal(settings: SettingReader(connection: connection), entries: entries, events: events, faces: faces)
+        total = DayTotal(settings: SettingStore(connection: connection), entries: entries, events: events, faces: faces)
     }
 
     override func tearDown() {
@@ -164,7 +164,7 @@ final class DayTotalTests: XCTestCase {
         // Close it and record it, as the two modules do together.
         let recorder = TimeEntryRecorder(
             connection: connection,
-            settings: SettingReader(connection: connection),
+            settings: SettingStore(connection: connection),
             faces: faces,
             debugLog: nil
         )

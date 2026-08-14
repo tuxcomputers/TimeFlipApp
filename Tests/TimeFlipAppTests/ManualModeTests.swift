@@ -6,13 +6,13 @@ import XCTest
 @MainActor
 final class ManualModeTests: XCTestCase {
     private var database: TemporaryDatabase!
-    private var settings: SettingReader!
+    private var settings: SettingStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
-        settings = SettingReader(connection: database.connection())
+        settings = SettingStore(connection: database.connection())
     }
 
     override func tearDown() {

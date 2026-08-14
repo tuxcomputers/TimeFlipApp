@@ -38,7 +38,7 @@ final class TimingReadoutTests: XCTestCase {
             timezones: TimezoneStore(connection: connection),
             timeEntries: TimeEntryRecorder(
                 connection: connection,
-                settings: SettingReader(connection: connection),
+                settings: SettingStore(connection: connection),
                 faces: faces,
                 debugLog: nil
             ),
@@ -49,7 +49,7 @@ final class TimingReadoutTests: XCTestCase {
             faces: faces,
             events: events,
             dayTotal: DayTotal(
-                settings: SettingReader(connection: connection),
+                settings: SettingStore(connection: connection),
                 entries: TimeEntryStore(connection: connection),
                 events: events,
                 faces: faces
@@ -167,7 +167,7 @@ final class TimingReadoutTests: XCTestCase {
             faces: faces,
             events: events,
             dayTotal: DayTotal(
-                settings: SettingReader(connection: connection),
+                settings: SettingStore(connection: connection),
                 entries: TimeEntryStore(connection: connection),
                 events: events,
                 faces: faces

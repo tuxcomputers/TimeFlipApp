@@ -19,7 +19,7 @@ enum DatabaseEnvironment: String, CaseIterable {
     /// "which database am I writing to" with the reassuring option at exactly the moment the answer is
     /// unknown, and the whole point of asking is to catch the case where it isn't the one you assumed.
     @MainActor
-    static func read(from settings: SettingReader) -> DatabaseEnvironment? {
+    static func read(from settings: SettingStore) -> DatabaseEnvironment? {
         guard let type = settings.string("db_type", field: "type") else { return nil }
         return DatabaseEnvironment(rawValue: type.lowercased())
     }

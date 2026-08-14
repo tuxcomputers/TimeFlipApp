@@ -23,21 +23,41 @@ What it means concretely:
 - **Opening a window reads that window's values then.** Open Settings and the Device tab's
   auto-pause value comes from the database. Change it, close the window, open it again: it is read
   from the database again. The second open is not allowed to show what the first one loaded.
-- **While a Settings window is open, an edit in progress owns its own field, and nothing else.** The
-  window reads when it opens, and a value the user is typing into is not re-read underneath them: a
-  read-back per keystroke clamps "1" on the way to "15", and rebuilding a row to show a value it is
-  already showing takes the field out from under whoever is in it. That licence covers the field being
-  edited and stops there. Anything the app itself changes behind the window keeps being read on its own
-  terms -- the clock in the Timing column ticks, a pause from the menu bar shows up, and an edit that
-  changes *which* rows belong in a list (retiring a category) re-reads the list. **A refused write
-  re-reads too**, since a field still showing what was typed while the table holds something else is
-  exactly the two-answers problem this rule exists to prevent.
+- **An open Settings window is the source of truth for the settings it shows, and only until it
+  closes.** This is the one place a value is held rather than re-read, and it is held under conditions
+  that keep the two copies from parting company:
+
+  1. **Opening the window reads every tab's settings**, in one go, not the tab that happens to be on
+     show. From that moment what the window holds is the answer.
+  2. **A changed field is written straight through, and the write is checked by reading it back.** Not
+     by trusting the statement: a write that reports success and did not happen is exactly the
+     disagreement this rule exists to prevent.
+  3. **The window adopts a change only once the table has it.** A refused write puts the row back to
+     what the window holds and **says so in an alert** -- a field still showing what was typed while
+     the table holds something else is the two-answers problem itself.
+  4. **A value the table has gained meanwhile is overwritten.** If something else changes a row while
+     this window is open, this write wins. The window read the setting when it opened and has been the
+     answer since; merging a change nobody in this window made would mean a control that quietly does
+     something other than what it says.
+  5. **Closing the window ends it.** The next open reads the table again, so an external change made
+     while the window was shut is simply what the next open finds.
+
+  What this licence does **not** cover: anything the app itself changes behind the window keeps being
+  read on its own terms -- the clock in the Timing column ticks, a pause from the menu bar shows up,
+  and an edit that changes *which* rows belong in a list (retiring a category) re-reads the list. A
+  list is not a setting: which rows belong in it is a different question from what a value is.
+
+  Nor does it license a read-back per keystroke. A value being typed into is not re-read underneath
+  whoever is typing: that clamps "1" on the way to "15", and rebuilding a row to show a value it is
+  already showing takes the field out from under them.
 - **A value used part-way through a sequence is read at that point in the sequence.** During quit,
   whether locking the cube pauses it is read when the quit sequence reaches the step that needs it
   -- not read at launch, not read at the start of the quit, and not passed down through the call
   chain from earlier.
 - **After a write, what the app shows comes from reading it back**, not from an in-memory copy
-  updated alongside the write. Updating both is exactly the thing this rule exists to forbid.
+  updated alongside the write. Updating both is exactly the thing this rule exists to forbid. The one
+  place a copy is updated instead is an open Settings window (above), and there the read-back is what
+  decides whether it may be.
 - **Nothing accumulates a private copy of a table.** If a list is needed twice, it is read twice.
 
 The reason is that two copies of one fact can disagree, and when they do, nothing fails. The app

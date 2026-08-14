@@ -27,7 +27,7 @@ final class QuitSequenceTests: XCTestCase {
             timezones: TimezoneStore(connection: connection),
             timeEntries: TimeEntryRecorder(
                 connection: connection,
-                settings: SettingReader(connection: connection),
+                settings: SettingStore(connection: connection),
                 faces: FaceStore(connection: connection),
                 debugLog: nil
             ),

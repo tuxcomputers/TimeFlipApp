@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class HistoryTimerTests: XCTestCase {
     private var database: TemporaryDatabase!
-    private var settings: SettingReader!
+    private var settings: SettingStore!
     private var built: HistoryTimer?
     private var timeouts = 0
 
@@ -18,7 +18,7 @@ final class HistoryTimerTests: XCTestCase {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
-        settings = SettingReader(connection: database.connection())
+        settings = SettingStore(connection: database.connection())
     }
 
     override func tearDown() {

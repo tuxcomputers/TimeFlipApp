@@ -15,12 +15,12 @@ import Foundation
 /// renamed, and after somebody edits a row by hand.
 @MainActor
 final class DayTotal {
-    private let settings: SettingReader
+    private let settings: SettingStore
     private let entries: TimeEntryStore
     private let events: DeviceEventRecorder
     private let faces: FaceStore
 
-    init(settings: SettingReader, entries: TimeEntryStore, events: DeviceEventRecorder, faces: FaceStore) {
+    init(settings: SettingStore, entries: TimeEntryStore, events: DeviceEventRecorder, faces: FaceStore) {
         self.settings = settings
         self.entries = entries
         self.events = events

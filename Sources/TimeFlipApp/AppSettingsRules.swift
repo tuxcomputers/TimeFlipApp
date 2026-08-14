@@ -6,7 +6,7 @@ import Foundation
 /// **The bounds are the previous app's, and every one of them was a measurement or a decision with a reason**
 /// (`Archive/TimeFlipApp/TimeFlipConstants.swift`), so they are carried over with the reasons attached rather than
 /// re-picked. Where a value has a seeded default, the default here is that seed -- `database/011_setting.sql` -- and
-/// the two must not drift: the fallback exists because `SettingReader` answers `nil` for a missing or malformed row
+/// the two must not drift: the fallback exists because `SettingStore` answers `nil` for a missing or malformed row
 /// and refuses to guess what absence means, which is right, and this is where the guess belongs.
 enum AppSettingsRules {
     // MARK: - the daily reset
@@ -85,5 +85,64 @@ enum AppSettingsRules {
     /// and worth the branch: "1 mins" is the kind of thing that makes an app look unfinished.
     static func unit(_ singular: String, _ plural: String, for value: Int) -> String {
         value == 1 ? singular : plural
+    }
+
+    // MARK: - back the other way
+
+    /// An hour picked on the AM-only face, as the 24-hour hour the table stores. 12 becomes 0, the rest stay as they
+    /// are.
+    ///
+    /// **Always AM**, which is what the row offers, so a value stored as a PM hour is normalised to its AM equivalent
+    /// the first time somebody touches the row. The archive did the same, deliberately: the face cannot express the
+    /// old value, so leaving it alone would mean a row that reads 3 and stores 15.
+    static func hour24(fromFace hour12: Int) -> Int {
+        hour12 % 12
+    }
+
+    /// Whole minutes as the seconds the table stores.
+    static func seconds(fromMinutes minutes: Int) -> Int {
+        minutes * 60
+    }
+
+    /// Where a changed row lands: which `setting` row, which field of its JSON, and the value in the unit that row
+    /// stores.
+    ///
+    /// **One place decides this.** The row knows what somebody typed and the table knows nothing about rows, so the
+    /// mapping between them is a rule rather than something each end half-knows -- which is how a control comes to
+    /// write the right number into the wrong column.
+    static func destination(for change: AppSettingsPane.Change) -> (setting: String, field: String, value: Stored) {
+        switch change {
+        case let .showsSeconds(on):
+            return ("display_seconds", "enabled", .flag(on))
+        case let .pausesOnLock(on):
+            return ("pause_on_lock", "enabled", .flag(on))
+        case let .dailyResetHour12(hour):
+            return ("daily_reset_time", "hour", .number(hour24(fromFace: hour)))
+        case let .batteryWarningPercent(percent):
+            return ("low_battery_level", "percent", .number(percent))
+        case let .fetchIntervalMinutes(minutes):
+            return ("fetch_history_interval_seconds", "seconds", .number(seconds(fromMinutes: minutes)))
+        case let .blipSeconds(seconds):
+            return ("blip_time", "seconds", .number(seconds))
+        }
+    }
+
+    /// What goes into the column: the two shapes a setting's field takes.
+    enum Stored: Equatable {
+        case flag(Bool)
+        case number(Int)
+    }
+
+    /// What a row is called when something has to be said about it out loud, which is the label beside it rather than
+    /// the column it writes: nobody reading an alert knows what `low_battery_level` is.
+    static func title(for change: AppSettingsPane.Change) -> String {
+        switch change {
+        case .showsSeconds: return "Show seconds in the menu bar"
+        case .pausesOnLock: return "Pause the device when locking it"
+        case .dailyResetHour12: return "Daily reset at"
+        case .batteryWarningPercent: return "Battery warning at"
+        case .fetchIntervalMinutes: return "Fetch history every"
+        case .blipSeconds: return "Ignore flips under"
+        }
     }
 }

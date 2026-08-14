@@ -6,7 +6,7 @@ import SQLite3
 /// Held open for the life of the app. That is not a cache: no value read through it is kept, per the
 /// first design rule in `CLAUDE.md`. What is avoided is opening the same file again for every question.
 ///
-/// One type per table sits on top of this (`SettingReader`, `CategoryStore`), rather than one
+/// One type per table sits on top of this (`SettingStore`, `CategoryStore`), rather than one
 /// object growing a method per query. The alternative has been tried in this project: a single store
 /// that knew every table ended up sixteen hundred lines long.
 ///

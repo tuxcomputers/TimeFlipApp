@@ -41,7 +41,7 @@ do {
 // One read connection, held open for the life of the app, with a reader per table on top of it. Asked
 // again every time an answer is wanted, and caching nothing: see the first design rule in `CLAUDE.md`.
 let database = DatabaseConnection(databaseURL: databaseURL)
-let settings = SettingReader(connection: database)
+let settings = SettingStore(connection: database)
 let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
 let timezones = TimezoneStore(connection: database)

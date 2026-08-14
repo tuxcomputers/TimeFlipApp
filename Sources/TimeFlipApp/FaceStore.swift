@@ -2,7 +2,7 @@ import Foundation
 
 /// The `face` table: which category each face of the cube is assigned to, including the app's own face 13.
 ///
-/// One read per ask and nothing kept -- see `SettingReader` for the rule. It deals in ids rather than
+/// One read per ask and nothing kept -- see `SettingStore` for the rule. It deals in ids rather than
 /// whole categories, so the two tables stay with their own readers: what a category *is* comes from
 /// `CategoryStore`, and which one a face holds comes from here.
 @MainActor

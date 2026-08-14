@@ -29,7 +29,7 @@ final class TimeEntryRecorderTests: XCTestCase {
         categories = CategoryStore(connection: connection)
         entries = TimeEntryRecorder(
             connection: connection,
-            settings: SettingReader(connection: connection),
+            settings: SettingStore(connection: connection),
             faces: faces,
             debugLog: nil
         )

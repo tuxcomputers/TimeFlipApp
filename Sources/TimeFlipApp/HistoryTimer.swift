@@ -38,7 +38,7 @@ final class HistoryTimer {
     /// timer as fast as the run loop will go.
     static let developerMinimumSeconds = 1
 
-    private let settings: SettingReader
+    private let settings: SettingStore
     private let debugLog: DebugLog?
 
     /// What to do when the interval elapses. The timer decides *when*, and nothing about *what*.
@@ -61,7 +61,7 @@ final class HistoryTimer {
     /// can be asserted without waiting for a real interval to elapse.
     private(set) var scheduledSeconds: TimeInterval?
 
-    init(settings: SettingReader, debugLog: DebugLog?, onTimeout: @escaping @MainActor () -> Void) {
+    init(settings: SettingStore, debugLog: DebugLog?, onTimeout: @escaping @MainActor () -> Void) {
         self.settings = settings
         self.debugLog = debugLog
         self.onTimeout = onTimeout

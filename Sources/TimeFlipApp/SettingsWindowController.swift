@@ -73,7 +73,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private let colours: ColourStore?
 
     /// The `setting` table, for the App tab. Read when that tab is shown, never held.
-    private let settings: SettingReader?
+    private let settings: SettingStore?
 
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
@@ -103,7 +103,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         entries: TimeEntryStore? = nil,
         icons: IconStore? = nil,
         colours: ColourStore? = nil,
-        settings: SettingReader? = nil
+        settings: SettingStore? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -142,17 +142,34 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             pane.show(active: categories.activeCategories(), inactive: categories.inactiveCategories())
 
         case let pane as AppSettingsPane:
+            // **Not re-read here.** The App tab's values were read when the window opened and this pane has held them
+            // since; re-reading on a tab switch would undo a change made a moment ago if the write is still the only
+            // thing that knows about it, and would make leaving the tab and coming back a different answer from
+            // staying on it. See the source-of-truth rule in `CLAUDE.md`.
             wire(pane)
-            pane.show(appSettings())
 
         default:
             break
         }
     }
 
+    /// Reads every tab's settings once, as the window opens, and hands them over.
+    ///
+    /// **Every tab, not the one on show**, which is the half of the rule a per-tab read cannot give: from here until
+    /// the window closes, what the window holds is the answer, so all of it has to be true at the same moment. The
+    /// lists on the Faces and Categories tabs are not settings and are still read as they are drawn -- which rows
+    /// belong in a list is a different question from what a value is.
+    private func readSettingsIntoPanes() {
+        for item in panes.tabViewItems {
+            guard let pane = item.view as? AppSettingsPane else { continue }
+            wire(pane)
+            pane.show(appSettings())
+        }
+    }
+
     /// What the `setting` table says about the App tab, now.
     ///
-    /// Each row falls back to what a fresh database would have seeded, because `SettingReader` answers `nil` for a
+    /// Each row falls back to what a fresh database would have seeded, because `SettingStore` answers `nil` for a
     /// missing or malformed row and refuses to guess what absence means -- rightly, since what a sensible fallback is
     /// depends entirely on the setting. `AppSettingsPane.Values.seeded` is where that guess is made, once.
     private func appSettings() -> AppSettingsPane.Values {
@@ -170,17 +187,71 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         )
     }
 
-    /// Points the App tab's rows at nothing, which is what they are for at the moment.
-    ///
-    /// **A change is recorded and then undone**: the row is read back from the table, which puts it where it was.
-    /// That is the database rule for a refused write applied literally (see `CLAUDE.md`) -- a field showing what was
-    /// typed while the table holds something else is the two-answers problem the rule exists to prevent -- and until
-    /// each setting has a writer, every change here is a refused write.
+    /// Points the App tab's rows at the table they write to.
     private func wire(_ pane: AppSettingsPane) {
-        pane.onChange = { [weak self] setting, value in
-            self?.debugLog?.record(.field, "App setting \"\(setting)\" -> \(value), not stored: no writer yet")
-            self?.reloadSelectedPane()
+        pane.onChange = { [weak self, weak pane] change in
+            guard let pane else { return }
+            self?.store(change, from: pane)
         }
+    }
+
+    /// Writes a changed row, and says so if the table did not take it.
+    ///
+    /// **The write is checked by reading the value back** (`SettingStore.write`), not by trusting the statement: a
+    /// write that reported success and did not happen would leave the window holding a value the table does not, and
+    /// the window is the source of truth until it closes -- so the one thing that cannot be allowed is for the two to
+    /// part company without anybody noticing.
+    ///
+    /// The row is only adopted once the table has it, and put back when it has not. Nothing is re-read either way:
+    /// the row is showing what somebody typed, and a reload would take the field out from under them.
+    ///
+    /// **A value the table already held is overwritten**, deliberately. If something changes the row while this
+    /// window is open, this write wins: the window read the setting when it opened and has been the answer since,
+    /// and merging a change nobody in this window made would mean a control that quietly does something other than
+    /// what it says.
+    private func store(_ change: AppSettingsPane.Change, from pane: AppSettingsPane) {
+        let (setting, field, value) = AppSettingsRules.destination(for: change)
+        guard let settings else { return }
+        let stored: Bool
+        switch value {
+        case let .flag(flag):
+            stored = settings.write(setting, field: field, flag)
+        case let .number(number):
+            stored = settings.write(setting, field: field, number)
+        }
+        debugLog?.record(
+            .field,
+            "App setting \(setting).\(field) -> \(value)\(stored ? "" : " REFUSED, the table does not hold it")"
+        )
+        guard stored else {
+            // Back to what the window holds first, so the row is not still showing a number the table refused while
+            // an alert is up in front of it.
+            pane.restore()
+            showSettingRefused(change)
+            return
+        }
+        pane.adopt(change)
+        // The status item draws from settings too -- `display_seconds` decides whether its figure carries them -- and
+        // it repaints on a tick that only runs while something is being timed. So a setting changed against a paused
+        // session would be stored and not shown, which reads as a control that did nothing. Measured, on a paused
+        // session: the table said `false` and the menu bar went on showing seconds.
+        onTimingChanged?()
+    }
+
+    /// What a refused setting says. It names the row rather than the column, since nobody reading this knows what
+    /// `low_battery_level` is, and says what the app did about it -- the row went back -- so the number on screen is
+    /// accounted for.
+    private func showSettingRefused(_ change: AppSettingsPane.Change) {
+        let alert = NSAlert()
+        alert.messageText = "That setting was not saved"
+        alert.informativeText = """
+        The database would not take the new value for "\(AppSettingsRules.title(for: change))", so the setting is \
+        unchanged and the row has gone back to what is stored.
+
+        Nothing else has been affected. Trying again is safe.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     /// Points the Categories tab's edits at the tables they write to.
@@ -650,6 +721,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         debugLog?.record(.tab, "Settings opened on \(Self.tabOnOpen.title)")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Every tab's settings, read here and held until this window closes. See `readSettingsIntoPanes`.
+        readSettingsIntoPanes()
         reloadSelectedPane()
         if timing?.read().state == .running {
             startTicking()

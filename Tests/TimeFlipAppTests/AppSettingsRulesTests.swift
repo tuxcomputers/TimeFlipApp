@@ -82,4 +82,69 @@ final class AppSettingsRulesTests: XCTestCase {
         XCTAssertEqual(AppSettingsRules.unit("min", "mins", for: 2), "mins")
         XCTAssertEqual(AppSettingsRules.unit("sec", "secs", for: 0), "secs", "\"0 secs\", not \"0 sec\"")
     }
+
+    // MARK: - back the other way
+
+    func testAFaceHourBecomesTheHourTheTableStores() {
+        XCTAssertEqual(AppSettingsRules.hour24(fromFace: 2), 2)
+        XCTAssertEqual(AppSettingsRules.hour24(fromFace: 12), 0, "12 on an AM face is midnight")
+    }
+
+    func testTheHourSurvivesATripThroughBothConversions() {
+        for hour in AppSettingsRules.resetHours {
+            XCTAssertEqual(
+                AppSettingsRules.hour12(from: AppSettingsRules.hour24(fromFace: hour)), hour,
+                "the face reads back as itself, or a row would move every time it was touched"
+            )
+        }
+    }
+
+    func testAnAfternoonHourIsNormalisedToTheMorningWhenTheRowIsTouched() {
+        // The face is AM only, so it cannot express 15:00. Storing what it *can* say is the archive's decision and
+        // the honest one: the alternative is a row that reads 3 and stores 15.
+        XCTAssertEqual(AppSettingsRules.hour24(fromFace: AppSettingsRules.hour12(from: 15)), 3)
+    }
+
+    func testMinutesBecomeSeconds() {
+        XCTAssertEqual(AppSettingsRules.seconds(fromMinutes: 9), 540)
+    }
+
+    // MARK: - where a change lands
+
+    func testEachRowWritesItsOwnColumn() {
+        // One place decides this. The row knows what was typed and the table knows nothing about rows, so a mapping
+        // each end half-knew is how a control comes to write the right number into the wrong column.
+        let destinations = [
+            AppSettingsPane.Change.showsSeconds(false),
+            .pausesOnLock(false),
+            .dailyResetHour12(2),
+            .batteryWarningPercent(15),
+            .fetchIntervalMinutes(9),
+            .blipSeconds(3),
+        ].map { AppSettingsRules.destination(for: $0) }
+
+        XCTAssertEqual(destinations.map(\.setting), [
+            "display_seconds",
+            "pause_on_lock",
+            "daily_reset_time",
+            "low_battery_level",
+            "fetch_history_interval_seconds",
+            "blip_time",
+        ])
+        XCTAssertEqual(destinations.map(\.field), ["enabled", "enabled", "hour", "percent", "seconds", "seconds"])
+    }
+
+    func testAChangeIsConvertedToTheUnitItsColumnStores() {
+        // The rows show a 12-hour face and whole minutes; the table stores 24-hour hours and seconds.
+        XCTAssertEqual(AppSettingsRules.destination(for: .dailyResetHour12(12)).value, .number(0))
+        XCTAssertEqual(AppSettingsRules.destination(for: .fetchIntervalMinutes(9)).value, .number(540))
+        XCTAssertEqual(AppSettingsRules.destination(for: .blipSeconds(3)).value, .number(3), "already its own unit")
+        XCTAssertEqual(AppSettingsRules.destination(for: .showsSeconds(true)).value, .flag(true))
+    }
+
+    func testARowIsNamedByItsLabelWhenSomethingHasToBeSaid() {
+        // Nobody reading an alert knows what `low_battery_level` is.
+        XCTAssertEqual(AppSettingsRules.title(for: .batteryWarningPercent(15)), "Battery warning at")
+        XCTAssertEqual(AppSettingsRules.title(for: .showsSeconds(true)), "Show seconds in the menu bar")
+    }
 }

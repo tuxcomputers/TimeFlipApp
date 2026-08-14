@@ -176,35 +176,80 @@ final class AppSettingsPaneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(field(AppSettingsPane.Identifier.batteryWarning, in: pane)).value, 10)
     }
 
-    // MARK: - nothing is stored yet
+    // MARK: - a change, and what the pane holds
 
-    func testAChangedSwitchIsReportedAndTheRowIsLeftAlone() throws {
+    func testAChangedSwitchIsReportedAndNotAdoptedUntilItIsStored() throws {
         let pane = AppSettingsPane()
-        var reported: [(String, String)] = []
-        pane.onChange = { reported.append(($0, $1)) }
+        var reported: [AppSettingsPane.Change] = []
+        pane.onChange = { reported.append($0) }
         pane.show(stored)
 
         let box: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.showSeconds, in: pane))
         box.performClick(nil)
 
-        XCTAssertEqual(reported.map(\.0), [AppSettingsPane.Identifier.showSeconds])
-        XCTAssertEqual(reported.map(\.1), ["on"])
-        // The pane does not adopt it. What it holds is still what the table said, so the window's read-back has
-        // something to put the row back to.
+        XCTAssertEqual(reported, [.showsSeconds(true)])
+        // Not adopted here: the window writes it, checks the table took it, and only then hands it back. What this
+        // pane holds is still what the table said, so a refused write has something to put the row back to.
         XCTAssertEqual(pane.values, stored)
     }
 
-    func testAChangedNumberIsReportedTheSameWay() throws {
+    func testAChangedNumberIsReportedInTheUnitTheRowShows() throws {
         let pane = AppSettingsPane()
-        var reported: [(String, String)] = []
-        pane.onChange = { reported.append(($0, $1)) }
+        var reported: [AppSettingsPane.Change] = []
+        pane.onChange = { reported.append($0) }
         pane.show(stored)
 
-        try XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane)).onChange?(9)
+        try XCTUnwrap(field(AppSettingsPane.Identifier.fetchInterval, in: pane)).onChange?(9)
 
-        XCTAssertEqual(reported.map(\.0), [AppSettingsPane.Identifier.blipTime])
-        XCTAssertEqual(reported.map(\.1), ["9"])
-        XCTAssertEqual(pane.values.blipSeconds, 2, "unchanged: nothing here writes")
+        // Minutes, which is what the row shows. Converting to the seconds the table stores is a rule, and doing it
+        // here would be a second place it happens.
+        XCTAssertEqual(reported, [.fetchIntervalMinutes(9)])
+        XCTAssertEqual(pane.values.fetchIntervalSeconds, 600, "unchanged until the table has it")
+    }
+
+    func testAUnitThatIsAWordKeepsUpWithTheNumber() throws {
+        let pane = AppSettingsPane()
+        pane.show(stored)
+
+        try XCTUnwrap(field(AppSettingsPane.Identifier.fetchInterval, in: pane)).onChange?(1)
+        XCTAssertEqual(try XCTUnwrap(field(AppSettingsPane.Identifier.fetchInterval, in: pane)).suffix, "min")
+
+        try XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane)).onChange?(1)
+        XCTAssertEqual(try XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane)).suffix, "sec")
+    }
+
+    func testAdoptingAChangeMakesItWhatThePaneHolds() {
+        let pane = AppSettingsPane()
+        pane.show(stored)
+
+        pane.adopt(.dailyResetHour12(2))
+        pane.adopt(.fetchIntervalMinutes(9))
+        pane.adopt(.showsSeconds(true))
+
+        // Stored in the table's units, converted once, by the rules.
+        XCTAssertEqual(pane.values.dailyResetHour24, 2)
+        XCTAssertEqual(pane.values.fetchIntervalSeconds, 540)
+        XCTAssertTrue(pane.values.showsSeconds)
+    }
+
+    func testAdoptingMidnightStoresItAsZero() {
+        let pane = AppSettingsPane()
+        pane.show(stored)
+
+        pane.adopt(.dailyResetHour12(12))
+
+        XCTAssertEqual(pane.values.dailyResetHour24, 0, "12 on the face is 0 on the clock")
+    }
+
+    func testRestoringPutsEveryRowBackToWhatThePaneHolds() throws {
+        let pane = AppSettingsPane()
+        pane.show(stored)
+        let field = try XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane))
+        field.value = 29
+
+        pane.restore()
+
+        XCTAssertEqual(field.value, 2, "which is what a refused write needs: the row was showing what the table refused")
     }
 
     // MARK: - layout
