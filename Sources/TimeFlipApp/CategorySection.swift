@@ -73,8 +73,12 @@ final class CategorySection: NSView {
 
         // **The whole line folds the section, not just the triangle** (see `CLAUDE.md`). A triangle is a small
         // target for a gesture the heading beside it is obviously about, and every other list on this platform
-        // opens on its title too. The button sits *behind* the triangle and the words, spanning the row, so the
-        // triangle keeps drawing itself and the click lands here wherever in the line it falls.
+        // opens on its title too. The button spans the row; the triangle keeps drawing itself in front of it.
+        //
+        // **The words go *inside* the button**, which is the part that cannot be got wrong: a click on a label goes
+        // up the responder chain to the label's own superview, so a button that is merely behind a sibling label is
+        // never reached. This shipped with the label as a sibling and the heading looked right while a click on the
+        // word did nothing at all -- found by clicking one on the running app and getting no `debug_log` row.
         headingButton.title = ""
         headingButton.isBordered = false
         headingButton.bezelStyle = .inline
@@ -86,8 +90,8 @@ final class CategorySection: NSView {
         headingButton.setAccessibilityLabel("\(title) categories")
 
         addSubview(headingButton)
+        headingButton.addSubview(heading)
         addSubview(toggle)
-        addSubview(heading)
         addSubview(content)
         NSLayoutConstraint.activate([
             toggle.topAnchor.constraint(equalTo: topAnchor),

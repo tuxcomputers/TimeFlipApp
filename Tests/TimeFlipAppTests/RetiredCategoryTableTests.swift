@@ -13,7 +13,7 @@ final class RetiredCategoryTableTests: XCTestCase {
             id: id,
             name: name,
             iconName: "ic_break",
-            colour: .red,
+            colourID: 0, colour: .red,
             usesWhiteLines: false,
             dailyLimitMinutes: 45,
             isActive: false
@@ -204,6 +204,24 @@ final class RetiredCategoryTableTests: XCTestCase {
         XCTAssertEqual(reported, [true, false])
     }
 
+    func testTheWordsAreInsideTheButtonRatherThanBesideIt() throws {
+        // The part that cannot be got wrong. A click on a label goes up the responder chain to the label's own
+        // *superview*, so a button merely sitting behind a sibling label is never reached -- which is how this
+        // shipped: the heading looked right and a real click on the word "Inactive" produced no `debug_log` row at
+        // all. The words are the button's own subview now.
+        let pane = CategoriesPane()
+
+        let line = try XCTUnwrap(
+            pane.inactiveSection.subviews
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier().hasSuffix("-heading-button") }
+        )
+        XCTAssertTrue(
+            line.subviews.contains { ($0 as? NSTextField)?.stringValue == "Inactive" },
+            "the heading is inside the button that folds the section"
+        )
+    }
+
     func testTheHeadingButtonSpansTheRowBehindTheTriangle() throws {
         let pane = CategoriesPane()
         pane.show(active: [], inactive: [retired(3, "Old")])
@@ -239,7 +257,7 @@ final class RetiredCategoryTableTests: XCTestCase {
 
         pane.show(
             active: [CategoryRecord(
-                id: 1, name: "Break", iconName: nil, colour: nil,
+                id: 1, name: "Break", iconName: nil, colourID: 0, colour: nil,
                 usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
             )],
             inactive: [retired(3, "Old")]
