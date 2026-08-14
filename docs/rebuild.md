@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (497 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (499 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -140,7 +140,7 @@ The section is drawn and reads the database; none of it writes yet. Several of t
 
 ### Done, in the order it was built
 
-- [x] **The App settings section** ([AppSettingsPane.swift](../Sources/TimeFlipApp/AppSettingsPane.swift), [AppSettingsRules.swift](../Sources/TimeFlipApp/AppSettingsRules.swift)): the archive's six rows in its order and its wording -- show seconds, pause on lock, daily reset at, battery warning at, fetch history every, ignore flips under -- on the same tinted panel the Categories tab uses, spanning the window's width as every tab's content does ([CLAUDE.md](../CLAUDE.md)). The Google section that sat above it in the archive is not here: it belongs to an integration this app has not rebuilt, and an empty one would promise something.
+- [x] **The App settings section** ([AppSettingsPane.swift](../Sources/TimeFlipApp/AppSettingsPane.swift), [AppSettingsRules.swift](../Sources/TimeFlipApp/AppSettingsRules.swift)): the archive's six rows in its order and its wording -- show seconds, pause on lock, daily reset at, battery warning at, fetch history every, ignore flips under -- on the same tinted panel the Categories tab uses, spanning the window's width as every tab's content does ([CLAUDE.md](../CLAUDE.md)). Drawn as the archive's grouped form: the label against the left inset, the control against the right one, and a hairline between rows. The Google section that sat above it in the archive is not here: it belongs to an integration this app has not rebuilt, and an empty one would promise something.
 - [x] **Every bound and default carried over with its reason** ([AppSettingsRules.swift](../Sources/TimeFlipApp/AppSettingsRules.swift)): the 20% battery cap, the 0-to-30-second blip filter, the minute-to-hour fetch interval, and an AM-only reset hour, which is a control the archive reduced to one field after finding that PM was only ever a way to pick a wrong value. Each default is the seed in `database/011_setting.sql`, since `SettingReader` answers `nil` for a missing row and refuses to guess what absence means.
 - [x] **The values are read from `setting` when the tab is shown**, like every other pane's, rather than drawn from placeholders. A row showing a number that is not the stored one is exactly the two-answers problem the first design rule exists to prevent.
 

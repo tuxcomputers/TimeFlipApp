@@ -28,12 +28,16 @@ final class AppSettingsPane: NSView {
         /// The Categories tab's numbers, so the two tabs sit at the same rhythm.
         static let padding: CGFloat = 20
         static let headingSpacing: CGFloat = 12
-        static let rowSpacing: CGFloat = 10
-        static let panelPadding: CGFloat = 12
         static let cornerRadius: CGFloat = 8
-        /// The label column, wide enough for the longest of the six so every control starts at the same x.
-        static let labelWidth: CGFloat = 230
-        static let labelSpacing: CGFloat = 12
+        /// Inside the panel, to the left of a label and to the right of a control. The rows themselves run the whole
+        /// width, which is what puts a separator's ends where the archive's are.
+        static let rowInset: CGFloat = 20
+        /// Above and below a row's content. What makes the number rows taller than the switch rows is the fields
+        /// inside them, not a second measurement -- the archive's rows sized to their contents the same way.
+        static let rowPadding: CGFloat = 11
+        /// The least a row can be, so two switches in a row do not read as a tighter list than the fields under them.
+        static let minimumRowHeight: CGFloat = 38
+        static let separatorHeight: CGFloat = 1
     }
 
     /// What the table says, at the moment the tab was shown. Every field is what is stored, in the unit it is stored
@@ -123,7 +127,9 @@ final class AppSettingsPane: NSView {
 
         rows.orientation = .vertical
         rows.alignment = .leading
-        rows.spacing = Layout.rowSpacing
+        // No gap: the rows are a list with hairlines between them, not separate controls, and the padding inside each
+        // row is what keeps them apart. The archive's grouped form again.
+        rows.spacing = 0
         rows.translatesAutoresizingMaskIntoConstraints = false
         addRows()
 
@@ -140,10 +146,12 @@ final class AppSettingsPane: NSView {
             panel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
             panel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
 
-            rows.topAnchor.constraint(equalTo: content.topAnchor, constant: Layout.panelPadding),
-            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Layout.panelPadding),
-            rows.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Layout.panelPadding),
-            rows.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Layout.panelPadding),
+            // Flush to the panel on all four sides: a row runs the whole width, and its own inset is what holds the
+            // label and the control off the edges. That is what puts a separator's ends where the archive's are.
+            rows.topAnchor.constraint(equalTo: content.topAnchor),
+            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            rows.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            rows.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
     }
 
@@ -177,29 +185,70 @@ final class AppSettingsPane: NSView {
             suffix: AppSettingsRules.unit("sec", "secs", for: values.blipSeconds)
         )
 
-        rows.addView(row("Show seconds in the menu bar", showSecondsBox), in: .top)
-        rows.addView(row("Pause the device when locking it", pauseOnLockBox), in: .top)
-        rows.addView(row("Daily reset at", dailyResetField), in: .top)
-        rows.addView(row("Battery warning at", batteryWarningField), in: .top)
-        rows.addView(row("Fetch history every", fetchIntervalField), in: .top)
-        // Turning the cube to the face somebody wants drags it past the others, and each pass-over is a real segment
-        // the device reports. This is how short one has to be to count as getting there rather than as time spent.
-        rows.addView(row("Ignore flips under", blipTimeField), in: .top)
+        let built: [(String, NSView)] = [
+            ("Show seconds in the menu bar", showSecondsBox),
+            ("Pause the device when locking it", pauseOnLockBox),
+            ("Daily reset at", dailyResetField),
+            ("Battery warning at", batteryWarningField),
+            ("Fetch history every", fetchIntervalField),
+            // Turning the cube to the face somebody wants drags it past the others, and each pass-over is a real
+            // segment the device reports. This is how short one has to be to count as getting there rather than as
+            // time spent.
+            ("Ignore flips under", blipTimeField),
+        ]
+        for (index, (title, control)) in built.enumerated() {
+            // No hairline under the last one: it would draw against the panel's own bottom edge and read as a row
+            // that failed to load rather than as a divider.
+            let view = row(title, control, separated: index < built.count - 1)
+            rows.addView(view, in: .top)
+            view.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
+        }
     }
 
-    /// A label at a fixed width with its control beside it, so every control starts at the same x however long the
-    /// words in front of it are. The Categories tab's columns, for the same reason.
-    private func row(_ title: String, _ control: NSView) -> NSView {
+    /// One row of the grouped form: the label against the left inset, the control against the right one, and a
+    /// hairline under it.
+    ///
+    /// **The control is pinned to the trailing edge rather than following the label**, which is what the archive's
+    /// form did and what makes the column of controls line up down the right-hand side however long the words in
+    /// front of them are. A fixed label column would line them up too, and put them in the middle of the panel with
+    /// dead space beyond -- which is not what that tab looked like.
+    private func row(_ title: String, _ control: NSView, separated: Bool) -> NSView {
         let label = NSTextField(labelWithString: title)
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.widthAnchor.constraint(equalToConstant: Layout.labelWidth).isActive = true
         control.setAccessibilityLabel(title)
 
-        let row = NSStackView(views: [label, control])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = Layout.labelSpacing
+        let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(label)
+        row.addSubview(control)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
+            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            // The label gives way before the control does: a window narrow enough to squeeze one of these should
+            // truncate the words, not shrink the field somebody types into.
+            label.trailingAnchor.constraint(lessThanOrEqualTo: control.leadingAnchor, constant: -Layout.rowInset),
+
+            control.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
+            control.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            control.topAnchor.constraint(equalTo: row.topAnchor, constant: Layout.rowPadding),
+            control.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -Layout.rowPadding),
+
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
+        ])
+        guard separated else { return row }
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(separator)
+        NSLayoutConstraint.activate([
+            // From the label's left edge to the control's right one, which is where the archive drew it: a hairline
+            // running the full width would cut the panel in two rather than dividing a list.
+            separator.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
+            separator.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
+            separator.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: Layout.separatorHeight),
+        ])
         return row
     }
 

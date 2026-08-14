@@ -258,23 +258,61 @@ final class AppSettingsPaneTests: XCTestCase {
         )
     }
 
-    func testTheControlsLineUpUnderEachOther() throws {
+    func testEveryControlIsPinnedToTheRightHandEdge() throws {
+        // The archive's shape: the controls run down the right-hand side of the panel rather than following the words.
+        // A fixed label column would line them up too, and would park them in the middle with dead space beyond.
         let pane = AppSettingsPane()
-        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
-        pane.layoutSubtreeIfNeeded()
+        let content = hosted(pane, width: 640)
 
-        // The point of a fixed label column: a label sized to its own words would start each control at a different
-        // x, which is the same reason the Categories tab fixes its columns.
-        let xs = [
-            AppSettingsPane.Identifier.dailyReset,
-            AppSettingsPane.Identifier.batteryWarning,
-            AppSettingsPane.Identifier.fetchInterval,
-            AppSettingsPane.Identifier.blipTime,
-        ].compactMap { identifier -> CGFloat? in
-            guard let field = field(identifier, in: pane) else { return nil }
-            return pane.convert(field.bounds, from: field).minX
+        let panel = try panel(of: pane)
+        let right = content.convert(panel.bounds, from: panel).maxX
+        let controls: [NSView] = try [
+            XCTUnwrap(control(AppSettingsPane.Identifier.showSeconds, in: pane) as NSButton?),
+            XCTUnwrap(control(AppSettingsPane.Identifier.pauseOnLock, in: pane) as NSButton?),
+            XCTUnwrap(field(AppSettingsPane.Identifier.dailyReset, in: pane)),
+            XCTUnwrap(field(AppSettingsPane.Identifier.batteryWarning, in: pane)),
+            XCTUnwrap(field(AppSettingsPane.Identifier.fetchInterval, in: pane)),
+            XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane)),
+        ]
+
+        for control in controls {
+            XCTAssertEqual(
+                content.convert(control.bounds, from: control).maxX, right - 20, accuracy: 0.5,
+                "\(control.accessibilityIdentifier()) does not reach the panel's inset"
+            )
         }
-        XCTAssertEqual(xs.count, 4)
-        XCTAssertEqual(Set(xs).count, 1, "one x, not four: \(xs)")
+    }
+
+    func testTheLabelsStartAtOneXAndTheRowsSpanThePanel() throws {
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        let panel = try panel(of: pane)
+        let panelFrame = content.convert(panel.bounds, from: panel)
+        // Every row is as wide as the panel, which is what puts the hairlines where the archive's are. The rows are
+        // the stack's own arranged views, rather than anything that happens to hold a label -- a number field holds
+        // one too.
+        let stack = try XCTUnwrap(descendants(of: panel).compactMap { $0 as? NSStackView }.first)
+        XCTAssertEqual(stack.views.count, 6)
+        let rowWidths = Set(stack.views.map(\.frame.width))
+        XCTAssertEqual(rowWidths, [panelFrame.width], "one width: \(rowWidths)")
+    }
+
+    func testEveryRowButTheLastHasAHairlineUnderIt() throws {
+        // Under the last one it would draw against the panel's own bottom edge and read as a row that failed to load
+        // rather than as a divider.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        let separators = descendants(of: pane).compactMap { $0 as? NSBox }.filter { $0.boxType == .separator }
+        XCTAssertEqual(separators.count, 5, "six rows, five hairlines")
+
+        let panel = try panel(of: pane)
+        let panelFrame = content.convert(panel.bounds, from: panel)
+        for separator in separators {
+            let frame = content.convert(separator.bounds, from: separator)
+            XCTAssertEqual(frame.minX, panelFrame.minX + 20, accuracy: 0.5)
+            XCTAssertEqual(frame.maxX, panelFrame.maxX - 20, accuracy: 0.5, "not the full width, which would cut the panel in two")
+        }
     }
 }
