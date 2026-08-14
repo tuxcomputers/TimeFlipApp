@@ -88,8 +88,15 @@ final class ReportCalendar: NSView {
     private let nextButton = NSButton()
     private let weekdayRow = NSStackView()
     private let grid = NSStackView()
-    private let content = NSStackView()
+    /// A plain view rather than a stack, and that is the fix for a fault worth not repeating: an `NSStackView` given
+    /// more height than its views need distributes the slack between them, so the three rows of a calendar spread
+    /// apart -- 147pt apart, measured on the running app -- whenever anything above could stretch it. Constants
+    /// between three subviews cannot spread, so the calendar has exactly one possible height.
+    private let content = NSView()
     private var contentWidth: NSLayoutConstraint!
+    /// Six weeks of cells, stated rather than left to the rows inside: with this, nothing anywhere can stretch the
+    /// calendar, and the space under it belongs to the totals.
+    private var gridHeight: NSLayoutConstraint!
 
     init(
         title: String,
@@ -144,6 +151,7 @@ final class ReportCalendar: NSView {
     /// cells honest through a resize -- every size in them comes from `metrics`, which changes with the window.
     private func redraw() {
         contentWidth.constant = metrics.gridWidth
+        gridHeight.constant = CGFloat(ReportCalendarGrid.weeksShown) * metrics.cellSize
         monthLabel.stringValue = monthTitle
         monthLabel.font = .systemFont(ofSize: metrics.monthTitleFontSize, weight: .semibold)
         drawArrow(previousButton, months: -1)
@@ -295,14 +303,16 @@ final class ReportCalendar: NSView {
         grid.orientation = .vertical
         grid.alignment = .leading
         grid.spacing = 0
+        // Both, because `content` is a plain view now: a stack view sets this on anything handed to `addView`, and
+        // `addSubview` sets nothing -- so these two kept their autoresizing frames, Auto Layout pinned them to the zero
+        // frame they were built with, and the grid came out 0 by 0 with every constraint above it satisfied.
+        weekdayRow.translatesAutoresizingMaskIntoConstraints = false
+        grid.translatesAutoresizingMaskIntoConstraints = false
 
-        content.orientation = .vertical
-        content.alignment = .leading
-        content.spacing = Layout.rowSpacing
         content.translatesAutoresizingMaskIntoConstraints = false
-        content.addView(monthHeader, in: .top)
-        content.addView(weekdayRow, in: .top)
-        content.addView(grid, in: .top)
+        content.addSubview(monthHeader)
+        content.addSubview(weekdayRow)
+        content.addSubview(grid)
 
         addSubview(titleLabel)
         addSubview(subtitleLabel)
@@ -321,6 +331,9 @@ final class ReportCalendar: NSView {
         // instead, which is what the archive's own floor said should happen.
         contentWidth = content.widthAnchor.constraint(equalToConstant: metrics.gridWidth)
         contentWidth.priority = .required - 1
+        gridHeight = grid.heightAnchor.constraint(
+            equalToConstant: CGFloat(ReportCalendarGrid.weeksShown) * metrics.cellSize
+        )
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: topAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -335,6 +348,20 @@ final class ReportCalendar: NSView {
             panel.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             contentWidth,
+            gridHeight,
+            // The three rows, at fixed gaps: month header, weekday letters, grid. Every edge here is a constant, which
+            // is what makes the calendar's height a single number rather than a range.
+            monthHeader.topAnchor.constraint(equalTo: content.topAnchor),
+            monthHeader.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            monthHeader.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+
+            weekdayRow.topAnchor.constraint(equalTo: monthHeader.bottomAnchor, constant: Layout.rowSpacing),
+            weekdayRow.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+
+            grid.topAnchor.constraint(equalTo: weekdayRow.bottomAnchor, constant: Layout.rowSpacing),
+            grid.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            grid.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
             content.topAnchor.constraint(equalTo: box.topAnchor, constant: Layout.padding),
             content.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -Layout.padding),
             content.centerXAnchor.constraint(equalTo: box.centerXAnchor),
@@ -370,8 +397,12 @@ final class ReportCalendar: NSView {
             previousButton.centerYAnchor.constraint(equalTo: monthHeader.centerYAnchor),
             nextButton.trailingAnchor.constraint(equalTo: monthHeader.trailingAnchor),
             nextButton.centerYAnchor.constraint(equalTo: monthHeader.centerYAnchor),
-            monthHeader.topAnchor.constraint(lessThanOrEqualTo: previousButton.topAnchor),
-            monthHeader.bottomAnchor.constraint(greaterThanOrEqualTo: previousButton.bottomAnchor),
+            // **As tall as an arrow, exactly.** This row was pinned with inequalities -- tall enough to hold the
+            // arrows, and no more said -- which left it as the one part of a calendar that could still be stretched,
+            // and it was: the totals list below pins its own bottom to the tab, and the pull travelled up through the
+            // From calendar and spread this row into the middle of an empty box. The arrows are the taller of the two
+            // things in it at every cell size, the ratios being what they are, so their height is the row's.
+            monthHeader.heightAnchor.constraint(equalTo: previousButton.heightAnchor),
         ])
     }
 

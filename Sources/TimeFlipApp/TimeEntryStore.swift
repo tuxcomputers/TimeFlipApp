@@ -1,4 +1,20 @@
-import Foundation
+import AppKit
+
+/// One category's share of a range: what it is called, what it is drawn with, and how many seconds of it fall inside.
+///
+/// Carries what a row needs to draw rather than a category id to look up, because the totals are one read: joining the
+/// name, the icon and the colour in the same statement is what stops a list of totals becoming a query per row.
+struct CategoryTotal: Equatable {
+    let categoryID: Int
+    let name: String
+    /// `nil` for the None icon (`icon_id` 0), a sentinel row rather than a bundled asset.
+    let iconName: String?
+    /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
+    let colour: NSColor?
+    let usesWhiteLines: Bool
+    /// Seconds inside the range, with a stretch that straddles either end clipped to it.
+    let seconds: TimeInterval
+}
 
 /// The `time_entry` table, read. `TimeEntryRecorder` is what writes it.
 ///
@@ -44,6 +60,59 @@ final class TimeEntryStore {
             total = row.double(0)
         }
         return total
+    }
+
+    /// What every category recorded inside a range, biggest first, and **only the ones that recorded something**.
+    ///
+    /// A category with nothing in the range is absent rather than listed as `0:00`: the question this answers is what
+    /// the time went on, and a page of zeroes would bury the answer in categories that have nothing to do with it. It
+    /// is also why the empty range says so in words instead of drawing an empty table.
+    ///
+    /// **Clipped at both ends**, so a stretch running across the boundary is split between the two reports that
+    /// contain its halves rather than counted whole in both. The archive's statement, and its reason for grouping in
+    /// sqlite rather than summing in Swift: this is one read however much history it covers.
+    ///
+    /// The start comes from `device_event.start_epoch` rather than `time_entry.started_at`, as everywhere else here:
+    /// the epoch is a number, where the text column is local time with no offset and could not be compared.
+    ///
+    /// A **still-running** segment contributes nothing, because it is not an entry yet. `time_entry` is what the app
+    /// counts, written when a segment closes, so a clock running right now shows on the Faces tab and in the menu bar
+    /// and arrives here when it stops.
+    func totals(from windowStart: Date, to windowEnd: Date) -> [CategoryTotal] {
+        let startEpoch = windowStart.timeIntervalSince1970
+        let endEpoch = windowEnd.timeIntervalSince1970
+        var totals: [CategoryTotal] = []
+        connection.forEachRow(
+            """
+            SELECT te.category_id, c.category_name, i.icon_name, l.device_hex, l.white_lines,
+                   SUM(MIN(de.start_epoch + te.duration_seconds, \(endEpoch)) - MAX(de.start_epoch, \(startEpoch)))
+                   AS seconds
+              FROM time_entry te
+              JOIN device_event de ON de.device_event_id = te.device_event_id
+              JOIN category c ON c.category_id = te.category_id
+              JOIN icon i ON i.icon_id = c.icon_id
+              JOIN colour l ON l.colour_id = c.colour_id
+             WHERE de.start_epoch < \(endEpoch)
+               AND (de.start_epoch + te.duration_seconds) > \(startEpoch)
+             GROUP BY te.category_id, c.category_name, i.icon_name, l.device_hex, l.white_lines
+            HAVING seconds > 0
+             ORDER BY seconds DESC, c.category_name;
+            """
+        ) { row in
+            let iconName = row.string(2)
+            totals.append(
+                CategoryTotal(
+                    categoryID: Int(row.int(0)),
+                    name: row.string(1) ?? "",
+                    // The None row is named "None" rather than left null, so the name is the sentinel.
+                    iconName: iconName == "None" ? nil : iconName,
+                    colour: row.string(3).flatMap(NSColor.init(hex:)),
+                    usesWhiteLines: row.bool(4),
+                    seconds: row.double(5)
+                )
+            )
+        }
+        return totals
     }
 
     /// When this category last finished recording time, or `nil` if it never has.

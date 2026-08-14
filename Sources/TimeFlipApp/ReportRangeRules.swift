@@ -70,6 +70,58 @@ enum ReportRangeRules {
         max(picked, start)
     }
 
+    /// The instants a picked range actually covers: from the daily reset on the first day to the daily reset on the
+    /// day *after* the last one, so the whole of that final day is inside it.
+    ///
+    /// **Days here are the app's own days, not calendar midnights.** A day begins at `daily_reset_time` (seeded 03:00,
+    /// `database/011_setting.sql`) and runs to the same time the next day, which is the window the menu bar's figure
+    /// is measured over (`DayWindow`). So 5 August to 7 August is 5 August at 03:00 up to 8 August at 03:00, and a
+    /// one-day report shows exactly what the menu bar showed on that day. Cutting at midnight here while everything
+    /// else in the app cuts at the reset time would put the small hours of a working night on the wrong side of the
+    /// boundary, and only on this one screen.
+    ///
+    /// Half-open, `start ..< end`: a stretch beginning exactly at the closing boundary belongs to the next day, not
+    /// to both.
+    static func bounds(
+        start: Date,
+        end: Date?,
+        resetHour: Int,
+        resetMinute: Int,
+        calendar: Calendar = .current
+    ) -> (start: Date, end: Date) {
+        let first = dayStart(of: start, resetHour: resetHour, resetMinute: resetMinute, calendar: calendar)
+        let lastDay = dayStart(of: end ?? start, resetHour: resetHour, resetMinute: resetMinute, calendar: calendar)
+        // An end before the start would invert the range and report nothing. The To calendar's own bound makes that
+        // unreachable; this makes a single day the answer rather than an empty range if one ever gets past, since a
+        // start on its own already means one day.
+        let last = max(first, lastDay)
+        let closing = calendar.date(byAdding: .day, value: 1, to: last) ?? last.addingTimeInterval(24 * 60 * 60)
+        return (first, closing)
+    }
+
+    /// The instant the app-day **named by** `date`'s calendar date begins.
+    ///
+    /// Named by, not containing, and the difference is the whole of why this is not `DayWindow.start`: a calendar cell
+    /// carries midnight, which with a 03:00 reset sits inside the *previous* app-day. Asking which day contains it
+    /// would report the day before the one that was clicked. Here the date picks the day and the reset time is
+    /// stamped onto it.
+    ///
+    /// Through `Calendar` rather than arithmetic on seconds, so the two daylight-saving days -- 23 and 25 hours long
+    /// -- still start and end at the right wall-clock time.
+    static func dayStart(
+        of date: Date,
+        resetHour: Int,
+        resetMinute: Int,
+        calendar: Calendar = .current
+    ) -> Date {
+        var components = calendar.dateComponents([.year, .month, .day], from: date)
+        components.hour = resetHour
+        components.minute = resetMinute
+        components.second = 0
+        components.nanosecond = 0
+        return calendar.date(from: components) ?? date
+    }
+
     /// What the To calendar says about itself while nothing has been picked in it.
     ///
     /// The archive's wording, and the archive's point: an unset end is not a missing value to be filled in, it is the

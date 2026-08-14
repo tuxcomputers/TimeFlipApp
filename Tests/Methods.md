@@ -212,6 +212,18 @@ then the sheet's own buttons are ordinary named elements (`action-button-1` is t
   clicking it on screen and reading `debug_log`.** A knock-on effect worth expecting: a label inside a button
   stops appearing in `ax-dump.py` as an element of its own, the button absorbing it, so match the button.
 
+- **Three more ways a layout is wrong with every constraint satisfied**, all found on the Report tab and all invisible
+  to `swift test`: an `NSStackView` given more height than its views need **spreads the slack between them** (a
+  calendar's three rows ended up 147pt apart, fixed by pinning three subviews with constants instead); a view added
+  with `addSubview` rather than a stack's `addView` **keeps its autoresizing frame**, so Auto Layout pins it to the
+  zero frame it was built with (a 0-by-0 grid with correct constraints above it); and an inequality left anywhere in a
+  vertical chain is the one link that stretches when something below pulls (`monthHeader` pinned "at least as tall as
+  its arrows"). If a layout can be satisfied at more than one size, it will eventually be satisfied at the wrong one.
+
+- **A scroll view's document view hangs at the bottom unless it is flipped.** AppKit measures an ordinary view from its
+  bottom edge, so a list shorter than the space it scrolls in sits at the bottom of it. `ReportTotalsList` puts the
+  rows in a `FlippedView`.
+
 - **A view pinned top *and* bottom can be stretched, and nothing fails when it is.** The Report tab's calendars were
   pinned to both edges of the row holding them, and a calendar's height is decided from the inside, so the whole chain
   became elastic: the row filled the tab, the box filled the row, and the stack inside spread its three rows 147pt

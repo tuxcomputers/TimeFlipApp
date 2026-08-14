@@ -1,10 +1,13 @@
 import AppKit
 
-/// The Report tab: a date range across the top, and eventually what each category took over it.
+/// The Report tab: a date range across the top, and what each category recorded over it underneath.
 ///
-/// **The two calendars only, so far.** They pick a range and draw it; nothing reads that range yet. The totals under
-/// them are the next piece of work, and they need the day boundary (`DayWindow`) and a read of `time_entry` behind
-/// them rather than a list of names put on screen to fill the space.
+/// **A picked day or range is a question, and the totals are the answer to it.** The range covers the app's own days,
+/// not calendar days: 5 August to 7 August means 5 August at the daily reset up to 8 August at the daily reset, so a
+/// one-day report shows exactly what the menu bar showed on that day (`ReportRangeRules.bounds`).
+///
+/// Only the categories that recorded something appear, biggest first. The reset time and the entries are both read at
+/// the moment the range changes, by the window -- this pane draws what it is handed.
 ///
 /// The pair is the archive's, and so is the reason it is a pair of hand-drawn calendars rather than two date fields
 /// (see [ReportCalendar]). What each one is allowed to offer is [ReportRangeRules]':
@@ -30,6 +33,8 @@ final class ReportPane: NSView {
     enum Layout {
         static let padding = ReportLayout.tabPadding
         static let calendarSpacing = ReportLayout.calendarSpacing
+        /// Above and below the hairline between the range and its answer.
+        static let dividerSpacing: CGFloat = 12
     }
 
     /// The day picked on the left, and the day picked on the right if one has been.
@@ -44,6 +49,14 @@ final class ReportPane: NSView {
     /// Exposed so the pair can be asserted without a window on screen.
     private(set) var fromCalendar: ReportCalendar!
     private(set) var toCalendar: ReportCalendar!
+
+    /// What the range came to. Exposed for the same reason.
+    let totalsList = ReportTotalsList()
+
+    /// Called when the totals on show need re-reading: the range changed, or the tab was shown. **A request for a
+    /// read**, not the answer -- the window owns the tables, and the reset time the range is measured against is read
+    /// from `setting` at that moment rather than remembered here.
+    var onNeedTotals: ((Date, Date?) -> Void)?
 
     private let calendar: Calendar
     /// What the clock says, asked rather than remembered. A Settings window can be left open across midnight, and a
@@ -87,10 +100,17 @@ final class ReportPane: NSView {
         redraw()
     }
 
-    /// Re-derives what the calendars may offer, without changing what is picked. Called as the tab is shown: nothing
-    /// here is read from the table, but today moves, and the day it moves to is the one both calendars are bounded by.
+    /// Re-derives what the calendars may offer and asks for the totals again. Called as the tab is shown: what is
+    /// picked does not change, but today moves -- and today is what both calendars are bounded by -- and the entries
+    /// may have grown since the tab was last looked at.
     func refresh() {
         redraw()
+        onNeedTotals?(start, end)
+    }
+
+    /// Draws the answer to the range on show.
+    func show(_ totals: [CategoryTotal], showingSeconds: Bool) {
+        totalsList.show(totals, showingSeconds: showingSeconds)
     }
 
     /// A day picked in the From calendar.
@@ -100,14 +120,21 @@ final class ReportPane: NSView {
         // forward past an end already chosen, which would otherwise strand it behind.
         end = ReportRangeRules.endCarriedForward(start: day, end: end)
         redraw()
-        onRangeChange?(start, end)
+        report()
     }
 
     /// A day picked in the To calendar. Picking one at all is what makes the range a range.
     func selectEnd(_ day: Date) {
         end = ReportRangeRules.endChosen(day, start: start)
         redraw()
+        report()
+    }
+
+    /// Says the range changed, and asks for the totals over it. Both, always, from one place: a range on screen with
+    /// last range's figures under it would be a worse answer than no figures at all.
+    private func report() {
         onRangeChange?(start, end)
+        onNeedTotals?(start, end)
     }
 
     private func addCalendars(locale: Locale) {
@@ -146,11 +173,34 @@ final class ReportPane: NSView {
         row.addSubview(toCalendar)
         addSubview(row)
 
+        // A hairline between the question and its answer, which is how the archive divided this tab. Not a heading over
+        // the totals: what they are is said by the range above them, and "Totals" would be a word explaining a column
+        // of times that needs no explaining.
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(divider)
+        addSubview(totalsList)
+
         NSLayoutConstraint.activate([
             row.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
             row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
             row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.padding),
+            // As tall as the calendars in it, so the totals begin under them rather than under the tab.
+            row.bottomAnchor.constraint(equalTo: fromCalendar.bottomAnchor),
+
+            // The hairline runs the full width of the tab's content, and the totals under it: a row of the list is a
+            // line across the tab, with its figure at the right-hand end.
+            divider.topAnchor.constraint(equalTo: row.bottomAnchor, constant: Layout.dividerSpacing),
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
+
+            totalsList.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: Layout.dividerSpacing),
+            totalsList.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+            totalsList.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
+            // **All the way to the bottom of the tab**, which is what makes the list the thing that scrolls rather than
+            // the tab: the calendars stay put and the times move under them.
+            totalsList.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.padding),
 
             // **Half the tab each**, rather than each box sizing to the grid inside it. The cell size is rounded down
             // to fit, so grid-width boxes would leave a few points of slack at the right-hand edge and the pair would

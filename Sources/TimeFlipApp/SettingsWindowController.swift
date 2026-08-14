@@ -575,6 +575,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         draw(timing?.read() ?? .idle)
     }
 
+    /// Re-reads the Report tab's totals, for the two moments that turn a stretch into an entry: a pause, and a switch
+    /// to another category. Both can happen while the Report tab is the one on show -- the status item pauses from
+    /// anywhere -- and unlike the Faces tab, a list of totals has no tick to repaint it.
+    ///
+    /// Only when that tab is showing. A read for a tab nobody is looking at is a read whose answer is thrown away, and
+    /// the tab reads itself when it is switched to.
+    private func redrawTotals() {
+        guard let report = panes.selectedTabViewItem?.view as? ReportPane else { return }
+        report.refresh()
+    }
+
     /// Draws a reading already taken, which is what the tick wants: it has to look at the state anyway to decide
     /// whether to keep going, and reading twice for one repaint would be two answers where one will do.
     private func draw(_ reading: TimingReadout.Reading) {
@@ -630,6 +641,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         deviceEvents?.startSegment(face: face, at: moment)
         debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(face)")
         redrawTiming()
+        redrawTotals()
         onTimingChanged?()
         startTicking()
     }
@@ -678,6 +690,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 + "\"\(after.category?.name ?? "nothing")\", \(Int(after.seconds))s today"
         )
         draw(after)
+        redrawTotals()
         onTimingChanged?()
         if after.state == .running {
             startTicking()
@@ -936,11 +949,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         return faces
     }
 
-    /// The Report tab's date range.
+    /// The Report tab: the date range, and the totals it asks for.
     ///
-    /// Nothing is read or written here yet: the range is a question, not a setting, and what answers it -- the totals
-    /// under the calendars -- is the next piece of work. What the window does with it now is write down what was
-    /// picked, so a step driving the app can see a click land the way it can everywhere else.
+    /// The range itself is not a setting and is not written anywhere -- it is a question, and it lasts as long as the
+    /// window is open. What is read is the answer, every time the question changes.
     private func makeReportPane() -> ReportPane {
         let report = ReportPane()
         report.onRangeChange = { [weak self] start, end in
@@ -952,7 +964,44 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         report.onShowMonth = { [weak self] calendar, month in
             self?.debugLog?.record(.report, "\(calendar) calendar showing \(Self.month(month))")
         }
+        report.onNeedTotals = { [weak self, weak report] start, end in
+            guard let report else { return }
+            self?.loadTotals(into: report, start: start, end: end)
+        }
         return report
+    }
+
+    /// Reads what the picked range came to, and draws it.
+    ///
+    /// **Three reads, all of them here and now**: the day boundary the range is measured against, the entries inside
+    /// it, and whether the figures carry seconds. None of them is held, which is the point -- the boundary can be
+    /// changed on the App tab and the entries grow as time is recorded, so a total is only true as of the moment it
+    /// was summed.
+    ///
+    /// The reset time comes from the table rather than from the App tab's copy of it, and the two cannot disagree: a
+    /// changed row is written straight through and read back before that pane adopts it (see the source-of-truth rule
+    /// in `CLAUDE.md`), so they differ for no longer than one write.
+    private func loadTotals(into pane: ReportPane, start: Date, end: Date?) {
+        // Both or neither: a range measured against a default boundary while the table holds another would be a figure
+        // that looks right and is not. A controller built without them -- which is what a layout test builds -- draws
+        // the calendars and no totals.
+        guard let entries, let settings else { return }
+        let reset = DayWindow.resetTime(
+            hour: settings.integer("daily_reset_time", field: "hour"),
+            minute: settings.integer("daily_reset_time", field: "minute")
+        )
+        let bounds = ReportRangeRules.bounds(
+            start: start,
+            end: end,
+            resetHour: reset.hour,
+            resetMinute: reset.minute
+        )
+        let totals = entries.totals(from: bounds.start, to: bounds.end)
+        pane.show(totals, showingSeconds: settings.flag("display_seconds", field: "enabled") ?? true)
+        debugLog?.record(
+            .report,
+            "Report totals \(Self.dayAndTime(bounds.start)) -> \(Self.dayAndTime(bounds.end)): \(totals.count) categories"
+        )
     }
 
     /// Local `yyyy-MM-dd` for the log, so a logged range reads against the timestamps around it rather than as an
@@ -966,6 +1015,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private static func month(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM"
+        return formatter.string(from: date)
+    }
+
+    /// With the time, for the two ends of a range: the boundary is the point of them, so a log line that dropped it
+    /// would not show whether the reset time was honoured.
+    private static func dayAndTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter.string(from: date)
     }
 
