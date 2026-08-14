@@ -49,17 +49,78 @@ final class CategoryCreateRulesTests: XCTestCase {
                        .insert(name: "Deep Work"))
     }
 
-    func testASingleRetiredNamesakeIsBroughtBack() {
+    func testASingleRetiredNamesakeIsAQuestionRatherThanAnAnswer() {
+        // Bringing it back and creating a new one alongside it are both legitimate, and nothing here can tell which
+        // was meant, so the decision names the row and stops.
         let retired = category(4, "Reading", active: false)
 
-        XCTAssertEqual(decide("Reading", against: [retired]), .reactivate(retired))
+        XCTAssertEqual(decide("Reading", against: [retired]), .retiredNamesakes([retired]))
     }
 
     func testARetiredNamesakeIsFoundWhateverTheCasing() {
         // The unique index that bars a second active namesake is case-insensitive, so the check has to be.
         let retired = category(4, "Reading", active: false)
 
-        XCTAssertEqual(decide("reading", against: [retired]), .reactivate(retired))
+        XCTAssertEqual(decide("reading", against: [retired]), .retiredNamesakes([retired]))
+    }
+
+    // MARK: - what the dialogue about a retired namesake offers
+
+    func testOneRetiredNamesakeOffersThreeButtonsInTheOrderTheyAreDrawn() {
+        XCTAssertEqual(
+            CategoryCreateRules.choices(retiredNamesakes: 1).map(\.buttonTitle),
+            ["Reactivate", "Create new one", "Cancel"],
+            "the first is the default and sits rightmost on this platform"
+        )
+    }
+
+    func testSeveralRetiredNamesakesTakeReactivateAway() {
+        // There is no answer to *which* one to bring back: they share a name, and nothing on a button distinguishes
+        // them. Creating a new one is unaffected, only an active namesake barring a name.
+        XCTAssertEqual(
+            CategoryCreateRules.choices(retiredNamesakes: 3).map(\.buttonTitle),
+            ["Create new one", "Cancel"]
+        )
+    }
+
+    func testEachButtonMeansItsOwnChoice() {
+        // The order on screen and the meaning of the answer are one list, so a button added in the middle cannot
+        // silently repoint the others.
+        let three = CategoryCreateRules.choices(retiredNamesakes: 1)
+        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 0, offering: three), .reactivate)
+        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 1, offering: three), .createNew)
+        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 2, offering: three), .cancel)
+    }
+
+    func testTheShorterListMeansTheFirstButtonIsCreateRatherThanReactivate() {
+        // The case this pairing exists for: the same index means a different thing depending on what was offered.
+        let two = CategoryCreateRules.choices(retiredNamesakes: 2)
+        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 0, offering: two), .createNew)
+        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 1, offering: two), .cancel)
+        XCTAssertNil(CategoryCreateRules.choice(forButtonIndex: 2, offering: two))
+    }
+
+    func testAnAnswerFromNoButtonOfOursIsNothing() {
+        // A sheet dismissed by something else. The caller treats it as Cancel rather than guessing.
+        let three = CategoryCreateRules.choices(retiredNamesakes: 1)
+        XCTAssertNil(CategoryCreateRules.choice(forButtonIndex: 3, offering: three))
+        XCTAssertNil(CategoryCreateRules.choice(forButtonIndex: -1, offering: three))
+    }
+
+    func testTheMessageNamesTheCategoryInQuotes() {
+        XCTAssertEqual(
+            CategoryCreateRules.retiredNamesakeMessage(name: "Reading"),
+            "The category \"Reading\" already exists as a deactivated category"
+        )
+        // Quoted so a name with a space in it cannot be misread as part of the sentence.
+        XCTAssertTrue(CategoryCreateRules.retiredNamesakeMessage(name: "Deep work").contains("\"Deep work\""))
+    }
+
+    func testTheDialogueSaysHowManyThereAre() {
+        // Which is also why a button can be missing: a dialogue offering fewer choices than last time, with no reason
+        // given, reads as a bug rather than as an answer nobody can give.
+        XCTAssertEqual(CategoryCreateRules.retiredNamesakeCount(1), "There is one category with the same name.")
+        XCTAssertEqual(CategoryCreateRules.retiredNamesakeCount(3), "There are 3 categories with the same name.")
     }
 
     func testAnActiveNamesakeIsADeadEnd() {
@@ -77,11 +138,11 @@ final class CategoryCreateRulesTests: XCTestCase {
         XCTAssertEqual(decide("Meeting", against: [retired, active]), .alreadyActive(active))
     }
 
-    func testSeveralRetiredNamesakesMeansCreateAlongsideThem() {
-        // Which one to bring back is unanswerable here: each has its own history and nothing tells them
-        // apart. Creating is still allowed, because only an active namesake bars a name.
+    func testSeveralRetiredNamesakesAreAllCarried() {
+        // Every one of them, because how many there are is what decides which buttons the dialogue can offer. This
+        // used to insert outright, which made the decision silently on the user's behalf.
         let rows = [category(4, "Reading", active: false), category(7, "Reading", active: false)]
 
-        XCTAssertEqual(decide("Reading", against: rows), .insert(name: "Reading"))
+        XCTAssertEqual(decide("Reading", against: rows), .retiredNamesakes(rows))
     }
 }

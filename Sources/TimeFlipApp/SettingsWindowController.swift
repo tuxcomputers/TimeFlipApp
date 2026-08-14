@@ -667,15 +667,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // shows, and a row put there by the writer would be a second answer to what it holds.
             reloadSelectedPane()
 
-        case let .reactivate(existing):
-            let succeeded = categories.reactivate(id: existing.id)
+        case let .retiredNamesakes(existing):
             debugLog?.record(
                 .click,
-                "Button clicked: Save new category \"\(existing.name)\" -> reactivated category_id "
-                    + "\(existing.id)\(succeeded ? "" : " REFUSED")"
+                "Button clicked: Save new category \"\(existing[0].name)\" -> asking, \(existing.count) retired "
+                    + "under that name: \(existing.map(\.id))"
             )
             control.collapse()
-            reloadSelectedPane()
+            askAboutRetiredNamesakes(existing)
 
         case let .alreadyActive(existing):
             debugLog?.record(
@@ -685,6 +684,75 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             control.collapse()
             showAlreadyActive(existing)
         }
+    }
+
+    /// Asks what to do about a name a retired category already holds, and does it.
+    ///
+    /// **Three answers, because two of them are legitimate.** Bringing the old one back keeps its history, which is
+    /// usually what typing a name used before means; making a new one leaves that history where it is under a name
+    /// being reused deliberately, which the database allows since only *active* names are unique. Nothing in the app
+    /// can tell which was meant, so it asks rather than choosing -- this used to reactivate silently, which quietly
+    /// took the second option away.
+    ///
+    /// The buttons and what they mean are `CategoryCreateRules`', in one list, so their order on screen and the
+    /// meaning of the answer cannot drift apart.
+    ///
+    /// **With more than one retired namesake the Reactivate button is not offered at all**, since there is no answer
+    /// to which of them to bring back: they share a name and nothing distinguishes them on a button. The dialogue
+    /// still appears, saying how many there are, and offers the answer that is still available -- creating a new one
+    /// -- or nothing. Somebody who wants a particular one back goes to the Inactive list, where each row carries the
+    /// date that tells them apart.
+    private func askAboutRetiredNamesakes(_ existing: [CategoryRecord]) {
+        guard let categories, let first = existing.first else { return }
+        let choices = CategoryCreateRules.choices(retiredNamesakes: existing.count)
+        let alert = NSAlert()
+        alert.messageText = CategoryCreateRules.retiredNamesakeMessage(name: first.name)
+        alert.informativeText = CategoryCreateRules.retiredNamesakeCount(existing.count)
+        for choice in choices {
+            alert.addButton(withTitle: choice.buttonTitle)
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            self?.act(
+                on: CategoryCreateRules.choice(forButtonIndex: index, offering: choices),
+                about: first,
+                named: first.name,
+                in: categories
+            )
+        }
+    }
+
+    private func act(
+        on choice: CategoryCreateRules.RetiredNamesakeChoice?,
+        about existing: CategoryRecord,
+        named name: String,
+        in categories: CategoryStore
+    ) {
+        switch choice {
+        case .reactivate:
+            let succeeded = categories.setActive(id: existing.id, true)
+            debugLog?.record(
+                .click,
+                "Button clicked: Reactivate \"\(existing.name)\" -> category_id \(existing.id)"
+                    + "\(succeeded ? "" : " REFUSED")"
+            )
+
+        case .createNew:
+            let created = categories.insert(name: name)
+            debugLog?.record(
+                .click,
+                "Button clicked: Create new one \"\(name)\" -> \(created.map { "category_id \($0)" } ?? "refused")"
+                    + ", leaving category_id \(existing.id) retired"
+            )
+
+        case .cancel, nil:
+            // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means
+            // the same as Cancel: the name was typed and nothing came of it.
+            debugLog?.record(.click, "Button clicked: Cancel, \"\(name)\" not created")
+            return
+        }
+        // Only the two that wrote get here: either changes which rows belong in which list.
+        reloadSelectedPane()
     }
 
     /// The dead end: an active category already holds the name, so there is nothing to decide and only

@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (349 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (379 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -18,7 +18,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
 - [ ] **[Device tab](#device-tab)**: nothing so far.
-- [ ] **[Categories tab](#categories-tab)**: the active categories are listed with the archive's columns, and a category can be created, given a limit, or retired. The rest of the editing is not built.
+- [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, given a limit, retired or brought back. What a category *is* -- its name, icon, colour, cost, project -- still cannot be changed.
 - [ ] **[Report tab](#report-tab)**: nothing so far.
 - [ ] **[App tab](#app-tab)**: nothing so far.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
@@ -105,16 +105,18 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 - [x] **The arrows accelerate while held** ([StepperHoldRules.swift](../Sources/TimeFlipApp/StepperHoldRules.swift)): ticks of 1 until the value passes the second multiple of 5 beyond where the hold began, then 5s at a slower cadence. The archive's rule copied as it stands, tests included; the arrows themselves are a hand-built chevron pair, a stock stepper repeating at one fixed increment.
 - [x] **Retiring a category**, by unticking Active. It comes off every face holding it at the same time, and is barred outright while a *locked* face holds it: retiring clears faces and a locked face keeps what it has, so the app does neither and the tooltip names the face.
 - [x] **Creating a category here too** ([CategoryCreateControl.swift](../Sources/TimeFlipApp/CategoryCreateControl.swift)): the same control the Faces tab has, under the list, which is where the archive put it -- in the gap between the two lists rather than inside either, so it belongs to the tab and not to one section of it. Both end in one method against the same rules and the same writer, two ways in rather than two implementations.
+- [x] **The Inactive list** ([RetiredCategoryTable.swift](../Sources/TimeFlipApp/RetiredCategoryTable.swift)): the retired categories, with the box that brings one back, the name, and when it last recorded time. Its own type rather than the Active table with columns switched off, which is how the archive drew it: that list is a record of what a category *is*, this one of what it *was*, so the icon, the colour and the limit are absent rather than dead.
+- [x] **The sections fold** ([CategorySection.swift](../Sources/TimeFlipApp/CategorySection.swift)): Active open because it is the one being worked in, Inactive closed because it is an archive to go looking in occasionally. The triangles waited for the second list, a lone section having nothing to fold away from.
+- [x] **Reactivating a category**, by ticking Active on a retired row. The name is checked first, since only one active category may hold one: the unique index would refuse it anyway, but a refused write cannot say *which* category is in the way, and that is the whole of what the message needs.
+- [x] **Creating against a retired namesake asks** rather than deciding: a dialogue naming the category, saying how many share the name, and offering Reactivate, Create new one, and Cancel. With more than one retired namesake the Reactivate button is absent, there being no answer to which of them was meant -- and the count is what says why.
 
 ### Still to do
 
-- [ ] **The Inactive list**, which the Faces tab deliberately hides. It also brings the disclosure triangles the archive had: collapsing earns its keep once one of the two sections is an archive to go looking in occasionally.
 - [ ] **Renaming a category.**
 - [ ] **Choosing an icon** (`icon`, a reference table already seeded and read).
 - [ ] **Choosing a colour** (`colour`, likewise, including its `white_lines` flag for dark colours).
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
 - [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
-- [ ] **Reactivating a category**, which arrives with the Inactive list above, that being where a retired one can be seen at all. Today it comes back only by typing its name on Faces. The rule already exists ([CategoryCreateRules.swift](../Sources/TimeFlipApp/CategoryCreateRules.swift)) and can be refused, since only one active category may hold a name -- so unlike retiring, this direction needs somewhere to say why it was refused.
 - [ ] **Unlocking a face**, which is what the disabled Active box points at: a category on a locked face cannot be retired, and nothing in the app can unlock one. It is a Faces tab item and it waits for the device work, which is what makes a locked face reachable at all.
 
 ## Report tab
