@@ -212,6 +212,11 @@ then the sheet's own buttons are ordinary named elements (`action-button-1` is t
   clicking it on screen and reading `debug_log`.** A knock-on effect worth expecting: a label inside a button
   stops appearing in `ax-dump.py` as an element of its own, the button absorbing it, so match the button.
 
+- **A hidden view keeps its height.** Auto Layout ignores `isHidden`; only an `NSStackView` collapses a hidden
+  *arranged* subview. So folding a section by hiding its list leaves the list's full height behind, which shows up
+  as blank space rather than as a fault. `CategorySection` swaps the constraint pinning its bottom edge instead.
+  Measure a fold by the section's own `frame.height`, open against shut, not by `isHidden`.
+
 - **Never post Escape (key code 53) while driving this app.** It reaches whatever has focus, and if that
   is not the app it interrupts the session driving it. There is nothing in this app that needs it: the
   Settings window closes with `ax-press.py close-settings`, and menus close by pressing an item.

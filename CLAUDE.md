@@ -155,6 +155,17 @@ it falls.
 
 This applies to every collapsible group the app grows, not only the Categories tab's two.
 
+**Its heading sits on the group's own panel, as the first row of it, and folding closes the panel around the
+heading.** The archive drew each one as a `Section` of a grouped form, where the disclosure label is a row inside
+the box, and a heading floating above a panel it folds reads as a caption rather than as the control it is. Two
+things follow, both of which have already gone wrong once: whatever is inside the panel must not draw a panel of
+its own (`quaternarySystemFill` is translucent, so two of them stack and the contents come out darker than the
+heading), and hiding the contents is not folding them (Auto Layout ignores `isHidden`, so the hidden height stays
+behind unless the section's bottom edge moves with it).
+
+This is about *collapsible* groups. A plain section heading, like the App tab's "App settings", stays above its
+panel: it names the panel, it does not operate it.
+
 ## Requests that affect real device behavior
 
 - Before implementing a request that changes how the physical TimeFlip device behaves (e.g.
