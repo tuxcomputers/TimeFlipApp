@@ -44,7 +44,7 @@ final class SteppedNumberField: NSView {
     var onChange: ((Int) -> Void)?
 
     private let field = NSTextField()
-    private let suffix: NSTextField
+    private let suffixLabel: NSTextField
     private let range: ClosedRange<Int>
     private var upArrow: HoldArrow!
     private var downArrow: HoldArrow!
@@ -55,6 +55,13 @@ final class SteppedNumberField: NSView {
         didSet {
             field.integerValue = value
         }
+    }
+
+    /// The unit beside the number. Settable because some of them are a word that changes with the value -- "1 min"
+    /// against "2 mins" -- and the row showing the value is the only thing that knows which it is now.
+    var suffix: String {
+        get { suffixLabel.stringValue }
+        set { suffixLabel.stringValue = newValue }
     }
 
     /// Whether the number can be changed. Off greys the field and both arrows, and still shows the value: what it
@@ -76,7 +83,7 @@ final class SteppedNumberField: NSView {
     var disabledHelp: String? {
         didSet {
             field.toolTip = disabledHelp
-            suffix.toolTip = disabledHelp
+            suffixLabel.toolTip = disabledHelp
             upArrow.toolTip = disabledHelp
             downArrow.toolTip = disabledHelp
             toolTip = disabledHelp
@@ -86,7 +93,7 @@ final class SteppedNumberField: NSView {
     init(value: Int, range: ClosedRange<Int>, suffix unit: String, identifier: String) {
         self.value = range.clamped(to: value)
         self.range = range
-        self.suffix = NSTextField(labelWithString: unit)
+        self.suffixLabel = NSTextField(labelWithString: unit)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         addContent(identifier: identifier)
@@ -107,8 +114,8 @@ final class SteppedNumberField: NSView {
         field.isContinuous = false
         field.setAccessibilityIdentifier(identifier)
 
-        suffix.textColor = .secondaryLabelColor
-        suffix.translatesAutoresizingMaskIntoConstraints = false
+        suffixLabel.textColor = .secondaryLabelColor
+        suffixLabel.translatesAutoresizingMaskIntoConstraints = false
 
         upArrow = arrow(direction: 1, symbol: "chevron.up", identifier: "\(identifier)-up")
         downArrow = arrow(direction: -1, symbol: "chevron.down", identifier: "\(identifier)-down")
@@ -118,18 +125,18 @@ final class SteppedNumberField: NSView {
         arrows.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(field)
-        addSubview(suffix)
+        addSubview(suffixLabel)
         addSubview(arrows)
         NSLayoutConstraint.activate([
             field.leadingAnchor.constraint(equalTo: leadingAnchor),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
             field.widthAnchor.constraint(equalToConstant: Layout.fieldWidth),
 
-            suffix.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: Layout.spacing),
-            suffix.centerYAnchor.constraint(equalTo: centerYAnchor),
-            suffix.widthAnchor.constraint(equalToConstant: Layout.suffixWidth),
+            suffixLabel.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: Layout.spacing),
+            suffixLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            suffixLabel.widthAnchor.constraint(equalToConstant: Layout.suffixWidth),
 
-            arrows.leadingAnchor.constraint(equalTo: suffix.trailingAnchor, constant: Layout.spacing),
+            arrows.leadingAnchor.constraint(equalTo: suffixLabel.trailingAnchor, constant: Layout.spacing),
             arrows.centerYAnchor.constraint(equalTo: centerYAnchor),
             arrows.trailingAnchor.constraint(equalTo: trailingAnchor),
 

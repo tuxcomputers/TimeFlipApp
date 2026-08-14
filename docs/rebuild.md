@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (470 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (494 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -20,7 +20,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - [ ] **[Device tab](#device-tab)**: nothing so far.
 - [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, renamed, given an icon, a colour or a limit, retired or brought back. Its cost and its project still cannot be changed.
 - [ ] **[Report tab](#report-tab)**: nothing so far.
-- [ ] **[App tab](#app-tab)**: nothing so far.
+- [ ] **[App tab](#app-tab)**: the App settings section is drawn and reads the database; none of its six rows writes yet.
 - [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
 
 The Settings window draws its tabs Faces, Categories, Report, App, Device, so this list is the window's own order with the menu bar slotted in second. Faces is leftmost because every open of that window lands on it whatever it was last left on, and a tab that is always opened should not be one along from the first. Device is last, being where somebody goes to set a cube up or to work out what is wrong with it.
@@ -136,15 +136,19 @@ Nothing so far.
 
 ## App tab
 
-Nothing so far. Several of the settings it will edit are already read at the point they are used, so the behaviour exists ahead of the controls.
+The section is drawn and reads the database; none of it writes yet. Several of these settings are already honoured where they are used, so the behaviour exists ahead of the controls.
+
+### Done, in the order it was built
+
+- [x] **The App settings section** ([AppSettingsPane.swift](../Sources/TimeFlipApp/AppSettingsPane.swift), [AppSettingsRules.swift](../Sources/TimeFlipApp/AppSettingsRules.swift)): the archive's six rows in its order and its wording -- show seconds, pause on lock, daily reset at, battery warning at, fetch history every, ignore flips under -- on the same tinted panel the Categories tab uses. The Google section that sat above it in the archive is not here: it belongs to an integration this app has not rebuilt, and an empty one would promise something.
+- [x] **Every bound and default carried over with its reason** ([AppSettingsRules.swift](../Sources/TimeFlipApp/AppSettingsRules.swift)): the 20% battery cap, the 0-to-30-second blip filter, the minute-to-hour fetch interval, and an AM-only reset hour, which is a control the archive reduced to one field after finding that PM was only ever a way to pick a wrong value. Each default is the seed in `database/011_setting.sql`, since `SettingReader` answers `nil` for a missing row and refuses to guess what absence means.
+- [x] **The values are read from `setting` when the tab is shown**, like every other pane's, rather than drawn from placeholders. A row showing a number that is not the stored one is exactly the two-answers problem the first design rule exists to prevent.
 
 ### Still to do
 
-- [ ] **Show seconds in the menu bar** (`display_seconds`), already honoured per draw.
-- [ ] **Ignore flips under N seconds** (`blip_time`, bounded 0 to 30), already honoured on every closed segment.
-- [ ] **The daily reset time** (`daily_reset_time`, whole hours plus AM/PM), already the window every total is  summed over.
-- [ ] **The history fetch interval** (`fetch_history_interval_seconds`, shown in minutes), already re-read on every  timeout.
-- [ ] **The low-battery threshold** (`low_battery_level`), which needs a battery reading first.
+**Every row is a readout: nothing on this tab writes.** A change is recorded in `debug_log` and the row is read back, which puts it where it was -- the database rule for a refused write, applied literally, because until a setting has a writer that is what every change to it is.
+
+- [ ] **Storing what these rows change**, one setting at a time: `display_seconds` (already honoured per draw), `blip_time` (already honoured on every closed segment), `daily_reset_time` (already the window every total is summed over), `fetch_history_interval_seconds` (already re-read on every timeout), `pause_on_lock` (already read during quit), and `low_battery_level`, which needs a battery reading before it means anything.
 - [ ] **The debug settings** (`debug`: whether to gather messages, whether to write them to a file, and where), which are a placeholder row and nothing else.
 
 ## Backend

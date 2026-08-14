@@ -72,6 +72,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The palette a category can be given. A reference table, so this only ever reads.
     private let colours: ColourStore?
 
+    /// The `setting` table, for the App tab. Read when that tab is shown, never held.
+    private let settings: SettingReader?
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
@@ -99,7 +102,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         timing: TimingReadout? = nil,
         entries: TimeEntryStore? = nil,
         icons: IconStore? = nil,
-        colours: ColourStore? = nil
+        colours: ColourStore? = nil,
+        settings: SettingReader? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -109,6 +113,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.entries = entries
         self.icons = icons
         self.colours = colours
+        self.settings = settings
         super.init()
     }
 
@@ -119,20 +124,62 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// them, so closing and reopening it, or leaving a tab and coming back, reads the table again rather
     /// than redrawing what was true the first time.
     private func reloadSelectedPane() {
-        guard let categories else { return }
         // Only the pane on show is read. The others are read when they are switched to, which is the same rule
         // applied one level down: a tab nobody is looking at has no values worth having.
+        //
+        // Each branch asks for what it needs rather than one guard covering all of them: the App tab reads the
+        // `setting` table and nothing else, so a controller with no `CategoryStore` -- which is what a layout test
+        // builds -- must still be able to draw it.
         switch panes.selectedTabViewItem?.view {
         case let pane as FacesPane:
+            guard let categories else { return }
             pane.show(categories.activeCategories())
             redrawTiming()
 
         case let pane as CategoriesPane:
+            guard let categories else { return }
             wire(pane)
             pane.show(active: categories.activeCategories(), inactive: categories.inactiveCategories())
 
+        case let pane as AppSettingsPane:
+            wire(pane)
+            pane.show(appSettings())
+
         default:
             break
+        }
+    }
+
+    /// What the `setting` table says about the App tab, now.
+    ///
+    /// Each row falls back to what a fresh database would have seeded, because `SettingReader` answers `nil` for a
+    /// missing or malformed row and refuses to guess what absence means -- rightly, since what a sensible fallback is
+    /// depends entirely on the setting. `AppSettingsPane.Values.seeded` is where that guess is made, once.
+    private func appSettings() -> AppSettingsPane.Values {
+        let seeded = AppSettingsPane.Values.seeded
+        guard let settings else { return seeded }
+        return AppSettingsPane.Values(
+            showsSeconds: settings.flag("display_seconds", field: "enabled") ?? seeded.showsSeconds,
+            pausesOnLock: settings.flag("pause_on_lock", field: "enabled") ?? seeded.pausesOnLock,
+            dailyResetHour24: settings.integer("daily_reset_time", field: "hour") ?? seeded.dailyResetHour24,
+            batteryWarningPercent: settings.integer("low_battery_level", field: "percent")
+                ?? seeded.batteryWarningPercent,
+            fetchIntervalSeconds: settings.integer("fetch_history_interval_seconds", field: "seconds")
+                ?? seeded.fetchIntervalSeconds,
+            blipSeconds: settings.integer("blip_time", field: "seconds") ?? seeded.blipSeconds
+        )
+    }
+
+    /// Points the App tab's rows at nothing, which is what they are for at the moment.
+    ///
+    /// **A change is recorded and then undone**: the row is read back from the table, which puts it where it was.
+    /// That is the database rule for a refused write applied literally (see `CLAUDE.md`) -- a field showing what was
+    /// typed while the table holds something else is the two-answers problem the rule exists to prevent -- and until
+    /// each setting has a writer, every change here is a refused write.
+    private func wire(_ pane: AppSettingsPane) {
+        pane.onChange = { [weak self] setting, value in
+            self?.debugLog?.record(.field, "App setting \"\(setting)\" -> \(value), not stored: no writer yet")
+            self?.reloadSelectedPane()
         }
     }
 
@@ -971,8 +1018,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         switch tab {
         case .faces: pane = makeFacesPane()
         case .categories: pane = CategoriesPane()
+        case .app: pane = AppSettingsPane()
         // Empty, and each becomes its own view when there is something to put in it.
-        case .report, .app, .device: pane = NSView()
+        case .report, .device: pane = NSView()
         }
         // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
         // its autoresizing frame rather than being pinned by constraints from out here.
