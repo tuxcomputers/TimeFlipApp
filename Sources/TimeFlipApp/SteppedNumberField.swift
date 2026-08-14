@@ -57,6 +57,32 @@ final class SteppedNumberField: NSView {
         }
     }
 
+    /// Whether the number can be changed. Off greys the field and both arrows, and still shows the value: what it
+    /// holds is worth reading even where it cannot be edited.
+    ///
+    /// All three parts, because each is a way in on its own: the field takes a typed number, and either arrow steps
+    /// one. `HoldArrow` refuses a press *and* a hold when it is off.
+    var isEnabled: Bool = true {
+        didSet {
+            field.isEnabled = isEnabled
+            field.isSelectable = isEnabled
+            upArrow.isEnabled = isEnabled
+            downArrow.isEnabled = isEnabled
+        }
+    }
+
+    /// What every part of the control says when it is off, or `nil` when it is on. Set on each part rather than on
+    /// the whole, since a tooltip is asked of whatever the pointer is actually over.
+    var disabledHelp: String? {
+        didSet {
+            field.toolTip = disabledHelp
+            suffix.toolTip = disabledHelp
+            upArrow.toolTip = disabledHelp
+            downArrow.toolTip = disabledHelp
+            toolTip = disabledHelp
+        }
+    }
+
     init(value: Int, range: ClosedRange<Int>, suffix unit: String, identifier: String) {
         self.value = range.clamped(to: value)
         self.range = range

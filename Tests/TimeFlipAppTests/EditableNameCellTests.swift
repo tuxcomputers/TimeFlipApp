@@ -93,6 +93,27 @@ final class EditableNameCellTests: XCTestCase {
         XCTAssertEqual(reported, [true], "the second one is not a new edit, and would report one that never opened")
     }
 
+    func testANameThatCannotBeEditedOpensNothingAndSaysWhy() throws {
+        let cell = cell()
+        let window = OffscreenWindow.host(cell)
+        defer { window.close() }
+        cell.isEnabled = false
+        cell.disabledHelp = "Face 8 is locked and still holding \"Break\"."
+
+        try XCTUnwrap(nameButton(of: cell)).performClick(nil)
+
+        XCTAssertFalse(cell.isEditing)
+        XCTAssertTrue(try XCTUnwrap(field(of: cell)).isHidden)
+        // The button stays enabled: disabling it would grey the name, so a locked row would read as a retired one,
+        // and macOS shows no tooltip for a disabled control -- the explanation would go with it.
+        let button = try XCTUnwrap(nameButton(of: cell))
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.toolTip, "Face 8 is locked and still holding \"Break\".")
+        // And it stops saying "click to rename", which on something that will not open is a lie told to whoever
+        // cannot see that nothing happened.
+        XCTAssertEqual(button.accessibilityLabel(), "Break, Face 8 is locked and still holding \"Break\".")
+    }
+
     // MARK: - ending it
 
     func testReturnCommitsWhatWasTyped() throws {

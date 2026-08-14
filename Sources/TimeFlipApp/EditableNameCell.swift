@@ -29,6 +29,28 @@ final class EditableNameCell: NSView {
 
     private(set) var isEditing = false
 
+    /// Whether the name can be edited. Off, the name is drawn exactly as before and clicking it does nothing: it is
+    /// still a name to read, and the tooltip is what says why it will not open.
+    ///
+    /// The button is left *enabled* on purpose. A disabled `NSButton` draws its contents grey, which would grey the
+    /// name itself and make a locked row look like a retired one; and macOS does not show a tooltip for a disabled
+    /// control, so the explanation would go with it. What is switched off is the edit, not the button.
+    var isEnabled: Bool = true
+
+    /// What the name says when it will not open, or `nil` when it will.
+    ///
+    /// It replaces the tooltip **and** the spoken label, since "click to rename" on something that will not open is a
+    /// lie told to whoever cannot see that nothing happened.
+    var disabledHelp: String? {
+        didSet {
+            button.toolTip = disabledHelp ?? Self.hint
+            button.setAccessibilityLabel(disabledHelp.map { "\(name), \($0)" } ?? "\(name), \(Self.hint.lowercased())")
+        }
+    }
+
+    /// The one hint that this is a control at all.
+    private static let hint = "Click to rename"
+
     let name: String
     private let button = NSButton()
     private let label: NSTextField
@@ -53,7 +75,7 @@ final class EditableNameCell: NSView {
     /// Turns the name into a field, focused, with the current name in it and selected, so typing replaces it and
     /// clicking puts a caret where it was clicked.
     func beginEditing() {
-        guard !isEditing else { return }
+        guard isEnabled, !isEditing else { return }
         isEditing = true
         field.stringValue = name
         button.isHidden = true
@@ -107,10 +129,10 @@ final class EditableNameCell: NSView {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.identifier = NSUserInterfaceItemIdentifier(identifier)
         button.setAccessibilityIdentifier(identifier)
-        button.setAccessibilityLabel("\(name), click to rename")
+        button.setAccessibilityLabel("\(name), \(Self.hint.lowercased())")
         // The one hint that this is a control at all. It draws as a plain name on purpose: a column of buttons would
         // read as a row of controls, when what is wanted is a list that can be corrected.
-        button.toolTip = "Click to rename"
+        button.toolTip = Self.hint
 
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1

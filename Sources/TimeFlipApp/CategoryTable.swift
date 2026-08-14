@@ -106,7 +106,7 @@ final class CategoryTable: NSView {
             for category in categories {
                 let row = CategoryTableRow(
                     category: category,
-                    retireRefusal: CategoryEditRules.retireRefusal(facesHolding: facesHolding?(category) ?? [])
+                    editRefusal: CategoryEditRules.editRefusal(facesHolding: facesHolding?(category) ?? [])
                 )
                 row.onSetDailyLimit = { [weak self] minutes in self?.onSetDailyLimit?(category, minutes) }
                 row.onRetire = { [weak self] in self?.onRetire?(category) }
@@ -216,9 +216,15 @@ final class CategoryTable: NSView {
 final class CategoryTableRow: NSStackView {
     let category: CategoryRecord
 
-    /// Why this category cannot be retired, or `nil` when it can. Decided by `CategoryEditRules` and handed in, so
+    /// Why nothing on this row can be changed, or `nil` when it can. Decided by `CategoryEditRules` and handed in, so
     /// the row draws the answer rather than working it out.
-    let retireRefusal: CategoryEditRules.RetireRefusal?
+    let editRefusal: CategoryEditRules.EditRefusal?
+
+    /// What every control in the row says when it is off. Worked out once here rather than per control, all five
+    /// saying the same thing.
+    private var refusalHelp: String? {
+        CategoryEditRules.editRefusalHelp(editRefusal, categoryName: category.name)
+    }
 
     /// Called with the new limit in minutes, already inside the allowed range.
     var onSetDailyLimit: ((Int) -> Void)?
@@ -246,9 +252,9 @@ final class CategoryTableRow: NSStackView {
     /// Held so a test, and the window, can ask what the name is doing.
     private(set) var nameCell: EditableNameCell?
 
-    init(category: CategoryRecord, retireRefusal: CategoryEditRules.RetireRefusal? = nil) {
+    init(category: CategoryRecord, editRefusal: CategoryEditRules.EditRefusal? = nil) {
         self.category = category
-        self.retireRefusal = retireRefusal
+        self.editRefusal = editRefusal
         super.init(frame: .zero)
         orientation = .horizontal
         alignment = .centerY
@@ -273,6 +279,17 @@ final class CategoryTableRow: NSStackView {
     /// the far end, while a retired row has no settings for it to be the end of. That is true of either list read on
     /// its own, and wrong once they are stacked on one tab: the box means the same thing in both, so it reads as one
     /// column running down the tab rather than as two controls that happen to share a name.
+    ///
+    /// **A locked face refuses all five**, and each of them says why on hover (see `CategoryEditRules.editRefusal`).
+    ///
+    /// Refused, not removed: the row is still a record of what the category is, and a column that vanished on some
+    /// rows would be a table that changes shape down the tab.
+    ///
+    /// **Only the two that are purely controls draw as off**, the Active box and the daily limit. The icon, the
+    /// colour and the name draw a value that happens to be clickable, and greying those would lose the value --
+    /// a dimmed swatch is a different colour, and a grey name reads as a retired category. macOS also shows no
+    /// tooltip for a disabled control, so a greyed-out swatch could not even say why it will not open. Those three
+    /// stay as they are and decline the click.
     private func addViews() {
         addView(activeBox(), in: .leading)
         addView(icon(), in: .leading)
@@ -290,6 +307,8 @@ final class CategoryTableRow: NSStackView {
             identifier: "category-limit-\(category.id)"
         )
         field.onChange = { [weak self] minutes in self?.onSetDailyLimit?(minutes) }
+        field.isEnabled = editRefusal == nil
+        field.disabledHelp = refusalHelp
         return column(field, width: CategoryTable.Layout.limitColumnWidth)
     }
 
@@ -303,8 +322,8 @@ final class CategoryTableRow: NSStackView {
     private func activeBox() -> NSView {
         let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(activeChanged))
         box.state = .on
-        box.isEnabled = retireRefusal == nil
-        box.toolTip = CategoryEditRules.retireRefusalHelp(retireRefusal, categoryName: category.name)
+        box.isEnabled = editRefusal == nil
+        box.toolTip = refusalHelp
         box.translatesAutoresizingMaskIntoConstraints = false
         box.identifier = NSUserInterfaceItemIdentifier("category-active-\(category.id)")
         box.setAccessibilityIdentifier("category-active-\(category.id)")
@@ -362,6 +381,9 @@ final class CategoryTableRow: NSStackView {
             button.contentTintColor = .secondaryLabelColor
             button.setAccessibilityLabel("\(category.name) icon, none")
         }
+        // Enabled, and refusing to open. A disabled button greys its artwork, which would make a locked row look
+        // retired; the tooltip is what says why nothing happens, and macOS does not show one for a disabled control.
+        button.toolTip = refusalHelp
         iconButton = button
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.iconSize),
@@ -372,7 +394,7 @@ final class CategoryTableRow: NSStackView {
 
     @objc
     private func pickIcon() {
-        guard let iconButton else { return }
+        guard editRefusal == nil, let iconButton else { return }
         onPickIcon?(iconButton)
     }
 
@@ -386,6 +408,8 @@ final class CategoryTableRow: NSStackView {
         )
         cell.onCommit = { [weak self] typed in self?.onRename?(typed) }
         cell.onEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
+        cell.isEnabled = editRefusal == nil
+        cell.disabledHelp = refusalHelp
         nameCell = cell
         return cell
     }
@@ -411,6 +435,9 @@ final class CategoryTableRow: NSStackView {
         // Named for what it is rather than for the shade, which the row cannot know: the colour's own name lives in
         // the `colour` table and the record carries only the colour itself.
         button.setAccessibilityLabel(category.colour == nil ? "\(category.name) colour, none" : "\(category.name) colour")
+        // Enabled and declining, as the icon is: the swatch draws itself, so disabling the button would not grey it
+        // anyway, and would take the tooltip explaining the refusal with it.
+        button.toolTip = refusalHelp
 
         let square = ColourSwatch(colour: category.colour)
         button.addSubview(square)
@@ -426,7 +453,7 @@ final class CategoryTableRow: NSStackView {
 
     @objc
     private func pickColour() {
-        guard let colourButton else { return }
+        guard editRefusal == nil, let colourButton else { return }
         onPickColour?(colourButton)
     }
 }

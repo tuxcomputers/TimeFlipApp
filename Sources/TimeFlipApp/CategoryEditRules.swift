@@ -24,22 +24,28 @@ enum CategoryEditRules {
         min(maximumDailyLimitMinutes, max(disabledDailyLimit, requested))
     }
 
-    /// Why retiring a category is not on offer, or `nil` when it is.
-    enum RetireRefusal: Equatable {
-        /// A locked face holds this category. Retiring takes a category off every face it is on, and a locked face is
-        /// one the user has said keeps what it has, so the two instructions contradict each other.
+    /// Why a category cannot be changed at all, or `nil` when it can.
+    enum EditRefusal: Equatable {
+        /// A locked face holds this category. A locked face is one the user has said keeps what it has, and what it
+        /// has is not only *which* category but how that category looks on the cube -- its icon and its colour are
+        /// what the face shows.
         case lockedFaces([Int])
     }
 
-    /// Whether this category can be retired, given the faces holding it.
+    /// Whether this category can be edited at all, given the faces holding it.
     ///
-    /// **The locked-face bar is the previous app's, and its reasoning is what makes it worth keeping**: the app does
-    /// not get to pick which of two contradictory instructions wins, so it does neither and says why. The way through
-    /// is to unlock the face on the Faces tab, which is a thing the user does deliberately.
+    /// **A locked face freezes the whole row**, not only the Active box: the name, the icon, the colour and the daily
+    /// limit as well. The previous app barred retiring alone, on the narrower reading that retiring is what takes a
+    /// category off a face. This is the wider one, and it is the one that matches what locking a face is for: the
+    /// face is to stay exactly as it is, and half of what it *is* -- the artwork and the colour it lights -- lives on
+    /// the category rather than on the face.
     ///
-    /// Only this direction is barred. Reinstating a category that a locked face holds -- which a database written
-    /// before this rule can have -- must still work, because reinstating puts nothing on any face.
-    static func retireRefusal(facesHolding faces: [(face: Int, isLocked: Bool)]) -> RetireRefusal? {
+    /// The way through is unlocking the face on the Faces tab, which is a thing somebody does deliberately.
+    ///
+    /// Only the *active* list is affected, which needs no check here because it is the only list that offers edits.
+    /// Reinstating a category a locked face holds -- which a database written before any of this can have -- must
+    /// still work, since reinstating puts nothing on any face.
+    static func editRefusal(facesHolding faces: [(face: Int, isLocked: Bool)]) -> EditRefusal? {
         let locked = faces.filter(\.isLocked).map(\.face)
         return locked.isEmpty ? nil : .lockedFaces(locked)
     }
@@ -100,17 +106,21 @@ enum CategoryEditRules {
         return .refuse(activeNamesake: namesake)
     }
 
-    /// What a row says about why its Active box cannot be unticked. `nil` when it can.
-    static func retireRefusalHelp(_ refusal: RetireRefusal?, categoryName: String) -> String? {
+    /// What a row says about why nothing on it can be changed. `nil` when it can.
+    ///
+    /// Every control in the row carries this, rather than one of them: whichever is reached for first is the one that
+    /// has to explain itself, and a disabled control with no reason is a control that looks broken.
+    static func editRefusalHelp(_ refusal: EditRefusal?, categoryName: String) -> String? {
         switch refusal {
         case nil:
             return nil
         case let .lockedFaces(faces):
             let list = faces.map(String.init).joined(separator: ", ")
-            let plural = faces.count == 1 ? "Face \(list) is" : "Faces \(list) are"
+            let subject = faces.count == 1 ? "Face \(list) is" : "Faces \(list) are"
+            let object = faces.count == 1 ? "it" : "them"
             // Names the face, because the row gives no clue which one is in the way.
-            return "\(plural) locked and still holding \"\(categoryName)\". Unlock it on the Faces tab to retire this "
-                + "category."
+            return "\(subject) locked and still holding \"\(categoryName)\". Unlock \(object) on the Faces tab to "
+                + "change this category."
         }
     }
 }

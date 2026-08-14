@@ -177,6 +177,91 @@ final class CategoryTableTests: XCTestCase {
         XCTAssertEqual(box.toolTip?.contains("Break"), true)
     }
 
+    // MARK: - a locked face holds the whole row
+
+    private func lockedRow(_ name: String = "Break") -> (CategoryTable, CategoryTableRow) {
+        let table = CategoryTable()
+        table.facesHolding = { _ in [(face: 8, isLocked: true)] }
+        table.show([category(1, name, limit: 45)])
+        // swiftlint:disable:next force_unwrapping
+        return (table, rows(of: table).first!)
+    }
+
+    func testALockedFaceRefusesTheIcon() throws {
+        let (table, row) = lockedRow()
+        var asked = false
+        table.onPickIcon = { _, _ in asked = true }
+
+        let button = try XCTUnwrap(
+            descendants(of: row).compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier().hasPrefix("category-icon-") }
+        )
+        button.performClick(nil)
+
+        XCTAssertFalse(asked, "the picker would offer an edit the row cannot make")
+        // Still drawn as it was, and still explaining itself: a disabled button greys its artwork and shows no
+        // tooltip at all, which would lose both the icon and the reason.
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.toolTip?.contains("Face 8"), true)
+    }
+
+    func testALockedFaceRefusesTheColour() throws {
+        let (table, row) = lockedRow()
+        var asked = false
+        table.onPickColour = { _, _ in asked = true }
+
+        let button = try XCTUnwrap(swatchButton(of: row))
+        button.performClick(nil)
+
+        XCTAssertFalse(asked)
+        XCTAssertTrue(button.isEnabled, "a greyed swatch would be a different colour, which is a different fact")
+        XCTAssertEqual(button.toolTip?.contains("Face 8"), true)
+    }
+
+    func testALockedFaceRefusesTheName() throws {
+        let (_, row) = lockedRow()
+
+        let cell = try XCTUnwrap(nameCell(of: row))
+        cell.beginEditing()
+
+        XCTAssertFalse(cell.isEditing, "clicking the name opens nothing")
+        XCTAssertEqual(cell.disabledHelp?.contains("Face 8"), true)
+    }
+
+    func testALockedFaceTurnsTheDailyLimitOffAndStillShowsIt() throws {
+        let (_, row) = lockedRow()
+
+        let field = try XCTUnwrap(limitField(of: row))
+        XCTAssertFalse(field.isEnabled)
+        // The value is worth reading where it cannot be changed, so it is greyed rather than blanked.
+        XCTAssertEqual(field.value, 45)
+        XCTAssertEqual(field.disabledHelp?.contains("Face 8"), true)
+    }
+
+    func testAnUnlockedRowLeavesEveryControlAlone() throws {
+        let table = CategoryTable()
+        table.facesHolding = { _ in [(face: 13, isLocked: false)] }
+        table.show([category(1, "Break", limit: 45)])
+        let row = try XCTUnwrap(rows(of: table).first)
+
+        XCTAssertTrue(try XCTUnwrap(limitField(of: row)).isEnabled)
+        XCTAssertNil(try XCTUnwrap(limitField(of: row)).disabledHelp)
+        XCTAssertTrue(try XCTUnwrap(nameCell(of: row)).isEnabled)
+        XCTAssertNil(try XCTUnwrap(swatchButton(of: row)).toolTip)
+        XCTAssertTrue(try XCTUnwrap(activeBox(of: row)).isEnabled)
+    }
+
+    func testEveryControlInALockedRowSaysTheSameThing() throws {
+        // Whichever is reached for first is the one that has to explain itself, and one wording means one fact.
+        let (_, row) = lockedRow()
+        let expected = CategoryEditRules.editRefusalHelp(.lockedFaces([8]), categoryName: "Break")
+
+        XCTAssertEqual(try XCTUnwrap(activeBox(of: row)).toolTip, expected)
+        XCTAssertEqual(try XCTUnwrap(swatchButton(of: row)).toolTip, expected)
+        XCTAssertEqual(try XCTUnwrap(nameCell(of: row)).disabledHelp, expected)
+        XCTAssertEqual(try XCTUnwrap(limitField(of: row)).disabledHelp, expected)
+    }
+
     func testAnUnlockedFaceLeavesTheBoxAlone() throws {
         let table = CategoryTable()
         table.facesHolding = { _ in [(face: 13, isLocked: false), (face: 14, isLocked: false)] }

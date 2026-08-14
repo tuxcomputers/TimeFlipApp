@@ -1,11 +1,12 @@
 @testable import TimeFlipApp
 import XCTest
 
-/// Covers `CategoryEditRules`: the bounds on a daily limit, and when retiring a category is not on offer.
+/// Covers `CategoryEditRules`: the bounds on a daily limit, what a click on a picker stores, and when a category
+/// cannot be edited at all.
 ///
-/// Both are here rather than inside the row that draws them, because both have an edge that matters more than the
-/// common case: a limit above a day is unreachable rather than generous, and a locked face is two instructions
-/// contradicting each other.
+/// All of them are here rather than inside the row that draws them, because each has an edge that matters more than
+/// the common case: a limit above a day is unreachable rather than generous, re-picking is how a picker clears, and a
+/// locked face is two instructions contradicting each other.
 final class CategoryEditRulesTests: XCTestCase {
     // MARK: - the daily limit
 
@@ -120,20 +121,20 @@ final class CategoryEditRulesTests: XCTestCase {
         )
     }
 
-    // MARK: - retiring
+    // MARK: - a locked face
 
-    func testACategoryOnNoFaceCanBeRetired() {
-        XCTAssertNil(CategoryEditRules.retireRefusal(facesHolding: []))
+    func testACategoryOnNoFaceCanBeEdited() {
+        XCTAssertNil(CategoryEditRules.editRefusal(facesHolding: []))
     }
 
-    func testACategoryOnUnlockedFacesCanBeRetired() {
+    func testACategoryOnUnlockedFacesCanBeEdited() {
         XCTAssertNil(
-            CategoryEditRules.retireRefusal(facesHolding: [(face: 13, isLocked: false), (face: 14, isLocked: false)])
+            CategoryEditRules.editRefusal(facesHolding: [(face: 13, isLocked: false), (face: 14, isLocked: false)])
         )
     }
 
-    func testALockedFaceHoldingItStopsTheRetire() {
-        let refusal = CategoryEditRules.retireRefusal(
+    func testALockedFaceHoldingItStopsEveryEdit() {
+        let refusal = CategoryEditRules.editRefusal(
             facesHolding: [(face: 2, isLocked: false), (face: 8, isLocked: true)]
         )
 
@@ -142,25 +143,27 @@ final class CategoryEditRulesTests: XCTestCase {
     }
 
     func testTheExplanationNamesEveryLockedFaceAndTheCategory() throws {
-        let refusal = CategoryEditRules.retireRefusal(
+        let refusal = CategoryEditRules.editRefusal(
             facesHolding: [(face: 4, isLocked: true), (face: 8, isLocked: true)]
         )
 
-        let help = try XCTUnwrap(CategoryEditRules.retireRefusalHelp(refusal, categoryName: "Break"))
+        let help = try XCTUnwrap(CategoryEditRules.editRefusalHelp(refusal, categoryName: "Break"))
         XCTAssertTrue(help.contains("Faces 4, 8"), "the row gives no clue which face is in the way")
         XCTAssertTrue(help.contains("Break"))
-        XCTAssertTrue(help.contains("Unlock"), "it has to say what to do about it")
+        XCTAssertTrue(help.contains("Unlock them"), "it has to say what to do about it")
+        XCTAssertTrue(help.contains("change this category"), "the whole row is held, not only the Active box")
     }
 
     func testOneLockedFaceReadsAsOneFace() throws {
         let help = try XCTUnwrap(
-            CategoryEditRules.retireRefusalHelp(.lockedFaces([8]), categoryName: "Break")
+            CategoryEditRules.editRefusalHelp(.lockedFaces([8]), categoryName: "Break")
         )
 
         XCTAssertTrue(help.contains("Face 8 is"), "not \"Faces 8 are\"")
+        XCTAssertTrue(help.contains("Unlock it"), "and \"it\", not \"them\"")
     }
 
-    func testNothingToExplainWhenTheRetireIsAllowed() {
-        XCTAssertNil(CategoryEditRules.retireRefusalHelp(nil, categoryName: "Break"))
+    func testNothingToExplainWhenTheEditIsAllowed() {
+        XCTAssertNil(CategoryEditRules.editRefusalHelp(nil, categoryName: "Break"))
     }
 }
