@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (469 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (470 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -115,7 +115,7 @@ This is where a category is looked after, as opposed to picked to time. The Acti
 
 - [x] **Renaming a category** ([EditableNameCell.swift](../Sources/TimeFlipApp/EditableNameCell.swift), [CategoryRenameRules.swift](../Sources/TimeFlipApp/CategoryRenameRules.swift)): **clicking the name** turns it into a field, rather than the previous app's right-click menu with *Edit* as its only item. Return commits, a click anywhere else abandons it, and so does Escape, which the window lends the field while it is open. Every rename is confirmed, because everything references a category by id: nothing recorded is lost, and reports covering time *before* the rename show the new name too. A name a retired category holds is allowed and says how many share it; one an active category holds is a dead end. All three dialogues can be cancelled.
 
-- [x] **A locked face freezes the whole row** ([CategoryEditRules.swift](../Sources/TimeFlipApp/CategoryEditRules.swift)): the name, the icon, the colour and the daily limit as well as the Active box, each saying on hover which face is in the way and that unlocking it is on the Faces tab. The archive barred retiring alone, on the narrower reading that retiring is what takes a category off a face; this is the wider reading, and it matches what locking a face is for, since half of what a face shows -- the artwork and the colour it lights -- lives on the category. Only the two controls that draw nothing else grey out: a greyed swatch would be a different colour, and a grey name reads as a retired category, so those decline the click instead.
+- [x] **A locked face freezes the whole row** ([CategoryEditRules.swift](../Sources/TimeFlipApp/CategoryEditRules.swift)): the name, the icon, the colour and the daily limit as well as the Active box, each saying on hover which face is in the way and that unlocking it is on the Faces tab. The archive barred retiring alone, on the narrower reading that retiring is what takes a category off a face; this is the wider reading, and it matches what locking a face is for, since half of what a face shows -- the artwork and the colour it lights -- lives on the category. Only the two controls that draw nothing else grey out: a greyed swatch would be a different colour, and a grey name reads as a retired category, so those decline the click instead. **One locked face is enough**, however many unlocked ones also hold the category: editing it changes what the locked face shows, and the unlocked ones are not asking for anything. Only the locked one is named in the tooltip.
 
 ### Still to do
 - [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
