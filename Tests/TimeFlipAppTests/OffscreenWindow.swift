@@ -19,6 +19,11 @@ enum OffscreenWindow {
             backing: .buffered,
             defer: false
         )
+        // **Not released when it is closed**, which is the default for a window built in code and which crashes the
+        // whole run when a test closes one: `close()` releases it, ARC releases it again at the end of the test, and
+        // the over-release lands in the autorelease pool drain as a signal 11 with no test named. A test that closes
+        // its window is doing the right thing -- it is what takes the focus off a field being edited.
+        window.isReleasedWhenClosed = false
         window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         view.frame = window.contentView?.bounds ?? .zero
         window.contentView?.addSubview(view)

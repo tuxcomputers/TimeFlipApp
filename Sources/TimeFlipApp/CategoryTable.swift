@@ -71,6 +71,13 @@ final class CategoryTable: NSView {
     /// Called when a category's colour swatch is clicked, with the view the picker should hang from.
     var onPickColour: ((CategoryRecord, NSView) -> Void)?
 
+    /// Called with a category and the new name typed into its row. A request, not a change: the window confirms a
+    /// rename before writing it, and the row is read back afterwards.
+    var onRename: ((CategoryRecord, String) -> Void)?
+
+    /// Called as a name opens and closes for editing, so the window can lend the field its Escape key.
+    var onRenameEditingChanged: ((Bool) -> Void)?
+
     init() {
         super.init(frame: .zero)
         addPanel()
@@ -105,6 +112,8 @@ final class CategoryTable: NSView {
                 row.onRetire = { [weak self] in self?.onRetire?(category) }
                 row.onPickIcon = { [weak self] anchor in self?.onPickIcon?(category, anchor) }
                 row.onPickColour = { [weak self] anchor in self?.onPickColour?(category, anchor) }
+                row.onRename = { [weak self] typed in self?.onRename?(category, typed) }
+                row.onRenameEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
                 rows.addView(row, in: .top)
             }
         }
@@ -224,9 +233,18 @@ final class CategoryTableRow: NSStackView {
     /// Called when the colour swatch is clicked, with the button itself, for the same reason.
     var onPickColour: ((NSView) -> Void)?
 
+    /// Called with a name typed into the row and committed with Return. It is a request rather than a change: a
+    /// rename is confirmed first, and what the row shows comes from reading the table back.
+    var onRename: ((String) -> Void)?
+
+    /// Called as the name opens and closes for editing.
+    var onRenameEditingChanged: ((Bool) -> Void)?
+
     /// Held so the pickers can be anchored to them after the click.
     private var iconButton: NSButton?
     private var colourButton: NSButton?
+    /// Held so a test, and the window, can ask what the name is doing.
+    private(set) var nameCell: EditableNameCell?
 
     init(category: CategoryRecord, retireRefusal: CategoryEditRules.RetireRefusal? = nil) {
         self.category = category
@@ -358,13 +376,18 @@ final class CategoryTableRow: NSStackView {
         onPickIcon?(iconButton)
     }
 
-    private func name() -> NSTextField {
-        let label = NSTextField(labelWithString: category.name)
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 1
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.nameColumnWidth).isActive = true
-        return label
+    /// The name, which becomes a field when it is clicked. What a committed edit means is the window's -- a rename is
+    /// confirmed before it is written -- so this only reports what was typed.
+    private func name() -> NSView {
+        let cell = EditableNameCell(
+            name: category.name,
+            width: CategoryTable.Layout.nameColumnWidth,
+            identifier: "category-name-\(category.id)"
+        )
+        cell.onCommit = { [weak self] typed in self?.onRename?(typed) }
+        cell.onEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
+        nameCell = cell
+        return cell
     }
 
     /// The swatch is 14pt in a 46pt column, left-aligned, so the column's own width comes from its caption rather

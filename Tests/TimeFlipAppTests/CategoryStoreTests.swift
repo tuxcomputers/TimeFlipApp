@@ -300,6 +300,48 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertFalse(categories.setDailyLimit(id: 9_999, minutes: 30))
     }
 
+    // MARK: - the name
+
+    func testRenamingIsReadBack() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first { $0.name == "Break" }?.id)
+
+        XCTAssertTrue(categories.setName(id: id, name: "Rest"))
+
+        XCTAssertEqual(categories.category(id: id)?.name, "Rest")
+    }
+
+    func testRenamingOntoAnActiveNamesakeIsRefusedByTheIndex() throws {
+        // The caller asks first, for a message that can say which category is in the way, and this is what has the
+        // last word: `UN1_category` is unique over active names.
+        let id = try XCTUnwrap(categories.activeCategories().first { $0.name == "Break" }?.id)
+
+        XCTAssertFalse(categories.setName(id: id, name: "Meeting"))
+        XCTAssertEqual(categories.category(id: id)?.name, "Break")
+    }
+
+    func testRenamingOntoARetiredNamesakeIsAllowed() throws {
+        // Only *active* names are unique, so two categories may share a name as long as one is retired. The dialogue
+        // says so rather than the table refusing it.
+        XCTAssertTrue(database.execute("INSERT INTO category (category_name, active) VALUES ('Rest', 0);"))
+        let id = try XCTUnwrap(categories.activeCategories().first { $0.name == "Break" }?.id)
+
+        XCTAssertTrue(categories.setName(id: id, name: "Rest"))
+
+        XCTAssertEqual(categories.matching(name: "Rest").count, 2)
+    }
+
+    func testUnassignedKeepsItsName() {
+        // Id 0 is what a face points at when it holds nothing, and the code that recognises it recognises the name.
+        XCTAssertFalse(categories.setName(id: 0, name: "Anything"))
+        XCTAssertEqual(categories.category(id: 0)?.name, "Unassigned")
+    }
+
+    func testAnEmptyNameIsRefusedRatherThanWritten() throws {
+        let id = try XCTUnwrap(categories.activeCategories().first?.id)
+
+        XCTAssertFalse(categories.setName(id: id, name: ""))
+    }
+
     // MARK: - the colour
 
     func testACategoryCreatedHereStartsWithNoColour() throws {

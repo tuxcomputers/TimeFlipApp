@@ -162,6 +162,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.activeTable.onPickColour = { [weak self] category, anchor in
             self?.pickColour(for: category, from: anchor)
         }
+        pane.activeTable.onRename = { [weak self] category, typed in
+            self?.rename(category, to: typed)
+        }
+        pane.activeTable.onRenameEditingChanged = { [weak self] isEditing in
+            // The same loan the create control gets, for the same reason: a key equivalent is dispatched before the
+            // focused field ever sees the key, so without this Escape closes the window instead of abandoning a name.
+            self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
+        }
         // Read per row as the Inactive list is drawn, which is why it is a closure rather than a field on the record:
         // an active category draws no date at all, so joining it onto every category read would cost a subquery on
         // the reads that happen once a second.
@@ -245,6 +253,96 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // Read back, which is what redraws the row's swatch: this changes what a row says about itself rather than a
         // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
         reloadSelectedPane()
+    }
+
+    /// Acts on a name typed into a row, which always means asking first.
+    ///
+    /// **Every rename is confirmed**, even to a name nothing else holds, because of what a rename does to what is
+    /// already recorded: everything references a category by id, so a report covering last month will show the new
+    /// name too. That is not a loss and there is nothing to backfill, but it is not necessarily expected.
+    ///
+    /// The decision is `CategoryRenameRules`', taken against the whole `category` table rather than either list on
+    /// screen, since the name may be held by a row this tab is not showing.
+    private func rename(_ category: CategoryRecord, to typed: String) {
+        guard let categories else { return }
+        let decision = CategoryRenameRules.decision(
+            rawName: typed,
+            current: category,
+            matching: categories.matching(name:)
+        )
+        let choices = CategoryRenameRules.choices(for: decision)
+        guard
+            let title = CategoryRenameRules.title(for: decision),
+            let message = CategoryRenameRules.message(for: decision, currentName: category.name)
+        else {
+            // `.ignore`: nothing typed, or the name already reads that way. The field has closed itself, and a
+            // dialogue saying nothing happened would be worse than nothing happening.
+            debugLog?.record(.field, "Category \"\(category.name)\" rename ignored, nothing changed")
+            return
+        }
+        // `nil` for the dead end, which raises the same dialogue with nothing but Cancel in it: an active category
+        // holds the name, so there is something to say and nothing to decide.
+        let name = renamedName(from: decision)
+        debugLog?.record(
+            .field,
+            "Category \"\(category.name)\" rename -> \"\(CategoryCreateRules.normalise(typed))\", asking: \(title)"
+        )
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        for choice in choices {
+            alert.addButton(withTitle: choice.buttonTitle)
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let name else {
+                self?.debugLog?.record(.click, "Button clicked: Cancel, \"\(category.name)\" rename refused, name taken")
+                return
+            }
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            self?.act(
+                on: CategoryRenameRules.choice(forButtonIndex: index, offering: choices),
+                renaming: category,
+                to: name,
+                in: categories
+            )
+        }
+    }
+
+    /// The name a decision would write, or `nil` for one that writes nothing. The refusal carries a name too -- the
+    /// one that is taken -- and it is not a name to write, which is why this asks the decision rather than the text.
+    private func renamedName(from decision: CategoryRenameRules.Decision) -> String? {
+        switch decision {
+        case .ignore, .refuse:
+            return nil
+        case let .confirm(name), let .confirmAgainstRetired(name, _):
+            return name
+        }
+    }
+
+    private func act(
+        on choice: CategoryRenameRules.Choice?,
+        renaming category: CategoryRecord,
+        to name: String,
+        in categories: CategoryStore
+    ) {
+        // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means the
+        // same as Cancel: a name was typed and nothing came of it.
+        guard choice?.isRename == true else {
+            debugLog?.record(.click, "Button clicked: Cancel, \"\(category.name)\" not renamed")
+            return
+        }
+        let stored = categories.setName(id: category.id, name: name)
+        debugLog?.record(
+            .click,
+            "Button clicked: \(choice?.buttonTitle ?? "") \"\(category.name)\" -> \"\(name)\""
+                + "\(stored ? "" : " REFUSED by the index")"
+        )
+        // Read back either way. A rename re-sorts the list, and a refused one leaves a row showing a name the table
+        // never took.
+        reloadSelectedPane()
+        // What is being timed may be this category, and its name is on the status item.
+        onTimingChanged?()
     }
 
     /// Stores a category's daily limit.

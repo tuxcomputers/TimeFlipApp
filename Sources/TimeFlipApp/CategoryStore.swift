@@ -231,6 +231,26 @@ final class CategoryStore {
         ) && connection.changes > 0
     }
 
+    /// Renames a category, and reports whether it took.
+    ///
+    /// Every table that references a category does so by `category_id`, so the new name shows up wherever that
+    /// history is displayed with nothing to backfill -- including for periods before the rename, which is what the
+    /// dialogue warns about (`CategoryRenameRules`).
+    ///
+    /// **`category_id >= 1`, so the *Unassigned* sentinel keeps its name.** It is what a face points at when it holds
+    /// nothing rather than a category anybody named, and the code that recognises it recognises the name. The
+    /// previous app guarded its rename the same way and for the same reason.
+    ///
+    /// Refused by `UN1_category` when an active category already holds the name. The caller asks first, for a message
+    /// that can say *which* one is in the way, and the index still has the last word.
+    func setName(id: Int, name: String) -> Bool {
+        guard !name.isEmpty else { return false }
+        return connection.execute(
+            "UPDATE category SET category_name = ? WHERE category_id = \(id) AND category_id >= 1;",
+            bind: [name]
+        ) && connection.changes > 0
+    }
+
     /// Sets a category's colour, and reports whether it took.
     ///
     /// `0` is the seeded *None* row, which is how a colour is cleared: a real row in `colour` rather than a null, so

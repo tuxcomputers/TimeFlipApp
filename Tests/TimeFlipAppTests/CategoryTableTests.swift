@@ -231,6 +231,37 @@ final class CategoryTableTests: XCTestCase {
         XCTAssertEqual(labels, ["Break colour, none", "Meeting colour"])
     }
 
+    // MARK: - the name
+
+    private func nameCell(of row: CategoryTableRow) -> EditableNameCell? {
+        descendants(of: row).compactMap { $0 as? EditableNameCell }.first
+    }
+
+    func testACommittedNameIsReportedWithItsCategory() throws {
+        let table = CategoryTable()
+        var asked: (name: String, typed: String)?
+        table.onRename = { asked = ($0.name, $1) }
+        table.show([category(1, "Break"), category(2, "Meeting")])
+
+        let cell = try XCTUnwrap(nameCell(of: try XCTUnwrap(rows(of: table).last)))
+        cell.onCommit?("Standup")
+
+        // The row it came from, not whichever was edited last: two rows are editing the same column.
+        XCTAssertEqual(asked?.name, "Meeting")
+        XCTAssertEqual(asked?.typed, "Standup")
+    }
+
+    func testTheTableSaysWhenANameIsBeingEdited() throws {
+        let table = CategoryTable()
+        var reported: [Bool] = []
+        table.onRenameEditingChanged = { reported.append($0) }
+        table.show([category(1, "Break")])
+
+        try XCTUnwrap(nameCell(of: try XCTUnwrap(rows(of: table).first))).onEditingChanged?(true)
+
+        XCTAssertEqual(reported, [true], "which is what lends the field Escape, the Close button holding it otherwise")
+    }
+
     func testTheColumnsLineUpWithTheirCaptions() throws {
         let table = CategoryTable()
         table.show([category(1, "Break"), category(2, "A much longer category name than the first")])

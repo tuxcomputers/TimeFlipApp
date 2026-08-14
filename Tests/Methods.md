@@ -177,6 +177,24 @@ Two things make a click land and do nothing, both silently:
 - **`kCGMouseEventClickState` must be set to 1.** Left at 0 the event is posted and the pointer moves, and
   AppKit does not treat it as a click.
 
+<a id="method-10"></a>
+## Method 10: Commit an inline edit
+
+Setting a field's `AXValue` fills it but commits nothing ([Method 7](#method-7)). Where the commit is Return rather
+than a button -- the Categories tab's rename -- post the key, having activated the app first:
+
+```python
+for down in (True, False):
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateKeyboardEvent(None, 36, down))  # 36 = Return
+```
+
+One of the few places a synthetic keystroke is right: the field being typed into holds focus, so there is nowhere
+else for the key to land. **Escape is still never posted** -- it reaches whatever has focus and the session driving
+the app is often what that is.
+
+Confirmed on the rename: `ax-press.py category-name-11`, `ax-set.py category-name-11-field "Admin work"`, Return,
+then the sheet's own buttons are ordinary named elements (`action-button-1` is the first one added).
+
 ## Notes that have cost time
 
 - **A popover is invisible to accessibility.** The icon picker and the colour list are not in the app's
@@ -219,6 +237,11 @@ Two things make a click land and do nothing, both silently:
   Quit and relaunch afterwards: the running app already has the old file open.
 
 ## Notes for the hermetic suite (`swift test`)
+
+- **A window built in code is released when it is closed**, so a test that closes one over-releases it and the whole
+  run dies with a signal 11 in the autorelease pool drain, naming no test. `OffscreenWindow.host` sets
+  `isReleasedWhenClosed = false` for that reason, and closing the window is worth doing: it is what takes focus off a
+  field being edited.
 
 - **`performClick` needs a window.** Without one it does nothing at all, silently -- so a click test
   passes or fails on whether some *other* test in the run happened to make a window first. Host the view
