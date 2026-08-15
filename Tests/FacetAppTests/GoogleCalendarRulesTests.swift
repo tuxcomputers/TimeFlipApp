@@ -80,11 +80,15 @@ final class GoogleCalendarRulesTests: XCTestCase {
 
     // MARK: - addressing one
 
-    func testACalendarIdIsEscapedIntoItsUrl() throws {
-        // Ids look like an email address, and an unescaped "@" makes a URL that addresses the wrong thing.
+    func testACalendarIdIsEscapedExactlyOnce() throws {
+        // Ids look like an email address. The trap is escaping twice: a "%" from the first pass becomes "%25" in the
+        // second, and the URL then addresses a calendar id nobody has, which comes back as a 404 -- which this app
+        // reads as "the calendar is gone" and acts on.
         let url = try XCTUnwrap(GoogleCalendarRules.url(forCalendar: "abc@group.calendar.google.com"))
-        XCTAssertTrue(url.absoluteString.hasPrefix("https://www.googleapis.com/calendar/v3/calendars/"))
-        XCTAssertFalse(url.absoluteString.contains("@"))
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://www.googleapis.com/calendar/v3/calendars/abc%40group.calendar.google.com"
+        )
     }
 
     func testTheBodyUsesGooglesWordForTheName() throws {

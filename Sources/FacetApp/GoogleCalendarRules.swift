@@ -58,11 +58,25 @@ enum GoogleCalendarRules {
         try? JSONSerialization.data(withJSONObject: ["summary": name])
     }
 
-    /// The URL for changing one calendar, which needs the id percent-encoded: Google's ids contain `@`, and for a
-    /// secondary calendar they look like an email address.
+    /// The URL for one calendar, with the id percent-encoded **exactly once**.
+    ///
+    /// **`appendingPathComponent` cannot be used here**, and this is not a style preference: it percent-encodes what
+    /// it is given, so an id that has already been escaped comes out escaped twice. `abc@group...` became
+    /// `abc%2540group%252Ecalendar...`, which addresses a calendar id nobody has, which Google answers with a 404 --
+    /// and a 404 is the one thing this app treats as "the calendar is gone", so it dutifully forgot a calendar that
+    /// was sitting there the whole time. Measured against a real account on 2026-08-15.
+    ///
+    /// `@` is legal in a path segment and Google would accept it raw, but its own client libraries escape it, so this
+    /// does too: one behaviour to reason about rather than two.
     static func url(forCalendar id: String) -> URL? {
-        guard let escaped = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
-        return endpoint.appendingPathComponent(escaped)
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/@"))
+        guard
+            let escaped = id.addingPercentEncoding(withAllowedCharacters: allowed),
+            let url = URL(string: endpoint.absoluteString + "/" + escaped)
+        else {
+            return nil
+        }
+        return url
     }
 
     /// Reads Google's reply to a create or a rename.

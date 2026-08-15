@@ -29,6 +29,26 @@ open .build/bundler/apps/Facet/Facet.app
 ```
 
 <a id="method-2"></a>
+## URL.appendingPathComponent escapes what you give it
+
+`appendingPathComponent` percent-encodes its argument. Handing it a string that is already escaped escapes it
+twice, and `%40` becomes `%2540`:
+
+```swift
+// wrong: abc%2540group%252Ecalendar%252Egoogle%252Ecom
+URL(string: "https://www.googleapis.com/calendar/v3/calendars")!
+    .appendingPathComponent(id.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)
+
+// right: abc%40group.calendar.google.com
+URL(string: endpoint.absoluteString + "/" + id.addingPercentEncoding(withAllowedCharacters: allowed)!)
+```
+
+Measured 2026-08-15 against a real Google account. It cost a calendar: the double-escaped id addressed nothing,
+Google answered 404, and the app treats a 404 as "this calendar has been deleted" and forgot it. **A wrong URL and a
+deleted resource are the same status code**, so anything that acts on a 404 needs its URL asserted character by
+character in a test, not merely checked for the right prefix. The test that passed before this bug asserted the
+prefix and the absence of "@", and both were true of the broken URL.
+
 ## Method 2: Press anything by name
 
 ```sh
