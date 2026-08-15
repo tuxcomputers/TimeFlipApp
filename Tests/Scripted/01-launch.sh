@@ -8,6 +8,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 start "the app launches, opens the test database and records what it does"
 
+# **A cold start, always.** This script is about launching, so an app left running by an earlier run has
+# to go first -- otherwise `ensure_app_running` finds it up, launches nothing, and every check below waits
+# for rows a launch that never happened would have written.
+if is_running; then
+    grey "  quitting the app left running, so this starts cold"
+    quit_app
+    sleep 1
+fi
+
 # From before the launch, so what is found afterwards was written by this run.
 since=$(mark)
 ensure_app_running

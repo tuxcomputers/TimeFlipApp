@@ -66,8 +66,22 @@ fi
 # zone changed part way through, so both ends carry the one the segment was recorded in.
 check "both ends carry a zone" "0" "$(sql "SELECT COUNT(*) FROM time_entry WHERE time_entry_id = $entry AND (start_timezone_id IS NULL OR end_timezone_id IS NULL);")"
 
-# It starts life unsynced, which is what the calendar sweep later looks for.
-check "it starts out unsynced" "0" "$(sql "SELECT synced_to_google_calendar FROM time_entry WHERE time_entry_id = $entry;")"
+# **Whether it is still unsynced depends on whether anything is connected**, and that is the point of the
+# column rather than a wrinkle in this check. The recorder writes 0; recording an entry then starts a
+# sweep, so with a Google account connected the row can be ticked within a second -- faster than this
+# script can look at it. Asserting 0 unconditionally passed until an account existed and then failed on
+# the app working, which is the wrong way round.
+synced=$(sql "SELECT synced_to_google_calendar FROM time_entry WHERE time_entry_id = $entry;")
+if [ -z "$(sql "SELECT json_extract(setting_value, '\$.email') FROM setting WHERE setting_name = 'google_account';")" ]; then
+    check "it stays unsynced, there being nowhere to sync it" "0" "$synced"
+else
+    if [ "$synced" = "0" ] || [ "$synced" = "1" ]; then
+        pass "the sync flag holds a real value ($synced, with an account connected)"
+    else
+        fail "synced_to_google_calendar holds '$synced', which is neither 0 nor 1"
+    fi
+    grey "        10-google-calendar is what checks the sweep itself"
+fi
 
 # **One entry per segment, as a constraint rather than a convention** (`UN1_time_entry`). The same
 # segment offered twice cannot be counted twice.

@@ -94,6 +94,34 @@ fi
 
 order_now() { tree | grep -o "id=report-total-[0-9]*-heading" | sed -E 's/.*report-total-([0-9]+)-heading/\1/' | tr '\n' ' '; }
 
+# The figures as drawn, in the order they are drawn, in seconds. Read off the app's own headings rather
+# than recomputed from the table: what is being checked is that the list on screen is in order, and
+# re-deriving the numbers here would be checking the sort against a second implementation of the sum.
+durations_in_order() {
+    tree | grep -o "id=report-total-[0-9]*-heading  desc=.*" \
+        | sed -E 's/.*, ([0-9]+):([0-9]{2}):([0-9]{2})$/\1 \2 \3/' \
+        | awk '{ print $1 * 3600 + $2 * 60 + $3 }' \
+        | tr '\n' ' '
+}
+
+# Whether a list of numbers only ever goes one way. This is the property a sort actually has -- and the
+# one to check, because the two directions are **not** exact reverses of each other: categories tied on a
+# figure fall back to the category order, in that order's own direction, both times. So the tie groups
+# read the same way up whichever way the column is sorted, and comparing the whole sequence to its
+# reverse fails on data with any ties in it.
+monotonic() {
+    printf '%s' "$1" | awk -v dir="$2" '
+        { for (i = 1; i <= NF; i++) v[n++] = $i }
+        END {
+            for (i = 1; i < n; i++) {
+                if (dir == "down" && v[i] > v[i - 1]) exit 1
+                if (dir == "up"   && v[i] < v[i - 1]) exit 1
+            }
+            exit 0
+        }'
+}
+
+
 # It opens on the shared category order, so a category sits in the same place as on the Categories and
 # Faces tabs.
 check_contains "it opens sorted by category, ascending" "$(element report-sort-category)" "Category ▲"
@@ -114,13 +142,14 @@ else
     fail "clicking Time changed nothing about the order ($by_category)"
 fi
 
-# Largest first, which is what asking about time means. Read off the app's own figures rather than
-# recomputed here.
-seconds_in_order() {
-    for id in $(order_now); do
-        sql "SELECT CAST(SUM(te.duration_seconds) AS INTEGER) FROM time_entry te WHERE te.category_id = $id;"
-    done | tr '\n' ' '
-}
+# Largest first, which is what asking about time means: a first click showing the smallest figure would
+# take two clicks to answer the question it was clicked to answer.
+falling=$(durations_in_order)
+if monotonic "$falling" down; then
+    pass "and the figures only ever fall ($falling)"
+else
+    fail "the figures are not in descending order ($falling)"
+fi
 
 since=$(mark)
 press report-sort-time
@@ -128,9 +157,14 @@ sleep 1.5
 expect_log "clicking it again reverses it" "$since" "Report sorted by time, ascending"
 check_contains "and the arrow turns over" "$(element report-sort-time)" "Time ▲"
 
-reversed=$(order_now)
-forwards=$(printf '%s' "$by_time_desc" | tr ' ' '\n' | grep -v '^$' | tail -r | tr '\n' ' ')
-check "the order is the reverse of the first click" "$forwards" "$reversed"
+rising=$(durations_in_order)
+if monotonic "$rising" up; then
+    pass "and now they only ever rise ($rising)"
+else
+    fail "the figures are not in ascending order ($rising)"
+fi
+
+check "the smallest is now where the largest was" "$(printf '%s' "$falling" | awk '{print $NF}')" "$(printf '%s' "$rising" | awk '{print $1}')"
 
 since=$(mark)
 press report-sort-category
