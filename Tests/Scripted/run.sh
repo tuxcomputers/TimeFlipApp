@@ -82,13 +82,21 @@ fi
 if [ "$KEEP_DATABASE" -eq 1 ]; then
     echo "Keeping the test database as it stands (--keep)."
 else
+    # **Before the rebuild, because afterwards there is nothing left to read.** A Google account is
+    # connected once, by hand, through a browser; losing it to every clean run would mean either doing
+    # that again each time or leaving the sync untested. 00-setup puts it back once the new database
+    # exists. Silent when there is nothing to capture, which is the normal case.
+    Tests/Scripted/00-setup.sh --capture || true
+
     echo "Rebuilding test.sqlite from the DDL, so this run starts from nothing."
     if ! scripts/switch-database.sh test -clean; then
         echo "Could not rebuild the test database; refusing to run against whatever is there instead."
         exit 2
     fi
-    echo "Note: a new database has no Google account, so 10-google-calendar will skip."
-    echo "      Sign in on the App tab, or use --keep, to include it."
+    if [ ! -f "$HOME/.config/facet/scripted-seed.json" ]; then
+        echo "Note: a new database has no Google account, so 10-google-calendar will skip."
+        echo "      Connect one on the App tab once; it is captured and reseeded from then on."
+    fi
 fi
 
 echo "${#scripts[@]} script(s) to run"

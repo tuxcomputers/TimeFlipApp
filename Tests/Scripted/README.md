@@ -27,10 +27,22 @@ nothing, which is the only version of that answer another developer will also ge
 Tests/Scripted/run.sh --keep      # against the database as it stands
 ```
 
-`--keep` is for looking at what a failed run left, and for one thing the clean run cannot cover: **a new
-database has no Google account**, so `10-google-calendar` skips. The refresh token lives in the Keychain
-and survives, but the account the app reads is in the database and does not. To include that section,
-sign in once on Settings -> App and then use `--keep`.
+`--keep` is for looking at what a failed run left.
+
+## The Google account, across a rebuild
+
+A rebuilt database has no `google_account` row, so `10-google-calendar` would skip on every clean run.
+The refresh token survives -- it is in the login Keychain, which no rebuild touches -- but the identity
+and calendar the app reads are rows, and they do not.
+
+**Connect an account once**, on Settings -> App. From then on `run.sh` captures that row *before* each
+rebuild and `00-setup` writes it back afterwards, so the sync is covered on every run without anybody
+signing in again.
+
+The captured file is `~/.config/facet/scripted-seed.json`, **outside the repository** and beside the
+OAuth client credentials it belongs with. It holds a real email address and a real calendar id, and this
+repository takes outside contributions: a seed committed into it would put one developer's account into
+everybody's checkout.
 
 ## Before you run
 
@@ -91,6 +103,7 @@ and then being used.
 
 | | |
 |---|---|
+| `00-setup` | seeds what a rebuilt database cannot have: the Google account, and history with fractional durations |
 | `01-launch` | the database opens, one instance only, the debug log records |
 | `02-menu-bar` | the status item, its menu, and the pause on its right half |
 | `03-settings-window` | the window opens, the tabs switch, it closes |
