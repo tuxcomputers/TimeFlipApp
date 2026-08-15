@@ -84,7 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--right", action="store_true", help="click the right half instead of the left")
     parser.add_argument("--double", action="store_true", help="post a double click")
-    parser.add_argument("--app", default="TimeFlip", help="the running app (default: TimeFlip)")
+    parser.add_argument("--app", default="Facet", help="the running app (default: Facet)")
     arguments = parser.parse_args()
 
     pid = pid_of(arguments.app)

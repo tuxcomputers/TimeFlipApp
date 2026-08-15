@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-DB_DIR="$HOME/Library/Application Support/TimeFlip"
+DB_DIR="$HOME/Library/Application Support/Facet"
 
 args=""
 for arg in "$@"; do
@@ -35,4 +35,4 @@ for arg in "$@"; do
     esac
 done
 
-mint run stackotter/swift-bundler@main run TimeFlip $args
+mint run stackotter/swift-bundler@main run Facet $args

@@ -7,7 +7,7 @@
     scripts/ax-press.py --app "Some App" quit-app
 
 Searched for rather than pathed to, which is the point. An AppleScript path like
-`button 1 of group 1 of group 1 of window "TimeFlip Settings"` breaks the moment a container is
+`button 1 of group 1 of group 1 of window "Facet Settings"` breaks the moment a container is
 added between them -- and it breaks by finding the wrong element rather than nothing. Names do not
 move: whatever the button ends up nested inside, `create-category` is still `create-category`.
 
@@ -55,7 +55,7 @@ def main():
     parser.add_argument("identifier", nargs="?", help="the element's AXIdentifier")
     parser.add_argument("--desc", help="match AXDescription instead (for elements with no identifier)")
     parser.add_argument("--title", help="match AXTitle instead")
-    parser.add_argument("--app", default="TimeFlip", help="the running app (default: TimeFlip)")
+    parser.add_argument("--app", default="Facet", help="the running app (default: Facet)")
     arguments = parser.parse_args()
 
     chosen = [

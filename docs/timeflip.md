@@ -1,6 +1,6 @@
 # TimeFlip Device Engineering Notes
 
-This document captures how the TimeFlip2 puck exposes its BLE surface and how the macOS driver in `Sources/TimeFlipApp/` uses it. Use this as the architectural source when evolving the driver or building test doubles.
+This document captures how the TimeFlip2 puck exposes its BLE surface and how the macOS driver in `Sources/FacetApp/` uses it. Use this as the architectural source when evolving the driver or building test doubles.
 
 ## 1. High-level model
 
@@ -131,7 +131,7 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 
   **The newest row, not the highest number.** Those are different questions and only the first is useful. Event numbers restart at 1 after a factory reset, so `MAX(event_number)` returns a stranded value from a counter generation the cube has abandoned: on the production database it returns 38, from a dead generation, while the newest segment is event 10.
 
-  This replaced a window-function walk that ordered every row, found the last point where `event_number` dropped below its predecessor, and took the maximum at or after that boundary. It computed the right answer, but only as a way of making `MAX` safe, and it could not do what it appeared to: straight after a reset there is no post-reset row for the counter to have dropped between, so it still returned the stranded value and the fetch still asked for events the cube no longer had. Reproduced in `Tests/TimeFlipAppTests/Workflows/W08-post-reset-production-resume.swift`.
+  This replaced a window-function walk that ordered every row, found the last point where `event_number` dropped below its predecessor, and took the maximum at or after that boundary. It computed the right answer, but only as a way of making `MAX` safe, and it could not do what it appeared to: straight after a reset there is no post-reset row for the counter to have dropped between, so it still returned the stranded value and the fetch still asked for events the cube no longer had. Reproduced in `Tests/FacetAppTests/Workflows/W08-post-reset-production-resume.swift`.
 
   **A position the cube cannot reach is not used.** `HistoryIngestor.resumeCursor` takes the stored row and the device's own last event (a live single-frame read, step 2 of `refreshHistory`) and uses the stored position only if the device's event is at or after it in **both** the counter and the clock. Failing either, the stream starts from 0. Two ways it fails:
 

@@ -8,7 +8,7 @@ This lists everything that was persisted outside those two at the branch's fork 
 
 ## UserDefaults — the `timeflip.preferences` blob
 
-One `UserDefaults` key held a JSON-encoded `PreferencesPayload` (`Sources/TimeFlipApp/PreferencesStore.swift`), the only `UserDefaults` key the app ever used. Every field below was a member of that one blob, which is why the key could not go until all of them had. All of them have, so the file, the types and the key are gone. `ColorComponents` was the one thing in that file worth keeping, and now lives in `ColorComponents.swift`.
+One `UserDefaults` key held a JSON-encoded `PreferencesPayload` (`Sources/FacetApp/PreferencesStore.swift`), the only `UserDefaults` key the app ever used. Every field below was a member of that one blob, which is why the key could not go until all of them had. All of them have, so the file, the types and the key are gone. `ColorComponents` was the one thing in that file worth keeping, and now lives in `ColorComponents.swift`.
 
 ### Per-face mappings (`faceMappings: [FaceMappingRecord]`)
 

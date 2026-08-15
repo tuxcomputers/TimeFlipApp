@@ -12,7 +12,7 @@
 # The target is only ever read. Exits 0 when it matches the DDL, 1 when it does not.
 set -euo pipefail
 
-TARGET="${1:-$HOME/Library/Application Support/TimeFlip/production.sqlite}"
+TARGET="${1:-$HOME/Library/Application Support/Facet/production.sqlite}"
 if [ ! -f "$TARGET" ]; then
   echo "error: no such database: $TARGET" >&2
   exit 2

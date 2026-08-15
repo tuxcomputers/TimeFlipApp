@@ -4,10 +4,10 @@ setup:
 	@echo "Nothing to install yet. Ensure Xcode 15+, Swift 6, and SwiftLint are available."
 
 build:
-	swift-bundler bundle TimeFlip
+	swift-bundler bundle Facet
 
 run:
-	swift-bundler run TimeFlip
+	swift-bundler run Facet
 
 test:
 	swift test

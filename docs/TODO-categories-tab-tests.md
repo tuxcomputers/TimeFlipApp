@@ -76,7 +76,7 @@ Both are waiting on a real writer and reader for `time_entry`. The raw-SQL versi
 
 ## Extracted decisions
 
-All of these now live in `Sources/TimeFlipApp/CategoryEditRules.swift`, moved out of the views without changing what they decide. Each test below is a plain call with no SwiftUI involved.
+All of these now live in `Sources/FacetApp/CategoryEditRules.swift`, moved out of the views without changing what they decide. Each test below is a plain call with no SwiftUI involved.
 
 The two collision cases carry both the matched row and the typed name, because they are not interchangeable: the lookup is `COLLATE NOCASE`, so "meeting" collides with "Meeting", and the alert names the row that exists while the debug line records what was typed.
 

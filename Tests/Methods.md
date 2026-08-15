@@ -24,8 +24,8 @@ are facts about the hardware.
 -- no status item appears in the tree at all -- so anything driven by a script has to be bundled:
 
 ```sh
-swift build && mint run stackotter/swift-bundler@main bundle TimeFlip
-open .build/bundler/apps/TimeFlip/TimeFlip.app
+swift build && mint run stackotter/swift-bundler@main bundle Facet
+open .build/bundler/apps/Facet/Facet.app
 ```
 
 <a id="method-2"></a>
@@ -37,7 +37,7 @@ scripts/ax-press.py --desc Faces             # by AXDescription, for elements th
 ```
 
 Searched for anywhere in the tree rather than pathed to. A path like `button 1 of group 1 of group 1 of
-window "TimeFlip Settings"` breaks the moment a container is added between them, and breaks by finding
+window "Facet Settings"` breaks the moment a container is added between them, and breaks by finding
 the wrong element rather than nothing.
 
 Two kinds of element cannot carry an identifier and are matched on their label with `--desc`: the
@@ -83,7 +83,7 @@ latter, so asking for it alone comes back empty and reads as an app with nothing
 Every click the app handles writes a row. Take the high-water mark first, act, then read past it:
 
 ```sh
-DB=~/Library/Application\ Support/TimeFlip/appdata.sqlite
+DB=~/Library/Application\ Support/Facet/appdata.sqlite
 BASE=$(sqlite3 "$DB" "SELECT MAX(debug_log_id) FROM debug_log;")
 # ... do the thing ...
 sqlite3 -header -column "$DB" "SELECT logged_at, tag, message FROM debug_log WHERE debug_log_id > $BASE ORDER BY debug_log_id;"
@@ -153,7 +153,7 @@ the point, and post real events there:
 ```python
 import Quartz, time, subprocess
 from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
-pid = int(subprocess.check_output(["pgrep", "-x", "TimeFlip"]).split()[0])
+pid = int(subprocess.check_output(["pgrep", "-x", "Facet"]).split()[0])
 NSRunningApplication.runningApplicationWithProcessIdentifier_(pid).activateWithOptions_(
     NSApplicationActivateIgnoringOtherApps)                      # or the click only activates the app
 time.sleep(0.4)
@@ -243,7 +243,7 @@ then the sheet's own buttons are ordinary named elements (`action-button-1` is t
   necessarily the app; a named press cannot miss.
 - **`open` on an already-running app activates it; it does not launch the new build.** So the change under
   test is not the code being driven, and the single-instance lock means a genuinely new process would
-  stand down anyway. `pgrep -x TimeFlip` before every launch, and quit what is there first. This cost a
+  stand down anyway. `pgrep -x Facet` before every launch, and quit what is there first. This cost a
   wrong diagnosis: a new quit step looked broken when the running copy simply predated it.
 - **A menu item pressed while its menu is closed reports success and does nothing.**
   `scripts/ax-press.py toggle-pause` exits 0 with `pressed toggle-pause` and the app is unchanged.

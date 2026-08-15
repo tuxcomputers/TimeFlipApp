@@ -4,10 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-SMALL_SVG="$ROOT_DIR/TimeFlipApp.small.svg"
-FULL_SVG="$ROOT_DIR/TimeFlipApp.svg"
-ICONSET_DIR="$ROOT_DIR/Sources/TimeFlipApp/Resources/AppIcon.iconset"
-ICNS_PATH="$ROOT_DIR/Sources/TimeFlipApp/Resources/AppIcon.icns"
+SMALL_SVG="$ROOT_DIR/Facet.small.svg"
+FULL_SVG="$ROOT_DIR/Facet.svg"
+ICONSET_DIR="$ROOT_DIR/Sources/FacetApp/Resources/AppIcon.iconset"
+ICNS_PATH="$ROOT_DIR/Sources/FacetApp/Resources/AppIcon.icns"
 
 if [[ ! -f "$SMALL_SVG" ]]; then
   echo "Missing $SMALL_SVG" >&2

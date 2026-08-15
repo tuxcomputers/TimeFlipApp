@@ -9,20 +9,20 @@ import PackageDescription
 // `Archive/` holds the previous implementation and is deliberately outside every target path, so
 // nothing in it is compiled while remaining readable and `git log --follow`-able.
 let package = Package(
-    name: "TimeFlipApp",
+    name: "FacetApp",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "TimeFlipApp",
-            targets: ["TimeFlipApp"]
+            name: "FacetApp",
+            targets: ["FacetApp"]
         )
     ],
     targets: [
         .executableTarget(
-            name: "TimeFlipApp",
-            path: "Sources/TimeFlipApp",
+            name: "FacetApp",
+            path: "Sources/FacetApp",
             exclude: [
                 // Carried across with the icon itself: Swift Bundler copies AppIcon.icns into the
                 // bundle from Bundler.toml, so processing it here as well would ship two copies.
@@ -45,8 +45,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "TimeFlipAppTests",
-            dependencies: ["TimeFlipApp"]
+            name: "FacetAppTests",
+            dependencies: ["FacetApp"]
         )
     ]
 )

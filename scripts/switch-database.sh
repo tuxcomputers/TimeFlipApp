@@ -51,7 +51,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-DB_DIR="$HOME/Library/Application Support/TimeFlip"
+DB_DIR="$HOME/Library/Application Support/Facet"
 APPDATA="$DB_DIR/appdata.sqlite"
 PRODUCTION="$DB_DIR/production.sqlite"
 TEST_DB="$DB_DIR/test.sqlite"
@@ -117,8 +117,8 @@ if [ "$TARGET" = "test" ] && [ ! -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
   exit 1
 fi
 
-if pgrep -x TimeFlipApp > /dev/null 2>&1; then
-  echo "warning: TimeFlipApp is currently running -- it already has the old database file open" \
+if pgrep -x Facet > /dev/null 2>&1; then
+  echo "warning: Facet is currently running -- it already has the old database file open" \
     "and won't see this change until you quit and relaunch it." >&2
 fi
 

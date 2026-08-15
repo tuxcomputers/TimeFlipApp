@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print a running app's accessibility tree, which is what a UI script sees.
 
-    scripts/ax-dump.py                      # every window of TimeFlip
+    scripts/ax-dump.py                      # every window of Facet
     scripts/ax-dump.py --frames             # with each element's position and size
     scripts/ax-dump.py --app "Some App"     # somebody else's tree
 
@@ -76,7 +76,7 @@ def pid_of(app_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--app", default="TimeFlip", help="the running app to dump (default: TimeFlip)")
+    parser.add_argument("--app", default="Facet", help="the running app to dump (default: Facet)")
     parser.add_argument("--frames", action="store_true", help="also print each element's position and size")
     parser.add_argument(
         "--menu-bar",

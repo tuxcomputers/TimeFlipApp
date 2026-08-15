@@ -1,8 +1,8 @@
 swiftlint_version: 0.62.1
 
 included:
-  - Sources/TimeFlipApp
-  - Tests/TimeFlipAppTests
+  - Sources/FacetApp
+  - Tests/FacetAppTests
 
 excluded:
   - .build
@@ -11,10 +11,7 @@ excluded:
   - refapp
   - reflib
   - scripts
-  - Sources/TimeFlipApp/Resources
-  # Device drivers are large by necessity; leave them outside lint scope.
-  - Sources/TimeFlipApp/MockTimeFlipDevice.swift
-  - Sources/TimeFlipApp/TimeFlipBLEDevice.swift
+  - Sources/FacetApp/Resources
 
 cache_path: .swiftlint.cache
 

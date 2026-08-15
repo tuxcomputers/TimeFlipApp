@@ -38,7 +38,7 @@ def walk(element, wanted, depth=0):
     return None
 
 identifier, seconds = sys.argv[1], float(sys.argv[2])
-pid = int(subprocess.check_output(["pgrep", "-x", "TimeFlip"]).split()[0])
+pid = int(subprocess.check_output(["pgrep", "-x", "Facet"]).split()[0])
 app = AXUIElementCreateApplication(pid)
 target = None
 for window in (attribute(app, "AXWindows") or []):
