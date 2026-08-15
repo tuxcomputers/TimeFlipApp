@@ -27,9 +27,17 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 mkdir -p logs
-# Everything this run prints goes to logs/screen.txt as well, freshly overwritten each time, so there
-# is one file to read afterwards (or to watch with `tail -f` while it runs).
-exec > >(tee logs/screen.txt) 2>&1
+# Everything this run prints goes to logs/screen.txt as well, freshly overwritten each time, so there is
+# one file to read afterwards (or to watch with `tail -f` while it runs).
+#
+# **Colour on the terminal, plain text in the file.** The colours are escape sequences, and a file full of
+# them opens in an editor as `ESC[0;32m    PASS` -- the thing the colour was meant to make readable, made
+# worse. So the copy going to the file has them stripped on the way through, live, rather than the file
+# being cleaned up at the end: the point of it is being watchable while a run happens, and a run that is
+# interrupted is exactly when somebody wants to read it.
+#
+# perl rather than sed because it is what portably understands `\e`; both ship with macOS.
+exec > >(tee >(perl -pe 's/\e\[[0-9;]*m//g' > logs/screen.txt)) 2>&1
 
 KEEP_RUNNING=0
 KEEP_DATABASE=0
@@ -118,5 +126,10 @@ if [ "$KEEP_RUNNING" -eq 0 ]; then
         pgrep -x Facet >/dev/null && pkill -x Facet
     }
 fi
+
+# The plain-text copy is written by a process of its own, so give it a moment to drain before this shell
+# exits and the pipe goes with it. Without this the last few lines can be missing from the file -- and
+# the last few lines are the summary.
+sleep 0.5
 
 [ -z "$failed" ]

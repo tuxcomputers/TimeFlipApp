@@ -14,6 +14,10 @@ That **rebuilds `test.sqlite` from the DDL**, builds the app if the sources are 
 launches it, runs every script in order, quits it, and writes everything to `logs/screen.txt` as well as
 the terminal.
 
+The terminal gets colour; **`logs/screen.txt` is plain text**, written live, so it can be watched with
+`tail -f logs/screen.txt` during a run and opened in an editor afterwards without a screenful of escape
+sequences.
+
 **Starting from nothing is the default**, because these scripts create categories and time entries and
 delete nothing: run after run the database fills up, lists get longer, and a check can start passing
 because of a row some earlier run happened to leave. A run from the DDL says what the app does from
