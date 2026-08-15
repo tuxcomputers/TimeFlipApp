@@ -33,6 +33,17 @@ final class TimeEntryRecorder {
     private let faces: FaceStore
     private let debugLog: DebugLog?
 
+    /// Called once an entry has been written and committed, so that whatever wants to act on new tracked time can.
+    ///
+    /// **A closure set afterwards, not a dependency.** This type's job is to decide whether a segment counts and to
+    /// record it; who cares afterwards is none of its business, and taking, say, the calendar sync as an argument
+    /// would make writing a row depend on a Google account existing. It is also assigned rather than injected because
+    /// the interested party is built later in `main.swift` and needs the database this already holds.
+    ///
+    /// **After the transaction, never inside it.** The entry has to be a committed row before anything is told about
+    /// it, or a listener that reads the table would find nothing there.
+    var onEntryRecorded: (() -> Void)?
+
     init(connection: DatabaseConnection, settings: SettingStore, faces: FaceStore, debugLog: DebugLog?) {
         self.connection = connection
         self.settings = settings
@@ -142,6 +153,7 @@ final class TimeEntryRecorder {
             "time_entry created id=\(entryID) from device_event \(segment.id) "
                 + "face=\(segment.face) category=\(categoryID) dur=\(Int(segment.durationSeconds))s"
         )
+        onEntryRecorded?()
         return .created(timeEntryID: entryID, categoryID: categoryID)
     }
 

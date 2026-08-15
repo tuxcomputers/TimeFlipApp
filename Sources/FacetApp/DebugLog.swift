@@ -47,6 +47,8 @@ final class DebugLog {
         case report
         /// The steps the app takes on its way out (`QuitSequence`).
         case quit
+        /// Entries on their way into the Google calendar, and what stopped them (`CalendarSync`).
+        case sync
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

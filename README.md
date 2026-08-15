@@ -20,10 +20,10 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **Auto-Pause Support**: Automatic pause after a configurable idle time, and optionally when the device is locked
 - **Daily Statistics**: Time per category for the app's own day, which starts at a configurable reset time rather than at midnight
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
+- **Google Calendar sync**: Recorded time appears in a calendar Facet makes for itself, titled with the category and carrying the entry's ids in the notes. Recording an entry sweeps everything not yet synced, so time recorded while offline goes across on the next one, and each event is read back and checked before the entry is marked done
 
 ### Not supported
 
-- **Google Calendar sync**: not implemented. Signing in to Google, and choosing or creating the calendar to write to, both work, and `time_entry.synced_to_google_calendar` is reserved in the schema, but nothing writes events to a calendar yet. See [the TODO](docs/TODO-features-under-development.md)
 - **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. PRs are welcome
 
 ## Getting Started

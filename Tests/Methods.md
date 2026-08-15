@@ -28,6 +28,18 @@ swift build && mint run stackotter/swift-bundler@main bundle Facet
 open .build/bundler/apps/Facet/Facet.app
 ```
 
+**`scripts/run.sh` builds; `open`ing the `.app` does not.** The script ends in `swift-bundler run`, which builds and
+bundles before it launches (`--skip-build` exists to opt out), so a run after an edit always carries the edit. The two
+lines above are the dangerous shape: `open` launches whatever was bundled last, however old.
+
+This has already cost an hour. A fix was confirmed correct in the source at 21:51:49 and tested against a binary
+built at 21:47:55, and the feature "still did not work" because the running app predated it. Nothing about a running
+app announces its age, so when driving a verification, **either go through `scripts/run.sh` or check the timestamp**:
+
+```sh
+stat -f '%Sm' .build/bundler/apps/Facet/Facet.app/Contents/MacOS/Facet
+```
+
 <a id="method-2"></a>
 ## URL.appendingPathComponent escapes what you give it
 

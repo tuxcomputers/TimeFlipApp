@@ -84,6 +84,12 @@ let deviceEvents = DeviceEventRecorder(
     debugLog: debugLog
 )
 
+// Recorded time on its way to Google. Wired as a closure rather than handed to the recorder, so writing a
+// `time_entry` row does not depend on there being a Google account at all: with nothing connected this sweeps,
+// finds it has nowhere to put anything, says so once and stops.
+let calendarSync = CalendarSync(connection: database, settings: settings, debugLog: debugLog)
+timeEntries.onEntryRecorded = { calendarSync.sweep(because: "an entry was recorded") }
+
 
 // A launch inherits whatever the last one left behind. A segment still open on one of the app's own faces is a
 // launch that ended without its quit sequence -- a crash, a force quit -- and closing it here, before the window
@@ -180,5 +186,10 @@ settingsWindow.onTimingChanged = {
     menuBar.redraw()
     historyTimer.resumeIfStopped()
 }
+
+// Connecting Google is the other moment a sweep becomes possible. Without this, somebody who signs in after a week
+// of recording would see nothing appear until their next flip -- the entries are all still waiting, and there is
+// suddenly somewhere to put them.
+settingsWindow.onGoogleCalendarSettled = { calendarSync.sweep(because: "a calendar was connected") }
 
 app.run()

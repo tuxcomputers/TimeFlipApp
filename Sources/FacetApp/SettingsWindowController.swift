@@ -89,6 +89,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// class from knowing the menu bar's type.
     var onTimingChanged: (@MainActor () -> Void)?
 
+    /// Called once the Google calendar is settled: made, adopted or confirmed still there.
+    ///
+    /// The moment a backlog becomes deliverable. Every entry recorded before somebody connected is still sitting at
+    /// `synced_to_google_calendar = 0`, and nothing else would look at them until the next flip.
+    ///
+    /// **Only from the paths where the calendar is known good.** Not from the one that forgets a calendar that no
+    /// longer resolves, which leaves nowhere to sync to.
+    var onGoogleCalendarSettled: (@MainActor () -> Void)?
+
     /// Redraws the figure while the window is open. Only while it is open: a clock nobody can see does not need
     /// repainting, and the figure is worked out from what is recorded rather than counted up, so nothing is lost
     /// by not ticking.
@@ -365,6 +374,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             )
             debugLog?.record(.field, "Google calendar created, \(stored.name ?? "unnamed")")
             pane.adopt(.googleCalendarChanged(stored))
+            onGoogleCalendarSettled?()
         } catch {
             debugLog?.record(.field, "Google calendar creation failed: \(error.localizedDescription)")
             showGoogleFailed(error)
@@ -403,6 +413,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             )
             debugLog?.record(.field, "Google calendar confirmed, \(stored.name ?? "unnamed")")
             pane.adopt(.googleCalendarChanged(stored))
+            onGoogleCalendarSettled?()
         } catch is CalendarGone {
             await forgetAndOfferGoogleCalendar(accessToken: accessToken, from: pane, using: settings)
         } catch {
@@ -508,15 +519,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
-    /// A usable access token, from the refresh token in the Keychain.
+    /// A usable access token, from the refresh token in the Keychain. The same one the background sweep asks for, so
+    /// there is one answer to "who is signed in" rather than a window's and a sweep's.
     private func googleAccessToken() async throws -> String {
-        guard let credentials = GoogleCredentials.resolve() else {
-            throw GoogleOAuthRules.Failure.noCredentials
-        }
-        guard let refresh = GoogleTokenStore.refreshToken() else {
-            throw GoogleCalendarRules.Failure.notSignedIn
-        }
-        return try await GoogleCalendarClient.accessToken(credentials: credentials, refreshToken: refresh)
+        try await GoogleCalendarClient.currentAccessToken()
     }
 
     /// What a failed sign-in says. The message comes from `GoogleOAuthRules.Failure`, which is where the wording lives

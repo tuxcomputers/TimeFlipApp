@@ -3,7 +3,7 @@
 - [x] Categories
 - [x] Faces
 - [x] Time logs
-- [ ] Calendar sync
+- [x] Calendar sync
 - [ ] Sync to TimeFlip cloud
 - [ ] Projects
 - [ ] Cost time entry
@@ -74,7 +74,16 @@ Segments shorter than `blip_time` get no entry and are marked `processed`, which
   3. Check the read-back event's properties against the `time_entry` record to confirm the created event is correct.
   4. Once confirmed, mark the `time_entry` row's sync to calendar as ticked (`synced_to_google_calendar = 1`).
 
-(Note: the App-tab calendar create/select UI, `GoogleCalendarEvent` model, and `GoogleCalendarClient.insertEvent` already exist (`ReportSettingsView.swift`, `GoogleCalendarClient.swift`) -- and `time_entry.synced_to_google_calendar` is already reserved for this in the schema, per `docs/operation-spec.md` § 5. What's still missing: the actual background process that reads unsynced `time_entry` rows and drives all four steps above, the calendar event's description carrying the `time_entry` id (`GoogleCalendarEvent.description` exists but nothing currently populates it that way), a read-back call (`GoogleCalendarClient` has no list/get-single-event method yet, only `insertEvent`), and the property-comparison check. This feature depends on Time logs above actually writing `time_entry` rows before it has anything to sync.)
+Built. `CalendarSync` runs all four steps, triggered by `TimeEntryRecorder.onEntryRecorded` and again whenever a calendar is settled on the App tab, and it sweeps every row still at `synced_to_google_calendar = 0` rather than only the one just recorded. The event's title is the category name and its description carries both the `time_entry` id and the `device_event` id.
+
+Two decisions worth knowing, both in `GoogleEventRules`:
+
+- The **event id is derived** from the `time_entry` id (`facet4213`) instead of being stored, so a repeated insert collides with Facet's own earlier event (Google answers 409) rather than making a duplicate, and the read-back can address it directly.
+- The **times carry the zone the entry was recorded in**, from `time_entry.start_timezone_id`, not the machine's current zone. The archive sent `TimeZone.current` for every event, which files an entry recorded elsewhere at the right clock time in the wrong zone.
+
+(Confirmed on a real account, 2026-08-15: 41 entries created and verified in one pass, and the 409 path exercised by a retry meeting its own earlier event. Two faults only real data found, both fixed: an entry whose `duration_seconds` carried a fraction could never verify, because the body truncated to whole seconds and the comparison did not; and one unverifiable row stopped the whole pass, leaving 39 good entries behind it.
+
+Still worth knowing before this is turned on against a database with history: **a first sweep sends every unsynced entry there is**, oldest first, in batches of 50 and about a second each. `production.sqlite` currently holds 82, spanning 2026-07-28 to 2026-08-13, and its `calendar_id` is still set from an earlier sign-in -- so connecting there delivers two and a half weeks of history at once. A cutoff, if one is wanted, is one clause in `CalendarSync.pendingEntries`.)
 
 ## Sync to TimeFlip cloud
 

@@ -69,14 +69,21 @@ enum GoogleCalendarRules {
     /// `@` is legal in a path segment and Google would accept it raw, but its own client libraries escape it, so this
     /// does too: one behaviour to reason about rather than two.
     static func url(forCalendar id: String) -> URL? {
-        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/@"))
         guard
-            let escaped = id.addingPercentEncoding(withAllowedCharacters: allowed),
+            let escaped = pathSegment(id),
             let url = URL(string: endpoint.absoluteString + "/" + escaped)
         else {
             return nil
         }
         return url
+    }
+
+    /// One path segment, escaped once. Shared with `GoogleEventClient`, which addresses events *inside* a calendar and
+    /// so has to spell the same id the same way -- two implementations of this is two chances to make the mistake in
+    /// the note above.
+    static func pathSegment(_ value: String) -> String? {
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/@"))
+        return value.addingPercentEncoding(withAllowedCharacters: allowed)
     }
 
     /// Reads Google's reply to a create or a rename.

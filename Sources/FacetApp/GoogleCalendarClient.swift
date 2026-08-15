@@ -39,6 +39,22 @@ enum GoogleCalendarClient {
         return token
     }
 
+    /// A usable access token for whoever is signed in **right now**, resolved from scratch every time.
+    ///
+    /// The credentials and the refresh token are both looked up at the moment they are needed rather than held: a
+    /// sign-out clears the Keychain item, and anything holding a token from before it would go on acting on an account
+    /// the app says it is not connected to. This is the first design rule applied to something that does not live in a
+    /// table but changes for the same reasons.
+    static func currentAccessToken(session: URLSession = .shared) async throws -> String {
+        guard let credentials = GoogleCredentials.resolve() else {
+            throw GoogleOAuthRules.Failure.noCredentials
+        }
+        guard let refresh = GoogleTokenStore.refreshToken() else {
+            throw GoogleCalendarRules.Failure.notSignedIn
+        }
+        return try await accessToken(credentials: credentials, refreshToken: refresh, session: session)
+    }
+
     /// The calendar Facet already made in this account, if there is one.
     ///
     /// **This is what stops a reconnect making a second "Facet".** Signing out clears the stored id, because the next
