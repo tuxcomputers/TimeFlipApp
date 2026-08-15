@@ -10,8 +10,23 @@ They need no AI, no Claude, and nothing installed beyond what building the app a
 Tests/Scripted/run.sh
 ```
 
-That builds the app if the sources are newer than the bundle, launches it, runs every script in order,
-quits it, and writes everything to `logs/screen.txt` as well as the terminal.
+That **rebuilds `test.sqlite` from the DDL**, builds the app if the sources are newer than the bundle,
+launches it, runs every script in order, quits it, and writes everything to `logs/screen.txt` as well as
+the terminal.
+
+**Starting from nothing is the default**, because these scripts create categories and time entries and
+delete nothing: run after run the database fills up, lists get longer, and a check can start passing
+because of a row some earlier run happened to leave. A run from the DDL says what the app does from
+nothing, which is the only version of that answer another developer will also get.
+
+```sh
+Tests/Scripted/run.sh --keep      # against the database as it stands
+```
+
+`--keep` is for looking at what a failed run left, and for one thing the clean run cannot cover: **a new
+database has no Google account**, so `10-google-calendar` skips. The refresh token lives in the Keychain
+and survives, but the account the app reads is in the database and does not. To include that section,
+sign in once on Settings -> App and then use `--keep`.
 
 ## Before you run
 
@@ -21,8 +36,9 @@ quits it, and writes everything to `logs/screen.txt` as well as the terminal.
 scripts/switch-database.sh test
 ```
 
-They write real categories, segments and time entries, and nothing undoes them. Production holds time
-you actually recorded.
+They write real categories, segments and time entries, and the default run **deletes and rebuilds
+test.sqlite**. Production holds time you actually recorded, and nothing here will touch it -- but that
+guard is the only thing standing between the two, which is why every script checks before it starts.
 
 **Take your hands off.** These drive the real cursor and the real window on your real screen. A click
 you make while a script is running lands in whatever the script just opened.
@@ -33,7 +49,12 @@ you make while a script is running lands in whatever the script just opened.
 Tests/Scripted/run.sh 04              # scripts whose name contains "04"
 Tests/Scripted/run.sh categories      # or a word from the name
 Tests/Scripted/run.sh --keep-running  # leave the app up afterwards, to look at a failure
+Tests/Scripted/run.sh --keep 09       # one script, against the database as it stands
 ```
+
+Running a subset still rebuilds the database unless `--keep` is given, and most scripts depend on what
+the ones above them made -- `09-report` needs the entries `06` records. `--keep` is usually what you
+want when running one on its own.
 
 Each script also runs on its own, and launches the app itself if it is not already up:
 

@@ -1,10 +1,22 @@
 #!/bin/bash
 # Runs the scripted checks, in order, and writes everything to logs/screen.txt as well as the terminal.
 #
-#   Tests/Scripted/run.sh                  everything, in order
+#   Tests/Scripted/run.sh                  everything, in order, against a brand new test database
+#   Tests/Scripted/run.sh --keep           against the test database as it stands, rows and all
 #   Tests/Scripted/run.sh 04               just the scripts whose name contains "04"
 #   Tests/Scripted/run.sh categories       substring matching works on the name too
 #   Tests/Scripted/run.sh --keep-running   leave the app up at the end (for looking at what failed)
+#
+# **A clean database by default.** These scripts create categories and time entries and delete nothing,
+# so run after run the test database fills with them and every list gets longer. Starting from the DDL
+# each time means a run says what the app does from nothing, rather than what it does on top of whatever
+# the last fortnight left -- and a check that only passes because of a row an earlier run happened to
+# make is a check that will fail for somebody else.
+#
+# `--keep` is for the opposite need: looking at what a failed run left, or keeping a Google account
+# connected between runs. **A clean database has no Google account in it**, so 10-google-calendar skips
+# unless you sign in again or pass `--keep`. The refresh token is in the Keychain and survives, but the
+# account the app reads is in the database and does not.
 #
 # **The order matters.** Each script leaves the app in a state the next one can start from, and the
 # early ones check the things the later ones depend on -- there is no point testing the Report tab's
@@ -20,10 +32,12 @@ mkdir -p logs
 exec > >(tee logs/screen.txt) 2>&1
 
 KEEP_RUNNING=0
+KEEP_DATABASE=0
 FILTER=""
 for arg in "$@"; do
     case "$arg" in
         --keep-running) KEEP_RUNNING=1 ;;
+        --keep) KEEP_DATABASE=1 ;;
         *) FILTER="$arg" ;;
     esac
 done
@@ -44,6 +58,31 @@ fi
 
 echo "Facet scripted checks -- $(date '+%Y-%m-%d %H:%M:%S')"
 echo "$(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD)"
+
+# The app holds the database open, so it goes first whichever way this run is going: rebuilding under a
+# running app would leave it writing to a file nothing points at any more.
+if pgrep -x Facet >/dev/null; then
+    echo "Quitting the running app first."
+    python3 scripts/status-item-click.py >/dev/null 2>&1
+    sleep 0.5
+    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+    sleep 1.5
+    pgrep -x Facet >/dev/null && pkill -x Facet
+    sleep 0.5
+fi
+
+if [ "$KEEP_DATABASE" -eq 1 ]; then
+    echo "Keeping the test database as it stands (--keep)."
+else
+    echo "Rebuilding test.sqlite from the DDL, so this run starts from nothing."
+    if ! scripts/switch-database.sh test -clean; then
+        echo "Could not rebuild the test database; refusing to run against whatever is there instead."
+        exit 2
+    fi
+    echo "Note: a new database has no Google account, so 10-google-calendar will skip."
+    echo "      Sign in on the App tab, or use --keep, to include it."
+fi
+
 echo "${#scripts[@]} script(s) to run"
 
 ran=0
