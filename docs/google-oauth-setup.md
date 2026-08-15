@@ -80,7 +80,10 @@ Under **Google Auth Platform** (formerly the OAuth consent screen wizard):
   the name on the homepage, and it must not imply Google made it. Not to be confused with the OAuth *client* name in
   step 5, which is an internal label nobody outside the console sees.
 - **Support email** and **developer contact**: these are public, and they are where consent-screen complaints land.
-- **App logo**: needed for verification, and reviewed as part of it. A logo change later triggers re-review.
+- **App logo: leave it empty.** This is the one field that costs something. Uploading a logo is by itself enough to
+  put the app into the verification process, whatever the scopes are, so an app with none skips review entirely and one
+  with a logo does not. See step 6. The artwork exists and is ready
+  (`facet-logo-120.png` in `~/harry.git/facet_tux_com_au/public/images/`) for whenever that trade is worth making.
 
 ### 4. Add the scopes you settled on
 
@@ -130,23 +133,31 @@ the app opens its loopback listener. It should not, since that firewall manages 
 at 100 named test users, and refresh tokens issued under it **expire after seven days**, so every user would be
 silently signed out weekly. That expiry is the reason to move even while the app is only being tried out.
 
-**Verification is what non-sensitive buys you.** The OAuth app verification process, with its demo video, its written
-justification per scope, its weeks of waiting and its round of reviewer questions, applies to **sensitive and
-restricted** scopes. An app asking only for non-sensitive scopes does not go through it, does not meet the "Google
-hasn't verified this app" interstitial, and is not held to the roughly 100 user ceiling that comes with being
-unverified while asking for sensitive ones.
+**Three things put an app into verification, and they are all yours to avoid.** The Push to production dialog states
+them: a configuration with **more than 10 domains**, **a logo**, or **sensitive or restricted scopes**. Facet has one
+domain and four non-sensitive scopes, so **the logo is the only one in play**, and leaving it unset is what keeps the
+app out of review altogether.
 
-**What still applies:**
+**Verified is not a thing worth wanting on its own.** What verification removes is the "Google hasn't verified this
+app" interstitial and the roughly 100 user ceiling, and both of those are consequences of asking for sensitive scopes
+while unverified. Trip none of the three triggers and neither exists in the first place. So the choice is not
+"verified or not", it is "logo or no review".
+
+**What no logo costs**: the consent screen shows the app name without a custom icon. That is all. The recommendation
+is therefore to publish with the logo field empty, and to add it later if the polish is wanted, at a moment when
+nothing is waiting on the review.
+
+**What still applies either way:**
 
 - **The homepage and privacy policy** remain required fields on the consent screen, and remain a good idea regardless.
   They are already live at `facet.tux.com.au` (`~/harry.git/facet_tux_com_au`).
-- **Brand verification** is a separate, much lighter review that Google may ask for once a logo and domains are set on
-  the consent screen. It is not the sensitive-scope process. Expect the console to tell you if it wants it, rather
-  than assuming either way from this document.
-- If it does ask, **domain ownership must be verified in Search Console under the same Google account that owns the
-  Cloud project**. This is the step that goes wrong quietly: verifying under one account and creating the project
-  under another leaves both looking complete and the submission rejected.
-- The **app logo** is `public/images/facet-logo-120.png` in the site repo, at the 120x120 the console asks for.
+- **The 10 domain ceiling** is worth remembering rather than checking. One domain is a long way from it, but this is a
+  trigger that could be tripped absent-mindedly.
+
+**If the logo is ever added**, the review it triggers wants **domain ownership verified in Search Console under the
+same Google account that owns the Cloud project**. That is the step that goes wrong quietly: verifying under one
+account and creating the project under another leaves both looking complete and the submission rejected. The artwork
+is `public/images/facet-logo-120.png` in the site repo, at the 120x120 the console asks for.
 
 **What you never needed**: a third-party security assessment. That one (CASA, annual, expensive) applies to
 *restricted* scopes, which are Gmail and full Drive. Nothing here comes close.
@@ -157,10 +168,11 @@ unverified while asking for sensitive ones.
   that volume is not the concern; a single abusive user getting the project rate-limited or suspended is, because it
   takes everybody's sync down with it.
 - **The support email is yours**, on the consent screen, in front of every user.
-- **Adding a sensitive scope changes the regime, not just the consent screen.** Today nothing here is reviewed. Adding
-  `calendar.events` or `calendar.readonly` back, for the "sync into an existing calendar" feature, moves the whole app
-  into verification from a standing start: video, justifications, weeks. Treat that feature as a decision with a price
-  attached rather than as a later enhancement.
+- **Three things move the app into verification, and nothing here is reviewed until one of them does**: a sensitive or
+  restricted scope, a logo on the consent screen, or more than 10 domains. Adding `calendar.events` or
+  `calendar.readonly` back, for the "sync into an existing calendar" feature, is the expensive one: video,
+  justifications, weeks. Treat that feature as a decision with a price attached rather than as a later enhancement.
+  Uploading a logo is the cheap one, and still a choice rather than a default.
 
 ---
 
