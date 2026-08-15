@@ -44,6 +44,25 @@ final class HistoryTimer {
     /// What to do when the interval elapses. The timer decides *when*, and nothing about *what*.
     private let onTimeout: @MainActor () -> Void
 
+    /// Whether there is anything to follow at all, **asked of the database every time it matters**.
+    ///
+    /// This is what stops the timer while the app is paused, and it is deliberately a question rather than a flag the
+    /// pause paths set. Pausing closes the open segment (`SettingsWindowController.togglePause`), so "is anything
+    /// being timed" is already something the table answers; a `isPaused` field kept in step with it would be a second
+    /// copy of one fact, which is the first rule in `CLAUDE.md`, and a pause path added later could forget to set it.
+    /// The previous app had exactly that bug in this exact class: its interval lived in a timer armed once, and the
+    /// settings field had to remember to re-arm it.
+    ///
+    /// **A connected cube keeps it running whatever the app's own rows say.** "Nothing is open in our table" and "the
+    /// cube has nothing to tell us" are not the same question: while a cube is connected the timeout is a fetch, and
+    /// somebody flipping it during a pause is exactly the event that would go unnoticed with the timer off. So the
+    /// question `main.swift` passes in is the pair -- a segment open, *or* a cube to ask -- and only an app timing
+    /// nothing with nothing to ask lets this stop.
+    ///
+    /// Injected rather than asked here because it is about what the timeout *is*, which is the one thing this class
+    /// deliberately knows nothing about.
+    private let hasSomethingToFollow: @MainActor () -> Bool
+
     /// Held in its own object so it can be invalidated when this goes away: a `@MainActor` class's `deinit`
     /// cannot touch the class's own non-Sendable properties. Same shape as `DebugLog.Connection` and
     /// `MenuBarController.StatusItemHolder`, for the same reason.
@@ -61,26 +80,46 @@ final class HistoryTimer {
     /// can be asserted without waiting for a real interval to elapse.
     private(set) var scheduledSeconds: TimeInterval?
 
-    init(settings: SettingStore, debugLog: DebugLog?, onTimeout: @escaping @MainActor () -> Void) {
+    init(
+        settings: SettingStore,
+        debugLog: DebugLog?,
+        hasSomethingToFollow: @escaping @MainActor () -> Bool = { true },
+        onTimeout: @escaping @MainActor () -> Void
+    ) {
         self.settings = settings
         self.debugLog = debugLog
+        self.hasSomethingToFollow = hasSomethingToFollow
         self.onTimeout = onTimeout
     }
 
-    /// Reads the interval and arms the first timeout.
+    /// Reads the interval and arms the first timeout, **if there is anything to ask about**.
     func start() {
+        guard hasSomethingToFollow() else {
+            debugLog?.record(.history, "History timer not started, nothing is being timed")
+            return
+        }
         let seconds = currentInterval()
         debugLog?.record(.history, "History timer started, asking every \(Int(seconds))s")
         arm(after: seconds)
     }
 
+    /// Starts it again if it is not running, and does nothing if it is.
+    ///
+    /// For the moment something begins being timed. Called through `onTimingChanged`, which is the one funnel every
+    /// path that changes what is being timed already goes through -- a second, parallel notification would be one more
+    /// thing for a new path to forget.
+    func resumeIfStopped() {
+        guard holder.timer == nil else { return }
+        start()
+    }
+
     /// Stops asking. Nothing is remembered, so `start()` begins again from whatever the setting says then.
-    func stop() {
+    func stop(because reason: String = "") {
         guard holder.timer != nil else { return }
         holder.timer?.invalidate()
         holder.timer = nil
         scheduledSeconds = nil
-        debugLog?.record(.history, "History timer stopped")
+        debugLog?.record(.history, "History timer stopped\(reason.isEmpty ? "" : ", \(reason)")")
     }
 
     /// The timeout itself: ask, then read the setting again and arm the next one.
@@ -89,11 +128,29 @@ final class HistoryTimer {
     /// from the end of the work rather than the start of it, which is what stops a slow fetch and a short
     /// interval overlapping.
     func fire() {
+        // Asked here rather than trusted from when the timer was armed: a pause during the interval is exactly the
+        // case this exists for, and the answer at arming time would be the stale one.
+        guard hasSomethingToFollow() else {
+            stop(because: "nothing is being timed")
+            return
+        }
+        // **Every tick, whether or not it changed anything.** A working timer is otherwise completely silent:
+        // `DeviceEventRecorder.refreshOpenSegment` passes `logging: false`, so a tick that grows an open
+        // segment's duration writes no row, and a tick with no open segment does not even reach the recorder.
+        // That left "is the timer still running?" answerable only by watching `device_event.duration_seconds`
+        // move, which is what this line exists to replace (asked for on 2026-08-15, after a 79-second gap in
+        // `debug_log` turned out to be eight healthy ticks).
+        //
+        // The interval is on the line because the next tick is armed from a fresh read of the setting, so two
+        // consecutive lines are what show a change taking effect.
+        //
+        // This is the one tag that logs on a timer, which is the case `DebugLog` warns needs a write queue
+        // before it gets one. It stands because the floor is a second in a developer build and a minute in
+        // any other, and one small insert at that rate is not worth a queue.
+        debugLog?.record(.history, "History timer fired, asking on a \(Int(scheduledSeconds ?? 0))s interval")
         onTimeout()
 
         let seconds = currentInterval()
-        // Reported only when it moves. A line per tick would bury the rows somebody actually reads, and a
-        // timeout that did exactly what the last one did is not news.
         if let previous = scheduledSeconds, previous != seconds {
             debugLog?.record(.history, "History interval changed, \(Int(previous))s -> \(Int(seconds))s")
         }

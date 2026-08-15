@@ -73,6 +73,68 @@ final class HistoryTimerTests: XCTestCase {
         XCTAssertNil(timer.scheduledSeconds, "start() reads the setting again rather than resuming a value")
     }
 
+    // MARK: - stopping while there is nothing to ask
+
+    /// A timer whose "is there anything to follow" answer this test controls, standing in for an open segment and a
+    /// connected cube.
+    private func timer(following: @escaping @MainActor () -> Bool) -> HistoryTimer {
+        let created = HistoryTimer(
+            settings: settings, debugLog: nil, hasSomethingToFollow: following
+        ) { self.timeouts += 1 }
+        built = created
+        return created
+    }
+
+    func testATimeoutWithNothingToFollowStopsRatherThanRearming() {
+        // Pausing closes the open segment, so a paused app with no cube has nothing to ask and nothing to grow. It
+        // used to go on waking every interval to discover that.
+        var anything = true
+        let timer = timer(following: { anything })
+        timer.start()
+        XCTAssertNotNil(timer.scheduledSeconds)
+
+        anything = false
+        timer.fire()
+
+        XCTAssertEqual(timeouts, 0, "the work is not done either -- there is nothing to do")
+        XCTAssertNil(timer.scheduledSeconds, "and no next timeout was armed")
+    }
+
+    func testItDoesNotStartWhileThereIsNothingToFollow() {
+        let timer = timer(following: { false })
+
+        timer.start()
+
+        XCTAssertNil(timer.scheduledSeconds)
+    }
+
+    func testItComesBackWhenSomethingIsBeingTimedAgain() {
+        // `resumeIfStopped` is called from `onTimingChanged`, the funnel every path that starts timing already uses.
+        var anything = false
+        let timer = timer(following: { anything })
+        timer.start()
+        XCTAssertNil(timer.scheduledSeconds)
+
+        anything = true
+        timer.resumeIfStopped()
+
+        XCTAssertEqual(timer.scheduledSeconds, TimeInterval(HistoryTimer.defaultSeconds))
+    }
+
+    func testResumingAnAlreadyRunningTimerLeavesItAlone() {
+        // It is called on every timing change, most of which happen while it is already running. Re-arming there
+        // would push the next timeout back each time, so a busy session would fetch history less often than a quiet
+        // one.
+        XCTAssertTrue(setInterval(45))
+        let timer = timer(following: { true })
+        timer.start()
+
+        XCTAssertTrue(setInterval(30))
+        timer.resumeIfStopped()
+
+        XCTAssertEqual(timer.scheduledSeconds, 45, "still on the interval it was armed with")
+    }
+
     // MARK: - reading it again on every timeout
 
     func testATimeoutAsksAndThenRearms() {

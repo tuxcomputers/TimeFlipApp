@@ -137,7 +137,22 @@ let settingsWindow = SettingsWindowController(
 // No check on whether anything is running: an open row **is** that answer, and pausing closes its segment, so a
 // paused session has nothing here to find. This used to ask an in-memory session first, which was a second copy of
 // a question the table already answers, and that session is now gone for the same reason (see `TimingReadout`).
-let historyTimer = HistoryTimer(settings: settings, debugLog: debugLog) {
+//
+// **It stops while nothing is being timed and there is no cube to ask**, and both halves of that are questions put to
+// the table rather than answers a pause path pushed in: pausing closes the open segment, so an open row *is* the
+// answer to the first.
+//
+// The second half is why it is not simply "is a segment open". With a cube connected, the timeout is a fetch, and the
+// cube is the one that knows what has happened -- somebody flipping it while the app believed nothing was running is
+// precisely the event that would go unnoticed with the timer off. So a connected cube keeps it asking whatever the
+// app's own rows say, and only an app timing nothing *with no cube to ask* lets it stop.
+let historyTimer = HistoryTimer(
+    settings: settings,
+    debugLog: debugLog,
+    hasSomethingToFollow: {
+        deviceEvents.openSegment() != nil || settings.flag("connection", field: "connected") == true
+    }
+) {
     deviceEvents.refreshOpenSegment(at: Date())
 }
 historyTimer.start()
@@ -159,6 +174,11 @@ menuBar.start()
 
 // A category picked or paused in the window has to reach the item in the same moment, rather than on its next
 // tick. Assigned here because each side needs the other: the item's menu is what opens the window.
-settingsWindow.onTimingChanged = { menuBar.redraw() }
+// Also where the history timer comes back: it stops itself once nothing is being timed, and this is the one funnel
+// every path that starts timing already goes through, so there is no separate thing for a new path to remember.
+settingsWindow.onTimingChanged = {
+    menuBar.redraw()
+    historyTimer.resumeIfStopped()
+}
 
 app.run()

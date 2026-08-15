@@ -37,7 +37,7 @@ final class DebugLog {
         case mode
         /// Segments written to `device_event`, and what recording each one did to the rows already there.
         case event
-        /// The history timer: when it asks, and when the interval it asks on changes.
+        /// The history timer: every time it fires, and when the interval it asks on changes.
         case history
         /// Whether a finished segment became tracked time, and what it was filed under.
         case entry
