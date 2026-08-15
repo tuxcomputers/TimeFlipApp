@@ -77,7 +77,8 @@ final class TimeEntryStore {
         return total
     }
 
-    /// What every category recorded inside a range, biggest first, and **only the ones that recorded something**.
+    /// What every category recorded inside a range, **in the same order the Categories and Faces tabs list them**, and
+    /// only the ones that recorded something.
     ///
     /// A category with nothing in the range is absent rather than listed as `0:00`: the question this answers is what
     /// the time went on, and a page of zeroes would bury the answer in categories that have nothing to do with it. It
@@ -115,7 +116,7 @@ final class TimeEntryStore {
                AND (de.start_epoch + te.duration_seconds) > \(startEpoch)
              GROUP BY te.category_id, c.category_name, i.icon_name, l.device_hex, l.white_lines
             HAVING seconds > 0
-             ORDER BY seconds DESC, c.category_name;
+             ORDER BY te.category_id;
             """
         ) { row in
             let iconName = row.string(2)
@@ -131,7 +132,17 @@ final class TimeEntryStore {
                 )
             )
         }
-        return totals
+        // **Sorted here, not in the statement.** `CategoryOrder` is a rule sqlite cannot express, and the point of
+        // applying it is that a category sits in the same place on all three tabs -- somebody who has just found it on
+        // the Categories tab looks in that spot on the Report tab. The `ORDER BY` above only makes the rows arrive
+        // deterministically, exactly as `CategoryStore.read` does.
+        //
+        // **This replaces biggest-first**, which is a real loss worth naming: the old order answered "what did the
+        // time mostly go on" at a glance, and now that has to be read off the figures. Consistency across the tabs was
+        // judged the better trade, and the figures are right there on each row.
+        return totals.sorted {
+            CategoryOrder.isBefore($0.name, id: $0.categoryID, than: $1.name, id: $1.categoryID)
+        }
     }
 
     /// What one category recorded inside a range, stretch by stretch, **earliest first**.

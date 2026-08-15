@@ -163,9 +163,34 @@ final class ReportTotalsTests: XCTestCase {
         let range = bounds("2026-08-05 00:00", "2026-08-07 00:00")
         let totals = entries.totals(from: range.start, to: range.end)
 
-        // Biggest first: what the time went on is the question, so the answer leads.
-        XCTAssertEqual(totals.map(\.name), ["Meeting", "Break"])
-        XCTAssertEqual(totals.map(\.seconds), [1_800, 900])
+        // **The order the Categories and Faces tabs use**, not biggest-first, so a category sits in the same place
+        // on every tab that lists it. "Break" leads "Meeting" on the name, though it holds less time.
+        XCTAssertEqual(totals.map(\.name), ["Break", "Meeting"])
+        XCTAssertEqual(totals.map(\.seconds), [900, 1_800])
+    }
+
+    func testTheTotalsAreInTheSameOrderAsTheCategoryList() throws {
+        // The rule sqlite cannot express: names that are entirely a number come first in numeric order, then the rest
+        // by localised comparison. A plain text sort would give 1, 10, 2 -- and would have the Report tab disagreeing
+        // with the two tabs somebody just came from.
+        // Created in an order that is neither the answer nor its reverse, so passing cannot be an accident of
+        // insertion order surviving to the end. `zebra` is lower case deliberately: the comparison is localised, so
+        // it sorts by the letter rather than being pushed past every capital as an ASCII sort would.
+        for name in ["zebra", "10", "Admin", "2"] {
+            XCTAssertNotNil(categories.insert(name: name), "\(name) has to be a category before it can hold time")
+            try entry(name, start: "2026-08-05 09:00", duration: 600)
+        }
+
+        let range = bounds("2026-08-05 00:00", nil)
+        let totals = entries.totals(from: range.start, to: range.end)
+
+        XCTAssertEqual(totals.map(\.name), ["2", "10", "Admin", "zebra"])
+        // The same rule, from the same place, so the two lists cannot drift apart.
+        XCTAssertEqual(
+            totals.map(\.name),
+            totals.sorted { CategoryOrder.isBefore($0.name, id: $0.categoryID, than: $1.name, id: $1.categoryID) }
+                .map(\.name)
+        )
     }
 
     func testACategoryWithNothingInTheRangeIsAbsentRatherThanZero() throws {

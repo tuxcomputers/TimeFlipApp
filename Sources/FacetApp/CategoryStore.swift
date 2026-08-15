@@ -48,7 +48,21 @@ extension CategoryRecord {
     /// A name too long to fit an `Int` falls back to text: an overflowed number is not a number this can
     /// order.
     static func displayOrder(_ lhs: CategoryRecord, _ rhs: CategoryRecord) -> Bool {
-        switch (Int(lhs.name), Int(rhs.name)) {
+        CategoryOrder.isBefore(lhs.name, id: lhs.id, than: rhs.name, id: rhs.id)
+    }
+}
+
+/// The one order categories are listed in, wherever they are listed.
+///
+/// **A rule rather than an `ORDER BY`, because sqlite cannot express it** (see the note on
+/// `CategoryRecord.displayOrder`), and its own type because more than one kind of row needs it: the Categories tab
+/// and the Faces tab list `CategoryRecord`s, and the Report tab lists `CategoryTotal`s, which are a different shape
+/// carrying the same two things this decides on. Two copies of an ordering is two lists that drift apart, which is
+/// exactly what somebody scanning three tabs for the same category would meet.
+enum CategoryOrder {
+    /// Whether one category sorts ahead of another, given the only two fields the order depends on.
+    static func isBefore(_ lhsName: String, id lhsID: Int, than rhsName: String, id rhsID: Int) -> Bool {
+        switch (Int(lhsName), Int(rhsName)) {
         case let (lhsValue?, rhsValue?) where lhsValue != rhsValue:
             return lhsValue < rhsValue
         case (.some, .none):
@@ -59,13 +73,13 @@ extension CategoryRecord {
             // Either both are text, or both are the same number written differently ("1" / "01").
             // `localizedStandardCompare` compares digit runs numerically, so that second case comes back
             // `.orderedSame` and drops through to the id tiebreak below.
-            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            let comparison = lhsName.localizedStandardCompare(rhsName)
             if comparison != .orderedSame {
                 return comparison == .orderedAscending
             }
             // Two rows can legitimately hold one name -- a category created alongside retired namesakes --
             // so the tie is broken rather than left to an unstable sort.
-            return lhs.id < rhs.id
+            return lhsID < rhsID
         }
     }
 }
