@@ -67,8 +67,9 @@ Under **Google Auth Platform** (formerly the OAuth consent screen wizard):
 - **User type: External.** Internal only exists for a Google Workspace organisation, and it would mean only your own
   org's accounts could ever sign in. If that *is* the audience -- an internal tool for one company -- choose Internal
   and skip step 6 entirely, because verification does not apply.
-- **App name**: what the user will read in "TimeFlip macOS wants access to your Google Account". It must not imply
-  Google made it.
+- **App name: `Facet`.** This is what the user reads in "Facet wants access to your Google Account", so it has to match
+  the name on the homepage, and it must not imply Google made it. Not to be confused with the OAuth *client* name in
+  step 5, which is an internal label nobody outside the console sees.
 - **Support email** and **developer contact**: these are public, and they are where consent-screen complaints land.
 - **App logo**: needed for verification, and reviewed as part of it. A logo change later triggers re-review.
 
@@ -79,21 +80,38 @@ puts against each one. That label, not this doc, is what decides whether step 6 
 
 ### 5. Create the OAuth client
 
-**Clients > Create OAuth client.** The type matters more than it looks:
+**Clients > Create OAuth client. Choose Desktop app.** Name it for the list you will be reading later rather than for
+the product, since this name is internal to the console and never shown to a user: `Facet macOS (desktop)` beats
+`Facet`. The name users read is the consent screen's **App name** from step 3, which is just `Facet`.
 
-- **iOS** (the console's description covers iOS, macOS and tvOS): keyed to your bundle identifier, and it issues **no
-  client secret at all**. Redirects come back on a custom URI scheme (the reverse-DNS form of the bundle ID). This is
-  the one to choose for a bundled binary, because it removes the question of what a "secret" means inside an
-  application anybody can open.
-- **Desktop app**: issues a client ID *and* a secret, and redirects to `http://127.0.0.1:<port>`. This is what the
-  archive uses (`OIDRedirectHTTPHandler` in `GoogleAuthService.swift`). It is still legitimate to ship: Google's
-  installed-app model explicitly does not treat that secret as confidential, and the security comes from PKCE plus the
-  loopback redirect. But you are shipping a string called a secret that is not one, and explaining that to every
-  future reader costs more than switching client type.
+The console also offers an **iOS** type whose description covers macOS, and it is worth knowing why this app does not
+take it. iOS clients issue **no client secret at all**, which sounds like the safer answer for a binary anybody can
+open. Four things outweigh it here:
 
-Either way, **the client ID is extractable from the binary**. That is accepted for installed apps and cannot be
-prevented. What it means in practice: somebody could stand up a different application that shows your app's name on
-its consent screen. PKCE stops them intercepting *your* users' codes; nothing stops the impersonation itself.
+- **A Desktop client is not keyed to the bundle identifier.** An iOS client is, so renaming
+  `dev.evernoob.timeflip` to `au.com.tux.facet` would mean recreating the client. Under Desktop the rename and the
+  Google setup do not block each other at all.
+- **The archive already implements this flow.** `OIDRedirectHTTPHandler` in `GoogleAuthService.swift` is the loopback
+  listener. The iOS path instead means a `CFBundleURLTypes` entry, an `application(_:open:)` handler, and deleting that
+  code.
+- **This app is not sandboxed** (there is no entitlements file, and it ships outside the App Store via Swift Bundler),
+  so listening on a loopback port costs nothing. A sandboxed build would need `com.apple.security.network.server`,
+  which is the usual reason to prefer a custom scheme.
+- **Custom URI schemes are weak on macOS specifically.** Any installed app can claim the same scheme in its
+  `Info.plist` and Launch Services picks the winner. A port your own process is listening on is more predictable.
+
+**The secret is not a secret, and neither type gives real client authentication.** Google's installed-app model
+explicitly does not treat a desktop client secret as confidential, and a bundle identifier is equally forgeable for a
+non-App-Store binary, since anybody can build an app claiming it. **PKCE** is what actually protects the exchange, and
+AppAuth does it by default either way.
+
+So: **the client ID and the secret are both extractable from the binary**, that is accepted for installed apps, and it
+cannot be prevented. What it means in practice: somebody could stand up a different application that shows your app's
+name on its consent screen. PKCE stops them intercepting *your* users' codes; nothing stops the impersonation itself.
+
+**One thing to check on a real machine** rather than take on trust: whether the macOS application firewall prompts when
+the app opens its loopback listener. It should not, since that firewall manages external interfaces and this binds
+`127.0.0.1` only, but a firewall dialog in the middle of signing in is worth ruling out by seeing it not happen.
 
 ### 6. Publish, and get verified
 
@@ -107,8 +125,11 @@ silently signed out weekly.
 but every user meets a "Google hasn't verified this app" screen and must click through Advanced > Go to app, and you
 are capped at roughly 100 users. What the submission needs:
 
-- A **homepage** and a **privacy policy**, both on a domain you own
-- **Domain ownership verified** in Search Console, under the account that owns the project
+- A **homepage** and a **privacy policy**, both on a domain you own. That domain is **`tux.com.au`**, already owned, so
+  this is two static pages rather than a purchase and a wait.
+- **Domain ownership verified** in Search Console, **under the same Google account that owns the Cloud project**. This
+  is the step that goes wrong quietly: verifying the domain under one account and creating the project under another
+  leaves both looking complete and the submission rejected.
 - The **app logo** from step 3
 - A **demo video** showing the consent flow and each scope being used for the thing you said it was for
 - A **written justification per scope**
@@ -134,15 +155,16 @@ rather than an audit. Confirm against the console's own label before relying on 
 
 Written against the archive's implementation, which is where this code comes back from.
 
-### 1. Ship the client ID as build configuration, not as a typed-in setting
+### 1. Ship the client ID and secret as build configuration, not as typed-in settings
 
-The archive reads it from the environment (`GoogleAuthConfiguration.loadFromEnvironment`, `GOOGLE_OAUTH_CLIENT_ID`),
-which works for a developer running from a shell and not at all for a user double-clicking an app. Put it in the
-bundle instead: an `Info.plist` key filled from build configuration, read at launch.
+The archive reads them from the environment (`GoogleAuthConfiguration.loadFromEnvironment`, `GOOGLE_OAUTH_CLIENT_ID`),
+which works for a developer running from a shell and not at all for a user double-clicking an app. Put them in the
+bundle instead: `Info.plist` keys filled from build configuration, read at launch. In this repo that means
+`[apps.TimeFlip.plist]` in `Bundler.toml`.
 
-Keep it out of the source tree the same way the JSON files already are (`.gitignore` line 8), and let the build inject
-it. Not because the ID is a secret -- it is not -- but because a release build and a developer build should be able to
-point at different projects without editing code.
+Keep both out of the source tree the same way the JSON files already are (`.gitignore` line 8), and let the build
+inject them. Not because either is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but because
+a release build and a developer build should be able to point at different projects without editing code.
 
 ### 2. Delete the paste-in fields, keep the override
 
@@ -153,22 +175,28 @@ path behind them**, though, reading from `defaults`, an environment variable, or
 - it gives a user with their own project a way out if yours is ever suspended,
 - and it is what the developer-mode work already assumes exists.
 
-### 3. Match the redirect to the client type
+### 3. Keep the loopback redirect
 
-- **iOS-type client**: the redirect is a custom URI scheme, registered in `Info.plist` as a `CFBundleURLTypes` entry
-  using the reverse-DNS client ID form. The app receives the callback through `application(_:open:)` and hands it to
-  AppAuth. `OIDRedirectHTTPHandler` and its loopback listener are then dead code, and should go rather than linger.
-- **Desktop-type client**: keep the loopback handler as it is, and carry the bundled secret through
-  `GoogleAuthConfiguration.clientSecret`.
+The client is a Desktop one, so the redirect is `http://127.0.0.1:<port>` and the archive's `OIDRedirectHTTPHandler`
+comes back as it stands. No `CFBundleURLTypes` entry, no `application(_:open:)` handler, and no custom URI scheme
+anywhere. The bundled secret is carried through `GoogleAuthConfiguration.clientSecret`.
 
-Either way PKCE stays on. AppAuth does it by default for the authorization-code flow, and it is the thing actually
-protecting the exchange.
+**The port is chosen at runtime, never fixed.** `OIDRedirectHTTPHandler` binds an ephemeral one and builds the redirect
+URI from what it got. A hardcoded port is a sign-in that fails whenever something else already holds it, and Google
+accepts any port on the loopback address precisely so it does not have to be registered.
+
+PKCE stays on. AppAuth does it by default for the authorization-code flow, and it is the thing actually protecting the
+exchange.
 
 ### 4. Leave the keychain alone
 
-`GoogleOAuthKeychainStore` holds the auth state (refresh token) per user and per machine. That does not change: what
-changes is that the *client secret* it also holds becomes either bundled configuration or nothing at all, depending on
-client type. If you move to an iOS-type client, `GoogleClientSecretStore` and its keychain payload field go with it.
+`GoogleOAuthKeychainStore` holds the auth state (refresh token) per user and per machine, and that does not change.
+What changes is `GoogleClientSecretStore`: the secret it holds is now bundled configuration rather than something the
+user pasted in, so the store keeps its role as the override from step 2 rather than as the only source.
+
+**The rename touches this.** Keychain items are keyed per application, so changing the bundle identifier from
+`dev.evernoob.timeflip` to `au.com.tux.facet` orphans anything already stored. Harmless before release, since the fix
+is signing in again, but it belongs in the rename's list rather than being discovered afterwards.
 
 ### 5. Handle the scope list changing under an existing user
 
@@ -200,3 +228,13 @@ that still bites.
    warning screen, which is enough to prove the flow while the rest runs.
 4. Submit for verification, and expect it to be the long pole.
 5. Build Part 2 against the project from step 2, with the override in place from the start.
+
+**The TimeFlip to Facet rename does not gate any of this**, which is the practical dividend of the Desktop client:
+nothing in the client is keyed to the app name or the bundle identifier, so steps 1 to 4 can happen before, during or
+after the rename. The two places the rename does reach are the keychain (Part 2 step 4) and the consent screen's app
+name, which should read `Facet` from the start rather than be changed later, since changing it re-triggers review.
+
+**Do not submit for verification until the sync actually works.** Step 4 wants a video of each scope being used for the
+purpose claimed, and there is nothing to film until Part 2 is built. The homepage and the privacy policy are live
+already at `facet.tux.com.au` (`~/harry.git/facet_tux_com_au`), so the step 6 prerequisites are met and the
+`facet-logo-120.png` in that repo is the consent screen logo.
