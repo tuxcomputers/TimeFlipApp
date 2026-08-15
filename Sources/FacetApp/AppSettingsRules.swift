@@ -110,7 +110,9 @@ enum AppSettingsRules {
     /// **One place decides this.** The row knows what somebody typed and the table knows nothing about rows, so the
     /// mapping between them is a rule rather than something each end half-knows -- which is how a control comes to
     /// write the right number into the wrong column.
-    static func destination(for change: AppSettingsPane.Change) -> (setting: String, field: String, value: Stored) {
+    /// `nil` for a change that is not one field being set to one value. Signing out empties two fields at once, so
+    /// it has no single destination and is written by its own path rather than squeezed through this one.
+    static func destination(for change: AppSettingsPane.Change) -> (setting: String, field: String, value: Stored)? {
         switch change {
         case let .showsSeconds(on):
             return ("display_seconds", "enabled", .flag(on))
@@ -124,6 +126,8 @@ enum AppSettingsRules {
             return ("fetch_history_interval_seconds", "seconds", .number(seconds(fromMinutes: minutes)))
         case let .blipSeconds(seconds):
             return ("blip_time", "seconds", .number(seconds))
+        case .googleDisconnected:
+            return nil
         }
     }
 
@@ -143,6 +147,7 @@ enum AppSettingsRules {
         case .batteryWarningPercent: return "Battery warning at"
         case .fetchIntervalMinutes: return "Fetch history every"
         case .blipSeconds: return "Ignore flips under"
+        case .googleDisconnected: return "Google account"
         }
     }
 }

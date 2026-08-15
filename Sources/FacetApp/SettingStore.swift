@@ -80,6 +80,15 @@ final class SettingStore {
         write(name, field: field, any: value) && flag(name, field: field) == value
     }
 
+    /// The same, for text.
+    ///
+    /// **Written as an empty string rather than removed** when it is being cleared, which is what signing out of
+    /// Google does. `database/011_setting.sql` keeps `calendar_id`, `calendar_name` and `client_id` in the same row,
+    /// so the key has to survive for the read-back to have something to confirm.
+    func write(_ name: String, field: String, _ value: String) -> Bool {
+        write(name, field: field, any: value) && string(name, field: field) == value
+    }
+
     private func write(_ name: String, field: String, any value: Any) -> Bool {
         guard var object = json(name) else { return false }
         object[field] = value

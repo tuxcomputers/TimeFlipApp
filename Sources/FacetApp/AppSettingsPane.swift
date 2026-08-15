@@ -2,9 +2,17 @@ import AppKit
 
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///
-/// **The section at the top is the archive's "App settings", with all six of its rows** and its wording
-/// (`Archive/TimeFlipApp/ReportSettingsView.swift`). The Google section that sat above it there is not here: it
-/// belongs to an integration this app has not rebuilt, and drawing an empty one would promise something.
+/// **Two sections, in the archive's order** (`Archive/TimeFlipApp/ReportSettingsView.swift`): Google, then "App
+/// settings" with all six of its rows and its wording.
+///
+/// The Google section is **much smaller than the archive's**, and `GoogleAccountRules` carries the reasons: the
+/// credentials now ship with the build so there is nothing to paste in, and the calendar picker is gone because
+/// choosing an existing calendar needs sensitive scopes this app deliberately does not ask for. What is left is the
+/// part that was always the point, which is saying which account is connected.
+///
+/// **Signing in is not built.** The button is drawn and disabled with the reason under it, which is the shape the
+/// archive used when its own credentials were missing. Disconnecting works, because clearing a row is something this
+/// app can do without a network.
 ///
 /// **The values are read once, when the window opens, and this pane then holds them** -- see the source-of-truth rule
 /// in `CLAUDE.md` for why a Settings window is the one place that is allowed to. A change is written straight through
@@ -21,6 +29,13 @@ final class AppSettingsPane: NSView {
         static let batteryWarning = "app-battery-warning"
         static let fetchInterval = "app-fetch-interval"
         static let blipTime = "app-blip-time"
+        static let googleSection = "app-google-section"
+        static let googleHeading = "app-google-section-heading"
+        static let googleStatus = "app-google-status"
+        static let googleAccount = "app-google-account"
+        static let googleEmail = "app-google-email"
+        static let googleButton = "app-google-button"
+        static let googleNote = "app-google-note"
     }
 
     private enum Layout {
@@ -37,6 +52,9 @@ final class AppSettingsPane: NSView {
         /// The least a row can be, so two switches in a row do not read as a tighter list than the fields under them.
         static let minimumRowHeight: CGFloat = 38
         static let separatorHeight: CGFloat = 1
+        /// Between one section's panel and the next section's heading. Wider than `headingSpacing`, so a heading
+        /// reads as belonging to the panel under it rather than to the one it follows.
+        static let sectionSpacing: CGFloat = 24
     }
 
     /// What the table says, at the moment the tab was shown. Every field is what is stored, in the unit it is stored
@@ -49,6 +67,9 @@ final class AppSettingsPane: NSView {
         var batteryWarningPercent: Int
         var fetchIntervalSeconds: Int
         var blipSeconds: Int
+        /// Who is signed in, from the `google_account` row. Part of this struct rather than read separately because
+        /// it is read in the same pass: opening the window reads every value the window shows, in one go.
+        var googleAccount = GoogleAccountRules.Account.none
 
         /// What a database with none of these rows would give, which is what the seeds give
         /// (`database/011_setting.sql`). Named here rather than at each call site so one missing row cannot come to
@@ -75,6 +96,9 @@ final class AppSettingsPane: NSView {
         case batteryWarningPercent(Int)
         case fetchIntervalMinutes(Int)
         case blipSeconds(Int)
+        /// Sign out: clear the connected identity. Carries no value because it is not a row being set to something,
+        /// it is a row being emptied, and "emptied" has only one meaning.
+        case googleDisconnected
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -83,6 +107,10 @@ final class AppSettingsPane: NSView {
 
     private(set) var values = Values.seeded
     private let rows = NSStackView()
+    private let googleRows = NSStackView()
+    private let googleNote = NSTextField(labelWithString: "")
+    private var appHeadingBelowNote: NSLayoutConstraint?
+    private var appHeadingBelowPanel: NSLayoutConstraint?
     private var showSecondsBox: NSButton!
     private var pauseOnLockBox: NSButton!
     private var dailyResetField: SteppedNumberField!
@@ -92,7 +120,7 @@ final class AppSettingsPane: NSView {
 
     init() {
         super.init(frame: .zero)
-        addSection()
+        addSections()
     }
 
     @available(*, unavailable)
@@ -113,6 +141,13 @@ final class AppSettingsPane: NSView {
         case let .batteryWarningPercent(value): values.batteryWarningPercent = value
         case let .fetchIntervalMinutes(value): values.fetchIntervalSeconds = AppSettingsRules.seconds(fromMinutes: value)
         case let .blipSeconds(value): values.blipSeconds = value
+        case .googleDisconnected:
+            values.googleAccount = .none
+            // The one change here that *does* redraw its rows. The reason the others do not is that somebody is
+            // typing in them, and taking a field out from under them is the harm being avoided. Nobody types into a
+            // status line, and leaving it reading "Connected" under a button that just disconnected would be the
+            // window showing something the table no longer says.
+            showGoogle()
         }
     }
 
@@ -134,20 +169,167 @@ final class AppSettingsPane: NSView {
         fetchIntervalField.suffix = AppSettingsRules.unit("min", "mins", for: fetchIntervalField.value)
         blipTimeField.value = values.blipSeconds
         blipTimeField.suffix = AppSettingsRules.unit("sec", "secs", for: values.blipSeconds)
+        showGoogle()
     }
 
-    private func addSection() {
-        // **The pane keeps its autoresizing frame**, so it is as wide as the window and the panel inside it spans that
-        // width (see `CLAUDE.md`). The tab view hands each pane the content rect and resizes it from there;
-        // `translatesAutoresizingMaskIntoConstraints = false` here would throw that away and leave the pane sized to
-        // its own contents, which is a panel stopping short of the right-hand edge. It did, until this.
-        let heading = NSTextField(labelWithString: "App settings")
+    /// Draws the Google section for the account this pane holds.
+    ///
+    /// **Rebuilt from nothing each time rather than patched**, because the section's *shape* changes with the state
+    /// and not just its words: connected shows an account and an email that are simply absent otherwise. Reconciling
+    /// two rows that may or may not exist against two that may or may not be wanted is more code than building three
+    /// labels, and it is the version that goes wrong.
+    private func showGoogle() {
+        for view in googleRows.views {
+            googleRows.removeView(view)
+        }
+
+        let account = values.googleAccount
+        var built: [NSView] = [
+            row("Status", label(GoogleAccountRules.status(for: account), identifier: Identifier.googleStatus),
+                separated: true),
+        ]
+        if let name = account.name {
+            built.append(row("Account", label(name, identifier: Identifier.googleAccount), separated: true))
+        }
+        if let email = account.email {
+            built.append(row("Email", label(email, identifier: Identifier.googleEmail), separated: true))
+        }
+
+        let button = NSButton(
+            title: GoogleAccountRules.buttonTitle(for: account),
+            target: self,
+            action: #selector(googleButtonPressed)
+        )
+        button.bezelStyle = .rounded
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isEnabled = GoogleAccountRules.isButtonEnabled(for: account)
+        button.setAccessibilityIdentifier(Identifier.googleButton)
+        built.append(row(GoogleAccountRules.note(for: account) == nil ? "Account" : "Google", button, separated: false))
+
+        for view in built {
+            googleRows.addView(view, in: .top)
+            view.widthAnchor.constraint(equalTo: googleRows.widthAnchor).isActive = true
+        }
+        let note = GoogleAccountRules.note(for: account)
+        googleNote.stringValue = note ?? ""
+        googleNote.isHidden = note == nil
+        applyNoteVisibility()
+    }
+
+    private func label(_ text: String, identifier: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setAccessibilityIdentifier(identifier)
+        return label
+    }
+
+    @objc
+    private func googleButtonPressed() {
+        // Only ever a disconnect today: the button is disabled in the other state, so a press cannot mean sign in.
+        guard values.googleAccount.isConnected else { return }
+        onChange?(.googleDisconnected)
+    }
+
+    /// Two sections, Google above App settings, in the archive's order (`ReportSettingsView` put Google first).
+    ///
+    /// **The pane keeps its autoresizing frame**, so it is as wide as the window and both panels span that width (see
+    /// `CLAUDE.md`). The tab view hands each pane the content rect and resizes it from there;
+    /// `translatesAutoresizingMaskIntoConstraints = false` here would throw that away and leave the pane sized to its
+    /// own contents, which is a panel stopping short of the right-hand edge. It did, until this.
+    ///
+    /// **Neither section folds**, so each heading sits above its panel and names it rather than operating it, which is
+    /// what `CLAUDE.md` reserves the heading-inside-the-panel shape for.
+    private func addSections() {
+        let googleHeading = heading("Google", identifier: Identifier.googleHeading)
+        let googlePanel = panel(identifier: Identifier.googleSection)
+        stack(googleRows)
+        showGoogle()
+
+        googleNote.translatesAutoresizingMaskIntoConstraints = false
+        googleNote.font = .preferredFont(forTextStyle: .footnote)
+        googleNote.textColor = .secondaryLabelColor
+        googleNote.lineBreakMode = .byWordWrapping
+        googleNote.maximumNumberOfLines = 0
+        googleNote.setAccessibilityIdentifier(Identifier.googleNote)
+
+        let appHeading = heading("App settings", identifier: Identifier.heading)
+        let appPanel = panel(identifier: Identifier.section)
+        stack(rows)
+        addRows()
+
+        for view in [googleHeading, googlePanel, googleNote, appHeading, appPanel] {
+            addSubview(view)
+        }
+        googlePanel.contentView?.addSubview(googleRows)
+        appPanel.contentView?.addSubview(rows)
+        guard let googleContent = googlePanel.contentView, let appContent = appPanel.contentView else { return }
+
+        // Written out rather than composed with `+` and `flatMap`: the composed version was one expression the type
+        // checker gave up on ("unable to type-check in reasonable time"), and a build error is a worse price than
+        // repetition.
+        NSLayoutConstraint.activate([
+            googleHeading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            googlePanel.topAnchor.constraint(equalTo: googleHeading.bottomAnchor, constant: Layout.headingSpacing),
+            googleNote.topAnchor.constraint(equalTo: googlePanel.bottomAnchor, constant: Layout.headingSpacing / 2),
+            appPanel.topAnchor.constraint(equalTo: appHeading.bottomAnchor, constant: Layout.headingSpacing),
+        ])
+
+        // A heading may be shorter than the pane; a panel and the note always span it.
+        for view in [googleHeading, appHeading] {
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.padding),
+            ])
+        }
+        for view in [googlePanel as NSView, googleNote, appPanel] {
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+                view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
+            ])
+        }
+
+        // Flush to the panel on all four sides: a row runs the whole width, and its own inset is what holds the
+        // label and the control off the edges. That is what puts a separator's ends where the archive's are.
+        for (stack, content) in [(googleRows, googleContent), (rows, appContent)] {
+            NSLayoutConstraint.activate([
+                stack.topAnchor.constraint(equalTo: content.topAnchor),
+                stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            ])
+        }
+
+        // **Two constraints, one active at a time**, rather than one constraint aimed at whichever view happens to be
+        // showing. A hidden view keeps its height in Auto Layout (`Tests/Methods.md`), so anchoring to the note and
+        // hiding it would leave its two lines of empty space behind, and deciding the anchor once at build time would
+        // freeze whichever state the pane opened in.
+        appHeadingBelowNote = appHeading.topAnchor.constraint(
+            equalTo: googleNote.bottomAnchor, constant: Layout.sectionSpacing
+        )
+        appHeadingBelowPanel = appHeading.topAnchor.constraint(
+            equalTo: googlePanel.bottomAnchor, constant: Layout.sectionSpacing
+        )
+        applyNoteVisibility()
+    }
+
+    /// Puts the App settings heading under whichever view is actually the last thing in the Google section.
+    private func applyNoteVisibility() {
+        guard let appHeadingBelowNote, let appHeadingBelowPanel else { return }
+        appHeadingBelowNote.isActive = !googleNote.isHidden
+        appHeadingBelowPanel.isActive = googleNote.isHidden
+    }
+
+    private func heading(_ title: String, identifier: String) -> NSTextField {
+        let heading = NSTextField(labelWithString: title)
         heading.font = .preferredFont(forTextStyle: .headline)
         heading.translatesAutoresizingMaskIntoConstraints = false
-        heading.setAccessibilityIdentifier(Identifier.heading)
+        heading.setAccessibilityIdentifier(identifier)
+        return heading
+    }
 
-        // The same tinted panel the Categories tab's lists sit on, which is what the previous app drew every group of
-        // settings on (`image/preferences-device.png`).
+    /// The same tinted panel the Categories tab's lists sit on, which is what the previous app drew every group of
+    /// settings on (`image/preferences-device.png`).
+    private func panel(identifier: String) -> NSBox {
         let panel = NSBox()
         panel.boxType = .custom
         panel.fillColor = .quaternarySystemFill
@@ -156,36 +338,17 @@ final class AppSettingsPane: NSView {
         panel.contentViewMargins = .zero
         panel.titlePosition = .noTitle
         panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.setAccessibilityIdentifier(Identifier.section)
+        panel.setAccessibilityIdentifier(identifier)
+        return panel
+    }
 
-        rows.orientation = .vertical
-        rows.alignment = .leading
+    private func stack(_ view: NSStackView) {
+        view.orientation = .vertical
+        view.alignment = .leading
         // No gap: the rows are a list with hairlines between them, not separate controls, and the padding inside each
         // row is what keeps them apart. The archive's grouped form again.
-        rows.spacing = 0
-        rows.translatesAutoresizingMaskIntoConstraints = false
-        addRows()
-
-        addSubview(heading)
-        addSubview(panel)
-        panel.contentView?.addSubview(rows)
-        guard let content = panel.contentView else { return }
-        NSLayoutConstraint.activate([
-            heading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
-            heading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-            heading.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.padding),
-
-            panel.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: Layout.headingSpacing),
-            panel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-            panel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
-
-            // Flush to the panel on all four sides: a row runs the whole width, and its own inset is what holds the
-            // label and the control off the edges. That is what puts a separator's ends where the archive's are.
-            rows.topAnchor.constraint(equalTo: content.topAnchor),
-            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            rows.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            rows.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
+        view.spacing = 0
+        view.translatesAutoresizingMaskIntoConstraints = false
     }
 
     /// The archive's six rows, in the archive's order: the two switches first, then the four numbers.

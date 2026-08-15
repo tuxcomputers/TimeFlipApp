@@ -189,7 +189,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 ?? seeded.batteryWarningPercent,
             fetchIntervalSeconds: settings.integer("fetch_history_interval_seconds", field: "seconds")
                 ?? seeded.fetchIntervalSeconds,
-            blipSeconds: settings.integer("blip_time", field: "seconds") ?? seeded.blipSeconds
+            blipSeconds: settings.integer("blip_time", field: "seconds") ?? seeded.blipSeconds,
+            googleAccount: GoogleAccountRules.account(
+                name: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.nameField),
+                email: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.emailField)
+            )
         )
     }
 
@@ -216,8 +220,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// and merging a change nobody in this window made would mean a control that quietly does something other than
     /// what it says.
     private func store(_ change: AppSettingsPane.Change, from pane: AppSettingsPane) {
-        let (setting, field, value) = AppSettingsRules.destination(for: change)
         guard let settings else { return }
+        if case .googleDisconnected = change {
+            disconnectGoogle(from: pane, using: settings)
+            return
+        }
+        guard let (setting, field, value) = AppSettingsRules.destination(for: change) else { return }
         let stored: Bool
         switch value {
         case let .flag(flag):
@@ -242,6 +250,32 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // session would be stored and not shown, which reads as a control that did nothing. Measured, on a paused
         // session: the table said `false` and the menu bar went on showing seconds.
         onTimingChanged?()
+    }
+
+    /// Signs the Google account out: clears the identity, and nothing else in the row.
+    ///
+    /// **Both fields have to go, and the section is only allowed to say so once both have.** `database/011_setting.sql`
+    /// is explicit that sign-out clears the name and the email alone -- `calendar_id`, `calendar_name` and `client_id`
+    /// share this row and are configuration rather than identity, so they survive a sign-out and are still right when
+    /// the same account signs back in.
+    ///
+    /// A half-done clear is the case worth spelling out: if the name goes and the email does not, the account is still
+    /// connected as far as `GoogleAccountRules` is concerned, and saying "disconnected" would be a window disagreeing
+    /// with its own table. So this adopts the change only when both writes read back.
+    private func disconnectGoogle(from pane: AppSettingsPane, using settings: SettingStore) {
+        let clearedName = settings.write(GoogleAccountRules.setting, field: GoogleAccountRules.nameField, "")
+        let clearedEmail = settings.write(GoogleAccountRules.setting, field: GoogleAccountRules.emailField, "")
+        let stored = clearedName && clearedEmail
+        debugLog?.record(
+            .field,
+            "Google account disconnected\(stored ? "" : " REFUSED, the table still holds an identity")"
+        )
+        guard stored else {
+            pane.restore()
+            showSettingRefused(.googleDisconnected)
+            return
+        }
+        pane.adopt(.googleDisconnected)
     }
 
     /// What a refused setting says. It names the row rather than the column, since nobody reading this knows what

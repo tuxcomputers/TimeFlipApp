@@ -349,10 +349,12 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         let content = hosted(pane, width: 640)
 
-        let separators = descendants(of: pane).compactMap { $0 as? NSBox }.filter { $0.boxType == .separator }
+        // Counted inside this panel rather than across the pane: the Google section above it has hairlines of its
+        // own, and counting both would make this test about the sum of two unrelated lists.
+        let panel = try panel(of: pane)
+        let separators = descendants(of: panel).compactMap { $0 as? NSBox }.filter { $0.boxType == .separator }
         XCTAssertEqual(separators.count, 5, "six rows, five hairlines")
 
-        let panel = try panel(of: pane)
         let panelFrame = content.convert(panel.bounds, from: panel)
         for separator in separators {
             let frame = content.convert(separator.bounds, from: separator)

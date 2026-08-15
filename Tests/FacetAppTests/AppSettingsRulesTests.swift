@@ -121,8 +121,9 @@ final class AppSettingsRulesTests: XCTestCase {
             .batteryWarningPercent(15),
             .fetchIntervalMinutes(9),
             .blipSeconds(3),
-        ].map { AppSettingsRules.destination(for: $0) }
+        ].compactMap { AppSettingsRules.destination(for: $0) }
 
+        XCTAssertEqual(destinations.count, 6, "every one of these maps to a column")
         XCTAssertEqual(destinations.map(\.setting), [
             "display_seconds",
             "pause_on_lock",
@@ -136,10 +137,10 @@ final class AppSettingsRulesTests: XCTestCase {
 
     func testAChangeIsConvertedToTheUnitItsColumnStores() {
         // The rows show a 12-hour face and whole minutes; the table stores 24-hour hours and seconds.
-        XCTAssertEqual(AppSettingsRules.destination(for: .dailyResetHour12(12)).value, .number(0))
-        XCTAssertEqual(AppSettingsRules.destination(for: .fetchIntervalMinutes(9)).value, .number(540))
-        XCTAssertEqual(AppSettingsRules.destination(for: .blipSeconds(3)).value, .number(3), "already its own unit")
-        XCTAssertEqual(AppSettingsRules.destination(for: .showsSeconds(true)).value, .flag(true))
+        XCTAssertEqual(AppSettingsRules.destination(for: .dailyResetHour12(12))?.value, .number(0))
+        XCTAssertEqual(AppSettingsRules.destination(for: .fetchIntervalMinutes(9))?.value, .number(540))
+        XCTAssertEqual(AppSettingsRules.destination(for: .blipSeconds(3))?.value, .number(3), "already its own unit")
+        XCTAssertEqual(AppSettingsRules.destination(for: .showsSeconds(true))?.value, .flag(true))
     }
 
     func testARowIsNamedByItsLabelWhenSomethingHasToBeSaid() {
