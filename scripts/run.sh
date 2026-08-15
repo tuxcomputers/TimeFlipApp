@@ -35,4 +35,30 @@ for arg in "$@"; do
     esac
 done
 
-mint run stackotter/swift-bundler@main run Facet $args
+# Signed with a real certificate where there is one, and ad-hoc where there is not.
+#
+# **This is what stops macOS asking for Keychain access after every rebuild.** An ad-hoc signature's designated
+# requirement is the cdhash of the binary, so every build is a different application as far as the Keychain is
+# concerned and the permission granted to the last one matches nothing. A certificate makes the requirement
+# `identifier "au.com.tux.facet" and anchor apple generic and certificate leaf[subject.CN] = "..."`, which is the
+# same for every build, so "Always Allow" is answered once and holds.
+#
+# Found rather than configured, so a contributor with no certificate still gets a working script: without one the
+# app is ad-hoc signed exactly as before, and the only cost is the prompt. `FACET_CODESIGN_IDENTITY` overrides the
+# search for anyone holding more than one.
+identity="${FACET_CODESIGN_IDENTITY:-}"
+if [ -z "$identity" ]; then
+    identity=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep -E '"(Apple Development|Developer ID Application):' \
+        | head -1 \
+        | sed -E 's/.*"(.*)".*/\1/')
+fi
+
+if [ -n "$identity" ]; then
+    echo "Signing as: $identity"
+    mint run stackotter/swift-bundler@main run Facet --codesign --identity "$identity" $args
+else
+    printf 'No codesigning identity found, so this build is ad-hoc signed.\n'
+    printf 'macOS will ask for Keychain access again after every rebuild; see docs/google-oauth-setup.md.\n'
+    mint run stackotter/swift-bundler@main run Facet $args
+fi

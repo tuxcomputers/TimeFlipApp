@@ -280,3 +280,46 @@ name, which should read `Facet` from the start rather than be changed later, sin
 purpose claimed, and there is nothing to film until Part 2 is built. The homepage and the privacy policy are live
 already at `facet.tux.com.au` (`~/harry.git/facet_tux_com_au`), so the step 6 prerequisites are met and the
 `facet-logo-120.png` in that repo is the consent screen logo.
+
+---
+
+## Why macOS asks for Keychain access after every rebuild
+
+The refresh token lives in the login Keychain (`GoogleTokenStore`), and the Keychain grants access to *an
+application*, identified by its code signature. **For an ad-hoc signed build that identity is the cdhash of the
+binary**, so every rebuild is a different application as far as the Keychain is concerned. Clicking **Always Allow**
+works exactly as advertised; it just records permission for a binary that no longer exists after the next build.
+
+A real certificate changes what the permission is recorded against. The designated requirement becomes
+
+```
+identifier "au.com.tux.facet" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: ..."
+```
+
+with no hash in it, so it is the same for every build and the answer holds.
+
+**The setup, once:**
+
+1. Xcode -> Settings -> Accounts -> add your Apple ID (a free account is enough), select it, **Manage
+   Certificates...** -> **+** -> **Apple Development**.
+2. Check it is usable: `security find-identity -v -p codesigning` must list it.
+3. Run the app through `scripts/run.sh`, which finds the identity and signs with it. Answer **Always Allow** to the
+   one prompt that follows, because the identity has changed one last time.
+
+**If step 2 says `0 valid identities found` while Xcode clearly shows the certificate**, the chain cannot be built and
+the certificate is therefore not a usable identity. Measured on 2026-08-15: the only WWDR intermediate installed was
+the original one, which **expired on 2023-02-07**, while the certificate itself is issued by WWDR **G3**. Apple Root
+CA was present; the middle link was not. The fix is to install the current intermediate, after which the identity
+appears immediately:
+
+```sh
+curl -O https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer
+security import AppleWWDRCAG3.cer -k ~/Library/Keychains/login.keychain-db
+```
+
+The symptom this produces is misleading, which is why it is written down: `codesign` reports `unable to build chain to
+self-signed root` followed by `errSecInternalComponent`, which reads like a broken certificate or a permissions
+problem rather than a missing intermediate.
+
+**A contributor with no certificate loses nothing but the prompt.** `scripts/run.sh` falls back to an ad-hoc build and
+says so.
