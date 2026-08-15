@@ -17,13 +17,90 @@ final class GoogleSectionTests: XCTestCase {
         (view(identifier, in: root) as? NSTextField)?.stringValue
     }
 
-    private func pane(name: String? = nil, email: String? = nil, credentials: Bool = true) -> AppSettingsPane {
+    private func pane(
+        name: String? = nil,
+        email: String? = nil,
+        credentials: Bool = true,
+        calendar: GoogleCalendarRules.Calendar = .none
+    ) -> AppSettingsPane {
         let pane = AppSettingsPane()
         var values = AppSettingsPane.Values.seeded
         values.googleAccount = GoogleAccountRules.account(name: name, email: email)
         values.googleCredentialsAvailable = credentials
+        values.googleCalendar = calendar
         pane.show(values)
         return pane
+    }
+
+    // MARK: - the calendar row
+
+    func testThereIsNoCalendarRowUntilThereIsAnAccount() {
+        // A calendar belongs to an account. Offering to make one before there is somewhere to make it would be a
+        // button that can only fail.
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendar, in: pane()))
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendarCreate, in: pane()))
+    }
+
+    func testAConnectedAccountWithNoCalendarOffersToMakeOne() throws {
+        // The recovery path. It is normally unreachable, because signing in makes the calendar.
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au")
+
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendar, in: pane), "nothing to name yet")
+        let button = try XCTUnwrap(
+            view(AppSettingsPane.Identifier.googleCalendarCreate, in: pane) as? NSButton
+        )
+        XCTAssertEqual(button.title, "Create calendar")
+
+        var requested: [AppSettingsPane.Change] = []
+        pane.onChange = { requested.append($0) }
+        button.performClick(nil)
+        XCTAssertEqual(requested, [.googleCalendarCreateRequested])
+    }
+
+    func testAnExistingCalendarIsShownByNameAndCanBeRenamed() throws {
+        let pane = self.pane(
+            name: "Harry", email: "harry@tux.com.au",
+            calendar: GoogleCalendarRules.calendar(id: "abc@group.calendar.google.com", name: "Facet")
+        )
+        var requested: [AppSettingsPane.Change] = []
+        pane.onChange = { requested.append($0) }
+
+        let field = try XCTUnwrap(view(AppSettingsPane.Identifier.googleCalendar, in: pane) as? NSTextField)
+        XCTAssertEqual(field.stringValue, "Facet")
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendarCreate, in: pane), "nothing to create")
+
+        field.stringValue = "  Work time  "
+        field.sendAction(field.action, to: field.target)
+        XCTAssertEqual(requested, [.googleCalendarNamed("Work time")], "trimmed on the way out")
+    }
+
+    func testCommittingAnUnchangedNameSpendsNothing() throws {
+        // Tabbing out of a field commits it. That must not become a request to Google.
+        let pane = self.pane(
+            name: "Harry", email: "harry@tux.com.au",
+            calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
+        )
+        var requested: [AppSettingsPane.Change] = []
+        pane.onChange = { requested.append($0) }
+
+        let field = try XCTUnwrap(view(AppSettingsPane.Identifier.googleCalendar, in: pane) as? NSTextField)
+        field.sendAction(field.action, to: field.target)
+
+        XCTAssertEqual(requested, [])
+    }
+
+    func testDisconnectingForgetsTheCalendarToo() {
+        // The id addresses a calendar in *that* account, so keeping it would point the next sign-in at somebody
+        // else's. The calendar itself stays in their Google account, which is right: the events are theirs.
+        let pane = self.pane(
+            name: "Harry", email: "harry@tux.com.au",
+            calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
+        )
+
+        pane.adopt(.googleDisconnected)
+
+        XCTAssertFalse(pane.values.googleCalendar.exists)
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendar, in: pane))
     }
 
     // MARK: - what the row holds

@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (626 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (642 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -190,7 +190,13 @@ The section is built and every row writes. Several of these settings were alread
 
   **The identity comes out of the `id_token`**, not from the userinfo endpoint: with `openid`, `email` and `profile` granted it is already there, so asking again would be a request per sign-in against the project's own quota. It is not signature-checked, which is correct for a token taken straight from the token endpoint over TLS. **The refresh token goes to the login Keychain**, the one deliberate exception to the database-is-the-source-of-truth rule, and is cleared on sign-out along with the identity. **Disconnect works**, because clearing a row needs no network.
 
-  **Untested against Google**: the round trip needs a browser and a real account, so `swift test` covers the decisions and not the journey. It clears the name and the email and nothing else, since `calendar_id`, `calendar_name` and `client_id` share that row and are configuration rather than identity -- and it only reports success when *both* writes read back, because a half-cleared row still counts as connected and the window would then be disagreeing with its own table.
+  **The calendar is made at the end of sign-in** ([GoogleCalendarRules.swift](../Sources/FacetApp/GoogleCalendarRules.swift), [GoogleCalendarClient.swift](../Sources/FacetApp/GoogleCalendarClient.swift)), named `Facet`, with its id and name stored in the same row as the identity. **Everything keys off `calendar_id`, never the name**, since the user can rename it at Google in two clicks. The name is shown as an editable row, and editing it is a real `calendars.patch` adopted only on read-back: a field that changed nothing outside the app would be the two-answers problem itself.
+
+  **Nothing polls.** No launch check, because that would be a Calendar API request per launch per user for a label that rarely changes, and it would make startup wait on Google being reachable. Drift and deletion are meant to surface through the sync, which is the request the app was making anyway.
+
+  **A reconnect reuses rather than duplicates.** Signing out clears the id, since the next sign-in may be a different account, so on the way back in the app asks Google what it already made instead of remembering. Under `calendar.app.created` the list only ever contains Facet's own calendars, which is why one is adopted silently where the archive had to ask (its broader scopes could see the user's calendars). If that list cannot be read, the fallback is to create, which is no worse than not asking.
+
+  **Untested against Google**: sign-in has been run against a real account and works; the calendar create, reuse and rename have not, so `swift test` covers the decisions and not the journey. It clears the name and the email and nothing else, since `calendar_id`, `calendar_name` and `client_id` share that row and are configuration rather than identity -- and it only reports success when *both* writes read back, because a half-cleared row still counts as connected and the window would then be disagreeing with its own table.
 
 - [ ] **Google Calendar sync** (`google_account`, `time_entry.synced_to_google_calendar`). **Not a screen: a step in recording.** It happens when a `time_entry` is created, marking the row as it goes, so it belongs beside [TimeEntryRecorder](../Sources/FacetApp/TimeEntryRecorder.swift) rather than on the Report tab -- which is where the archive drew its Google *settings*, and the reason that tab is worth remembering as prior art for none of this.
 

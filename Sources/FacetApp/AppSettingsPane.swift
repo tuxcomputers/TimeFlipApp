@@ -39,6 +39,8 @@ final class AppSettingsPane: NSView {
         static let googleAccount = "app-google-account"
         static let googleEmail = "app-google-email"
         static let googleButton = "app-google-button"
+        static let googleCalendar = "app-google-calendar"
+        static let googleCalendarCreate = "app-google-calendar-create"
         static let googleNote = "app-google-note"
     }
 
@@ -77,6 +79,8 @@ final class AppSettingsPane: NSView {
         /// Whether this build has an OAuth client in it at all. Not a setting: it comes from the bundle and the
         /// override file, and it decides whether the button can do anything.
         var googleCredentialsAvailable = false
+        /// The calendar Facet owns, from the same row as the identity.
+        var googleCalendar = GoogleCalendarRules.Calendar.none
 
         /// What a database with none of these rows would give, which is what the seeds give
         /// (`database/011_setting.sql`). Named here rather than at each call site so one missing row cannot come to
@@ -111,6 +115,12 @@ final class AppSettingsPane: NSView {
         case googleSignInRequested
         /// The identity the table now holds, after a sign-in was written and read back.
         case googleConnected(GoogleAccountRules.Account)
+        /// A new name for the calendar, typed and committed. **A request**: it is a rename at Google, not a label.
+        case googleCalendarNamed(String)
+        /// Make the calendar. Only reachable when there is none, which is a recovery rather than the usual path.
+        case googleCalendarCreateRequested
+        /// The calendar the table now holds, after Google answered and the write was read back.
+        case googleCalendarChanged(GoogleCalendarRules.Calendar)
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -159,8 +169,15 @@ final class AppSettingsPane: NSView {
         case let .googleConnected(account):
             values.googleAccount = account
             showGoogle()
+        case .googleCalendarNamed, .googleCalendarCreateRequested:
+            // Requests. What the calendar becomes arrives as `googleCalendarChanged`.
+            break
+        case let .googleCalendarChanged(calendar):
+            values.googleCalendar = calendar
+            showGoogle()
         case .googleDisconnected:
             values.googleAccount = .none
+            values.googleCalendar = .none
             // The one change here that *does* redraw its rows. The reason the others do not is that somebody is
             // typing in them, and taking a field out from under them is the harm being avoided. Nobody types into a
             // status line, and leaving it reading "Connected" under a button that just disconnected would be the
@@ -213,6 +230,10 @@ final class AppSettingsPane: NSView {
             built.append(row("Email", label(email, identifier: Identifier.googleEmail), separated: true))
         }
 
+        if account.isConnected {
+            built.append(calendarRow())
+        }
+
         let hasCredentials = values.googleCredentialsAvailable
         let button = NSButton(
             title: GoogleAccountRules.buttonTitle(for: account, isSigningIn: isSigningIn),
@@ -237,6 +258,50 @@ final class AppSettingsPane: NSView {
         // in Auto Layout (`Tests/Methods.md`), so while the Google section sat above App settings this had to swap
         // two constraints to stop the empty note pushing the heading under it down. Being last removed that.
         googleNote.isHidden = note == nil
+    }
+
+    /// The Calendar row: the name, editable, or a button to make one when there is none.
+    ///
+    /// **Editable only once the calendar exists.** Naming something that has not been created yet would be a field
+    /// whose value has nowhere to go, and the create path uses the default name rather than asking for one at the
+    /// moment somebody is trying to connect an account.
+    private func calendarRow() -> NSView {
+        guard values.googleCalendar.exists else {
+            let button = NSButton(
+                title: "Create calendar", target: self, action: #selector(googleCalendarCreatePressed)
+            )
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.isEnabled = !isSigningIn
+            button.setAccessibilityIdentifier(Identifier.googleCalendarCreate)
+            return row("Calendar", button, separated: true)
+        }
+
+        let field = NSTextField(string: values.googleCalendar.name ?? GoogleCalendarRules.defaultName)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.alignment = .right
+        field.isBordered = false
+        field.drawsBackground = false
+        field.target = self
+        // On commit only, never per keystroke: a rename is a request to Google, and one per character typed would be
+        // both wrong and expensive.
+        field.action = #selector(googleCalendarNamed)
+        field.setAccessibilityIdentifier(Identifier.googleCalendar)
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+        return row("Calendar", field, separated: true)
+    }
+
+    @objc
+    private func googleCalendarNamed(_ sender: NSTextField) {
+        let typed = GoogleCalendarRules.name(fromTyped: sender.stringValue)
+        // Unchanged is not a rename. Committing a field by tabbing out of it should not spend a request.
+        guard typed != values.googleCalendar.name else { return }
+        onChange?(.googleCalendarNamed(typed))
+    }
+
+    @objc
+    private func googleCalendarCreatePressed() {
+        onChange?(.googleCalendarCreateRequested)
     }
 
     private func label(_ text: String, identifier: String) -> NSTextField {

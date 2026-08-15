@@ -194,7 +194,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 name: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.nameField),
                 email: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.emailField)
             ),
-            googleCredentialsAvailable: GoogleCredentials.resolve() != nil
+            googleCredentialsAvailable: GoogleCredentials.resolve() != nil,
+            googleCalendar: GoogleCalendarRules.calendar(
+                id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
+                name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
+            )
         )
     }
 
@@ -228,6 +232,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         if case .googleSignInRequested = change {
             signInToGoogle(from: pane, using: settings)
+            return
+        }
+        if case let .googleCalendarNamed(name) = change {
+            renameGoogleCalendar(to: name, from: pane, using: settings)
+            return
+        }
+        if case .googleCalendarCreateRequested = change {
+            createGoogleCalendar(from: pane, using: settings)
+            return
+        }
+        if case .googleCalendarChanged = change {
+            pane.adopt(change)
             return
         }
         if case .googleConnected = change {
@@ -301,11 +317,128 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 )
                 self?.debugLog?.record(.field, "Google sign-in finished, account \(account.email ?? "unnamed")")
                 pane?.adopt(.googleConnected(account))
+                // The calendar is made here rather than behind a button, so the only way to reach "connected with
+                // nowhere to sync" is a failure. The access token is already in hand, so this costs no refresh.
+                if let pane {
+                    await self?.makeGoogleCalendar(
+                        named: GoogleCalendarRules.defaultName,
+                        accessToken: tokens.accessToken,
+                        from: pane,
+                        using: settings
+                    )
+                }
             } catch {
                 self?.debugLog?.record(.field, "Google sign-in failed: \(error.localizedDescription)")
                 self?.showGoogleFailed(error)
             }
         }
+    }
+
+    /// Makes the calendar and records it, given a token that is already valid.
+    ///
+    /// **The id is written before the name**, and the calendar is only treated as existing once the id reads back. A
+    /// name stored against no id would be a label for something that cannot be written to.
+    private func makeGoogleCalendar(
+        named name: String,
+        accessToken: String,
+        from pane: AppSettingsPane,
+        using settings: SettingStore
+    ) async {
+        do {
+            // Ask before making. A reconnect to the same account finds the calendar it made last time, rather than
+            // making a second one beside it with the history split across the two.
+            // `??` cannot be used here: its right-hand side is an autoclosure, which cannot be awaited.
+            let made: GoogleCalendarRules.Calendar
+            if let found = await GoogleCalendarClient.existing(named: name, accessToken: accessToken) {
+                made = found
+                debugLog?.record(.field, "Google calendar reused, \(found.name ?? "unnamed")")
+            } else {
+                made = try await GoogleCalendarClient.create(name: name, accessToken: accessToken)
+            }
+            guard let id = made.id,
+                  settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, id),
+                  settings.write(
+                      GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, made.name ?? name
+                  )
+            else {
+                throw GoogleCalendarRules.Failure.createFailed("the database would not record it")
+            }
+            let stored = GoogleCalendarRules.calendar(
+                id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
+                name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
+            )
+            debugLog?.record(.field, "Google calendar created, \(stored.name ?? "unnamed")")
+            pane.adopt(.googleCalendarChanged(stored))
+        } catch {
+            debugLog?.record(.field, "Google calendar creation failed: \(error.localizedDescription)")
+            showGoogleFailed(error)
+        }
+    }
+
+    /// The recovery path: the button that only appears when there is no calendar.
+    private func createGoogleCalendar(from pane: AppSettingsPane, using settings: SettingStore) {
+        pane.setSigningIn(true)
+        Task { @MainActor [weak self, weak pane] in
+            defer { pane?.setSigningIn(false) }
+            guard let self, let pane else { return }
+            do {
+                let token = try await self.googleAccessToken()
+                await self.makeGoogleCalendar(
+                    named: GoogleCalendarRules.defaultName, accessToken: token, from: pane, using: settings
+                )
+            } catch {
+                self.showGoogleFailed(error)
+            }
+        }
+    }
+
+    /// Renames the calendar at Google, then records what it ended up being called.
+    ///
+    /// **Google is asked first and the row follows.** The calendar belongs to the user's account, so the name there is
+    /// the real one; a row updated first would be Facet claiming a rename that may not have happened.
+    private func renameGoogleCalendar(to name: String, from pane: AppSettingsPane, using settings: SettingStore) {
+        guard let id = pane.values.googleCalendar.id else { return }
+        Task { @MainActor [weak self, weak pane] in
+            guard let self, let pane else { return }
+            do {
+                let token = try await self.googleAccessToken()
+                let renamed = try await GoogleCalendarClient.rename(id: id, to: name, accessToken: token)
+                guard settings.write(
+                    GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, renamed.name ?? name
+                ) else {
+                    throw GoogleCalendarRules.Failure.renameFailed("the database would not record it")
+                }
+                let stored = GoogleCalendarRules.calendar(
+                    id: id, name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
+                )
+                self.debugLog?.record(.field, "Google calendar renamed to \(stored.name ?? "unnamed")")
+                pane.adopt(.googleCalendarChanged(stored))
+            } catch is CalendarGone {
+                // The one failure that may lead to making another one, and it says so rather than being inferred from
+                // an empty id. Left to the button: creating silently under somebody who was renaming is a surprise.
+                _ = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, "")
+                _ = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, "")
+                pane.adopt(.googleCalendarChanged(.none))
+                self.showGoogleFailed(GoogleCalendarRules.Failure.renameFailed(
+                    "that calendar no longer exists in your Google account, so Facet has forgotten it"
+                ))
+            } catch {
+                // The field is showing what somebody typed; put the row back to what is stored.
+                pane.adopt(.googleCalendarChanged(pane.values.googleCalendar))
+                self.showGoogleFailed(error)
+            }
+        }
+    }
+
+    /// A usable access token, from the refresh token in the Keychain.
+    private func googleAccessToken() async throws -> String {
+        guard let credentials = GoogleCredentials.resolve() else {
+            throw GoogleOAuthRules.Failure.noCredentials
+        }
+        guard let refresh = GoogleTokenStore.refreshToken() else {
+            throw GoogleCalendarRules.Failure.notSignedIn
+        }
+        return try await GoogleCalendarClient.accessToken(credentials: credentials, refreshToken: refresh)
     }
 
     /// What a failed sign-in says. The message comes from `GoogleOAuthRules.Failure`, which is where the wording lives
@@ -331,7 +464,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func disconnectGoogle(from pane: AppSettingsPane, using settings: SettingStore) {
         let clearedName = settings.write(GoogleAccountRules.setting, field: GoogleAccountRules.nameField, "")
         let clearedEmail = settings.write(GoogleAccountRules.setting, field: GoogleAccountRules.emailField, "")
-        let stored = clearedName && clearedEmail
+        // The calendar id goes with the account. It addresses a calendar in *that* account, so keeping it would leave
+        // the next sign-in pointed at somebody else's. The calendar itself stays in their Google account, which is
+        // right: the events already written to it are theirs.
+        let clearedCalendar = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, "")
+            && settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, "")
+        let stored = clearedName && clearedEmail && clearedCalendar
         debugLog?.record(
             .field,
             "Google account disconnected\(stored ? "" : " REFUSED, the table still holds an identity")"
