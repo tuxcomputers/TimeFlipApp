@@ -49,10 +49,47 @@ check "every logged row resolved a real time zone" "0" "$unknown"
 
 # ---------------------------------------------------------------------------- one instance only
 #
-# A second copy must stand down rather than open the database a second time. It exits 0 doing so,
-# because standing down is this code working, and it says so on stderr.
-second=$(open -n "$APP" 2>&1; sleep 2; echo done)
-count=$(pgrep -x Facet | wc -l | tr -d ' ')
-check "a second launch does not leave a second instance running" "1" "$count"
+# **The binary is run directly, not through `open`.** `open -n` hands the launch to macOS, which may
+# decline to start a duplicate for reasons of its own, and it discards the launched process's stderr --
+# so a check built on it can pass without the lock ever being asked anything, and can never see the
+# refusal. Running the executable is the only way to get both the exit status and the message.
+#
+# Accessibility ignores a bare executable (Method 1), which does not matter here: nothing presses
+# anything, the process is expected to die in milliseconds.
+
+since=$(mark)
+refusal="$(mktemp)"
+"$BINARY" >"$refusal" 2>&1 &
+second=$!
+
+# Waited for rather than slept on, and killed if it outlives the wait -- if the lock ever stopped
+# working this would otherwise be a second app running for the rest of the suite, which is a far more
+# confusing failure than the one being tested for.
+waited=0
+while kill -0 "$second" 2>/dev/null && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+done
+
+if kill -0 "$second" 2>/dev/null; then
+    kill "$second" 2>/dev/null
+    fail "the second instance was still running after 5s, so the lock did not hold"
+else
+    wait "$second"
+    status=$?
+    # **Zero, deliberately.** Standing down is this code working, and a non-zero status would tell
+    # whatever launched it that the launch was broken.
+    check "a second instance exits, and exits 0" "0" "$status"
+    check_contains "saying why on stderr" "$(cat "$refusal")" "already running"
+fi
+rm -f "$refusal"
+
+# The point of the lock: a duplicate must not open the database. `Manual mode` is logged after the lock
+# is claimed and the database is open, so a second one of those is the failure this exists to prevent --
+# and it is a sharper test than counting processes, which cannot tell "refused" from "never started".
+check "and it never opened the database" "0" \
+    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Manual mode%';")"
+
+check "the original is still the only one running" "1" "$(pgrep -x Facet | wc -l | tr -d ' ')"
 
 finish
