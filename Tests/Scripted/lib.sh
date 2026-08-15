@@ -69,18 +69,32 @@ check_contains() {
     local name="$1" haystack="$2" needle="$3"
     case "$haystack" in
         *"$needle"*) pass "$name" ;;
-        *) fail "$name (no '$needle' in '$haystack')" ;;
+        *)
+            # Truncated: the haystack is often the whole accessibility tree, and printing it buries the
+            # failure it is supposed to explain.
+            local shown="${haystack:0:160}"
+            [ "${#haystack}" -gt 160 ] && shown="$shown..."
+            fail "$name (no '$needle' in '$shown')"
+            ;;
     esac
 }
+
+# Neither passed nor failed: the thing could not be checked here, and saying so is more honest than a
+# tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
+# but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
+SKIPPED=0
+skip() { SKIPPED=$((SKIPPED + 1)); printf '\033[0;33m  SKIP  %s\033[0m\n' "$*"; }
 
 # Ends the script and decides its exit status. Non-zero on any failure, which is what lets run.sh stop
 # rather than carry on into scripts whose starting state the failure just invalidated.
 finish() {
     echo ""
+    local skipped=""
+    [ "${SKIPPED:-0}" -gt 0 ] && skipped=", $SKIPPED skipped"
     if [ "$FAILED" -eq 0 ]; then
-        green "$SCRIPT_NAME: $PASSED passed, 0 failed"
+        green "$SCRIPT_NAME: $PASSED passed, 0 failed$skipped"
     else
-        red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$FAILURES"
+        red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$skipped$FAILURES"
     fi
     [ "$FAILED" -eq 0 ]
 }
@@ -163,11 +177,22 @@ is_running() { pgrep -x Facet >/dev/null 2>&1; }
 ensure_app_running() {
     if is_running; then
         grey "  app: already running"
+        if ! codesign -dvvv "$APP" 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]"; then
+            grey "  note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
+            grey "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
+        fi
         return 0
     fi
     if [ ! -x "$BINARY" ] || [ -n "$(find Sources -newer "$BINARY" -name '*.swift' -print -quit 2>/dev/null)" ]; then
         grey "  building (sources are newer than the bundle)..."
-        if ! mint run stackotter/swift-bundler@main bundle Facet >/dev/null 2>&1; then
+        # **Signed, exactly as scripts/run.sh signs it.** An ad-hoc build is a different application to
+        # the Keychain, so the refresh token behind Google sync stops being readable without a prompt --
+        # and nothing says so: the sweep just never runs. That is how 10-google-calendar failed the first
+        # time it was written, against a binary this function had built unsigned.
+        identity="$(scripts/codesign-identity.sh)"
+        signing=""
+        [ -n "$identity" ] && signing="--codesign --identity $identity"
+        if ! mint run stackotter/swift-bundler@main bundle Facet $signing >/dev/null 2>&1; then
             red "  the build failed; running an old binary would prove nothing"
             exit 2
         fi
@@ -223,6 +248,10 @@ PYTHON
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
 set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
 tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
+
+# One element's line from the tree, so a check reads the thing it is about rather than searching the
+# whole window -- and a failure prints that line rather than several hundred.
+element() { tree | grep -m1 "id=$1 " || true; }
 
 settings_is_open() { tree | grep -q "close-settings"; }
 

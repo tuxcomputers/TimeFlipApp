@@ -46,13 +46,7 @@ done
 # Found rather than configured, so a contributor with no certificate still gets a working script: without one the
 # app is ad-hoc signed exactly as before, and the only cost is the prompt. `FACET_CODESIGN_IDENTITY` overrides the
 # search for anyone holding more than one.
-identity="${FACET_CODESIGN_IDENTITY:-}"
-if [ -z "$identity" ]; then
-    identity=$(security find-identity -v -p codesigning 2>/dev/null \
-        | grep -E '"(Apple Development|Developer ID Application):' \
-        | head -1 \
-        | sed -E 's/.*"(.*)".*/\1/')
-fi
+identity="$(scripts/codesign-identity.sh)"
 
 if [ -n "$identity" ]; then
     echo "Signing as: $identity"
