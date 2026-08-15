@@ -55,39 +55,6 @@ enum GoogleCalendarClient {
         return try await accessToken(credentials: credentials, refreshToken: refresh, session: session)
     }
 
-    /// The calendar Facet already made in this account, if there is one.
-    ///
-    /// **This is what stops a reconnect making a second "Facet".** Signing out clears the stored id, because the next
-    /// sign-in may be a different account and an id from the old one would address nothing. So on the way back in the
-    /// app has to ask rather than remember, or somebody who disconnects and reconnects gets a duplicate with their
-    /// history split across the two.
-    ///
-    /// **Everything this returns was made by Facet.** Under `calendar.app.created` the Calendar API only ever shows
-    /// the app its own calendars, which is why adopting one silently is right here. The archive had to *ask* before
-    /// reusing a calendar (`ReportSettingsView`'s "already exists" alert) because its broader scopes could see
-    /// calendars belonging to the user, and adopting one of those without asking would have been presumptuous.
-    ///
-    /// **A failure is not an answer.** If the list cannot be read, this says "none found" and the caller creates one,
-    /// which is the behaviour without this method at all. Better a possible duplicate than refusing to sign in.
-    static func existing(
-        named preferred: String,
-        accessToken: String,
-        session: URLSession = .shared
-    ) async -> GoogleCalendarRules.Calendar? {
-        var request = URLRequest(url: GoogleCalendarRules.calendarListEndpoint)
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        guard
-            let (data, _) = try? await session.data(for: request),
-            let found = GoogleCalendarRules.calendars(fromList: data),
-            !found.isEmpty
-        else {
-            return nil
-        }
-        // More than one only happens where a duplicate was already made, before this existed. Preferring the one
-        // that is actually called what we would have called it keeps the app on the calendar somebody recognises.
-        return found.first { $0.name == preferred } ?? found.first
-    }
-
     /// Fetches the stored calendar, to find out whether it is still there and what it is called now.
     ///
     /// **This is where drift is noticed**, without a poll: the same request that proves the calendar exists also

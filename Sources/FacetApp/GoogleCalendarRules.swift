@@ -17,9 +17,6 @@ enum GoogleCalendarRules {
     static let defaultName = "Facet"
 
     static let endpoint = URL(string: "https://www.googleapis.com/calendar/v3/calendars")!
-    /// Under `calendar.app.created` this lists only the calendars this app made, which is what makes it safe to adopt
-    /// one without asking.
-    static let calendarListEndpoint = URL(string: "https://www.googleapis.com/calendar/v3/users/me/calendarList")!
 
     /// What the table holds about the calendar.
     struct Calendar: Equatable {
@@ -98,20 +95,6 @@ enum GoogleCalendarRules {
             return nil
         }
         return Calendar(id: id, name: trimmedOrNil(object["summary"] as? String))
-    }
-
-    /// Reads a calendar list, keeping only entries with an id.
-    static func calendars(fromList data: Data) -> [Calendar]? {
-        guard
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let items = object["items"] as? [[String: Any]]
-        else {
-            return nil
-        }
-        return items.compactMap { item in
-            guard let id = item["id"] as? String, !id.isEmpty else { return nil }
-            return Calendar(id: id, name: trimmedOrNil(item["summary"] as? String))
-        }
     }
 
     /// Whether a failure means the calendar is gone rather than that the request went wrong.

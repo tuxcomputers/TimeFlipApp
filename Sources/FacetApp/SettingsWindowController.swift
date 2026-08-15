@@ -350,6 +350,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **The id is written before the name**, and the calendar is only treated as existing once the id reads back. A
     /// name stored against no id would be a label for something that cannot be written to.
+    ///
+    /// **It creates rather than looking first.** This used to ask `calendarList.list` whether the account already had a
+    /// Facet calendar, so that a database with no stored id could adopt one instead of making a second. That lookup
+    /// does not work: with `calendar_id` blanked and a known-good calendar sitting in the account, a reconnect logged
+    /// "created" rather than "reused" and produced a duplicate, so `calendarList.list` returns nothing usable under
+    /// `calendar.app.created` (measured 2026-08-15). It failed safe, which is why it survived as long as it did, and
+    /// its own comment claimed a protection that was not there.
+    ///
+    /// What is left is honest: reaching here means the app has no calendar, and it makes one. The case the lookup was
+    /// written for has also largely gone, since signing out now **keeps** the stored id -- only a fresh database or a
+    /// hand-cleared row gets here with an account that already has a calendar, and the duplicate that follows is
+    /// visible in the user's own calendar list rather than silent.
     private func makeGoogleCalendar(
         named name: String,
         accessToken: String,
@@ -357,15 +369,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         using settings: SettingStore
     ) async {
         do {
-            let made: GoogleCalendarRules.Calendar
-            if let found = await GoogleCalendarClient.existing(named: name, accessToken: accessToken) {
-                // A database with no id but an account that already has a Facet calendar: a fresh install against an
-                // account used before. Adopting it beats making a second one.
-                made = found
-                debugLog?.record(.field, "Google calendar reused, \(found.name ?? "unnamed")")
-            } else {
-                made = try await GoogleCalendarClient.create(name: name, accessToken: accessToken)
-            }
+            let made = try await GoogleCalendarClient.create(name: name, accessToken: accessToken)
             guard let id = made.id,
                   settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, id),
                   settings.write(

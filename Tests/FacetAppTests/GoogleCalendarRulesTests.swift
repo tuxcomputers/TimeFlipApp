@@ -47,25 +47,6 @@ final class GoogleCalendarRulesTests: XCTestCase {
         XCTAssertNil(GoogleCalendarRules.calendar(fromResponse: body))
     }
 
-    func testTheListIsReadAndEntriesWithoutIdsAreDropped() throws {
-        let body = try JSONSerialization.data(withJSONObject: ["items": [
-            ["id": "one@group.calendar.google.com", "summary": "Facet"],
-            ["summary": "no id here"],
-            ["id": "two@group.calendar.google.com"],
-        ]])
-        let found = try XCTUnwrap(GoogleCalendarRules.calendars(fromList: body))
-        XCTAssertEqual(found.map(\.id), ["one@group.calendar.google.com", "two@group.calendar.google.com"])
-        XCTAssertEqual(found[0].name, "Facet")
-        XCTAssertNil(found[1].name)
-    }
-
-    func testAnEmptyListIsAnAnswerAndRubbishIsNot() throws {
-        // "No calendars" means make one. "Could not read that" must not, or a bad reply creates a duplicate.
-        let empty = try JSONSerialization.data(withJSONObject: ["items": []])
-        XCTAssertEqual(GoogleCalendarRules.calendars(fromList: empty)?.count, 0)
-        XCTAssertNil(GoogleCalendarRules.calendars(fromList: Data("not json".utf8)))
-    }
-
     // MARK: - when a calendar may be replaced
 
     func testOnlyAGoneCalendarJustifiesMakingAnother() {
