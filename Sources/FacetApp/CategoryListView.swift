@@ -140,6 +140,9 @@ final class CategoryRowView: NSButton {
         title = ""
         isBordered = false
         setButtonType(.momentaryChange)
+        // A row is a swatch and a name, and a focus ring round it outlines the icon and the words in blue and leaves
+        // them outlined after the click, which reads as a selected row in a list that has no selection.
+        focusRingType = .none
         target = self
         action = #selector(clicked)
         translatesAutoresizingMaskIntoConstraints = false

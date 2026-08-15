@@ -162,6 +162,12 @@ final class TimingView: NSView {
         playPauseButton.isBordered = false
         playPauseButton.bezelStyle = .inline
         playPauseButton.imagePosition = .imageOnly
+        // No focus ring. The glyph *is* the control and it is drawn at the column's width, so the ring is a large blue
+        // rectangle round the middle of the tab that appears on the first click and stays until something else takes
+        // focus -- it reads as the icon being selected rather than as anything having been pressed. The same reason
+        // `IconGrid`, `ColourList` and the Report tab's calendar all switch it off: a control that draws its own
+        // appearance does not want a second one drawn over it.
+        playPauseButton.focusRingType = .none
         playPauseButton.target = self
         playPauseButton.action = #selector(togglePause)
         playPauseButton.translatesAutoresizingMaskIntoConstraints = false
