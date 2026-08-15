@@ -186,7 +186,7 @@ The section is built and every row writes. Several of these settings were alread
 
   There is also less prior art than the archive suggests. `google_account`, the auth and the calendar listing were built (`Archive/TimeFlipApp/GoogleIntegrationCoordinator.swift`); **the sync itself never was**, and nothing in that codebase ever wrote `synced_to_google_calendar`. So the column is a stated intention rather than a shipped feature to copy.
 
-  Undecided, and worth deciding before it is built rather than while: **where the account and the calendar choice are set from**. The archive's answer was the Report tab, which this reading rules out.
+  Undecided, and worth deciding before it is built rather than while: **where the account connection lives**. The archive's answer was the Report tab, which this reading rules out. What is no longer in question is the credentials: they are bundled, so a user pastes nothing. See [google-oauth-setup.md](google-oauth-setup.md) for what that needs on Google's side (one project, published and verified, before any of this ships) and on the app's.
 - [ ] **`device_notification`**: the table exists and nothing writes it, so a double-tap or a low battery leaves no record.
 - [ ] **Per-tick logging for the history timer**, which currently says nothing between "started" and a segment changing. Logging every timeout that wrote, plus the first skip after a run of writes, would show the cadence without a row a second.
 - [ ] **The real developer-mode gate.** `DeveloperMode.isEnabled` is a hardcoded `true`, which is fine while the app is unreleased and must not ship that way.

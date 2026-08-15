@@ -8,6 +8,10 @@ Once the app is installed and running (see [Installation](installation.md)), use
 
 To enable Google Calendar integration, you need to create a Google Cloud project and configure OAuth credentials.
 
+> **This is the previous app's flow, and it is being replaced.** The rebuild ships its own OAuth client inside the
+> binary, so this whole section becomes "click Sign in with Google". Whoever publishes the binary does the setup once:
+> see [google-oauth-setup.md](google-oauth-setup.md).
+
 ### Step 1: Create a Google Cloud Project
 
 1. Go to the [Google Cloud Manage resources](https://console.cloud.google.com/cloud-resource-manager)
