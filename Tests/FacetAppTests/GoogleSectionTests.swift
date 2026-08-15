@@ -17,10 +17,11 @@ final class GoogleSectionTests: XCTestCase {
         (view(identifier, in: root) as? NSTextField)?.stringValue
     }
 
-    private func pane(name: String? = nil, email: String? = nil) -> AppSettingsPane {
+    private func pane(name: String? = nil, email: String? = nil, credentials: Bool = true) -> AppSettingsPane {
         let pane = AppSettingsPane()
         var values = AppSettingsPane.Values.seeded
         values.googleAccount = GoogleAccountRules.account(name: name, email: email)
+        values.googleCredentialsAvailable = credentials
         pane.show(values)
         return pane
     }
@@ -50,7 +51,7 @@ final class GoogleSectionTests: XCTestCase {
 
     // MARK: - what the section draws
 
-    func testAnUnconnectedSectionOffersSignInAndSaysWhyItCannot() throws {
+    func testAnUnconnectedSectionOffersSignIn() throws {
         let pane = self.pane()
 
         XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Not connected")
@@ -59,12 +60,60 @@ final class GoogleSectionTests: XCTestCase {
 
         let button = try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton)
         XCTAssertEqual(button.title, "Sign in with Google")
-        // Disabled rather than absent, and with the reason beside it: the archive did the same when its credentials
-        // were missing. A button that is off and says why beats one that is on and does nothing.
-        XCTAssertFalse(button.isEnabled)
+        XCTAssertTrue(button.isEnabled)
         let note = try XCTUnwrap(view(AppSettingsPane.Identifier.googleNote, in: pane) as? NSTextField)
         XCTAssertFalse(note.isHidden)
-        XCTAssertTrue(note.stringValue.contains("not built yet"))
+        XCTAssertTrue(note.stringValue.contains("calendar it makes itself"),
+                      "says what pressing it does, and how little it touches")
+    }
+
+    func testABuildWithNoCredentialsCannotSignInAndSaysSo() throws {
+        // A real state rather than a hypothetical: the client id and secret are injected at build time, so a copy
+        // built without them exists. A dead button with no reason reads as a bug.
+        let pane = self.pane(credentials: false)
+
+        let button = try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton)
+        XCTAssertFalse(button.isEnabled)
+        let note = try XCTUnwrap(view(AppSettingsPane.Identifier.googleNote, in: pane) as? NSTextField)
+        XCTAssertTrue(note.stringValue.contains("without Google credentials"))
+    }
+
+    func testDisconnectingNeedsNoCredentials() throws {
+        // Signing out is clearing a row and a Keychain item. A build that cannot sign in must still be able to let go
+        // of an account it is already holding.
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au", credentials: false)
+        XCTAssertTrue(try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton).isEnabled)
+    }
+
+    func testTheButtonIsOffWhileASignInIsRunning() throws {
+        // Otherwise a second press opens a second browser window on a second listener, and the first one is orphaned.
+        let pane = self.pane()
+        pane.setSigningIn(true)
+
+        let button = try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton)
+        XCTAssertEqual(button.title, "Signing in...")
+        XCTAssertFalse(button.isEnabled)
+    }
+
+    func testPressingSignInAsksRatherThanActs() throws {
+        let pane = self.pane()
+        var requested: [AppSettingsPane.Change] = []
+        pane.onChange = { requested.append($0) }
+
+        try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton).performClick(nil)
+
+        XCTAssertEqual(requested, [.googleSignInRequested])
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Not connected",
+                       "nothing changes until the table says it did")
+    }
+
+    func testAdoptingAConnectionDrawsTheAccount() throws {
+        let pane = self.pane()
+
+        pane.adopt(.googleConnected(GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")))
+
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Connected")
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleEmail, in: pane), "harry@tux.com.au")
     }
 
     func testAConnectedSectionNamesTheAccountAndOffersDisconnect() throws {

@@ -74,6 +74,9 @@ final class AppSettingsPane: NSView {
         /// Who is signed in, from the `google_account` row. Part of this struct rather than read separately because
         /// it is read in the same pass: opening the window reads every value the window shows, in one go.
         var googleAccount = GoogleAccountRules.Account.none
+        /// Whether this build has an OAuth client in it at all. Not a setting: it comes from the bundle and the
+        /// override file, and it decides whether the button can do anything.
+        var googleCredentialsAvailable = false
 
         /// What a database with none of these rows would give, which is what the seeds give
         /// (`database/011_setting.sql`). Named here rather than at each call site so one missing row cannot come to
@@ -103,6 +106,11 @@ final class AppSettingsPane: NSView {
         /// Sign out: clear the connected identity. Carries no value because it is not a row being set to something,
         /// it is a row being emptied, and "emptied" has only one meaning.
         case googleDisconnected
+        /// Sign in. **A request with no value at all**: what the account turns out to be is Google's to say, and comes
+        /// back as `googleConnected`.
+        case googleSignInRequested
+        /// The identity the table now holds, after a sign-in was written and read back.
+        case googleConnected(GoogleAccountRules.Account)
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -113,6 +121,8 @@ final class AppSettingsPane: NSView {
     private let rows = NSStackView()
     private let googleRows = NSStackView()
     private let googleNote = NSTextField(labelWithString: "")
+    /// Transient, and deliberately not in `Values`: it is what the app is doing, not what the table says.
+    private var isSigningIn = false
     private var showSecondsBox: NSButton!
     private var pauseOnLockBox: NSButton!
     private var dailyResetField: SteppedNumberField!
@@ -143,6 +153,12 @@ final class AppSettingsPane: NSView {
         case let .batteryWarningPercent(value): values.batteryWarningPercent = value
         case let .fetchIntervalMinutes(value): values.fetchIntervalSeconds = AppSettingsRules.seconds(fromMinutes: value)
         case let .blipSeconds(value): values.blipSeconds = value
+        case .googleSignInRequested:
+            // Nothing to take on: the answer arrives as `googleConnected` once the table has it.
+            break
+        case let .googleConnected(account):
+            values.googleAccount = account
+            showGoogle()
         case .googleDisconnected:
             values.googleAccount = .none
             // The one change here that *does* redraw its rows. The reason the others do not is that somebody is
@@ -197,22 +213,25 @@ final class AppSettingsPane: NSView {
             built.append(row("Email", label(email, identifier: Identifier.googleEmail), separated: true))
         }
 
+        let hasCredentials = values.googleCredentialsAvailable
         let button = NSButton(
-            title: GoogleAccountRules.buttonTitle(for: account),
+            title: GoogleAccountRules.buttonTitle(for: account, isSigningIn: isSigningIn),
             target: self,
             action: #selector(googleButtonPressed)
         )
         button.bezelStyle = .rounded
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.isEnabled = GoogleAccountRules.isButtonEnabled(for: account)
+        button.isEnabled = GoogleAccountRules.isButtonEnabled(
+            for: account, hasCredentials: hasCredentials, isSigningIn: isSigningIn
+        )
         button.setAccessibilityIdentifier(Identifier.googleButton)
-        built.append(row(GoogleAccountRules.note(for: account) == nil ? "Account" : "Google", button, separated: false))
+        built.append(row(account.isConnected ? "Account" : "Google", button, separated: false))
 
         for view in built {
             googleRows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: googleRows.widthAnchor).isActive = true
         }
-        let note = GoogleAccountRules.note(for: account)
+        let note = GoogleAccountRules.note(for: account, hasCredentials: hasCredentials)
         googleNote.stringValue = note ?? ""
         // **Nothing is anchored below this**, which is what makes hiding it enough. A hidden view keeps its height
         // in Auto Layout (`Tests/Methods.md`), so while the Google section sat above App settings this had to swap
@@ -227,11 +246,16 @@ final class AppSettingsPane: NSView {
         return label
     }
 
+    /// Shows that a sign-in is under way, so the button cannot be pressed again while a browser window is open on it.
+    func setSigningIn(_ signingIn: Bool) {
+        isSigningIn = signingIn
+        showGoogle()
+    }
+
     @objc
     private func googleButtonPressed() {
-        // Only ever a disconnect today: the button is disabled in the other state, so a press cannot mean sign in.
-        guard values.googleAccount.isConnected else { return }
-        onChange?(.googleDisconnected)
+        guard !isSigningIn else { return }
+        onChange?(values.googleAccount.isConnected ? .googleDisconnected : .googleSignInRequested)
     }
 
     /// Two sections, App settings above Google.

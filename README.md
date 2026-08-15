@@ -87,7 +87,6 @@ That permission was granted to me, for this project specifically, and **does not
 
 - Original creator [growler](https://github.com/growler) - this project is forked from their [TimeFlipApp](https://github.com/growler/TimeFlipApp) repository
 - Special thanks to [TimeFlip](https://timeflip.io/) for the hardware device and for graciously permitting the use of their icon set in this application
-- [AppAuth-iOS](https://github.com/openid/AppAuth-iOS) for OAuth implementation
 - [Timeflippers](https://github.com/bzobl/timeflippers) for the Rust TimeFlip client which I've been looking a lot at to get the idea of what the hell is going on in a familiar language
 - Built with Swift and macOS native frameworks
 

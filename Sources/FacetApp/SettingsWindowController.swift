@@ -193,7 +193,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             googleAccount: GoogleAccountRules.account(
                 name: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.nameField),
                 email: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.emailField)
-            )
+            ),
+            googleCredentialsAvailable: GoogleCredentials.resolve() != nil
         )
     }
 
@@ -225,6 +226,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             disconnectGoogle(from: pane, using: settings)
             return
         }
+        if case .googleSignInRequested = change {
+            signInToGoogle(from: pane, using: settings)
+            return
+        }
+        if case .googleConnected = change {
+            // Only ever produced by this controller, after a write it has already read back.
+            pane.adopt(change)
+            return
+        }
         guard let (setting, field, value) = AppSettingsRules.destination(for: change) else { return }
         let stored: Bool
         switch value {
@@ -252,6 +262,62 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         onTimingChanged?()
     }
 
+    /// Runs the sign-in, and writes what comes back.
+    ///
+    /// **The window is not held open by this.** The flow can sit unfinished for as long as somebody leaves a browser
+    /// tab open, so the task takes what it needs and checks the pane is still there afterwards rather than assuming.
+    ///
+    /// **The refresh token is stored before the identity.** If the token cannot be saved there is no usable
+    /// connection, and writing a name and an email first would leave the section saying "Connected" over a Keychain
+    /// with nothing in it -- an app that believes it is signed in and cannot act.
+    private func signInToGoogle(from pane: AppSettingsPane, using settings: SettingStore) {
+        guard let credentials = GoogleCredentials.resolve() else {
+            showGoogleFailed(GoogleOAuthRules.Failure.noCredentials)
+            return
+        }
+        pane.setSigningIn(true)
+        debugLog?.record(.field, "Google sign-in started")
+        Task { @MainActor [weak self, weak pane] in
+            defer { pane?.setSigningIn(false) }
+            do {
+                let tokens = try await GoogleSignIn.run(credentials: credentials)
+                guard let refresh = tokens.refreshToken, GoogleTokenStore.save(refreshToken: refresh) else {
+                    throw GoogleOAuthRules.Failure.exchangeFailed("the token could not be saved to your Keychain")
+                }
+                let wroteName = settings.write(
+                    GoogleAccountRules.setting, field: GoogleAccountRules.nameField, tokens.name ?? ""
+                )
+                let wroteEmail = settings.write(
+                    GoogleAccountRules.setting, field: GoogleAccountRules.emailField, tokens.email ?? ""
+                )
+                guard wroteName, wroteEmail else {
+                    throw GoogleOAuthRules.Failure.exchangeFailed("the database would not record the account")
+                }
+                // Read back rather than trusting what Google said, which is the same rule every row on this tab
+                // follows: the table is what the window then holds.
+                let account = GoogleAccountRules.account(
+                    name: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.nameField),
+                    email: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.emailField)
+                )
+                self?.debugLog?.record(.field, "Google sign-in finished, account \(account.email ?? "unnamed")")
+                pane?.adopt(.googleConnected(account))
+            } catch {
+                self?.debugLog?.record(.field, "Google sign-in failed: \(error.localizedDescription)")
+                self?.showGoogleFailed(error)
+            }
+        }
+    }
+
+    /// What a failed sign-in says. The message comes from `GoogleOAuthRules.Failure`, which is where the wording lives
+    /// so that one failure cannot be described two ways.
+    private func showGoogleFailed(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Facet could not connect to Google"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
     /// Signs the Google account out: clears the identity, and nothing else in the row.
     ///
     /// **Both fields have to go, and the section is only allowed to say so once both have.** `database/011_setting.sql`
@@ -275,6 +341,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             showSettingRefused(.googleDisconnected)
             return
         }
+        // The token goes with the identity. Leaving it behind would mean a Keychain still holding the ability to act
+        // on an account the app says it is not connected to.
+        GoogleTokenStore.clear()
         pane.adopt(.googleDisconnected)
     }
 

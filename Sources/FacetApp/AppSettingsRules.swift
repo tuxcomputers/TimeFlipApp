@@ -126,7 +126,7 @@ enum AppSettingsRules {
             return ("fetch_history_interval_seconds", "seconds", .number(seconds(fromMinutes: minutes)))
         case let .blipSeconds(seconds):
             return ("blip_time", "seconds", .number(seconds))
-        case .googleDisconnected:
+        case .googleDisconnected, .googleSignInRequested, .googleConnected:
             return nil
         }
     }
@@ -147,7 +147,7 @@ enum AppSettingsRules {
         case .batteryWarningPercent: return "Battery warning at"
         case .fetchIntervalMinutes: return "Fetch history every"
         case .blipSeconds: return "Ignore flips under"
-        case .googleDisconnected: return "Google account"
+        case .googleDisconnected, .googleSignInRequested, .googleConnected: return "Google account"
         }
     }
 }

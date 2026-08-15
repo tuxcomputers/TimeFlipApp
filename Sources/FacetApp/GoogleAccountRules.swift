@@ -69,26 +69,32 @@ enum GoogleAccountRules {
 
     /// What the button offers. One button, whose meaning flips with the state, rather than two with one always
     /// disabled.
-    static func buttonTitle(for account: Account) -> String {
-        account.isConnected ? "Disconnect" : "Sign in with Google"
+    static func buttonTitle(for account: Account, isSigningIn: Bool = false) -> String {
+        if isSigningIn { return "Signing in..." }
+        return account.isConnected ? "Disconnect" : "Sign in with Google"
     }
 
     /// Whether the button can be pressed.
     ///
-    /// **Disconnecting works today; signing in does not.** Clearing a row is something this app can do on its own,
-    /// where signing in needs the OAuth flow that has not been rebuilt yet (`docs/google-oauth-setup.md`, Part 2).
-    /// The archive disabled this same button for its own reason, with the reason written beside it, which is the
-    /// shape being kept: a button that is off and says why beats one that is on and does nothing.
-    static func isButtonEnabled(for account: Account) -> Bool {
-        account.isConnected
+    /// **Off while a sign-in is running**, so a second browser window cannot be opened on top of the first, and off
+    /// when this build has no credentials in it, which is a real state: the client id and secret are injected at build
+    /// time and a copy built without them cannot sign in at all. Disconnecting needs neither.
+    static func isButtonEnabled(for account: Account, hasCredentials: Bool, isSigningIn: Bool = false) -> Bool {
+        if isSigningIn { return false }
+        return account.isConnected || hasCredentials
     }
 
-    /// The line under a disabled button, or `nil` when there is nothing to explain.
+    /// The line under the button, or `nil` when the button speaks for itself.
     ///
-    /// It says what is missing rather than apologising, and names the thing that will change, so the section is
-    /// honest about being unfinished instead of looking broken.
-    static func note(for account: Account) -> String? {
-        account.isConnected ? nil : "Signing in is not built yet. When it is, this connects one Google account and "
-            + "Facet syncs your time into a calendar it makes itself."
+    /// Says what pressing it will do, rather than apologising for anything. The one case that needs explaining is a
+    /// build with no credentials, because nothing the user can do will fix that and a dead button with no reason
+    /// reads as a bug.
+    static func note(for account: Account, hasCredentials: Bool) -> String? {
+        if account.isConnected { return nil }
+        guard hasCredentials else {
+            return "This copy of Facet was built without Google credentials, so it cannot sign in."
+        }
+        return "Opens your browser to approve. Facet only ever touches a calendar it makes itself, and never the "
+            + "ones you already have."
     }
 }
