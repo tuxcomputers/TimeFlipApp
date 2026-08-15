@@ -59,10 +59,19 @@ see, but it is what you will be looking at in three years.
 Own it from an account that will outlive the release, and one you can add a second owner to. If this project is lost,
 every installed copy of the app loses its ability to sign in.
 
-> This repo already has two client-secret JSON files sitting untracked in `docs/` (`.gitignore` line 8 keeps them out
-> of git), from projects `timeflipapp-macos` and `timeflip-agent`. Decide which of those is the real one, or make a
-> third and retire both, before anything ships. Two half-configured projects is how the wrong client ID ends up in a
-> release.
+**Done: the project is `facet-505603`**, created 2026-08-15, with a Desktop OAuth client in it. Two earlier
+half-configured projects (`timeflipapp-macos` and `timeflip-agent`) have been retired, which matters more than it
+sounds: several projects that all nearly work is how the wrong client ID reaches a release.
+
+**Its credentials live at `~/.config/facet/google-client.json`, outside every repo.** They were briefly in this repo's
+`docs/`, ignored by `.gitignore` line 8 and never committed, but a documentation folder is one `git add -f` away from
+publishing a credential and is a strange home for one regardless.
+
+The file is the console's download unchanged. Its top-level key is `installed`, which is what confirms a Desktop client
+rather than a web one, and the only two values the app needs from it are `client_id` and `client_secret`. The
+`auth_uri` and `token_uri` beside them are Google's standard endpoints and should **not** be hardcoded: AppAuth reads
+them from the discovery document, which is what survives Google moving one. `redirect_uris` says `http://localhost`,
+which is a placeholder to ignore, since the loopback port is chosen at runtime (Part 2 step 3).
 
 ### 2. Enable the Calendar API
 
@@ -187,9 +196,14 @@ which works for a developer running from a shell and not at all for a user doubl
 bundle instead: `Info.plist` keys filled from build configuration, read at launch. In this repo that means
 `[apps.TimeFlip.plist]` in `Bundler.toml`.
 
-Keep both out of the source tree the same way the JSON files already are (`.gitignore` line 8), and let the build
-inject them. Not because either is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but because
-a release build and a developer build should be able to point at different projects without editing code.
+**The source is `~/.config/facet/google-client.json`** (Part 1 step 1), so the build reads the pair from there rather
+than from anything committed. `Bundler.toml` is tracked, which means the values cannot simply be typed into it: either
+a pre-build step generates a gitignored Swift file holding them, or one writes the plist keys. The generated-file shape
+is less plumbing and needs no plist work, and is the one to reach for unless the plist is wanted for another reason.
+
+Not because either value is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but because a
+release build and a developer build should point at different projects without editing code, and because the repo
+should be publishable without a second thought.
 
 ### 2. Delete the paste-in fields, keep the override
 
