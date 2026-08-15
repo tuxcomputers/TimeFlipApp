@@ -177,7 +177,9 @@ final class AppSettingsPane: NSView {
             showGoogle()
         case .googleDisconnected:
             values.googleAccount = .none
-            values.googleCalendar = .none
+            // **The calendar is not forgotten here.** The id survives a sign-out so that signing back in on the same
+            // account keeps the calendar and its history; it is checked on the way back in rather than trusted, and
+            // only cleared once Google has said it is gone.
             // The one change here that *does* redraw its rows. The reason the others do not is that somebody is
             // typing in them, and taking a field out from under them is the harm being avoided. Nobody types into a
             // status line, and leaving it reading "Connected" under a button that just disconnected would be the

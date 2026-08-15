@@ -320,11 +320,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 // The calendar is made here rather than behind a button, so the only way to reach "connected with
                 // nowhere to sync" is a failure. The access token is already in hand, so this costs no refresh.
                 if let pane {
-                    await self?.makeGoogleCalendar(
-                        named: GoogleCalendarRules.defaultName,
-                        accessToken: tokens.accessToken,
-                        from: pane,
-                        using: settings
+                    await self?.settleGoogleCalendar(
+                        accessToken: tokens.accessToken, from: pane, using: settings
                     )
                 }
             } catch {
@@ -345,11 +342,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         using settings: SettingStore
     ) async {
         do {
-            // Ask before making. A reconnect to the same account finds the calendar it made last time, rather than
-            // making a second one beside it with the history split across the two.
-            // `??` cannot be used here: its right-hand side is an autoclosure, which cannot be awaited.
             let made: GoogleCalendarRules.Calendar
             if let found = await GoogleCalendarClient.existing(named: name, accessToken: accessToken) {
+                // A database with no id but an account that already has a Facet calendar: a fresh install against an
+                // account used before. Adopting it beats making a second one.
                 made = found
                 debugLog?.record(.field, "Google calendar reused, \(found.name ?? "unnamed")")
             } else {
@@ -372,6 +368,90 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         } catch {
             debugLog?.record(.field, "Google calendar creation failed: \(error.localizedDescription)")
             showGoogleFailed(error)
+        }
+    }
+
+    /// Works out which calendar this account should use, now that somebody has signed in.
+    ///
+    /// **The stored id is checked, not trusted.** It survives a sign-out on purpose, so the usual case -- the same
+    /// person signing back in -- keeps the calendar and its history. But the same stored id is also what a *different*
+    /// person meets, and what somebody who deleted the calendar at Google meets, and in both of those it addresses
+    /// nothing. Those two are indistinguishable from here, which is why the question asked is the same one and the
+    /// wording names both possibilities rather than guessing.
+    private func settleGoogleCalendar(
+        accessToken: String,
+        from pane: AppSettingsPane,
+        using settings: SettingStore
+    ) async {
+        let storedID = settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField)
+        guard let id = GoogleCalendarRules.calendar(id: storedID, name: nil).id else {
+            await makeGoogleCalendar(
+                named: GoogleCalendarRules.defaultName, accessToken: accessToken, from: pane, using: settings
+            )
+            return
+        }
+        do {
+            // Proves it exists and brings back its current name in the same request, so a rename made at Google is
+            // adopted here without anything ever polling for it.
+            let found = try await GoogleCalendarClient.get(id: id, accessToken: accessToken)
+            _ = settings.write(
+                GoogleAccountRules.setting, field: GoogleCalendarRules.nameField,
+                found.name ?? GoogleCalendarRules.defaultName
+            )
+            let stored = GoogleCalendarRules.calendar(
+                id: id, name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
+            )
+            debugLog?.record(.field, "Google calendar confirmed, \(stored.name ?? "unnamed")")
+            pane.adopt(.googleCalendarChanged(stored))
+        } catch is CalendarGone {
+            await forgetAndOfferGoogleCalendar(accessToken: accessToken, from: pane, using: settings)
+        } catch {
+            // Something else went wrong. The calendar is not known to be gone, so nothing is forgotten and nothing is
+            // made: the id stays, and the next attempt can settle it.
+            debugLog?.record(.field, "Google calendar could not be checked: \(error.localizedDescription)")
+            showGoogleFailed(error)
+        }
+    }
+
+    /// The stored calendar does not resolve. Forget it, say so, and offer to make another.
+    ///
+    /// **The id is cleared here and only here**, once Google has said it is gone. Clearing it because a write failed
+    /// or a request timed out is how somebody ends up with a second "Facet", and a third.
+    private func forgetAndOfferGoogleCalendar(
+        accessToken: String,
+        from pane: AppSettingsPane,
+        using settings: SettingStore
+    ) async {
+        _ = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, "")
+        _ = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, "")
+        pane.adopt(.googleCalendarChanged(.none))
+        debugLog?.record(.field, "Google calendar no longer resolves, forgotten")
+
+        guard await askAboutMissingGoogleCalendar() else { return }
+        await makeGoogleCalendar(
+            named: GoogleCalendarRules.defaultName, accessToken: accessToken, from: pane, using: settings
+        )
+    }
+
+    /// Asks whether to make another calendar, and answers `true` if so.
+    ///
+    /// **It does not claim to know which happened.** A calendar deleted at Google and an id belonging to a different
+    /// account both come back as "not found", and a message that picked one would be wrong half the time.
+    private func askAboutMissingGoogleCalendar() async -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Facet cannot find its calendar"
+        alert.informativeText = """
+        The calendar Facet was using is not in this Google account. It may have been deleted, or this may be a \
+        different account from the one it was made in.
+
+        Facet can make a new one. Anything already written to the old calendar stays where it is.
+        """
+        alert.addButton(withTitle: "Create Calendar")
+        alert.addButton(withTitle: "Not Now")
+        return await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { response in
+                continuation.resume(returning: response == .alertFirstButtonReturn)
+            }
         }
     }
 
@@ -414,14 +494,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 self.debugLog?.record(.field, "Google calendar renamed to \(stored.name ?? "unnamed")")
                 pane.adopt(.googleCalendarChanged(stored))
             } catch is CalendarGone {
-                // The one failure that may lead to making another one, and it says so rather than being inferred from
-                // an empty id. Left to the button: creating silently under somebody who was renaming is a surprise.
-                _ = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, "")
-                _ = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, "")
-                pane.adopt(.googleCalendarChanged(.none))
-                self.showGoogleFailed(GoogleCalendarRules.Failure.renameFailed(
-                    "that calendar no longer exists in your Google account, so Facet has forgotten it"
-                ))
+                // Deleted at Google while Facet was connected. The same situation a sign-in meets, so the same
+                // question, rather than a second way of saying it.
+                let token = try? await self.googleAccessToken()
+                await self.forgetAndOfferGoogleCalendar(
+                    accessToken: token ?? "", from: pane, using: settings
+                )
             } catch {
                 // The field is showing what somebody typed; put the row back to what is stored.
                 pane.adopt(.googleCalendarChanged(pane.values.googleCalendar))
@@ -464,12 +542,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func disconnectGoogle(from pane: AppSettingsPane, using settings: SettingStore) {
         let clearedName = settings.write(GoogleAccountRules.setting, field: GoogleAccountRules.nameField, "")
         let clearedEmail = settings.write(GoogleAccountRules.setting, field: GoogleAccountRules.emailField, "")
-        // The calendar id goes with the account. It addresses a calendar in *that* account, so keeping it would leave
-        // the next sign-in pointed at somebody else's. The calendar itself stays in their Google account, which is
-        // right: the events already written to it are theirs.
-        let clearedCalendar = settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, "")
-            && settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, "")
-        let stored = clearedName && clearedEmail && clearedCalendar
+        // **The calendar is deliberately kept.** Signing out and back in on the same account is the common case, and
+        // forgetting the id would make a second "Facet" beside the first with the history split across the two. The
+        // id is checked on the way back in rather than trusted, so a sign-in by somebody else finds it does not
+        // resolve and is asked what to do -- which is the same conversation as a calendar that was deleted.
+        let stored = clearedName && clearedEmail
         debugLog?.record(
             .field,
             "Google account disconnected\(stored ? "" : " REFUSED, the table still holds an identity")"

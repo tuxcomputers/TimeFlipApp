@@ -72,6 +72,29 @@ enum GoogleCalendarClient {
         return found.first { $0.name == preferred } ?? found.first
     }
 
+    /// Fetches the stored calendar, to find out whether it is still there and what it is called now.
+    ///
+    /// **This is where drift is noticed**, without a poll: the same request that proves the calendar exists also
+    /// brings back its current name, so a rename made at Google is picked up on the one occasion the app was going to
+    /// ask anyway. Throws `CalendarGone` when it does not resolve, which is the only thing allowed to lead to making
+    /// another one.
+    static func get(
+        id: String,
+        accessToken: String,
+        session: URLSession = .shared
+    ) async throws -> GoogleCalendarRules.Calendar {
+        guard let url = GoogleCalendarRules.url(forCalendar: id) else {
+            throw CalendarGone()
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await send(request, session: session, describing: "Google refused the request")
+        guard let calendar = GoogleCalendarRules.calendar(fromResponse: data) else {
+            throw CalendarGone()
+        }
+        return calendar
+    }
+
     /// Creates the calendar and answers with what Google called it.
     ///
     /// **Called once**, at the end of a sign-in, and otherwise only from the recovery button. Everything else keys off

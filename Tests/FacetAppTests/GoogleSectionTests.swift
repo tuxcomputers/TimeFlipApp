@@ -89,9 +89,10 @@ final class GoogleSectionTests: XCTestCase {
         XCTAssertEqual(requested, [])
     }
 
-    func testDisconnectingForgetsTheCalendarToo() {
-        // The id addresses a calendar in *that* account, so keeping it would point the next sign-in at somebody
-        // else's. The calendar itself stays in their Google account, which is right: the events are theirs.
+    func testDisconnectingKeepsTheCalendar() {
+        // Signing out and back in on the same account is the common case, and forgetting the id would make a second
+        // "Facet" beside the first with the history split across the two. The id is checked on the way back in rather
+        // than trusted, so a different person's sign-in finds it does not resolve and is asked what to do.
         let pane = self.pane(
             name: "Harry", email: "harry@tux.com.au",
             calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
@@ -99,8 +100,23 @@ final class GoogleSectionTests: XCTestCase {
 
         pane.adopt(.googleDisconnected)
 
+        XCTAssertTrue(pane.values.googleCalendar.exists, "the pointer survives the sign-out")
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendar, in: pane),
+                     "but there is nothing to show, since the section has no account to show it under")
+    }
+
+    func testAForgottenCalendarLeavesTheCreateButton() {
+        // What a sign-in meets when the stored id does not resolve, and the user answers "Not Now": the app must not
+        // be left holding an id it knows is dead.
+        let pane = self.pane(
+            name: "Harry", email: "harry@tux.com.au",
+            calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
+        )
+
+        pane.adopt(.googleCalendarChanged(.none))
+
         XCTAssertFalse(pane.values.googleCalendar.exists)
-        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendar, in: pane))
+        XCTAssertNotNil(view(AppSettingsPane.Identifier.googleCalendarCreate, in: pane))
     }
 
     // MARK: - what the row holds

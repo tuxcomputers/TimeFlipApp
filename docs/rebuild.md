@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (642 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (643 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -194,7 +194,9 @@ The section is built and every row writes. Several of these settings were alread
 
   **Nothing polls.** No launch check, because that would be a Calendar API request per launch per user for a label that rarely changes, and it would make startup wait on Google being reachable. Drift and deletion are meant to surface through the sync, which is the request the app was making anyway.
 
-  **A reconnect reuses rather than duplicates.** Signing out clears the id, since the next sign-in may be a different account, so on the way back in the app asks Google what it already made instead of remembering. Under `calendar.app.created` the list only ever contains Facet's own calendars, which is why one is adopted silently where the archive had to ask (its broader scopes could see the user's calendars). If that list cannot be read, the fallback is to create, which is no worse than not asking.
+  **The id survives a sign-out and is checked on the way back in.** Signing out and back in on the same account is the common case, and forgetting the id would make a second "Facet" beside the first with the history split across the two. So the id is kept, and verified with one `calendars.get` at the end of the next sign-in: that request proves the calendar exists *and* brings back its current name, which is how a rename made at Google is adopted without anything ever polling for it.
+
+  **A stored id that will not resolve raises a dialog rather than acting.** Two situations reach it -- somebody else signing in, and the calendar having been deleted at Google -- and they are indistinguishable from the app's side, so the wording names both instead of guessing, and the choice to make another is the user's. Only then is the id cleared, and only once Google has said the calendar is gone: clearing it because a write failed or a request timed out is exactly how a second "Facet" gets made, and a third. Where there is no stored id at all (a fresh database against an account used before), the app looks for a calendar it already made rather than assuming there is none.
 
   **Untested against Google**: sign-in has been run against a real account and works; the calendar create, reuse and rename have not, so `swift test` covers the decisions and not the journey. It clears the name and the email and nothing else, since `calendar_id`, `calendar_name` and `client_id` share that row and are configuration rather than identity -- and it only reports success when *both* writes read back, because a half-cleared row still counts as connected and the window would then be disagreeing with its own table.
 
