@@ -125,4 +125,14 @@ else
     fail "daily_reset_time has lost its minute, so a write replaced the object instead of one field"
 fi
 
+# ---------------------------------------------------------------------------- the order it reads in
+#
+# **Subview order is what accessibility reads, and it is not the constraints.** The Google section sits at
+# the bottom of the tab, and it was being added to the view first, so VoiceOver announced it before the
+# six settings drawn above it. Nothing looks wrong on screen, which is why it survived until a script
+# dumped the tree.
+order=$(tree | grep -n "section-heading" | head -2)
+first=$(printf '%s' "$order" | head -1)
+check_contains "the tab reads in the order it is drawn: App settings first" "$first" "app-settings-section-heading"
+
 finish

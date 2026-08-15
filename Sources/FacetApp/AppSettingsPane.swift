@@ -370,7 +370,12 @@ final class AppSettingsPane: NSView {
         stack(rows)
         addRows()
 
-        for view in [googleHeading, googlePanel, googleNote, appHeading, appPanel] {
+        // **App settings first, because that is the order they are drawn in.** Subview order is what
+        // accessibility reads, and it is not the constraints: the Google section moved to the bottom of the
+        // tab, and adding it first left VoiceOver announcing it before the six settings sitting above it on
+        // screen. Nothing looks wrong, which is exactly why it stayed wrong -- it was found by a script
+        // dumping the tree, not by looking at the tab.
+        for view in [appHeading, appPanel, googleHeading, googlePanel, googleNote] {
             addSubview(view)
         }
         googlePanel.contentView?.addSubview(googleRows)
