@@ -65,9 +65,16 @@ bash Tests/Scripted/04-categories.sh
 ## What a failure looks like
 
 ```
-  PASS  a new category appears in the list
-  FAIL  the renamed category keeps its icon (expected 'Coffee', got 'None')
+  a new category appears in the list
+    PASS
+  the renamed category keeps its icon
+    FAIL  expected 'Coffee', got 'None'
 ```
+
+**What is being checked prints before the verdict**, on its own line, so a run can be watched as well as
+read afterwards. Several checks wait on a network round trip or a ten-second timer, and a single line
+printed on the way out would leave the terminal silent for as long as the slowest step takes with nothing
+saying which step it is.
 
 Then, at the end of the script, the count and every failure again. **A failing script stops the run**:
 each one starts from the state the last one left, so carrying on would report the next failure in the

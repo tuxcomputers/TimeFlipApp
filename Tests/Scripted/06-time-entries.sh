@@ -80,7 +80,7 @@ else
     else
         fail "synced_to_google_calendar holds '$synced', which is neither 0 nor 1"
     fi
-    grey "        10-google-calendar is what checks the sweep itself"
+    grey "          10-google-calendar is what checks the sweep itself"
 fi
 
 # **One entry per segment, as a constraint rather than a convention** (`UN1_time_entry`). The same

@@ -44,37 +44,55 @@ start() {
     blue "=============================================================================="
 }
 
-# A named check with its own verdict. The name is what a reader sees when it fails, so it says what
-# was expected rather than what was called.
-pass() { PASSED=$((PASSED + 1)); green "  PASS  $*"; }
-fail() {
+# **What is being checked is printed before the verdict, on its own line.**
+#
+#     a segment is open going into the quit (id 113)
+#       PASS
+#
+# Two lines rather than one because a run is watched as well as read afterwards: several checks here wait
+# on a network round trip or a ten-second timer, and a single line printed on the way out leaves the
+# terminal silent for as long as the slowest step takes, with nothing saying which step it is. The
+# description goes out first, and the verdict lands under it when the answer is known.
+#
+# `LAST` is what the description was, so the summary at the end can name a failure without every caller
+# repeating itself.
+LAST=""
+announce() { LAST="$*"; printf '  %s\n' "$*"; }
+
+verdict_pass() { PASSED=$((PASSED + 1)); green "    PASS"; }
+verdict_fail() {
     FAILED=$((FAILED + 1))
     FAILURES="$FAILURES
-  - $*"
-    red "  FAIL  $*"
+  - $LAST${1:+ ($1)}"
+    red "    FAIL${1:+  $1}"
 }
+
+# `pass "what was checked"` and `fail "what was checked"` for the cases a script decides for itself.
+pass() { [ $# -gt 0 ] && announce "$*"; verdict_pass; }
+fail() { [ $# -gt 0 ] && announce "$*"; verdict_fail; }
 
 # `check "name" "expected" "actual"` -- the common shape, so a failure prints both sides without every
 # script formatting its own message.
 check() {
-    local name="$1" expected="$2" actual="$3"
-    if [ "$expected" = "$actual" ]; then
-        pass "$name"
+    announce "$1"
+    if [ "$2" = "$3" ]; then
+        verdict_pass
     else
-        fail "$name (expected '$expected', got '$actual')"
+        verdict_fail "expected '$2', got '$3'"
     fi
 }
 
 check_contains() {
     local name="$1" haystack="$2" needle="$3"
+    announce "$name"
     case "$haystack" in
-        *"$needle"*) pass "$name" ;;
+        *"$needle"*) verdict_pass ;;
         *)
             # Truncated: the haystack is often the whole accessibility tree, and printing it buries the
             # failure it is supposed to explain.
             local shown="${haystack:0:160}"
             [ "${#haystack}" -gt 160 ] && shown="$shown..."
-            fail "$name (no '$needle' in '$shown')"
+            verdict_fail "no '$needle' in '$shown'"
             ;;
     esac
 }
@@ -83,7 +101,7 @@ check_contains() {
 # tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
 # but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
 SKIPPED=0
-skip() { SKIPPED=$((SKIPPED + 1)); printf '\033[0;33m  SKIP  %s\033[0m\n' "$*"; }
+skip() { SKIPPED=$((SKIPPED + 1)); announce "$*"; printf '\033[0;33m    SKIP\033[0m\n'; }
 
 # Ends the script and decides its exit status. Non-zero on any failure, which is what lets run.sh stop
 # rather than carry on into scripts whose starting state the failure just invalidated.
@@ -146,11 +164,14 @@ wait_for() {
 expect_log() {
     local name="$1" since="$2" pattern="$3" timeout="${4:-15}"
     local found
+    # Announced before the wait, not after it. This is the one that can sit for a minute waiting on
+    # Google, and a terminal that says nothing for a minute looks stuck rather than busy.
+    announce "$name"
     if found=$(wait_for "$since" "$pattern" "$timeout"); then
-        pass "$name"
-        grey "        $found"
+        verdict_pass
+        grey "          $found"
     else
-        fail "$name (no debug_log row matching '$pattern' within ${timeout}s)"
+        verdict_fail "no debug_log row matching '$pattern' within ${timeout}s"
     fi
 }
 

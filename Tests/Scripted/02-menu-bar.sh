@@ -19,7 +19,7 @@ close_settings
 title=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
 if [ -n "$title" ]; then
     pass "the status item is in the menu bar"
-    grey "        $title"
+    grey "          $title"
 else
     fail "no status item found in the menu bar"
 fi
