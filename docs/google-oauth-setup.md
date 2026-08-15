@@ -8,35 +8,44 @@ replaces it: one project, owned by you, whose client ID ships inside the app.
 **The app has not rebuilt the Google integration yet.** `google_account` and `time_entry.synced_to_google_calendar`
 exist in the schema, the previous implementation is in `Archive/TimeFlipApp/Google*.swift`, and the sync itself was
 never built even there (see [rebuild.md](rebuild.md), Backend). So Part 2 below is the shape of the work rather than a
-description of what is in the app now. Part 1 can be done today, and should be, because the slow step in it is not
-under your control.
+description of what is in the app now. Part 1 can be done today, and should be.
 
-**Google's console moves.** The tabs have been reorganised at least twice (this repo's own guide has been rewritten to
-match), and scope classifications change. Where this doc names a click path, trust the intent over the wording, and
-trust **the Sensitive/Restricted label the console shows against a scope** over anything written here about which tier
-it is in.
+**Google's console moves, and it moved in our favour.** The tabs have been reorganised at least twice (this repo's own
+guide has been rewritten to match), and scope classifications change: `calendar.app.created` was sensitive when this
+document was first written and is non-sensitive now, which removed the verification process from the plan entirely.
+Where this doc names a click path, trust the intent over the wording, and trust **the tier the console shows against a
+scope** over anything written here about which tier it is in. That instruction has already earned its place once.
 
 ---
 
-## The decision that shapes everything: how many scopes you ask for
+## The scope list, and why it turned out to be the whole ballgame
 
-Verification effort scales with what you ask for, so decide this before touching the console.
+**Settled on 2026-08-15. All four scopes are non-sensitive**, confirmed against the console, which lists them under
+"Your non-sensitive scopes":
 
-The archive asks for six scopes (`Archive/TimeFlipApp/GoogleAuthConfiguration.swift`):
+| Scope | What it buys | Tier |
+| --- | --- | --- |
+| `openid` | Associate you with your personal info on Google | Non-sensitive |
+| `userinfo.email` | The account's email address, to show who is connected | Non-sensitive |
+| `userinfo.profile` | The account's name and picture, same purpose | Non-sensitive |
+| `calendar.app.created` | Make secondary calendars, and manage events on the ones **this app made** | Non-sensitive |
+
+The archive asked for two more (`Archive/TimeFlipApp/GoogleAuthConfiguration.swift`), and **both are sensitive**:
 
 | Scope | What it buys | Tier |
 | --- | --- | --- |
 | `calendar.events` | Read and write events on any of the user's calendars | Sensitive |
 | `calendar.readonly` | List the user's existing calendars, so one can be chosen | Sensitive |
-| `calendar.app.created` | Create and manage a calendar **this app made**, and nothing else | Sensitive |
-| `openid`, `userinfo.email`, `userinfo.profile` | The signed-in account's name and email, to show who is connected | Not sensitive |
 
-The first two exist for one feature: **choosing an existing calendar to sync into**. Drop that feature, always create
-and own a "TimeFlip" calendar, and the ask reduces to `calendar.app.created` plus the identity scopes. That is a
-smaller consent screen, a shorter justification, and a much easier verification review. It costs the user the ability
-to put TimeFlip events on a calendar they already share with somebody.
+Those two exist for one feature: **choosing an existing calendar to sync into**. Dropping it, and always creating and
+owning a "Facet" calendar, is what keeps the whole app inside the non-sensitive tier. It costs the user the ability to
+put Facet events on a calendar they already share with somebody. **That single trade is worth more than everything else
+in this document**, because it is the difference between publishing and being reviewed: see step 6.
 
-Decide it now, because changing the scope list after verification means going round again.
+`calendar.app.created` was itself classified sensitive until recently, and Google reclassified it. Two things follow.
+**Trust the console's own label over this table**, since the classification is theirs to change and this file only
+records what it said on the day. And **adding either sensitive scope back later is not a small change**: it moves the
+app into the review process from a standing start.
 
 ---
 
@@ -113,33 +122,34 @@ name on its consent screen. PKCE stops them intercepting *your* users' codes; no
 the app opens its loopback listener. It should not, since that firewall manages external interfaces and this binds
 `127.0.0.1` only, but a firewall dialog in the middle of signing in is worth ruling out by seeing it not happen.
 
-### 6. Publish, and get verified
+### 6. Publish
 
-**Two separate things, and the second is the long one.**
+**This is now one step rather than two, because the scope list came out non-sensitive.**
 
 **Publish**: move the publishing status from Testing to **In production**. Testing is not a soft launch: it is capped
 at 100 named test users, and refresh tokens issued under it **expire after seven days**, so every user would be
-silently signed out weekly.
+silently signed out weekly. That expiry is the reason to move even while the app is only being tried out.
 
-**Verify**: sensitive scopes in production require Google's OAuth app verification. Without it the app still works,
-but every user meets a "Google hasn't verified this app" screen and must click through Advanced > Go to app, and you
-are capped at roughly 100 users. What the submission needs:
+**Verification is what non-sensitive buys you.** The OAuth app verification process, with its demo video, its written
+justification per scope, its weeks of waiting and its round of reviewer questions, applies to **sensitive and
+restricted** scopes. An app asking only for non-sensitive scopes does not go through it, does not meet the "Google
+hasn't verified this app" interstitial, and is not held to the roughly 100 user ceiling that comes with being
+unverified while asking for sensitive ones.
 
-- A **homepage** and a **privacy policy**, both on a domain you own. That domain is **`tux.com.au`**, already owned, so
-  this is two static pages rather than a purchase and a wait.
-- **Domain ownership verified** in Search Console, **under the same Google account that owns the Cloud project**. This
-  is the step that goes wrong quietly: verifying the domain under one account and creating the project under another
-  leaves both looking complete and the submission rejected.
-- The **app logo** from step 3
-- A **demo video** showing the consent flow and each scope being used for the thing you said it was for
-- A **written justification per scope**
+**What still applies:**
 
-Expect weeks, and expect at least one round of questions. The reviewer is checking that the scopes match the
-demonstrated behaviour, which is the real reason to ask for as little as possible.
+- **The homepage and privacy policy** remain required fields on the consent screen, and remain a good idea regardless.
+  They are already live at `facet.tux.com.au` (`~/harry.git/facet_tux_com_au`).
+- **Brand verification** is a separate, much lighter review that Google may ask for once a logo and domains are set on
+  the consent screen. It is not the sensitive-scope process. Expect the console to tell you if it wants it, rather
+  than assuming either way from this document.
+- If it does ask, **domain ownership must be verified in Search Console under the same Google account that owns the
+  Cloud project**. This is the step that goes wrong quietly: verifying under one account and creating the project
+  under another leaves both looking complete and the submission rejected.
+- The **app logo** is `public/images/facet-logo-120.png` in the site repo, at the 120x120 the console asks for.
 
-**What you do not need**: a third-party security assessment. That (CASA, annual, expensive) applies to *restricted*
-scopes -- Gmail, full Drive. Calendar scopes are sensitive, one tier below, so verification is paperwork and a video
-rather than an audit. Confirm against the console's own label before relying on it.
+**What you never needed**: a third-party security assessment. That one (CASA, annual, expensive) applies to
+*restricted* scopes, which are Gmail and full Drive. Nothing here comes close.
 
 ### 7. Know what you have taken on
 
@@ -147,7 +157,10 @@ rather than an audit. Confirm against the console's own label before relying on 
   that volume is not the concern; a single abusive user getting the project rate-limited or suspended is, because it
   takes everybody's sync down with it.
 - **The support email is yours**, on the consent screen, in front of every user.
-- **Re-verification** is triggered by changing the app name, the logo, the domains, or the scope list.
+- **Adding a sensitive scope changes the regime, not just the consent screen.** Today nothing here is reviewed. Adding
+  `calendar.events` or `calendar.readonly` back, for the "sync into an existing calendar" feature, moves the whole app
+  into verification from a standing start: video, justifications, weeks. Treat that feature as a decision with a price
+  attached rather than as a later enhancement.
 
 ---
 
@@ -222,12 +235,15 @@ that still bites.
 
 ## The order to do it in
 
-1. Decide the scope list (the section above).
+1. ~~Decide the scope list~~. **Done**: the four non-sensitive scopes above.
 2. Do Part 1 steps 1 to 5. Half a day at most.
-3. Publish to production **unverified** and ship to a small group: it works immediately for about 100 users past a
-   warning screen, which is enough to prove the flow while the rest runs.
-4. Submit for verification, and expect it to be the long pole.
-5. Build Part 2 against the project from step 2, with the override in place from the start.
+3. Publish to production. With no sensitive scopes there is no verification queue to join and no warning screen to
+   click past, so this is a setting rather than a submission.
+4. Build Part 2 against the project from step 2, with the override in place from the start.
+
+**There is no long pole any more.** The plan this document opened with had verification as the thing everything waited
+on, which is why it advised shipping to a small group in the meantime. That is gone. The remaining work is all Part 2,
+which is code, and code is the part you control.
 
 **The TimeFlip to Facet rename does not gate any of this**, which is the practical dividend of the Desktop client:
 nothing in the client is keyed to the app name or the bundle identifier, so steps 1 to 4 can happen before, during or
