@@ -340,7 +340,8 @@ final class ReportTotalsTests: XCTestCase {
                 guard view.accessibilityIdentifier().hasSuffix("-duration") else { return nil }
                 return (view as? NSTextField)?.stringValue
             }
-        XCTAssertEqual(figures, ["1:05", "0:15"])
+        // Break's 0:15 leads Meeting's 1:05: the list draws in the order in force, not the order it was handed.
+        XCTAssertEqual(figures, ["0:15", "1:05"])
     }
 
     func testTheFiguresCarrySecondsWhenTheSettingSays() {

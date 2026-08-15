@@ -1315,6 +1315,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 "Report category \"\(total.name)\" \(isExpanded ? "opened" : "closed")"
             )
         }
+        report.totalsList.onSort = { [weak self] order in
+            self?.debugLog?.record(
+                .report,
+                "Report sorted by \(order.column == .time ? "time" : "category"), "
+                    + "\(order.direction == .ascending ? "ascending" : "descending")"
+            )
+        }
         return report
     }
 

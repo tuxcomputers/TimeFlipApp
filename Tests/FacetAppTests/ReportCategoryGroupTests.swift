@@ -205,7 +205,9 @@ final class ReportCategoryGroupTests: XCTestCase {
 
         list.show([total("Meeting", seconds: 3_900, id: 2), total("Break", seconds: 900)], showingSeconds: false)
 
-        XCTAssertEqual(list.groups.map(\.total.name), ["Meeting", "Break"])
+        // Handed Meeting first and drawn Break first: the list applies the order in force, which opens on the shared
+        // category order rather than on whatever sequence it was given.
+        XCTAssertEqual(list.groups.map(\.total.name), ["Break", "Meeting"])
         XCTAssertTrue(list.groups.allSatisfy { !$0.isExpanded })
     }
 

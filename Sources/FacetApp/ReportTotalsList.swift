@@ -15,10 +15,30 @@ final class ReportTotalsList: NSView {
     enum Identifier {
         static let list = "report-totals"
         static let empty = "report-totals-empty"
+        static let sortByCategory = "report-sort-category"
+        static let sortByTime = "report-sort-time"
     }
 
     private let rows = NSStackView()
     private let scroll = NSScrollView()
+    private let header = NSView()
+    private let categoryHeading = NSButton()
+    private let timeHeading = NSButton()
+
+    enum Layout {
+        /// Shorter than a row: it labels the list rather than being part of it.
+        static let headerHeight: CGFloat = 24
+    }
+
+    /// The order in force, which the headings show and every draw obeys.
+    ///
+    /// **Held here rather than stored, and it lasts as long as the window does.** It is not a setting: nothing in the
+    /// database has an opinion about it, and it is the same kind of state as which month the calendar is showing. A
+    /// reopened window starts on the shared category order again, which is the one that agrees with the other tabs.
+    private(set) var order = ReportSortRules.Order.initial
+
+    /// Called when a heading is clicked, so the window can record what was asked for.
+    var onSort: ((ReportSortRules.Order) -> Void)?
     /// What the scroll view scrolls, holding the rows.
     ///
     /// **Flipped**, which is the whole of why it exists: AppKit measures an ordinary view from its bottom edge, so a
@@ -64,10 +84,13 @@ final class ReportTotalsList: NSView {
     /// `H:MM` every total under a minute reads `0:00`, which is indistinguishable from a category that was opened and
     /// left.
     func show(_ totals: [CategoryTotal], showingSeconds: Bool) {
+        self.showingSeconds = showingSeconds
+        let totals = ReportSortRules.sorted(totals, by: order)
         for view in rows.views {
             rows.removeView(view)
         }
         groups = []
+        drawHeadings()
         if totals.isEmpty {
             rows.addView(emptyLabel(), in: .top)
         } else {
@@ -79,6 +102,30 @@ final class ReportTotalsList: NSView {
             }
         }
         shownTotals = totals
+    }
+
+    /// What `show` was last given, so a heading click can re-order without going back to the database. **Not a cached
+    /// answer**: it is the rows already on screen being rearranged, and the next real read replaces it wholesale.
+    private var showingSeconds = true
+
+    /// A heading was clicked: work out the new order, then redraw what is already here in it.
+    private func sortBy(_ column: ReportSortRules.Column) {
+        order = ReportSortRules.next(after: order, clicking: column)
+        show(shownTotals, showingSeconds: showingSeconds)
+        onSort?(order)
+    }
+
+    @objc
+    private func categoryHeadingClicked() { sortBy(.category) }
+
+    @objc
+    private func timeHeadingClicked() { sortBy(.time) }
+
+    private func drawHeadings() {
+        categoryHeading.title = ReportSortRules.heading("Category", column: .category, order: order)
+        timeHeading.title = ReportSortRules.heading("Time", column: .time, order: order)
+        categoryHeading.setAccessibilityLabel(categoryHeading.title)
+        timeHeading.setAccessibilityLabel(timeHeading.title)
     }
 
     private func group(_ total: CategoryTotal, showingSeconds: Bool) -> ReportCategoryGroup {
@@ -133,9 +180,11 @@ final class ReportTotalsList: NSView {
         // background rather than a fill of its own.
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
+        addHeadings()
+
         addSubview(scroll)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -152,6 +201,57 @@ final class ReportTotalsList: NSView {
             rows.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             rows.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             rows.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+        ])
+    }
+
+    /// The two column headings, above the scroll view so they stay put while the list moves under them.
+    ///
+    /// **Buttons, not labels.** They are the control that decides the order, and the whole width of each one is the
+    /// target -- the same reasoning as a collapsible heading in this app, where a small target for an obvious gesture
+    /// reads as broken rather than precise. They draw borderless so the row reads as a table heading and not as two
+    /// push buttons, and carry no focus ring for the reason the Faces tab's rows carry none: nothing stays selected.
+    private func addHeadings() {
+        let padding = CategoryListView.Layout.horizontalPadding
+        for (button, action, identifier) in [
+            (categoryHeading, #selector(categoryHeadingClicked), Identifier.sortByCategory),
+            (timeHeading, #selector(timeHeadingClicked), Identifier.sortByTime),
+        ] {
+            button.isBordered = false
+            button.setButtonType(.momentaryChange)
+            button.focusRingType = .none
+            button.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+            button.contentTintColor = .secondaryLabelColor
+            button.target = self
+            button.action = action
+            button.toolTip = "Click to sort, click again to reverse"
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setAccessibilityIdentifier(identifier)
+            header.addSubview(button)
+        }
+        categoryHeading.alignment = .left
+        timeHeading.alignment = .right
+        drawHeadings()
+
+        header.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(header)
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: topAnchor),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: Layout.headerHeight),
+
+            // Over the name, which starts after the disclosure triangle and the colour square: a heading above the
+            // triangle would name the wrong column.
+            categoryHeading.leadingAnchor.constraint(
+                equalTo: header.leadingAnchor,
+                constant: ReportCategoryGroup.Layout.entryIndent
+            ),
+            categoryHeading.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+
+            // Over the figure, which is inset from the right by the same padding.
+            timeHeading.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -padding),
+            timeHeading.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            timeHeading.leadingAnchor.constraint(greaterThanOrEqualTo: categoryHeading.trailingAnchor, constant: 8),
         ])
     }
 
