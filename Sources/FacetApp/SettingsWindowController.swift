@@ -217,6 +217,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             guard let pane else { return }
             self?.store(change, from: pane)
         }
+        pane.onCalendarEditingChanged = { [weak self] isEditing in
+            // The same loan a category name gets, for the same reason: a key equivalent is dispatched before the
+            // focused field ever sees the key, so without this Escape closes the window instead of abandoning the
+            // name somebody was part way through typing.
+            self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
+        }
     }
 
     /// Writes a changed row, and says so if the table did not take it.

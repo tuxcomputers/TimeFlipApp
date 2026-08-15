@@ -65,17 +65,20 @@ final class GoogleSectionTests: XCTestCase {
         var requested: [AppSettingsPane.Change] = []
         pane.onChange = { requested.append($0) }
 
-        let field = try XCTUnwrap(view(AppSettingsPane.Identifier.googleCalendar, in: pane) as? NSTextField)
-        XCTAssertEqual(field.stringValue, "Facet")
+        // The same cell a category name uses, so the name is read from the cell rather than from a live field.
+        let cell = try XCTUnwrap(pane.calendarCell)
+        XCTAssertEqual(cell.name, "Facet")
+        XCTAssertEqual(cell.alignment, .right, "the App tab puts every value against the right edge")
         XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendarCreate, in: pane), "nothing to create")
 
-        field.stringValue = "  Work time  "
-        field.sendAction(field.action, to: field.target)
+        cell.onCommit?("  Work time  ")
         XCTAssertEqual(requested, [.googleCalendarNamed("Work time")], "trimmed on the way out")
     }
 
     func testCommittingAnUnchangedNameSpendsNothing() throws {
-        // Tabbing out of a field commits it. That must not become a request to Google.
+        // Opening the name and pressing Return without changing it must not become a request to Google. This mattered
+        // more when the row was a live text field, whose action fires on losing focus as well: tabbing past the
+        // calendar spent a rename. The cell only commits on Return now, and this still holds the line.
         let pane = self.pane(
             name: "Harry", email: "harry@tux.com.au",
             calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
@@ -83,10 +86,27 @@ final class GoogleSectionTests: XCTestCase {
         var requested: [AppSettingsPane.Change] = []
         pane.onChange = { requested.append($0) }
 
-        let field = try XCTUnwrap(view(AppSettingsPane.Identifier.googleCalendar, in: pane) as? NSTextField)
-        field.sendAction(field.action, to: field.target)
+        let cell = try XCTUnwrap(pane.calendarCell)
+        cell.onCommit?("Facet")
 
         XCTAssertEqual(requested, [])
+    }
+
+    func testEscapeIsLentToTheCalendarNameWhileItIsBeingEdited() throws {
+        // A key equivalent is dispatched before the focused field ever sees the key, so without the loan Escape would
+        // close the window instead of abandoning a half-typed name. The Categories tab makes the same loan.
+        let pane = self.pane(
+            name: "Harry", email: "harry@tux.com.au",
+            calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
+        )
+        var editing: [Bool] = []
+        pane.onCalendarEditingChanged = { editing.append($0) }
+
+        let cell = try XCTUnwrap(pane.calendarCell)
+        cell.beginEditing()
+        cell.endEditing()
+
+        XCTAssertEqual(editing, [true, false])
     }
 
     func testDisconnectingKeepsTheCalendar() {

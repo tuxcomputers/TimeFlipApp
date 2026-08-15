@@ -52,6 +52,11 @@ final class EditableNameCell: NSView {
     private static let hint = "Click to rename"
 
     let name: String
+
+    /// How the name sits in the cell. Kept as a property because it is the one thing the two uses differ by, so it is
+    /// worth being able to ask rather than infer from a frame.
+    let alignment: NSTextAlignment
+
     private let button = NSButton()
     private let label: NSTextField
     private let field = NSTextField()
@@ -59,12 +64,17 @@ final class EditableNameCell: NSView {
     /// thrown away mid-edit, which the list rebuilding under it would do.
     private let outsideClick = OutsideClickMonitor()
 
-    init(name: String, width: CGFloat, identifier: String) {
+    /// `alignment` is how the name sits inside the cell, and it is the one thing that differs between the two places
+    /// this is used. A category's name heads a column and reads from the left; the App tab's rows put every value
+    /// against the right-hand edge, beside the account's name and email. Everything else -- the gesture, the tooltip,
+    /// the field that appears, and how an edit ends -- is deliberately identical, because they are the same act.
+    init(name: String, width: CGFloat, identifier: String, alignment: NSTextAlignment = .left) {
         self.name = name
+        self.alignment = alignment
         label = NSTextField(labelWithString: name)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        addContent(width: width, identifier: identifier)
+        addContent(width: width, identifier: identifier, alignment: alignment)
     }
 
     @available(*, unavailable)
@@ -117,7 +127,7 @@ final class EditableNameCell: NSView {
         endEditing()
     }
 
-    private func addContent(width: CGFloat, identifier: String) {
+    private func addContent(width: CGFloat, identifier: String, alignment: NSTextAlignment) {
         // The label lives *inside* the button, not beside it: a click on a label goes up the responder chain to the
         // label's own superview, so a button that is merely behind it is never pressed (see `Tests/Methods.md`).
         button.title = ""
@@ -136,8 +146,10 @@ final class EditableNameCell: NSView {
 
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
+        label.alignment = alignment
         label.translatesAutoresizingMaskIntoConstraints = false
 
+        field.alignment = alignment
         field.stringValue = name
         field.isHidden = true
         field.delegate = self
@@ -157,8 +169,14 @@ final class EditableNameCell: NSView {
             button.centerYAnchor.constraint(equalTo: centerYAnchor),
             button.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
 
-            label.leadingAnchor.constraint(equalTo: button.leadingAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: button.trailingAnchor),
+            // Which edge the name is pinned to is what `alignment` actually means here: a label only sized to its text
+            // has nowhere to align *within*, so a right-aligned name pinned on the left would still draw on the left.
+            alignment == .right
+                ? label.trailingAnchor.constraint(equalTo: button.trailingAnchor)
+                : label.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+            alignment == .right
+                ? label.leadingAnchor.constraint(greaterThanOrEqualTo: button.leadingAnchor)
+                : label.trailingAnchor.constraint(lessThanOrEqualTo: button.trailingAnchor),
             label.topAnchor.constraint(equalTo: button.topAnchor),
             label.bottomAnchor.constraint(equalTo: button.bottomAnchor),
 

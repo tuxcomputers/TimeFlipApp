@@ -61,6 +61,9 @@ final class AppSettingsPane: NSView {
         /// Between one section's panel and the next section's heading. Wider than `headingSpacing`, so a heading
         /// reads as belonging to the panel under it rather than to the one it follows.
         static let sectionSpacing: CGFloat = 24
+        /// How much of the Calendar row the name may take. Wide enough for a name somebody chose, and fixed so the
+        /// row does not change width when the name does.
+        static let calendarNameWidth: CGFloat = 240
     }
 
     /// What the table says, at the moment the tab was shown. Every field is what is stored, in the unit it is stored
@@ -126,6 +129,15 @@ final class AppSettingsPane: NSView {
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
     /// did not. What the row shows is left alone either way -- it is showing what somebody just typed.
     var onChange: ((Change) -> Void)?
+
+    /// Called as the calendar name is opened for editing and closed again, so the window can lend Escape to the
+    /// field. A key equivalent is dispatched before the focused field ever sees the key, so without this the Close
+    /// button wins and shuts the window instead of abandoning the name. The Categories tab makes the same loan.
+    var onCalendarEditingChanged: ((Bool) -> Void)?
+
+    /// The calendar name's cell while the section is showing one, for a test to reach and for the window to close an
+    /// edit on. `nil` whenever there is no calendar, since the row is then a Create button.
+    private(set) var calendarCell: EditableNameCell?
 
     private(set) var values = Values.seeded
     private let rows = NSStackView()
@@ -219,6 +231,9 @@ final class AppSettingsPane: NSView {
         for view in googleRows.views {
             googleRows.removeView(view)
         }
+        // The rows are rebuilt from scratch, so any cell held from the last build is about to be thrown away. Kept in
+        // step here rather than left pointing at a view that is no longer in the window.
+        calendarCell = nil
 
         let account = values.googleAccount
         var built: [NSView] = [
@@ -279,26 +294,29 @@ final class AppSettingsPane: NSView {
             return row("Calendar", button, separated: true)
         }
 
-        let field = NSTextField(string: values.googleCalendar.name ?? GoogleCalendarRules.defaultName)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.alignment = .right
-        field.isBordered = false
-        field.drawsBackground = false
-        field.target = self
-        // On commit only, never per keystroke: a rename is a request to Google, and one per character typed would be
-        // both wrong and expensive.
-        field.action = #selector(googleCalendarNamed)
-        field.setAccessibilityIdentifier(Identifier.googleCalendar)
-        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
-        return row("Calendar", field, separated: true)
+        // **The same cell a category name uses**, so renaming the calendar is the same act as renaming a category:
+        // click the name, it becomes a field, Return commits and Escape abandons. It used to be a permanently live
+        // text field, which looked like a form to fill in rather than a name to correct, and behaved differently in
+        // the way that matters -- an `NSTextField`'s action fires on losing focus as well as on Return, so tabbing
+        // out of it or clicking elsewhere spent a request to Google on a rename nobody asked for.
+        let cell = EditableNameCell(
+            name: values.googleCalendar.name ?? GoogleCalendarRules.defaultName,
+            width: Layout.calendarNameWidth,
+            identifier: Identifier.googleCalendar,
+            alignment: .right
+        )
+        cell.onCommit = { [weak self] typed in self?.calendarNamed(typed) }
+        cell.onEditingChanged = { [weak self] isEditing in self?.onCalendarEditingChanged?(isEditing) }
+        calendarCell = cell
+        return row("Calendar", cell, separated: true)
     }
 
-    @objc
-    private func googleCalendarNamed(_ sender: NSTextField) {
-        let typed = GoogleCalendarRules.name(fromTyped: sender.stringValue)
-        // Unchanged is not a rename. Committing a field by tabbing out of it should not spend a request.
-        guard typed != values.googleCalendar.name else { return }
-        onChange?(.googleCalendarNamed(typed))
+    private func calendarNamed(_ typed: String) {
+        let name = GoogleCalendarRules.name(fromTyped: typed)
+        // Unchanged is not a rename. Committing a name somebody opened and thought better of should not spend a
+        // request to Google.
+        guard name != values.googleCalendar.name else { return }
+        onChange?(.googleCalendarNamed(name))
     }
 
     @objc
