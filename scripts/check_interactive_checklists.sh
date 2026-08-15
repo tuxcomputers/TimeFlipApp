@@ -1,93 +1,75 @@
 #!/usr/bin/env bash
-# Checks the two things that make a checklist's ticks mean something, over every
-# Tests/Bench/*-checklist.md and Tests/Interactive/*-checklist.md. Bench is reported first, then
-# Interactive, mirroring the run order. See Archive/Tests/CLAUDE.md for the conventions this enforces:
-# the suite it was written for is archived, and the globs below are where a rebuilt one goes.
+# Checks the scripted suite is runnable, on a machine that cannot run it.
 #
-#   1. No unchecked (`- [ ]`) item is left anywhere.
-#   2. With `--branch <name>`: every file's `### Last run` heading names <name>.
+# **CI has no screen, no Keychain and no Google account**, so it cannot run `Tests/Scripted/run.sh` and
+# must not pretend to. What it can do is make sure the suite is not broken in the ways that only show up
+# when somebody tries: a script that will not parse, one that is not executable, one that never reports a
+# verdict. All three are silent until the moment the suite is needed.
 #
-# The second exists because the first can be satisfied without running anything: a tick survives in
-# the file until someone clears it, so a branch that changes behaviour and never re-runs the suite
-# inherits a full set of ticks recording a *previous* branch's run. The Last run heading is the only
-# thing that says which branch the evidence belongs to, so requiring it to name this one is what
-# stops the tick check from passing on stale evidence.
-#
-# `--branch` with an empty value skips check 2 entirely, which is what a push to main wants: the
-# heading names the feature branch that ran the suite, and it goes on saying so after the merge.
+# What this replaced, and why. The suite used to be Markdown checklists with tick boxes, and this script
+# checked that none were left unticked and that each named the branch it was last run on -- because a tick
+# survives in a file until somebody clears it, so a branch that changed behaviour and never re-ran
+# inherited a full set of ticks recording somebody else's run. The scripted suite has no ticks to inherit:
+# it either runs and passes or it does not, and the evidence is the run itself (`logs/screen.txt`) rather
+# than a file in the repository. So the staleness check has nothing to attach to, and `--branch` is
+# accepted and ignored rather than removed, since the workflows pass it.
 set -euo pipefail
 
-BRANCH=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --branch) BRANCH="${2-}"; shift 2 ;;
-    --branch=*) BRANCH="${1#*=}"; shift ;;
+    --branch) shift 2 || shift ;;
+    --branch=*) shift ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
 shopt -s nullglob
-# Bench first, then Interactive -- the order the suites are meant to be run in.
-files=(Tests/Bench/*-checklist.md Tests/Interactive/*-checklist.md)
+scripts=(Tests/Scripted/[0-9][0-9]-*.sh)
 
-if [ ${#files[@]} -eq 0 ]; then
-  echo "No test checklists found; skipping."
+if [ ${#scripts[@]} -eq 0 ]; then
+  echo "No scripted checks found; skipping."
   exit 0
 fi
 
-unchecked_failed=0
-for f in "${files[@]}"; do
-  matches=$(grep -n '^\s*-\s*\[ \]' "$f" || true)
-  if [ -n "$matches" ]; then
-    echo "Unchecked items in $f:"
-    echo "$matches"
-    echo ""
-    unchecked_failed=1
+echo "Checking ${#scripts[@]} scripted check(s) are runnable:"
+failed=0
+
+for f in Tests/Scripted/lib.sh Tests/Scripted/run.sh "${scripts[@]}"; do
+  problems=""
+
+  # A syntax error is invisible until the script is reached, which on a suite that stops at the first
+  # failure can be several minutes in.
+  bash -n "$f" 2>/dev/null || problems="$problems does-not-parse"
+
+  # run.sh invokes each one with `bash`, so this is about somebody running one on its own.
+  [ -x "$f" ] || problems="$problems not-executable"
+
+  case "$f" in
+    Tests/Scripted/[0-9][0-9]-*.sh)
+      # Without `finish` a script cannot fail: it ends on the exit status of whatever ran last, so a
+      # failed check would be reported and the suite would carry on regardless.
+      grep -q '^finish$' "$f" || problems="$problems no-finish"
+      # Without this it would happily write to whichever database the app is pointed at, and these
+      # scripts create categories and time entries that nothing undoes.
+      grep -q 'require_test_database' "$f" || problems="$problems no-database-guard"
+      ;;
+  esac
+
+  if [ -n "$problems" ]; then
+    echo "  $f:$problems"
+    failed=1
+  else
+    echo "  $f ok"
   fi
 done
 
-if [ "$unchecked_failed" -ne 0 ]; then
-  echo "One or more test checklists have unchecked items."
-  echo "Complete the checklist(s) and commit the fully-ticked version before merging."
+if [ "$failed" -ne 0 ]; then
   echo ""
-else
-  echo "All test checklists are fully checked."
-fi
-
-branch_failed=0
-if [ -n "$BRANCH" ]; then
-  echo ""
-  echo "Checking every checklist was last run on '$BRANCH':"
-  for f in "${files[@]}"; do
-    # Only the top of the file, matching where checklist_header.py both looks for the heading and
-    # inserts it -- so the two agree on what counts as having one.
-    heading=$(head -12 "$f" | grep -m1 -E "^### Last run - " || true)
-    if [ -z "$heading" ]; then
-      echo "  $f: no 'Last run' heading -- never run"
-      branch_failed=1
-      continue
-    fi
-    recorded=$(printf '%s\n' "$heading" \
-      | sed -E "s/^### Last run - .* on the branch '(.*)'[[:space:]]*$/\1/")
-    if [ "$recorded" = "$heading" ]; then
-      echo "  $f: malformed 'Last run' heading: $heading"
-      branch_failed=1
-    elif [ "$recorded" != "$BRANCH" ]; then
-      echo "  $f: last run on '$recorded'"
-      branch_failed=1
-    fi
-  done
-
-  if [ "$branch_failed" -ne 0 ]; then
-    echo ""
-    echo "One or more test checklists were last run on another branch (or never)."
-    echo "Their ticks are a previous branch's evidence, not this one's: run them on '$BRANCH'"
-    echo "and commit the updated headings before merging."
-  else
-    echo "  all clear -- every checklist was last run on '$BRANCH'."
-  fi
-fi
-
-if [ "$unchecked_failed" -ne 0 ] || [ "$branch_failed" -ne 0 ]; then
+  echo "One or more scripted checks are not runnable. See Tests/Scripted/README.md."
   exit 1
 fi
+
+echo ""
+echo "All scripted checks are runnable."
+echo "CI cannot run them: they drive a real window and read a real database."
+echo "Run Tests/Scripted/run.sh before merging, and keep logs/screen.txt from that run."

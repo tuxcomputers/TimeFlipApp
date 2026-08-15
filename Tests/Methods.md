@@ -227,6 +227,24 @@ the app is often what that is.
 Confirmed on the rename: `ax-press.py category-name-11`, `ax-set.py category-name-11-field "Admin work"`, Return,
 then the sheet's own buttons are ordinary named elements (`action-button-1` is the first one added).
 
+## An ad-hoc build silently switches Google sync off
+
+A build made without the signing identity is a *different application* to the Keychain, so the refresh token
+behind Google sync stops being readable without a prompt. Nothing reports this: no build error, no failure, no
+log line. The sweep simply never runs, and the app looks like it forgot how.
+
+```sh
+codesign -dvvv .build/bundler/apps/Facet/Facet.app 2>&1 | grep -E "Signature|TeamIdentifier"
+# Signature=adhoc / TeamIdentifier=not set   <- sync will be silent
+```
+
+Measured 2026-08-16: a hand-run `mint run stackotter/swift-bundler@main bundle Facet` replaced a signed build,
+and `Tests/Scripted/10-google-calendar.sh` found the sweep gone with no explanation in `debug_log` at all --
+not even the "waiting to sync, but ..." line, because the token read never returned.
+
+**Always build through `scripts/run.sh` or `Tests/Scripted/lib.sh`**, both of which take the identity from
+`scripts/codesign-identity.sh`. A bare `swift-bundler bundle` is the trap.
+
 ## Notes that have cost time
 
 - **A popover is invisible to accessibility.** The icon picker and the colour list are not in the app's

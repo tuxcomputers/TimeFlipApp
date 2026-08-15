@@ -228,7 +228,11 @@ The section is built and every row writes. Several of these settings were alread
 - [ ] **Daily limit enforcement**: measuring a category against `category.daily_limit`, pausing the cube when it is spent, and refusing a resume. The archive's own scar to avoid: the pause is not idempotent, so each repeat mints a `device_event`.
 - [ ] **`device_notification`**: the table exists and nothing writes it, so a double-tap or a low battery leaves no record.
 - [ ] **The real developer-mode gate.** `DeveloperMode.isEnabled` is a hardcoded `true`, which is fine while the app is unreleased and must not ship that way.
-- [ ] **The device tests.** There is no suite: the previous one is in [Archive/Tests/](../Archive/Tests/) and [Archive/testrunner/](../Archive/testrunner/), to be rebuilt per feature as each lands.
+- [x] **The scripted checks** ([Tests/Scripted/](../Tests/Scripted/)): eleven scripts that drive the real app and read the real database, covering everything above in the order the app comes up and gets used. `Tests/Scripted/run.sh` builds, launches, runs them all, quits, and writes the run to `logs/screen.txt`.
+  - **No AI in the loop and nothing extra installed.** The previous suite needed a supervisor, a locator layer and a person reading the screen; this one needs a shell. What made that possible is already in the app: every element carries an `AXIdentifier` and every action writes a `debug_log` row, so a check is "press by name, then poll for the row".
+  - **The database is the evidence.** A check waits for a row or queries a table, never asks a person. Every wait is baselined against the newest `debug_log` id before the action, because this database has a human user too and a total count is never safe to assert on.
+  - It refuses to run against production, and cleans up nothing: the rows a run makes are what somebody reads when it fails.
+  - CI cannot run them -- there is no screen, no Keychain and no Google account -- so `scripts/check_interactive_checklists.sh` checks they are *runnable* instead: they parse, they are executable, they end in `finish`, and they guard the database.
 - [ ] **The schema migration path for a released app** (a `099` script and a `database_version` row). Until release, [database/CLAUDE.md](../database/CLAUDE.md) holds the rule instead: write the DDL as if the database were new, then bring prod and test up to it.
 
 ### Supporting material, built
