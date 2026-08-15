@@ -289,8 +289,8 @@ and it still enforces the two rules that matter the moment one exists: no unchec
 - All dev-only `print(...)` console messages (gated on `DeveloperMode.isEnabled`) must lead with
   a zero-padded 24-hour local time, followed by the `[Tag]` naming the action/source, e.g.:
   ```
-  13:25:38 [TimeFlip ] Login accepted, code=0x02
-  13:25:39 [dev-check] device_event max_event_number OK: in_memory=112 db=112
+  13:25:38 [history] Fetched 12 segments, newest event_number=112
+  13:25:39 [entry  ] Segment 4213 became tracked time, filed under Meeting
   ```
 - Use `DeveloperMode.debugPrint(_ tag: DebugTag, _:)` (in `DeveloperConfigStore.swift`) rather than
   a bare `print(...)` call — it prepends the timestamp and gates on `isEnabled` itself, so call

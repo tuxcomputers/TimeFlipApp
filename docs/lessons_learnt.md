@@ -1,4 +1,4 @@
-# Leasson learnt while developing the TimeFlip app
+# Leasson learnt while developing the Facet app
 
 ## Multiple CLAUDE.md files
 I used to have just a single CLAUDE.md file inthe root of the repo. While doig this project I changed and created multiple CLAUDE.md files. The root CLAUDE.md file references the other files and what each purpose each file serves.

@@ -185,7 +185,7 @@ Measured via temporary env-var-gated scaffolding in `ApplicationDelegate` (`CLAU
 
 ## Where things live
 
-- Mock: `Sources/FacetApp/MockTimeFlipDevice.swift`
-- Protocol it satisfies: `Sources/FacetApp/TimeFlipEventSource.swift`
-- Real device, for parity: `Sources/FacetApp/TimeFlipBLEDevice.swift`
+- Mock: `Archive/TimeFlipApp/MockTimeFlipDevice.swift`
+- Protocol it satisfies: `Archive/TimeFlipApp/TimeFlipEventSource.swift`
+- Real device, for parity: `Archive/TimeFlipApp/TimeFlipBLEDevice.swift`
 - Workflow tests that consume it: `Tests/FacetAppTests/Workflows/` (see that folder's `README.md`)

@@ -8,7 +8,7 @@ This lists everything that was persisted outside those two at the branch's fork 
 
 ## UserDefaults — the `timeflip.preferences` blob
 
-One `UserDefaults` key held a JSON-encoded `PreferencesPayload` (`Sources/FacetApp/PreferencesStore.swift`), the only `UserDefaults` key the app ever used. Every field below was a member of that one blob, which is why the key could not go until all of them had. All of them have, so the file, the types and the key are gone. `ColorComponents` was the one thing in that file worth keeping, and now lives in `ColorComponents.swift`.
+One `UserDefaults` key held a JSON-encoded `PreferencesPayload` (`PreferencesStore.swift`, deleted in 7b932dd), the only `UserDefaults` key the app ever used. Every field below was a member of that one blob, which is why the key could not go until all of them had. All of them have, so the file, the types and the key are gone. `ColorComponents` was the one thing in that file worth keeping, and now lives in `ColorComponents.swift`.
 
 ### Per-face mappings (`faceMappings: [FaceMappingRecord]`)
 
@@ -112,7 +112,7 @@ Listed so the boundary of this work is clear.
 
 - Keychain: Google OAuth state (`KeychainAuthStateStore`), Google client secret (`GoogleClientSecretStore`), device password (`TimeFlipDevicePasswordStore`).
 - Database: everything in the `setting` table, plus all device history, categories, faces, icons, colours and debug log.
-- The two developer-mode files in `~/Library/Application Support/TimeFlip/`, `config.json` (`DeveloperConfigStore`) and `config.auth.json` (`DeveloperModeGoogleAuthStateStore`). **Not legacy.** They are deliberate developer conveniences that go when the app is production ready, so they are not persisted state that needs a home elsewhere and nothing here is waiting on them. Noted only so a future reader does not file them as an oversight again.
+- The two developer-mode files in `~/Library/Application Support/Facet/`, `config.json` (`DeveloperConfigStore`) and `config.auth.json` (`DeveloperModeGoogleAuthStateStore`). **Not legacy.** They are deliberate developer conveniences that go when the app is production ready, so they are not persisted state that needs a home elsewhere and nothing here is waiting on them. Noted only so a future reader does not file them as an oversight again.
 
 ## Notes
 

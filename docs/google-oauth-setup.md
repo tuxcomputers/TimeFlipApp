@@ -110,7 +110,7 @@ take it. iOS clients issue **no client secret at all**, which sounds like the sa
 open. Four things outweigh it here:
 
 - **A Desktop client is not keyed to the bundle identifier.** An iOS client is, so renaming
-  `dev.evernoob.timeflip` to `au.com.tux.facet` would mean recreating the client. Under Desktop the rename and the
+  `au.com.tux.facet` to `au.com.tux.facet` would mean recreating the client. Under Desktop the rename and the
   Google setup do not block each other at all.
 - **The archive already implements this flow.** `OIDRedirectHTTPHandler` in `GoogleAuthService.swift` is the loopback
   listener. The iOS path instead means a `CFBundleURLTypes` entry, an `application(_:open:)` handler, and deleting that
@@ -194,7 +194,7 @@ Written against the archive's implementation, which is where this code comes bac
 The archive reads them from the environment (`GoogleAuthConfiguration.loadFromEnvironment`, `GOOGLE_OAUTH_CLIENT_ID`),
 which works for a developer running from a shell and not at all for a user double-clicking an app. Put them in the
 bundle instead: `Info.plist` keys filled from build configuration, read at launch. In this repo that means
-`[apps.TimeFlip.plist]` in `Bundler.toml`.
+`[apps.Facet.plist]` in `Bundler.toml`.
 
 **The source is `~/.config/facet/google-client.json`** (Part 1 step 1), so the build reads the pair from there rather
 than from anything committed. `Bundler.toml` is tracked, which means the values cannot simply be typed into it: either
@@ -234,7 +234,7 @@ What changes is `GoogleClientSecretStore`: the secret it holds is now bundled co
 user pasted in, so the store keeps its role as the override from step 2 rather than as the only source.
 
 **The rename touches this.** Keychain items are keyed per application, so changing the bundle identifier from
-`dev.evernoob.timeflip` to `au.com.tux.facet` orphans anything already stored. Harmless before release, since the fix
+`au.com.tux.facet` to `au.com.tux.facet` orphans anything already stored. Harmless before release, since the fix
 is signing in again, but it belongs in the rename's list rather than being discovered afterwards.
 
 ### 5. Handle the scope list changing under an existing user

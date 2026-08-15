@@ -24,17 +24,17 @@ git clone https://github.com/growler/TimeFlipApp.git
 cd TimeFlipApp 
 
 # Build the application bundle (runs swift-bundler via mint, no PATH changes needed)
-mint run stackotter/swift-bundler@main bundle TimeFlip
+mint run stackotter/swift-bundler@main bundle Facet
 
-# The app will be created at .build/bundler/apps/TimeFlip/TimeFlip.app
+# The app will be created at .build/bundler/apps/Facet/Facet.app
 # Open the app
-open .build/bundler/apps/TimeFlip/TimeFlip.app
+open .build/bundler/apps/Facet/Facet.app
 
 # or run using bundler
-mint run stackotter/swift-bundler@main run TimeFlip
+mint run stackotter/swift-bundler@main run Facet
 ```
 
-You can then drag `TimeFlip.app` to your Applications folder for easy access.
+You can then drag `Facet.app` to your Applications folder for easy access.
 
 ### Option 2: Direct Swift Build
 
@@ -47,19 +47,19 @@ cd TimeFlipApp
 swift build -c release
 
 # Run the application
-.build/release/TimeFlipApp
+.build/release/FacetApp
 ```
 
-The app will appear in your menu bar with the TimeFlip icon.
+The app will appear in your menu bar with the Facet icon.
 
 ## Building and Testing
 
 ```bash
 # Build and run the app bundle (recommended for testing full app behavior)
-mint run stackotter/swift-bundler@main run TimeFlip
+mint run stackotter/swift-bundler@main run Facet
 
-# The app bundle is left at .build/bundler/apps/TimeFlip/TimeFlip.app
-open .build/bundler/apps/TimeFlip/TimeFlip.app
+# The app bundle is left at .build/bundler/apps/Facet/Facet.app
+open .build/bundler/apps/Facet/Facet.app
 
 # Or build in debug mode directly
 swift build

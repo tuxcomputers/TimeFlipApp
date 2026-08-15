@@ -1,4 +1,4 @@
-# TimeFlip macOS
+# Facet
 
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
 

@@ -16,7 +16,7 @@ To enable Google Calendar integration, you need to create a Google Cloud project
 
 1. Go to the [Google Cloud Manage resources](https://console.cloud.google.com/cloud-resource-manager)
 2. Click on the project dropdown at the top and select "New Project"
-3. Enter a project name (e.g., "TimeFlip Integration")
+3. Enter a project name (e.g., "Facet")
 4. Click "Create"
 
 ### Step 2: Enable Required APIs
@@ -33,7 +33,7 @@ Google's console now organizes this under "Google Auth Platform" as separate tab
 
 1. Click the "OAuth consent screen" (this lands you on the "Google Auth Platform" page)
 2. On first visit, click "Get Started" and select "External" as the user type (unless you have a Google Workspace account), then fill in:
-   - **App name**: TimeFlip macOS
+   - **App name**: Facet
    - **User support email**: Your email address
    - Click next
 3. Select External, click Next
@@ -57,7 +57,7 @@ Google's console now organizes this under "Google Auth Platform" as separate tab
    |---|---|
    | `calendar.events` | Read/write events on calendars you can access |
    | `calendar.readonly` | List your existing calendars (populates the calendar picker) |
-   | `calendar.app.created` | Create a dedicated secondary calendar (e.g. "TimeFlipApp") and manage events on it. This is a least-privilege scope — it only ever touches calendars this app itself creates, never your other calendars |
+   | `calendar.app.created` | Create a dedicated secondary calendar (e.g. "Facet") and manage events on it. This is a least-privilege scope — it only ever touches calendars this app itself creates, never your other calendars |
    | `userinfo.email` | See your Google account's primary email address |
    | `userinfo.profile` | See your Google account's name and profile info |
    | `openid` | Sign-in via OpenID Connect, so the account name/email arrive in a verifiable ID token |
@@ -76,16 +76,16 @@ Google's console now organizes this under "Google Auth Platform" as separate tab
 1. Go to the **"Clients"** tab (still under "Google Auth Platform")
 2. Click "Create OAuth client"
 3. Select "Desktop app" as the application type
-4. Enter a name (e.g., "TimeFlip Desktop Client")
+4. Enter a name (e.g., "Facet macOS (desktop)")
 5. Click "Create"
 6. You'll see a dialog with your Client ID and Client Secret
 7. Click "Download JSON" to save the credentials (optional, but recommended as backup)
 8. Copy both the **Client ID** and **Client Secret** - you'll need these for the app
 
-### Step 5: Configure TimeFlip App
+### Step 5: Configure Facet
 
-1. Launch the TimeFlip app from your menu bar
-2. Click on the TimeFlip icon and select "Preferences..."
+1. Launch Facet from your menu bar
+2. Click on the Facet icon and select "Preferences..."
 3. Go to the "Reports" tab
 4. Paste your **Client ID** in the "Client ID" field
 5. Paste your **Client Secret** in the "Client Secret" field
@@ -94,7 +94,7 @@ Google's console now organizes this under "Google Auth Platform" as separate tab
 8. Sign in with your Google account (the one you added as a test user)
 9. Review the permissions and click "Continue"
 10. The browser will show "Authorization complete" and you can close the window
-11. Return to the TimeFlip app - you should now see "Authenticated"
+11. Return to Facet - you should now see "Authenticated"
 
 > **Disconnect / re-authenticate:** If you had already authenticated under an older, narrower set of scopes, sign out and sign in again so Google re-prompts for the new permissions — a token issued before the scope list changed does not gain the new scopes on its own. The consent screen will now additionally ask to see your name and email address and to create/manage calendars it makes for you.
 
@@ -112,7 +112,7 @@ The app will now automatically sync your time tracking data to Google Calendar.
 
 1. Ensure your TimeFlip2 device is powered on and within Bluetooth range
 2. **If your device is already connected to the official TimeFlip app, you must explicitly disconnect it there first** — in the official app: go to **Settings**, tap the **three dots**, then **"Disconnect TimeFlip"**. Turning off Bluetooth on your phone is **not** enough: the official app appears to set a private, account-specific device password when it connects, so even after the Bluetooth radio link drops, the device is left on a password other than the default `000000` and this app won't be able to log in. Only the explicit "Disconnect TimeFlip" action resets it back to default.
-3. Open the TimeFlip app preferences
+3. Open the Facet preferences
 4. Go to the "Device" tab
 5. Click **"Scan for Devices"** (this button only appears while no device is paired; check **"All Devices"** if you don't see your TimeFlip show up under the default TimeFlip-only filter)
 6. Once your device appears in the results list below, click it to attempt pairing
@@ -307,7 +307,7 @@ The app includes a mock device that simulates TimeFlip behavior and accepts comm
 
 - Verify you're authenticated
 - Check that a Calendar is configured
-- Check Console.app logs for error messages (filter by "timeflip")
+- Check Console.app logs for error messages (filter by "facet")
 
 ### Menu Bar Not Updating
 
