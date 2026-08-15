@@ -81,9 +81,9 @@ final class GoogleSectionTests: XCTestCase {
         XCTAssertTrue(note.isHidden, "nothing to explain when the button works")
     }
 
-    func testTheSectionSitsAboveAppSettings() throws {
-        // The archive's order (`ReportSettingsView` put Google first), and the reason the pane grew a second panel
-        // rather than a second tab.
+    func testTheSectionSitsBelowAppSettings() throws {
+        // The archive put Google first. It is last here: the six settings above are what somebody opens this tab to
+        // change, and a connection made once belongs under them.
         let pane = self.pane()
         pane.frame = NSRect(x: 0, y: 0, width: 640, height: 700)
         pane.layoutSubtreeIfNeeded()
@@ -91,7 +91,7 @@ final class GoogleSectionTests: XCTestCase {
         let google = try XCTUnwrap(view(AppSettingsPane.Identifier.googleSection, in: pane))
         let app = try XCTUnwrap(view(AppSettingsPane.Identifier.section, in: pane))
         XCTAssertFalse(pane.isFlipped, "if this ever flips, the comparison below turns around")
-        XCTAssertGreaterThan(google.frame.minY, app.frame.minY, "AppKit's origin is bottom-left: higher up is a larger y")
+        XCTAssertLessThan(google.frame.minY, app.frame.minY, "AppKit's origin is bottom-left: lower down is a smaller y")
     }
 
     func testBothPanelsSpanTheWidthOfTheTab() throws {
@@ -104,30 +104,6 @@ final class GoogleSectionTests: XCTestCase {
             let panel = try XCTUnwrap(view(identifier, in: pane))
             XCTAssertEqual(panel.frame.width, 640 - 40, accuracy: 0.5, "\(identifier) stops short of the edge")
         }
-    }
-
-    func testTheNoteTakesItsSpaceBackWhenThereIsNothingToSay() throws {
-        // A hidden view keeps its height in Auto Layout (`Tests/Methods.md`), so the App settings heading would sit
-        // two lines lower when connected than when not if the note were merely hidden.
-        let disconnected = self.pane()
-        let connected = self.pane(name: "Harry", email: "harry@tux.com.au")
-        for pane in [disconnected, connected] {
-            pane.frame = NSRect(x: 0, y: 0, width: 640, height: 700)
-            pane.layoutSubtreeIfNeeded()
-        }
-
-        // Measured as the gap between the Google panel's bottom edge and the App settings heading's top, not as the
-        // heading's absolute position: connecting adds an account row and an email row, so the panel above grows by
-        // more than the note below it shrinks, and comparing positions would be measuring both at once.
-        func gap(in pane: AppSettingsPane) throws -> CGFloat {
-            let panel = try XCTUnwrap(view(AppSettingsPane.Identifier.googleSection, in: pane))
-            let heading = try XCTUnwrap(view(AppSettingsPane.Identifier.heading, in: pane))
-            return panel.frame.minY - heading.frame.maxY
-        }
-
-        // Layout.sectionSpacing, which the tests cannot name because it is private to the pane.
-        XCTAssertEqual(try gap(in: connected), 24, accuracy: 0.5, "no note: the heading sits straight under the panel")
-        XCTAssertGreaterThan(try gap(in: disconnected), 24, "with a note there is the note's height as well")
     }
 
     // MARK: - disconnecting

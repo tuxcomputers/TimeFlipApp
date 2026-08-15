@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is the only suite that runs today (606 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+`swift test` is the only suite that runs today (605 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -182,7 +182,7 @@ The section is built and every row writes. Several of these settings were alread
 - [ ] **The BLE driver**, which is all of it: scan, connect, login, the history stream, live face and pause events, and the commands the Device tab needs. See [docs/TimeFlip2 BLE Protocol v4.3.md](TimeFlip2%20BLE%20Protocol%20v4.3.md) for the contract and [docs/timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) for where the real device  disagrees with it.
 - [ ] **Writing settings.** `SettingReader` reads and nothing writes, which every tab above needs before it can save anything.
 - [ ] **Daily limit enforcement**: measuring a category against `category.daily_limit`, pausing the cube when it is spent, and refusing a resume. The archive's own scar to avoid: the pause is not idempotent, so each repeat mints a `device_event`.
-- [x] **The Google section on the App tab** ([GoogleAccountRules.swift](../Sources/FacetApp/GoogleAccountRules.swift), in [AppSettingsPane.swift](../Sources/FacetApp/AppSettingsPane.swift)): Status, and the account name and email when there is one, read from the `google_account` row when the window opens. Sits above App settings, in the archive's order.
+- [x] **The Google section on the App tab** ([GoogleAccountRules.swift](../Sources/FacetApp/GoogleAccountRules.swift), in [AppSettingsPane.swift](../Sources/FacetApp/AppSettingsPane.swift)): Status, and the account name and email when there is one, read from the `google_account` row when the window opens. Sits under App settings rather than over it, where the archive had it: the six settings above are what somebody opens this tab to change, and a connection made once and read occasionally belongs below them.
 
   **Two of the archive's rows are gone on purpose.** Its Client ID and Client Secret fields existed because every user made their own Google Cloud project; the project is ours now and the credentials ship with the build, so the app is not asking a question it knows the answer to. Its calendar picker is gone as a consequence of the scope decision: listing somebody's calendars needs `calendar.readonly` and writing to one they own needs `calendar.events`, both *sensitive*, and dropping them is what keeps this app out of Google's verification process entirely ([google-oauth-setup.md](google-oauth-setup.md)). Facet makes its own calendar under `calendar.app.created`, so there is nothing to choose.
 

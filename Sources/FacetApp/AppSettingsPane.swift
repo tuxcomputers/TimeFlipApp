@@ -2,8 +2,12 @@ import AppKit
 
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///
-/// **Two sections, in the archive's order** (`Archive/TimeFlipApp/ReportSettingsView.swift`): Google, then "App
-/// settings" with all six of its rows and its wording.
+/// **Two sections: "App settings" first, with all six of the archive's rows in its order and its wording
+/// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google underneath.**
+///
+/// The archive put Google at the top. It is at the bottom here, which is the better place for it on merit: the six
+/// settings above are what somebody opens this tab to change, and the Google section is a connection you make once
+/// and then read occasionally.
 ///
 /// The Google section is **much smaller than the archive's**, and `GoogleAccountRules` carries the reasons: the
 /// credentials now ship with the build so there is nothing to paste in, and the calendar picker is gone because
@@ -109,8 +113,6 @@ final class AppSettingsPane: NSView {
     private let rows = NSStackView()
     private let googleRows = NSStackView()
     private let googleNote = NSTextField(labelWithString: "")
-    private var appHeadingBelowNote: NSLayoutConstraint?
-    private var appHeadingBelowPanel: NSLayoutConstraint?
     private var showSecondsBox: NSButton!
     private var pauseOnLockBox: NSButton!
     private var dailyResetField: SteppedNumberField!
@@ -212,8 +214,10 @@ final class AppSettingsPane: NSView {
         }
         let note = GoogleAccountRules.note(for: account)
         googleNote.stringValue = note ?? ""
+        // **Nothing is anchored below this**, which is what makes hiding it enough. A hidden view keeps its height
+        // in Auto Layout (`Tests/Methods.md`), so while the Google section sat above App settings this had to swap
+        // two constraints to stop the empty note pushing the heading under it down. Being last removed that.
         googleNote.isHidden = note == nil
-        applyNoteVisibility()
     }
 
     private func label(_ text: String, identifier: String) -> NSTextField {
@@ -230,7 +234,7 @@ final class AppSettingsPane: NSView {
         onChange?(.googleDisconnected)
     }
 
-    /// Two sections, Google above App settings, in the archive's order (`ReportSettingsView` put Google first).
+    /// Two sections, App settings above Google.
     ///
     /// **The pane keeps its autoresizing frame**, so it is as wide as the window and both panels span that width (see
     /// `CLAUDE.md`). The tab view hands each pane the content rect and resizes it from there;
@@ -268,10 +272,11 @@ final class AppSettingsPane: NSView {
         // checker gave up on ("unable to type-check in reasonable time"), and a build error is a worse price than
         // repetition.
         NSLayoutConstraint.activate([
-            googleHeading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            appHeading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            appPanel.topAnchor.constraint(equalTo: appHeading.bottomAnchor, constant: Layout.headingSpacing),
+            googleHeading.topAnchor.constraint(equalTo: appPanel.bottomAnchor, constant: Layout.sectionSpacing),
             googlePanel.topAnchor.constraint(equalTo: googleHeading.bottomAnchor, constant: Layout.headingSpacing),
             googleNote.topAnchor.constraint(equalTo: googlePanel.bottomAnchor, constant: Layout.headingSpacing / 2),
-            appPanel.topAnchor.constraint(equalTo: appHeading.bottomAnchor, constant: Layout.headingSpacing),
         ])
 
         // A heading may be shorter than the pane; a panel and the note always span it.
@@ -299,24 +304,6 @@ final class AppSettingsPane: NSView {
             ])
         }
 
-        // **Two constraints, one active at a time**, rather than one constraint aimed at whichever view happens to be
-        // showing. A hidden view keeps its height in Auto Layout (`Tests/Methods.md`), so anchoring to the note and
-        // hiding it would leave its two lines of empty space behind, and deciding the anchor once at build time would
-        // freeze whichever state the pane opened in.
-        appHeadingBelowNote = appHeading.topAnchor.constraint(
-            equalTo: googleNote.bottomAnchor, constant: Layout.sectionSpacing
-        )
-        appHeadingBelowPanel = appHeading.topAnchor.constraint(
-            equalTo: googlePanel.bottomAnchor, constant: Layout.sectionSpacing
-        )
-        applyNoteVisibility()
-    }
-
-    /// Puts the App settings heading under whichever view is actually the last thing in the Google section.
-    private func applyNoteVisibility() {
-        guard let appHeadingBelowNote, let appHeadingBelowPanel else { return }
-        appHeadingBelowNote.isActive = !googleNote.isHidden
-        appHeadingBelowPanel.isActive = googleNote.isHidden
     }
 
     private func heading(_ title: String, identifier: String) -> NSTextField {
