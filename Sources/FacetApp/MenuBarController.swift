@@ -61,6 +61,12 @@ final class MenuBarController: NSObject {
         /// at the small type the menu bar uses.
         static let attachmentScale: CGFloat = 1.6
         static let minimumAttachmentSize: CGFloat = 14
+        /// The breathing room either side of the title, inside the item.
+        ///
+        /// A measured string is the ink, and a status item is not drawn hard against its neighbours, so without this
+        /// the last character sits on the edge of the background macOS draws behind the item. Matches what
+        /// `variableLength` was giving before the width was set by hand.
+        static let itemPadding: CGFloat = 12
     }
 
     /// Accessibility identifiers, which are how a script addresses these rather than by position.
@@ -173,7 +179,18 @@ final class MenuBarController: NSObject {
             isLimitReached: isLimitReached()
         )
         if title != lastDrawn {
-            button.attributedTitle = makeTitle(title)
+            let drawn = makeTitle(title)
+            button.attributedTitle = drawn
+            // **The item is measured and its width set on every change**, rather than left to `variableLength`.
+            //
+            // macOS 26 draws a rounded background behind each status item and sizes it from `NSStatusItem.length`.
+            // Left to itself that length did not follow a title that grew: timing "1" and then switching to
+            // "SCRIPTED 1 REACTIVATE" drew the longer text spilling out of a capsule still the width of the shorter
+            // one. The text was right and its backdrop was a title behind (seen 2026-08-16).
+            //
+            // There is no way to turn that background off, so the only fix available is to make it the right size,
+            // which means telling the item how wide it now is instead of hoping it notices.
+            statusItem?.length = width(of: drawn)
             // A label as well as an identifier: the identifier is for scripts, the label is what VoiceOver reads,
             // and a button whose only name is its title reads as its title -- which is now a duration, and "0:07"
             // is not a description of anything.
@@ -230,6 +247,15 @@ final class MenuBarController: NSObject {
             title.append(NSAttributedString(string: " \(duration)", attributes: plain))
         }
         return title
+    }
+
+    /// How wide the item has to be for this title.
+    ///
+    /// Rounded up rather than to the nearest point: half a point short truncates the last character, and half a point
+    /// over is invisible. Internal so it can be asserted without putting a real item in the menu bar, which is the
+    /// same reason `makeTitle` is.
+    func width(of title: NSAttributedString) -> CGFloat {
+        ceil(title.size().width) + Layout.itemPadding
     }
 
     /// One image sitting in the line of text, tinted and dropped to the type's baseline.
