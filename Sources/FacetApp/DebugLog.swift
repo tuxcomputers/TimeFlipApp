@@ -49,6 +49,8 @@ final class DebugLog {
         case quit
         /// Entries on their way into the Google calendar, and what stopped them (`CalendarSync`).
         case sync
+        /// A category spending its `daily_limit`, and the clock being stopped for it (`DailyLimitWatch`).
+        case limit
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

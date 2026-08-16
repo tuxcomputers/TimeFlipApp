@@ -47,6 +47,11 @@ def describe(element, show_frames):
         # putting a memory address in the output.
         if text and not text.startswith("<AXUIElement"):
             parts.append(f"{label}={text}")
+    # **Only when it is off.** A tree where every line carried `enabled=true` would be harder to read for a
+    # fact that is nearly always the same, and the checks that care are the ones asserting a control is dead --
+    # a greyed Resume under a spent daily limit, a locked face's frozen row.
+    if attribute(element, "AXEnabled") is False:
+        parts.append("disabled")
     if show_frames:
         for name, label in (("AXPosition", "pos"), ("AXSize", "size")):
             if (value := attribute(element, name)) is not None:

@@ -145,6 +145,7 @@ and then being used.
 | `10-google-calendar` | the account, and recorded time reaching the calendar `03` made |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
 | `12-quit` | the way out closes what was open |
+| `13-daily-limit` | a category spending its `daily_limit` stops the clock, and every way of starting it again refuses |
 
 ## How a check is written
 

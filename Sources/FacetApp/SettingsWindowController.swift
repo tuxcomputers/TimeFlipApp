@@ -75,6 +75,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The `setting` table, for the App tab. Read when that tab is shown, never held.
     private let settings: SettingStore?
 
+    /// Whether the category on show has spent its `daily_limit`, which is what `togglePause` refuses a resume on.
+    ///
+    /// **A question rather than a flag**, so nothing here holds a copy of an answer that moves: the limit lands part
+    /// way through a session, and a boolean set when the window opened would refuse the wrong thing.
+    var isLimitReached: () -> Bool = { false }
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
@@ -1102,7 +1108,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let before = timing?.read() ?? .idle
         // Nothing being timed means no clock and no row, so there is nothing here to stop or start. The same
         // question the dropdown's Pause item and the status item's right side ask, and the same answer.
-        guard ManualTimerRules.isClickable(before.state) else { return }
+        // **The refusal itself.** Every path in -- the dropdown item, the status item's right half, the Timing
+        // column's glyph -- lands here, so a limit that stopped the clock cannot be undone by finding another
+        // button. The two controls also grey themselves, but that is the courtesy; this is the enforcement.
+        guard ManualTimerRules.isClickable(before.state, isLimitReached: isLimitReached()) else {
+            debugLog?.record(
+                .limit,
+                "Resume refused, \"\(before.category?.name ?? "nothing")\" has spent its daily limit"
+            )
+            return
+        }
         // One moment for both halves, so the segment that ends and the one that begins meet exactly.
         let moment = Date()
         if before.state == .running {

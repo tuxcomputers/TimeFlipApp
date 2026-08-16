@@ -70,7 +70,7 @@ Three gestures now pause: the glyph on the Faces tab, the dropdown item, and the
 ### Still to do
 
 - [ ] **Yellow for a reading gone stale**, once there is a connection to lose.
-- [ ] **Red for a category over its `daily_limit`**, and the pause that goes with it. The limit itself is now settable on the Categories tab, so this is the half that reads it.
+- [ ] **Red for a category over its `daily_limit`**. The pause that goes with it is built (`DailyLimitWatch`); this is the colour, which is the half still missing.
 - [ ] **The low-battery red/white blink**, gated on `low_battery_level`.
 - [ ] **The lock badge**, to the left of the play/pause glyph rather than in place of it.
 - [ ] **The double-click gesture that locks the cube**, which is also what makes the right side's pause wait out the  double-click interval instead of firing at once.
@@ -227,7 +227,8 @@ The section is built and every row writes. Several of these settings were alread
 
 - [ ] **The BLE driver**, which is all of it: scan, connect, login, the history stream, live face and pause events, and the commands the Device tab needs. See [docs/TimeFlip2 BLE Protocol v4.3.md](TimeFlip2%20BLE%20Protocol%20v4.3.md) for the contract and [docs/timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) for where the real device  disagrees with it.
 - [ ] **Writing settings.** `SettingReader` reads and nothing writes, which every tab above needs before it can save anything.
-- [ ] **Daily limit enforcement**: measuring a category against `category.daily_limit`, pausing the cube when it is spent, and refusing a resume. The archive's own scar to avoid: the pause is not idempotent, so each repeat mints a `device_event`.
+- [x] **Daily limit enforcement** ([DailyLimitEnforcement.swift](../Sources/FacetApp/DailyLimitEnforcement.swift), [DailyLimitWatch.swift](../Sources/FacetApp/DailyLimitWatch.swift)): a category measured against its `daily_limit`, the clock stopped when it is spent, and every path that would start it again refusing -- the dropdown's Resume greys, the status item's right half becomes a no-op, and `togglePause` refuses. **Testable with no cube**, because in manual mode the app is the clock: `13-daily-limit` seeds a total 20 seconds short, starts it on the Faces tab and watches the app stop itself. The decision is the archive's, copied with its 19 tests; what is still owed is the half that needs a radio, which is the same `.pause` going out as `0x06 0x01` instead of closing the app's own segment.
+  - `.resume` is deliberately not acted on while the app is the clock. With a cube it carries on counting a face somebody is resting on; in manual mode it would be the app recording time against a category nobody has come back to. Raising the limit lifts the refusal, and starting the clock stays the user's to do.
 - [ ] **`device_notification`**: the table exists and nothing writes it, so a double-tap or a low battery leaves no record.
 - [ ] **The real developer-mode gate.** `DeveloperMode.isEnabled` is a hardcoded `true`, which is fine while the app is unreleased and must not ship that way.
 - [x] **The scripted checks** ([Tests/Scripted/](../Tests/Scripted/)): eleven scripts that drive the real app and read the real database, covering everything above in the order the app comes up and gets used. `Tests/Scripted/run.sh` builds, launches, runs them all, quits, and writes the run to `logs/screen.txt`.

@@ -98,6 +98,11 @@ final class MenuBarController: NSObject {
     /// implementation of pausing.
     private let togglePause: () -> Void
 
+    /// Whether the category on show has spent its `daily_limit`. **Asked as the menu is built and as a click is
+    /// routed**, never held: the limit lands part way through a session, so a copy taken when the item was drawn
+    /// would grey the wrong thing.
+    private let isLimitReached: () -> Bool
+
     /// `nil` in a build without the dev flag, which is the whole of how logging is switched off here.
     private let debugLog: DebugLog?
 
@@ -117,7 +122,8 @@ final class MenuBarController: NSObject {
         openSettings: @escaping () -> Void,
         timing: @escaping () -> TimingReadout.Reading = { .idle },
         showingSeconds: @escaping () -> Bool = { true },
-        togglePause: @escaping () -> Void = {}
+        togglePause: @escaping () -> Void = {},
+        isLimitReached: @escaping () -> Bool = { false }
     ) {
         self.databaseBadge = databaseBadge
         self.debugLog = debugLog
@@ -125,6 +131,7 @@ final class MenuBarController: NSObject {
         self.timing = timing
         self.showingSeconds = showingSeconds
         self.togglePause = togglePause
+        self.isLimitReached = isLimitReached
         super.init()
     }
 
@@ -305,7 +312,9 @@ final class MenuBarController: NSObject {
         }
         let state = timing().state
         pause.title = ManualTimerRules.pauseMenuTitle(for: state)
-        pause.isEnabled = ManualTimerRules.isClickable(state)
+        // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
+        // than advisory: the item still reads "Resume", because that is what it would do, and it will not do it.
+        pause.isEnabled = ManualTimerRules.isClickable(state, isLimitReached: isLimitReached())
     }
 
     /// One menu item, targeted at this controller and named for a script.
@@ -341,7 +350,9 @@ final class MenuBarController: NSObject {
         // one that cannot leave someone stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
         let state = timing().state
-        let action = StatusItemClickRouter.action(isLeftSide: isLeftSide, timing: state)
+        let action = StatusItemClickRouter.action(
+            isLeftSide: isLeftSide, timing: state, isLimitReached: isLimitReached()
+        )
 
         // Recorded whatever the outcome, including `ignore`. A click that deliberately did nothing and
         // a click that never arrived look identical afterwards unless one of them left a row -- and

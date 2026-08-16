@@ -163,6 +163,21 @@ let historyTimer = HistoryTimer(
 }
 historyTimer.start()
 
+// Stops the clock when the category being timed has spent its `daily_limit`, and is then what every path that
+// could start it again asks before doing so.
+//
+// **Manual mode is what makes this testable with no cube on the desk.** The app is the clock, so "pause the device"
+// is the app's own pause path -- and when a device arrives the same `.pause` becomes `0x06 0x01` going out to it,
+// with nothing in `DailyLimitEnforcement` or here changing.
+let dailyLimit = DailyLimitWatch(
+    timing: { timingReadout.read() },
+    windowStart: { dayTotal.windowStart(at: $0) },
+    debugLog: debugLog,
+    stopTiming: { settingsWindow.togglePause() }
+)
+// Asked rather than pushed, so the refusal and the greying cannot be working from different copies of one answer.
+settingsWindow.isLimitReached = { dailyLimit.isReached }
+
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
     debugLog: debugLog,
@@ -174,9 +189,15 @@ let menuBar = MenuBarController(
     // without seconds looks stopped.
     showingSeconds: { settings.flag("display_seconds", field: "enabled") ?? true },
     // The same entry point the Timing column's control uses. Two ways in, one implementation.
-    togglePause: { settingsWindow.togglePause() }
+    togglePause: { settingsWindow.togglePause() },
+    // Greys the dropdown's Resume and turns the item's right half into a no-op. `togglePause` refuses as well,
+    // which is the enforcement; these two are what stop it looking like a control that is simply broken.
+    isLimitReached: { dailyLimit.isReached }
 )
 menuBar.start()
+// A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press
+// something: the segment it is measuring may already be over the limit.
+dailyLimit.start()
 
 // A category picked or paused in the window has to reach the item in the same moment, rather than on its next
 // tick. Assigned here because each side needs the other: the item's menu is what opens the window.
@@ -185,6 +206,9 @@ menuBar.start()
 settingsWindow.onTimingChanged = {
     menuBar.redraw()
     historyTimer.resumeIfStopped()
+    // The same funnel, for the same reason: this stands itself down while nothing is being timed, and every path
+    // that starts the clock already comes through here, so a new one gets the limit enforced for nothing.
+    dailyLimit.resumeIfStopped()
 }
 
 // Connecting Google is the other moment a sweep becomes possible. Without this, somebody who signs in after a week
