@@ -106,9 +106,42 @@ struct DailyLimitEnforcement {
     private var limitWhenReached: [Int: Int] = [:]
     /// Whether the cube's current pause is one this type asked for, and so one it may lift again.
     private(set) var isPausedByLimit = false
-    /// Whether the category on show has spent its budget, as of the last `evaluate`. What the menu bar will draw red,
-    /// and what a resume has to refuse to go through.
-    private(set) var isReachedForCurrentCategory = false
+
+    /// Whether `categoryID` has spent its budget. **Asked at the moment it matters, not remembered from the last
+    /// `evaluate`.**
+    ///
+    /// This is what the refusal is built on: the dropdown's Resume greys with it, the status item's right half becomes
+    /// a no-op, the Faces tab's glyph greys, and the menu bar draws the duration red. All four ask as they are drawn or
+    /// as they are clicked, so none of them can be showing an answer that has since stopped being true.
+    ///
+    /// **It was a stored flag until 2026-08-16, and that was a bug with a scripted run behind it.** `DailyLimitWatch`
+    /// only ticks while the clock is running, so the flag stopped being updated at the very moment it latched: a limit
+    /// raised on the Categories tab afterwards was never noticed and the refusal stayed up for the rest of the launch.
+    /// Run 15 of `Tests/Scripted/12-daily-limit.sh` caught it -- the right half still answered `ignore` two seconds
+    /// after the limit went from 5 minutes to 10.
+    ///
+    /// Non-mutating, deliberately. It is asked from draw code and from click handlers, and a query that quietly latched
+    /// something would make what is on screen depend on how often it was looked at. `evaluate` stays the only thing
+    /// here that changes anything.
+    func isReached(
+        categoryID: Int?,
+        limitMinutes: Int,
+        totalSeconds: TimeInterval,
+        windowStart: Date
+    ) -> Bool {
+        guard let categoryID else { return false }
+        // A latch from a window that has since rolled over is not an answer about this one. `evaluate` is what actually
+        // clears it; this only declines to believe it in the meantime.
+        if latchedWindowStart == windowStart,
+           let latchedLimit = limitWhenReached[categoryID],
+           latchedLimit == limitMinutes {
+            return true
+        }
+        // The fall-through `evaluate` uses once a latch is dropped for disagreeing with the limit: the old answer is
+        // gone and the current number decides. Raising the limit lifts the refusal here, lowering it holds, and
+        // clearing it to 0 releases -- all without waiting for a tick that may have stood down.
+        return DailyLimitEnforcement.isReached(totalSeconds: totalSeconds, limitMinutes: limitMinutes)
+    }
 
     /// Fold in the current state of play and say what the cube needs.
     ///
@@ -133,10 +166,7 @@ struct DailyLimitEnforcement {
             limitWhenReached = [:]
         }
 
-        guard let categoryID else {
-            isReachedForCurrentCategory = false
-            return .none
-        }
+        guard let categoryID else { return .none }
 
         // A limit edited since this category caught is a new question, so the old answer is dropped and the new number
         // decides below. Clearing the limit to 0 lands here too, and then fails `isReached`, which is how "no limit"
@@ -147,7 +177,6 @@ struct DailyLimitEnforcement {
 
         let reached = limitWhenReached[categoryID] != nil
             || DailyLimitEnforcement.isReached(totalSeconds: totalSeconds, limitMinutes: limitMinutes)
-        isReachedForCurrentCategory = reached
 
         guard reached else {
             // Budget again on this face, and the cube already running: whatever pause this type placed is gone, so the

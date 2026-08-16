@@ -144,8 +144,11 @@ final class DailyLimitWatchTests: XCTestCase {
         XCTAssertEqual(state, .paused)
 
         limit = 10
-        watch.check(at: window)
 
+        // **No second `check` here, deliberately, and this test used to have one.** With it, this passed while the
+        // app was broken: stopping the clock stands the tick down, so the real app never gets another `check` and the
+        // refusal it asks about was answered from the last one for the rest of the launch (run 15, 2026-08-16). The
+        // raised limit has to be answered by the ask itself.
         XCTAssertFalse(watch.isReached, "the refusal is lifted")
         // The clock is the user's to start. `stopTiming` is the only thing this watch can call, so the proof that
         // nothing resumed on their behalf is that the session is still stopped and was stopped exactly once.

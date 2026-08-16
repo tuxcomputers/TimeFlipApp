@@ -182,6 +182,13 @@ check "and nothing started" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE 
 # A deliberate edit is answered immediately, which is what `DailyLimitEnforcement` stores the limit for rather than
 # just the fact of it. What comes back is the *ability* to start the clock, not the clock itself: nothing starts
 # timing on somebody's behalf while they are elsewhere.
+#
+# **The raise goes in through the Categories tab, because that is the only place anybody raises one.** Measured
+# 2026-08-16, run 15: this is where the feature was actually broken. The refusal was answered from a flag that
+# `DailyLimitWatch` only updated on its tick, and the tick stands down the moment a limit stops the clock -- so the
+# edit below was written to the table, logged, and then noticed by nothing. The right half went on refusing for the
+# rest of the launch. Two things had to change and both are checked here: the refusal is worked out when it is asked,
+# and `setDailyLimit` calls `onTimingChanged` so the edit itself redraws the item.
 
 select_tab Categories
 set_field_focused "category-limit-$ID" "$((LIMIT_MINUTES * 2))"
@@ -192,6 +199,15 @@ check "the raised limit is stored" "$((LIMIT_MINUTES * 2))" \
     "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
 check "and raising it did not start the clock by itself" "0" \
     "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+
+# The menu bar stops saying it, which is the half a user actually sees. Nothing was clicked between the edit and this,
+# so what redrew the item is the edit -- there is no tick running to have done it.
+item=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
+if printf '%s' "$item" | grep -q "daily limit reached"; then
+    fail "the status item still says the limit is reached after it was raised"
+else
+    pass "the status item stops saying the limit is reached"
+fi
 
 since=$(mark)
 python3 scripts/status-item-click.py --right >/dev/null 2>&1

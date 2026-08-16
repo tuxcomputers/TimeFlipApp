@@ -5,15 +5,15 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   test/dailyLimit
-    commit:   302c26851fef6339e634ee53e6c0d5ce09c941e2
+    commit:   cc2b05d78180650d96f4973463d0ba3917009fa6
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-16 14:50:34
-    finished: 2026-08-16 14:59:13
+    started:  2026-08-16 15:10:06
+    finished: 2026-08-16 15:16:06
     outcome:  failed
     scripts:  13 run, 1 with failures
-    checks:   257 in total
-              256 passed
+    checks:   263 in total
+              262 passed
               1 failed
               0 skipped
 
@@ -31,8 +31,8 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 09-report | 22 | 0 | 0 |
 | 10-google-calendar | 10 | 0 | 0 |
 | 11-google-reconnect | 17 | 0 | 0 |
-| 12-daily-limit | 11 | 1 | 0 |
-| **total** | **256** | **1** | **0** |
+| 12-daily-limit | 17 | 1 | 0 |
+| **total** | **262** | **1** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.

@@ -37,12 +37,26 @@ final class DailyLimitWatch {
     /// `HistoryTimer` uses.
     private var timer: Timer?
 
-    /// Whether the category on show has spent its budget, as of the last check.
+    /// Whether the category on show has spent its budget, **worked out now rather than as of the last tick**.
     ///
     /// **What every path that could start the clock again asks**, through `ManualTimerRules.isClickable`: the
-    /// dropdown's Resume greys itself with it, the status item's right half becomes a no-op, and `togglePause`
-    /// refuses. Read rather than pushed, so none of them can be holding a stale copy.
-    var isReached: Bool { enforcement.isReachedForCurrentCategory }
+    /// dropdown's Resume greys itself with it, the status item's right half becomes a no-op, the Faces tab's glyph
+    /// greys, and `togglePause` refuses. Read rather than pushed, so none of them can be holding a stale copy.
+    ///
+    /// **It reads the readout on every ask, and that is the point.** The tick stands down the moment the clock stops,
+    /// which is precisely what reaching a limit does to it -- so anything answered from the tick's last verdict would
+    /// be answered from a tick that is never coming back, and a limit raised afterwards would go unnoticed for the
+    /// rest of the launch. That was the bug run 15 found. A readout per ask is the same cost the menu bar already pays
+    /// for `display_seconds`, on the same once-a-second draw.
+    var isReached: Bool {
+        let reading = timing()
+        return enforcement.isReached(
+            categoryID: reading.category?.id,
+            limitMinutes: reading.category?.dailyLimitMinutes ?? 0,
+            totalSeconds: reading.seconds,
+            windowStart: windowStart(Date())
+        )
+    }
 
     init(
         timing: @escaping () -> TimingReadout.Reading,
@@ -121,8 +135,17 @@ final class DailyLimitWatch {
             break
         }
 
-        // Nothing running means nothing that can cross a limit, so the tick stands down rather than reading the
-        // tables once a second for an answer that cannot change. `resumeIfStopped` is what brings it back.
+        // Nothing running means nothing that can *cross* a limit, so the tick stands down rather than reading the
+        // tables once a second to watch a clock that is not moving. `resumeIfStopped` is what brings it back.
+        //
+        // **It used to say "an answer that cannot change", and that was the bug.** The answer can change while the
+        // clock is stopped, because the limit itself can be raised on the Categories tab -- and the state this stands
+        // down into is exactly the one a spent limit produces. Nothing here notices that any more, and nothing needs
+        // to: `isReached` is worked out when it is asked, and `setDailyLimit` calls `onTimingChanged` so the edit
+        // itself is what redraws. What is genuinely lost is `.resume`, which cannot fire while the tick is down. In
+        // manual mode that costs a log line, since `.resume` is deliberately not acted on (above). **With a cube it
+        // would cost the pause being lifted**, so a device arriving here needs this stand-down revisited -- keeping
+        // the tick alive while a limit is latched is the shape that fixes it.
         if reading.state != .running {
             stop()
         }

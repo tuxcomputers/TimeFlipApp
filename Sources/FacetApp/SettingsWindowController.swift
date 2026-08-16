@@ -921,8 +921,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             .field,
             "Category \"\(category.name)\" daily limit -> \(allowed)min\(stored ? "" : " REFUSED")"
         )
-        guard !stored else { return }
-        reloadSelectedPane()
+        guard stored else {
+            reloadSelectedPane()
+            return
+        }
+        // **The limit just edited may be the limit the app is refusing against, and the refusal has no tick of its own
+        // to notice.** `DailyLimitWatch` stands itself down when the clock stops, which is exactly what a spent limit
+        // does to it, so raising the limit here is a change nothing was left watching for. The edit says so itself
+        // instead: the menu bar redraws and its red clears, the dropdown's Resume comes back, and the watch re-arms if
+        // there is anything to watch. This is the same funnel a rename uses two methods up, for the same reason.
+        onTimingChanged?()
     }
 
     /// Retires a category and takes it off the faces holding it.

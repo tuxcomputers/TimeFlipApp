@@ -44,7 +44,7 @@ final class DailyLimitEnforcementTests: XCTestCase {
         var enforcement = DailyLimitEnforcement()
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3599, paused: false), .none)
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertTrue(enforcement.isReachedForCurrentCategory)
+        XCTAssertTrue(isReached(enforcement, category: breakCategory, limit: 60, total: 3600))
     }
 
     func testACubeAlreadyPausedAtTheCrossingIsLeftAlone() {
@@ -63,7 +63,7 @@ final class DailyLimitEnforcementTests: XCTestCase {
         var enforcement = DailyLimitEnforcement()
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 2400, paused: true), .none)
-        XCTAssertTrue(enforcement.isReachedForCurrentCategory)
+        XCTAssertTrue(isReached(enforcement, category: breakCategory, limit: 60, total: 2400))
     }
 
     func testADoubleTapOnTheCubePutsThePauseStraightBack() {
@@ -89,7 +89,7 @@ final class DailyLimitEnforcementTests: XCTestCase {
         var enforcement = DailyLimitEnforcement()
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
         XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, paused: true), .resume)
-        XCTAssertFalse(enforcement.isReachedForCurrentCategory)
+        XCTAssertFalse(isReached(enforcement, category: meetingCategory, limit: 60, total: 120))
         XCTAssertFalse(enforcement.isPausedByLimit)
     }
 
@@ -150,9 +150,9 @@ final class DailyLimitEnforcementTests: XCTestCase {
         var enforcement = DailyLimitEnforcement()
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
         XCTAssertEqual(evaluate(&enforcement, category: nil, limit: 0, total: 0, paused: true), .none)
-        XCTAssertFalse(enforcement.isReachedForCurrentCategory)
+        XCTAssertFalse(isReached(enforcement, category: nil, limit: 0, total: 0))
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: true), .none)
-        XCTAssertTrue(enforcement.isReachedForCurrentCategory)
+        XCTAssertTrue(isReached(enforcement, category: breakCategory, limit: 60, total: 3600))
     }
 
     // MARK: - clearing the hold
@@ -173,7 +173,11 @@ final class DailyLimitEnforcementTests: XCTestCase {
             ),
             .resume
         )
-        XCTAssertFalse(enforcement.isReachedForCurrentCategory)
+        XCTAssertFalse(
+            enforcement.isReached(
+                categoryID: breakCategory, limitMinutes: 60, totalSeconds: 0, windowStart: tomorrow
+            )
+        )
     }
 
     func testRaisingTheLimitReleasesTheCategoryTheSameDay() {
@@ -182,7 +186,34 @@ final class DailyLimitEnforcementTests: XCTestCase {
         var enforcement = DailyLimitEnforcement()
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
         XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 90, total: 3600, paused: true), .resume)
-        XCTAssertFalse(enforcement.isReachedForCurrentCategory)
+        XCTAssertFalse(isReached(enforcement, category: breakCategory, limit: 90, total: 3600))
+    }
+
+    func testARaisedLimitIsAnsweredWithNoFurtherEvaluate() {
+        // **The bug run 15 found, in the smallest form that shows it.** Every other case here raises the limit and
+        // then calls `evaluate` again, which is what a running tick would do -- but the tick stands down the moment
+        // the limit stops the clock, so in the app there is no second `evaluate`. Nothing below calls one: the latch
+        // is set, the limit is raised on the Categories tab, and the refusal is asked the way the dropdown, the status
+        // item's right half and `togglePause` ask it.
+        var enforcement = DailyLimitEnforcement()
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertTrue(isReached(enforcement, category: breakCategory, limit: 60, total: 3600))
+
+        XCTAssertFalse(
+            isReached(enforcement, category: breakCategory, limit: 90, total: 3600),
+            "raising the limit to 90 lifts the refusal, without waiting for a tick that is not coming back"
+        )
+        // And the latch still does its job for the limit it was actually taken at: a total that has dipped under it
+        // because the closing segment is not a `time_entry` yet does not read as budget.
+        XCTAssertTrue(isReached(enforcement, category: breakCategory, limit: 60, total: 2400))
+    }
+
+    func testALoweredLimitStillHoldsWithNoFurtherEvaluate() {
+        // The other direction of the same ask, which must not be released by the edit alone: 30 minutes is spent by
+        // an hour, so the refusal survives the latch being dropped for disagreeing.
+        var enforcement = DailyLimitEnforcement()
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertTrue(isReached(enforcement, category: breakCategory, limit: 30, total: 3600))
     }
 
     func testClearingTheLimitReleasesTheCategoryToo() {
@@ -222,6 +253,21 @@ final class DailyLimitEnforcementTests: XCTestCase {
             limitMinutes: limit,
             totalSeconds: total,
             isPaused: paused,
+            windowStart: window
+        )
+    }
+
+    /// The refusal, asked the way the app asks it: a question about now, not a flag left over from a tick.
+    private func isReached(
+        _ enforcement: DailyLimitEnforcement,
+        category: Int?,
+        limit: Int,
+        total: TimeInterval
+    ) -> Bool {
+        enforcement.isReached(
+            categoryID: category,
+            limitMinutes: limit,
+            totalSeconds: total,
             windowStart: window
         )
     }
