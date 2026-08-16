@@ -19,7 +19,7 @@ BLIP=$(sql "SELECT json_extract(setting_value, '\$.seconds') FROM setting WHERE 
 BLIP=${BLIP:-5}
 grey "  blip_time is ${BLIP}s"
 
-NAME="Entry $(date '+%H:%M:%S')"
+NAME=$(next_name Entry)
 since=$(mark)
 press create-category
 sleep 0.5

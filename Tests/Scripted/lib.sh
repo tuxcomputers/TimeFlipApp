@@ -30,18 +30,72 @@ FAILED=0
 SCRIPT_NAME="$(basename "${BASH_SOURCE[1]:-unknown}" .sh)"
 FAILURES=""
 
+# The durable record. `logs/screen.txt` is this run and only what was printed; `logs/testlog.sqlite` keeps
+# every run, and keeps the app's own debug_log rows, which the next clean rebuild of test.sqlite destroys.
+# Sourced after `DB` is set, because it reads from it.
+source "$(dirname "${BASH_SOURCE[0]}")/testlog.sh"
+
 # ---------------------------------------------------------------------------- output
 
-blue()  { printf '\033[1;34m%s\033[0m\n' "$*"; }
-green() { printf '\033[0;32m%s\033[0m\n' "$*"; }
-red()   { printf '\033[0;31m%s\033[0m\n' "$*"; }
-grey()  { printf '\033[0;90m%s\033[0m\n' "$*"; }
+blue()   { printf '\033[1;34m%s\033[0m\n' "$*"; }
+green()  { printf '\033[0;32m%s\033[0m\n' "$*"; }
+red()    { printf '\033[0;31m%s\033[0m\n' "$*"; }
+grey()   { printf '\033[0;90m%s\033[0m\n' "$*"; }
+yellow() { printf '\033[1;33m%s\033[0m\n' "$*"; }
+
+# Stops the run and waits for the person running it. Answers 0 for yes, 1 for anything else.
+#
+#     action_required "Sign in to Google" "1. A browser opens." "2. Approve the account."
+#
+# **Drawn big on purpose.** Almost every check here runs untouched, so a run is something you start and
+# come back to. A step that needs hands has to survive being scrolled past, which a sentence among two
+# hundred lines of PASS does not.
+#
+# **Reads the terminal directly.** run.sh sends stdout through `tee` into a process substitution, so a
+# prompt printed the ordinary way can sit in a buffer while the run looks like it has hung. `/dev/tty` is
+# the terminal itself whatever stdout has been pointed at.
+#
+# **Non-interactive answers no**, rather than waiting for a person who is not there. A run with no
+# terminal is CI or a pipe, and a step needing hands is one it should skip and say so.
+action_required() {
+    local title="$1"
+    shift
+    echo ""
+    yellow "##############################################################################"
+    yellow "##"
+    yellow "##  ACTION REQUIRED"
+    yellow "##"
+    yellow "##  $title"
+    yellow "##"
+    local line
+    for line in "$@"; do
+        yellow "##    $line"
+    done
+    yellow "##"
+    yellow "##############################################################################"
+    echo ""
+
+    if [ ! -r /dev/tty ]; then
+        grey "  no terminal to ask, so this is being skipped"
+        return 1
+    fi
+
+    local answer=""
+    printf '  Type y and press Return when you are ready (anything else skips this): '
+    read -r answer < /dev/tty || return 1
+    echo ""
+    case "$answer" in
+        y | Y | yes | YES | Yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 start() {
     echo ""
     blue "=============================================================================="
     blue "$SCRIPT_NAME: $*"
     blue "=============================================================================="
+    testlog_script_start "$SCRIPT_NAME" "$*"
 }
 
 # **What is being checked is printed before the verdict, on its own line.**
@@ -57,14 +111,28 @@ start() {
 # `LAST` is what the description was, so the summary at the end can name a failure without every caller
 # repeating itself.
 LAST=""
-announce() { LAST="$*"; printf '  %s\n' "$*"; }
+LAST_STARTED=0
+LAST_LOG_MARK=0
+LAST_EXPECTED=""
+LAST_ACTUAL=""
+announce() {
+    LAST="$*"
+    # Stamped here rather than at the verdict, so the log records how long the check actually waited. The
+    # slow ones are the ones worth knowing about: a check that takes 45s is usually timing out.
+    LAST_STARTED=$(date +%s)
+    LAST_LOG_MARK=$(app_log_mark)
+    LAST_EXPECTED=""
+    LAST_ACTUAL=""
+    printf '  %s\n' "$*"
+}
 
-verdict_pass() { PASSED=$((PASSED + 1)); green "    PASS"; }
+verdict_pass() { PASSED=$((PASSED + 1)); green "    PASS"; testlog_check pass; }
 verdict_fail() {
     FAILED=$((FAILED + 1))
     FAILURES="$FAILURES
   - $LAST${1:+ ($1)}"
     red "    FAIL${1:+  $1}"
+    testlog_check fail "${1:-}"
 }
 
 # `pass "what was checked"` and `fail "what was checked"` for the cases a script decides for itself.
@@ -75,6 +143,8 @@ fail() { [ $# -gt 0 ] && announce "$*"; verdict_fail; }
 # script formatting its own message.
 check() {
     announce "$1"
+    LAST_EXPECTED="$2"
+    LAST_ACTUAL="$3"
     if [ "$2" = "$3" ]; then
         verdict_pass
     else
@@ -101,11 +171,14 @@ check_contains() {
 # tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
 # but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
 SKIPPED=0
-skip() { SKIPPED=$((SKIPPED + 1)); announce "$*"; printf '\033[0;33m    SKIP\033[0m\n'; }
+skip() { SKIPPED=$((SKIPPED + 1)); announce "$*"; printf '\033[0;33m    SKIP\033[0m\n'; testlog_check skip; }
 
 # Ends the script and decides its exit status. Non-zero on any failure, which is what lets run.sh stop
 # rather than carry on into scripts whose starting state the failure just invalidated.
 finish() {
+    # Before anything is printed, because this is where the app's own debug_log rows are copied out of
+    # test.sqlite -- and a script that exits straight after `finish` would otherwise take them with it.
+    testlog_script_finish "$PASSED" "$FAILED" "${SKIPPED:-0}"
     echo ""
     local skipped=""
     [ "${SKIPPED:-0}" -gt 0 ] && skipped=", $SKIPPED skipped"
@@ -139,6 +212,26 @@ require_test_database() {
 }
 
 sql() { sqlite3 "$DB" "$1"; }
+
+# The next unused name in a numbered family: `next_name Timer` answers `Timer 1` on a database built from
+# nothing, and `Timer 18` on one that already holds seventeen.
+#
+# **Because an active category name has to be unique.** These scripts create categories and delete none,
+# so a fixed name works once and collides on every `--keep` run afterwards -- the app would raise its
+# "already exists" alert and the create would be refused, failing a check that has nothing to do with what
+# is being tested. The names used to carry a clock stamp for that reason, which worked and made every
+# category unreadable (`Scripted 09:14:22`) and every failure message different from the last.
+#
+# The number is a high-water mark, not a count. It reads the largest number already used and goes one
+# past, so a gap left by a deleted row is simply never reused -- which is what makes it safe to derive
+# other names from it (`$NAME renamed`, `$NAME reactivate`) without checking each one.
+next_name() {
+    local prefix="$1" highest
+    highest=$(sql "SELECT IFNULL(MAX(CAST(SUBSTR(category_name, LENGTH('$prefix') + 2) AS INTEGER)), 0)
+                     FROM category
+                    WHERE category_name GLOB '$prefix [0-9]*';")
+    printf '%s %s' "$prefix" "$(( ${highest:-0} + 1 ))"
+}
 
 # The newest debug_log id right now. Every wait is measured from one of these -- see rule 3 above.
 mark() { sql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;"; }
@@ -269,6 +362,19 @@ PYTHON
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
 set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
 tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
+
+# The buttons of the alert that is up, in the order they are drawn, joined with `|` so one check can
+# assert the whole set rather than probing for each.
+#
+# **Read off the sheet, not off the window.** Several checks here turn on a button being *absent*, and
+# a grep over the tree would count a `Cancel` belonging to something else -- reporting the button as
+# present when the alert never offered it. Empty when no sheet is up, which fails such a check instead
+# of passing it silently.
+alert_buttons() { python3 scripts/ax-alert.py 2>/dev/null | tr '\n' '|' | sed 's/|$//'; }
+
+# Whether a sheet is up at all. Worth its own check before opening the next one: an alert nobody
+# dismissed is modal, so every later press lands on nothing and the failures arrive somewhere else.
+alert_is_open() { python3 scripts/ax-alert.py >/dev/null 2>&1; }
 
 # One element's line from the tree, so a check reads the thing it is about rather than searching the
 # whole window -- and a failure prints that line rather than several hundred.

@@ -15,7 +15,7 @@ select_tab Faces
 
 # A category of this run's own, so what is timed below cannot be confused with a category somebody was
 # already using. Created here rather than reused from 04, which retires and reinstates the one it makes.
-NAME="Timing $(date '+%H:%M:%S')"
+NAME=$(next_name Timing)
 since=$(mark)
 press create-category
 sleep 0.5

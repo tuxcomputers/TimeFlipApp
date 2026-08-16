@@ -35,7 +35,7 @@ check "it does not fire while nothing is being timed" "0" "$ticks"
 
 # ---------------------------------------------------------------------------- while something is
 
-NAME="Timer $(date '+%H:%M:%S')"
+NAME=$(next_name Timer)
 since=$(mark)
 press create-category
 sleep 0.5

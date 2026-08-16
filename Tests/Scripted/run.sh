@@ -101,6 +101,14 @@ fi
 
 echo "${#scripts[@]} script(s) to run"
 
+# The durable record, alongside screen.txt. See Tests/Scripted/testlog.sh for what it holds and why one
+# overwritten text file is not enough to work out why something failed.
+DB="$HOME/Library/Application Support/Facet/appdata.sqlite"
+source Tests/Scripted/testlog.sh
+TESTLOG_RUN_ID=$(testlog_run_start "$((1 - KEEP_DATABASE))" "$FILTER" "run.sh $*")
+export TESTLOG_RUN_ID
+echo "Recording this run as run_id $TESTLOG_RUN_ID in logs/testlog.sqlite"
+
 ran=0
 failed=""
 for script in "${scripts[@]}"; do
@@ -111,6 +119,12 @@ for script in "${scripts[@]}"; do
         break
     fi
 done
+
+testlog_run_finish "$TESTLOG_RUN_ID" "$([ -z "$failed" ] && echo passed || echo failed)" "$ran"
+
+# The committed half of the record. Written either way, because a stamp that only appeared on success
+# would let a failing branch keep an older passing one -- which is the staleness it exists to catch.
+testlog_stamp "$TESTLOG_RUN_ID" "Tests/Scripted/last-run.md"
 
 echo ""
 echo "=============================================================================="
