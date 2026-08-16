@@ -226,12 +226,16 @@ final class CategoryStore {
     /// Reinstating can be refused, by the unique index over active names rather than by a check here: only one
     /// active category may hold a name. Retiring cannot be refused by the database, so a `false` from that
     /// direction means the id is not there.
+    ///
+    /// **`category_id >= 1`, so the *Unassigned* sentinel cannot be retired.** It is what a face points at when it
+    /// holds nothing, so retiring it would take the empty answer out of the list every face needs to be able to fall
+    /// back to, and the row would still be sitting under every face that pointed at it.
     func setActive(id: Int, _ isActive: Bool) -> Bool {
         // The row count as well as the step, so a category that is not there reads as refused rather than as
         // done. A name collision is refused by the index and fails the step; a missing id changes nothing and
         // would otherwise pass.
         connection.execute(
-            "UPDATE category SET active = \(isActive ? 1 : 0) WHERE category_id = \(id);"
+            "UPDATE category SET active = \(isActive ? 1 : 0) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
     }
 
@@ -239,9 +243,12 @@ final class CategoryStore {
     ///
     /// `0` is the seeded *None* row, which is how an icon is cleared: it is a real row in `icon` rather than a null,
     /// so the foreign key holds either way.
+    ///
+    /// **`category_id >= 1`, so the *Unassigned* sentinel keeps its blank look.** A face holding nothing is drawn from
+    /// that row, so artwork on it would put a picture on every empty face at once.
     func setIcon(id: Int, iconID: Int) -> Bool {
         connection.execute(
-            "UPDATE category SET icon_id = \(iconID) WHERE category_id = \(id);"
+            "UPDATE category SET icon_id = \(iconID) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
     }
 
@@ -269,9 +276,12 @@ final class CategoryStore {
     ///
     /// `0` is the seeded *None* row, which is how a colour is cleared: a real row in `colour` rather than a null, so
     /// the foreign key holds either way. The same shape as `setIcon` for the same reason.
+    ///
+    /// **`category_id >= 1`, so the *Unassigned* sentinel keeps its blank look**, for the reason `setIcon` gives: it
+    /// is what an empty face is drawn from, and on a cube it is what an empty face would light its LED with.
     func setColour(id: Int, colourID: Int) -> Bool {
         connection.execute(
-            "UPDATE category SET colour_id = \(colourID) WHERE category_id = \(id);"
+            "UPDATE category SET colour_id = \(colourID) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
     }
 
@@ -281,8 +291,9 @@ final class CategoryStore {
     /// limit is belongs with the rest of the rules, and this writes what it is given.
     /// **`category_id >= 1`, so the *Unassigned* sentinel is never given a budget.** It is what a face points at when
     /// it holds nothing rather than a category anybody chose, so a limit on it would be a budget on the absence of an
-    /// activity -- and a hard limit reaching it would pause the cube for not being used. `setName` guards itself the
-    /// same way, and the previous app guarded all five of its category writers like this.
+    /// activity -- and a hard limit reaching it would pause the cube for not being used. **All five writers here guard
+    /// themselves this way**, as the previous app's five did: the sentinel is a row the app depends on being exactly
+    /// what the seed made it, and a guard on only the writers somebody thought of is a guard with a way round it.
     func setDailyLimit(id: Int, minutes: Int) -> Bool {
         connection.execute(
             "UPDATE category SET daily_limit = \(minutes) WHERE category_id = \(id) AND category_id >= 1;"

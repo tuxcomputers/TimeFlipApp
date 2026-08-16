@@ -190,6 +190,43 @@ testlog_run_start() {
     local rebuilt="${1:-1}" filter="${2:-}" invocation="${3:-}"
     testlog_open
 
+    # ------------------------------------------------------------------ runs that never finished
+    #
+    # **A killed run leaves its row saying `running` for ever**, because the only thing that closes a row is the
+    # finish it never reached. Three of them piled up on 2026-08-16 in the space of two minutes -- a run started,
+    # stopped, and started again -- and the effect is not cosmetic: "the last run" answered by status rather than by
+    # `run_id` then names a row that is not the last one and never ended, which is exactly the question anybody
+    # querying this table is asking.
+    #
+    # Closed here rather than at the kill, because a killed process is precisely the one that does not get to run its
+    # own tidy-up. Starting a run is the next moment anybody is looking.
+    #
+    # **Marked `abandoned`, not `failed`.** Nothing is known about why it stopped, and a row claiming a verdict it
+    # never reached would be worse than one admitting it has none. The counts it did manage are kept, so a run killed
+    # part way still shows how far it got, and it is finished at its **last recorded activity** rather than at now,
+    # so its duration is not inflated by however long the row sat open.
+    #
+    # A genuinely concurrent run would be closed by this. That is not a case worth protecting: the suite drives one
+    # app and one database, so two at once are already interfering with each other's results.
+    local stranded
+    stranded=$(tlog "SELECT COUNT(*) FROM run WHERE finished_epoch IS NULL;")
+    if [ "${stranded:-0}" -gt 0 ]; then
+        tlog "UPDATE run
+                 SET finished_epoch = IFNULL(
+                         (SELECT MAX(s.finished_epoch) FROM script s WHERE s.run_id = run.run_id), started_epoch),
+                     finished_at = datetime(
+                         IFNULL((SELECT MAX(s.finished_epoch) FROM script s WHERE s.run_id = run.run_id),
+                                started_epoch),
+                         'unixepoch', 'localtime'),
+                     outcome     = 'abandoned',
+                     scripts_run = (SELECT COUNT(*)               FROM script s WHERE s.run_id = run.run_id),
+                     passed      = (SELECT IFNULL(SUM(s.passed), 0)  FROM script s WHERE s.run_id = run.run_id),
+                     failed      = (SELECT IFNULL(SUM(s.failed), 0)  FROM script s WHERE s.run_id = run.run_id),
+                     skipped     = (SELECT IFNULL(SUM(s.skipped), 0) FROM script s WHERE s.run_id = run.run_id)
+               WHERE finished_epoch IS NULL;"
+        echo "  closed $stranded earlier run(s) that never finished, as abandoned"
+    fi
+
     local branch commit dirty target built signing os
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     # The full hash, not the short one: `last-run.md` is checked against the branch's history, and an
