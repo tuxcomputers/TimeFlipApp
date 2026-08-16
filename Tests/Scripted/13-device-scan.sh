@@ -31,9 +31,9 @@ if ! action_required \
     "2. Check Bluetooth is on." \
     "3. Press y and leave everything alone; the scan runs by itself." \
     "" \
-    "The FIRST scan on a new build makes macOS ask whether Facet may use Bluetooth." \
-    "If that prompt appears, allow it -- until you do, the radio never answers and" \
-    "this script fails with the scan never starting." \
+    "The FIRST time Facet ever scans, macOS asks whether it may use Bluetooth. That" \
+    "is once, not once per run or per build: after it is allowed the app just scans." \
+    "If the prompt does appear, allow it -- until you do the radio never answers." \
     "" \
     "Answer anything else to skip this script. The rest of the run is unaffected."; then
     skip "no TimeFlip was made available, so the scan has nothing to find"
@@ -60,9 +60,14 @@ expect_log "pressing Scan starts a filtered scan" "$since" "%Scan requested, Tim
 
 # **Waited for, not slept through**, which is the rule the archive wrote down and this script broke on its first run.
 # Pressing the button does not start a scan: `start` builds the central manager and returns, and the scan begins in
-# the state callback that follows. On the first use of a new build that gap holds the macOS Bluetooth permission
-# prompt, so it is as long as somebody takes to answer -- run 24 checked the button 1.5 seconds in, found it still
-# reading "Scan for Devices", and reported a dead button when the app was waiting for an answer.
+# the state callback that follows.
+#
+# That gap is normally a few milliseconds. **Once, ever, it is however long somebody takes to read a dialogue**: the
+# first time this app asks for the radio, macOS asks the user about it. Measured on 2026-08-16 -- run 24 met the
+# prompt and checked the button 1.5 seconds in, found it still reading "Scan for Devices", and reported a dead
+# button when the app was waiting for an answer. **It does not recur**: once allowed, the app scans without asking,
+# a rebuild included. So the long wait below is for a case that happens on one machine one time, and costs nothing
+# on every run after it.
 grey "  waiting for the radio to come up..."
 if wait_for "$since" "%Bluetooth state:%" 60 >/dev/null; then
     pass "the radio answered"

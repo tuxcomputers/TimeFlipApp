@@ -102,10 +102,11 @@ final class BluetoothScanner: NSObject {
 
         if central == nil {
             // **Said out loud, because the gap it opens is otherwise silent.** Building the manager does not start a
-            // scan: the state arrives on the delegate and `beginScanIfReady` runs there, which on the very first use
-            // can be a while, since this is the moment macOS asks the user whether Facet may use Bluetooth at all.
-            // Without this row the log jumps from "Scan requested" to nothing, and a button that has not changed
-            // looks broken rather than waiting (seen in run 24, where no state ever arrived).
+            // scan: the state arrives on the delegate and `beginScanIfReady` runs there. That is usually immediate,
+            // but the first time this app ever asks for the radio it is however long somebody takes to answer the
+            // system's Bluetooth prompt -- once, on one machine, and never again once allowed. Without this row the
+            // log jumps from "Scan requested" to nothing, and a button that has not changed looks broken rather than
+            // waiting, which is exactly how run 24 read it.
             debugLog?.record(.scan, "Waiting for the radio: building the central manager")
             central = CBCentralManager(delegate: self, queue: .main)
             return
