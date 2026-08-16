@@ -44,6 +44,29 @@ OAuth client credentials it belongs with. It holds a real email address and a re
 repository takes outside contributions: a seed committed into it would put one developer's account into
 everybody's checkout.
 
+## A new calendar every run
+
+`00-setup` **deletes** the calendar the last run made and blanks the stored id, so `10-google-calendar`
+finds none, presses Create, and renames the fresh one to `Facet-test`.
+
+Reusing it is what looks reasonable and does not work. Google keeps a deleted *event* for ever as
+`cancelled` and will never reissue its id, while Facet derives an event's id from `time_entry_id` --
+which a clean run restarts at 1. Emptying the calendar therefore burned exactly the ids the next run was
+about to ask for, and every one of those entries then failed to sync for ever. A new calendar has no
+cancelled ids in it, so the collision cannot arise.
+
+**You will not end up with a pile of `Facet-test` calendars.** Steady state is one: each run deletes the
+previous one before making its own. The care is in the failure case -- `calendarList.list` returns
+nothing usable under the `calendar.app.created` scope, so a calendar that escapes cleanup is invisible
+from then on and can only be removed by hand in Google Calendar. So the seed file keeps the id of every
+calendar the harness has made, a delete that fails leaves its id on that list to be retried next run, and
+the run says so rather than passing over it:
+
+```
+  a calendar would not delete; it is kept and retried next run
+    SKIP
+```
+
 ## Before you run
 
 **Point the app at the test database.** The scripts refuse to run otherwise, and say so:
@@ -107,14 +130,15 @@ and then being used.
 | `01-launch` | the database opens, one instance only, the debug log records |
 | `02-menu-bar` | the status item, its menu, and the pause on its right half |
 | `03-settings-window` | the window opens, the tabs switch, it closes |
-| `04-categories` | create, rename, retire, reinstate |
+| `04-categories` | create, rename, retire, reinstate, and the alert a retired namesake raises |
 | `05-faces-timing` | a category on a face, the clock starting and pausing |
 | `06-time-entries` | a finished segment becoming tracked time, and a blip not |
 | `07-history-timer` | it fires while timing and stops when nothing is |
 | `08-app-settings` | each row on the App tab written and read back |
 | `09-report` | the range, the totals, folding a category open, the sorting |
-| `10-google-calendar` | the account, the calendar, and an entry reaching it |
-| `11-quit` | the way out closes what was open |
+| `10-google-calendar` | the account, making the calendar, renaming it, and an entry reaching it |
+| `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
+| `12-quit` | the way out closes what was open |
 
 ## How a check is written
 
@@ -146,6 +170,31 @@ check "the table agrees" "1" "$(sql 'SELECT ...;')"
 
 finish
 ```
+
+## CI checks that you ran them
+
+CI cannot run this suite: there is no screen, no Keychain and no Google account on a build machine. What
+it can do is refuse a pull request that has no record of a run.
+
+`run.sh` writes **`Tests/Scripted/last-run.md`** at the end of every run, from the recorded run rather
+than from anything it was told, and that file is committed. On a pull request,
+`scripts/check_interactive_checklists.sh` requires all of:
+
+- the run was on **this** branch;
+- it **passed**, with zero failing checks;
+- the tree was **clean** when it ran, since a run against uncommitted changes is not evidence about the
+  commit it names;
+- the commit it names is **in this branch's history**, and nothing under `Sources/`, `Tests/Scripted/` or
+  `database/` has changed since.
+
+That last one is why the stamp carries a commit rather than a date. The old checklists recorded a date and
+a branch, so a run from before the last five commits looked exactly like one from after them. Editing a
+README does not force a re-run; changing the app does.
+
+None of it is enforced on a push to main, where the stamp goes on naming the feature branch that ran it.
+
+**So: run the suite, then commit the stamp along with your change.** If you did not run it, CI will say so
+rather than let a green build imply otherwise.
 
 ## When one of these fails
 
