@@ -46,8 +46,8 @@ everybody's checkout.
 
 ## A new calendar every run
 
-`00-setup` **deletes** the calendar the last run made and blanks the stored id, so `10-google-calendar`
-finds none, presses Create, and renames the fresh one to `Facet-test`.
+`10-google-calendar` **deletes** the calendar the last run made, presses Create, and renames the fresh
+one to `Facet-test`. All three go through the app's own controls.
 
 Reusing it is what looks reasonable and does not work. Google keeps a deleted *event* for ever as
 `cancelled` and will never reissue its id, while Facet derives an event's id from `time_entry_id` --
@@ -55,17 +55,17 @@ which a clean run restarts at 1. Emptying the calendar therefore burned exactly 
 about to ask for, and every one of those entries then failed to sync for ever. A new calendar has no
 cancelled ids in it, so the collision cannot arise.
 
-**You will not end up with a pile of `Facet-test` calendars.** Steady state is one: each run deletes the
-previous one before making its own. The care is in the failure case -- `calendarList.list` returns
-nothing usable under the `calendar.app.created` scope, so a calendar that escapes cleanup is invisible
-from then on and can only be removed by hand in Google Calendar. So the seed file keeps the id of every
-calendar the harness has made, a delete that fails leaves its id on that list to be retried next run, and
-the run says so rather than passing over it:
+**The app does the deleting, which is why there is no Keychain prompt.** This used to be a Python script
+reading the refresh token with the `security` tool. That is a different program from the one that owns
+the Keychain item, so macOS asked permission -- and because signing in again creates a *fresh* item, the
+"Always Allow" was thrown away and it asked again after every run that exercised `11`. The app holds that
+token already and never has to ask.
 
-```
-  a calendar would not delete; it is kept and retried next run
-    SKIP
-```
+**You will not end up with a pile of `Facet-test` calendars.** Steady state is one: each run deletes the
+previous before making its own. If a delete fails the id stays in the row, so the next capture picks it
+up and the next run tries again -- which matters because `calendarList.list` returns nothing usable under
+the `calendar.app.created` scope, so a calendar that escapes cleanup is invisible from then on and can
+only be removed by hand in Google Calendar.
 
 ## Before you run
 
@@ -136,7 +136,7 @@ and then being used.
 | `07-history-timer` | it fires while timing and stops when nothing is |
 | `08-app-settings` | each row on the App tab written and read back |
 | `09-report` | the range, the totals, folding a category open, the sorting |
-| `10-google-calendar` | the account, making the calendar, renaming it, and an entry reaching it |
+| `10-google-calendar` | the account, deleting last run's calendar, making and renaming a new one, and an entry reaching it |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
 | `12-quit` | the way out closes what was open |
 

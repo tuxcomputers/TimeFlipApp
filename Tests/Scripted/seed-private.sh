@@ -39,32 +39,19 @@ except Exception:
     mkdir -p "$SEED_DIR"
     chmod 700 "$SEED_DIR" 2>/dev/null || true
 
-    # **Merged into the seed, not written over it.** The file also carries every calendar the harness has
-    # made and not yet deleted, and that list is the only record there is: `calendarList.list` returns
-    # nothing usable under `calendar.app.created` (measured 2026-08-15), so a calendar dropped from here
-    # can never be found again and has to be deleted by hand. Clobbering the file each capture would do
-    # exactly that, one calendar per run.
+    # **The calendar id is the only record of what to delete.** `calendarList.list` returns nothing usable
+    # under `calendar.app.created` (measured 2026-08-15), so a calendar this file forgets can never be
+    # found again and has to be deleted by hand in Google Calendar. It is put back into the rebuilt
+    # database, and 10 deletes it there before making a fresh one.
+    #
+    # A delete that fails leaves the id in the row, so the next capture picks it up again and the next run
+    # tries once more. Nothing else is needed to make that work, which is why the separate retry list this
+    # used to carry has gone.
     printf '%s' "$value" | SEED_FILE="$SEED" python3 -c "
 import json, os, pathlib, sys
 
 path = pathlib.Path(os.environ['SEED_FILE'])
-seed = {}
-if path.exists():
-    try:
-        seed = json.loads(path.read_text())
-    except ValueError:
-        seed = {}
-
-account = sys.stdin.read()
-seed['google_account'] = account
-
-waiting = [str(one) for one in seed.get('calendars') or []]
-current = (json.loads(account).get('calendar_id') or '').strip()
-if current and current not in waiting:
-    waiting.append(current)
-seed['calendars'] = waiting
-
-path.write_text(json.dumps(seed, indent=2))
+path.write_text(json.dumps({'google_account': sys.stdin.read()}, indent=2))
 path.chmod(0o600)
 "
     chmod 600 "$SEED" 2>/dev/null || true
@@ -108,46 +95,8 @@ with open('$SEED') as f:
     # the run wants to keep it. Either way 10 makes a fresh one.
     calendar=$(sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';")
     if [ -n "$calendar" ]; then
-        pass "naming last run's calendar, which is the one to delete ($calendar)"
+        pass "naming last run's calendar, which 10 deletes before making its own ($calendar)"
     else
-        skip "the seed names no calendar, so there is none to delete"
+        skip "the seed names no calendar, so 10 makes the first one"
     fi
-}
-
-# Deletes the calendar Facet made and forgets it locally, so the run starts with no calendar at all and
-# `10-google-calendar` makes a fresh one.
-#
-# **Not a seed, but it belongs here**: it needs the calendar id from the private seed and the refresh
-# token from the Keychain, which is everything this file exists to keep out of the repository.
-#
-# **The two halves are one act and must not drift apart.** Deleting it at Google without clearing the row
-# leaves Facet holding an id that no longer resolves; clearing the row without deleting it leaves an
-# orphan calendar behind on every run. So they live in one function.
-#
-# Deleting rather than emptying is the fix for a bug a whole green run hid -- a deleted Google *event*
-# keeps its id for ever, and a rebuilt database hands those same ids straight back out. `delete-calendar.py`
-# has the full account. It will not touch any calendar but the one in the seed.
-delete_google_calendar() {
-    announce "the calendar is deleted before the run, so a fresh one is made"
-    local output
-    output=$(python3 "$(dirname "${BASH_SOURCE[0]}")/delete-calendar.py" 2>&1)
-    printf '%s\n' "$output" | sed 's/^/  /'
-    case "$output" in
-        *"none left behind"*) verdict_pass ;;
-        # **Not a failure, and not silent either.** A calendar that would not go is invisible to everything
-        # but the seed file, so it is retried next run rather than forgotten -- but saying nothing here is
-        # how somebody ends up with a column of them and no idea when it started.
-        *"will be tried again"*) skip "a calendar would not delete; it is kept and retried next run" ;;
-        *) skip "the calendar could not be deleted" ;;
-    esac
-
-    # **Blanked, not removed.** Writing "" is how the app itself forgets a calendar when Google says it is
-    # gone (`forgetAndOfferGoogleCalendar`), so the row is left in the shape the app already reads rather
-    # than in a second one invented here.
-    sql "UPDATE setting
-            SET setting_value = json_set(setting_value, '\$.calendar_id', '', '\$.calendar_name', '')
-          WHERE setting_name = 'google_account';"
-
-    check "and Facet no longer holds a calendar" "|" \
-        "$(sql "SELECT json_extract(setting_value, '\$.calendar_id') || '|' || json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';")"
 }

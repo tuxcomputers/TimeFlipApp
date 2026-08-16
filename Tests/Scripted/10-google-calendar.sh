@@ -36,37 +36,62 @@ pass "an account is connected ($email)"
 check_contains "the tab shows the connected email" "$(element app-google-email)" "$email"
 check_contains "and says so in the Status row" "$(element app-google-status)" "Connected"
 
-# ---------------------------------------------------------------------------- making the calendar
+# ---------------------------------------------------------------------------- deleting last run's calendar
 #
-# **The ordinary state here is "no calendar".** 00 deletes last run's and blanks the row, so the tab shows
-# its Create button and this makes a fresh one every run. That is not tidiness: Google keeps a deleted
-# *event* for ever as `cancelled` and will not reissue its id, while Facet derives event ids from
-# `time_entry_id`, which a rebuilt database restarts at 1. Reusing the calendar therefore means every run
-# after the first colliding with its predecessor's ids and never syncing a thing. A new calendar has none
-# of them. See `delete-calendar.py`.
+# **A fresh calendar every run, and the app is what makes it fresh.** Google keeps a deleted *event* for
+# ever as `cancelled` and will not reissue its id, while Facet derives event ids from `time_entry_id`,
+# which a rebuilt database restarts at 1. Reusing a calendar therefore means every run after the first
+# colliding with its predecessor's ids and syncing nothing. A calendar made a moment ago has none of them.
 #
-# A `--keep` run finds the calendar already there and goes straight on.
+# **Done here rather than in 00, and by the app rather than by a script.** This used to be a Python script
+# that read the refresh token out of the login Keychain with the `security` tool -- a different program
+# from the one that owns the item, so macOS asked permission, and every run that signed in again created a
+# fresh item and asked once more. The app already holds that token and never has to ask. So the whole
+# lifecycle is one script driving one window: delete the old, make a new one, name it.
+#
+# The seed put last run's calendar id back, so there is one to delete unless this is the first run ever.
 
 stored_name() { sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';"; }
 stored_id() { sql "SELECT json_extract(setting_value, '\$.calendar_id') FROM setting WHERE setting_name = 'google_account';"; }
 
-if [ -z "$calendar_id" ]; then
+if [ -n "$calendar_id" ]; then
+    doomed=$(stored_name)
     since=$(mark)
-    press app-google-calendar-create
-    expect_log "with no calendar, Create makes one" "$since" "Google calendar created,%" 45
-    calendar_id=$(stored_id)
-    if [ -z "$calendar_id" ]; then
-        fail "no calendar id was recorded, so there is nothing to sync into"
-        finish
-        exit 1
-    fi
-    # Made under the app's own default. The rename below is what turns it into the test one, and it can
-    # only be asserted because this is known.
-    check "and it is called Facet, the name the app makes them under" "Facet" "$(stored_name)"
+    press app-google-calendar-delete
+    sleep 1
+
+    # It asks before destroying anything, and names what goes. Cancel leads, so the button that agrees is
+    # the second one.
+    check "deleting asks first, and offers Cancel before it" "Cancel|Delete Calendar" "$(alert_buttons)"
+    check_contains "and the question names the calendar" \
+        "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "$doomed"
+
+    press_title "Delete Calendar"
+    expect_log "confirming deletes it at Google" "$since" "Google calendar deleted,%" 45
+
+    # **Forgotten only once Google has taken it.** A row cleared before the request would leave the app
+    # unable to name what it failed to delete.
+    check "and the app no longer holds a calendar" "|" "$(stored_id)|$(stored_name)"
+    check_contains "the Calendar row offers to make another" "$(tree)" "id=app-google-calendar-create"
 else
-    pass "a calendar is already there ($(printf '%.20s' "$calendar_id")...), so this is a --keep run"
+    skip "no calendar is stored, so there is none to delete (the first run on this machine)"
 fi
 
+# ---------------------------------------------------------------------------- making a new one
+
+since=$(mark)
+press app-google-calendar-create
+expect_log "Create makes one" "$since" "Google calendar created,%" 45
+calendar_id=$(stored_id)
+if [ -z "$calendar_id" ]; then
+    fail "no calendar id was recorded, so there is nothing to sync into"
+    finish
+    exit 1
+fi
+
+# Made under the app's own default. The rename below is what turns it into the test one, and it can only
+# be asserted because this is known.
+check "and it is called Facet, the name the app makes them under" "Facet" "$(stored_name)"
 check_contains "the Calendar row shows its name" "$(element app-google-calendar)" "$(stored_name)"
 
 # ---------------------------------------------------------------------------- renaming it
@@ -78,20 +103,14 @@ check_contains "the Calendar row shows its name" "$(element app-google-calendar)
 
 WANTED="Facet-test"
 
-if [ "$(stored_name)" = "$WANTED" ]; then
-    # Only reachable on a --keep run. The app refuses to spend a request renaming a name to itself
-    # (`calendarNamed` returns early when nothing changed), so there would be no rename to observe.
-    skip "already called $WANTED, so there is no rename to make (--keep)"
-else
-    since=$(mark)
-    press app-google-calendar
-    sleep 0.5
-    set_field app-google-calendar-field "$WANTED"
-    press_return
-    expect_log "renaming the calendar goes to Google" "$since" "Google calendar renamed to $WANTED" 45
-    check "the row records the new name" "$WANTED" "$(stored_name)"
-    check_contains "and the Calendar row shows it" "$(element app-google-calendar)" "$WANTED"
-fi
+since=$(mark)
+press app-google-calendar
+wait_for_element app-google-calendar-field 5
+set_field_focused app-google-calendar-field "$WANTED"
+press_return
+expect_log "renaming the calendar goes to Google" "$since" "Google calendar renamed to $WANTED" 45
+check "the row records the new name" "$WANTED" "$(stored_name)"
+check_contains "and the Calendar row shows it" "$(element app-google-calendar)" "$WANTED"
 
 # **The name is a label and the id is the identity.** A rename that moved to a different calendar would
 # leave every event already written behind, under a calendar nothing points at any more.
