@@ -136,7 +136,7 @@ and then being used.
 | `01-launch` | the database opens, one instance only, the debug log records |
 | `02-menu-bar` | the status item, its menu, and the pause on its right half |
 | `03-settings-window` | the window opens, the tabs switch, it closes, and the run's calendar is made |
-| `04-categories` | create, rename, retire, reinstate, and the alert a retired namesake raises |
+| `04-categories` | create, rename, retire, reinstate, renaming a retired one, and the alerts a namesake raises |
 | `05-faces-timing` | a category on a face, the clock starting and pausing |
 | `06-time-entries` | a finished segment becoming tracked time, and a blip not |
 | `07-history-timer` | it fires while timing and stops when nothing is |

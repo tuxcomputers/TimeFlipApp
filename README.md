@@ -12,7 +12,7 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **BLE Device Integration**: Direct connection to TimeFlip2 via Bluetooth Low Energy, with automatic reconnection (including on system wake from sleep) if the connection drops
 - **Status Indicators**: Menu bar text color shows connection state (green/yellow) and a blinking low-battery warning at a glance
 - **Device Lock Control**: Double-click to lock/unlock the device directly from the menu bar
-- **Categories**: Unlimited categories with their own icon, color and daily time limit. Typing a name that doesn't exist creates it. Retiring one takes it off the faces and out of the assignment list while keeping every hour ever recorded against it
+- **Categories**: Unlimited categories with their own icon, color and daily time limit. Typing a name that doesn't exist creates it. Retiring one takes it off the faces and out of the assignment list while keeping every hour ever recorded against it. Click a name to rename it, on the retired list as well as the active one: retired categories are allowed to share a name, so being able to give one its own is how you tell two of them apart for good
 - **Faces**: Assign any category to any face, and the same category to several faces at once. A face can be locked so it keeps what it has, and a locked face's category cannot be retired out from under it
 - **Manual Mode**: When the cube can't be reached at startup, time from the app instead: pick a category on the Faces tab and the clock runs on it. It lasts the launch, so quitting and starting again is the way back to the device
 - **Device Rename**: Give the cube its own name. The scan matches both the vendor default and the stored name, so a renamed cube is still findable

@@ -310,6 +310,18 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   ```
   Quit and relaunch afterwards: the running app already has the old file open.
 
+- **An alert's button order has to be read off a presented sheet**, which means `scripts/ax-alert.py`
+  against the running app. Building the same `NSAlert` in a scratch program and calling `layout()`
+  does **not** reproduce it: off screen the buttons come back in the order they were added and no
+  button carries `\r` at all, so the two things worth knowing (which button is where, and which one
+  Return fires) are both absent. Measured 2026-08-16 while adding the retired-rename checks, after the
+  scratch answer disagreed with what the delete alert had already been measured to do on screen.
+- **`ax-alert.py` prints `AXChildren` order, not left-to-right.** For buttons added `[Cancel, X]` the
+  sheet lists them `X | Cancel`, which is what `Tests/Scripted/03-settings-window.sh` expects for the
+  calendar delete. Do not "fix" a check to read left-to-right on the assumption the tool sorts by
+  position, and do not infer from the printed order which button Return activates: that is a separate
+  question, answered by pressing Return and seeing what the table says.
+
 ## Notes for the hermetic suite (`swift test`)
 
 - **A window built in code is released when it is closed**, so a test that closes one over-releases it and the whole
