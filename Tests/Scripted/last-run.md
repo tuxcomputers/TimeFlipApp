@@ -5,16 +5,16 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   feature/deviceScan
-    commit:   32c5fdc67065f51b96a2537a24ce2b2e9222d079
+    commit:   36ebeaef943562f7e0dcffdf6b748bc7910d8a09
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-16 20:58:26
-    finished: 2026-08-16 21:05:28
-    outcome:  failed
-    scripts:  14 run, 1 with failures
-    checks:   288 in total
-              287 passed
-              1 failed
+    started:  2026-08-16 21:07:00
+    finished: 2026-08-16 21:14:53
+    outcome:  passed
+    scripts:  15 run, 0 with failures
+    checks:   298 in total
+              298 passed
+              0 failed
               0 skipped
 
 | script | passed | failed | skipped |
@@ -32,8 +32,9 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 10-google-calendar | 10 | 0 | 0 |
 | 11-google-reconnect | 17 | 0 | 0 |
 | 12-daily-limit | 32 | 0 | 0 |
-| 13-device-scan | 10 | 1 | 0 |
-| **total** | **287** | **1** | **0** |
+| 13-device-scan | 14 | 0 | 0 |
+| 99-quit | 7 | 0 | 0 |
+| **total** | **298** | **0** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
