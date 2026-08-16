@@ -127,7 +127,8 @@ enum AppSettingsRules {
         case let .blipSeconds(seconds):
             return ("blip_time", "seconds", .number(seconds))
         case .googleDisconnected, .googleSignInRequested, .googleConnected,
-             .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged:
+             .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged,
+             .googleCalendarDeleteRequested:
             return nil
         }
     }
@@ -149,7 +150,8 @@ enum AppSettingsRules {
         case .fetchIntervalMinutes: return "Fetch history every"
         case .blipSeconds: return "Ignore flips under"
         case .googleDisconnected, .googleSignInRequested, .googleConnected: return "Google account"
-        case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged: return "Calendar"
+        case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged,
+             .googleCalendarDeleteRequested: return "Calendar"
         }
     }
 }

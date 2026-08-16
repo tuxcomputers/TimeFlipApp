@@ -253,6 +253,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             renameGoogleCalendar(to: name, from: pane, using: settings)
             return
         }
+        if case .googleCalendarDeleteRequested = change {
+            deleteGoogleCalendar(from: pane, using: settings)
+            return
+        }
         if case .googleCalendarCreateRequested = change {
             createGoogleCalendar(from: pane, using: settings)
             return
@@ -488,6 +492,73 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                     named: GoogleCalendarRules.defaultName, accessToken: token, from: pane, using: settings
                 )
             } catch {
+                self.showGoogleFailed(error)
+            }
+        }
+    }
+
+    /// Asks whether to delete the calendar, and does it.
+    ///
+    /// **The only thing this window destroys, so it is the only one that asks first.** Everything else here can be
+    /// undone by doing it again -- a name can be renamed back, a sign-out can be signed back into. This takes the
+    /// calendar and every event Facet has written to it, out of an account Facet does not own, and Google keeps
+    /// nothing to go back to. So the question names what goes rather than asking whether somebody is sure.
+    ///
+    /// **The recorded time itself is untouched.** Every `time_entry` stays exactly where it is; what is lost is the
+    /// copy of it in the calendar. That distinction is the whole of what somebody needs to decide, so it is said.
+    private func deleteGoogleCalendar(from pane: AppSettingsPane, using settings: SettingStore) {
+        guard let id = pane.values.googleCalendar.id else { return }
+        let name = pane.values.googleCalendar.name ?? GoogleCalendarRules.defaultName
+
+        let alert = NSAlert()
+        alert.messageText = "Delete the \"\(name)\" calendar?"
+        alert.informativeText = """
+        This deletes the calendar from your Google account, along with every event Facet has written to it. \
+        It cannot be undone from here.
+
+        Your recorded time is not affected: it stays in Facet, and a new calendar can be made and filled from it.
+        """
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete Calendar")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            // Cancel leads, so it is the default and Return dismisses rather than agrees -- the same way round as
+            // every other question here about changing something already recorded.
+            guard response == .alertSecondButtonReturn else {
+                self?.debugLog?.record(.field, "Button clicked: Cancel, \"\(name)\" calendar not deleted")
+                return
+            }
+            self?.carryOutGoogleCalendarDelete(id: id, named: name, from: pane, using: settings)
+        }
+    }
+
+    /// Deletes it at Google first and forgets it afterwards, in that order.
+    ///
+    /// **Google is asked first and the row follows**, as a rename is: clearing the id before the request would leave
+    /// the app unable to name what it failed to delete, and a calendar nothing points at any more is exactly the
+    /// orphan this is meant to avoid.
+    private func carryOutGoogleCalendarDelete(
+        id: String,
+        named name: String,
+        from pane: AppSettingsPane,
+        using settings: SettingStore
+    ) {
+        Task { @MainActor [weak self, weak pane] in
+            guard let self, let pane else { return }
+            do {
+                let token = try await self.googleAccessToken()
+                try await GoogleCalendarClient.delete(id: id, accessToken: token)
+                guard
+                    settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.idField, ""),
+                    settings.write(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField, "")
+                else {
+                    throw GoogleCalendarRules.Failure.deleteFailed("the database would not forget it")
+                }
+                self.debugLog?.record(.field, "Google calendar deleted, \(name)")
+                pane.adopt(.googleCalendarChanged(.none))
+            } catch {
+                // The id stays, because the calendar may well still be there. Forgetting it on a failed request is how
+                // somebody ends up with an orphan they can no longer name.
+                self.debugLog?.record(.field, "Google calendar delete failed: \(error.localizedDescription)")
                 self.showGoogleFailed(error)
             }
         }

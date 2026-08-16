@@ -126,6 +126,30 @@ enum GoogleCalendarClient {
         return calendar
     }
 
+    /// Deletes the calendar, at Google, for good.
+    ///
+    /// **The one thing here that destroys something.** Creating and renaming can both be undone by doing them again;
+    /// this takes the calendar and every event Facet ever wrote to it, and Google keeps no copy for the app to go back
+    /// to. So the window confirms it first and names what goes, and this does nothing but carry the answer out.
+    ///
+    /// **A calendar that is already gone counts as deleted.** `CalendarGone` means the id does not resolve, which is
+    /// the outcome being asked for however it came about -- reporting that as a failure would leave somebody trying to
+    /// delete a thing that is not there.
+    static func delete(id: String, accessToken: String, session: URLSession = .shared) async throws {
+        guard let url = GoogleCalendarRules.url(forCalendar: id) else {
+            throw GoogleCalendarRules.Failure.deleteFailed("that calendar id cannot be addressed")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        do {
+            _ = try await send(request, session: session, describing: "Google refused the request")
+        } catch is CalendarGone {
+            return
+        }
+    }
+
     /// One request, with Google's own reason pulled out of the body when it refuses.
     ///
     /// **A gone calendar is reported as gone**, distinctly, because it is the one failure that may legitimately lead

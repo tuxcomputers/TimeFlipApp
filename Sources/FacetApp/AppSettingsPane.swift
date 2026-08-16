@@ -41,6 +41,7 @@ final class AppSettingsPane: NSView {
         static let googleButton = "app-google-button"
         static let googleCalendar = "app-google-calendar"
         static let googleCalendarCreate = "app-google-calendar-create"
+        static let googleCalendarDelete = "app-google-calendar-delete"
         static let googleNote = "app-google-note"
     }
 
@@ -122,6 +123,9 @@ final class AppSettingsPane: NSView {
         case googleCalendarNamed(String)
         /// Make the calendar. Only reachable when there is none, which is a recovery rather than the usual path.
         case googleCalendarCreateRequested
+        /// Delete the calendar, at Google. **The one request here that destroys something**, so the window confirms it
+        /// before carrying it out. Carries no value: there is one calendar and only one thing to do to it.
+        case googleCalendarDeleteRequested
         /// The calendar the table now holds, after Google answered and the write was read back.
         case googleCalendarChanged(GoogleCalendarRules.Calendar)
     }
@@ -181,8 +185,9 @@ final class AppSettingsPane: NSView {
         case let .googleConnected(account):
             values.googleAccount = account
             showGoogle()
-        case .googleCalendarNamed, .googleCalendarCreateRequested:
-            // Requests. What the calendar becomes arrives as `googleCalendarChanged`.
+        case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarDeleteRequested:
+            // Requests. What the calendar becomes arrives as `googleCalendarChanged`, including a deletion,
+            // which arrives as the calendar becoming none.
             break
         case let .googleCalendarChanged(calendar):
             values.googleCalendar = calendar
@@ -308,7 +313,30 @@ final class AppSettingsPane: NSView {
         cell.onCommit = { [weak self] typed in self?.calendarNamed(typed) }
         cell.onEditingChanged = { [weak self] isEditing in self?.onCalendarEditingChanged?(isEditing) }
         calendarCell = cell
-        return row("Calendar", cell, separated: true)
+
+        // **Beside the name, because it is the same subject.** The app can make this calendar and rename it, and
+        // without this it could not undo either: a calendar made by mistake stayed in the account for good, and the
+        // app went on holding something it does not own. It is the account's calendar, not Facet's.
+        //
+        // Destructive, so it says so rather than looking like the rest of the row, and the window confirms it.
+        let delete = NSButton(title: "Delete", target: self, action: #selector(googleCalendarDeletePressed))
+        delete.bezelStyle = .rounded
+        delete.controlSize = .small
+        delete.translatesAutoresizingMaskIntoConstraints = false
+        delete.isEnabled = !isSigningIn
+        delete.toolTip = "Delete this calendar and everything Facet has written to it"
+        delete.setAccessibilityIdentifier(Identifier.googleCalendarDelete)
+
+        let pair = NSStackView(views: [cell, delete])
+        pair.orientation = .horizontal
+        pair.spacing = Layout.headingSpacing
+        pair.translatesAutoresizingMaskIntoConstraints = false
+        return row("Calendar", pair, separated: true)
+    }
+
+    @objc
+    private func googleCalendarDeletePressed() {
+        onChange?(.googleCalendarDeleteRequested)
     }
 
     private func calendarNamed(_ typed: String) {

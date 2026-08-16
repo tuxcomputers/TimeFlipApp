@@ -114,6 +114,7 @@ enum GoogleCalendarRules {
         case notSignedIn
         case createFailed(String)
         case renameFailed(String)
+        case deleteFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -123,6 +124,8 @@ enum GoogleCalendarRules {
                 return "Facet could not create the calendar: \(reason)."
             case let .renameFailed(reason):
                 return "Facet could not rename the calendar: \(reason)."
+            case let .deleteFailed(reason):
+                return "Facet could not delete the calendar: \(reason)."
             }
         }
     }
