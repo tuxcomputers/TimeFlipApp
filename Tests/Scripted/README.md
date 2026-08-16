@@ -46,8 +46,14 @@ everybody's checkout.
 
 ## A new calendar every run
 
-`10-google-calendar` **deletes** the calendar the last run made, presses Create, and renames the fresh
+`03-settings-window` **deletes** the calendar the last run made, presses Create, and renames the fresh
 one to `Facet-test`. All three go through the app's own controls.
+
+**It happens there, before anything records an entry, so the run's events survive the run.** Recording
+an entry sweeps every unsynced row into whatever calendar the app currently holds. Replacing the
+calendar later would delete one that several scripts had already filled, and the events you would want
+to look at afterwards would go with it. Set up first, the calendar ends the run holding everything the
+run produced.
 
 Reusing it is what looks reasonable and does not work. Google keeps a deleted *event* for ever as
 `cancelled` and will never reissue its id, while Facet derives an event's id from `time_entry_id` --
@@ -129,14 +135,14 @@ and then being used.
 | `00-setup` | seeds what a rebuilt database cannot have: the Google account, and history with fractional durations |
 | `01-launch` | the database opens, one instance only, the debug log records |
 | `02-menu-bar` | the status item, its menu, and the pause on its right half |
-| `03-settings-window` | the window opens, the tabs switch, it closes |
+| `03-settings-window` | the window opens, the tabs switch, it closes, and the run's calendar is made |
 | `04-categories` | create, rename, retire, reinstate, and the alert a retired namesake raises |
 | `05-faces-timing` | a category on a face, the clock starting and pausing |
 | `06-time-entries` | a finished segment becoming tracked time, and a blip not |
 | `07-history-timer` | it fires while timing and stops when nothing is |
 | `08-app-settings` | each row on the App tab written and read back |
 | `09-report` | the range, the totals, folding a category open, the sorting |
-| `10-google-calendar` | the account, deleting last run's calendar, making and renaming a new one, and an entry reaching it |
+| `10-google-calendar` | the account, and recorded time reaching the calendar `03` made |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
 | `12-quit` | the way out closes what was open |
 
