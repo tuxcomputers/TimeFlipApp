@@ -443,11 +443,27 @@ final class DevicePane: NSView {
 
             control.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
             control.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            control.topAnchor.constraint(equalTo: row.topAnchor, constant: Layout.rowPadding),
-            control.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -Layout.rowPadding),
+            control.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
+            control.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
 
             row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
         ])
+
+        // **A row is as tall as its contents and no taller, whatever room it is given.** Two things above would
+        // otherwise let it grow: the control's top and bottom used to be pinned to the row's, so a control that
+        // stretched took the row with it, and a control with a width constraint but no height -- `SteppedNumberField`
+        // is exactly that -- has nothing of its own to stop it. The pins are now inequalities and the control is told
+        // to hug, so the height comes from what it needs.
+        //
+        // The last line is what makes it hold even if some future container hands the panel more room than it asked
+        // for: a preference, at a priority anything real will beat, for the row staying at the rhythm of the list.
+        // Auto-pause was drawn several times its height on the Device tab, and a row that reports a two-digit number
+        // has no reading of "taller" that is right.
+        control.setContentHuggingPriority(.required, for: .vertical)
+        control.setContentCompressionResistancePriority(.required, for: .vertical)
+        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
+        preferred.priority = .defaultLow
+        preferred.isActive = true
         guard separated else { return row }
 
         let separator = NSBox()
