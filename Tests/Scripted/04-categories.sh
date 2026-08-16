@@ -30,9 +30,24 @@ RENAMED="$NAME renamed"
 # `reloadSelectedPane()`, unlike every other rename outcome -- so the button is hidden and pressing it does
 # nothing. That is why the value is written with `set_field_focused`: nothing has called
 # `makeFirstResponder` in that case, and a Return posted at an unfocused field commits nothing at all.
-begin_rename() {
-    press "category-name-$1"
-    wait_for_element "category-name-$1-field" 5
+open_name_field() {
+    press "$1"
+    wait_for_element "$1-field" 5
+}
+
+begin_rename() { open_name_field "category-name-$1"; }
+
+# The same gesture on the Inactive list, which names its rows differently so a step cannot press one
+# believing it addressed the other.
+begin_retired_rename() { open_name_field "retired-category-name-$1"; }
+
+# The Inactive section folds by default and a reload redraws it, so anything working on a retired row
+# opens it first rather than assuming the last press left it open.
+show_inactive() {
+    if ! tree | grep -q "id=retired-category-name-"; then
+        press categories-inactive-section-heading-button
+        sleep 1
+    fi
 }
 
 # ---------------------------------------------------------------------------- the two sections
@@ -366,12 +381,113 @@ check_contains "the row is still in the Inactive list" "$(tree)" "id=retired-cat
 # ---------------------------------------------------------------------------- a retired row is a record
 #
 # **No icon, no colour, no daily limit.** A retired category is a record of what it was, not a setting
-# worth tuning. The Active box stays live, because reinstating is the one edit it must still allow.
+# worth tuning. Two things stay live, and they are the two a retired category still has answers for:
+# the Active box that brings it back, and the name, which is the next section.
 
 check "a retired row draws no icon button" "0" "$(tree | grep -c "id=category-icon-$blocked" || true)"
 check "no colour button" "0" "$(tree | grep -c "id=category-colour-$blocked" || true)"
 check "and no daily limit field" "0" "$(tree | grep -c "id=category-limit-$blocked" || true)"
 check_contains "but its Active box is there" "$(tree)" "id=retired-category-active-$blocked"
+
+# ---------------------------------------------------------------------------- renaming a retired row
+#
+# **The archive allowed this and so does this app.** `retiredRow` in the previous app drew the same
+# editable name the active row drew, behind a right-click *Edit*; the gesture is now a click on the name,
+# which is the only part that changed.
+#
+# It is the one edit the Inactive list needs. Retired namesakes pile up under a single name -- the unique
+# index covers active rows only -- and the Last used column exists because several rows can otherwise read
+# identically. Telling them apart is worth nothing if the answer cannot then be written down.
+#
+# `$blocked` is one of the two retired rows under `$CREATE_NEW`, with `$holder` active under the same name,
+# which is the fixture the section above left behind.
+
+DISTINCT="$CREATE_NEW distinct"
+
+show_inactive
+
+# ---- giving a namesake its own name, which is what this is for
+
+since=$(mark)
+begin_retired_rename "$blocked"
+set_field_focused "retired-category-name-$blocked-field" "$DISTINCT"
+press_return
+sleep 1
+expect_log "a retired name commits and asks first, as any other rename does" "$since" \
+    "%rename -> \"$DISTINCT\", asking%"
+press_title Rename
+sleep 1
+check "the retired row takes the new name" "$DISTINCT" \
+    "$(sql "SELECT category_name FROM category WHERE category_id = $blocked;")"
+
+# **Renaming is not reinstating.** They are the two things this row offers and they are not the same one.
+check "and it is still retired" "0" "$(sql "SELECT active FROM category WHERE category_id = $blocked;")"
+check "the active namesake is untouched" "$CREATE_NEW" \
+    "$(sql "SELECT category_name FROM category WHERE category_id = $holder;")"
+
+# ---- taking a name an active category holds
+#
+# **Allowed, because the database allows it.** `UN1_category` is `WHERE active = 1`, so a retired row may
+# sit under an active row's name, and refusing it would be the app inventing a constraint the table does
+# not have. It is confirmed rather than silent because it costs something: while the two share a name the
+# retired one cannot be brought back.
+#
+# The same rename from an *active* row is still the dead end checked further down. Which row is being
+# renamed is the whole difference.
+
+show_inactive
+since=$(mark)
+begin_retired_rename "$blocked"
+set_field_focused "retired-category-name-$blocked-field" "$CREATE_NEW"
+press_return
+sleep 1
+
+# **Which buttons, not what order they come back in.** The order is AppKit's and is not predictable from
+# anything this app does: the calendar delete reads back "Delete Calendar | Cancel" and this one reads back
+# "Cancel | Rename anyway", from alerts built the same way with the same key equivalents set. Asserting a
+# position here cost two runs guessing at a rule that does not exist, and it was never the claim worth
+# making -- what matters is that there are two answers rather than one, and which one Return fires, and
+# that is the check below rather than this one.
+check "taking an active name offers a way through and a way out" "Cancel|Rename anyway" \
+    "$(alert_buttons | tr '|' '\n' | sort | paste -sd '|' -)"
+check_contains "and the alert says what it costs" \
+    "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "brought back"
+
+# **Return must not agree with it, and this is the only way to know.** `CategoryRenameRules` documented that
+# Cancel led and Return dismissed, and on 2026-08-16 that was measured to be false: Return was agreeing to
+# the rename. The window now puts `\r` on Cancel explicitly, which is what decides this -- a key equivalent
+# is independent of where the button sits, so no amount of reading the order answers it.
+#
+# This is the check that would have caught the fault the day the claim was written down.
+press_return
+sleep 1
+check "Return dismisses the question rather than answering yes" "$DISTINCT" \
+    "$(sql "SELECT category_name FROM category WHERE category_id = $blocked;")"
+
+show_inactive
+since=$(mark)
+begin_retired_rename "$blocked"
+set_field_focused "retired-category-name-$blocked-field" "$CREATE_NEW"
+press_return
+sleep 1
+press_title "Rename anyway"
+sleep 1
+check "answering Rename anyway takes the name" "$CREATE_NEW" \
+    "$(sql "SELECT category_name FROM category WHERE category_id = $blocked;")"
+check "the active row still holds it too" "$CREATE_NEW" \
+    "$(sql "SELECT category_name FROM category WHERE category_id = $holder;")"
+check "which is one active row and two retired under one name" "3 rows, 1 active" "$(tally "$CREATE_NEW")"
+
+# **And now it cannot come back**, which is exactly what the alert said would happen. The refusal is the
+# reinstate check above, reached this time by a rename rather than by a create.
+since=$(mark)
+press "retired-category-active-$blocked"
+sleep 1
+expect_log "reinstating it is now refused, as the alert warned" "$since" \
+    "%\"$CREATE_NEW\" reinstate REFUSED: category_id $holder is active under that name%"
+press_title OK
+sleep 0.5
+check "so it is still retired" "0" "$(sql "SELECT active FROM category WHERE category_id = $blocked;")"
 
 # ---------------------------------------------------------------------------- colour and icon
 #

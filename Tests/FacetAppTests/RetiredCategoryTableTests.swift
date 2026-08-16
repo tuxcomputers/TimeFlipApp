@@ -5,7 +5,8 @@ import XCTest
 /// Covers the Inactive list and the two folding sections it arrived with.
 ///
 /// A separate type from the Active list rather than the same one with columns hidden, so this is a separate set of
-/// tests: what matters is that it draws a *narrower* row, and that nothing on it offers an edit.
+/// tests: what matters is that it draws a *narrower* row, and that the only two things on it are the two a retired
+/// category still has answers for -- bringing it back, and what it is called.
 @MainActor
 final class RetiredCategoryTableTests: XCTestCase {
     private func retired(_ id: Int, _ name: String) -> CategoryRecord {
@@ -73,7 +74,69 @@ final class RetiredCategoryTableTests: XCTestCase {
         // *was*, and drawing them invites an edit that means nothing.
         XCTAssertTrue(descendants(of: row).compactMap { $0 as? NSImageView }.isEmpty, "no icon")
         XCTAssertTrue(descendants(of: row).compactMap { $0 as? SteppedNumberField }.isEmpty, "no daily limit")
-        XCTAssertEqual(descendants(of: row).compactMap { ($0 as? NSTextField)?.stringValue }.count, 2)
+        // **What the row shows, not every text field under it.** The name is an `EditableNameCell` and carries its
+        // own editor, hidden until the name is clicked, so a bare count of text fields counts the rename this row has
+        // gained rather than a column it draws. Two columns of words is the claim, and it survived the name becoming
+        // editable, which is the point: this row is still a record with one thing to correct on it.
+        XCTAssertEqual(
+            descendants(of: row).compactMap { $0 as? NSTextField }.filter { !$0.isHidden }.count, 2
+        )
+    }
+
+    // MARK: - renaming a retired category
+
+    func testTheNameOpensForEditing() throws {
+        // The one edit this list offers. A retired row is a record, but a record with the wrong name on it is worth
+        // correcting -- and where several retired rows share a name, correcting one is the only way to keep them
+        // apart once the Last used column has told them apart.
+        let table = RetiredCategoryTable()
+        table.show([retired(3, "Old")])
+        let cell = try XCTUnwrap(rows(of: table).first?.nameCell)
+
+        // Hosted, because `performClick` needs a window and a size and macOS 15 enforces both -- see Methods.md.
+        let window = OffscreenWindow.host(table)
+        defer { window.close() }
+        table.layoutSubtreeIfNeeded()
+        cell.beginEditing()
+
+        XCTAssertTrue(cell.isEditing)
+        XCTAssertTrue(cell.isEnabled, "never disabled: a rename touches no face, so a lock has nothing to protect")
+    }
+
+    func testACommittedNameIsReportedWithItsCategory() throws {
+        let table = RetiredCategoryTable()
+        var asked: (name: String, typed: String)?
+        table.onRename = { asked = ($0.name, $1) }
+        table.show([retired(3, "Old"), retired(4, "Older")])
+
+        let cell = try XCTUnwrap(rows(of: table).last?.nameCell)
+        cell.onCommit?("Older still")
+
+        // The row it came from, not whichever was edited last: every row is editing the same column.
+        XCTAssertEqual(asked?.name, "Older")
+        XCTAssertEqual(asked?.typed, "Older still")
+    }
+
+    func testTheTableSaysWhenANameIsBeingEdited() throws {
+        let table = RetiredCategoryTable()
+        var reported: [Bool] = []
+        table.onRenameEditingChanged = { reported.append($0) }
+        table.show([retired(3, "Old")])
+
+        try XCTUnwrap(rows(of: table).first?.nameCell).onEditingChanged?(true)
+
+        XCTAssertEqual(reported, [true], "which is what lends the field Escape, the Close button holding it otherwise")
+    }
+
+    func testTheNameKeepsTheIdentifierItHadAsALabel() throws {
+        // It was a plain label before it could be edited, and the scripted checks address it by this name. A rename
+        // that renamed the element too would have broken every step that reads the Inactive list.
+        let table = RetiredCategoryTable()
+        table.show([retired(3, "Old")])
+
+        XCTAssertTrue(
+            descendants(of: table).contains { $0.accessibilityIdentifier() == "retired-category-name-3" }
+        )
     }
 
     // MARK: - last used

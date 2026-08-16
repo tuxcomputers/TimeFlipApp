@@ -4,15 +4,15 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   feature/codeOverhaul
-    commit:   62efe786fadf61a0264fa548dbbfcb4a77563755
+    branch:   feature/inactiveRename
+    commit:   4039d8d76cbabc7f6db9f1275f865e670f71c42c
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-16 12:07:14
-    finished: 2026-08-16 12:12:59
+    started:  2026-08-16 13:23:09
+    finished: 2026-08-16 13:29:51
     outcome:  passed
     scripts:  13 run, 0 with failures
-    checks:   240 passed, 0 failed, 0 skipped
+    checks:   252 passed, 0 failed, 0 skipped
 
 | script | passed | failed | skipped |
 |---|---|---|---|
@@ -20,7 +20,7 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 01-launch | 9 | 0 | 0 |
 | 02-menu-bar | 10 | 0 | 0 |
 | 03-settings-window | 26 | 0 | 0 |
-| 04-categories | 84 | 0 | 0 |
+| 04-categories | 96 | 0 | 0 |
 | 05-faces-timing | 14 | 0 | 0 |
 | 06-time-entries | 12 | 0 | 0 |
 | 07-history-timer | 8 | 0 | 0 |

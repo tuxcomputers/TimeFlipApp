@@ -90,6 +90,83 @@ final class CategoryRenameRulesTests: XCTestCase {
         XCTAssertTrue(message.contains("Admin"), "the row in the way is named, since a refusal cannot say which")
     }
 
+    // MARK: - renaming a retired category
+
+    func testARetiredRowMayTakeAnActiveNameBecauseTheIndexOnlyCoversActiveOnes() {
+        // `UN1_category` is `WHERE active = 1`, so this write is one the table accepts. Refusing it would be the app
+        // inventing a constraint the database does not have -- and inventing it exactly where somebody is most likely
+        // to be untangling two rows that read the same.
+        let holder = category(9, "Admin")
+
+        XCTAssertEqual(
+            decision("Admin", current: category(1, "Old", active: false), matches: [holder]),
+            .confirmAgainstActive(name: "Admin", activeNamesake: holder)
+        )
+    }
+
+    func testTheSameNameFromAnActiveRowIsStillADeadEnd() {
+        // The one difference between this and the case above is which row is being renamed, and it is the whole
+        // difference: the index throws this write out and takes the other.
+        let holder = category(9, "Admin")
+
+        XCTAssertEqual(
+            decision("Admin", current: category(1, "Old", active: true), matches: [holder]),
+            .refuse(activeNamesake: holder)
+        )
+    }
+
+    func testTakingAnActiveNameSaysWhatItCostsAndOffersAWayOut() throws {
+        let decision = CategoryRenameRules.Decision.confirmAgainstActive(
+            name: "Admin", activeNamesake: category(9, "Admin")
+        )
+
+        // Two buttons, not one: this is a decision, where `refuse` is only an announcement.
+        XCTAssertEqual(CategoryRenameRules.choices(for: decision), [.cancel, .renameAnyway])
+
+        let message = try XCTUnwrap(CategoryRenameRules.message(for: decision, currentName: "Old"))
+        XCTAssertTrue(message.contains("Admin"), "the active row holding the name is named")
+        // The consequence, which is the only reason this is confirmed rather than simply done: the row cannot come
+        // back while it shares the name.
+        XCTAssertTrue(message.contains("brought back"), "says reinstating is what this blocks")
+        XCTAssertTrue(message.contains("Renaming either of them"), "and how to undo it")
+        // The history caveat rides along, as it does on every other rename: a retired category's entries are still in
+        // the reports, so they change name too.
+        XCTAssertTrue(message.contains("history"), "the history warning is not dropped for a retired row")
+    }
+
+    func testTakingAnActiveNameIsNotDescribedAsTaken() throws {
+        // The refusal's wording would be a lie here. Worth pinning, because the two dialogues are one word apart and
+        // the wrong one reads as the app having refused something it in fact did.
+        let decision = CategoryRenameRules.Decision.confirmAgainstActive(
+            name: "Admin", activeNamesake: category(9, "Admin")
+        )
+
+        let title = try XCTUnwrap(CategoryRenameRules.title(for: decision))
+        XCTAssertNotEqual(title, CategoryRenameRules.title(for: .refuse(activeNamesake: category(9, "Admin"))))
+        let message = try XCTUnwrap(CategoryRenameRules.message(for: decision, currentName: "Old"))
+        XCTAssertFalse(message.contains("this name is taken"))
+    }
+
+    func testARetiredRowRenamedToAFreeNameIsAnOrdinaryConfirmation() {
+        // Nothing about being retired makes a rename special on its own. The dialogue only changes when something
+        // else holds the name.
+        XCTAssertEqual(
+            decision("Reading", current: category(1, "Old", active: false)),
+            .confirm(name: "Reading")
+        )
+    }
+
+    func testARetiredRowRenamedOntoOtherRetiredOnesIsTheSameAsAnywhereElse() {
+        // Which is the case this feature is really for: several retired rows share a name and one of them is being
+        // given its own.
+        let others = [category(9, "Timer 1", active: false), category(12, "Timer 1", active: false)]
+
+        XCTAssertEqual(
+            decision("Timer 1", current: category(1, "Old", active: false), matches: others),
+            .confirmAgainstRetired(name: "Timer 1", retired: others)
+        )
+    }
+
     func testARetiredNamesakeIsAllowedAndSaidOutLoud() {
         let retired = category(9, "Admin", active: false)
 

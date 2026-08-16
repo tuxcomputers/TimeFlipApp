@@ -310,6 +310,33 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   ```
   Quit and relaunch afterwards: the running app already has the old file open.
 
+- **An alert's button order has to be read off a presented sheet**, which means `scripts/ax-alert.py`
+  against the running app. Building the same `NSAlert` in a scratch program and calling `layout()`
+  does **not** reproduce it: off screen the buttons come back in the order they were added and no
+  button carries `\r` at all, so the two things worth knowing (which button is where, and which one
+  Return fires) are both absent. Measured 2026-08-16 while adding the retired-rename checks, after the
+  scratch answer disagreed with what the delete alert had already been measured to do on screen.
+- **Do not assert the order a sheet lists its buttons in.** It is not the order they were added, not a
+  reversal of it, and not a function of which one is the default. Two alerts built the same way, with the
+  same key equivalents set, measured on 2026-08-16:
+
+  | alert | added | `ax-alert.py` prints |
+  |---|---|---|
+  | calendar delete (`03`) | `Cancel`, `Delete Calendar` | `Delete Calendar \| Cancel` |
+  | category rename (`04`) | `Cancel`, `Rename anyway` | `Cancel \| Rename anyway` |
+
+  **Why they differ is not known**, and chasing it cost two full runs across two wrong theories: first
+  that AppKit always moves a button titled "Cancel" to the left, then that making Cancel the default moves
+  it back to the right. Each explained one alert and was refuted by the other. Assert *which* buttons are
+  there -- sort them first -- and assert behaviour separately. `03` still asserts a position because that
+  one is measured and has held; do not generalise it to a new alert.
+- **A key equivalent is independent of where the button sits**, which is the practical upshot. Return fires
+  whichever button holds `"\r"` wherever AppKit has drawn it, so which button is safe is settled by setting
+  it, never by reading the order back.
+- **Which button Return fires can only be answered by pressing Return.** Never take it from the app's
+  stated intent: `CategoryRenameRules` documented that Return dismissed its dialogues, and for months
+  Return in fact agreed to the rename. Press it at the sheet and read the table.
+
 ## Notes for the hermetic suite (`swift test`)
 
 - **A window built in code is released when it is closed**, so a test that closes one over-releases it and the whole

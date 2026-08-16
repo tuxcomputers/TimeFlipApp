@@ -19,7 +19,18 @@ enum CategoryRenameRules {
         /// Retired categories hold the name. **Allowed**, only one *active* name being unique, and worth saying out
         /// loud: it leaves two categories with one name and separate histories behind them. Never empty.
         case confirmAgainstRetired(name: String, retired: [CategoryRecord])
-        /// An active category already holds the name. There is nothing to decide, only something to say.
+        /// An active category holds the name and the row being renamed is **retired**, which the database allows:
+        /// `UN1_category` is unique over `active = 1` only, so a retired row may sit under an active row's name.
+        ///
+        /// Confirmed rather than refused, because the app is not entitled to be stricter than the table it writes to,
+        /// and because the state this reaches is one the app already offers by another route -- retiring "Foo" and
+        /// creating a new "Foo" is what `CategoryCreateRules` calls `.inactive`, and it ends here exactly.
+        ///
+        /// It still costs something, which is what the dialogue says: the row cannot be brought back until one of the
+        /// two is renamed again, reinstating being the one thing an active namesake does block.
+        case confirmAgainstActive(name: String, activeNamesake: CategoryRecord)
+        /// An active category already holds the name, and the row being renamed is active too, so the index would
+        /// throw the write out. There is nothing to decide, only something to say.
         case refuse(activeNamesake: CategoryRecord)
     }
 
@@ -47,9 +58,13 @@ enum CategoryRenameRules {
 
     /// The buttons a decision offers, in the order they are drawn. Empty for the decisions that raise no dialogue.
     ///
-    /// **Cancel leads**, which on this platform makes it the rightmost button and the default one, so Return dismisses
-    /// the dialogue rather than agreeing with it. That is the right way round for a question about changing something
-    /// already recorded: the answer that changes nothing is the one to arrive at by accident.
+    /// **Cancel leads**, and the caller has to make that mean something: adding it first is not enough on its own.
+    /// AppKit moves a button *titled* "Cancel" to the left, which takes it out of the rightmost place Return fires --
+    /// so the order here says which button is the way out, and `SettingsWindowController.rename` sets the key
+    /// equivalents that make it the default. Measured 2026-08-16: left alone, Return activated "Rename anyway".
+    ///
+    /// The intent is unchanged and is what the key equivalents now deliver: for a question about changing something
+    /// already recorded, the answer that changes nothing is the one to arrive at by accident.
     ///
     /// **It is on every one of them**, including the dead end, where it is the only button: a dialogue that can only
     /// be agreed with is a dialogue that has taken the decision already.
@@ -57,7 +72,7 @@ enum CategoryRenameRules {
         switch decision {
         case .ignore: return []
         case .confirm: return [.cancel, .rename]
-        case .confirmAgainstRetired: return [.cancel, .renameAnyway]
+        case .confirmAgainstRetired, .confirmAgainstActive: return [.cancel, .renameAnyway]
         case .refuse: return [.cancel]
         }
     }
@@ -74,6 +89,10 @@ enum CategoryRenameRules {
         case .ignore: return nil
         case .confirm: return "Rename this category?"
         case .confirmAgainstRetired: return "That category already exists"
+        // Says who holds it rather than that it is taken, because it is not: the row being renamed is retired and the
+        // table will take the write. The wording has to carry that difference, or the two dialogues read as one
+        // dialogue that sometimes has a second button.
+        case .confirmAgainstActive: return "An active category is called that"
         case .refuse: return "That name is already in use"
         }
     }
@@ -95,6 +114,17 @@ enum CategoryRenameRules {
             return """
             \(retiredCount(retired.count, name: name)) Renaming to it leaves two categories with that name, and \
             telling them apart in a report later is on you.
+
+            \(historyWarning(currentName: currentName, newName: name))
+            """
+
+        case let .confirmAgainstActive(name, existing):
+            return """
+            "\(existing.name)" is an active category. This one is inactive, so it may share the name: only active \
+            names have to be unique.
+
+            While it does, it cannot be brought back -- ticking Active would be refused, because that is the one \
+            thing a name already in use stops. Renaming either of them frees it again.
 
             \(historyWarning(currentName: currentName, newName: name))
             """
@@ -152,7 +182,16 @@ enum CategoryRenameRules {
         let others = matching(name).filter { $0.id != current.id }
         guard let first = others.first else { return .confirm(name: name) }
         // At most one can be active, and the ordering puts it first.
-        if first.isActive { return .refuse(activeNamesake: first) }
+        if first.isActive {
+            // **Which row is being renamed decides this, not which row is in the way.** `UN1_category` is unique over
+            // `active = 1`, so an active category taking an active name is the write the index throws out, and a
+            // retired one taking it is a write the index has no opinion about. Refusing both would have the app
+            // enforcing a constraint the database does not have, and refusing it in the one place somebody is most
+            // likely to be trying to *fix* a name.
+            return current.isActive
+                ? .refuse(activeNamesake: first)
+                : .confirmAgainstActive(name: name, activeNamesake: first)
+        }
         return .confirmAgainstRetired(name: name, retired: others)
     }
 }
