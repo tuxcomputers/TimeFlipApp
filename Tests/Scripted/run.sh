@@ -46,6 +46,10 @@ for arg in "$@"; do
     case "$arg" in
         --keep-running) KEEP_RUNNING=1 ;;
         --keep) KEEP_DATABASE=1 ;;
+        # A failed check stops its script, since everything below it starts from a state that was never
+        # reached. This runs the rest anyway, for the pass where finding every independent fault at once
+        # matters more than reading the result cleanly.
+        --keep-going) export FAIL_FAST=0 ;;
         *) FILTER="$arg" ;;
     esac
 done

@@ -127,12 +127,31 @@ announce() {
 }
 
 verdict_pass() { PASSED=$((PASSED + 1)); green "    PASS"; testlog_check pass; }
+
+# **A failed check stops its script there and then.** Every check starts from the state the ones above it
+# left, so once one has failed the rest are being run against a state nobody intended and their verdicts
+# mean nothing. Carrying on produced exactly that on 2026-08-16: a rename that never happened was
+# reported as one failure, and the check that read the name back was reported as a second, as though two
+# things were wrong.
+#
+# The cost is real and worth knowing: independent failures further down are not found until the next run.
+# That same run had a daily limit fault with nothing to do with the rename, and stopping at the first
+# would have hidden it. `--keep-going` is there for the pass where finding everything matters more than
+# reading it cleanly.
+FAIL_FAST="${FAIL_FAST:-1}"
 verdict_fail() {
     FAILED=$((FAILED + 1))
     FAILURES="$FAILURES
   - $LAST${1:+ ($1)}"
     red "    FAIL${1:+  $1}"
     testlog_check fail "${1:-}"
+
+    if [ "$FAIL_FAST" = "1" ]; then
+        red "    stopping here: everything below starts from the state this check just failed to reach"
+        grey "    (Tests/Scripted/run.sh --keep-going runs the rest anyway)"
+        finish
+        exit 1
+    fi
 }
 
 # `pass "what was checked"` and `fail "what was checked"` for the cases a script decides for itself.
@@ -175,7 +194,16 @@ skip() { SKIPPED=$((SKIPPED + 1)); announce "$*"; printf '\033[0;33m    SKIP\033
 
 # Ends the script and decides its exit status. Non-zero on any failure, which is what lets run.sh stop
 # rather than carry on into scripts whose starting state the failure just invalidated.
+FINISHED=0
 finish() {
+    # Called twice where a script does `fail ...; finish; exit 1` and the failure already stopped it. The
+    # second call must report the same verdict and not write the record again.
+    if [ "$FINISHED" = "1" ]; then
+        [ "$FAILED" -eq 0 ]
+        return
+    fi
+    FINISHED=1
+
     # Before anything is printed, because this is where the app's own debug_log rows are copied out of
     # test.sqlite -- and a script that exits straight after `finish` would otherwise take them with it.
     testlog_script_finish "$PASSED" "$FAILED" "${SKIPPED:-0}"
@@ -361,6 +389,16 @@ PYTHON
 }
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
 set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
+
+# For a field nothing has clicked into, where the Return that follows has to commit an edit.
+#
+# **`set_field` alone is not enough there.** It writes AXValue, which changes what the field shows without
+# opening an editing session, so a `press_return` afterwards goes to whatever does have focus and the
+# value is never committed -- the field displays the new number and the table keeps the old one. A
+# category name escapes this because pressing the name makes the field first responder itself; a daily
+# limit does not, and typed into with `set_field` it silently did nothing (measured 2026-08-16: the tree
+# showed `category-limit-3 value=45` while the table still held 0).
+set_field_focused() { python3 scripts/ax-set.py --focus "$1" "$2" >/dev/null 2>&1; }
 tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
 
 # The buttons of the alert that is up, in the order they are drawn, joined with `|` so one check can
@@ -381,6 +419,23 @@ alert_is_open() { python3 scripts/ax-alert.py >/dev/null 2>&1; }
 element() { tree | grep -m1 "id=$1 " || true; }
 
 settings_is_open() { tree | grep -q "close-settings"; }
+
+# Waits for an element to appear, rather than sleeping a guessed amount and hoping.
+#
+# **Pressing something that rebuilds the pane leaves a gap.** A refused rename reloads the whole list, so
+# for a moment the row being addressed is a view on its way out, and a press lands on nothing. A fixed
+# sleep either loses that race or wastes time on every run that would not have. This lost it on
+# 2026-08-16: the name cell was still a button when the field was written to, so nothing was committed and
+# no log row was written at all -- a failure with no evidence in it beyond the tree.
+wait_for_element() {
+    local identifier="$1" timeout="${2:-5}" waited=0
+    while [ "$waited" -lt "$((timeout * 5))" ]; do
+        tree | grep -q "id=$identifier " && return 0
+        sleep 0.2
+        waited=$((waited + 1))
+    done
+    return 1
+}
 
 open_settings() {
     settings_is_open && return 0

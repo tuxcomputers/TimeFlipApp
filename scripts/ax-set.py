@@ -33,6 +33,16 @@ def walk(element, wanted, depth=0):
             return found
     return None
 
+# `--focus` makes the element first responder before writing to it, which starts a real editing session.
+#
+# **Needed for any field nothing has clicked into.** Setting AXValue alone changes what a field displays
+# without opening an edit, so the Return posted afterwards has nothing to commit and goes to whatever does
+# have focus. A category name does not need this -- pressing the name calls makeFirstResponder itself --
+# but a daily limit sits there unfocused, and typing into it silently did nothing until this existed.
+focus = "--focus" in sys.argv
+if focus:
+    sys.argv.remove("--focus")
+
 identifier, value = sys.argv[1], sys.argv[2]
 pid = int(subprocess.check_output(["pgrep", "-x", "Facet"]).split()[0])
 app = AXUIElementCreateApplication(pid)
@@ -43,5 +53,11 @@ for window in (attribute(app, "AXWindows") or []):
         break
 if target is None:
     print("not found", file=sys.stderr); sys.exit(1)
+if focus:
+    focused = AXUIElementSetAttributeValue(target, "AXFocused", True)
+    if focused != kAXErrorSuccess:
+        print(f"could not focus {identifier}: error {focused}", file=sys.stderr)
+        sys.exit(1)
+
 err = AXUIElementSetAttributeValue(target, "AXValue", value)
 print(f"set {identifier} = {value!r}: {'ok' if err == kAXErrorSuccess else f'error {err}'}")
