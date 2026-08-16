@@ -20,6 +20,16 @@ select_tab Categories
 NAME=$(next_name Scripted)
 RENAMED="$NAME renamed"
 
+# Turns a category's name into an editable field, and waits until it really is one.
+#
+# **A fixed sleep loses this race.** A refused rename reloads the whole list, so the row is briefly a view
+# on its way out and the press lands on nothing -- which is what happened on 2026-08-16: the cell was
+# still a button when the field was written to, so nothing committed and the app logged nothing at all.
+begin_rename() {
+    press "category-name-$1"
+    wait_for_element "category-name-$1-field" 5
+}
+
 # ---------------------------------------------------------------------------- the two sections
 #
 # **First, before anything expands the Inactive one.** Its collapsed state is only observable until this
@@ -93,8 +103,7 @@ check_contains "its row is on the tab" "$(tree)" "id=category-name-$ID"
 # Setting the value alone fills the field and commits nothing, which is why the key is posted.
 
 since=$(mark)
-press "category-name-$ID"
-sleep 0.5
+begin_rename "$ID"
 set_field "category-name-$ID-field" "$RENAMED"
 press_return
 sleep 1
@@ -396,9 +405,13 @@ check "picking it again clears it to None" "0" "$(sql "SELECT icon_id FROM categ
 others_before=$(sql "SELECT IFNULL(SUM(daily_limit), 0) FROM category WHERE category_id != $ID;")
 
 # The field carries the identifier itself (`SteppedNumberField` puts it on the text field, with `-up` and
-# `-down` on the arrows), so it is typed into directly. 08 drives the arrows instead, which is the other
-# half of the same control.
-set_field "category-limit-$ID" "45"
+# `-down` on the arrows), so it is typed into directly.
+#
+# **Focused first, not just written to.** Setting AXValue changes what the field shows without opening an
+# editing session, so the Return that follows has nothing to commit and goes wherever focus actually is.
+# That failed silently on 2026-08-16: the tree read `category-limit-3 value=45` while the table still held
+# 0, and the check that caught it was the one reading the table.
+set_field_focused "category-limit-$ID" "45"
 press_return
 sleep 1
 check "a typed daily limit is written" "45" "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
@@ -406,6 +419,84 @@ check "a typed daily limit is written" "45" "$(sql "SELECT daily_limit FROM cate
 # **Nobody else moved.** A field that wrote to the wrong row would still pass the check above.
 check "and no other category's limit moved" "$others_before" \
     "$(sql "SELECT IFNULL(SUM(daily_limit), 0) FROM category WHERE category_id != $ID;")"
+
+# ---------------------------------------------------------------------------- holding an arrow
+#
+# A click is one step; holding keeps stepping, by 1 at first and then by 5, and **slower once it is
+# stepping by 5**. Those are the numbers in `StepperHoldRules`: 0.1s per single step, 0.3s per five, after
+# a 0.4s wait before the repeat starts at all.
+#
+# **The slowing down is the part worth testing.** A control that changed step size without changing pace
+# would move five times faster the moment it crossed the boundary and run away from whoever is holding it.
+# Nothing about that is visible in the value it lands on, so only the timing catches it.
+#
+# It is readable because every tick writes its own row: `report` calls `onChange` for each value the hold
+# passes through, and `debug_log.logged_at` keeps milliseconds. `press` cannot do this -- a stepper arrow
+# leaves the action path to `performClick`, which is the single-step path -- so `ax-hold.py` posts a real
+# mouse down, waits, and posts the up.
+
+# ---- up, from zero
+
+set_field_focused "category-limit-$ID" "0"
+press_return
+sleep 1
+check "the limit is back to zero, to hold up from" "0" "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
+
+since=$(mark)
+announce "holding the up arrow steps 1 to 10, then by fives"
+python3 scripts/ax-hold.py "category-limit-$ID-up" 3.0 >/dev/null 2>&1
+sleep 1.5
+up=$(python3 Tests/Scripted/stepper-timing.py "$since" "$RENAMED" 2>/dev/null)
+up_values=$(printf '%s' "$up" | sed -n 's/^values=//p')
+case "$up_values" in
+    1,2,3,4,5,6,7,8,9,10,15,20*) verdict_pass; grey "          $up_values" ;;
+    *) verdict_fail "the sequence was '$up_values'" ;;
+esac
+
+up_singles=$(printf '%s' "$up" | sed -n 's/.*singles_avg_ms=//p')
+up_fives=$(printf '%s' "$up" | sed -n 's/.*fives_avg_ms=//p')
+announce "and the fives are slower than the ones (${up_singles}ms then ${up_fives}ms)"
+# Two rather than the three the intervals are in, because a tick's row is written when the app got round
+# to it: the ratio is real but the ends of it are noisy.
+if [ "${up_fives:-0}" -gt $(( ${up_singles:-1} * 2 )) ]; then
+    verdict_pass
+else
+    verdict_fail "${up_fives}ms is not meaningfully slower than ${up_singles}ms"
+fi
+
+# ---- down, from forty
+#
+# The boundary is measured from where the hold began, in the direction of travel, so holding down from 40
+# counts 35 and then 30: ticks by 1 down to 30, then by 5.
+
+set_field_focused "category-limit-$ID" "40"
+press_return
+sleep 1
+check "the limit is at forty, to hold down from" "40" "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
+
+since=$(mark)
+announce "holding the down arrow steps 39 to 30, then by fives"
+python3 scripts/ax-hold.py "category-limit-$ID-down" 3.0 >/dev/null 2>&1
+sleep 1.5
+down=$(python3 Tests/Scripted/stepper-timing.py "$since" "$RENAMED" 2>/dev/null)
+down_values=$(printf '%s' "$down" | sed -n 's/^values=//p')
+case "$down_values" in
+    39,38,37,36,35,34,33,32,31,30,25,20*) verdict_pass; grey "          $down_values" ;;
+    *) verdict_fail "the sequence was '$down_values'" ;;
+esac
+
+down_singles=$(printf '%s' "$down" | sed -n 's/.*singles_avg_ms=//p')
+down_fives=$(printf '%s' "$down" | sed -n 's/.*fives_avg_ms=//p')
+announce "and going down slows down too (${down_singles}ms then ${down_fives}ms)"
+if [ "${down_fives:-0}" -gt $(( ${down_singles:-1} * 2 )) ]; then
+    verdict_pass
+else
+    verdict_fail "${down_fives}ms is not meaningfully slower than ${down_singles}ms"
+fi
+
+# The range is 0 to 1440, and a hold stops rather than ticking against a value that cannot move.
+check "and it never went below zero" "1" \
+    "$(sql "SELECT daily_limit >= 0 FROM category WHERE category_id = $ID;")"
 
 # ---------------------------------------------------------------------------- the rename dead ends
 #
@@ -415,8 +506,7 @@ check "and no other category's limit moved" "$others_before" \
 # ---- Cancel leaves the name alone
 
 since=$(mark)
-press "category-name-$ID"
-sleep 0.5
+begin_rename "$ID"
 set_field "category-name-$ID-field" "$NAME abandoned"
 press_return
 sleep 1
@@ -428,8 +518,7 @@ check "and the name is untouched" "$RENAMED" "$(sql "SELECT category_name FROM c
 # ---- renaming onto an active namesake
 
 since=$(mark)
-press "category-name-$reactivate_id"
-sleep 0.5
+begin_rename "$reactivate_id"
 set_field "category-name-$reactivate_id-field" "$RENAMED"
 press_return
 sleep 1
@@ -446,8 +535,7 @@ check "so that name is unchanged too" "$REACTIVATE" "$(sql "SELECT category_name
 
 CAPITALISED=$(printf '%s' "$REACTIVATE" | tr '[:lower:]' '[:upper:]')
 since=$(mark)
-press "category-name-$reactivate_id"
-sleep 0.5
+begin_rename "$reactivate_id"
 set_field "category-name-$reactivate_id-field" "$CAPITALISED"
 press_return
 sleep 1
