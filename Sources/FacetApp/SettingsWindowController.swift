@@ -520,9 +520,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         """
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Delete Calendar")
+        // **Return must not delete anything, and adding Cancel first is not enough to arrange that.** AppKit puts a
+        // button titled "Cancel" on the left whatever order it went in, so the rightmost button -- the one Return
+        // activates -- ends up being the destructive one. Measured 2026-08-16: the buttons read back as
+        // "Delete Calendar", "Cancel", not the order they were added in.
+        //
+        // So the key equivalents are set rather than inferred from position: Return dismisses, Escape dismisses, and
+        // deleting takes a deliberate click. The answer is still read by addition order, which is unaffected.
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = ""
         alert.beginSheetModal(for: window) { [weak self] response in
-            // Cancel leads, so it is the default and Return dismisses rather than agrees -- the same way round as
-            // every other question here about changing something already recorded.
             guard response == .alertSecondButtonReturn else {
                 self?.debugLog?.record(.field, "Button clicked: Cancel, \"\(name)\" calendar not deleted")
                 return

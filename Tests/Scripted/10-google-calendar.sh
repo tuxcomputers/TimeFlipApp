@@ -60,9 +60,14 @@ if [ -n "$calendar_id" ]; then
     press app-google-calendar-delete
     sleep 1
 
-    # It asks before destroying anything, and names what goes. Cancel leads, so the button that agrees is
-    # the second one.
-    check "deleting asks first, and offers Cancel before it" "Cancel|Delete Calendar" "$(alert_buttons)"
+    # It asks before destroying anything, and names what goes.
+    #
+    # **The order is what is on screen, left to right, not the order the buttons were added.** AppKit puts a
+    # button titled "Cancel" on the left whichever way round it went in, so the destructive one reads first
+    # here. That is also why the app sets the alert's key equivalents explicitly instead of trusting
+    # position to keep Return harmless: the rightmost button is the one Return activates, and left to
+    # itself that would have been Delete Calendar.
+    check "deleting asks first, and offers a way out" "Delete Calendar|Cancel" "$(alert_buttons)"
     check_contains "and the question names the calendar" \
         "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "$doomed"
 
