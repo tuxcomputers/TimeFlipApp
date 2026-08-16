@@ -2,18 +2,17 @@ import AppKit
 
 /// The Device tab: what the app knows about a cube, the settings that live on one, and the way to go and find one.
 ///
-/// **Drawn, and wired to nothing.** Every value on it is read from the database and shown; no control on it writes
-/// anywhere, and there is no Bluetooth in this app yet for one to write *to*. That is deliberate rather than
-/// unfinished: the tab is the shape the rest of the device work gets built into, and a shape is worth having before
-/// there is a radio to hang off it. What each control will do arrives with the feature that can honestly do it.
+/// **Only the bottom section reaches anything.** Every value in the two above it is read from the database and shown,
+/// and no control in them writes; what each of those will do arrives with the feature that can honestly do it.
 ///
-/// So read this as three sections that describe a device rather than reach one:
+/// So read this as three sections, two of which describe a device and one of which goes and gets one:
 ///
 /// - **Info**, which is a report. Its rows say what the app knows, and say plainly when the answer is that it knows
 ///   nothing (`DeviceInfoRules`, where the wording and the three different kinds of "no device" live).
 /// - **Settings**, which are the cube's own: they are stored here and sent to it on connect, so they are readable and
 ///   meaningful with no cube present, which is why they are drawn rather than hidden.
-/// - **TimeFlip**, which is where finding one will go.
+/// - **TimeFlip**, which finds a cube and reaches it. Pressing Scan lists what answers; pressing a listed device
+///   connects to it and presents a PIN.
 ///
 /// **The layout is the previous app's**, measured off `image/preferences-device.png` and its final source rather than
 /// recalled: a heading above a rounded panel, labels down the left, values and controls pinned to the right-hand
@@ -140,12 +139,17 @@ final class DevicePane: NSView {
     private var scanAllBox: NSButton!
     private var scanStatusLabel: NSTextField!
     private var scanResults: NSStackView!
+    /// The rows the scan produced, held only so they can be greyed together while one of them is being reached.
+    private var deviceButtons: [NSButton] = []
 
     /// Pressed when the scan button is clicked, carrying whether **All Devices** is ticked at that moment.
     var onScan: ((Bool) -> Void)?
 
     /// Pressed when the button is clicked while a scan is running.
     var onStopScan: (() -> Void)?
+
+    /// A listed device was clicked, and the app should go and reach it.
+    var onConnect: ((UUID) -> Void)?
 
     private(set) var moreRow: DisclosureRow!
     private(set) var ledRow: DisclosureRow!
@@ -355,7 +359,7 @@ final class DevicePane: NSView {
         ]
     }
 
-    /// Where finding a cube will go. Both controls draw and neither reaches a radio, there being none yet.
+    /// Finding a cube, and reaching the one that is chosen.
     private func pairingRowViews() -> [NSView] {
         scanButton = NSButton(title: "Scan for Devices", target: self, action: #selector(scanPressed))
         scanButton.bezelStyle = .rounded
@@ -422,6 +426,10 @@ final class DevicePane: NSView {
 
     /// One found device: its name, on the left, where a list puts a thing rather than where a form puts an answer.
     ///
+    /// **The whole row is the button, and its title is the name.** Not a label with a Connect button beside it: the
+    /// row is one thing to do, so making somebody aim at a second control in it would be the triangle-versus-heading
+    /// mistake `CLAUDE.md` describes, one list along. Borderless, so a list still reads as a list.
+    ///
     /// **The separator is at the top, not the bottom.** The first one divides the list from the controls above it and
     /// every later one divides two devices, which is what a bottom edge cannot do without also drawing a line under
     /// the last row with nothing beneath it.
@@ -429,10 +437,16 @@ final class DevicePane: NSView {
         let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        let name = NSTextField(labelWithString: DeviceScanRules.label(for: device))
+        let name = NSButton(title: DeviceScanRules.label(for: device), target: self, action: #selector(devicePressed))
+        name.isBordered = false
+        name.alignment = .left
         name.lineBreakMode = .byTruncatingTail
         name.translatesAutoresizingMaskIntoConstraints = false
         name.setAccessibilityIdentifier(Identifier.scanResult(device.id))
+        // The identifier is how the press finds its way back to a device: the button is the only thing that knows
+        // which row was clicked, and a closure captured per row would keep the pane holding a list of its own.
+        name.identifier = NSUserInterfaceItemIdentifier(device.id.uuidString)
+        deviceButtons.append(name)
 
         let separator = NSBox()
         separator.boxType = .separator
@@ -462,6 +476,11 @@ final class DevicePane: NSView {
         } else {
             onScan?(scanAllBox.state == .on)
         }
+    }
+
+    @objc private func devicePressed(_ sender: NSButton) {
+        guard let identifier = sender.identifier?.rawValue, let id = UUID(uuidString: identifier) else { return }
+        onConnect?(id)
     }
 
     // MARK: - what the scan is doing
@@ -502,9 +521,26 @@ final class DevicePane: NSView {
             scanResults.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        // A row, not a button. Nothing can be done with one of these yet: pairing is its own feature and arrives
-        // with the code that can honestly connect. Listing what is out there is the whole of this one.
+        deviceButtons = []
         add(devices.map { deviceRow($0) }, to: scanResults)
+        // A list redrawn mid-attempt must not come back live. The rows are rebuilt on every advertisement, so
+        // whatever the tab last decided about them has to be applied again here rather than assumed to have
+        // survived -- and a scan carrying on behind a connect is exactly when this happens.
+        showReaching(isReaching)
+    }
+
+    /// Whether an attempt to reach a device is in flight, which is what greys the list.
+    ///
+    /// **The rows go dead rather than merely being ignored.** A second press during the several seconds a connect
+    /// takes is the obvious thing to do when nothing has visibly happened, and a control that quietly discards it is
+    /// the one that looks broken. The status line says what is going on; this says it cannot be interrupted.
+    private(set) var isReaching = false
+
+    func showReaching(_ isReaching: Bool) {
+        self.isReaching = isReaching
+        for button in deviceButtons {
+            button.isEnabled = !isReaching
+        }
     }
 
     // MARK: - the pieces a row is made of

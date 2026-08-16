@@ -52,8 +52,15 @@ final class DebugLog {
         /// A category spending its `daily_limit`, and the clock being stopped for it (`DailyLimitWatch`).
         case limit
         /// Looking for a device: what the radio is doing, and both names of every advertisement listed
-        /// (`BluetoothScanner`). Both, because the scan list is where the two disagree.
+        /// (`BluetoothRadio`). Both, because the scan list is where the two disagree.
         case scan
+        /// Reaching a cube and presenting its PIN: each attempt, which PIN was tried, and what the cube made of it
+        /// (`BluetoothRadio`, `DeviceLogin`).
+        case login
+        /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
+        case transmit = "ble-tx"
+        /// Bytes received from it, whether asked for or notified.
+        case receive = "ble-rx"
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

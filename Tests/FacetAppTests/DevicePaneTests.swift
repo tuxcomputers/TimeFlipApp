@@ -5,9 +5,9 @@ import XCTest
 /// Covers the Device tab: that it draws the archive's three sections, that every value on it comes from what it was
 /// shown, and that the three folding rows fold.
 ///
-/// **Nothing here writes**, which is the tab's defining property at this point rather than an omission: there is no
-/// Bluetooth in this app yet for a control to reach. So what is worth pinning is the shape and the reading, and the
-/// one behaviour that already works, which is the folds.
+/// **Nothing above the TimeFlip section writes**, which is the tab's shape at this point rather than an omission. So
+/// what is worth pinning there is the drawing and the reading, plus the folds; the section that does reach a cube is
+/// pinned by what it asks for and what it does while it waits, the radio itself being somebody else's test.
 @MainActor
 final class DevicePaneTests: XCTestCase {
     private func descendants(of root: NSView) -> [NSView] {
@@ -22,6 +22,13 @@ final class DevicePaneTests: XCTestCase {
         descendants(of: pane)
             .first { $0.accessibilityIdentifier() == identifier }
             .flatMap { ($0 as? NSTextField)?.stringValue }
+    }
+
+    /// A scan result's row. It is a button rather than a label, the whole row being the way to reach the device, so
+    /// its name is a title and not a value.
+    private func deviceRow(_ id: UUID, in pane: DevicePane) -> NSButton? {
+        descendants(of: pane).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == DevicePane.Identifier.scanResult(id) }
     }
 
     private func view(_ identifier: String, in pane: DevicePane) -> NSView? {
@@ -107,7 +114,7 @@ final class DevicePaneTests: XCTestCase {
         pane.showFound([cube])
 
         XCTAssertEqual(
-            value(DevicePane.Identifier.scanResult(cube.id), in: pane), "Hazza cuber",
+            deviceRow(cube.id, in: pane)?.title, "Hazza cuber",
             "the row shows the name the user chose, not the one the cube advertises"
         )
     }
@@ -124,10 +131,15 @@ final class DevicePaneTests: XCTestCase {
 
         pane.showFound([cube])
 
-        let shown = descendants(of: pane)
+        let labelled = descendants(of: pane)
             .compactMap { $0 as? NSTextField }
             .filter { !$0.isHidden && $0.stringValue == "TimeFlip v2.0" }
-        XCTAssertEqual(shown.count, 1, "the name is drawn once per device, not at both ends of the row")
+        let titled = descendants(of: pane)
+            .compactMap { $0 as? NSButton }
+            .filter { !$0.isHidden && $0.title == "TimeFlip v2.0" }
+        XCTAssertEqual(
+            labelled.count + titled.count, 1, "the name is drawn once per device, not at both ends of the row"
+        )
     }
 
     func testASecondScanReplacesTheListRatherThanAddingToIt() {
@@ -146,8 +158,65 @@ final class DevicePaneTests: XCTestCase {
         pane.showFound([first])
         pane.showFound([second])
 
-        XCTAssertNil(value(DevicePane.Identifier.scanResult(first.id), in: pane), "the first list is gone")
-        XCTAssertEqual(value(DevicePane.Identifier.scanResult(second.id), in: pane), "Two")
+        XCTAssertNil(deviceRow(first.id, in: pane), "the first list is gone")
+        XCTAssertEqual(deviceRow(second.id, in: pane)?.title, "Two")
+    }
+
+    // MARK: - reaching one
+
+    func testPressingADeviceAsksForThatDevice() {
+        // **The whole row is the target**, which is why the name is the button's title rather than a label sitting on
+        // one: there is one thing to do with a scan result, so aiming at a second control inside the row would be the
+        // triangle-versus-heading mistake `CLAUDE.md` describes.
+        let pane = DevicePane()
+        let first = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
+        )
+        let second = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000BB")!,
+            peripheralName: "Two", advertisedName: nil, advertisesTimeFlipService: false
+        )
+        var asked: [UUID] = []
+        pane.onConnect = { asked.append($0) }
+
+        pane.showFound([first, second])
+        deviceRow(second.id, in: pane)?.performClick(nil)
+
+        XCTAssertEqual(asked, [second.id], "the press has to carry which row it was")
+    }
+
+    func testTheListGoesDeadWhileOneOfThemIsBeingReached() {
+        // A connect takes several seconds and nothing else on the row changes, so the obvious thing to do is press it
+        // again. Ignoring that press quietly is what makes a control look broken; the row going dead says so.
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
+        )
+        pane.showFound([cube])
+
+        pane.showReaching(true)
+        XCTAssertEqual(deviceRow(cube.id, in: pane)?.isEnabled, false)
+
+        pane.showReaching(false)
+        XCTAssertEqual(deviceRow(cube.id, in: pane)?.isEnabled, true)
+    }
+
+    func testARedrawnListStaysDeadWhileOneOfThemIsBeingReached() {
+        // The rows are rebuilt on every advertisement, so a list redrawn mid-attempt would come back live and undo
+        // the greying above. That is not hypothetical: a scan that is still running behind a connect is exactly the
+        // case, and the fix has to be in the redraw rather than in whoever called it.
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
+        )
+
+        pane.showReaching(true)
+        pane.showFound([cube])
+
+        XCTAssertEqual(deviceRow(cube.id, in: pane)?.isEnabled, false)
     }
 
     func testStoppingTakesDownTheLookingMessage() {

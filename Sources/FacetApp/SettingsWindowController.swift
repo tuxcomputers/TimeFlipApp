@@ -83,7 +83,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// The radio, made the first time somebody asks to scan and kept for the life of the window controller. See
     /// `wireScan(on:)` for why it is not the pane's.
-    private var scanner: BluetoothScanner?
+    private var radio: BluetoothRadio?
 
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
@@ -241,11 +241,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         )
     }
 
-    /// The Device tab, drawn from the tables and wired to nothing.
+    /// The Device tab: drawn from the tables, with its TimeFlip section wired to the radio.
     ///
-    /// **No control on it writes**, because there is no Bluetooth in this app yet for one to write to. The tab is the
-    /// shape the device work gets built into; what each control does arrives with the feature that can honestly do
-    /// it. The folds are recorded, because they are the one thing on the tab that already works.
+    /// **No control above that section writes anything**, and what each of them does arrives with the feature that can
+    /// honestly do it. The folds are recorded, being the one thing elsewhere on the tab that already works.
     private func makeDevicePane() -> DevicePane {
         let pane = DevicePane()
         pane.onToggle = { [weak self] identifier, isExpanded in
@@ -267,7 +266,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// scanner rebuilt with them would drop the manager mid-scan and start the system's Bluetooth prompt again. So it
     /// is made once, lazily, and told where to draw.
     private func wireScan(on pane: DevicePane) {
-        let scanner = deviceScanner()
+        let scanner = deviceRadio()
         scanner.onScanningChanged = { [weak pane, weak scanner] isScanning in
             pane?.showScanning(isScanning)
             guard !isScanning, let scanner else { return }
@@ -302,13 +301,47 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.debugLog?.record(.click, "Button clicked: Stop Scan")
             scanner.stop()
         }
+        wireConnect(on: pane, using: scanner)
         pane.showScanning(scanner.isScanning)
+        pane.showReaching(false)
     }
 
-    private func deviceScanner() -> BluetoothScanner {
-        if let scanner { return scanner }
-        let made = BluetoothScanner(debugLog: debugLog)
-        scanner = made
+    /// Connects the listed devices to the radio that goes and reaches them.
+    ///
+    /// **Which PINs to present is decided here, at the moment somebody presses a row**, and handed to the radio
+    /// rather than worked out inside it. That keeps the policy in `DeviceLoginRules` where it is testable with no
+    /// cube, and it is the source-of-truth rule's shape even though no table is involved yet: the candidates are
+    /// assembled when they are needed, not when the radio was built. The day a rotated PIN is stored, the read goes
+    /// on this line.
+    private func wireConnect(on pane: DevicePane, using scanner: BluetoothRadio) {
+        pane.onConnect = { [weak self] id in
+            guard let self else { return }
+            self.debugLog?.record(.click, "Device clicked: \(scanner.label(for: id))")
+            scanner.connect(to: id, presenting: DeviceLoginRules.candidates(stored: DeveloperMode.devicePIN))
+        }
+        scanner.onLoginBegan = { [weak pane, weak scanner] id in
+            guard let pane, let scanner else { return }
+            pane.showReaching(true)
+            pane.showScanMessage("Connecting to \(scanner.label(for: id))...")
+        }
+        scanner.onLoginEnded = { [weak pane, weak scanner] id, outcome in
+            guard let pane, let scanner else { return }
+            pane.showReaching(false)
+            pane.showScanMessage(outcome.message(for: scanner.label(for: id)))
+        }
+        scanner.onConnectionDropped = { [weak pane, weak scanner] id in
+            guard let pane, let scanner else { return }
+            // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out of
+            // range, or its batteries out -- is the one the user did not ask for, and the tab would otherwise go on
+            // reading "Connected" for the rest of the session.
+            pane.showScanMessage("The connection to \(scanner.label(for: id)) dropped.")
+        }
+    }
+
+    private func deviceRadio() -> BluetoothRadio {
+        if let radio { return radio }
+        let made = BluetoothRadio(debugLog: debugLog)
+        radio = made
         return made
     }
 
@@ -1356,14 +1389,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         stopScanning(because: "the Settings window closed")
     }
 
-    /// Stops any scan and says what stopped it, for the two moments that are not the button.
+    /// Stops any scan and drops any connection, saying what stopped it, for the two moments that are not a button.
     ///
-    /// Silent when nothing is scanning, which is nearly always: this is called on every close and every tab change,
+    /// Silent when nothing is running, which is nearly always: this is called on every close and every tab change,
     /// and a log line each time would bury the ones that mean something.
+    ///
+    /// **The connection goes with the scan, and for the same reason.** Reaching a cube is not yet pairing with one:
+    /// nothing outside this tab uses the link, so a connection left open once the tab is gone is a radio talking to
+    /// hardware with no control on screen that could end it, and a cube's batteries paying for it. When pairing
+    /// arrives the link becomes the app's rather than the window's, and this is the line that changes.
     private func stopScanning(because reason: String) {
-        guard let scanner, scanner.isScanning else { return }
+        radio?.disconnect(because: reason)
+        guard let radio, radio.isScanning else { return }
         debugLog?.record(.scan, "Stopping the scan: \(reason)")
-        scanner.stop()
+        radio.stop()
     }
 
     private func makeWindow() -> NSWindow {

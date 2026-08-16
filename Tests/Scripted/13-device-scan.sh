@@ -68,23 +68,27 @@ expect_log "pressing Scan starts a filtered scan" "$since" "%Scan requested, Tim
 # button when the app was waiting for an answer. **It does not recur**: once allowed, the app scans without asking,
 # a rebuild included. So the long wait below is for a case that happens on one machine one time, and costs nothing
 # on every run after it.
+# **`Scan started` is the row that means the radio is listening**, as opposed to `Scan requested`, which means only
+# that the button was pressed. Waiting on the state callback instead looks equivalent and is not: it fires when the
+# state *changes*, so it is written on the first scan of a session and never again, which is exactly how
+# `14-device-connect` failed on its first run.
 grey "  waiting for the radio to come up..."
-if wait_for "$since" "%Bluetooth state:%" 60 >/dev/null; then
-    pass "the radio answered"
+if wait_for "$since" "%Scan started%" 60 >/dev/null; then
+    pass "the radio answered, and the scan is running"
 else
+    # **Bluetooth being off is not this app's failure**, and is the one empty list that means nothing about the scan.
+    # Checked here rather than before the button: an unusable radio leaves the button reading "Scan for Devices"
+    # perfectly correctly, so a check on the title reports the wrong thing, and the reason is written the moment the
+    # radio refuses -- so if a scan never started, this is why.
+    unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
+    if [ -n "$unavailable" ]; then
+        skip "the radio is unusable, so nothing can be found ($unavailable)"
+        finish
+        exit 0
+    fi
     fail "the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
     finish
     exit 1
-fi
-
-# **Bluetooth being off is not this app's failure**, and is the one empty list that means nothing about the scan.
-# Checked before the button rather than after it: an unusable radio leaves the button reading "Scan for Devices"
-# perfectly correctly, so checking the title first reports the wrong thing.
-unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
-if [ -n "$unavailable" ]; then
-    skip "the radio is unusable, so nothing can be found ($unavailable)"
-    finish
-    exit 0
 fi
 
 # The button says what pressing it would do, so while a scan runs it offers to stop.
@@ -122,8 +126,11 @@ else
 fi
 
 # A row with no words in it would pass the count above and tell the user nothing. `DeviceScanRules.label` falls back
-# to "Unnamed device" rather than to blank, so an empty value here means the label never reached the row.
-name=$(tree | grep -m1 "id=device-scan-result-" | sed -E 's/.*value=([^ ]*.*)$/\1/')
+# to "Unnamed device" rather than to blank, so an empty title here means the label never reached the row.
+#
+# **A title, not a value**, because the row is a button: the whole of it is how you reach the device, so the name is
+# what the button is called rather than a label's contents. `14-device-connect` is what presses it.
+name=$(tree | grep -m1 "id=device-scan-result-" | sed -E 's/.*title=([^ ]*.*)$/\1/')
 if [ -n "$name" ]; then
     pass "the row carries a name ($name)"
 else
