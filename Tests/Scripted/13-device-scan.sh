@@ -153,8 +153,15 @@ select_tab Report
 sleep 1
 
 expect_log "leaving the Device tab stops the scan" "$since" "%Stopping the scan: the Report tab was selected%"
-check "and nothing is left scanning" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan requested%';")"
+
+# **The radio, not the intention.** The row above is the window saying it wants the scan stopped; this is the scanner
+# saying it has. They are two rows because they are two things, and only the second one means CoreBluetooth was
+# actually told.
+#
+# The check that used to sit here counted `Scan requested` rows since a baseline taken *before* the press, so it
+# counted the scan it had just started and failed on 1 against 0 (run 25). It was measuring nothing either way: a
+# request is not what "left scanning" means.
+expect_log "and the radio was actually told" "$since" "%Scan stopped%"
 
 # **The timeout.** The one that costs this script real time, and the only way to prove it: a cube that is awake
 # answers in about a second, so nothing shorter than the bound itself distinguishes a scan that ends from one that
