@@ -107,10 +107,12 @@ else
     fail "the listed device has no name against it"
 fi
 
-# ---------------------------------------------------------------------------- stopping
+# ---------------------------------------------------------------------------- stopping, three ways
 #
-# Left off rather than left running: the next script quits the app, and a scan still going when it does is a radio
-# this run switched on and never switched off.
+# **A scan has to end by itself as well as on request**, because the ways it can be abandoned outnumber the ways it
+# can be stopped deliberately. Until it was bounded there was none of this: the radio listened until somebody pressed
+# the button again, and closing the window left it listening for the rest of the session with no control on screen to
+# stop it and nothing saying it was happening.
 
 since=$(mark)
 press device-scan
@@ -118,5 +120,42 @@ sleep 1
 
 expect_log "pressing it again stops the scan" "$since" "%Scan stopped%"
 check_contains "and the button offers to scan again" "$(tree | grep -m1 'id=device-scan ' || true)" "Scan for Devices"
+
+# **Leaving the tab.** The list it is filling is on the Device tab and nowhere else, so a scan running behind the
+# Report tab is a radio on with no way to see it.
+since=$(mark)
+press device-scan
+sleep 1.5
+select_tab Report
+sleep 1
+
+expect_log "leaving the Device tab stops the scan" "$since" "%Stopping the scan: the Report tab was selected%"
+check "and nothing is left scanning" "0" \
+    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan requested%';")"
+
+# **The timeout.** The one that costs this script real time, and the only way to prove it: a cube that is awake
+# answers in about a second, so nothing shorter than the bound itself distinguishes a scan that ends from one that
+# merely has not been stopped yet. Thirty seconds plus a few for the write behind it.
+select_tab Device
+since=$(mark)
+press device-scan
+sleep 1
+grey "  waiting out the 30 second scan timeout..."
+if wait_for "$since" "%Scan timed out%" 40 >/dev/null; then
+    pass "a scan nobody stops ends by itself"
+else
+    fail "the scan was still running 40 seconds in, so the timeout did not fire"
+fi
+check_contains "and the button offers to scan again" "$(tree | grep -m1 'id=device-scan ' || true)" "Scan for Devices"
+
+# **Closing the window** is the third way, and the one the archive handled that this app first did not. Checked last
+# because it leaves the window shut, which is where `99-quit` wants it anyway.
+since=$(mark)
+press device-scan
+sleep 1.5
+close_settings
+sleep 1
+
+expect_log "closing the window stops the scan" "$since" "%Stopping the scan: the Settings window closed%"
 
 finish

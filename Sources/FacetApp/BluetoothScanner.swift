@@ -45,9 +45,22 @@ final class BluetoothScanner: NSObject {
     /// Called when a scan cannot run, or `nil` when the reason has cleared.
     var onUnavailable: ((ScanUnavailable?) -> Void)?
 
+    /// How long a scan runs before stopping itself.
+    ///
+    /// **A cube that is awake answers in about a second**, advertising intervals being fractions of one, so thirty
+    /// seconds is well past the point where waiting longer adds anything. What the bound is really for is the other
+    /// end: a scan with no timeout runs until somebody presses the button again, and the radio then stays listening
+    /// for the rest of the session with nothing on screen saying so. It also lets the status line say "no devices
+    /// found" and mean it, instead of "looking" for ever.
+    static let timeoutSeconds: TimeInterval = 30
+
     private let debugLog: DebugLog?
     private var central: CBCentralManager?
     private var found: [UUID: ScannedDevice] = [:]
+    private var timeout: Timer?
+
+    /// How many devices the scan now running has listed. What the tab's status line reports once it stops.
+    var deviceCount: Int { found.count }
 
     /// What the filter is matching against for the scan now running. Held only for the length of a scan, which is the
     /// span of the question it answers: the next scan reads the table again.
@@ -96,10 +109,18 @@ final class BluetoothScanner: NSObject {
     }
 
     func stop() {
+        stop(because: "stopped")
+    }
+
+    /// Stops, saying why in the log. The reason is not shown to the user: what they see is the list and whether it
+    /// is still growing, and "timed out" against a list with the cube in it would read as a failure.
+    private func stop(because reason: String) {
+        timeout?.invalidate()
+        timeout = nil
         guard isScanning else { return }
         central?.stopScan()
         isScanning = false
-        debugLog?.record(.scan, "Scan stopped, \(found.count) device(s) listed")
+        debugLog?.record(.scan, "Scan \(reason), \(found.count) device(s) listed")
         onScanningChanged?(false)
     }
 
@@ -119,6 +140,14 @@ final class BluetoothScanner: NSObject {
         // it does not know, and the callback fires many times a second per device.
         central.scanForPeripherals(withServices: nil, options: nil)
         isScanning = true
+        // Armed here rather than in `start`, because `start` may only have built the manager: the clock should
+        // measure the time the radio was actually listening, not the wait for it to power on.
+        timeout?.invalidate()
+        timeout = Timer(timeInterval: Self.timeoutSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stop(because: "timed out after \(Int(Self.timeoutSeconds))s") }
+        }
+        // `.common`, so a scan still ends on time while a menu is being held open.
+        if let timeout { RunLoop.main.add(timeout, forMode: .common) }
         onScanningChanged?(true)
     }
 

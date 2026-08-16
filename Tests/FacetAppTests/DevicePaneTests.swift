@@ -132,6 +132,35 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(value(DevicePane.Identifier.scanResult(second.id), in: pane), "Two")
     }
 
+    func testStoppingTakesDownTheLookingMessage() {
+        // **Reported from a running app**: the scan was stopped, the button read Scan for Devices again, and the line
+        // under it still said "Looking for devices..." beside a finished list. The app had switched the radio off and
+        // gone on saying it was searching.
+        let pane = DevicePane()
+
+        pane.showScanning(true)
+        XCTAssertEqual(value(DevicePane.Identifier.scanStatus, in: pane), "Looking for devices...")
+
+        pane.showScanning(false)
+
+        XCTAssertNotEqual(
+            value(DevicePane.Identifier.scanStatus, in: pane), "Looking for devices...",
+            "a stopped scan must not go on claiming to look"
+        )
+    }
+
+    func testStoppingDoesNotWipeTheReasonItStopped() {
+        // The radio going away stops the scan *and* explains itself, in that order. Clearing everything on stop
+        // would take the explanation down a moment after it appeared, leaving an empty line where the reason was.
+        let pane = DevicePane()
+        pane.showScanning(true)
+
+        pane.showScanning(false)
+        pane.showScanMessage(ScanUnavailable.bluetoothOff.message)
+
+        XCTAssertEqual(value(DevicePane.Identifier.scanStatus, in: pane), ScanUnavailable.bluetoothOff.message)
+    }
+
     func testTheStatusRowSaysWhyAScanIsNotRunning() {
         // An empty list means "found nothing", "Bluetooth is off" and "not allowed to use Bluetooth" all at once,
         // and those want three different things done about them.

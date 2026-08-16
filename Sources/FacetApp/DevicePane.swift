@@ -406,10 +406,22 @@ final class DevicePane: NSView {
     private(set) var isScanning = false
 
     /// The button says what pressing it would do, which while a scan runs is stop it.
+    ///
+    /// **Stopping takes the "looking" message down, and that is this method's job rather than the caller's.** It was
+    /// the caller's, and the result was an app that had switched the radio off while still saying it was searching:
+    /// the button flipped back to Scan for Devices and the line under it went on reading "Looking for devices..."
+    /// beside a finished list. Whatever replaces it -- a count, or a reason the radio is unusable -- is said by
+    /// whoever knows it, immediately after; what cannot be left to them is the clearing, because a caller that
+    /// forgets produces exactly the screen above.
     func showScanning(_ isScanning: Bool) {
         self.isScanning = isScanning
         scanButton.title = isScanning ? "Stop Scan" : "Scan for Devices"
-        if isScanning { showScanMessage("Looking for devices...") }
+        if isScanning {
+            showScanMessage("Looking for devices...")
+        } else if scanStatusLabel.stringValue == "Looking for devices..." {
+            // Only that one message, so a reason the scan could not run is not wiped by the stop it caused.
+            showScanMessage("")
+        }
     }
 
     func showScanMessage(_ message: String) {

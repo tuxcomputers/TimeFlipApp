@@ -268,15 +268,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// is made once, lazily, and told where to draw.
     private func wireScan(on pane: DevicePane) {
         let scanner = deviceScanner()
-        scanner.onScanningChanged = { [weak pane] isScanning in pane?.showScanning(isScanning) }
-        scanner.onDevicesChanged = { [weak pane] devices in
-            pane?.showFound(devices)
-            // Said only once the radio has actually been asked and answered nothing, so "no devices" cannot be read
-            // off a list that is merely empty because the scan has not started.
-            if devices.isEmpty, pane?.isScanning == true {
-                pane?.showScanMessage("Looking for devices...")
-            }
+        scanner.onScanningChanged = { [weak pane, weak scanner] isScanning in
+            pane?.showScanning(isScanning)
+            guard !isScanning, let scanner else { return }
+            // **Said only once the radio has stopped**, so it is a result rather than a progress report. Before the
+            // timeout existed there was nothing that could honestly say this: a scan that never ended could only
+            // ever be "looking", however long it had heard nothing.
+            pane?.showScanMessage(
+                scanner.deviceCount == 0
+                    ? "No devices found."
+                    : "Found \(scanner.deviceCount) device\(scanner.deviceCount == 1 ? "" : "s")."
+            )
         }
+        scanner.onDevicesChanged = { [weak pane] devices in pane?.showFound(devices) }
         scanner.onUnavailable = { [weak pane] reason in
             guard let pane else { return }
             pane.showScanMessage(reason?.message ?? (pane.isScanning ? "Looking for devices..." : ""))
@@ -1345,6 +1349,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // The clock keeps running; only the repainting stops. The figure comes from what is recorded rather than
         // from anything counting up in here, so a closed window costs nothing and misses nothing.
         stopTicking()
+        // **The scan does not keep running**, unlike the clock, and the difference is who it is for. A clock nobody
+        // is looking at still records the day; a scan nobody is looking at is a radio left listening with no control
+        // on screen to stop it and nothing saying it is happening. The archive stopped it on close for the same
+        // reason (`clearDiscoveredDevicesOnClose`), and this app not doing so was an omission rather than a decision.
+        stopScanning(because: "the Settings window closed")
+    }
+
+    /// Stops any scan and says what stopped it, for the two moments that are not the button.
+    ///
+    /// Silent when nothing is scanning, which is nearly always: this is called on every close and every tab change,
+    /// and a log line each time would bury the ones that mean something.
+    private func stopScanning(because reason: String) {
+        guard let scanner, scanner.isScanning else { return }
+        debugLog?.record(.scan, "Stopping the scan: \(reason)")
+        scanner.stop()
     }
 
     private func makeWindow() -> NSWindow {
@@ -1525,6 +1544,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         guard let label = tabViewItem?.label else { return }
         debugLog?.record(.tab, "Settings tab selected: \(label)")
+        // Leaving the tab ends the scan, for the reason closing the window does: the list it is filling is on the
+        // Device tab and nowhere else, so a scan running behind the Report tab is a radio on with no way to see it.
+        // This fires for the switch *onto* Device too, where there is nothing running to stop.
+        stopScanning(because: "the \(label) tab was selected")
         reloadSelectedPane()
     }
 
