@@ -4,12 +4,12 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   test/dailyLimit
-    commit:   7326543ff07b505c8a7e0d507db8f9c0b9fc849c
+    branch:   feature/deviceScan
+    commit:   ecabc8da5a3caf548ecf126e5c6a4feec772dff3
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-16 17:45:11
-    finished: 2026-08-16 17:52:33
+    started:  2026-08-16 19:28:44
+    finished: 2026-08-16 19:38:42
     outcome:  passed
     scripts:  14 run, 0 with failures
     checks:   284 in total
