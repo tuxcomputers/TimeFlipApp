@@ -300,6 +300,17 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertFalse(categories.setDailyLimit(id: 9_999, minutes: 30))
     }
 
+    func testTheUnassignedSentinelCannotBeGivenADailyLimit() {
+        // `category_id` 0 is what a face points at when it holds nothing, rather than a category anybody chose. A
+        // budget on it would be a budget on the absence of an activity, and a hard limit reaching it would pause the
+        // cube for not being used.
+        //
+        // Carried over from the archive, which guarded all five of its category writers this way and tested each one.
+        // This app guards `setName` and, from this test, `setDailyLimit`.
+        XCTAssertFalse(categories.setDailyLimit(id: 0, minutes: 30))
+        XCTAssertEqual(categories.category(id: 0)?.dailyLimitMinutes, 0)
+    }
+
     // MARK: - the name
 
     func testRenamingIsReadBack() throws {

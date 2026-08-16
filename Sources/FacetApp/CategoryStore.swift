@@ -279,9 +279,13 @@ final class CategoryStore {
     ///
     /// The value is bounded by the caller (`CategoryEditRules.dailyLimitMinutes`) rather than here: what a sensible
     /// limit is belongs with the rest of the rules, and this writes what it is given.
+    /// **`category_id >= 1`, so the *Unassigned* sentinel is never given a budget.** It is what a face points at when
+    /// it holds nothing rather than a category anybody chose, so a limit on it would be a budget on the absence of an
+    /// activity -- and a hard limit reaching it would pause the cube for not being used. `setName` guards itself the
+    /// same way, and the previous app guarded all five of its category writers like this.
     func setDailyLimit(id: Int, minutes: Int) -> Bool {
         connection.execute(
-            "UPDATE category SET daily_limit = \(minutes) WHERE category_id = \(id);"
+            "UPDATE category SET daily_limit = \(minutes) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
     }
 }
