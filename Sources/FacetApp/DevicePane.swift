@@ -410,8 +410,8 @@ final class DevicePane: NSView {
             scanStatusLabel.trailingAnchor.constraint(equalTo: controls.trailingAnchor, constant: -Layout.rowInset),
             scanStatusLabel.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
 
-            controls.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
         ])
+        _ = settled(controls)
         scanStatusLabel.alignment = .right
         scanStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         pair.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -452,12 +452,8 @@ final class DevicePane: NSView {
             name.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
             name.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
 
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
         ])
-        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
-        preferred.priority = .defaultLow
-        preferred.isActive = true
-        return row
+        return settled(row)
     }
 
     @objc private func scanPressed() {
@@ -569,6 +565,27 @@ final class DevicePane: NSView {
         return field
     }
 
+    /// Gives a row a height that is **decided**, not merely bounded.
+    ///
+    /// **This is the fault this tab kept producing, three times over.** A row here is a bare `NSView`, which has no
+    /// intrinsic content size, so `heightAnchor >= minimumRowHeight` is the only thing saying how tall it is -- and a
+    /// minimum is not a value. Auto Layout is then free to pick anything at or above it, and inside a `.fill` stack
+    /// pinned to the panel on all four sides it picks bigger: the auto-pause row drew several times its height, and
+    /// once that was pinned down the slack moved to the scan controls row and did it again.
+    ///
+    /// The low-priority equality is what decides it. Anything real -- a taller control, a wrapped label -- outranks
+    /// it and the row grows properly; with nothing pushing, the row sits at the rhythm of the list.
+    ///
+    /// **Every row builder on this tab ends here**, which is the point. Applying it per row is what let the third one
+    /// be written without it.
+    private func settled(_ row: NSView) -> NSView {
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight).isActive = true
+        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
+        preferred.priority = .defaultLow
+        preferred.isActive = true
+        return row
+    }
+
     /// One row: the words on the left, the value or control pinned to the right-hand edge.
     ///
     /// **The control is pinned to the trailing edge rather than following the label**, which is what the archive's
@@ -597,24 +614,14 @@ final class DevicePane: NSView {
             control.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
             control.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
 
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
         ])
 
-        // **A row is as tall as its contents and no taller, whatever room it is given.** Two things above would
-        // otherwise let it grow: the control's top and bottom used to be pinned to the row's, so a control that
-        // stretched took the row with it, and a control with a width constraint but no height -- `SteppedNumberField`
-        // is exactly that -- has nothing of its own to stop it. The pins are now inequalities and the control is told
-        // to hug, so the height comes from what it needs.
-        //
-        // The last line is what makes it hold even if some future container hands the panel more room than it asked
-        // for: a preference, at a priority anything real will beat, for the row staying at the rhythm of the list.
-        // Auto-pause was drawn several times its height on the Device tab, and a row that reports a two-digit number
-        // has no reading of "taller" that is right.
+        // The control is told to hug as well, because a control with a width constraint and no height --
+        // `SteppedNumberField` is exactly that -- has nothing of its own to stop it stretching and taking the row
+        // with it. `settled` decides the row; this stops the control arguing with it.
         control.setContentHuggingPriority(.required, for: .vertical)
         control.setContentCompressionResistancePriority(.required, for: .vertical)
-        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
-        preferred.priority = .defaultLow
-        preferred.isActive = true
+        _ = settled(row)
         guard separated else { return row }
 
         let separator = NSBox()
@@ -641,10 +648,9 @@ final class DevicePane: NSView {
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
             content.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor, constant: -Layout.rowInset),
-            content.topAnchor.constraint(equalTo: row.topAnchor, constant: Layout.rowPadding),
-            content.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -Layout.rowPadding),
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
+            content.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
+            content.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
         ])
-        return row
+        return settled(row)
     }
 }
