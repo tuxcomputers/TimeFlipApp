@@ -394,7 +394,15 @@ press_title() { python3 scripts/ax-press.py --title "$1" >/dev/null 2>&1; }
 #
 # **Escape is never posted, here or anywhere.** It reaches whatever has focus, and what has focus is
 # often the terminal session driving the app.
+#
+# **The app is brought to the front first.** A posted key event goes to whoever is frontmost, not to
+# whoever the script last addressed -- every other helper here works through accessibility, which does not
+# care about that, so this is the one place where being in front matters at all. Without it a Return can
+# land in the terminal running the suite, and the symptom is a commit that produced no log row and no
+# error: exactly the shape of a rename that silently did nothing on 2026-08-16.
 press_return() {
+    osascript -e 'tell application "Facet" to activate' >/dev/null 2>&1
+    sleep 0.3
     python3 - <<'PYTHON'
 import Quartz, time
 for down in (True, False):

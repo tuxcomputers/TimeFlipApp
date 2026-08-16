@@ -327,6 +327,39 @@ testlog_failure_evidence() {
     # An alert nobody expected is the usual reason a press went nowhere, and it is invisible in screen.txt.
     [ -n "$sheet" ] && tlog "INSERT INTO evidence (check_id, kind, body)
                              VALUES ($check, 'sheet', '$(sq "$sheet")');"
+
+    # **Which app is in front, and what has the keyboard.** A posted key goes to whoever is frontmost, so
+    # a commit that produced no log row and no error is usually a Return that landed somewhere else -- and
+    # nothing in the tree or the log says so. This is the only record of it.
+    local focus
+    focus=$(python3 - 2>&1 <<'PYTHON' | head -5
+from AppKit import NSWorkspace
+from ApplicationServices import AXUIElementCopyAttributeValue, AXUIElementCreateApplication
+
+def attribute(element, name):
+    error, value = AXUIElementCopyAttributeValue(element, name, None)
+    return value if error == 0 else None
+
+front = NSWorkspace.sharedWorkspace().frontmostApplication()
+print(f"frontmost: {front.localizedName() if front else 'unknown'}")
+pid = next(
+    (a.processIdentifier() for a in NSWorkspace.sharedWorkspace().runningApplications()
+     if a.localizedName() == "Facet"),
+    None,
+)
+if pid is None:
+    print("Facet is not running")
+else:
+    focused = attribute(AXUIElementCreateApplication(pid), "AXFocusedUIElement")
+    if focused is None:
+        print("nothing in Facet has keyboard focus")
+    else:
+        print(f"focused: {attribute(focused, 'AXRole')} {attribute(focused, 'AXIdentifier')}")
+        print(f"value: {str(attribute(focused, 'AXValue'))[:80]}")
+PYTHON
+)
+    [ -n "$focus" ] && tlog "INSERT INTO evidence (check_id, kind, body)
+                             VALUES ($check, 'focus', '$(sq "$focus")');"
     return 0
 }
 
