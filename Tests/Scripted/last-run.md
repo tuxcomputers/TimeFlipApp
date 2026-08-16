@@ -12,23 +12,27 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
     finished: 2026-08-16 14:59:13
     outcome:  failed
     scripts:  13 run, 1 with failures
-    checks:   256 passed, 1 failed, 0 skipped
+    checks:   257 in total
+              256 passed
+              1 failed
+              0 skipped
 
-| script | passed | failed | skipped |
-|---|---|---|---|
-| 00-setup | 6 | 0 | 0 |
-| 01-launch | 9 | 0 | 0 |
-| 02-menu-bar | 10 | 0 | 0 |
-| 03-settings-window | 26 | 0 | 0 |
-| 04-categories | 96 | 0 | 0 |
-| 05-faces-timing | 14 | 0 | 0 |
-| 06-time-entries | 12 | 0 | 0 |
-| 07-history-timer | 8 | 0 | 0 |
-| 08-app-settings | 15 | 0 | 0 |
-| 09-report | 22 | 0 | 0 |
-| 10-google-calendar | 10 | 0 | 0 |
-| 11-google-reconnect | 17 | 0 | 0 |
-| 12-daily-limit | 11 | 1 | 0 |
+| script | total | passed | failed | skipped |
+|---|---|---|---|---|
+| 00-setup | 6 | 6 | 0 | 0 |
+| 01-launch | 9 | 9 | 0 | 0 |
+| 02-menu-bar | 10 | 10 | 0 | 0 |
+| 03-settings-window | 26 | 26 | 0 | 0 |
+| 04-categories | 96 | 96 | 0 | 0 |
+| 05-faces-timing | 14 | 14 | 0 | 0 |
+| 06-time-entries | 12 | 12 | 0 | 0 |
+| 07-history-timer | 8 | 8 | 0 | 0 |
+| 08-app-settings | 15 | 15 | 0 | 0 |
+| 09-report | 22 | 22 | 0 | 0 |
+| 10-google-calendar | 10 | 10 | 0 | 0 |
+| 11-google-reconnect | 17 | 17 | 0 | 0 |
+| 12-daily-limit | 12 | 11 | 1 | 0 |
+| **total** | **257** | **256** | **1** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
