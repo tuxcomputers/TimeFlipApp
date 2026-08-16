@@ -86,8 +86,19 @@ enum ManualTimerRules {
     /// app had these as two separate expressions and they came to disagree: the status item's right half was
     /// taught about manual mode and the menu item beside it was not, leaving a dead Pause above a live one,
     /// and nothing failed.
-    static func isClickable(_ state: TimingState) -> Bool {
-        state != .idle
+    ///
+    /// **A spent daily limit stops a resume and never a pause**, which is the whole of what makes the limit
+    /// hard: reaching it stops the clock, and the app then refuses every path that would start it again while
+    /// that category is still the one on show. Stopping stays available throughout -- refusing it would be a
+    /// limit that trapped somebody into recording time, which is the opposite of what it is for.
+    ///
+    /// **Every path asks this, which is the point.** The dropdown item greys itself with it, the status item's
+    /// right half turns into a no-op with it, and `togglePause` refuses with it, so the refusal cannot be
+    /// implemented in one of the three and forgotten in the others. That is the exact fault the paragraph above
+    /// records, and a limit is a second chance to make it.
+    static func isClickable(_ state: TimingState, isLimitReached: Bool = false) -> Bool {
+        guard state != .idle else { return false }
+        return !(state == .paused && isLimitReached)
     }
 
     /// What the dropdown's Pause item is called.

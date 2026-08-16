@@ -190,6 +190,47 @@ testlog_run_start() {
     local rebuilt="${1:-1}" filter="${2:-}" invocation="${3:-}"
     testlog_open
 
+    # ------------------------------------------------------------------ runs that never finished
+    #
+    # **A killed run leaves its row saying `running` for ever**, because the only thing that closes a row is the
+    # finish it never reached. Three of them piled up on 2026-08-16 in the space of two minutes -- a run started,
+    # stopped, and started again -- and the effect is not cosmetic: "the last run" answered by status rather than by
+    # `run_id` then names a row that is not the last one and never ended, which is exactly the question anybody
+    # querying this table is asking.
+    #
+    # Closed here rather than at the kill, because a killed process is precisely the one that does not get to run its
+    # own tidy-up. Starting a run is the next moment anybody is looking.
+    #
+    # **Marked `abandoned`, not `failed`.** Nothing is known about why it stopped, and a row claiming a verdict it
+    # never reached would be worse than one admitting it has none. The counts it did manage are kept, so a run killed
+    # part way still shows how far it got, and it is finished at its **last recorded activity** rather than at now,
+    # so its duration is not inflated by however long the row sat open.
+    #
+    # A genuinely concurrent run would be closed by this. That is not a case worth protecting: the suite drives one
+    # app and one database, so two at once are already interfering with each other's results.
+    local stranded
+    stranded=$(tlog "SELECT COUNT(*) FROM run WHERE finished_epoch IS NULL;")
+    if [ "${stranded:-0}" -gt 0 ]; then
+        tlog "UPDATE run
+                 SET finished_epoch = IFNULL(
+                         (SELECT MAX(s.finished_epoch) FROM script s WHERE s.run_id = run.run_id), started_epoch),
+                     finished_at = datetime(
+                         IFNULL((SELECT MAX(s.finished_epoch) FROM script s WHERE s.run_id = run.run_id),
+                                started_epoch),
+                         'unixepoch', 'localtime'),
+                     outcome     = 'abandoned',
+                     scripts_run = (SELECT COUNT(*)               FROM script s WHERE s.run_id = run.run_id),
+                     passed      = (SELECT IFNULL(SUM(s.passed), 0)  FROM script s WHERE s.run_id = run.run_id),
+                     failed      = (SELECT IFNULL(SUM(s.failed), 0)  FROM script s WHERE s.run_id = run.run_id),
+                     skipped     = (SELECT IFNULL(SUM(s.skipped), 0) FROM script s WHERE s.run_id = run.run_id)
+               WHERE finished_epoch IS NULL;"
+        # **To stderr, and this is not a style choice.** This function returns the new run id by *printing* it --
+        # `run.sh` does `TESTLOG_RUN_ID=$(testlog_run_start ...)` -- so anything else written to stdout is captured
+        # as part of the id. Writing this line to stdout made run 20 record nothing at all: all 14 scripts ran and
+        # passed on screen while every row went to a run id that was two lines of text.
+        echo "  closed $stranded earlier run(s) that never finished, as abandoned" >&2
+    fi
+
     local branch commit dirty target built signing os
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     # The full hash, not the short one: `last-run.md` is checked against the branch's history, and an
@@ -409,7 +450,13 @@ EOF
         echo "    finished: ${finished}"
         echo "    outcome:  ${outcome}"
         echo "    scripts:  ${scripts_run:-0} run, ${scripts_failed:-0} with failures"
-        echo "    checks:   ${passed} passed, ${failed} failed, ${skipped} skipped"
+        # The total first, because it is the figure somebody scans for: "how much did this run actually check?"
+        # A stamp that only gave the breakdown made that an addition somebody had to do in their head, and a run
+        # that skipped half its checks looked much like one that did not.
+        echo "    checks:   $(( passed + failed + skipped )) in total"
+        echo "              ${passed} passed"
+        echo "              ${failed} failed"
+        echo "              ${skipped} skipped"
         echo ""
         echo "| script | passed | failed | skipped |"
         echo "|---|---|---|---|"
@@ -419,6 +466,9 @@ EOF
             while IFS='|' read -r name p f s; do
                 echo "| $name | $p | $f | $s |"
             done
+        # The totals on the bottom row, so the table adds up to the summary above it rather than asking to be
+        # trusted that it does.
+        echo "| **total** | **${passed}** | **${failed}** | **${skipped}** |"
         echo ""
         if [ "${dirty:-0}" = "1" ]; then
             echo "> The working tree had uncommitted changes when this ran, so it is not evidence about the"

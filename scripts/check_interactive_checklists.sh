@@ -66,8 +66,20 @@ check_the_suite_was_run() {
   ran_commit=$(stamp_field commit)
   tree=$(stamp_field tree)
   outcome=$(stamp_field outcome)
-  # `checks:   248 passed, 0 failed, 3 skipped`
-  failed_checks=$(sed -n 's/^ *checks: *[0-9]* passed, \([0-9]*\) failed.*/\1/p' "$STAMP" | head -1)
+  # `checks:` opens a block, and the count comes off its `failed` line:
+  #
+  #     checks:   264 in total
+  #               263 passed
+  #                 0 failed
+  #                 1 skipped
+  #
+  # **It was one line until 2026-08-16** (`checks: 248 passed, 0 failed, 3 skipped`) and this parser
+  # was not changed with it, so it silently matched nothing: `failed_checks` came back empty, which
+  # reads as "an unknown number" and fails the branch however well the run went. Failing closed was
+  # right, but it would have rejected a clean run 16 and sent somebody looking in the wrong place.
+  # Anchored to the `checks:` line so a stray `N failed` anywhere else in the file cannot answer for it.
+  failed_checks=$(awk '/^ *checks:/ { inblock = 1 }
+                       inblock && /^ *[0-9]+ failed *$/ { print $1; exit }' "$STAMP")
 
   echo "  ran on '$ran_branch' at ${ran_commit:0:12} -- $outcome, ${failed_checks:-?} check(s) failed"
 

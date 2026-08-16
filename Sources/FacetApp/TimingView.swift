@@ -72,14 +72,22 @@ final class TimingView: NSView {
     /// Given the category rather than fetching it: which category the manual face holds lives in the
     /// database, and reading it is the window's job (see `SettingsWindowController`), so this cannot show
     /// something the table no longer says.
-    func show(category: CategoryRecord?, state: TimingState, elapsed: TimeInterval) {
+    /// - Parameter isLimitReached: whether the category on show has spent its `daily_limit`. It greys the control
+    ///   for the same reason the dropdown's Resume greys: `togglePause` refuses either way, and a control that looks
+    ///   live and does nothing reads as broken rather than as one being deliberate.
+    func show(
+        category: CategoryRecord?,
+        state: TimingState,
+        elapsed: TimeInterval,
+        isLimitReached: Bool = false
+    ) {
         self.state = state
         symbolName = ManualTimerRules.symbolName(for: state)
         let isHidden = symbolName == nil
         centred.isHidden = isHidden
         categoryNameLabel.isHidden = isHidden
         // Not merely inert: an idle control is not drawn at all, so there is nothing to click at.
-        playPauseButton.isEnabled = ManualTimerRules.isClickable(state)
+        playPauseButton.isEnabled = ManualTimerRules.isClickable(state, isLimitReached: isLimitReached)
 
         guard !isHidden else { return }
         // No colour set falls back to the ordinary label colour, which is what the previous app drew for a

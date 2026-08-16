@@ -32,8 +32,11 @@ enum StatusItemClickRouter {
     ///     item and the on-screen control ask the same question and must get the same answer: the previous app had
     ///     the right half taught about manual mode and the menu item beside it not, leaving a dead Pause above a
     ///     live one.
-    static func action(isLeftSide: Bool, timing: TimingState) -> StatusItemClick {
+    ///   - isLimitReached: whether the category on show has spent its `daily_limit`. It makes the right half a
+    ///     no-op rather than a refusal further in, so the click is recorded as ignored and nothing downstream has
+    ///     to know why.
+    static func action(isLeftSide: Bool, timing: TimingState, isLimitReached: Bool = false) -> StatusItemClick {
         guard !isLeftSide else { return .showMenu }
-        return ManualTimerRules.isClickable(timing) ? .togglePause : .ignore
+        return ManualTimerRules.isClickable(timing, isLimitReached: isLimitReached) ? .togglePause : .ignore
     }
 }

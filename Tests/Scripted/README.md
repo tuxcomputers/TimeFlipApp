@@ -130,6 +130,11 @@ wrong place.
 Each script depends on what the ones above it proved, so they read top to bottom as the app coming up
 and then being used.
 
+**Quit is `99`, and everything else comes before it.** It is the one script that ends the app, so
+anything after it would run against nothing at all. Numbering it out at the end rather than one past
+the last leaves the numbers in between free: a new script takes the next one, and nothing has to be
+renumbered to make room.
+
 | | |
 |---|---|
 | `00-setup` | seeds what a rebuilt database cannot have: the Google account, and history with fractional durations |
@@ -144,7 +149,8 @@ and then being used.
 | `09-report` | the range, the totals, folding a category open, the sorting |
 | `10-google-calendar` | the account, and recorded time reaching the calendar `03` made |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
-| `12-quit` | the way out closes what was open |
+| `12-daily-limit` | a category spending its `daily_limit` stops the clock, and every way of starting it again refuses |
+| `99-quit` | the way out closes what was open |
 
 ## How a check is written
 

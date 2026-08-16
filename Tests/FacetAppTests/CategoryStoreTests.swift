@@ -300,6 +300,36 @@ final class CategoryStoreTests: XCTestCase {
         XCTAssertFalse(categories.setDailyLimit(id: 9_999, minutes: 30))
     }
 
+    func testTheUnassignedSentinelCannotBeGivenADailyLimit() {
+        // `category_id` 0 is what a face points at when it holds nothing, rather than a category anybody chose. A
+        // budget on it would be a budget on the absence of an activity, and a hard limit reaching it would pause the
+        // cube for not being used.
+        //
+        // Carried over from the archive, which guarded all five of its category writers this way and tested each one.
+        // So does this app, as of 2026-08-16: `setName`, `setDailyLimit`, and the three below.
+        XCTAssertFalse(categories.setDailyLimit(id: 0, minutes: 30))
+        XCTAssertEqual(categories.category(id: 0)?.dailyLimitMinutes, 0)
+    }
+
+    func testTheUnassignedSentinelCannotBeRetired() {
+        // Retiring it would take the empty answer out of the list every face needs to be able to fall back to, while
+        // the row itself went on sitting under every face pointing at it.
+        XCTAssertFalse(categories.setActive(id: 0, false))
+        XCTAssertEqual(categories.category(id: 0)?.isActive, true)
+    }
+
+    func testTheUnassignedSentinelCannotBeGivenArtwork() {
+        // A face holding nothing is drawn from this row, so an icon on it would put a picture on every empty face.
+        XCTAssertFalse(categories.setIcon(id: 0, iconID: 1))
+        XCTAssertNil(categories.category(id: 0)?.iconName)
+    }
+
+    func testTheUnassignedSentinelCannotBeGivenAColour() {
+        // The same reason as the icon, and on a cube it is what an empty face would light its LED with.
+        XCTAssertFalse(categories.setColour(id: 0, colourID: 1))
+        XCTAssertEqual(categories.category(id: 0)?.colourID, 0)
+    }
+
     // MARK: - the name
 
     func testRenamingIsReadBack() throws {
