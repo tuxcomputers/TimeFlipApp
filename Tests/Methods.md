@@ -323,9 +323,22 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 - **`performClick` also needs a size.** A cell with a zero frame ignores it, and showing a hidden control
   only unhides it: the size arrives with the next layout pass. Call `layoutSubtreeIfNeeded()` before
   clicking, which on screen has always already happened.
+- **Both of those are enforced on macOS 15 and not on macOS 26**, which is the version gap between CI
+  (`macos-15`) and the machine this is written on. A windowless, zero-frame checkbox clicked on 26 fires its
+  action perfectly happily, so `AppSettingsPaneTests` broke the rule from the day it was written, passed on
+  its own and in the whole run for months, and failed the first time CI ever saw it (2026-08-16, PR #56).
+  **A local green is not the same gate as CI**: the lenient OS hides every place the rule was broken, so
+  follow the two rules above even when nothing is making you.
 - **Layout is testable without a window.** Set a frame, call `layoutSubtreeIfNeeded()`, and assert the
   frames -- see `FacesPaneTests`. A missing or fighting constraint fails nothing on its own; it just
   produces a size nobody chose.
+- **Assert a control's position on its alignment rect, not its frame.** AppKit pads some controls beyond
+  what they draw, and `alignmentRectInsets` is what takes the padding back out -- so the alignment rect is
+  both what a constraint pins and what the eye reads as the edge. A titleless `NSButton(checkboxWithTitle:)`
+  is 2pt wider than it draws on macOS 15 and has zero insets on macOS 26, so the same correct layout measured
+  600 locally and 602 on CI. Convert it with
+  `control.superview!.convert(control.alignmentRect(forFrame: control.frame), to: ancestor)`. Measuring the
+  frame measures the padding and calls it misalignment.
 - **`frame` is in the superview's space, so two views at different depths cannot be compared directly.**
   Convert first: `view.convert(view.bounds, to: commonAncestor)`. A comparison across two spaces does not
   error, it just fails oddly -- a control 279pt up the pane read as *below* a list whose own frame said 0,

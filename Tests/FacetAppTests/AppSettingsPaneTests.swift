@@ -180,9 +180,20 @@ final class AppSettingsPaneTests: XCTestCase {
 
     func testAChangedSwitchIsReportedAndNotAdoptedUntilItIsStored() throws {
         let pane = AppSettingsPane()
+        // **In a window, and laid out, before anything is clicked**, which is `OffscreenWindow`'s whole reason for
+        // existing. A loose pane has no window and its boxes have a zero frame until something lays them out, and
+        // `performClick` needs both: without them it does nothing at all, silently, so the pane reads as one that
+        // ignored the click rather than as a test that never delivered it.
+        //
+        // **macOS 26 rings it through anyway, and macOS 15 does not.** This test was written on 26 and passed there
+        // for months, on its own and in the whole run, while CI (macos-15) failed it the first time it ever saw it.
+        // An OS that is lenient about a rule hides every place the rule was broken, so "it passes here" says nothing.
+        let window = OffscreenWindow.host(pane)
+        defer { window.close() }
         var reported: [AppSettingsPane.Change] = []
         pane.onChange = { reported.append($0) }
         pane.show(stored)
+        pane.layoutSubtreeIfNeeded()
 
         let box: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.showSeconds, in: pane))
         box.performClick(nil)
@@ -321,8 +332,20 @@ final class AppSettingsPaneTests: XCTestCase {
         ]
 
         for control in controls {
+            // **The alignment rect, not the frame**, because the alignment rect is what a trailing constraint pins and
+            // what the eye reads as the control's edge. AppKit pads some controls beyond their visible bounds -- a
+            // titleless checkbox is 2pt wider than it draws on macOS 15 -- and the padding is exactly what
+            // `alignmentRectInsets` exists to take back out, so a row of controls whose alignment rects line up is a
+            // row that looks lined up.
+            //
+            // Asserting on the frame instead measured that padding and called it misalignment: the two checkboxes read
+            // 602 against the panel's 600 on CI, while macOS 26 (where the inset is zero) agreed with the frame and
+            // said nothing. The layout was right on both.
+            let aligned = try XCTUnwrap(control.superview).convert(
+                control.alignmentRect(forFrame: control.frame), to: content
+            )
             XCTAssertEqual(
-                content.convert(control.bounds, from: control).maxX, right - 20, accuracy: 0.5,
+                aligned.maxX, right - 20, accuracy: 0.5,
                 "\(control.accessibilityIdentifier()) does not reach the panel's inset"
             )
         }
