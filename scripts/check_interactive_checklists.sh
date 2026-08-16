@@ -49,7 +49,9 @@ stamp_field() {
   sed -n "s/^ *$1: *//p" "$STAMP" | head -1
 }
 
+# `$1` is how many scripted checks exist on disk, so the stamp can be asked whether it covered them.
 check_the_suite_was_run() {
+  local on_disk="${1:-0}"
   echo ""
   echo "Checking the suite was run on this branch:"
 
@@ -61,7 +63,7 @@ check_the_suite_was_run() {
     return 1
   fi
 
-  local ran_branch ran_commit tree outcome failed_checks problems=""
+  local ran_branch ran_commit tree outcome failed_checks scripts_ran ran_filter problems=""
   ran_branch=$(stamp_field branch)
   ran_commit=$(stamp_field commit)
   tree=$(stamp_field tree)
@@ -81,7 +83,26 @@ check_the_suite_was_run() {
   failed_checks=$(awk '/^ *checks:/ { inblock = 1 }
                        inblock && /^ *[0-9]+ failed *$/ { print $1; exit }' "$STAMP")
 
+  # `scripts:  15 run, 0 with failures`
+  scripts_ran=$(sed -n 's/^ *scripts: *\([0-9]*\) run.*/\1/p' "$STAMP" | head -1)
+  # `filter:   12-daily`, present only when the run was a partial one.
+  ran_filter=$(stamp_field filter)
+
   echo "  ran on '$ran_branch' at ${ran_commit:0:12} -- $outcome, ${failed_checks:-?} check(s) failed"
+  echo "  it ran ${scripts_ran:-?} of the $on_disk scripted check(s) here"
+
+  # **Every script, not merely a passing run.** Nothing compared these until 2026-08-16, and the gap was real:
+  # `run.sh --filter` runs a subset and writes a stamp that looks exactly like a full run -- passed, nothing failed,
+  # clean tree, right branch, right commit -- so one script could stand as evidence for the suite. The only other
+  # thing that catches a script going unrun is the staleness check below, and it only does so by accident: adding a
+  # file changes `Tests/Scripted/`, which forces a re-run. It would not notice an existing script being skipped.
+  if [ -z "$scripts_ran" ]; then
+    problems="$problems
+  - the stamp does not say how many scripts ran"
+  elif [ "$scripts_ran" -lt "$on_disk" ]; then
+    problems="$problems
+  - it ran $scripts_ran of the $on_disk scripted check(s) here, so some were never run${ran_filter:+ (filter: $ran_filter)}"
+  fi
 
   [ "$outcome" = "passed" ] || problems="$problems
   - the recorded run did not pass (outcome: ${outcome:-unknown})"
@@ -178,4 +199,4 @@ echo ""
 echo "All scripted checks are runnable."
 echo "CI cannot run them: they drive a real window and read a real database."
 
-check_the_suite_was_run || exit 1
+check_the_suite_was_run "${#scripts[@]}" || exit 1

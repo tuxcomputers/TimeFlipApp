@@ -7,6 +7,12 @@ import Foundation
 /// everywhere. "What did the time go on" is answered by the biggest figure being at the top. Neither order answers
 /// both, and picking one as the only order makes the other question something you do by eye.
 ///
+/// **The tab opens on the second question**, largest figure first. It opened on the category order until 2026-08-16,
+/// on the reasoning that a report should agree with the tabs somebody had just come from. That reasoning was about
+/// consistency between tabs rather than about what a report is for: nobody opens a report to find out that a category
+/// exists, they open it to see where the time went, and the category order makes that the one thing they have to
+/// click for.
+///
 /// **A click on the column you are already on reverses it; a click on the other one adopts that column's own default.**
 /// The defaults differ on purpose, because the columns mean different things: a name list starts at the beginning, and
 /// asking about time means asking what most of it went on. Anything else would be consistent and wrong -- a first click
@@ -26,9 +32,12 @@ enum ReportSortRules {
         var column: Column
         var direction: Direction
 
-        /// What the tab opens on: the shared category order, so the Report tab agrees with the two tabs somebody may
-        /// have just come from.
-        static let initial = Order(column: .category, direction: .ascending)
+        /// What the tab opens on: the biggest figure first, which is the question a report is opened to ask.
+        ///
+        /// The same answer `defaultDirection(for: .time)` gives, and deliberately not written twice: opening on one
+        /// direction and clicking Time into another would make the heading's first click do nothing visible, which
+        /// reads as a dead control.
+        static let initial = Order(column: .time, direction: defaultDirection(for: .time))
     }
 
     /// Where a column starts when it is first clicked.

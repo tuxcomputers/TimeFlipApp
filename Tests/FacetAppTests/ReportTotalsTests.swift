@@ -333,15 +333,17 @@ final class ReportTotalsTests: XCTestCase {
     func testTheListDrawsARowPerCategoryWithItsTime() {
         let list = ReportTotalsList()
 
-        list.show([total("Meeting", seconds: 3_900, id: 2), total("Break", seconds: 900)], showingSeconds: false)
+        // Handed smallest first, because the list opens on the biggest: an input already in the order in force
+        // would draw correctly without the list having done anything.
+        list.show([total("Break", seconds: 900), total("Meeting", seconds: 3_900, id: 2)], showingSeconds: false)
 
         let figures = descendants(of: list)
             .compactMap { view -> String? in
                 guard view.accessibilityIdentifier().hasSuffix("-duration") else { return nil }
                 return (view as? NSTextField)?.stringValue
             }
-        // Break's 0:15 leads Meeting's 1:05: the list draws in the order in force, not the order it was handed.
-        XCTAssertEqual(figures, ["0:15", "1:05"])
+        // Meeting's 1:05 leads Break's 0:15: the list draws in the order in force, not the order it was handed.
+        XCTAssertEqual(figures, ["1:05", "0:15"])
     }
 
     func testTheFiguresCarrySecondsWhenTheSettingSays() {

@@ -422,12 +422,13 @@ testlog_stamp() {
     local run="${1:-}" path="${2:-Tests/Scripted/last-run.md}"
     [ -z "$run" ] && return 0
 
-    local row branch commit dirty rebuilt started finished outcome passed failed skipped
+    local row branch commit dirty rebuilt started finished outcome passed failed skipped filter
     row=$(tlog "SELECT branch, commit_sha, dirty, rebuilt, started_at, IFNULL(finished_at, ''),
-                       IFNULL(outcome, ''), IFNULL(passed, 0), IFNULL(failed, 0), IFNULL(skipped, 0)
+                       IFNULL(outcome, ''), IFNULL(passed, 0), IFNULL(failed, 0), IFNULL(skipped, 0),
+                       IFNULL(filter, '')
                   FROM run WHERE run_id = $run;")
     [ -z "$row" ] && return 0
-    IFS='|' read -r branch commit dirty rebuilt started finished outcome passed failed skipped <<EOF
+    IFS='|' read -r branch commit dirty rebuilt started finished outcome passed failed skipped filter <<EOF
 $row
 EOF
 
@@ -450,6 +451,17 @@ EOF
         echo "    finished: ${finished}"
         echo "    outcome:  ${outcome}"
         echo "    scripts:  ${scripts_run:-0} run, ${scripts_failed:-0} with failures"
+        # **A filtered run says so, in the stamp rather than only in the database.**
+        #
+        # `run.sh --filter` runs a subset, and until this line the result was a stamp indistinguishable from a full
+        # run: passed, nothing failed, clean tree, right commit. The only trace was the script count being lower than
+        # the number of files, and nothing compared those, so a run of one script could stand as evidence for the
+        # suite. `check_interactive_checklists.sh` now does compare them; this is the other half, so the file says
+        # what happened instead of leaving it to be worked out by arithmetic.
+        #
+        # Printed only when there was one: a `filter: ` line reading empty on every ordinary run is noise that
+        # teaches people to skip the block.
+        [ -n "${filter}" ] && echo "    filter:   ${filter}"
         # The total first, because it is the figure somebody scans for: "how much did this run actually check?"
         # A stamp that only gave the breakdown made that an addition somebody had to do in their head, and a run
         # that skipped half its checks looked much like one that did not.

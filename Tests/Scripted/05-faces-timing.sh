@@ -21,7 +21,7 @@ press create-category
 sleep 0.5
 set_field category-name-field "$NAME"
 press save-category
-sleep 1
+sleep 1.5
 ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
 if [ -z "$ID" ]; then
     fail "could not create a category to time against"
@@ -30,17 +30,44 @@ if [ -z "$ID" ]; then
 fi
 pass "a category to time against ($NAME, id $ID)"
 
-# ---------------------------------------------------------------------------- starting
+# ---------------------------------------------------------------------------- creating one starts it
+#
+# **On this tab, making a category is saying what you are doing now.** Typing a name here and then having to
+# click the row you just made is saying it twice, so the create assigns it to a face and starts it. The
+# Categories tab's identical control deliberately does not (`04` makes several and starts none of them):
+# there, a name is a list being maintained rather than a day being recorded.
 
+expect_log "creating it on the Faces tab starts timing it" "$since" "Timing: started \"$NAME\"%"
+expect_log "and says which face it went to" "$since" "%(category_id $ID) on face %"
+
+# ---------------------------------------------------------------------------- starting, by picking a row
+#
+# The other way in, and still the ordinary one: a category that already exists is started by clicking it.
+# **Break is used rather than the category just made**, because that one is already running and clicking it
+# is the no-op checked below rather than a start.
+
+BREAK=$(sql "SELECT category_id FROM category WHERE category_name = 'Break';")
 since=$(mark)
-press "category-row-$ID"
+press "category-row-$BREAK"
 sleep 1.5
-
 # **"started", not "running".** Picking a category is a fresh start and says so, naming the category id
 # and the face it went to; the play/pause control below says "running" when it resumes one. Two actions,
 # two words, and a script that expected one wording for both would wait for a row nobody writes.
-expect_log "picking a category starts timing it" "$since" "Timing: started \"$NAME\"%"
-expect_log "and says which face it went to" "$since" "%(category_id $ID) on face %"
+expect_log "picking a category starts timing it" "$since" "Timing: started \"Break\"%"
+
+# Clicking the one already running asks for nothing, and says so rather than rotating the face and closing a
+# segment for a gesture that wanted no change. Worth a check of its own now that a create leaves a category
+# running, which is the state this guard is reached from.
+since=$(mark)
+press "category-row-$BREAK"
+sleep 1
+expect_log "clicking the one already running changes nothing" "$since" "%already timing \"Break\"%"
+
+# Back to this run's own category for everything below.
+since=$(mark)
+press "category-row-$ID"
+sleep 1.5
+expect_log "and picking another moves the clock to it" "$since" "Timing: started \"$NAME\"%"
 
 # A row in `device_event`, open, on one of the app's own faces. This is the fact behind the clock: the
 # readout is drawn from it every time rather than from anything the click remembered.
