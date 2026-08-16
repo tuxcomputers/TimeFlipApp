@@ -12,8 +12,10 @@
 # - **A category made for this run**, so the limit under test is spent by time this script inserted and nothing else.
 #   Reusing Break or Meeting would fold in whatever the earlier scripts recorded against them today, and the figure
 #   the crossing depends on would differ on every run.
-# - **The seeded total sits 20 seconds short**, so the crossing happens while the run is watching rather than at some
-#   point in the next hour. Five minutes of limit against 4:40 of recorded time is the whole trick.
+# - **The seeded total sits seconds short**, so the crossing happens while the run is watching rather than at some
+#   point in the next hour. Five minutes of limit against roughly 4:40 of recorded time is the whole trick.
+#   This script does it three times, from 19, 20 and 21 seconds out: the watch ticks once a second, so 20 is the
+#   crossing that lands *on* a tick and the other two fall either side of it. The archive only ever ran the one.
 # - **The refusal is exercised through the status item's right half**, not the dropdown item. The item is disabled, so
 #   clicking it proves nothing; the right half goes through the same `togglePause` a live one would.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -23,107 +25,146 @@ ensure_app_running
 start "a category spending its daily limit, and the refusal that follows"
 
 LIMIT_MINUTES=5
-# Twenty seconds short of the limit, in seconds.
-SEEDED=$(( LIMIT_MINUTES * 60 - 20 ))
+LIMIT_SECONDS=$(( LIMIT_MINUTES * 60 ))
+
+# **Three categories, crossing from 19, 20 and 21 seconds out**, because the watch ticks once a second and 20 is the
+# one that lands *on* a tick. Twenty is therefore the case a fencepost error hides in: at 19 and 21 the crossing falls
+# between ticks and is caught by the tick after it whichever way the comparison leans, while at 20 the limit is reached
+# at the exact instant the watch looks, and `>=` against `>` is the difference between stopping there and running a
+# whole second over. One run at 20 alone could pass on a machine where the tick drifts a few milliseconds late; the
+# three together say the boundary is handled rather than missed narrowly.
+REMAINING_CASES=(19 20 21)
 
 open_settings
-select_tab Faces
 
-# ---------------------------------------------------------------------------- a category of this run's own
-
-NAME=$(next_name Limit)
-since=$(mark)
-press create-category
-sleep 0.5
-set_field category-name-field "$NAME"
-press save-category
-sleep 1
-ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
-if [ -z "$ID" ]; then
-    fail "could not create a category to spend a limit against"
-    finish
-    exit 1
-fi
-pass "a category of this run's own ($NAME, id $ID)"
-
-# The limit goes in through the Categories tab, so the value under test is one the app wrote rather than one this
-# script reached around it to insert.
-select_tab Categories
-set_field_focused "category-limit-$ID" "$LIMIT_MINUTES"
-press_return
-sleep 1
-check "the daily limit is stored" "$LIMIT_MINUTES" \
-    "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
-
-# ---------------------------------------------------------------------------- 20 seconds short of it
+# Creates a category of this run's own, gives it the limit through the Categories tab, and seeds it to within
+# `$1` seconds of spending it. Sets STAGED_ID, STAGED_NAME and STAGED_SEEDED; returns 1 if the create failed.
 #
-# **Seeded straight into the tables, which every other script here is forbidden from doing.** It is right here for
-# the reason `00-setup` gives for its own seeds: recording 4 minutes 40 by driving the app would mean sitting there
-# for 4 minutes 40. What is inserted is an ordinary finished segment and the entry it produced, on one of the app's
-# own faces, so the total the app reads is reached the same way any other total is.
+# **Three different categories, one per case**, which `next_name` gives for nothing: it reads the highest number
+# already in the table and goes one past, so the calls answer Limit 1, Limit 2, Limit 3. Sharing one category would
+# fold each crossing's overshoot into the next case's starting total, and the third would start over its limit.
+#
+# **Answers through globals rather than by printing**, deliberately. `ID=$(stage_category ...)` would run all of this
+# in a subshell: the assignments would be lost, and every line `press` and `set_field` write would be captured into
+# the id. That is not hypothetical -- it is what a stray `echo` did to `testlog_run_start`, where the run id became
+# two lines of text and a whole run recorded nothing.
+stage_category() {
+    local remaining="$1" name seeded created id zone started ended event
 
-zone=$(sql "SELECT timezone_id FROM timezone ORDER BY timezone_id LIMIT 1;")
-zone=${zone:-0}
-started=$(( $(date +%s) - SEEDED - 60 ))
-ended=$(( started + SEEDED ))
+    name=$(next_name Limit)
+    select_tab Faces
+    created=$(mark)
+    press create-category
+    sleep 0.5
+    set_field category-name-field "$name"
+    press save-category
+    sleep 1
+    id=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $created AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+    if [ -z "$id" ]; then
+        return 1
+    fi
 
-sql "INSERT INTO device_event (
-         event_number, event_type_id, device_face, start_time, timezone_id,
-         start_epoch, duration_seconds, paused, finalised, processed
-     ) VALUES (
-         $started, 1, 13, strftime('%Y-%m-%dT%H:%M:%S', $started, 'unixepoch', 'localtime'), $zone,
-         $started, $SEEDED, 0, 1, 1
-     );"
-event=$(sql "SELECT device_event_id FROM device_event WHERE start_epoch = $started AND event_number = $started;")
+    # The limit goes in through the Categories tab, so the value under test is one the app wrote rather than one this
+    # script reached around it to insert.
+    select_tab Categories
+    set_field_focused "category-limit-$id" "$LIMIT_MINUTES"
+    press_return
+    sleep 1
 
-sql "INSERT INTO time_entry (
-         category_id, device_event_id, started_at, start_timezone_id,
-         ended_at, end_timezone_id, duration_seconds, synced_to_google_calendar
-     ) VALUES (
-         $ID, $event,
-         strftime('%Y-%m-%dT%H:%M:%S', $started, 'unixepoch', 'localtime'), $zone,
-         strftime('%Y-%m-%dT%H:%M:%S', $ended, 'unixepoch', 'localtime'), $zone,
-         $SEEDED, 1
-     );"
+    # **Seeded straight into the tables, which every other script here is forbidden from doing.** It is right here for
+    # the reason `00-setup` gives for its own seeds: recording nearly five minutes by driving the app would mean
+    # sitting there for nearly five minutes. What is inserted is an ordinary finished segment and the entry it
+    # produced, on one of the app's own faces, so the total the app reads is reached the same way any other total is.
+    #
+    # **Marked synced**, so the Google sweep has nothing to do with it: a fixture rather than recorded time somebody
+    # wants in their calendar.
+    seeded=$(( LIMIT_SECONDS - remaining ))
+    zone=$(sql "SELECT timezone_id FROM timezone ORDER BY timezone_id LIMIT 1;")
+    zone=${zone:-0}
+    started=$(( $(date +%s) - seeded - 60 ))
+    ended=$(( started + seeded ))
 
-check "the category is $SEEDED seconds into a $((LIMIT_MINUTES * 60)) second budget" "$SEEDED" \
-    "$(sql "SELECT CAST(IFNULL(SUM(duration_seconds), 0) AS INTEGER) FROM time_entry WHERE category_id = $ID;")"
+    sql "INSERT INTO device_event (
+             event_number, event_type_id, device_face, start_time, timezone_id,
+             start_epoch, duration_seconds, paused, finalised, processed
+         ) VALUES (
+             $started, 1, 13, strftime('%Y-%m-%dT%H:%M:%S', $started, 'unixepoch', 'localtime'), $zone,
+             $started, $seeded, 0, 1, 1
+         );"
+    event=$(sql "SELECT device_event_id FROM device_event WHERE start_epoch = $started AND event_number = $started;")
 
-# **Marked synced**, so the Google sweep has nothing to do with it. A seeded entry is a fixture rather than recorded
-# time somebody wants in their calendar.
+    sql "INSERT INTO time_entry (
+             category_id, device_event_id, started_at, start_timezone_id,
+             ended_at, end_timezone_id, duration_seconds, synced_to_google_calendar
+         ) VALUES (
+             $id, $event,
+             strftime('%Y-%m-%dT%H:%M:%S', $started, 'unixepoch', 'localtime'), $zone,
+             strftime('%Y-%m-%dT%H:%M:%S', $ended, 'unixepoch', 'localtime'), $zone,
+             $seeded, 1
+         );"
 
-# ---------------------------------------------------------------------------- the crossing
+    STAGED_ID="$id"
+    STAGED_NAME="$name"
+    STAGED_SEEDED="$seeded"
+}
 
-select_tab Faces
-since=$(mark)
-press "category-row-$ID"
-sleep 1.5
-expect_log "picking it starts the clock" "$since" "%\"$NAME\"%"
+# ---------------------------------------------------------------------------- the crossing, from either side of a tick
 
-check "it is running, with 20 seconds of budget left" "1" \
-    "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+for remaining in "${REMAINING_CASES[@]}"; do
+    STAGED_ID=""
+    stage_category "$remaining"
+    if [ -z "$STAGED_ID" ]; then
+        fail "could not stage a category $remaining seconds short of its limit"
+        finish
+        exit 1
+    fi
+    ID="$STAGED_ID"
+    NAME="$STAGED_NAME"
+    on_tick=""
+    [ "$remaining" -eq 20 ] && on_tick=", landing on a tick"
+    pass "a category $remaining seconds short of its limit ($NAME, id $ID)$on_tick"
 
-# **The wait is the test.** Twenty seconds of budget, plus a few for the watch's own tick and the write behind it.
-# Nothing here presses anything: what is being checked is that the app stops itself.
-grey "  waiting out the last 20 seconds of the budget..."
-if wait_for "$since" "%Daily limit reached%" 45 >/dev/null; then
-    pass "reaching the limit stops the clock, and says so"
-else
-    fail "the limit came and went with the clock still running"
-    finish
-    exit 1
-fi
+    check "its limit is stored, and it is $STAGED_SEEDED seconds into it" "$LIMIT_MINUTES|$STAGED_SEEDED" \
+        "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")|$(sql "SELECT CAST(IFNULL(SUM(duration_seconds), 0) AS INTEGER) FROM time_entry WHERE category_id = $ID;")"
 
-check "the open segment was closed" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+    select_tab Faces
+    since=$(mark)
+    press "category-row-$ID"
+    sleep 1.5
+    expect_log "picking it starts the clock" "$since" "%\"$NAME\"%"
 
-# The figure it stopped on. Not asserted to the second: the tick is once a second and the segment closes on the
-# tick that noticed, so the total lands at or just past the limit rather than exactly on it.
-total=$(sql "SELECT CAST(IFNULL(SUM(duration_seconds), 0) AS INTEGER) FROM time_entry WHERE category_id = $ID;")
-if [ "${total:-0}" -ge "$((LIMIT_MINUTES * 60))" ]; then
-    pass "and it stopped at or just past the limit (${total}s of $((LIMIT_MINUTES * 60))s)"
-else
-    fail "it stopped ${total}s in, short of the $((LIMIT_MINUTES * 60))s limit"
-fi
+    check "it is running, with $remaining seconds of budget left" "1" \
+        "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+
+    # **The wait is the test.** Nothing here presses anything: what is being checked is that the app stops itself.
+    grey "  waiting out the last $remaining seconds of the budget..."
+    if wait_for "$since" "%Daily limit reached%" $(( remaining + 25 )) >/dev/null; then
+        pass "reaching the limit from $remaining seconds out stops the clock, and says so"
+    else
+        fail "the limit came and went with the clock still running ($remaining seconds out)"
+        finish
+        exit 1
+    fi
+
+    check "the open segment was closed" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+
+    # **How far past the limit it stopped, which is the point of running three.** The tick is once a second and the
+    # segment closes on the tick that noticed, so a second of overshoot is expected and more than that is the watch
+    # having missed a tick. The 20-second case should be the tightest of the three, the crossing falling where the
+    # watch is already looking.
+    total=$(sql "SELECT CAST(IFNULL(SUM(duration_seconds), 0) AS INTEGER) FROM time_entry WHERE category_id = $ID;")
+    over=$(( ${total:-0} - LIMIT_SECONDS ))
+    if [ "${total:-0}" -lt "$LIMIT_SECONDS" ]; then
+        fail "it stopped ${total}s in, short of the ${LIMIT_SECONDS}s limit ($remaining seconds out)"
+    elif [ "$over" -le 2 ]; then
+        pass "and it stopped ${over}s past the limit (${total}s of ${LIMIT_SECONDS}s)"
+    else
+        fail "it overshot the limit by ${over}s (${total}s of ${LIMIT_SECONDS}s), which is more than a tick"
+    fi
+done
+
+# Everything below is about the refusal rather than the crossing, and runs against the last of the three, which is
+# sitting spent and stopped exactly as the other two were left.
 
 # ---------------------------------------------------------------------------- the menu bar says so
 #
