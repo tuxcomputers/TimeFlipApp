@@ -81,6 +81,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// way through a session, and a boolean set when the window opened would refuse the wrong thing.
     var isLimitReached: () -> Bool = { false }
 
+    /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
+    ///
+    /// **Asked of the app rather than of a table, and that is right rather than an exception.** `ManualMode` is in
+    /// memory on purpose: it describes what this launch is doing, not durable configuration, and a stored copy would
+    /// be a second answer to "is a device paired". Held weakly for the ordinary reason a controller holds a
+    /// collaborator it does not own.
+    private weak var manualMode: ManualMode?
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
@@ -118,7 +126,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         entries: TimeEntryStore? = nil,
         icons: IconStore? = nil,
         colours: ColourStore? = nil,
-        settings: SettingStore? = nil
+        settings: SettingStore? = nil,
+        manualMode: ManualMode? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -129,6 +138,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.icons = icons
         self.colours = colours
         self.settings = settings
+        self.manualMode = manualMode
         super.init()
     }
 
@@ -168,6 +178,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // today is what both calendars are bounded by, so a window left open across midnight gets the new bounds
             // when the tab is next shown rather than going on refusing today.
             pane.refresh()
+
+        case let pane as DevicePane:
+            // **Re-read, where the App tab is not**, and the difference is that nothing here writes. The App tab
+            // holds its values because a re-read would undo a change made a moment ago; this tab has no change to
+            // undo, so the rule's plain form applies -- what it shows is read when it is about to be shown.
+            //
+            // It also has to be. Whether a cube is paired and whether one is reachable are not settings somebody
+            // typed, they are facts that move underneath this window, and showing what was true when it opened is
+            // exactly the two-answers problem `CLAUDE.md` exists for.
+            pane.show(deviceSettings())
 
         default:
             break
@@ -214,6 +234,59 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
                 name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
             )
+        )
+    }
+
+    /// The Device tab, drawn from the tables and wired to nothing.
+    ///
+    /// **No control on it writes**, because there is no Bluetooth in this app yet for one to write to. The tab is the
+    /// shape the device work gets built into; what each control does arrives with the feature that can honestly do
+    /// it. The folds are recorded, because they are the one thing on the tab that already works.
+    private func makeDevicePane() -> DevicePane {
+        let pane = DevicePane()
+        pane.onToggle = { [weak self] identifier, isExpanded in
+            self?.debugLog?.record(.tab, "Device section \(identifier) \(isExpanded ? "opened" : "folded")")
+        }
+        pane.show(deviceSettings())
+        return pane
+    }
+
+    /// What the `setting` table says about the Device tab, now.
+    ///
+    /// Each row falls back to what a fresh database would have seeded, for the reason `appSettings()` gives:
+    /// `SettingStore` answers `nil` for a missing or malformed row and refuses to guess what absence means.
+    ///
+    /// **Four of these have no row to read and arrive `nil` every time**: the battery level and the four strings the
+    /// cube reports about itself are read off a live connection and are deliberately not stored, a remembered reading
+    /// being a number that was true at a moment nobody can name. `DeviceInfoRules` is what turns their absence into
+    /// words rather than blanks.
+    ///
+    /// **Manual mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
+    /// rule's own reasoning: `ManualMode` is in memory on purpose, describing what this launch is doing rather than
+    /// durable configuration, and storing it would create a second answer to "is a device paired". See its own note.
+    private func deviceSettings() -> DevicePane.Values {
+        let seeded = DevicePane.Values.seeded
+        guard let settings else { return seeded }
+        return DevicePane.Values(
+            isPaired: settings.flag("paired", field: "paired") ?? seeded.isPaired,
+            isConnected: settings.flag("connection", field: "connected") ?? seeded.isConnected,
+            isManualMode: manualMode?.isOn ?? seeded.isManualMode,
+            deviceName: settings.string("device_name", field: "name"),
+            batteryPercent: nil,
+            manufacturer: nil,
+            model: nil,
+            hardware: nil,
+            firmware: nil,
+            autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
+            ledBrightnessPercent: settings.integer("led_settings", field: "brightness")
+                ?? seeded.ledBrightnessPercent,
+            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds,
+            isDoubleTapEnabled: settings.flag("double_tap_settings", field: "enabled") ?? seeded.isDoubleTapEnabled,
+            doubleTapThreshold: settings.integer("double_tap_settings", field: "clickThreshold")
+                ?? seeded.doubleTapThreshold,
+            doubleTapLimit: settings.integer("double_tap_settings", field: "limit") ?? seeded.doubleTapLimit,
+            doubleTapLatency: settings.integer("double_tap_settings", field: "latency") ?? seeded.doubleTapLatency,
+            doubleTapWindow: settings.integer("double_tap_settings", field: "window") ?? seeded.doubleTapWindow
         )
     }
 
@@ -1674,8 +1747,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case .categories: pane = CategoriesPane()
         case .app: pane = AppSettingsPane()
         case .report: pane = makeReportPane()
-        // Empty, and it becomes its own view when there is something to put in it.
-        case .device: pane = NSView()
+        case .device: pane = makeDevicePane()
         }
         // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
         // its autoresizing frame rather than being pinned by constraints from out here.
