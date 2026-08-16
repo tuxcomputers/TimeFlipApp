@@ -387,6 +387,21 @@ sleep 1
 check "picking Red writes Red, by id" "$(sql "SELECT colour_id FROM colour WHERE colour_name = 'Red';")" \
     "$(sql "SELECT colour_id FROM category WHERE category_id = $ID;")"
 
+# **Picking it again clears it**, the same way the icon does. `colourSelection` is `iconSelection` for the
+# other column, deliberately written twice rather than shared, and the archive never tested this half at
+# all -- so a colour that could be set and never unset would have gone unnoticed.
+press "category-colour-$ID"
+sleep 0.8
+press colour-option-Red
+sleep 1
+check "picking Red again clears it to None" "0" "$(sql "SELECT colour_id FROM category WHERE category_id = $ID;")"
+
+# Set again, so the row carries a colour into everything below rather than the None it started with.
+press "category-colour-$ID"
+sleep 0.8
+press colour-option-Red
+sleep 1
+
 first_icon=$(sql "SELECT icon_name FROM icon WHERE icon_id = 1;")
 since=$(mark)
 press "category-icon-$ID"
