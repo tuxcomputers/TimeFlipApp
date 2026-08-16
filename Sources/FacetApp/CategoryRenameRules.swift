@@ -58,9 +58,13 @@ enum CategoryRenameRules {
 
     /// The buttons a decision offers, in the order they are drawn. Empty for the decisions that raise no dialogue.
     ///
-    /// **Cancel leads**, which on this platform makes it the rightmost button and the default one, so Return dismisses
-    /// the dialogue rather than agreeing with it. That is the right way round for a question about changing something
-    /// already recorded: the answer that changes nothing is the one to arrive at by accident.
+    /// **Cancel leads**, and the caller has to make that mean something: adding it first is not enough on its own.
+    /// AppKit moves a button *titled* "Cancel" to the left, which takes it out of the rightmost place Return fires --
+    /// so the order here says which button is the way out, and `SettingsWindowController.rename` sets the key
+    /// equivalents that make it the default. Measured 2026-08-16: left alone, Return activated "Rename anyway".
+    ///
+    /// The intent is unchanged and is what the key equivalents now deliver: for a question about changing something
+    /// already recorded, the answer that changes nothing is the one to arrive at by accident.
     ///
     /// **It is on every one of them**, including the dead end, where it is the only button: a dialogue that can only
     /// be agreed with is a dialogue that has taken the decision already.

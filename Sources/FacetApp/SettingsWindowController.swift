@@ -840,6 +840,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         for choice in choices {
             alert.addButton(withTitle: choice.buttonTitle)
         }
+        // **Return has to be put on Cancel, not merely aimed at it by adding Cancel first.** AppKit relocates a button
+        // titled "Cancel" to the left, which takes it out of the rightmost place Return fires, so the button that
+        // agrees becomes the default one. Measured on 2026-08-16: this sheet listed "Cancel | Rename anyway" while the
+        // calendar delete, which does set its key equivalents, listed "Delete Calendar | Cancel" -- the two differing
+        // in nothing else. Left alone, Return here agreed to a rename.
+        //
+        // The same trap and the same fix as `carryOutGoogleCalendarDelete`, and for the same reason: the answer that
+        // changes something already recorded must not be the one a stray Return lands on.
+        for (index, choice) in choices.enumerated() where index < alert.buttons.count {
+            alert.buttons[index].keyEquivalent = choice == .cancel ? "\r" : ""
+        }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let name else {
                 self?.debugLog?.record(.click, "Button clicked: Cancel, \"\(category.name)\" rename refused, name taken")

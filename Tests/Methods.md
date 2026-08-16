@@ -316,11 +316,21 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   button carries `\r` at all, so the two things worth knowing (which button is where, and which one
   Return fires) are both absent. Measured 2026-08-16 while adding the retired-rename checks, after the
   scratch answer disagreed with what the delete alert had already been measured to do on screen.
-- **`ax-alert.py` prints `AXChildren` order, not left-to-right.** For buttons added `[Cancel, X]` the
-  sheet lists them `X | Cancel`, which is what `Tests/Scripted/03-settings-window.sh` expects for the
-  calendar delete. Do not "fix" a check to read left-to-right on the assumption the tool sorts by
-  position, and do not infer from the printed order which button Return activates: that is a separate
-  question, answered by pressing Return and seeing what the table says.
+- **The order a sheet lists its buttons in does not follow the order they were added**, and it is not a
+  fixed reversal of it either. Two alerts measured in one run on 2026-08-16, both added `[Cancel, X]`:
+
+  | alert | Cancel made the default? | `ax-alert.py` prints |
+  |---|---|---|
+  | calendar delete (`03`) | yes, `keyEquivalent = "\r"` | `Delete Calendar \| Cancel` |
+  | category rename (`04`) | no | `Cancel \| Rename anyway` |
+
+  **AppKit moves a button titled "Cancel" to the left, unless it is the default button, which sits
+  rightmost.** So adding Cancel first does not make it the way out; setting the key equivalent does. This
+  cost a failed check written from the delete alert alone, on the assumption that one measurement was a
+  rule.
+- **Which button Return fires is the rightmost one, so it is answered by the same question.** Never infer
+  it from an app's *intent*: `CategoryRenameRules` documented that Return dismissed its dialogues for
+  months while Return in fact agreed to the rename. Press Return at the sheet and read the table.
 
 ## Notes for the hermetic suite (`swift test`)
 

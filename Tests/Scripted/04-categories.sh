@@ -442,16 +442,18 @@ set_field_focused "retired-category-name-$blocked-field" "$CREATE_NEW"
 press_return
 sleep 1
 
-# **The order is what the tree reports, which is not the order the buttons were added.** The delete alert
-# in 03 measured this: added Cancel first, the sheet lists it last. Asserting it here is what keeps the
-# claim honest for a second alert rather than only the one it was found on.
+# **The order is what the tree reports, and it follows which button is the default rather than which was
+# added first.** AppKit moves a button titled "Cancel" to the left unless it is the default, which sits
+# rightmost -- so Cancel trailing here is the visible proof that the app set the key equivalents, and
+# Cancel leading would mean Return is on the button that agrees. Measured both ways on 2026-08-16.
 check "taking an active name is offered rather than refused" "Rename anyway|Cancel" "$(alert_buttons)"
 check_contains "and the alert says what it costs" \
     "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "brought back"
 
-# **Return must not agree with it.** `CategoryRenameRules` states that Cancel leads so the answer that
-# changes nothing is the one reached by accident, and the delete alert proved that claim cannot be taken
-# on trust: position alone did not keep Return harmless there. This is that claim, measured.
+# **Return must not agree with it.** `CategoryRenameRules` documented that Cancel led and Return dismissed,
+# and on 2026-08-16 that was measured to be false: adding Cancel first does not make it the default, so
+# Return was agreeing to the rename. The window now sets the key equivalents, and this is what holds it to
+# that -- the one check that would have caught the fault when the claim was first written down.
 press_return
 sleep 1
 check "Return dismisses the question rather than answering yes" "$DISTINCT" \
