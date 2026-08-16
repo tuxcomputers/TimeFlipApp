@@ -203,11 +203,13 @@ final class ReportCategoryGroupTests: XCTestCase {
     func testEachCategoryGetsItsOwnGroupClosed() {
         let list = ReportTotalsList()
 
-        list.show([total("Meeting", seconds: 3_900, id: 2), total("Break", seconds: 900)], showingSeconds: false)
+        // **Handed smallest first on purpose.** The list opens on the biggest figure, so an input already in that
+        // order would pass this test without reordering anything and prove nothing.
+        list.show([total("Break", seconds: 900), total("Meeting", seconds: 3_900, id: 2)], showingSeconds: false)
 
-        // Handed Meeting first and drawn Break first: the list applies the order in force, which opens on the shared
-        // category order rather than on whatever sequence it was given.
-        XCTAssertEqual(list.groups.map(\.total.name), ["Break", "Meeting"])
+        // Handed Break first and drawn Meeting first: the list applies the order in force rather than the sequence
+        // it was given.
+        XCTAssertEqual(list.groups.map(\.total.name), ["Meeting", "Break"])
         XCTAssertTrue(list.groups.allSatisfy { !$0.isExpanded })
     }
 

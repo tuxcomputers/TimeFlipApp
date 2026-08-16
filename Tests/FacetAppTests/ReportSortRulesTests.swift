@@ -20,43 +20,59 @@ final class ReportSortRulesTests: XCTestCase {
 
     // MARK: - where it starts
 
-    func testItOpensOnTheOrderTheOtherTabsUse() {
-        // The Categories and Faces tabs list categories in `CategoryOrder`. A Report tab that opened on something else
-        // would put a category somewhere new for anybody arriving from either of them.
-        XCTAssertEqual(ReportSortRules.Order.initial, .init(column: .category, direction: .ascending))
+    func testItOpensOnTheBiggestFigureFirst() {
+        // **Changed 2026-08-16.** It opened on the shared category order, so the Report tab agreed with the tabs
+        // somebody had just come from. That was consistency between tabs rather than what a report is for: nobody
+        // opens one to find out a category exists, they open it to see where the time went, and the category order
+        // made that the one thing they had to click for.
+        XCTAssertEqual(ReportSortRules.Order.initial, .init(column: .time, direction: .descending))
+        XCTAssertEqual(ReportSortRules.sorted(sample, by: .initial).map(\.seconds), [1_800, 1_800, 600, 60])
+    }
+
+    func testOpeningMatchesWhatClickingTimeWouldGive() {
+        // Otherwise the first click on Time does nothing visible, which reads as a dead heading. The default is
+        // written once for this reason, and this is the assertion that keeps the two from drifting apart.
         XCTAssertEqual(
-            ReportSortRules.sorted(sample, by: .initial).map(\.name),
-            ["2", "Admin", "Break", "Meeting"],
-            "entirely-numeric names first, then text, which is the shared rule"
+            ReportSortRules.Order.initial.direction,
+            ReportSortRules.defaultDirection(for: .time)
         )
     }
 
     // MARK: - what a click does
+    //
+    // **Started from an explicit order rather than from `.initial`.** These are about what a click does to the order
+    // in force, and taking that from the opening default made them silently change meaning when the default did:
+    // "clicking Time" became "clicking the column already in force", which is the other branch entirely.
+
+    /// The shared category order, which the tab no longer opens on but a click still reaches.
+    private var byCategory: ReportSortRules.Order {
+        ReportSortRules.Order(column: .category, direction: .ascending)
+    }
 
     func testClickingTimeAsksForTheBiggestFirst() {
         // The question "what did the time go on" is what the column is clicked to ask, and a first click that showed
         // the smallest figure would take two clicks to answer it.
-        let order = ReportSortRules.next(after: .initial, clicking: .time)
+        let order = ReportSortRules.next(after: byCategory, clicking: .time)
         XCTAssertEqual(order, .init(column: .time, direction: .descending))
         XCTAssertEqual(ReportSortRules.sorted(sample, by: order).map(\.seconds), [1_800, 1_800, 600, 60])
     }
 
     func testClickingTimeAgainTurnsItRoundTheOtherWay() {
-        let once = ReportSortRules.next(after: .initial, clicking: .time)
-        let twice = ReportSortRules.next(after: once, clicking: .time)
+        let twice = ReportSortRules.next(after: .initial, clicking: .time)
         XCTAssertEqual(twice, .init(column: .time, direction: .ascending))
         XCTAssertEqual(ReportSortRules.sorted(sample, by: twice).map(\.seconds), [60, 600, 1_800, 1_800])
     }
 
-    func testClickingCategoryFromTimeGoesBackToTheSharedOrder() {
-        let onTime = ReportSortRules.next(after: .initial, clicking: .time)
-        let back = ReportSortRules.next(after: onTime, clicking: .category)
-        XCTAssertEqual(back, .init(column: .category, direction: .ascending))
+    func testClickingCategoryFromTimeGoesToTheSharedOrder() {
+        // Straight from the opening order now, which is the path somebody actually takes: open the tab, then ask
+        // which category is which.
+        let back = ReportSortRules.next(after: .initial, clicking: .category)
+        XCTAssertEqual(back, byCategory)
         XCTAssertEqual(ReportSortRules.sorted(sample, by: back).map(\.name), ["2", "Admin", "Break", "Meeting"])
     }
 
     func testClickingCategoryAgainReversesIt() {
-        let reversed = ReportSortRules.next(after: .initial, clicking: .category)
+        let reversed = ReportSortRules.next(after: byCategory, clicking: .category)
         XCTAssertEqual(reversed, .init(column: .category, direction: .descending))
         XCTAssertEqual(ReportSortRules.sorted(sample, by: reversed).map(\.name), ["Meeting", "Break", "Admin", "2"])
     }
@@ -64,7 +80,7 @@ final class ReportSortRulesTests: XCTestCase {
     func testAThirdClickIsTheFirstClickAgain() {
         // Two states per column, so a heading somebody keeps clicking flips rather than walking through a cycle
         // nobody can predict.
-        var order = ReportSortRules.Order.initial
+        var order = byCategory
         for _ in 0 ..< 3 {
             order = ReportSortRules.next(after: order, clicking: .time)
         }
@@ -109,15 +125,16 @@ final class ReportSortRulesTests: XCTestCase {
         // work out would be a read in service of nothing, and would make sorting depend on the range still being valid.
         let list = ReportTotalsList()
         list.show(sample, showingSeconds: true)
-        XCTAssertEqual(list.shownTotals.map(\.name), ["2", "Admin", "Break", "Meeting"])
+        // Opens on the biggest figure, so the click under test is the one that leaves it.
+        XCTAssertEqual(list.shownTotals.map(\.seconds), [1_800, 1_800, 600, 60])
 
         var reported: [ReportSortRules.Order] = []
         list.onSort = { reported.append($0) }
-        list.press(ReportTotalsList.Identifier.sortByTime)
+        list.press(ReportTotalsList.Identifier.sortByCategory)
 
-        XCTAssertEqual(list.order, .init(column: .time, direction: .descending))
-        XCTAssertEqual(list.shownTotals.map(\.seconds), [1_800, 1_800, 600, 60])
-        XCTAssertEqual(reported, [.init(column: .time, direction: .descending)])
+        XCTAssertEqual(list.order, .init(column: .category, direction: .ascending))
+        XCTAssertEqual(list.shownTotals.map(\.name), ["2", "Admin", "Break", "Meeting"])
+        XCTAssertEqual(reported, [.init(column: .category, direction: .ascending)])
     }
 
     func testTheHeadingsAreClickableByName() {

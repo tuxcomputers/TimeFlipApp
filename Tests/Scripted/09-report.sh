@@ -122,28 +122,17 @@ monotonic() {
 }
 
 
-# It opens on the shared category order, so a category sits in the same place as on the Categories and
-# Faces tabs.
-check_contains "it opens sorted by category, ascending" "$(element report-sort-category)" "Category ▲"
-
-by_category=$(order_now)
-
-since=$(mark)
-press report-sort-time
-sleep 1.5
-expect_log "clicking Time sorts by it" "$since" "Report sorted by time, descending"
-check_contains "and the arrow moves to that column" "$(element report-sort-time)" "Time ▼"
-check "leaving the other one bare" "0" "$(element report-sort-category | grep -c '▲\|▼' || true)"
+# **It opens on the biggest figure**, which is the question a report is opened to ask. It opened on the
+# shared category order until 2026-08-16, on the reasoning that the Report tab should agree with the tabs
+# somebody had just come from; that was consistency between tabs rather than what a report is for, and it
+# made "where did the time go" the one thing every visit had to click for.
+check_contains "it opens sorted by time, descending" "$(element report-sort-time)" "Time ▼"
+check "with the other column bare" "0" "$(element report-sort-category | grep -c '▲\|▼' || true)"
 
 by_time_desc=$(order_now)
-if [ "$by_time_desc" != "$by_category" ] || [ "$drawn" = "1" ]; then
-    pass "the rows are in a different order ($by_category-> $by_time_desc)"
-else
-    fail "clicking Time changed nothing about the order ($by_category)"
-fi
 
-# Largest first, which is what asking about time means: a first click showing the smallest figure would
-# take two clicks to answer the question it was clicked to answer.
+# Largest first, which is what asking about time means: an opening order showing the smallest figure would
+# take a click to answer the question the tab was opened to answer.
 falling=$(durations_in_order)
 if monotonic "$falling" down; then
     pass "and the figures only ever fall ($falling)"
@@ -154,7 +143,7 @@ fi
 since=$(mark)
 press report-sort-time
 sleep 1.5
-expect_log "clicking it again reverses it" "$since" "Report sorted by time, ascending"
+expect_log "clicking Time turns the opening order over" "$since" "Report sorted by time, ascending"
 check_contains "and the arrow turns over" "$(element report-sort-time)" "Time ▲"
 
 rising=$(durations_in_order)
@@ -169,8 +158,16 @@ check "the smallest is now where the largest was" "$(printf '%s' "$falling" | aw
 since=$(mark)
 press report-sort-category
 sleep 1.5
-expect_log "clicking Category goes back to the shared order" "$since" "Report sorted by category, ascending"
-check "and the rows are where they started" "$by_category" "$(order_now)"
+expect_log "clicking Category asks the other question" "$since" "Report sorted by category, ascending"
+check_contains "and the arrow moves to that column" "$(element report-sort-category)" "Category ▲"
+check "leaving the time column bare" "0" "$(element report-sort-time | grep -c '▲\|▼' || true)"
+
+by_category=$(order_now)
+if [ "$by_category" != "$by_time_desc" ]; then
+    pass "the rows are in a different order ($by_time_desc-> $by_category)"
+else
+    fail "clicking Category changed nothing about the order ($by_time_desc)"
+fi
 
 since=$(mark)
 press report-sort-category
@@ -180,7 +177,9 @@ back=$(printf '%s' "$by_category" | tr ' ' '\n' | grep -v '^$' | tail -r | tr '\
 check "which is the category order upside down" "$back" "$(order_now)"
 
 # Left on the order it opens with, so a later run starts where this one did.
-press report-sort-category
-sleep 1
+since=$(mark)
+press report-sort-time
+sleep 1.5
+check "back on the order the tab opens with" "$by_time_desc" "$(order_now)"
 
 finish
