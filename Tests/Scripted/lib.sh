@@ -331,11 +331,26 @@ ensure_app_running() {
         # the Keychain, so the refresh token behind Google sync stops being readable without a prompt --
         # and nothing says so: the sweep just never runs. That is how 10-google-calendar failed the first
         # time it was written, against a binary this function had built unsigned.
+        # **Quoted, and passed as its own argument.** An identity reads
+        # `Apple Development: apple@tux.com.au (32Q68X4KAP)` -- three words -- so building the flags into one
+        # string and letting it word-split hands swift-bundler three arguments it has never heard of. It
+        # went unnoticed because it only bites when a rebuild actually happens, which is the run after a
+        # source file changes and no other. `scripts/run.sh` had it right; this had not.
+        local identity output status
         identity="$(scripts/codesign-identity.sh)"
-        signing=""
-        [ -n "$identity" ] && signing="--codesign --identity $identity"
-        if ! mint run stackotter/swift-bundler@main bundle Facet $signing >/dev/null 2>&1; then
+        if [ -n "$identity" ]; then
+            output=$(mint run stackotter/swift-bundler@main bundle Facet --codesign --identity "$identity" 2>&1)
+            status=$?
+        else
+            grey "  no codesigning identity, so this build is ad-hoc: anything reading the Keychain will stall"
+            output=$(mint run stackotter/swift-bundler@main bundle Facet 2>&1)
+            status=$?
+        fi
+        if [ "$status" -ne 0 ]; then
             red "  the build failed; running an old binary would prove nothing"
+            # **Said out loud.** This used to be discarded, so a failed build reported only that it had
+            # failed -- and the reason, which was one line long, had to be reproduced by hand.
+            printf '%s\n' "$output" | tail -15 | sed 's/^/    /'
             exit 2
         fi
     fi
