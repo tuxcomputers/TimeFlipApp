@@ -316,21 +316,26 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   button carries `\r` at all, so the two things worth knowing (which button is where, and which one
   Return fires) are both absent. Measured 2026-08-16 while adding the retired-rename checks, after the
   scratch answer disagreed with what the delete alert had already been measured to do on screen.
-- **The order a sheet lists its buttons in does not follow the order they were added**, and it is not a
-  fixed reversal of it either. Two alerts measured in one run on 2026-08-16, both added `[Cancel, X]`:
+- **Do not assert the order a sheet lists its buttons in.** It is not the order they were added, not a
+  reversal of it, and not a function of which one is the default. Two alerts built the same way, with the
+  same key equivalents set, measured on 2026-08-16:
 
-  | alert | Cancel made the default? | `ax-alert.py` prints |
+  | alert | added | `ax-alert.py` prints |
   |---|---|---|
-  | calendar delete (`03`) | yes, `keyEquivalent = "\r"` | `Delete Calendar \| Cancel` |
-  | category rename (`04`) | no | `Cancel \| Rename anyway` |
+  | calendar delete (`03`) | `Cancel`, `Delete Calendar` | `Delete Calendar \| Cancel` |
+  | category rename (`04`) | `Cancel`, `Rename anyway` | `Cancel \| Rename anyway` |
 
-  **AppKit moves a button titled "Cancel" to the left, unless it is the default button, which sits
-  rightmost.** So adding Cancel first does not make it the way out; setting the key equivalent does. This
-  cost a failed check written from the delete alert alone, on the assumption that one measurement was a
-  rule.
-- **Which button Return fires is the rightmost one, so it is answered by the same question.** Never infer
-  it from an app's *intent*: `CategoryRenameRules` documented that Return dismissed its dialogues for
-  months while Return in fact agreed to the rename. Press Return at the sheet and read the table.
+  **Why they differ is not known**, and chasing it cost two full runs across two wrong theories: first
+  that AppKit always moves a button titled "Cancel" to the left, then that making Cancel the default moves
+  it back to the right. Each explained one alert and was refuted by the other. Assert *which* buttons are
+  there -- sort them first -- and assert behaviour separately. `03` still asserts a position because that
+  one is measured and has held; do not generalise it to a new alert.
+- **A key equivalent is independent of where the button sits**, which is the practical upshot. Return fires
+  whichever button holds `"\r"` wherever AppKit has drawn it, so which button is safe is settled by setting
+  it, never by reading the order back.
+- **Which button Return fires can only be answered by pressing Return.** Never take it from the app's
+  stated intent: `CategoryRenameRules` documented that Return dismissed its dialogues, and for months
+  Return in fact agreed to the rename. Press it at the sheet and read the table.
 
 ## Notes for the hermetic suite (`swift test`)
 

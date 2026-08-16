@@ -442,18 +442,23 @@ set_field_focused "retired-category-name-$blocked-field" "$CREATE_NEW"
 press_return
 sleep 1
 
-# **The order is what the tree reports, and it follows which button is the default rather than which was
-# added first.** AppKit moves a button titled "Cancel" to the left unless it is the default, which sits
-# rightmost -- so Cancel trailing here is the visible proof that the app set the key equivalents, and
-# Cancel leading would mean Return is on the button that agrees. Measured both ways on 2026-08-16.
-check "taking an active name is offered rather than refused" "Rename anyway|Cancel" "$(alert_buttons)"
+# **Which buttons, not what order they come back in.** The order is AppKit's and is not predictable from
+# anything this app does: the calendar delete reads back "Delete Calendar | Cancel" and this one reads back
+# "Cancel | Rename anyway", from alerts built the same way with the same key equivalents set. Asserting a
+# position here cost two runs guessing at a rule that does not exist, and it was never the claim worth
+# making -- what matters is that there are two answers rather than one, and which one Return fires, and
+# that is the check below rather than this one.
+check "taking an active name offers a way through and a way out" "Cancel|Rename anyway" \
+    "$(alert_buttons | tr '|' '\n' | sort | paste -sd '|' -)"
 check_contains "and the alert says what it costs" \
     "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "brought back"
 
-# **Return must not agree with it.** `CategoryRenameRules` documented that Cancel led and Return dismissed,
-# and on 2026-08-16 that was measured to be false: adding Cancel first does not make it the default, so
-# Return was agreeing to the rename. The window now sets the key equivalents, and this is what holds it to
-# that -- the one check that would have caught the fault when the claim was first written down.
+# **Return must not agree with it, and this is the only way to know.** `CategoryRenameRules` documented that
+# Cancel led and Return dismissed, and on 2026-08-16 that was measured to be false: Return was agreeing to
+# the rename. The window now puts `\r` on Cancel explicitly, which is what decides this -- a key equivalent
+# is independent of where the button sits, so no amount of reading the order answers it.
+#
+# This is the check that would have caught the fault the day the claim was written down.
 press_return
 sleep 1
 check "Return dismisses the question rather than answering yes" "$DISTINCT" \
