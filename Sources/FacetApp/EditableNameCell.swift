@@ -86,11 +86,22 @@ final class EditableNameCell: NSView {
     /// clicking puts a caret where it was clicked.
     func beginEditing() {
         guard isEnabled, !isEditing else { return }
-        isEditing = true
         field.stringValue = name
         button.isHidden = true
         field.isHidden = false
+        // **The flag is claimed after the responder changes, not before, and the order is the whole point.**
+        // `makeFirstResponder` tears down whatever field editor is attached, and doing so delivers
+        // `controlTextDidEndEditing` *synchronously* -- so calling it while `isEditing` is already true
+        // re-enters this class through `endEditing`, which sets the flag back to false. `beginEditing` then
+        // finishes on top of a state it no longer owns: the field is open and focused, characters type into
+        // it, and Return commits nothing, because the guard in `controlTextDidEndEditing` sees `false`.
+        //
+        // It only bites when a stale editor is still attached, which is what a dismissed sheet leaves behind
+        // (measured 2026-08-16: refuse a rename, dismiss the alert, click the name again, and the field
+        // could be typed into but never committed). With the flag claimed afterwards, that reentrant call
+        // sees a session that has not begun and does nothing.
         window?.makeFirstResponder(field)
+        isEditing = true
         field.currentEditor()?.selectAll(nil)
         outsideClick.start { [weak self] event in
             self?.clickLanded(event)
