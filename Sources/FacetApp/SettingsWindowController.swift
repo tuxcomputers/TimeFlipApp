@@ -715,6 +715,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.retiredTable.onReinstate = { [weak self] category in
             self?.reinstate(category)
         }
+        // **The same handler the Active list's rename reaches**, given the retired record. Everything that differs
+        // between the two is a question about the record -- `CategoryRenameRules.decision` reads `isActive` to tell an
+        // index violation from a name the table will take -- so a second handler here would be a second answer to a
+        // question one already answers.
+        pane.retiredTable.onRename = { [weak self] category, typed in
+            self?.rename(category, to: typed)
+        }
+        pane.retiredTable.onRenameEditingChanged = { [weak self] isEditing in
+            self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
+        }
         pane.activeSection.onToggle = { [weak self] isExpanded in
             self?.debugLog?.record(.tab, "Categories section Active \(isExpanded ? "opened" : "folded")")
         }
@@ -851,7 +861,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         switch decision {
         case .ignore, .refuse:
             return nil
-        case let .confirm(name), let .confirmAgainstRetired(name, _):
+        case let .confirm(name), let .confirmAgainstRetired(name, _), let .confirmAgainstActive(name, _):
             return name
         }
     }

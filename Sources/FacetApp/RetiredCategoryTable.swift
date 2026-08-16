@@ -43,6 +43,13 @@ final class RetiredCategoryTable: NSView {
     /// so there is one direction rather than a flag.
     var onReinstate: ((CategoryRecord) -> Void)?
 
+    /// Called with what was typed into a name, once Return commits it. The same signature the Active list's rename
+    /// carries, and it reaches the same handler: what a committed edit *means* is the window's to decide.
+    var onRename: ((CategoryRecord, String) -> Void)?
+
+    /// Called as a name opens and closes for editing, so the window can lend Escape to the field.
+    var onRenameEditingChanged: ((Bool) -> Void)?
+
     init() {
         super.init(frame: .zero)
         addRows()
@@ -68,6 +75,8 @@ final class RetiredCategoryTable: NSView {
             for category in categories {
                 let row = RetiredCategoryRow(category: category, lastUsed: lastUsed?(category))
                 row.onReinstate = { [weak self] in self?.onReinstate?(category) }
+                row.onRename = { [weak self] typed in self?.onRename?(category, typed) }
+                row.onRenameEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
                 rows.addView(row, in: .top)
             }
         }
@@ -140,6 +149,15 @@ final class RetiredCategoryRow: NSStackView {
     /// Called when the Active box is ticked.
     var onReinstate: (() -> Void)?
 
+    /// Called with what was typed into the name, once Return commits it.
+    var onRename: ((String) -> Void)?
+
+    /// Called as the name opens and closes for editing.
+    var onRenameEditingChanged: ((Bool) -> Void)?
+
+    /// Exposed so a test can drive the rename without a window, the same way the Active list's row exposes its own.
+    private(set) var nameCell: EditableNameCell?
+
     init(category: CategoryRecord, lastUsed: Date?) {
         self.category = category
         self.lastUsed = lastUsed
@@ -152,7 +170,7 @@ final class RetiredCategoryRow: NSStackView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(category.name)
         addView(activeBox(), in: .leading)
-        addView(nameLabel(), in: .leading)
+        addView(name(), in: .leading)
         addView(lastUsedLabel(), in: .leading)
     }
 
@@ -197,15 +215,34 @@ final class RetiredCategoryRow: NSStackView {
         fatalError("init(coder:) is not used")
     }
 
+    /// The name, which becomes a field when it is clicked, exactly as the Active list's does.
+    ///
+    /// **A retired name is editable, and that is the archive's answer as well as this one.** `retiredRow` in
+    /// `Archive/TimeFlipApp/CategoriesSettingsView.swift` drew the same `nameField` the active row drew, so the
+    /// previous app allowed this too -- behind a right-click *Edit* nobody would find, which is the part not worth
+    /// keeping.
+    ///
+    /// It is the one edit this list needs. Retired namesakes are allowed to pile up under one name (`UN1_category`
+    /// covers active rows only), and the Last used column exists precisely because several rows can read identically;
+    /// telling them apart is worth nothing if the answer cannot then be written down. It is also the only way out of
+    /// a reinstate that an active namesake is blocking, short of renaming the active one instead.
+    ///
+    /// **Never disabled**, unlike the Active list's, where a locked face freezes the whole row. Renaming touches no
+    /// face and no assignment, so there is nothing for a lock to protect here.
+    ///
     /// The same fixed width as the Active list's name column, so the two lists read as one tab rather than as two
-    /// tables that happen to be stacked.
-    private func nameLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: category.name)
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.widthAnchor.constraint(equalToConstant: CategoryTable.Layout.nameColumnWidth).isActive = true
-        label.setAccessibilityIdentifier("retired-category-name-\(category.id)")
-        return label
+    /// tables that happen to be stacked. The identifier is unchanged from when this was a label: it is the button
+    /// that carries it now, and a step that presses the name is the step that used to read it.
+    private func name() -> NSView {
+        let cell = EditableNameCell(
+            name: category.name,
+            width: CategoryTable.Layout.nameColumnWidth,
+            identifier: "retired-category-name-\(category.id)"
+        )
+        cell.onCommit = { [weak self] typed in self?.onRename?(typed) }
+        cell.onEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
+        nameCell = cell
+        return cell
     }
 
     private func lastUsedLabel() -> NSTextField {
