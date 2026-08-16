@@ -25,6 +25,11 @@ RENAMED="$NAME renamed"
 # **A fixed sleep loses this race.** A refused rename reloads the whole list, so the row is briefly a view
 # on its way out and the press lands on nothing -- which is what happened on 2026-08-16: the cell was
 # still a button when the field was written to, so nothing committed and the app logged nothing at all.
+# **The cell may already be editing**, so this opens it if it is not and waits either way. A refused
+# rename leaves the field open holding the name that was rejected -- the `.refuse` branch returns before
+# `reloadSelectedPane()`, unlike every other rename outcome -- so the button is hidden and pressing it does
+# nothing. That is why the value is written with `set_field_focused`: nothing has called
+# `makeFirstResponder` in that case, and a Return posted at an unfocused field commits nothing at all.
 begin_rename() {
     press "category-name-$1"
     wait_for_element "category-name-$1-field" 5
@@ -104,7 +109,7 @@ check_contains "its row is on the tab" "$(tree)" "id=category-name-$ID"
 
 since=$(mark)
 begin_rename "$ID"
-set_field "category-name-$ID-field" "$RENAMED"
+set_field_focused "category-name-$ID-field" "$RENAMED"
 press_return
 sleep 1
 
@@ -474,9 +479,13 @@ press_return
 sleep 1
 check "the limit is at forty, to hold down from" "40" "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
 
+# Held long enough to reach 0 and then half a second longer, which is the part worth holding for. From 40
+# that is ten single steps to 30, then 25, 20, 15, 10, 5, 0 at the slower interval: about 3.2 seconds. The
+# hold stops itself at the bottom -- `holdStep` returns nil once a tick clamps back to where it already
+# was -- so the extra time is spent proving nothing further happens rather than waiting for it to finish.
 since=$(mark)
 announce "holding the down arrow steps 39 to 30, then by fives"
-python3 scripts/ax-hold.py "category-limit-$ID-down" 3.0 >/dev/null 2>&1
+python3 scripts/ax-hold.py "category-limit-$ID-down" 4.5 >/dev/null 2>&1
 sleep 1.5
 down=$(python3 Tests/Scripted/stepper-timing.py "$since" "$RENAMED" 2>/dev/null)
 down_values=$(printf '%s' "$down" | sed -n 's/^values=//p')
@@ -494,9 +503,27 @@ else
     verdict_fail "${down_fives}ms is not meaningfully slower than ${down_singles}ms"
 fi
 
-# The range is 0 to 1440, and a hold stops rather than ticking against a value that cannot move.
-check "and it never went below zero" "1" \
-    "$(sql "SELECT daily_limit >= 0 FROM category WHERE category_id = $ID;")"
+# ---- the floor
+#
+# **Held past the bottom on purpose.** The arrow was still down for half a second after the value reached
+# 0, so this is not "it happened to stop in time": it is that a hold with nowhere left to go stops instead
+# of ticking into negative numbers. `holdStep` returns nil when a tick clamps back to the value it already
+# had, which is what ends it.
+
+check "holding down runs out at zero" "0" "$(sql "SELECT daily_limit FROM category WHERE category_id = $ID;")"
+
+announce "and the last thing it stepped to was zero, having held past it"
+case "$down_values" in
+    *,0) verdict_pass ;;
+    *) verdict_fail "the sequence ended '$(printf '%s' "$down_values" | sed 's/.*\(,[^,]*,[^,]*\)$/\1/')' rather than at 0" ;;
+esac
+
+# A negative would be a minus sign in the list, and there is no other reason for one to be there.
+announce "with nothing below zero anywhere in it"
+case "$down_values" in
+    *-*) verdict_fail "the sequence went negative: $down_values" ;;
+    *) verdict_pass ;;
+esac
 
 # ---------------------------------------------------------------------------- the rename dead ends
 #
@@ -507,7 +534,7 @@ check "and it never went below zero" "1" \
 
 since=$(mark)
 begin_rename "$ID"
-set_field "category-name-$ID-field" "$NAME abandoned"
+set_field_focused "category-name-$ID-field" "$NAME abandoned"
 press_return
 sleep 1
 press_title Cancel
@@ -519,7 +546,7 @@ check "and the name is untouched" "$RENAMED" "$(sql "SELECT category_name FROM c
 
 since=$(mark)
 begin_rename "$reactivate_id"
-set_field "category-name-$reactivate_id-field" "$RENAMED"
+set_field_focused "category-name-$reactivate_id-field" "$RENAMED"
 press_return
 sleep 1
 check "renaming onto an active name offers only Cancel" "Cancel" "$(alert_buttons)"
@@ -536,7 +563,7 @@ check "so that name is unchanged too" "$REACTIVATE" "$(sql "SELECT category_name
 CAPITALISED=$(printf '%s' "$REACTIVATE" | tr '[:lower:]' '[:upper:]')
 since=$(mark)
 begin_rename "$reactivate_id"
-set_field "category-name-$reactivate_id-field" "$CAPITALISED"
+set_field_focused "category-name-$reactivate_id-field" "$CAPITALISED"
 press_return
 sleep 1
 expect_log "changing only the capitalisation is offered, not refused" "$since" "%rename -> \"$CAPITALISED\", asking%"
