@@ -512,11 +512,11 @@ press colour-option-Red
 sleep 1
 check "picking Red again clears it to None" "0" "$(sql "SELECT colour_id FROM category WHERE category_id = $ID;")"
 
-# Set again, so the row carries a colour into everything below rather than the None it started with.
-press "category-colour-$ID"
-sleep 0.8
-press colour-option-Red
-sleep 1
+# **Left at None, which is where it started.** It used to be set back to Red here "so the row carries a colour into
+# everything below", and nothing below ever read it -- not in this script and not in any other. What it did instead
+# was leave every run's category sitting in the list wearing a red swatch, so the colour went none, red, none, red
+# and the last change was the one nobody could account for. The icon section under this one sets and clears and
+# stops, and this now matches it.
 
 first_icon=$(sql "SELECT icon_name FROM icon WHERE icon_id = 1;")
 since=$(mark)
