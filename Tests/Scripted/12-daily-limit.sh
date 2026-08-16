@@ -52,7 +52,11 @@ stage_category() {
     local remaining="$1" name seeded created id zone started ended event
 
     name=$(next_name Limit)
-    select_tab Faces
+    # **Created on the Categories tab, not the Faces tab**, which is the one place in this suite that distinction
+    # matters. The Faces tab's create starts the clock on what it makes, and this script has to choose the moment
+    # timing begins: the budget is seeded to within seconds of the limit, so a clock running from the create would
+    # spend that budget during the staging and cross the limit before the wait below had started.
+    select_tab Categories
     created=$(mark)
     press create-category
     sleep 0.5

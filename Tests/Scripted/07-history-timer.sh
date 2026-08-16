@@ -43,10 +43,11 @@ set_field category-name-field "$NAME"
 press save-category
 sleep 1
 ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
-
-since=$(mark)
-press "category-row-$ID"
 sleep 2
+
+# **Measured from before the create, because the create is what starts the clock now.** Making a category on the
+# Faces tab assigns it to a face and starts timing it, so the history timer is already running by the time the row
+# could be clicked -- and a mark taken after the create would be looking for a row written before it.
 expect_log "starting to time starts the timer" "$since" "History timer started%"
 
 # It says the interval it is on, so two consecutive lines are what show a change taking effect.

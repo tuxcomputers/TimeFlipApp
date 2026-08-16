@@ -36,7 +36,8 @@ fi
 # ---------------------------------------------------------------------------- time that counts
 
 since=$(mark)
-press "category-row-$ID"
+# **Nothing is clicked to start it.** Creating a category on the Faces tab assigns it to a face and starts timing
+# it, so the clock has been running since the save above; clicking the row now would be the no-op `05` checks.
 sleep $((BLIP + 4))
 press timing-play-pause
 sleep 2

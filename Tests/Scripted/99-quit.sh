@@ -35,7 +35,8 @@ ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message 
 BLIP=$(sql "SELECT json_extract(setting_value, '\$.seconds') FROM setting WHERE setting_name = 'blip_time';")
 BLIP=${BLIP:-5}
 
-press "category-row-$ID"
+# Creating it on the Faces tab started it, so there is nothing to click: the segment this quit has to close is
+# already open.
 sleep $((BLIP + 3))
 
 open_row=$(sql "SELECT device_event_id FROM device_event WHERE finalised != 1 ORDER BY device_event_id DESC LIMIT 1;")

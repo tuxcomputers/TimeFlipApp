@@ -1559,7 +1559,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         faces.timingView.onTogglePause = { [weak self] in
             self?.togglePause()
         }
-        wire(faces.createControl)
+        wire(faces.createControl, startsTiming: true)
         return faces
     }
 
@@ -1670,10 +1670,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// where somebody notices a category is missing, and the Categories tab because that is where a category is made
     /// and looked after. Two ways in, one implementation, which is the same reason the three ways to pause end in one
     /// method.
-    private func wire(_ control: CategoryCreateControl) {
+    /// Connects a create control.
+    ///
+    /// **`startsTiming` is what makes the Faces tab's control different from the Categories tab's**, and they are
+    /// different because the tabs are asking different things. Typing a name on the Categories tab is maintaining a
+    /// list; typing one on the Faces tab is saying what you are doing now, and making somebody create a category and
+    /// then click the row they just made is asking them to say it twice.
+    private func wire(_ control: CategoryCreateControl, startsTiming: Bool = false) {
         control.onSave = { [weak self, weak control] typed in
             guard let control else { return }
-            self?.saveNewCategory(typed, from: control)
+            self?.saveNewCategory(typed, from: control, startsTiming: startsTiming)
         }
         control.onEditingChanged = { [weak self] isEditing in
             // Escape belongs to whichever of the two needs it more. While a name is being typed that is
@@ -1684,6 +1690,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
+    /// Starts the clock on a category that has just been made, when the control that made it asks for that.
+    ///
+    /// **The record is read back rather than assembled from what was written**, which is the database rule applied to
+    /// the app's own insert: `startTiming` needs a `CategoryRecord`, and building one here out of the name just typed
+    /// would be the app's idea of the row rather than the row.
+    ///
+    /// A refused read leaves the category made and the clock alone. That is the honest outcome: the category exists,
+    /// which is most of what was asked for, and starting a clock on a row that cannot be read back would be worse
+    /// than not starting one.
+    private func start(_ createdID: Int, ifAskedTo startsTiming: Bool) {
+        guard startsTiming, let categories else { return }
+        guard let record = categories.category(id: createdID) else {
+            debugLog?.record(.mode, "Timing: category_id \(createdID) was made but could not be read back to start")
+            return
+        }
+        startTiming(record)
+    }
+
     /// Acts on a typed category name.
     ///
     /// The decision is `CategoryCreateRules`', taken against the whole `category` table rather than the
@@ -1692,7 +1716,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// The control that raised it is handed in rather than looked up, since there is now more than one and only the
     /// one that was typed into should fold up.
-    private func saveNewCategory(_ typed: String, from control: CategoryCreateControl) {
+    private func saveNewCategory(_ typed: String, from control: CategoryCreateControl, startsTiming: Bool = false) {
         guard let categories else { return }
         switch CategoryCreateRules.decision(rawName: typed, matching: categories.matching(name:)) {
         case .ignore:
@@ -1708,6 +1732,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // Re-read rather than adding the new row to the list by hand: the database is what the list
             // shows, and a row put there by the writer would be a second answer to what it holds.
             reloadSelectedPane()
+            if let created { start(created, ifAskedTo: startsTiming) }
 
         case let .retiredNamesakes(existing):
             debugLog?.record(
@@ -1716,7 +1741,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                     + "under that name: \(existing.map(\.id))"
             )
             control.collapse()
-            askAboutRetiredNamesakes(existing)
+            askAboutRetiredNamesakes(existing, startsTiming: startsTiming)
 
         case let .alreadyActive(existing):
             debugLog?.record(
@@ -1744,7 +1769,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// still appears, saying how many there are, and offers the answer that is still available -- creating a new one
     /// -- or nothing. Somebody who wants a particular one back goes to the Inactive list, where each row carries the
     /// date that tells them apart.
-    private func askAboutRetiredNamesakes(_ existing: [CategoryRecord]) {
+    private func askAboutRetiredNamesakes(_ existing: [CategoryRecord], startsTiming: Bool = false) {
         guard let categories, let first = existing.first else { return }
         let choices = CategoryCreateRules.choices(retiredNamesakes: existing.count)
         let alert = NSAlert()
@@ -1759,17 +1784,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 on: CategoryCreateRules.choice(forButtonIndex: index, offering: choices),
                 about: first,
                 named: first.name,
-                in: categories
+                in: categories,
+                startsTiming: startsTiming
             )
         }
     }
 
+    /// **`startsTiming` reaches here too, and that is the point rather than thoroughness.** All three outcomes come
+    /// from one press of one button on the Faces tab, so a name that happens to collide with a retired one would
+    /// otherwise behave differently from every other name -- and which names those are is exactly what the person
+    /// typing cannot know. Reinstating is included: "created" is not what they did, but it is what they got.
     private func act(
         on choice: CategoryCreateRules.RetiredNamesakeChoice?,
         about existing: CategoryRecord,
         named name: String,
-        in categories: CategoryStore
+        in categories: CategoryStore,
+        startsTiming: Bool = false
     ) {
+        var started: Int?
         switch choice {
         case .reactivate:
             let succeeded = categories.setActive(id: existing.id, true)
@@ -1778,6 +1810,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 "Button clicked: Reactivate \"\(existing.name)\" -> category_id \(existing.id)"
                     + "\(succeeded ? "" : " REFUSED")"
             )
+            if succeeded { started = existing.id }
 
         case .createNew:
             let created = categories.insert(name: name)
@@ -1786,6 +1819,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 "Button clicked: Create new one \"\(name)\" -> \(created.map { "category_id \($0)" } ?? "refused")"
                     + ", leaving category_id \(existing.id) retired"
             )
+            started = created
 
         case .cancel, nil:
             // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means
@@ -1795,6 +1829,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         // Only the two that wrote get here: either changes which rows belong in which list.
         reloadSelectedPane()
+        if let started { start(started, ifAskedTo: startsTiming) }
     }
 
     /// The dead end: an active category already holds the name, so there is nothing to decide and only
