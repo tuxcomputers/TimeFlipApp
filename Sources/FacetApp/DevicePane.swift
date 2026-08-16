@@ -389,8 +389,75 @@ final class DevicePane: NSView {
         scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         scanStatusLabel.setAccessibilityIdentifier(Identifier.scanStatus)
 
+        // **On the button's own row, at the trailing edge.** It is the answer to the question the button asks, and
+        // every other answer on this tab sits opposite the thing it answers rather than on a line of its own. A row
+        // to itself also made the panel taller by an empty line whenever there was nothing to say.
+        let controls = NSView()
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        controls.addSubview(pair)
+        controls.addSubview(scanStatusLabel)
+        NSLayoutConstraint.activate([
+            pair.leadingAnchor.constraint(equalTo: controls.leadingAnchor, constant: Layout.rowInset),
+            pair.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
+            pair.topAnchor.constraint(greaterThanOrEqualTo: controls.topAnchor, constant: Layout.rowPadding),
+            pair.bottomAnchor.constraint(lessThanOrEqualTo: controls.bottomAnchor, constant: -Layout.rowPadding),
+
+            // The words give way before the controls do: a window too narrow for both should shorten the message,
+            // not clip the button that starts the scan.
+            scanStatusLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: pair.trailingAnchor, constant: Layout.rowInset
+            ),
+            scanStatusLabel.trailingAnchor.constraint(equalTo: controls.trailingAnchor, constant: -Layout.rowInset),
+            scanStatusLabel.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
+
+            controls.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
+        ])
+        scanStatusLabel.alignment = .right
+        scanStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pair.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         scanResults = stack()
-        return [leading(pair), leading(scanStatusLabel), scanResults]
+        return [controls, scanResults]
+    }
+
+    /// One found device: its name, on the left, where a list puts a thing rather than where a form puts an answer.
+    ///
+    /// **The separator is at the top, not the bottom.** The first one divides the list from the controls above it and
+    /// every later one divides two devices, which is what a bottom edge cannot do without also drawing a line under
+    /// the last row with nothing beneath it.
+    private func deviceRow(_ device: ScannedDevice) -> NSView {
+        let row = NSView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        let name = NSTextField(labelWithString: DeviceScanRules.label(for: device))
+        name.lineBreakMode = .byTruncatingTail
+        name.translatesAutoresizingMaskIntoConstraints = false
+        name.setAccessibilityIdentifier(Identifier.scanResult(device.id))
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+
+        row.addSubview(name)
+        row.addSubview(separator)
+        NSLayoutConstraint.activate([
+            separator.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
+            separator.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
+            separator.topAnchor.constraint(equalTo: row.topAnchor),
+            separator.heightAnchor.constraint(equalToConstant: Layout.separatorHeight),
+
+            name.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
+            name.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor, constant: -Layout.rowInset),
+            name.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            name.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
+            name.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
+
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
+        ])
+        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
+        preferred.priority = .defaultLow
+        preferred.isActive = true
+        return row
     }
 
     @objc private func scanPressed() {
@@ -439,14 +506,9 @@ final class DevicePane: NSView {
             scanResults.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        add(devices.map { device in
-            // A row, not a button. Nothing can be done with one of these yet: pairing is its own feature and arrives
-            // with the code that can honestly connect. Listing what is out there is the whole of this one.
-            let name = value(identifier: Identifier.scanResult(device.id))
-            name.stringValue = DeviceScanRules.label(for: device)
-            name.alignment = .right
-            return row(name.stringValue, name, identifier: Identifier.scanResult(device.id), separated: true)
-        }, to: scanResults)
+        // A row, not a button. Nothing can be done with one of these yet: pairing is its own feature and arrives
+        // with the code that can honestly connect. Listing what is out there is the whole of this one.
+        add(devices.map { deviceRow($0) }, to: scanResults)
     }
 
     // MARK: - the pieces a row is made of

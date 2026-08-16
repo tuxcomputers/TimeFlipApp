@@ -112,6 +112,24 @@ final class DevicePaneTests: XCTestCase {
         )
     }
 
+    func testAFoundDeviceIsNamedOnceNotTwice() {
+        // **Reported from a running app**: one cube was drawn as "TimeFlip v2.0 ... TimeFlip v2.0", which read as two
+        // devices. It was one row built as a label-and-value pair with the same name passed as both, because a scan
+        // result had been made to look like a settings row. It is a list item: the name appears once, on the left.
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "TimeFlip v2.0", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: false
+        )
+
+        pane.showFound([cube])
+
+        let shown = descendants(of: pane)
+            .compactMap { $0 as? NSTextField }
+            .filter { !$0.isHidden && $0.stringValue == "TimeFlip v2.0" }
+        XCTAssertEqual(shown.count, 1, "the name is drawn once per device, not at both ends of the row")
+    }
+
     func testASecondScanReplacesTheListRatherThanAddingToIt() {
         // The pane holds no list of its own: it draws what it was last handed, so a device that has dropped out
         // cannot linger because nothing here remembers it.
