@@ -4,13 +4,15 @@ Behaviour measured on real hardware that the vendor spec does not describe, and 
 
 This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
-**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02.
+**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02, and finding 4 on the same cube on 2026-08-17.
 
 ## The evidence file
 
 [`timeflip2-firmware-evidence.sqlite`](timeflip2-firmware-evidence.sqlite) sits beside this document and holds the debug log rows every claim below rests on. Every row id quoted here is a row in it.
 
-648 rows in one `debug_log` table, carrying the source database's original `debug_log_id` values and timestamps, so ordering by id is true chronological order (verified: no row's timestamp precedes the row before it). It covers the rename history across the whole test session **plus one complete, unedited BLE trace** of a connect-and-rename from id 6716, so the acknowledgement claims can be checked against a full sequence rather than a flattering selection.
+671 rows in one `debug_log` table, carrying the source database's original `debug_log_id` values and timestamps, so ordering by id is true chronological order (verified: no row's timestamp precedes the row before it). It covers the rename history across the whole test session **plus one complete, unedited BLE trace** of a connect-and-rename from id 6716, so the acknowledgement claims can be checked against a full sequence rather than a flattering selection.
+
+Rows 356 to 379 are finding 4, added on 2026-08-17 from a scripted run: the whole of two login attempts, both PINs and both answers, unedited. They come from the test database, which every run rebuilds from the DDL -- so without copying them here the evidence for that finding would have been destroyed by the next run.
 
 ```
 sqlite3 docs/timeflip2-firmware-evidence.sqlite \
@@ -25,6 +27,7 @@ sqlite3 docs/timeflip2-firmware-evidence.sqlite \
 | `field` / `click` | the user action that started it |
 | `scan` | one scanned advertisement: both names it carried, and the name being searched for |
 | `device-name` | the name read on connect, and the name the device later reported |
+| `login` | reaching a cube and presenting a PIN: each attempt, and what the cube made of it |
 
 Checked in deliberately, at 60 KB. These measurements cost an evening of device time and several wrong conclusions along the way, and a claim about firmware behaviour is worth little without the trace behind it.
 
@@ -121,6 +124,41 @@ The spec documents this characteristic as carrying event data, not command narra
 
 ---
 
+---
+
+## 4. The password check answers `0x02` for a correct PIN, not `0x01`
+
+The spec is explicit and it is wrong. Section 4, on the password characteristic:
+
+> The result of the password check will be written to the command result output characteristic in the first (high) byte of the massive: 0x01 means the password is correct, 0x02 - the password is wrong.
+
+The hardware does the opposite. **`0x02` is acceptance and `0x01` is refusal**, measured on 2026-08-17 across two logins to one cube, seconds apart, one of each outcome (rows 361 to 375):
+
+| Time | Direction | Bytes | Outcome |
+|---|---|---|---|
+| 05:47:55.098 | `ble-tx` | `30 30 30 30 30 30` (`000000`) | the vendor default |
+| 05:47:55.243 | `ble-rx` | `01` | **refused** -- the cube was not on the default |
+| 05:47:58.426 | `ble-tx` | `31 32 33 34 35 36` (`123456`) | the PIN the cube was actually on |
+| 05:47:58.543 | `ble-rx` | `02` | **accepted** -- every command afterwards worked |
+
+The two are in one trace, from one cube, three seconds apart, so this is not a reading taken under different conditions and compared: the same characteristic answered both PINs and gave different bytes for the one that worked and the one that did not.
+
+The archive reached the same conclusion by logging both outcomes (see `TimeFlipBLEDevice.attemptLogin`, whose comment says "vendor doc v4.3 states 0x01=correct/0x02=wrong, but real hardware observed here does the opposite"). This is that claim measured again on a rebuilt driver, and written down where the other measurements are, because a comment in an archived class is not somewhere anybody would look.
+
+**Consequence for this app, and it is the most load-bearing byte in the feature.** Implemented from the spec, every correct PIN is refused and every wrong one accepted. `DeviceLoginRules.verdict` reads it the measured way round and `Tests/Scripted/14-device-connect.sh` asserts on the raw `commandResult: 02`, so a firmware release that ever moves to match the document fails a check rather than silently letting the wrong cube in.
+
+### What the characteristics report about themselves
+
+Also from those rows, and worth having because it settles how the write must be made: the password characteristic's properties are `0x08`, write-with-response only, and the command result's are `0x12`, read plus notify. So `.withResponse` is not a choice about reliability here -- it is the only thing the characteristic supports -- and the answer can be read or subscribed to.
+
+### Timings
+
+For sizing timeouts, from the same trace: connect 1.03s, service and characteristic discovery 0.99s, the write acknowledged 85ms later, the answer read 60ms after that. A refusal, a one-second settle, a reconnect and a second PIN accepted took 5.46s end to end -- consistent with the archive's 5.4s worst case for scan-and-link across 36 connects.
+
+---
+
 ## Raised with the vendor
 
 Findings 1 to 3 are the subject of an issue against `DI-GROUP/TimeFlip.Docs`. The request is that the spec describe them, not that the behaviour change: a guaranteed-stable advertised name is genuinely useful for scan filtering once documented, rather than merely observed.
+
+**Finding 4 is different in kind and should be raised separately.** The other three are behaviour the spec is silent about; this one is a documented statement that is the wrong way round, and it is the sort of error that costs somebody a day. Either the firmware or the document is wrong, and the vendor is the only one who can say which was intended.
