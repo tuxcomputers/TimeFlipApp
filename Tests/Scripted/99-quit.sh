@@ -1,6 +1,12 @@
 #!/bin/bash
 # Quitting: the way out closes what was left open.
 #
+# **Numbered 99 so it stays last whatever is added before it.** This is the script that ends the app, so anything
+# after it would run against nothing at all -- and numbering it out at the end rather than one past the last leaves
+# every number in between free, so a new script takes the next one and nothing is renumbered to make room. That is
+# not hypothetical: `12-daily-limit` was written as `13` because quit held `12`, and it would have run after the app
+# had already gone.
+#
 # Last, because it ends with no app running. **This is the one thing that cannot be checked by looking at
 # the app afterwards**, so everything it proves is read out of the database once the process is gone.
 #
