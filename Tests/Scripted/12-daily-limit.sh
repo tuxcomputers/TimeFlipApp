@@ -125,10 +125,23 @@ else
     fail "it stopped ${total}s in, short of the $((LIMIT_MINUTES * 60))s limit"
 fi
 
+# ---------------------------------------------------------------------------- the menu bar says so
+#
+# **Red, which is the archive's colour for this** (`MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen`).
+# The accessibility tree carries no colour, so what is checked is the other half of the same change: the item's spoken
+# label names the limit. That is worth having on its own terms rather than as a proxy -- a colour is the whole of the
+# signal on screen, so the one state the item exists to warn about would otherwise be the one state it never mentions
+# to somebody who cannot see it.
+
+item=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
+check_contains "the status item says the limit is reached" "$item" "daily limit reached"
+check_contains "and it still names the category" "$item" "$NAME"
+
 # ---------------------------------------------------------------------------- the refusal
 #
-# Three ways to start a clock, and all three have to refuse. The dropdown greys its item and the right half does
-# nothing, which are the courtesies; `togglePause` refusing is the enforcement, and it is what these actually reach.
+# Three ways to start a clock, and all three have to refuse. The dropdown greys its item, the status item's right half
+# routes to nothing, and the Faces tab's glyph greys too -- those are the courtesies. `togglePause` refusing is the
+# enforcement behind all of them.
 
 # **The item is greyed, and it still reads Resume.** It says what clicking would do, and it will not do it: a dead
 # item claiming something else is on offer would be worse than a dead one telling the truth. The status item is not
@@ -146,12 +159,22 @@ check_contains "and it is greyed" "$resume" "disabled"
 press open-settings
 sleep 1.5
 
-# **The right half, not the menu item.** The item is disabled, so a click on it proves nothing; this goes through the
-# same `togglePause` a live one would and is refused at the end of it.
+# **The right half, not the menu item.** The item is disabled, so a click on it proves nothing; this is a real click
+# on a live target, routed and then refused.
+#
+# **It is refused at the router, which is why this waits for `ignore` rather than for `Resume refused`.**
+# `StatusItemClickRouter` asks the same `ManualTimerRules.isClickable` the other two do and answers `.ignore`, so
+# `togglePause` is never reached from this path and never logs. Measured on 2026-08-16: the first run of this script
+# asserted the `togglePause` row and failed with the click plainly recorded as ignored. The guard inside
+# `togglePause` is still real and still reachable -- the Faces tab's glyph goes through it -- but it is not what a
+# click here produces.
+#
+# The row says `state=paused` because the limit already stopped the clock, so what is being refused is precisely a
+# resume, which is the whole claim.
 since=$(mark)
 python3 scripts/status-item-click.py --right >/dev/null 2>&1
 sleep 1.5
-expect_log "the status item's right half refuses to resume" "$since" "%Resume refused%"
+expect_log "the status item's right half is a no-op" "$since" "%side=right%state=paused -> ignore%"
 check "and nothing started" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
 
 # ---------------------------------------------------------------------------- raising the limit lifts it

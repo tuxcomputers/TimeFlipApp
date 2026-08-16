@@ -1029,7 +1029,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// whether to keep going, and reading twice for one repaint would be two answers where one will do.
     private func draw(_ reading: TimingReadout.Reading) {
         guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
-        pane.timingView.show(category: reading.category, state: reading.state, elapsed: reading.seconds)
+        pane.timingView.show(
+            category: reading.category,
+            state: reading.state,
+            elapsed: reading.seconds,
+            isLimitReached: isLimitReached()
+        )
     }
 
     /// The manual face in use right now, which is `DeviceEventRecorder`'s answer to give: it owns the table the

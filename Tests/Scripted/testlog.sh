@@ -409,16 +409,25 @@ EOF
         echo "    finished: ${finished}"
         echo "    outcome:  ${outcome}"
         echo "    scripts:  ${scripts_run:-0} run, ${scripts_failed:-0} with failures"
-        echo "    checks:   ${passed} passed, ${failed} failed, ${skipped} skipped"
+        # The total first, because it is the figure somebody scans for: "how much did this run actually check?"
+        # A stamp that only gave the breakdown made that an addition somebody had to do in their head, and a run
+        # that skipped half its checks looked much like one that did not.
+        echo "    checks:   $(( passed + failed + skipped )) in total"
+        echo "              ${passed} passed"
+        echo "              ${failed} failed"
+        echo "              ${skipped} skipped"
         echo ""
-        echo "| script | passed | failed | skipped |"
-        echo "|---|---|---|---|"
+        echo "| script | total | passed | failed | skipped |"
+        echo "|---|---|---|---|---|"
         sqlite3 -noheader -separator '|' "$TESTLOG" \
             "SELECT name, passed, failed, skipped FROM script WHERE run_id = $run ORDER BY sequence;" \
             2>/dev/null |
             while IFS='|' read -r name p f s; do
-                echo "| $name | $p | $f | $s |"
+                echo "| $name | $(( p + f + s )) | $p | $f | $s |"
             done
+        # The totals again, on the bottom row, so the table adds up to the summary above it rather than asking
+        # to be trusted that it does.
+        echo "| **total** | **$(( passed + failed + skipped ))** | **${passed}** | **${failed}** | **${skipped}** |"
         echo ""
         if [ "${dirty:-0}" = "1" ]; then
             echo "> The working tree had uncommitted changes when this ran, so it is not evidence about the"

@@ -55,7 +55,8 @@ struct StatusItemTitle: Equatable {
         appLabel: String,
         badgeDescription: String?,
         reading: TimingReadout.Reading,
-        showingSeconds: Bool
+        showingSeconds: Bool,
+        isLimitReached: Bool = false
     ) -> StatusItemTitle {
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
         // starts. `guard` on both, though the readout only ever pairs them: a category with no state to draw, or a
@@ -84,11 +85,22 @@ struct StatusItemTitle: Equatable {
             iconName: category.iconName,
             glyphName: glyphName,
             duration: duration,
-            colour: .systemGreen,
+            // **Red once the category has spent its `daily_limit`**, which is the archive's colour and its meaning:
+            // `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen` on the same line. Green is a claim
+            // that time is being recorded normally, and once a limit has stopped the clock that claim is no longer
+            // true -- so the colour and the pause are two faces of one fact, drawn from the same answer
+            // (`DailyLimitEnforcement.isReached`) rather than from two comparisons that could disagree by a second.
+            colour: isLimitReached ? .systemRed : .systemGreen,
             spoken: spoken(
                 // The name first, then what the glyph means, then the figure, then whose menu bar item this is.
                 // Reading order, so the answer comes before the qualifications.
-                [category.name, reading.state == .running ? "running" : "paused", duration, appLabel],
+                //
+                // **The limit is said, not just coloured.** A colour is the whole of the signal on screen, so
+                // without this the one state the item exists to warn about would be the one state it did not
+                // mention to anybody reading it aloud.
+                [category.name, reading.state == .running ? "running" : "paused", duration]
+                    + (isLimitReached ? ["daily limit reached"] : [])
+                    + [appLabel],
                 badgeDescription: badgeDescription
             )
         )

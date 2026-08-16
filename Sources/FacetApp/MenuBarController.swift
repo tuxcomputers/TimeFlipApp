@@ -167,7 +167,10 @@ final class MenuBarController: NSObject {
             appLabel: Self.appLabel,
             badgeDescription: databaseBadge?.spokenDescription,
             reading: reading,
-            showingSeconds: showingSeconds()
+            showingSeconds: showingSeconds(),
+            // Asked per draw, like everything else here: the limit lands part way through a session, so a copy taken
+            // when the item was built would go on drawing green through the one state the colour exists to warn about.
+            isLimitReached: isLimitReached()
         )
         if title != lastDrawn {
             button.attributedTitle = makeTitle(title)

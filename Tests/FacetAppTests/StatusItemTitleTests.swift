@@ -19,14 +19,43 @@ final class StatusItemTitleTests: XCTestCase {
     private func title(
         _ reading: TimingReadout.Reading,
         showingSeconds: Bool = true,
-        badge: String? = nil
+        badge: String? = nil,
+        isLimitReached: Bool = false
     ) -> StatusItemTitle {
         StatusItemTitle.make(
             appLabel: appLabel,
             badgeDescription: badge,
             reading: reading,
-            showingSeconds: showingSeconds
+            showingSeconds: showingSeconds,
+            isLimitReached: isLimitReached
         )
+    }
+
+    // MARK: - a category over its daily limit
+
+    func testTheLineTurnsRedWhenTheLimitIsSpent() {
+        // The archive's colour and its meaning: `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen`.
+        // Green is a claim that time is being recorded normally, and a limit that stopped the clock ends that claim.
+        let reading = TimingReadout.Reading(category: category(), state: .paused, seconds: 3600)
+
+        XCTAssertEqual(title(reading, isLimitReached: true).colour, .systemRed)
+        XCTAssertEqual(title(reading, isLimitReached: false).colour, .systemGreen)
+    }
+
+    func testTheLimitIsSaidAloudAndNotOnlyColoured() {
+        // A colour is the whole of the signal on screen, so without this the one state the item exists to warn about
+        // is the one state it never mentions to somebody reading it aloud.
+        let reading = TimingReadout.Reading(category: category(), state: .paused, seconds: 3600)
+
+        XCTAssertTrue(title(reading, isLimitReached: true).spoken.contains("daily limit reached"))
+        XCTAssertFalse(title(reading, isLimitReached: false).spoken.contains("daily limit reached"))
+    }
+
+    func testTheLimitDoesNotColourAnIdleItem() {
+        // Nothing being timed keeps the app's name in the ordinary colour. There is no reading for red to be a claim
+        // about, which is the same reason idle is not green.
+        XCTAssertEqual(title(.idle, isLimitReached: true).colour, .labelColor)
+        XCTAssertFalse(title(.idle, isLimitReached: true).spoken.contains("daily limit reached"))
     }
 
     // MARK: - nothing being timed
