@@ -224,7 +224,11 @@ testlog_run_start() {
                      failed      = (SELECT IFNULL(SUM(s.failed), 0)  FROM script s WHERE s.run_id = run.run_id),
                      skipped     = (SELECT IFNULL(SUM(s.skipped), 0) FROM script s WHERE s.run_id = run.run_id)
                WHERE finished_epoch IS NULL;"
-        echo "  closed $stranded earlier run(s) that never finished, as abandoned"
+        # **To stderr, and this is not a style choice.** This function returns the new run id by *printing* it --
+        # `run.sh` does `TESTLOG_RUN_ID=$(testlog_run_start ...)` -- so anything else written to stdout is captured
+        # as part of the id. Writing this line to stdout made run 20 record nothing at all: all 14 scripts ran and
+        # passed on screen while every row went to a run id that was two lines of text.
+        echo "  closed $stranded earlier run(s) that never finished, as abandoned" >&2
     fi
 
     local branch commit dirty target built signing os
