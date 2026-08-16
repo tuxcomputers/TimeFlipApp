@@ -81,6 +81,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// way through a session, and a boolean set when the window opened would refuse the wrong thing.
     var isLimitReached: () -> Bool = { false }
 
+    /// The radio, made the first time somebody asks to scan and kept for the life of the window controller. See
+    /// `wireScan(on:)` for why it is not the pane's.
+    private var scanner: BluetoothScanner?
+
+    /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
+    ///
+    /// **Asked of the app rather than of a table, and that is right rather than an exception.** `ManualMode` is in
+    /// memory on purpose: it describes what this launch is doing, not durable configuration, and a stored copy would
+    /// be a second answer to "is a device paired". Held weakly for the ordinary reason a controller holds a
+    /// collaborator it does not own.
+    private weak var manualMode: ManualMode?
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
@@ -118,7 +130,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         entries: TimeEntryStore? = nil,
         icons: IconStore? = nil,
         colours: ColourStore? = nil,
-        settings: SettingStore? = nil
+        settings: SettingStore? = nil,
+        manualMode: ManualMode? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -129,6 +142,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.icons = icons
         self.colours = colours
         self.settings = settings
+        self.manualMode = manualMode
         super.init()
     }
 
@@ -168,6 +182,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // today is what both calendars are bounded by, so a window left open across midnight gets the new bounds
             // when the tab is next shown rather than going on refusing today.
             pane.refresh()
+
+        case let pane as DevicePane:
+            // **Re-read, where the App tab is not**, and the difference is that nothing here writes. The App tab
+            // holds its values because a re-read would undo a change made a moment ago; this tab has no change to
+            // undo, so the rule's plain form applies -- what it shows is read when it is about to be shown.
+            //
+            // It also has to be. Whether a cube is paired and whether one is reachable are not settings somebody
+            // typed, they are facts that move underneath this window, and showing what was true when it opened is
+            // exactly the two-answers problem `CLAUDE.md` exists for.
+            pane.show(deviceSettings())
 
         default:
             break
@@ -214,6 +238,116 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
                 name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
             )
+        )
+    }
+
+    /// The Device tab, drawn from the tables and wired to nothing.
+    ///
+    /// **No control on it writes**, because there is no Bluetooth in this app yet for one to write to. The tab is the
+    /// shape the device work gets built into; what each control does arrives with the feature that can honestly do
+    /// it. The folds are recorded, because they are the one thing on the tab that already works.
+    private func makeDevicePane() -> DevicePane {
+        let pane = DevicePane()
+        pane.onToggle = { [weak self] identifier, isExpanded in
+            self?.debugLog?.record(.tab, "Device section \(identifier) \(isExpanded ? "opened" : "folded")")
+        }
+        pane.show(deviceSettings())
+        wireScan(on: pane)
+        return pane
+    }
+
+    /// Connects the TimeFlip section's button to the radio.
+    ///
+    /// **The two names the filter matches on are read here, as the scan starts**, rather than being handed to the
+    /// scanner when it was built or kept alongside it. That is the first rule in `CLAUDE.md` applied to the one place
+    /// on this tab where a stale read has a visible cost: a cube renamed since the window opened would be filtered
+    /// out of the list under its old name, which is the exact moment somebody is watching for the new one.
+    ///
+    /// **The scanner outlives the pane and the pane does not own it.** Panes are rebuilt as tabs are switched, and a
+    /// scanner rebuilt with them would drop the manager mid-scan and start the system's Bluetooth prompt again. So it
+    /// is made once, lazily, and told where to draw.
+    private func wireScan(on pane: DevicePane) {
+        let scanner = deviceScanner()
+        scanner.onScanningChanged = { [weak pane, weak scanner] isScanning in
+            pane?.showScanning(isScanning)
+            guard !isScanning, let scanner else { return }
+            // **Said only once the radio has stopped**, so it is a result rather than a progress report. Before the
+            // timeout existed there was nothing that could honestly say this: a scan that never ended could only
+            // ever be "looking", however long it had heard nothing.
+            pane?.showScanMessage(
+                scanner.deviceCount == 0
+                    ? "No devices found."
+                    : "Found \(scanner.deviceCount) device\(scanner.deviceCount == 1 ? "" : "s")."
+            )
+        }
+        scanner.onDevicesChanged = { [weak pane] devices in pane?.showFound(devices) }
+        scanner.onUnavailable = { [weak pane] reason in
+            guard let pane else { return }
+            pane.showScanMessage(reason?.message ?? (pane.isScanning ? "Looking for devices..." : ""))
+        }
+        pane.onScan = { [weak self] includeEverything in
+            guard let self else { return }
+            self.debugLog?.record(
+                .click, "Button clicked: Scan for Devices (allDevices=\(includeEverything))"
+            )
+            // Two reads rather than one, because the store answers a field at a time. Both are of the same row and
+            // both happen here, at the moment the scan starts.
+            scanner.start(
+                filterToTimeFlip: !includeEverything,
+                remembered: self.settings?.string("device_name", field: "name"),
+                previouslyKnown: self.settings?.string("device_name", field: "previous_name")
+            )
+        }
+        pane.onStopScan = { [weak self] in
+            self?.debugLog?.record(.click, "Button clicked: Stop Scan")
+            scanner.stop()
+        }
+        pane.showScanning(scanner.isScanning)
+    }
+
+    private func deviceScanner() -> BluetoothScanner {
+        if let scanner { return scanner }
+        let made = BluetoothScanner(debugLog: debugLog)
+        scanner = made
+        return made
+    }
+
+    /// What the `setting` table says about the Device tab, now.
+    ///
+    /// Each row falls back to what a fresh database would have seeded, for the reason `appSettings()` gives:
+    /// `SettingStore` answers `nil` for a missing or malformed row and refuses to guess what absence means.
+    ///
+    /// **Four of these have no row to read and arrive `nil` every time**: the battery level and the four strings the
+    /// cube reports about itself are read off a live connection and are deliberately not stored, a remembered reading
+    /// being a number that was true at a moment nobody can name. `DeviceInfoRules` is what turns their absence into
+    /// words rather than blanks.
+    ///
+    /// **Manual mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
+    /// rule's own reasoning: `ManualMode` is in memory on purpose, describing what this launch is doing rather than
+    /// durable configuration, and storing it would create a second answer to "is a device paired". See its own note.
+    private func deviceSettings() -> DevicePane.Values {
+        let seeded = DevicePane.Values.seeded
+        guard let settings else { return seeded }
+        return DevicePane.Values(
+            isPaired: settings.flag("paired", field: "paired") ?? seeded.isPaired,
+            isConnected: settings.flag("connection", field: "connected") ?? seeded.isConnected,
+            isManualMode: manualMode?.isOn ?? seeded.isManualMode,
+            deviceName: settings.string("device_name", field: "name"),
+            batteryPercent: nil,
+            manufacturer: nil,
+            model: nil,
+            hardware: nil,
+            firmware: nil,
+            autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
+            ledBrightnessPercent: settings.integer("led_settings", field: "brightness")
+                ?? seeded.ledBrightnessPercent,
+            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds,
+            isDoubleTapEnabled: settings.flag("double_tap_settings", field: "enabled") ?? seeded.isDoubleTapEnabled,
+            doubleTapThreshold: settings.integer("double_tap_settings", field: "clickThreshold")
+                ?? seeded.doubleTapThreshold,
+            doubleTapLimit: settings.integer("double_tap_settings", field: "limit") ?? seeded.doubleTapLimit,
+            doubleTapLatency: settings.integer("double_tap_settings", field: "latency") ?? seeded.doubleTapLatency,
+            doubleTapWindow: settings.integer("double_tap_settings", field: "window") ?? seeded.doubleTapWindow
         )
     }
 
@@ -1215,6 +1349,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // The clock keeps running; only the repainting stops. The figure comes from what is recorded rather than
         // from anything counting up in here, so a closed window costs nothing and misses nothing.
         stopTicking()
+        // **The scan does not keep running**, unlike the clock, and the difference is who it is for. A clock nobody
+        // is looking at still records the day; a scan nobody is looking at is a radio left listening with no control
+        // on screen to stop it and nothing saying it is happening. The archive stopped it on close for the same
+        // reason (`clearDiscoveredDevicesOnClose`), and this app not doing so was an omission rather than a decision.
+        stopScanning(because: "the Settings window closed")
+    }
+
+    /// Stops any scan and says what stopped it, for the two moments that are not the button.
+    ///
+    /// Silent when nothing is scanning, which is nearly always: this is called on every close and every tab change,
+    /// and a log line each time would bury the ones that mean something.
+    private func stopScanning(because reason: String) {
+        guard let scanner, scanner.isScanning else { return }
+        debugLog?.record(.scan, "Stopping the scan: \(reason)")
+        scanner.stop()
     }
 
     private func makeWindow() -> NSWindow {
@@ -1395,6 +1544,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         guard let label = tabViewItem?.label else { return }
         debugLog?.record(.tab, "Settings tab selected: \(label)")
+        // Leaving the tab ends the scan, for the reason closing the window does: the list it is filling is on the
+        // Device tab and nowhere else, so a scan running behind the Report tab is a radio on with no way to see it.
+        // This fires for the switch *onto* Device too, where there is nothing running to stop.
+        stopScanning(because: "the \(label) tab was selected")
         reloadSelectedPane()
     }
 
@@ -1674,8 +1827,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case .categories: pane = CategoriesPane()
         case .app: pane = AppSettingsPane()
         case .report: pane = makeReportPane()
-        // Empty, and it becomes its own view when there is something to put in it.
-        case .device: pane = NSView()
+        case .device: pane = makeDevicePane()
         }
         // The tab view hands each pane the content rect and resizes it from there, so the pane keeps
         // its autoresizing frame rather than being pinned by constraints from out here.

@@ -51,6 +51,9 @@ final class DebugLog {
         case sync
         /// A category spending its `daily_limit`, and the clock being stopped for it (`DailyLimitWatch`).
         case limit
+        /// Looking for a device: what the radio is doing, and both names of every advertisement listed
+        /// (`BluetoothScanner`). Both, because the scan list is where the two disagree.
+        case scan
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

@@ -47,6 +47,28 @@ final class MenuBarControllerTests: XCTestCase {
         return controller
     }
 
+    // MARK: - how wide the item has to be
+
+    func testALongerTitleNeedsAWiderItem() {
+        // **The background macOS 26 draws behind a status item is sized from `NSStatusItem.length`**, and left to
+        // `variableLength` that length did not follow a title that grew: timing "1" and then switching to
+        // "SCRIPTED 1 REACTIVATE" drew the longer text spilling out of a capsule still the width of the shorter one
+        // (seen 2026-08-16). The item is measured on every change now, so this is the measurement.
+        let controller = controller()
+        let short = NSAttributedString(string: "1")
+        let long = NSAttributedString(string: "SCRIPTED 1 REACTIVATE")
+
+        XCTAssertGreaterThan(controller.width(of: long), controller.width(of: short))
+    }
+
+    func testTheWidthLeavesRoomEitherSideOfTheInk() {
+        // A measured string is the ink. Without the padding the last character sits on the edge of that background.
+        let controller = controller()
+        let text = NSAttributedString(string: "Facet")
+
+        XCTAssertGreaterThan(controller.width(of: text), ceil(text.size().width))
+    }
+
     private func menu() -> NSMenu {
         let controller = controller()
         let menu = controller.makeMenu()

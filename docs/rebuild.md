@@ -17,7 +17,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 
 - [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
-- [ ] **[Device tab](#device-tab)**: nothing so far.
+- [ ] **[Device tab](#device-tab)**: the three sections are drawn and every value on them is read from the database; no control on the tab writes, there being no Bluetooth for one to write to.
 - [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, renamed, given an icon, a colour or a limit, retired or brought back. Its cost and its project still cannot be changed.
 - [ ] **[Report tab](#report-tab)**: a date or range is picked on two hand-drawn calendars, what each category recorded over it is totalled underneath, and a category folds open to the individual entries behind its total.
 - [ ] **[App tab](#app-tab)**: the App settings section is built and all six rows write to the database.
@@ -79,7 +79,16 @@ Three gestures now pause: the glyph on the Faces tab, the dropdown item, and the
 
 ## Device tab
 
-Nothing so far. Nothing talks to the cube yet, and manual mode stands in for all of it.
+The tab is drawn and wired to nothing. Nothing talks to the cube yet, and manual mode stands in for all of it.
+
+### Done, in the order it was built
+
+- [x] **The three sections** ([DevicePane.swift](../Sources/FacetApp/DevicePane.swift)): Info, Settings and TimeFlip, each a heading over a rounded panel of rows, to the archive's shape and `AppSettingsPane`'s measurements. Those two tabs are the ones made of settings rows, and two lists of rows at different rhythms would read as two windows.
+- [x] **Every value read from the database**, at the moment the tab is shown, and re-read on every switch back to it. This tab is re-read where the App tab is not, and the difference is that nothing here writes: whether a cube is paired and whether one is reachable are not settings somebody typed, they are facts that move underneath the window.
+- [x] **What "no device" means, said three different ways** ([DeviceInfoRules.swift](../Sources/FacetApp/DeviceInfoRules.swift)): nothing paired, paired but unreachable, and manual mode. The archive kept them apart and the reasoning survives: "Disconnected" is true of the cube and no answer at all to why the app is plainly still recording time. The values grey together while nothing is live, so a placeholder cannot be mistaken for a reading.
+- [x] **A folding row that is a row rather than a panel** ([DisclosureRow.swift](../Sources/FacetApp/DisclosureRow.swift)): *More*, *LED* and *Double tap* are lines of a list that already has a panel, which is `CLAUDE.md`'s second case for a collapsible group. The whole heading line presses, the words sit inside the button, and the bottom edge moves when it folds.
+
+**No control on it writes**, and none can until there is a radio to write to. The tab is the shape the rest of the device work gets built into; what each control does arrives with the feature that can honestly do it. The battery level and the four *More* details have no row to read and show `Unknown`: they come off a live connection and are deliberately not stored, a remembered reading being a number that was true at a moment nobody can name.
 
 ### Still to do
 
