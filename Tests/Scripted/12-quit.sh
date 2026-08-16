@@ -17,7 +17,7 @@ open_settings
 select_tab Faces
 
 # Something to leave running, so the quit has work to do.
-NAME="Quit $(date '+%H:%M:%S')"
+NAME=$(next_name Quit)
 since=$(mark)
 press create-category
 sleep 0.5

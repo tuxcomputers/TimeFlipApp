@@ -36,22 +36,66 @@ pass "an account is connected ($email)"
 check_contains "the tab shows the connected email" "$(element app-google-email)" "$email"
 check_contains "and says so in the Status row" "$(element app-google-status)" "Connected"
 
-# ---------------------------------------------------------------------------- the calendar
+# ---------------------------------------------------------------------------- making the calendar
+#
+# **The ordinary state here is "no calendar".** 00 deletes last run's and blanks the row, so the tab shows
+# its Create button and this makes a fresh one every run. That is not tidiness: Google keeps a deleted
+# *event* for ever as `cancelled` and will not reissue its id, while Facet derives event ids from
+# `time_entry_id`, which a rebuilt database restarts at 1. Reusing the calendar therefore means every run
+# after the first colliding with its predecessor's ids and never syncing a thing. A new calendar has none
+# of them. See `delete-calendar.py`.
+#
+# A `--keep` run finds the calendar already there and goes straight on.
+
+stored_name() { sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';"; }
+stored_id() { sql "SELECT json_extract(setting_value, '\$.calendar_id') FROM setting WHERE setting_name = 'google_account';"; }
 
 if [ -z "$calendar_id" ]; then
-    skip "connected, but no calendar has been made yet -- nothing to sync into"
-    finish
-    exit 0
+    since=$(mark)
+    press app-google-calendar-create
+    expect_log "with no calendar, Create makes one" "$since" "Google calendar created,%" 45
+    calendar_id=$(stored_id)
+    if [ -z "$calendar_id" ]; then
+        fail "no calendar id was recorded, so there is nothing to sync into"
+        finish
+        exit 1
+    fi
+    # Made under the app's own default. The rename below is what turns it into the test one, and it can
+    # only be asserted because this is known.
+    check "and it is called Facet, the name the app makes them under" "Facet" "$(stored_name)"
+else
+    pass "a calendar is already there ($(printf '%.20s' "$calendar_id")...), so this is a --keep run"
 fi
 
-pass "a calendar is stored ($(printf '%.20s' "$calendar_id")...)"
+check_contains "the Calendar row shows its name" "$(element app-google-calendar)" "$(stored_name)"
 
-calendar_name=$(sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';")
-check_contains "the Calendar row shows its name" "$(element app-google-calendar)" "$calendar_name"
+# ---------------------------------------------------------------------------- renaming it
+#
+# **The rename is a real one, at Google.** The row is written from what Google answers rather than from
+# what was typed, so a name that only changed inside Facet would fail here rather than look like a pass.
+#
+# The same cell a category name uses: click the name, it becomes a field, Return commits.
 
-# **The name is a label and the id is the identity.** The row is editable and a rename goes to Google, so
-# what must never happen is the name deciding anything.
-check "the name is not what identifies it" "1" "$([ -n "$calendar_id" ] && echo 1 || echo 0)"
+WANTED="Facet-test"
+
+if [ "$(stored_name)" = "$WANTED" ]; then
+    # Only reachable on a --keep run. The app refuses to spend a request renaming a name to itself
+    # (`calendarNamed` returns early when nothing changed), so there would be no rename to observe.
+    skip "already called $WANTED, so there is no rename to make (--keep)"
+else
+    since=$(mark)
+    press app-google-calendar
+    sleep 0.5
+    set_field app-google-calendar-field "$WANTED"
+    press_return
+    expect_log "renaming the calendar goes to Google" "$since" "Google calendar renamed to $WANTED" 45
+    check "the row records the new name" "$WANTED" "$(stored_name)"
+    check_contains "and the Calendar row shows it" "$(element app-google-calendar)" "$WANTED"
+fi
+
+# **The name is a label and the id is the identity.** A rename that moved to a different calendar would
+# leave every event already written behind, under a calendar nothing points at any more.
+check "the rename did not change which calendar it is" "$calendar_id" "$(stored_id)"
 
 # ---------------------------------------------------------------------------- an entry reaching it
 #
@@ -60,7 +104,7 @@ check "the name is not what identifies it" "1" "$([ -n "$calendar_id" ] && echo 
 # means -- so a pass here is "the event is at Google and is right", not "a request returned 200".
 
 select_tab Faces
-NAME="Sync $(date '+%H:%M:%S')"
+NAME=$(next_name Sync)
 since=$(mark)
 press create-category
 sleep 0.5

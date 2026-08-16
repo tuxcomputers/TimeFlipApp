@@ -34,8 +34,8 @@ start "seeding the database before anything runs against it"
 apply_private_seeds
 
 # Before the entries below are seeded, so what ends up in the calendar is this run's doing and nothing
-# else's. The sweep in 10 is what puts them there.
-clear_google_calendar
+# else's. The sweep in 10 is what puts them there, into a calendar 10 makes.
+delete_google_calendar
 
 # ---------------------------------------------------------------------------- history with fractions
 #

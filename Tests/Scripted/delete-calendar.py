@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
-"""Deletes every event from the one calendar Facet made, so a run starts against an empty one.
+"""Deletes the calendar Facet made, so a run starts by making a new one.
 
-Without this a clean run leaves its events behind and the next one adds more, so the calendar fills with
-weeks of `Scripted 09:14:22` and nothing can be told apart by eye. Clearing it makes what a run put there
-the only thing in it.
+**Deleting the calendar, not emptying it.** Emptying it was the obvious version and it was wrong, in a
+way that took a whole green run to notice (2026-08-16):
 
-**Scoped to one calendar and refuses to widen.** The id comes from the private seed and nothing else, and
-this will not run without one: a bug that reached for the primary calendar would be deleting somebody's
-actual diary. The OAuth scope this app holds (`calendar.app.created`) cannot touch a calendar it did not
-make, which is a second wall behind this one rather than a reason to skip the first.
+Google does not remove a deleted event. It keeps it as `cancelled`, and **its id can never be used
+again**. Facet's event ids are derived from the row -- `facet<time_entry_id>` -- and a clean run rebuilds
+the database, so `time_entry_id` restarts at 1. Deleting the events therefore burned exactly the ids the
+next run was going to ask for: `insert` came back 409, the read-back said `cancelled`, the row was never
+ticked, and every later sweep retried the same rows for ever. The suite reported ALL PASSED with four
+entries permanently stuck, because it only ever checked the entry it had just made.
+
+A new calendar has no cancelled ids in it, so the collision cannot happen at all. That is the whole
+reason this deletes rather than empties.
+
+**Scoped to the calendar in the private seed and refuses to widen.** The id comes from there and nowhere
+else, and this will not run without one: a bug that reached for the primary calendar would be deleting
+somebody's actual diary. The OAuth scope Facet holds (`calendar.app.created`) cannot touch a calendar it
+did not make, which is a second wall behind this one rather than a reason to drop the first.
 
 The refresh token comes out of the login Keychain, which is not this script's item -- **macOS asks the
-first time**, once, and remembers if you answer "Always Allow". There is no way around that short of
-keeping a second copy of the token outside the Keychain, which is exactly what the app deliberately does
-not do.
+first time**, once, and remembers if you answer "Always Allow".
 
 Exits 0 with a message when it cannot run (no seed, no token, no network). Nothing here is worth failing
-a whole run over: the events are cosmetic.
+a whole run over: the app makes a calendar when it finds none, so a run that could not delete the old one
+still has every other check in it.
 """
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -35,18 +42,39 @@ API = "https://www.googleapis.com/calendar/v3/calendars"
 
 
 def give_up(reason):
-    print(f"  not clearing the calendar: {reason}")
+    print(f"  not deleting the calendar: {reason}")
     sys.exit(0)
 
 
-def calendar_id():
+def pending():
+    """Every calendar this harness has made and not yet managed to delete.
+
+    **A list rather than the one current id, because nothing can go and look afterwards.**
+    `calendarList.list` returns nothing usable under `calendar.app.created` (measured 2026-08-15), so a
+    calendar this misses is invisible from then on and has to be deleted by hand in Google Calendar. A
+    delete that fails therefore cannot be forgotten: the id stays here and is tried again next run, so a
+    run without network defers the cleanup instead of orphaning it.
+    """
     if not SEED.exists():
         give_up("no private seed, so no calendar is known")
-    account = json.loads(json.loads(SEED.read_text()).get("google_account", "{}"))
-    found = (account.get("calendar_id") or "").strip()
-    if not found:
-        give_up("the seed holds no calendar id")
-    return found, (account.get("calendar_name") or "unnamed")
+    seed = json.loads(SEED.read_text())
+
+    ids = [str(one).strip() for one in seed.get("calendars") or [] if str(one).strip()]
+    # A seed written before the list existed carries only the current id.
+    account = json.loads(seed.get("google_account", "{}"))
+    current = (account.get("calendar_id") or "").strip()
+    if current and current not in ids:
+        ids.append(current)
+
+    if not ids:
+        give_up("the seed names no calendar")
+    return seed, ids
+
+
+def remember(seed, ids):
+    seed["calendars"] = ids
+    SEED.write_text(json.dumps(seed, indent=2))
+    SEED.chmod(0o600)
 
 
 def access_token():
@@ -77,52 +105,34 @@ def access_token():
         give_up(f"could not get an access token ({error})")
 
 
-def request(url, token, method="GET"):
-    call = urllib.request.Request(url, method=method)
+def delete(identifier, token):
+    """True when the calendar is gone, however it got that way."""
+    call = urllib.request.Request(f"{API}/{urllib.parse.quote(identifier, safe='')}", method="DELETE")
     call.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(call, timeout=30) as answer:
-        raw = answer.read()
-        return json.loads(raw) if raw else {}
+    try:
+        urllib.request.urlopen(call, timeout=30)
+        return True
+    except urllib.error.HTTPError as error:
+        # Already gone is the outcome being asked for.
+        return error.code in (404, 410)
+    except (urllib.error.URLError, TimeoutError):
+        return False
 
 
 def main():
-    identifier, name = calendar_id()
+    seed, ids = pending()
     token = access_token()
-    quoted = urllib.parse.quote(identifier, safe="")
 
-    # Every page, since a calendar with a few hundred events in it is exactly the one worth clearing.
-    # `showDeleted=false` so events already cancelled are not deleted a second time.
-    events, page = [], None
-    while True:
-        url = f"{API}/{quoted}/events?maxResults=250&showDeleted=false"
-        if page:
-            url += f"&pageToken={page}"
-        try:
-            answer = request(url, token)
-        except urllib.error.HTTPError as error:
-            give_up(f"could not list events ({error.code})")
-        events.extend(item["id"] for item in answer.get("items", []) if item.get("id"))
-        page = answer.get("nextPageToken")
-        if not page:
-            break
+    left = [one for one in ids if not delete(one, token)]
+    remember(seed, left)
 
-    if not events:
-        print(f"  the {name} calendar is already empty")
-        return
-
-    deleted, failed = 0, 0
-    for event in events:
-        try:
-            request(f"{API}/{quoted}/events/{urllib.parse.quote(event, safe='')}", token, method="DELETE")
-            deleted += 1
-        except urllib.error.HTTPError as error:
-            # 410 is already gone, which is the outcome being asked for.
-            if error.code == 410:
-                deleted += 1
-            else:
-                failed += 1
-
-    print(f"  cleared {deleted} event(s) from the {name} calendar" + (f", {failed} refused" if failed else ""))
+    deleted = len(ids) - len(left)
+    if left:
+        # Said out loud rather than passed over. These are invisible to everything but this file, so a run
+        # that quietly gave up on them is how somebody ends up with a column of Facet-test calendars.
+        print(f"  deleted {deleted} calendar(s), {len(left)} would not go and will be tried again")
+    else:
+        print(f"  deleted {deleted} calendar(s), none left behind")
 
 
 if __name__ == "__main__":
