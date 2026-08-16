@@ -557,15 +557,21 @@ sleep 1
 expect_log "cancelling a rename is recorded" "$since" "%not renamed%"
 check "and the name is untouched" "$RENAMED" "$(sql "SELECT category_name FROM category WHERE category_id = $ID;")"
 
-# ---- a rejected name is handed back, not thrown away
+# ---- renaming onto an active namesake
 #
-# **The field stays open, still holding what was typed.** Renaming onto a name an active category already
-# holds is refused, and the refusal leaves the edit exactly where it was so it can be corrected or
-# abandoned. Closing it would make the only two things left to do -- fix the name, or give up -- both start
-# with retyping it.
+# **The edit closes, and the name has to be typed again.** That is what the app does, and it is not what it
+# should do: a refused name is the one outcome where something is still owed, and both of the things left
+# to do -- correct it, or give up -- currently start from scratch.
 #
-# This is the one rename outcome that does not reload the row, and deliberately so: every other one is
-# finished, and this one is not.
+# Handing the field back was built and reverted (8b2b3b0). It half-worked in a way that was worse than not
+# having it: the field appeared on screen holding the rejected name, but the cell did not consider itself
+# editing, so typing into it and pressing Return did nothing at all. Reaching into the row from the window
+# after the sheet has been answered is the wrong shape. The cell has to decide not to close in the first
+# place, which means the commit path needs the outcome before it closes rather than after -- a change to
+# `controlTextDidEndEditing`, not a call bolted on behind it.
+#
+# So this checks what is true today. When that changes, the two checks to add back are that the field is
+# still open and still holds the rejected name.
 
 since=$(mark)
 begin_rename "$reactivate_id"
@@ -578,31 +584,26 @@ sleep 1
 
 check "the table is untouched" "$REACTIVATE" "$(sql "SELECT category_name FROM category WHERE category_id = $reactivate_id;")"
 
-# The field, not the button. A row showing its old name again would mean the typed one was discarded.
-check_contains "the field is still open after the refusal" "$(element "category-name-$reactivate_id-field")" \
-    "id=category-name-$reactivate_id-field"
-check_contains "still holding the name that was rejected, ready to be fixed" \
-    "$(element "category-name-$reactivate_id-field")" "value=$RENAMED"
-
-# ---- fixing it in place, without starting again
+# ---- capitalisation only is not a collision
 #
-# Straight into the open field, with no press to reopen it, because that is the whole point of leaving it
-# open. The correction doubles as the case that only looks like a collision: **a row is not in its own
-# way.** Names are matched case-insensitively, as the unique index is, so a category matches itself when
-# only its capitalisation changes, and refusing that would make the one edit nobody can argue with
-# impossible.
+# **A row is not in its own way.** Names are matched case-insensitively, as the unique index is, so a
+# category matches itself when only its capitalisation changes, and refusing that would make the one edit
+# nobody can argue with impossible.
+#
+# Reopened with a press, since the refusal above closed it.
 
 CAPITALISED=$(printf '%s' "$REACTIVATE" | tr '[:lower:]' '[:upper:]')
 since=$(mark)
+begin_rename "$reactivate_id"
 set_field_focused "category-name-$reactivate_id-field" "$CAPITALISED"
 press_return
 sleep 1
-expect_log "correcting it in the open field is offered, not refused" "$since" "%rename -> \"$CAPITALISED\", asking%"
+expect_log "changing only the capitalisation is offered, not refused" "$since" "%rename -> \"$CAPITALISED\", asking%"
 press_title Rename
 sleep 1
-check "and the correction lands" "$CAPITALISED" "$(sql "SELECT category_name FROM category WHERE category_id = $reactivate_id;")"
+check "and it lands" "$CAPITALISED" "$(sql "SELECT category_name FROM category WHERE category_id = $reactivate_id;")"
 
-# Finished this time, so the row goes back to being a name rather than a field.
+# Finished, so the row goes back to being a name rather than a field.
 check_contains "the field closes once a rename is accepted" "$(tree)" "id=category-name-$reactivate_id "
 
 finish

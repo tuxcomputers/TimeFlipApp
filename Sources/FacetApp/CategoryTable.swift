@@ -127,19 +127,6 @@ final class CategoryTable: NSView {
         shownCategories = categories
     }
 
-    /// Hands a refused name back to the row it was typed into, with the edit still open.
-    ///
-    /// Reached from the window, which is the only place that knows a rename was refused, and finds the row by id
-    /// rather than by position: the list is sorted by name, so an index taken before the alert can be pointing
-    /// somewhere else by the time it is answered.
-    func resumeRename(categoryID: Int, holding typed: String) {
-        for view in rows.views {
-            guard let row = view as? CategoryTableRow, row.category.id == categoryID else { continue }
-            row.nameCell?.resumeEditing(holding: typed)
-            return
-        }
-    }
-
     /// **The tint is the section's, not this list's** ([CategorySection]). The heading sits on the same panel as the
     /// rows -- which is what the archive's grouped form did -- and a list drawing its own tinted box inside that one
     /// would stack two translucent fills, leaving the rows visibly darker than the heading above them.
