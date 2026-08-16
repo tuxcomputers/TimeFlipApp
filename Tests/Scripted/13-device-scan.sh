@@ -31,6 +31,10 @@ if ! action_required \
     "2. Check Bluetooth is on." \
     "3. Press y and leave everything alone; the scan runs by itself." \
     "" \
+    "The FIRST scan on a new build makes macOS ask whether Facet may use Bluetooth." \
+    "If that prompt appears, allow it -- until you do, the radio never answers and" \
+    "this script fails with the scan never starting." \
+    "" \
     "Answer anything else to skip this script. The rest of the run is unaffected."; then
     skip "no TimeFlip was made available, so the scan has nothing to find"
     finish
@@ -50,22 +54,36 @@ check_contains "the Device tab is on show" "$(tree)" "id=device-scan"
 
 since=$(mark)
 press device-scan
-sleep 1.5
+sleep 0.5
 
 expect_log "pressing Scan starts a filtered scan" "$since" "%Scan requested, TimeFlip only%"
 
-# The button says what pressing it would do, so while a scan runs it offers to stop.
-check_contains "and the button offers to stop it" "$(tree | grep -m1 'id=device-scan ' || true)" "Stop Scan"
+# **Waited for, not slept through**, which is the rule the archive wrote down and this script broke on its first run.
+# Pressing the button does not start a scan: `start` builds the central manager and returns, and the scan begins in
+# the state callback that follows. On the first use of a new build that gap holds the macOS Bluetooth permission
+# prompt, so it is as long as somebody takes to answer -- run 24 checked the button 1.5 seconds in, found it still
+# reading "Scan for Devices", and reported a dead button when the app was waiting for an answer.
+grey "  waiting for the radio to come up..."
+if wait_for "$since" "%Bluetooth state:%" 60 >/dev/null; then
+    pass "the radio answered"
+else
+    fail "the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
+    finish
+    exit 1
+fi
 
 # **Bluetooth being off is not this app's failure**, and is the one empty list that means nothing about the scan.
-# Checked before the wait rather than after it, so an unusable radio costs a second instead of the full timeout.
+# Checked before the button rather than after it: an unusable radio leaves the button reading "Scan for Devices"
+# perfectly correctly, so checking the title first reports the wrong thing.
 unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
 if [ -n "$unavailable" ]; then
     skip "the radio is unusable, so nothing can be found ($unavailable)"
-    press device-scan
     finish
     exit 0
 fi
+
+# The button says what pressing it would do, so while a scan runs it offers to stop.
+check_contains "and the button offers to stop it" "$(tree | grep -m1 'id=device-scan ' || true)" "Stop Scan"
 
 # **The wait is the test.** Nothing is pressed here: what is being checked is that an advertisement arrives and
 # survives the filter. Twenty-five seconds is generous for a cube that is awake and close, and an advertising
