@@ -620,8 +620,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.activeTable.onPickColour = { [weak self] category, anchor in
             self?.pickColour(for: category, from: anchor)
         }
-        pane.activeTable.onRename = { [weak self] category, typed in
-            self?.rename(category, to: typed)
+        pane.activeTable.onRename = { [weak self, weak table = pane.activeTable] category, typed in
+            self?.rename(category, to: typed, in: table)
         }
         pane.activeTable.onRenameEditingChanged = { [weak self] isEditing in
             // The same loan the create control gets, for the same reason: a key equivalent is dispatched before the
@@ -721,7 +721,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// The decision is `CategoryRenameRules`', taken against the whole `category` table rather than either list on
     /// screen, since the name may be held by a row this tab is not showing.
-    private func rename(_ category: CategoryRecord, to typed: String) {
+    private func rename(_ category: CategoryRecord, to typed: String, in table: CategoryTable? = nil) {
         guard let categories else { return }
         let decision = CategoryRenameRules.decision(
             rawName: typed,
@@ -755,6 +755,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let name else {
                 self?.debugLog?.record(.click, "Button clicked: Cancel, \"\(category.name)\" rename refused, name taken")
+                // **Handed back rather than thrown away.** The name is unusable and only the person who typed it can
+                // say what it should have been, so the edit is reopened holding what they wrote. Closing it would make
+                // both of the things left to do -- correct the name, or give up -- start with typing it again.
+                //
+                // Reopened rather than never closed: committing closes the field before anybody knows what will come
+                // of it, and this is the one outcome where something is still owed.
+                table?.resumeRename(categoryID: category.id, holding: CategoryCreateRules.normalise(typed))
                 return
             }
             let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue

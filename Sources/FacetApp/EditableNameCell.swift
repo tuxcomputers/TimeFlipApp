@@ -84,10 +84,13 @@ final class EditableNameCell: NSView {
 
     /// Turns the name into a field, focused, with the current name in it and selected, so typing replaces it and
     /// clicking puts a caret where it was clicked.
-    func beginEditing() {
+    ///
+    /// `holding` is for reopening an edit whoever asked for it has not finished with: a name the window refused is
+    /// put back the way it was typed, rather than reverting to the name on the row. See `resumeEditing(holding:)`.
+    func beginEditing(holding typed: String? = nil) {
         guard isEnabled, !isEditing else { return }
         isEditing = true
-        field.stringValue = name
+        field.stringValue = typed ?? name
         button.isHidden = true
         field.isHidden = false
         window?.makeFirstResponder(field)
@@ -112,6 +115,21 @@ final class EditableNameCell: NSView {
             window?.makeFirstResponder(nil)
         }
         onEditingChanged?(false)
+    }
+
+    /// Hands a refused name back, with the edit open and the text still in it.
+    ///
+    /// **A name the window would not take is not a finished edit.** Committing always closes the field first, because
+    /// `controlTextDidEndEditing` cannot know yet whether anything will come of it, and for every outcome but one that
+    /// is right: the rename landed, or it was cancelled, and either way there is nothing left to do. A refusal is the
+    /// exception. The name is unusable, the person who typed it is the only one who can say what it should have been,
+    /// and closing the field would make both of the things left to do -- correct it, or give up -- start with typing
+    /// it again from the beginning.
+    ///
+    /// Reopening rather than never closing, because the alert is answered asynchronously: by the time anyone knows the
+    /// name was refused, the edit is already over.
+    func resumeEditing(holding typed: String) {
+        beginEditing(holding: typed)
     }
 
     /// Whether a click at this window point is outside the field being edited. Separate from acting on it so the rule
