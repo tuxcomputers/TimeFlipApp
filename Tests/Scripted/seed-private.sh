@@ -47,11 +47,26 @@ except Exception:
     # A delete that fails leaves the id in the row, so the next capture picks it up again and the next run
     # tries once more. Nothing else is needed to make that work, which is why the separate retry list this
     # used to carry has gone.
+    # **A capture never trades a known calendar for a blank one.** The database can legitimately hold no
+    # calendar -- a run that deleted one and stopped before making another leaves exactly that -- and
+    # writing that over the seed would throw away the only record of a calendar still sitting in somebody's
+    # account, which nothing can then find again. So an empty id yields to the one already on file.
     printf '%s' "$value" | SEED_FILE="$SEED" python3 -c "
 import json, os, pathlib, sys
 
 path = pathlib.Path(os.environ['SEED_FILE'])
-path.write_text(json.dumps({'google_account': sys.stdin.read()}, indent=2))
+account = json.loads(sys.stdin.read() or '{}')
+
+if not (account.get('calendar_id') or '').strip() and path.exists():
+    try:
+        known = json.loads(json.loads(path.read_text()).get('google_account', '{}'))
+    except ValueError:
+        known = {}
+    if (known.get('calendar_id') or '').strip():
+        account['calendar_id'] = known['calendar_id']
+        account['calendar_name'] = known.get('calendar_name', '')
+
+path.write_text(json.dumps({'google_account': json.dumps(account)}, indent=2))
 path.chmod(0o600)
 "
     chmod 600 "$SEED" 2>/dev/null || true
