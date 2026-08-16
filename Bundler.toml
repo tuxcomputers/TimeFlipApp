@@ -1,11 +1,13 @@
 format_version = 2
 
-[apps.TimeFlip]
-identifier = 'dev.evernoob.timeflip'
-product = 'TimeFlipApp'
+[apps.Facet]
+identifier = 'au.com.tux.facet'
+product = 'FacetApp'
 version = '1.0'
-icon = 'Sources/TimeFlipApp/Resources/AppIcon.icns'
+# Swift Bundler copies this in; Package.swift excludes it from the target's own resources so
+# there is only ever one copy in the bundle.
+icon = 'Sources/FacetApp/Resources/AppIcon.icns'
 
-[apps.TimeFlip.plist]
+[apps.Facet.plist]
 LSUIElement = 1
-NSBluetoothAlwaysUsageDescription = "TimeFlip needs Bluetooth to pair with your TimeFlip puck and record flips for activity tracking."
+NSBluetoothAlwaysUsageDescription = "Facet needs Bluetooth to pair with your TimeFlip puck and record flips for activity tracking."

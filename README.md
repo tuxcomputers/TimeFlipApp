@@ -1,4 +1,4 @@
-# TimeFlip macOS
+# Facet
 
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
 
@@ -20,10 +20,10 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **Auto-Pause Support**: Automatic pause after a configurable idle time, and optionally when the device is locked
 - **Daily Statistics**: Time per category for the app's own day, which starts at a configurable reset time rather than at midnight
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
+- **Google Calendar sync**: Recorded time appears in a calendar Facet makes for itself, titled with the category and carrying the entry's ids in the notes. Recording an entry sweeps everything not yet synced, so time recorded while offline goes across on the next one, and each event is read back and checked before the entry is marked done
 
 ### Not supported
 
-- **Google Calendar sync**: not implemented. Signing in to Google, and choosing or creating the calendar to write to, both work, and `time_entry.synced_to_google_calendar` is reserved in the schema, but nothing writes events to a calendar yet. See [the TODO](docs/TODO-features-under-development.md)
 - **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. PRs are welcome
 
 ## Getting Started
@@ -87,8 +87,7 @@ That permission was granted to me, for this project specifically, and **does not
 
 - Original creator [growler](https://github.com/growler) - this project is forked from their [TimeFlipApp](https://github.com/growler/TimeFlipApp) repository
 - Special thanks to [TimeFlip](https://timeflip.io/) for the hardware device and for graciously permitting the use of their icon set in this application
-- [AppAuth-iOS](https://github.com/openid/AppAuth-iOS) for OAuth implementation
-- [Timeflippers](https://github.com/bzobl/timeflippers) for the Rust TimeFlip client which I've been looking a lot at to get the idea of what the hell is going on in a familiar language
+- [Timeflippers](https://github.com/bzobl/timeflippers) for the Rust TimeFlip client, which growler read while building the original app to work out what the device was actually doing, in a familiar language
 - Built with Swift and macOS native frameworks
 
 ## Support

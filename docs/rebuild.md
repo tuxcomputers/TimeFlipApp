@@ -1,0 +1,242 @@
+# The rebuild: what is built, what is left
+
+The app is being rebuilt from the ground up on `feature/codeOverhaul`, one feature at a time, with the previous implementation kept in [Archive/](../Archive/) as prior art. This is the running list: nothing here is complete, so every section carries both halves, what is done and what is still owed.
+
+Two rules shape everything below, and are worth knowing before reading it:
+
+- **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
+- **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
+
+`swift test` is the only suite that runs today (643 tests) and it never touches a radio, so anything involving the cube is unverified by it by definition. Features driven against a running copy of the app say so.
+
+## The order of work
+
+**Manual mode across every tab first, then the device.** Nothing here talks to a cube, and the app times by hand until something does, so a tab is worth building as far as manual mode takes it and no further. Every item below that needs a device to mean anything is deliberately parked, including the rest of the Faces tab: the cube graphic, the twelve device faces and locking one all wait for the device work rather than being half-built against a device that is not there.
+
+## The list
+
+- [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
+- [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
+- [ ] **[Device tab](#device-tab)**: nothing so far.
+- [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, renamed, given an icon, a colour or a limit, retired or brought back. Its cost and its project still cannot be changed.
+- [ ] **[Report tab](#report-tab)**: a date or range is picked on two hand-drawn calendars, what each category recorded over it is totalled underneath, and a category folds open to the individual entries behind its total.
+- [ ] **[App tab](#app-tab)**: the App settings section is built and all six rows write to the database.
+- [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
+
+The Settings window draws its tabs Faces, Categories, Report, App, Device, so this list is the window's own order with the menu bar slotted in second. Faces is leftmost because every open of that window lands on it whatever it was last left on, and a tab that is always opened should not be one along from the first. Device is last, being where somebody goes to set a cube up or to work out what is wrong with it.
+
+## Faces tab
+
+### Done, in the order it was built
+
+- [x] **The two-column layout** ([FacesPane.swift](../Sources/FacetApp/FacesPane.swift)): a wide left column for what is being timed, a narrow right column for the categories to pick from.
+- [x] **The category list** ([CategoryListView.swift](../Sources/FacetApp/CategoryListView.swift)): one row per active category, a colour swatch holding the icon, the name beside it, on a rounded panel, to the previous app's measurements. Every row carries an `AXIdentifier` naming its category.
+- [x] **The Create button**, under the list.
+- [x] **Creating a category** ([CategoryCreateControl.swift](../Sources/FacetApp/CategoryCreateControl.swift),  [CategoryCreateRules.swift](../Sources/FacetApp/CategoryCreateRules.swift)): the button becomes a name field, and the name is decided against the whole `category` table rather than the list on screen (insert, reactivate a retired namesake, or say it already exists). A new category gets no icon and no colour, because choosing either would invent a choice nobody made.
+- [x] **Timing a category**: clicking a row ends the running segment, gives the next of the app's own faces the new category, and opens a segment on it, all from one moment read for the whole gesture.
+- [x] **The Timing column** ([TimingView.swift](../Sources/FacetApp/TimingView.swift)): the play/pause glyph in the category's colour, the figure under it, the name under that, sized off the square the device graphic will eventually occupy. The glyph says what is happening, not what clicking does.
+- [x] **Pause and resume** from the glyph: pausing ends the segment, resuming begins another, so a paused gap is not counted as time spent.
+- [x] **Re-clicking the category already being timed does nothing**, rather than restarting its clock.
+- [x] **The figure is the category's total for the day**, not this session's stopwatch, so a category picked up after lunch still shows the morning.
+- [x] **A relaunch comes back on the last category, paused, showing the day's total.** Not restored from anywhere: whether the clock is running is read from whether `device_event` holds an open segment, so a launch inherits the answer by asking. That deleted the last in-memory copy of what is being timed.
+
+### Still to do
+
+Nothing until the device work, which the three items below all need. See [The order of work](#the-order-of-work).
+
+- [ ] **The cube arrangement**: the device graphic and its lock in the left column under a "Top face" heading, which is what this pane looks like when there is a cube to follow.
+- [ ] **Assigning categories to the twelve device faces.** The `face` table seeds them and nothing in the app can change what they hold.
+- [ ] **Locking and unlocking a face** (`face.locked`): writes honour the column already, an assign to a locked face being refused, and there is no way to set it either way. Unlocking is also what the disabled Active box on the Categories tab points at, a category on a locked face being one that cannot be retired.
+
+Creating a category stays here as well as arriving on the Categories tab: this is where the list is, so it is where somebody realises a category is missing. Retiring one is not here on purpose, this tab picking a category to time rather than looking after it. See [Categories tab](#categories-tab).
+
+## Menu bar
+
+### Done, in the order it was built
+
+- [x] **The status item and Quit** ([MenuBarController.swift](../Sources/FacetApp/MenuBarController.swift)). From here on Quit is the only way out of the app.
+- [x] **The left/right split** ([StatusItemClickRouter.swift](../Sources/FacetApp/StatusItemClickRouter.swift)), decided outside the AppKit it is decided inside, because the previous app's rules were nested `guard`s in a click handler no test could reach.
+- [x] **The database badge** at the far left: `TEST`, `PROD` or `DB?`, in a dev build only, first because it  qualifies everything to its right.
+- [x] **Every click recorded** in `debug_log`, including the clicks that deliberately do nothing.
+- [x] **Settings**, opening the window.
+- [x] **Pause and Resume in the dropdown**, named and enabled from the state at the moment the menu opens.
+- [x] **The menu stopped depending on a delegate**, which AppKit holds weakly: the item refreshes its own menu as it presents it.
+- [x] **The category and its time**: badge, icon, name, play/pause glyph, and the category's time today, with the app's name alone in place of all of it while nothing is being timed. `display_seconds` decides whether the figure carries seconds, read per draw.
+- [x] **The live green** ([StatusItemTitle.swift](../Sources/FacetApp/StatusItemTitle.swift)): the whole line, images included, while a session is on show.
+- [x] **The right side pauses and resumes.** The left half stays the menu in every state, being the only route to Quit, and both halves ask the same question the dropdown item asks about whether there is a clock to stop.
+
+Three gestures now pause: the glyph on the Faces tab, the dropdown item, and the right side of the status item. All three end in one implementation, because the previous app had them as separate expressions and they came to disagree.
+
+### Still to do
+
+- [ ] **Yellow for a reading gone stale**, once there is a connection to lose.
+- [ ] **Red for a category over its `daily_limit`**, and the pause that goes with it. The limit itself is now settable on the Categories tab, so this is the half that reads it.
+- [ ] **The low-battery red/white blink**, gated on `low_battery_level`.
+- [ ] **The lock badge**, to the left of the play/pause glyph rather than in place of it.
+- [ ] **The double-click gesture that locks the cube**, which is also what makes the right side's pause wait out the  double-click interval instead of firing at once.
+- [ ] **Tooltips that tell the two dead states apart**: no device paired, versus a paired one out of reach.
+- [ ] **A "Connecting…" title** while a connection is being made.
+
+## Device tab
+
+Nothing so far. Nothing talks to the cube yet, and manual mode stands in for all of it.
+
+### Still to do
+
+- [ ] **Scan, pair, and forget a device** (`paired`, `device_uuid`).
+- [ ] **Connection status, and reconnecting on launch** (`connection`). Note the measured trap: reconnecting is a scan, and nothing in `swift test` scans.
+- [ ] **Battery level**, from the Battery Level characteristic.
+- [ ] **Lock and unlock**, and `pause_on_lock` (locking pauses first, so nothing is recorded while the cube is unattended).
+- [ ] **Renaming the cube** (`device_name`, including `previous_name`, because the name macOS reports is one connection stale after a rename).
+- [ ] **Auto-pause delay** (`auto_pause_minutes`, whole minutes only, which is all the device supports).
+- [ ] **LED brightness and blink interval** (`led_settings`), the only two LED properties the protocol exposes.
+- [ ] **Double-tap parameters** (`double_tap_settings`), seeded from a real device's registers.
+- [ ] **The firmware-check reminder** (`firmware_check`), there being no way for this app to read the version.
+- [ ] **Factory reset**, and what it means for the remembered name and uuid.
+
+## Categories tab
+
+This is where a category is looked after, as opposed to picked to time. The Active list is on it, with the archive's five columns and two of them live.
+
+### Done, in the order it was built
+
+- [x] **The Active list** ([CategoriesPane.swift](../Sources/FacetApp/CategoriesPane.swift), [CategoryTable.swift](../Sources/FacetApp/CategoryTable.swift)): a bold heading and, under it, captioned columns and one row per active category, the two of them on one tinted panel. The previous app's shape and its measurements, and a different list from the Faces tab's on purpose: that one is a pick list, this is a record of what each category is, in columns that line up so one property can be read down the tab. The tint follows the same split, the archive's pick list being plain white with hairlines and its settings panels tinted.
+- [x] **The daily limit** ([CategoryEditRules.swift](../Sources/FacetApp/CategoryEditRules.swift), [SteppedNumberField.swift](../Sources/FacetApp/SteppedNumberField.swift)): a number field bounded 0 to 1440, a day of minutes being the most a day's budget can hold. **Stored and enforced by nothing yet**, since what reads it is the over-limit colouring and the pause sent to a spent cube, both still to come.
+- [x] **The arrows accelerate while held** ([StepperHoldRules.swift](../Sources/FacetApp/StepperHoldRules.swift)): ticks of 1 until the value passes the second multiple of 5 beyond where the hold began, then 5s at a slower cadence. The archive's rule copied as it stands, tests included; the arrows themselves are a hand-built chevron pair, a stock stepper repeating at one fixed increment.
+- [x] **Retiring a category**, by unticking Active. It comes off every face holding it at the same time, and is barred outright while a *locked* face holds it: retiring clears faces and a locked face keeps what it has, so the app does neither and the tooltip names the face.
+- [x] **Creating a category here too** ([CategoryCreateControl.swift](../Sources/FacetApp/CategoryCreateControl.swift)): the same control the Faces tab has, under the list, which is where the archive put it -- in the gap between the two lists rather than inside either, so it belongs to the tab and not to one section of it. Both end in one method against the same rules and the same writer, two ways in rather than two implementations.
+- [x] **The Inactive list** ([RetiredCategoryTable.swift](../Sources/FacetApp/RetiredCategoryTable.swift)): the retired categories, with the box that brings one back, the name, and when it last recorded time. Its own type rather than the Active table with columns switched off, which is how the archive drew it: that list is a record of what a category *is*, this one of what it *was*, so the icon, the colour and the limit are absent rather than dead.
+- [x] **The sections fold** ([CategorySection.swift](../Sources/FacetApp/CategorySection.swift)): Active open because it is the one being worked in, Inactive closed because it is an archive to go looking in occasionally. The triangles waited for the second list, a lone section having nothing to fold away from.
+- [x] **The heading sits on the tinted panel with its list**, which is what the archive drew: each section was a `Section` of a grouped form, and a grouped form's box holds the disclosure label as its first row. The tint moved off the two lists to do it, since a list drawing its own box inside the section's would stack two translucent fills and leave the rows darker than the heading over them. Folding now closes the panel around the heading as well: hiding the list left its full height behind, Auto Layout not caring that a view is hidden, which was a gap on a plain background and would have been an empty tinted box on this one.
+- [x] **Reactivating a category**, by ticking Active on a retired row. The name is checked first, since only one active category may hold one: the unique index would refuse it anyway, but a refused write cannot say *which* category is in the way, and that is the whole of what the message needs.
+- [x] **Creating against a retired namesake asks** rather than deciding: a dialogue naming the category, saying how many share the name, and offering Reactivate, Create new one, and Cancel. With more than one retired namesake the Reactivate button is absent, there being no answer to which of them was meant -- and the count is what says why.
+- [x] **The icon picker** ([IconGrid.swift](../Sources/FacetApp/IconGrid.swift), [IconStore.swift](../Sources/FacetApp/IconStore.swift)): the row's icon opens a popover of the 42 seeded icons, six wide, which is what lays them out as an even 6 by 7 with nothing to scroll. Re-clicking the icon a category already has clears it, which is the archive's rule and the reason a grid with no None cell can still unset one.
+
+- [x] **The colour picker** ([ColourList.swift](../Sources/FacetApp/ColourList.swift), [ColourStore.swift](../Sources/FacetApp/ColourStore.swift)): the row's swatch opens a popover of the 20 seeded colours, in the palette's own order rather than alphabetically, each with its name beside it. A list rather than a grid, which is the archive's shape and its reasoning: an icon is recognisable as a picture and a colour is not, so "Maroon" and "Brown" need the word to tell them apart. Re-clicking the colour a category already has clears it, as the icon grid does.
+
+- [x] **Renaming a category** ([EditableNameCell.swift](../Sources/FacetApp/EditableNameCell.swift), [CategoryRenameRules.swift](../Sources/FacetApp/CategoryRenameRules.swift)): **clicking the name** turns it into a field, rather than the previous app's right-click menu with *Edit* as its only item. Return commits, a click anywhere else abandons it, and so does Escape, which the window lends the field while it is open. Every rename is confirmed, because everything references a category by id: nothing recorded is lost, and reports covering time *before* the rename show the new name too. A name a retired category holds is allowed and says how many share it; one an active category holds is a dead end. All three dialogues can be cancelled.
+
+- [x] **A locked face freezes the whole row** ([CategoryEditRules.swift](../Sources/FacetApp/CategoryEditRules.swift)): the name, the icon, the colour and the daily limit as well as the Active box, each saying on hover which face is in the way and that unlocking it is on the Faces tab. The archive barred retiring alone, on the narrower reading that retiring is what takes a category off a face; this is the wider reading, and it matches what locking a face is for, since half of what a face shows -- the artwork and the colour it lights -- lives on the category. Only the two controls that draw nothing else grey out: a greyed swatch would be a different colour, and a grey name reads as a retired category, so those decline the click instead. **One locked face is enough**, however many unlocked ones also hold the category: editing it changes what the locked face shows, and the unlocked ones are not asking for anything. Only the locked one is named in the tooltip.
+
+### Still to do
+- [ ] **A cost** (`category.cost`), which `time_entry.total_cost` is worked out from.
+- [ ] **Projects** (`project`, `category.project_id`): the table exists and nothing reads it.
+
+## Report tab
+
+### Done, in the order it was built
+
+- [x] **The date range**, as two calendars drawn by hand rather than two date pickers ([ReportPane.swift](../Sources/FacetApp/ReportPane.swift), [ReportCalendar.swift](../Sources/FacetApp/ReportCalendar.swift), [ReportCalendarGrid.swift](../Sources/FacetApp/ReportCalendarGrid.swift), [ReportCalendarMetrics.swift](../Sources/FacetApp/ReportCalendarMetrics.swift), [ReportRangeRules.swift](../Sources/FacetApp/ReportRangeRules.swift)). The archive established by measurement that neither `NSDatePicker` nor SwiftUI's `DatePicker` can do the two things this screen needs: draw the selected span bold across **both** calendars, and stop the month arrows at the last month holding a selectable day (a date bound governs which days can be *selected*, not which month is *displayed*). The grid arithmetic came across as it stood, being pure and already right; the drawing is new, AppKit rather than SwiftUI.
+  - **The end starts unset**, which is the common case said in one click: pick a day on the left and the report covers that day. The To calendar cannot reach a day before the start, so an inverted range is unreachable rather than rejected, and the tab has no error state for one.
+  - **Both stop at today**, this being a time recorder rather than a time planner: a future day could only ever answer "nothing tracked", which is indistinguishable from a real day on which nothing was.
+  - Every size inside a calendar is a ratio of the day cell, and the cell is whatever divides the width the tab is given into seven columns, so a resize cannot leave 17pt digits in a 28pt cell. The floor is the archive's fixed 28pt.
+- [x] **The totals under it** ([ReportTotalsList.swift](../Sources/FacetApp/ReportTotalsList.swift), `TimeEntryStore.totals`, `ReportRangeRules.bounds`): every category that recorded time in the picked range, biggest first, with the icon on its colour and the figure on the right. **The range is the app's own days**: 5 August to 7 August is the 5th at `daily_reset_time` up to the 8th at `daily_reset_time`, so a one-day report is exactly what the menu bar showed that day. A category with nothing in the range is absent rather than shown as `0:00`, and a range with nothing in it says so in words.
+  - The boundary, the entries and whether the figures carry seconds are **all read when the range changes**, never held: the reset time can be changed on the App tab, and the entries grow as time is recorded.
+  - A stretch across the boundary is clipped, so the two days it spans do not each count it whole. A still-running segment counts for nothing, not being an entry yet -- it arrives here when it stops, which is also when the tab re-reads if it is the one on show.
+- [x] **Sortable columns** ([ReportSortRules.swift](../Sources/FacetApp/ReportSortRules.swift)): `Category` and `Time` head the list, and clicking one sorts by it while clicking it again reverses. The list carries an arrow on the column in force and nothing on the other, since two arrows would claim it is sorted by both.
+  - **The two columns start in opposite directions on purpose.** `Category` opens ascending, which is `CategoryOrder`, the same order the Categories and Faces tabs use, so a category sits in the same place on every tab that lists it. `Time` opens *descending*, because "what did the time go on" is the question that column is clicked to ask, and a first click showing the smallest figure would take two clicks to answer it.
+  - This replaced a fixed biggest-first order in SQL. Neither order answers both questions, and making one of them the only order turned the other into something done by eye.
+  - The order is held by the list for as long as the window is open, and is not a setting: nothing in the database has an opinion about it, and it is the same kind of state as which month a calendar is showing.
+- [x] **Each category folds open to its own entries** ([ReportCategoryGroup.swift](../Sources/FacetApp/ReportCategoryGroup.swift), [ReportEntryText.swift](../Sources/FacetApp/ReportEntryText.swift)): closed by default, the total on the heading line, and the stretches behind that total listed underneath in date-time order -- `dd/MM`, the start and end times, then how long. **The entries are read when a group is opened**, not with the totals: a closed group asks nothing, and twelve categories of working would be twelve reads to throw away. Both ends of every stretch are clipped to the range, which is what makes the rows add up to the figure above them. A group left open stays open when the totals are re-read, since a list that snapped shut underneath somebody would be the app undoing what they just did.
+- [x] **"Show seconds in the menu bar" became "Show seconds"** ([AppSettingsRules.swift](../Sources/FacetApp/AppSettingsRules.swift)), the setting now deciding the precision of every time the app draws rather than one figure in one place: the menu bar duration, the Report tab's totals, and each entry's duration *and* its start and end times. All of them together, because it is one question -- to the second or to the minute -- and a row where the answer differed by column is exactly what looks like a bug: a 19-second entry reading "18:59 to 18:59" is only honest when the duration beside it reads `0:00` too.
+
+### Still to do
+
+- [ ] **Editing and deleting an entry**, which is the only way to correct a stretch recorded against the wrong category.
+- [ ] **Totals per project**, once a category can be given one.
+- [ ] **Costs** (`time_entry.total_cost`).
+- [ ] **A calendar view** of the recorded time.
+
+## App tab
+
+The section is built and every row writes. Several of these settings were already honoured where they are used, so the behaviour was there ahead of the controls; what the controls add is the ability to change it.
+
+### Done, in the order it was built
+
+- [x] **The App settings section** ([AppSettingsPane.swift](../Sources/FacetApp/AppSettingsPane.swift), [AppSettingsRules.swift](../Sources/FacetApp/AppSettingsRules.swift)): the archive's six rows in its order and its wording -- show seconds, pause on lock, daily reset at, battery warning at, fetch history every, ignore flips under -- on the same tinted panel the Categories tab uses, spanning the window's width as every tab's content does ([CLAUDE.md](../CLAUDE.md)). Drawn as the archive's grouped form: the label against the left inset, the control against the right one, and a hairline between rows.
+- [x] **Every bound and default carried over with its reason** ([AppSettingsRules.swift](../Sources/FacetApp/AppSettingsRules.swift)): the 20% battery cap, the 0-to-30-second blip filter, the minute-to-hour fetch interval, and an AM-only reset hour, which is a control the archive reduced to one field after finding that PM was only ever a way to pick a wrong value. Each default is the seed in `database/011_setting.sql`, since `SettingReader` answers `nil` for a missing row and refuses to guess what absence means.
+- [x] **The values are read from `setting` when the tab is shown**, like every other pane's, rather than drawn from placeholders. A row showing a number that is not the stored one is exactly the two-answers problem the first design rule exists to prevent.
+- [x] **The rows write, and the window is the source of truth while it is open** ([SettingStore.swift](../Sources/FacetApp/SettingStore.swift), and the rule in [CLAUDE.md](../CLAUDE.md)): opening reads every tab's settings in one go, a changed field is written straight through and **checked by reading it back**, and the change is adopted only once the table has it. A refused write puts the row back and raises an alert naming the row. A value the table gained meanwhile is overwritten -- the window read it at open and has been the answer since. Closing ends it, so the next open finds whatever is there.
+
+### Still to do
+
+- [ ] **A battery reading**, which is what `low_battery_level` needs before it means anything. The row stores the threshold; nothing reports a level to judge against it yet.
+- [ ] **The debug settings** (`debug`: whether to gather messages, whether to write them to a file, and where), which are a placeholder row and nothing else.
+
+## Backend
+
+### Done, in the order it was built
+
+- [x] **The database at launch** ([DatabaseBootstrap.swift](../Sources/FacetApp/DatabaseBootstrap.swift),  [DatabaseConnection.swift](../Sources/FacetApp/DatabaseConnection.swift)): the DDL in [database/](../database/) creates it, one read connection is held open for the life of the app, and a reader per table sits on top ([SettingReader](../Sources/FacetApp/SettingStore.swift),  [CategoryStore](../Sources/FacetApp/CategoryStore.swift), [FaceStore](../Sources/FacetApp/FaceStore.swift), [TimezoneStore](../Sources/FacetApp/TimezoneStore.swift)). Holding a connection open is a different thing from holding a value.
+- [x] **The developer flag and the debug log** ([DeveloperMode.swift](../Sources/FacetApp/DeveloperMode.swift), [DebugLog.swift](../Sources/FacetApp/DebugLog.swift)): one flag decides what exists, every message is timestamped and tagged with the tags padded to a common width, and rows go to `debug_log` as well as the console. This is what makes checking the app against a running copy possible: press by name, then poll for the row.
+- [x] **One instance only** ([InstanceLock.swift](../Sources/FacetApp/InstanceLock.swift)): a kernel lock on an  open file descriptor, claimed before a database is opened or a status item claimed. A kernel lock rather than "whoever started first wins", because an instance launched directly reports no launch date.
+- [x] **Manual mode** ([ManualMode.swift](../Sources/FacetApp/ManualMode.swift)), derived from whether a device is paired rather than published as a second flag beside the connection status.
+- [x] **The timing session, built and then removed.** It held what was being timed and since when, in memory, on the reading that it described this launch. It was a second answer to a question `device_event` already answered, and a relaunch is where the two parted company: the table knew the category, the flag did not. An open segment is now what running means, and nothing holds it. Kept on this list because the shape it left is why the readout looks as it does.
+- [x] **The `device_event` writer** ([DeviceEventRecorder.swift](../Sources/FacetApp/DeviceEventRecorder.swift), [DeviceEventRules.swift](../Sources/FacetApp/DeviceEventRules.swift)): the one writer of that table, and the module that decides whether a segment opens a row, grows the open one, or closes it out. Identity is `(event_number, start_epoch)`; durations are whole seconds, as the device reports them; in manual mode the  event number is the unix second.
+- [x] **The history timer** ([HistoryTimer.swift](../Sources/FacetApp/HistoryTimer.swift)): one-shot, re-armed after every timeout, re-reading its interval each time. With no cube to ask, the timeout is the source: the app reports its own open segment and the recorder recognises it as the same event.
+- [x] **Two manual faces** ([ManualTimerRules.swift](../Sources/FacetApp/ManualTimerRules.swift)): faces 13 and 14, above the twelve a cube can report, used in rotation so a finished segment and the one starting are never on the same face. That removes the category-attribution race rather than ordering around it.
+- [x] **The `time_entry` writer** ([TimeEntryRecorder.swift](../Sources/FacetApp/TimeEntryRecorder.swift), [TimeEntryRules.swift](../Sources/FacetApp/TimeEntryRules.swift)): handed the id of a closed segment, it reads the row itself, reads `blip_time` first, and decides whether the stretch counts. `device_event` is what a source says happened; `time_entry` is what the app counts.
+- [x] **The day's total** ([TimeEntryStore.swift](../Sources/FacetApp/TimeEntryStore.swift), [DayWindow.swift](../Sources/FacetApp/DayWindow.swift), [DayTotal.swift](../Sources/FacetApp/DayTotal.swift)): per category rather than per face, over the window `daily_reset_time` defines, clipped at both ends, plus the segment still running. Derived every time rather than accumulated, which is what makes double counting impossible.
+- [x] **The quit sequence** ([QuitSequence.swift](../Sources/FacetApp/QuitSequence.swift)): the open segment is closed on the way out.
+- [x] **Startup recovery**: a segment left open on one of the app's own faces is closed before anything else reads the table, keeping its last written duration, because "now" can be wrong by days. Rows on device faces are left alone, a cube timing whether or not the app is running.
+- [x] **One reading of what is being timed** ([TimingReadout.swift](../Sources/FacetApp/TimingReadout.swift)): the face, the category on it, whether an open segment says it is running, and the day's total, read together and drawn by both the Faces tab and the status item. Nothing in the app holds any of it, which is what lets a launch pick up where the last one stopped.
+
+- [x] **The Google section on the App tab** ([GoogleAccountRules.swift](../Sources/FacetApp/GoogleAccountRules.swift), in [AppSettingsPane.swift](../Sources/FacetApp/AppSettingsPane.swift)): Status, and the account name and email when there is one, read from the `google_account` row when the window opens. Sits under App settings rather than over it, where the archive had it: the six settings above are what somebody opens this tab to change, and a connection made once and read occasionally belongs below them.
+
+  **Two of the archive's rows are gone on purpose.** Its Client ID and Client Secret fields existed because every user made their own Google Cloud project; the project is ours now and the credentials ship with the build, so the app is not asking a question it knows the answer to. Its calendar picker is gone as a consequence of the scope decision: listing somebody's calendars needs `calendar.readonly` and writing to one they own needs `calendar.events`, both *sensitive*, and dropping them is what keeps this app out of Google's verification process entirely ([google-oauth-setup.md](google-oauth-setup.md)). Facet makes its own calendar under `calendar.app.created`, so there is nothing to choose.
+
+  **Sign in with Google works** ([GoogleOAuthRules.swift](../Sources/FacetApp/GoogleOAuthRules.swift), [GoogleOAuthClient.swift](../Sources/FacetApp/GoogleOAuthClient.swift), [GoogleTokenStore.swift](../Sources/FacetApp/GoogleTokenStore.swift)): the authorization-code flow with PKCE, a loopback listener on an ephemeral port, and the token exchange. **Not AppAuth**, which is what the archive used: that library is built around iOS view controllers and its macOS loopback path is its least-exercised corner, so the flow is written out here instead, which keeps the package dependency-free and puts PKCE, the state check and the redirect parsing under `swift test`.
+
+  **The identity comes out of the `id_token`**, not from the userinfo endpoint: with `openid`, `email` and `profile` granted it is already there, so asking again would be a request per sign-in against the project's own quota. It is not signature-checked, which is correct for a token taken straight from the token endpoint over TLS. **The refresh token goes to the login Keychain**, the one deliberate exception to the database-is-the-source-of-truth rule, and is cleared on sign-out along with the identity. **Disconnect works**, because clearing a row needs no network.
+
+  **The calendar is made at the end of sign-in** ([GoogleCalendarRules.swift](../Sources/FacetApp/GoogleCalendarRules.swift), [GoogleCalendarClient.swift](../Sources/FacetApp/GoogleCalendarClient.swift)), named `Facet`, with its id and name stored in the same row as the identity. **Everything keys off `calendar_id`, never the name**, since the user can rename it at Google in two clicks. The name is shown as an editable row, and editing it is a real `calendars.patch` adopted only on read-back: a field that changed nothing outside the app would be the two-answers problem itself.
+
+  **Nothing polls.** No launch check, because that would be a Calendar API request per launch per user for a label that rarely changes, and it would make startup wait on Google being reachable. Drift and deletion are meant to surface through the sync, which is the request the app was making anyway.
+
+  **The id survives a sign-out and is checked on the way back in.** Signing out and back in on the same account is the common case, and forgetting the id would make a second "Facet" beside the first with the history split across the two. So the id is kept, and verified with one `calendars.get` at the end of the next sign-in: that request proves the calendar exists *and* brings back its current name, which is how a rename made at Google is adopted without anything ever polling for it.
+
+  **A stored id that will not resolve raises a dialog rather than acting.** Two situations reach it -- somebody else signing in, and the calendar having been deleted at Google -- and they are indistinguishable from the app's side, so the wording names both instead of guessing, and the choice to make another is the user's. Only then is the id cleared, and only once Google has said the calendar is gone: clearing it because a write failed or a request timed out is exactly how a second "Facet" gets made, and a third. Where there is no stored id at all, the app simply makes one.
+
+  **Confirmed against a real account** on 2026-08-15: sign-in, the calendar being created, `calendars.get` confirming a stored id across a disconnect and reconnect, and a rename typed into the App tab reaching Google and coming back (`Google calendar renamed to Facet-test`).
+
+  **One thing was removed for not working.** Before creating, the app used to ask `calendarList.list` whether the account already had a Facet calendar, so a database with no stored id could adopt one instead of making a second. With `calendar_id` blanked and a known-good calendar in the account, a reconnect logged "created" rather than "reused" and produced a duplicate, so that endpoint returns nothing usable under `calendar.app.created`. It failed safe, which is how it survived, and its own comment claimed a protection that was not there -- which is worse than the gap it was covering. The case has also mostly gone, since a sign-out now keeps the id.
+
+  Signing out clears the name and the email and nothing else, since `calendar_id`, `calendar_name` and `client_id` share that row and are configuration rather than identity -- and it only reports success when *both* writes read back, because a half-cleared row still counts as connected and the window would then be disagreeing with its own table.
+
+- [x] **Per-tick logging for the history timer**, which used to say nothing between "started" and a segment changing. It now logs every fire with the interval it fired on. The narrower version first sketched here -- only the timeouts that wrote, plus the first skip after them -- was dropped deliberately: the question being asked is "is the timer alive", and a tick that wrote nothing is exactly the tick that looks like a dead timer.
+
+  Making the ticks visible immediately showed a second thing: it went on firing through a pause, when nothing was being timed and nothing could change. It now **stops itself** once there is nothing to follow and comes back through `onTimingChanged`. The question it asks is a pair -- is a segment open, *or* is a cube connected -- because those stop being the same question the moment a device is paired: the timeout is then a fetch, and a cube flipped during a pause is precisely what a stopped timer would miss.
+
+- [x] **Google Calendar sync** (`google_account`, `time_entry.synced_to_google_calendar`). **Not a screen: a step in recording.** It happens when a `time_entry` is created, marking the row as it goes, so it sits beside [TimeEntryRecorder](../Sources/FacetApp/TimeEntryRecorder.swift) rather than on the Report tab -- which is where the archive drew its Google *settings*, and the reason that tab is worth remembering as prior art for none of this.
+
+  There was also less prior art than the archive suggests. `google_account`, the auth and the calendar listing were built (`Archive/TimeFlipApp/GoogleIntegrationCoordinator.swift`); **the sync itself never was**, and nothing in that codebase ever wrote `synced_to_google_calendar`. What survived from it is the shape of an event -- a summary, a description and two dates -- massaged into [GoogleEventRules](../Sources/FacetApp/GoogleEventRules.swift), and its `insertEvent` was ignored as a whole because it read nothing back and sent every event in the machine's current zone rather than the one the time was recorded in.
+
+  **A sweep of the table, not a hand-off of one row.** Recording an entry triggers [CalendarSync](../Sources/FacetApp/CalendarSync.swift), and what runs is every entry still sitting at `synced_to_google_calendar = 0`, oldest first. An entry that failed to reach Google is therefore not queued anywhere: it is still `0`, and the next entry recorded carries it along. Connecting a calendar triggers the same sweep, which is what delivers a backlog recorded before anyone signed in.
+
+  **The event's id is derived from the `time_entry` id rather than stored** (`facet4213`). Google refuses a second event with an id it already has, which turns a crash between writing the event and ticking the row from a duplicate into a no-op, and it means the read-back is a `GET` at a known address rather than a search. No column had to be added to `time_entry` for it.
+
+  **The tick means the event is right, not that a request succeeded.** Insert, fetch the event back, compare the title, the description and both instants, and only then set the flag -- a row marked synced is never looked at again, so the claim has to be earned. A mismatch leaves the row at `0` and says which field differed.
+
+  **Confirmed against a real account** on 2026-08-15: 41 entries went across into the `Facet` calendar in one pass, each one created and then read back and checked, at roughly a second apiece (two round trips per entry). The 409 path was exercised in the same run -- `facet27` had been created by an earlier failed pass, and the retry met its own event, verified it and ticked the row rather than making a second one.
+
+  That run is also what found the bug worth remembering. `Expected` used to hold `Date`s, so an entry whose `duration_seconds` carried a fraction (`time_entry` 27 holds 147.612311840057) was **truncated on the way to Google and not on the way to the comparison**: the event was created, the read-back disagreed by 0.6 of a second, the row was never ticked, and every later sweep retried the same row for ever. It now holds epochs, so the type cannot express the mismatch. The same run showed a second fault that only appears with real data -- one unverifiable row stopped the whole pass, so 39 good entries sat behind one bad one. A row Google will not take is now skipped; only a refused *request* stops a pass.
+
+### Still to do
+
+- [ ] **The BLE driver**, which is all of it: scan, connect, login, the history stream, live face and pause events, and the commands the Device tab needs. See [docs/TimeFlip2 BLE Protocol v4.3.md](TimeFlip2%20BLE%20Protocol%20v4.3.md) for the contract and [docs/timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) for where the real device  disagrees with it.
+- [ ] **Writing settings.** `SettingReader` reads and nothing writes, which every tab above needs before it can save anything.
+- [ ] **Daily limit enforcement**: measuring a category against `category.daily_limit`, pausing the cube when it is spent, and refusing a resume. The archive's own scar to avoid: the pause is not idempotent, so each repeat mints a `device_event`.
+- [ ] **`device_notification`**: the table exists and nothing writes it, so a double-tap or a low battery leaves no record.
+- [ ] **The real developer-mode gate.** `DeveloperMode.isEnabled` is a hardcoded `true`, which is fine while the app is unreleased and must not ship that way.
+- [x] **The scripted checks** ([Tests/Scripted/](../Tests/Scripted/)): eleven scripts that drive the real app and read the real database, covering everything above in the order the app comes up and gets used. `Tests/Scripted/run.sh` builds, launches, runs them all, quits, and writes the run to `logs/screen.txt`.
+  - **No AI in the loop and nothing extra installed.** The previous suite needed a supervisor, a locator layer and a person reading the screen; this one needs a shell. What made that possible is already in the app: every element carries an `AXIdentifier` and every action writes a `debug_log` row, so a check is "press by name, then poll for the row".
+  - **The database is the evidence.** A check waits for a row or queries a table, never asks a person. Every wait is baselined against the newest `debug_log` id before the action, because this database has a human user too and a total count is never safe to assert on.
+  - It refuses to run against production, and cleans up nothing: the rows a run makes are what somebody reads when it fails.
+  - CI cannot run them -- there is no screen, no Keychain and no Google account -- so `scripts/check_interactive_checklists.sh` checks they are *runnable* instead: they parse, they are executable, they end in `finish`, and they guard the database.
+- [ ] **The schema migration path for a released app** (a `099` script and a `database_version` row). Until release, [database/CLAUDE.md](../database/CLAUDE.md) holds the rule instead: write the DDL as if the database were new, then bring prod and test up to it.
+
+### Supporting material, built
+
+- [x] [scripts/switch-database.sh](../scripts/switch-database.sh) points the app at `test.sqlite` or  `production.sqlite`. Keeping what is there is the default for both; `-clean` rebuilds, and is refused for prod.
+- [x] [Tests/Methods.md](../Tests/Methods.md), the new suite's shared methods, numbered and written as they are learned: press anything by name, open the status item's menu, read the accessibility tree, confirm what the app did from `debug_log`, confirm an appearance by measuring it.
+- [x] [scripts/ax-press.py](../scripts/ax-press.py), [scripts/ax-dump.py](../scripts/ax-dump.py) and [scripts/status-item-click.py](../scripts/status-item-click.py), which are that layer: every element carries an `AXIdentifier` and every click leaves a row, so a step is "press by name, then poll for the row".

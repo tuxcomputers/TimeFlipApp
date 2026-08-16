@@ -28,7 +28,7 @@ Because enforcement is on, the DDL files are numbered so a **parent table is cre
 
 ### `event_type` (`database/001_event_type.sql`)
 
-Reference table of the different event types the TimeFlip device can trigger. Most of these (`double_tap`, `battery_level`, `system_state`, `device_info`, `event_log`) are live BLE notifications the device sends outside the history stream, not timing segments, and so never appear in `device_event` — only `face_flip` and `pause` come from the history stream that populates `device_event` (see `Sources/TimeFlipApp/TimeFlipEvent.swift` and `docs/timeflip.md` §4-5 for the full notification/history breakdown).
+Reference table of the different event types the TimeFlip device can trigger. Most of these (`double_tap`, `battery_level`, `system_state`, `device_info`, `event_log`) are live BLE notifications the device sends outside the history stream, not timing segments, and so never appear in `device_event` — only `face_flip` and `pause` come from the history stream that populates `device_event` (see `Archive/TimeFlipApp/TimeFlipEvent.swift` and `docs/timeflip.md` §4-5 for the full notification/history breakdown).
 
 | Column           | Type    | Description                                              |
 |-------------------|---------|-------------------------------------------------------------|
@@ -257,9 +257,9 @@ Constraints:
 - `setting_value` is `NOT NULL`.
 
 Seeded rows:
-- `double_tap_settings` = `{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}` — `enabled` controls whether double-tap gesture detection is on; if `false`, double-tap notifications from the device are ignored. `clickThreshold`/`limit`/`latency`/`window` are the accelerometer parameters, seeded from `DoubleTapParameters.default` in `Sources/TimeFlipApp/TimeFlipDoubleTapParameters.swift` -- captured from a real device's actual registers (see `Tests/Bench/device_register_snapshot.json`), not an arbitrary guess.
+- `double_tap_settings` = `{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}` — `enabled` controls whether double-tap gesture detection is on; if `false`, double-tap notifications from the device are ignored. `clickThreshold`/`limit`/`latency`/`window` are the accelerometer parameters, seeded from `DoubleTapParameters.default` in `Archive/TimeFlipApp/TimeFlipDoubleTapParameters.swift` -- captured from a real device's actual registers (see `Tests/Bench/device_register_snapshot.json`), not an arbitrary guess.
 - `led_settings` = `{"brightness":50,"blink_interval":5}` — a single record for the only two LED properties the vendor protocol exposes (device cmd `0x09`/`0x0A`; see [`docs/TimeFlip2 BLE Protocol v4.3.md`](TimeFlip2%20BLE%20Protocol%20v4.3.md)):
-  - `brightness` (%) and `blink_interval` (seconds — the gap from the end of one blink to the start of the next) are seeded from `AppState`'s `ledBrightnessPercent`/`blinkIntervalSeconds` defaults (`Sources/TimeFlipApp/AppState.swift` lines 91-92).
+  - `brightness` (%) and `blink_interval` (seconds — the gap from the end of one blink to the start of the next) are seeded from `AppState`'s `ledBrightnessPercent`/`blinkIntervalSeconds` defaults (`Archive/TimeFlipApp/AppState.swift` lines 91-92).
 - `auto_pause_minutes` = `{"minutes":0}` — delay after which the device pauses itself if the face hasn't changed (device cmd `0x05`; `0` disables, matching the vendor protocol's own disabled-by-default behavior; the device itself only supports whole-minute granularity, so this can't be made finer). The timer resets every time the face changes.
 - `blip_time` = `{"seconds":5}` — while picking up and turning the device to find the desired face, it can briefly pass over other faces, creating unwanted `device_event` segments for them. Any segment shorter than `seconds` gets no `time_entry` and is marked `processed`; it is **not** merged into the following segment. `0` disables the filter. Edited on the App tab as "Ignore flips under", bounded 0-30. See [Operation Spec § applying `blip_time`](operation-spec.md) for why the device does not do this for us and why lowering the value is reversible.
 - `firmware_check` = `{"last_alert":"<today>","interval_months":2}` — a single record for the firmware-update reminder:
@@ -274,7 +274,7 @@ Seeded rows:
 - `display_seconds` = `{"enabled":true}` — when `enabled`, the menu bar duration display includes a seconds component (`H:MM:SS`) and refreshes every second; when disabled, it shows `H:MM` and refreshes every minute. Hours are unpadded below 10 (`1:23:45`) and two digits from 10 up (`12:23:45`).
 - `daily_reset_time` = `{"hour":3,"minute":0}` — the local time each category's daily accounting rolls over to a new day. 3 AM rather than midnight so a session spanning midnight isn't split in two. `DailyCategoryTotals` reads it to set the window its totals are summed over, which makes it the window `category.daily_limit` is spent against and therefore the one the menu bar's over-limit colouring is judged by. The App tab edits it in whole hours plus AM/PM; the minute is stored as well so a finer time can be set when testing the rollover firing.
 - `low_battery_level` = `{"percent":10}` — the battery percentage (from the Battery Level characteristic `0x2A19`) at or below which the menu bar activity text starts blinking red/white (`MenuBarController`'s `updatedLowBatteryLatch`). To avoid flickering the warning on and off when a reading wobbles right around this value, it only clears again once the battery climbs 5 percentage points above the threshold (a fixed hysteresis margin, not stored in this setting) — see `docs/configuration.md`'s Status Indicators section for the user-facing behavior.
-- `debug` = `{"enabled":true,"to_file":false,"directory":"~/Documents/TimeFlip"}`:
+- `debug` = `{"enabled":true,"to_file":false,"directory":"~/Documents/Facet"}`:
   - `enabled` — gates every `DeveloperMode.debugPrint` call: when `true` (and the compile-time `DeveloperMode.isEnabled` flag is also on), each message prints to the terminal *and* is recorded into `debug_log` below, so a test session can be analyzed from the database afterward. Lets a user turn this off (or back on) directly in the DB without a rebuild.
   - `to_file` — **not yet implemented**, a placeholder for a planned support feature: let a non-technical user enable debug logging to a file (instead of needing to run the app from a terminal, or query the database directly) and send that file back when a bug can't be reproduced otherwise. Defaults to `false` since the file-writing side isn't built yet.
   - `directory` — where that log file will be written once `to_file` is implemented; unused until then.
@@ -321,7 +321,7 @@ Every `DeveloperMode.debugPrint` message, recorded here whenever the `debug` set
 | `debug_log_id`         | INTEGER | Row identifier, primary key, autoincrementing.                     |
 | `logged_at`            | TEXT    | When the message was printed, as a local-time ISO 8601 timestamp with no UTC offset. |
 | `timezone_id`          | INTEGER | References `timezone.timezone_id` — the IANA zone `logged_at` was recorded in.       |
-| `tag`                  | TEXT    | The `DeveloperMode.DebugTag` raw value (e.g. `TimeFlip`, `history`) identifying which subsystem logged this message — matches the bracketed tag in the terminal output. |
+| `tag`                  | TEXT    | The `DeveloperMode.DebugTag` raw value (e.g. `history`, `entry`) identifying which subsystem logged this message — matches the bracketed tag in the terminal output. |
 | `message`              | TEXT    | The debug message text, exactly as printed (without the timestamp/tag prefix, which are separate columns here). |
 
 Foreign keys:

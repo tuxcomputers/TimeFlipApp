@@ -1,0 +1,15 @@
+# Who has to approve a change, and to what.
+#
+# One owner, everything. `*` matches every path in the repository, so every pull request needs an
+# approving review from @tuxcomputers and from nobody else -- which is the point: with branch protection
+# set to require a code owner's review, an approval from anybody else does not satisfy it.
+#
+# **The owner is exempt, and that is deliberate rather than an oversight.** GitHub will not let somebody
+# approve their own pull request, so a rule requiring one approval would leave the only person able to
+# give it unable to merge anything. `enforce_admins` is off on `main` for exactly that reason, which is
+# what lets the owner merge without a review while everybody else needs one.
+#
+# **This file only counts on the default branch.** GitHub reads CODEOWNERS from the *base* of a pull
+# request, so a change to it does nothing until it is merged into `main`.
+
+* @tuxcomputers

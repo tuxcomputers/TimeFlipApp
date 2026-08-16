@@ -1,37 +1,40 @@
 #!/usr/bin/env bash
 # Switches which database the next app launch uses, by repointing the appdata.sqlite symlink:
 #
-#   scripts/switch-database.sh              swap to whichever database is not in use right now
-#   scripts/switch-database.sh test         switch to a brand new (rebuilt) test.sqlite
-#   scripts/switch-database.sh test -keep   switch to test.sqlite, preserved as it is
-#   scripts/switch-database.sh prod         switch back to production.sqlite (no-op if already there)
-#   scripts/switch-database.sh -keep        swap, as above, without rebuilding what it lands on
+#   scripts/switch-database.sh               swap to whichever database is not in use right now
+#   scripts/switch-database.sh test          switch to test.sqlite, kept exactly as it is
+#   scripts/switch-database.sh test -clean   switch to a brand new (rebuilt) test.sqlite
+#   scripts/switch-database.sh prod          switch back to production.sqlite (no-op if already there)
+#   scripts/switch-database.sh -clean        swap, as above, rebuilding what it lands on
 #
-# test.sqlite is what an interactive testing session (see Tests/CLAUDE.md) runs against, so it
+# test.sqlite is what an interactive testing session (see Archive/Tests/CLAUDE.md) runs against, so it
 # never touches real data; production.sqlite is the real one. Only meaningful under Developer
 # Mode -- AppDataStore only creates the symlink at all when DeveloperMode.isEnabled is true (see
 # AppDataStore.ensureDatabaseSymlink).
 #
 # With no target the current symlink decides: on production it switches to test, on test it
-# switches back to production. Naming a target instead is idempotent for `prod` (already there ->
-# exit, production.sqlite is real data and is never rebuilt) but deliberately NOT for `test`:
-# `test` means "start a fresh session", so it rebuilds test.sqlite from the DDL even if that is
-# already the database in use. `-keep` is what suppresses that rebuild, for resuming a mid-run
-# test batch where state earlier scenarios built has to survive.
+# switches back to production.
+#
+# **Keeping the database is the default, whatever the target and however that target was chosen.**
+# Switching is repointing a symlink and nothing else, so running this twice, or running it having
+# forgotten which database was in use, moves no recorded data. Destroying a database is the thing that
+# has to be asked for by name, which is `-clean`, and it is asked for that way round because it is the
+# one of the two that cannot be undone. `prod` is never rebuilt at all -- real data -- so `-clean`
+# against it is refused rather than quietly ignored.
 set -euo pipefail
 
 usage() {
   local me
   me="$(basename "$0")"
-  echo "usage: $me [test|prod] [-keep]" >&2
+  echo "usage: $me [test|prod] [-clean]" >&2
   echo "  (no target)  swap to whichever database is not currently in use" >&2
-  echo "  test         switch to test.sqlite, rebuilt from scratch" >&2
+  echo "  test         switch to test.sqlite, kept as it is" >&2
   echo "  prod         switch to production.sqlite (does nothing if already there)" >&2
-  echo "  -keep        don't rebuild the database being switched to" >&2
+  echo "  -clean       rebuild the database being switched to, from the DDL (test only)" >&2
 }
 
 TARGET=""
-KEEP=""   # empty until set: an unpassed -keep falls back to the per-target default below
+CLEAN=0   # keeping what is already there is the default, for every target: only -clean rebuilds
 while [ "$#" -gt 0 ]; do
   case "$1" in
     test|prod)
@@ -42,13 +45,13 @@ while [ "$#" -gt 0 ]; do
       fi
       TARGET="$1"
       ;;
-    -keep|--keep) KEEP=1 ;;
-    *) echo "error: unknown argument '$1' -- expected 'test', 'prod' or '-keep'." >&2; usage; exit 2 ;;
+    -clean|--clean) CLEAN=1 ;;
+    *) echo "error: unknown argument '$1' -- expected 'test', 'prod' or '-clean'." >&2; usage; exit 2 ;;
   esac
   shift
 done
 
-DB_DIR="$HOME/Library/Application Support/TimeFlip"
+DB_DIR="$HOME/Library/Application Support/Facet"
 APPDATA="$DB_DIR/appdata.sqlite"
 PRODUCTION="$DB_DIR/production.sqlite"
 TEST_DB="$DB_DIR/test.sqlite"
@@ -85,12 +88,15 @@ if [ -z "$TARGET" ]; then
   echo "Currently on $CURRENT; switching to $TARGET."
 fi
 
-# production.sqlite holds real data: this script only ever relinks to it, so -keep is its
-# permanent setting rather than an option. For test, -keep is what turns the rebuild off.
-if [ "$TARGET" = "prod" ]; then
-  KEEP=1
-elif [ -z "$KEEP" ]; then
-  KEEP=0
+# production.sqlite holds real data: this script only ever relinks to it, and never rebuilds it. So
+# `-clean` against prod is a refusal, not something to drop on the floor -- whoever passed it asked for
+# an empty database and would otherwise be handed the real one and told the switch worked. Checked
+# after the swap default above, so it catches `-clean` on its own while sitting on test just as well as
+# `prod -clean`.
+if [ "$TARGET" = "prod" ] && [ "$CLEAN" = "1" ]; then
+  echo "error: -clean cannot be used with 'prod' -- production.sqlite is real data and this script" \
+    "never rebuilds it. Drop -clean to switch to it as it is." >&2
+  exit 2
 fi
 
 if [ "$TARGET" = "prod" ] && [ "$CURRENT" = "prod" ]; then
@@ -111,8 +117,8 @@ if [ "$TARGET" = "test" ] && [ ! -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
   exit 1
 fi
 
-if pgrep -x TimeFlipApp > /dev/null 2>&1; then
-  echo "warning: TimeFlipApp is currently running -- it already has the old database file open" \
+if pgrep -x Facet > /dev/null 2>&1; then
+  echo "warning: Facet is currently running -- it already has the old database file open" \
     "and won't see this change until you quit and relaunch it." >&2
 fi
 
@@ -120,16 +126,18 @@ if [ "$TARGET" = "prod" ]; then
   TARGET_DB="$PRODUCTION"
 else
   TARGET_DB="$TEST_DB"
-  # A fresh testing session starts from an empty test database. Delete any existing test.sqlite
-  # (and its WAL/SHM sidecars) and recreate + seed it from scratch, so no state ever carries over
-  # between sessions. This only ever touches test.sqlite -- production.sqlite is never affected.
-  # Under `-keep` (resuming a mid-run batch) an existing test.sqlite is left untouched so the
-  # accumulated state survives; only the symlink below is (re)pointed at it.
-  if [ "$KEEP" = "1" ] && [ -e "$TEST_DB" ]; then
-    echo "Keeping existing $TEST_DB (accumulated test state preserved)."
+  # An existing test.sqlite is left exactly as it is by default, so switching to test never costs
+  # anything that was recorded there: only the symlink below is (re)pointed at it.
+  #
+  # `-clean` is what asks for a session that starts from an empty database: the existing test.sqlite
+  # (and its WAL/SHM sidecars) is deleted and recreated from the DDL, so nothing carries over. This
+  # only ever touches test.sqlite -- production.sqlite is never affected. A test.sqlite that does not
+  # exist yet is created either way, since there is nothing to keep.
+  if [ "$CLEAN" != "1" ] && [ -e "$TEST_DB" ]; then
+    echo "Keeping existing $TEST_DB (recorded test state preserved -- pass -clean to rebuild it)."
   else
     if [ -e "$TEST_DB" ]; then
-      echo "Deleting existing $TEST_DB (a fresh one is created for every testing session)..."
+      echo "Deleting existing $TEST_DB (-clean was passed, so a fresh one is built)..."
       rm -f "$TEST_DB" "$TEST_DB-wal" "$TEST_DB-shm"
     fi
     echo "Creating $TEST_DB..."
