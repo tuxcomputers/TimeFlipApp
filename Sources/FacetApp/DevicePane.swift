@@ -50,6 +50,9 @@ final class DevicePane: NSView {
         static let pairingPanel = "device-pairing-panel"
         static let scan = "device-scan"
         static let scanAll = "device-scan-all"
+        static let scanStatus = "device-scan-status"
+        /// One per listed device, suffixed with the peripheral identifier.
+        static func scanResult(_ id: UUID) -> String { "device-scan-result-\(id.uuidString)" }
     }
 
     /// Shared with `DisclosureRow`, so a folding row sits at the same rhythm as the plain rows around it.
@@ -130,6 +133,20 @@ final class DevicePane: NSView {
     private var doubleTapDisableBox: NSButton!
     private var doubleTapValues: [String: NSTextField] = [:]
 
+    /// The scan's own controls and its results, held because they are redrawn as the radio answers rather than
+    /// built once. **The list itself is not held here**: what has been found is the scanner's, and this draws
+    /// whatever it is last handed, so the tab cannot come to show a device the scan no longer has.
+    private var scanButton: NSButton!
+    private var scanAllBox: NSButton!
+    private var scanStatusLabel: NSTextField!
+    private var scanResults: NSStackView!
+
+    /// Pressed when the scan button is clicked, carrying whether **All Devices** is ticked at that moment.
+    var onScan: ((Bool) -> Void)?
+
+    /// Pressed when the button is clicked while a scan is running.
+    var onStopScan: (() -> Void)?
+
     private(set) var moreRow: DisclosureRow!
     private(set) var ledRow: DisclosureRow!
     private(set) var doubleTapRow: DisclosureRow!
@@ -200,7 +217,7 @@ final class DevicePane: NSView {
         let pairingHeading = heading("TimeFlip", identifier: Identifier.pairingSection)
         let pairingPanel = panel(identifier: Identifier.pairingPanel)
         let pairingRows = stack()
-        add([pairingRow()], to: pairingRows)
+        add(pairingRowViews(), to: pairingRows)
 
         infoPanel.contentView?.addSubview(infoRows)
         settingsPanel.contentView?.addSubview(settingsRows)
@@ -339,25 +356,85 @@ final class DevicePane: NSView {
     }
 
     /// Where finding a cube will go. Both controls draw and neither reaches a radio, there being none yet.
-    private func pairingRow() -> NSView {
-        let scan = NSButton(title: "Scan for Devices", target: nil, action: nil)
-        scan.bezelStyle = .rounded
-        scan.translatesAutoresizingMaskIntoConstraints = false
-        scan.setAccessibilityIdentifier(Identifier.scan)
+    private func pairingRowViews() -> [NSView] {
+        scanButton = NSButton(title: "Scan for Devices", target: self, action: #selector(scanPressed))
+        scanButton.bezelStyle = .rounded
+        scanButton.translatesAutoresizingMaskIntoConstraints = false
+        scanButton.setAccessibilityIdentifier(Identifier.scan)
 
         // **A filtered scan is the default and this is the way out of it.** The filter matches the vendor name and
         // the names this cube has carried, which is what finds a renamed device -- and is also what hides a cube
         // whose name the app has never seen. See `database/011_setting.sql`'s `device_name` row.
-        let all = NSButton(checkboxWithTitle: "All Devices", target: nil, action: nil)
-        all.translatesAutoresizingMaskIntoConstraints = false
-        all.setAccessibilityIdentifier(Identifier.scanAll)
+        //
+        // Ticking it mid-scan does nothing until the next press, deliberately: the filter is applied to
+        // advertisements as they arrive, so honouring it live would show a half-filtered list whose contents
+        // depended on when the box was ticked.
+        scanAllBox = NSButton(checkboxWithTitle: "All Devices", target: nil, action: nil)
+        scanAllBox.translatesAutoresizingMaskIntoConstraints = false
+        scanAllBox.setAccessibilityIdentifier(Identifier.scanAll)
 
-        let pair = NSStackView(views: [scan, all])
+        let pair = NSStackView(views: [scanButton, scanAllBox])
         pair.orientation = .horizontal
         pair.alignment = .centerY
         pair.spacing = 12
         pair.translatesAutoresizingMaskIntoConstraints = false
-        return leading(pair)
+
+        // **Says what the radio is doing, and it is not decoration.** An empty list means "nothing found", "Bluetooth
+        // is off" and "not allowed to use Bluetooth" all at once, and those want three different things done about
+        // them. `ScanUnavailable` is where the words live.
+        scanStatusLabel = NSTextField(labelWithString: "")
+        scanStatusLabel.textColor = .secondaryLabelColor
+        scanStatusLabel.lineBreakMode = .byWordWrapping
+        scanStatusLabel.maximumNumberOfLines = 2
+        scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        scanStatusLabel.setAccessibilityIdentifier(Identifier.scanStatus)
+
+        scanResults = stack()
+        return [leading(pair), leading(scanStatusLabel), scanResults]
+    }
+
+    @objc private func scanPressed() {
+        if isScanning {
+            onStopScan?()
+        } else {
+            onScan?(scanAllBox.state == .on)
+        }
+    }
+
+    // MARK: - what the scan is doing
+
+    private(set) var isScanning = false
+
+    /// The button says what pressing it would do, which while a scan runs is stop it.
+    func showScanning(_ isScanning: Bool) {
+        self.isScanning = isScanning
+        scanButton.title = isScanning ? "Stop Scan" : "Scan for Devices"
+        if isScanning { showScanMessage("Looking for devices...") }
+    }
+
+    func showScanMessage(_ message: String) {
+        scanStatusLabel.stringValue = message
+        scanStatusLabel.isHidden = message.isEmpty
+    }
+
+    /// Draws the devices found so far.
+    ///
+    /// **Handed the whole list rather than each arrival**, so this holds no list of its own: what is on screen is
+    /// what the scanner last said, and a device that has dropped out cannot linger here because nothing here
+    /// remembers it. That is the database rule's reasoning applied to something that has no table.
+    func showFound(_ devices: [ScannedDevice]) {
+        for view in scanResults.arrangedSubviews {
+            scanResults.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        add(devices.map { device in
+            // A row, not a button. Nothing can be done with one of these yet: pairing is its own feature and arrives
+            // with the code that can honestly connect. Listing what is out there is the whole of this one.
+            let name = value(identifier: Identifier.scanResult(device.id))
+            name.stringValue = DeviceScanRules.label(for: device)
+            name.alignment = .right
+            return row(name.stringValue, name, identifier: Identifier.scanResult(device.id), separated: true)
+        }, to: scanResults)
     }
 
     // MARK: - the pieces a row is made of

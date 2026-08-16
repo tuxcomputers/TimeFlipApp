@@ -81,6 +81,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// way through a session, and a boolean set when the window opened would refuse the wrong thing.
     var isLimitReached: () -> Bool = { false }
 
+    /// The radio, made the first time somebody asks to scan and kept for the life of the window controller. See
+    /// `wireScan(on:)` for why it is not the pane's.
+    private var scanner: BluetoothScanner?
+
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
     /// **Asked of the app rather than of a table, and that is right rather than an exception.** `ManualMode` is in
@@ -248,7 +252,60 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.debugLog?.record(.tab, "Device section \(identifier) \(isExpanded ? "opened" : "folded")")
         }
         pane.show(deviceSettings())
+        wireScan(on: pane)
         return pane
+    }
+
+    /// Connects the TimeFlip section's button to the radio.
+    ///
+    /// **The two names the filter matches on are read here, as the scan starts**, rather than being handed to the
+    /// scanner when it was built or kept alongside it. That is the first rule in `CLAUDE.md` applied to the one place
+    /// on this tab where a stale read has a visible cost: a cube renamed since the window opened would be filtered
+    /// out of the list under its old name, which is the exact moment somebody is watching for the new one.
+    ///
+    /// **The scanner outlives the pane and the pane does not own it.** Panes are rebuilt as tabs are switched, and a
+    /// scanner rebuilt with them would drop the manager mid-scan and start the system's Bluetooth prompt again. So it
+    /// is made once, lazily, and told where to draw.
+    private func wireScan(on pane: DevicePane) {
+        let scanner = deviceScanner()
+        scanner.onScanningChanged = { [weak pane] isScanning in pane?.showScanning(isScanning) }
+        scanner.onDevicesChanged = { [weak pane] devices in
+            pane?.showFound(devices)
+            // Said only once the radio has actually been asked and answered nothing, so "no devices" cannot be read
+            // off a list that is merely empty because the scan has not started.
+            if devices.isEmpty, pane?.isScanning == true {
+                pane?.showScanMessage("Looking for devices...")
+            }
+        }
+        scanner.onUnavailable = { [weak pane] reason in
+            guard let pane else { return }
+            pane.showScanMessage(reason?.message ?? (pane.isScanning ? "Looking for devices..." : ""))
+        }
+        pane.onScan = { [weak self] includeEverything in
+            guard let self else { return }
+            self.debugLog?.record(
+                .click, "Button clicked: Scan for Devices (allDevices=\(includeEverything))"
+            )
+            // Two reads rather than one, because the store answers a field at a time. Both are of the same row and
+            // both happen here, at the moment the scan starts.
+            scanner.start(
+                filterToTimeFlip: !includeEverything,
+                remembered: self.settings?.string("device_name", field: "name"),
+                previouslyKnown: self.settings?.string("device_name", field: "previous_name")
+            )
+        }
+        pane.onStopScan = { [weak self] in
+            self?.debugLog?.record(.click, "Button clicked: Stop Scan")
+            scanner.stop()
+        }
+        pane.showScanning(scanner.isScanning)
+    }
+
+    private func deviceScanner() -> BluetoothScanner {
+        if let scanner { return scanner }
+        let made = BluetoothScanner(debugLog: debugLog)
+        scanner = made
+        return made
     }
 
     /// What the `setting` table says about the Device tab, now.

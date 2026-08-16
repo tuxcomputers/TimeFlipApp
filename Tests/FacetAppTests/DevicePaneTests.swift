@@ -49,6 +49,99 @@ final class DevicePaneTests: XCTestCase {
         return values
     }
 
+    // MARK: - scanning
+
+    private func button(_ identifier: String, in pane: DevicePane) -> NSButton? {
+        descendants(of: pane).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == identifier }
+    }
+
+    func testTheButtonSaysWhatPressingItWouldDo() {
+        // It reads Stop Scan while one is running, which is the same rule the dropdown's Pause item follows: a
+        // control names its action, not its state.
+        let pane = DevicePane()
+        XCTAssertEqual(button(DevicePane.Identifier.scan, in: pane)?.title, "Scan for Devices")
+
+        pane.showScanning(true)
+        XCTAssertEqual(button(DevicePane.Identifier.scan, in: pane)?.title, "Stop Scan")
+
+        pane.showScanning(false)
+        XCTAssertEqual(button(DevicePane.Identifier.scan, in: pane)?.title, "Scan for Devices")
+    }
+
+    func testPressingScanReportsWhetherAllDevicesIsTicked() {
+        // The filter is chosen when the button is pressed, so the box has to be read at that moment rather than
+        // watched: ticking it mid-scan changes nothing until the next press.
+        let pane = DevicePane()
+        var asked: [Bool] = []
+        pane.onScan = { asked.append($0) }
+
+        button(DevicePane.Identifier.scan, in: pane)?.performClick(nil)
+        button(DevicePane.Identifier.scanAll, in: pane)?.state = .on
+        button(DevicePane.Identifier.scan, in: pane)?.performClick(nil)
+
+        XCTAssertEqual(asked, [false, true])
+    }
+
+    func testPressingItWhileScanningStopsRatherThanStartsAgain() {
+        let pane = DevicePane()
+        var starts = 0
+        var stops = 0
+        pane.onScan = { _ in starts += 1 }
+        pane.onStopScan = { stops += 1 }
+
+        pane.showScanning(true)
+        button(DevicePane.Identifier.scan, in: pane)?.performClick(nil)
+
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(starts, 0, "a second scan must not be started on top of the one running")
+    }
+
+    func testTheFoundDevicesAreDrawnUnderTheButton() {
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "Hazza cuber", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: false
+        )
+
+        pane.showFound([cube])
+
+        XCTAssertEqual(
+            value(DevicePane.Identifier.scanResult(cube.id), in: pane), "Hazza cuber",
+            "the row shows the name the user chose, not the one the cube advertises"
+        )
+    }
+
+    func testASecondScanReplacesTheListRatherThanAddingToIt() {
+        // The pane holds no list of its own: it draws what it was last handed, so a device that has dropped out
+        // cannot linger because nothing here remembers it.
+        let pane = DevicePane()
+        let first = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
+        )
+        let second = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000BB")!,
+            peripheralName: "Two", advertisedName: nil, advertisesTimeFlipService: false
+        )
+
+        pane.showFound([first])
+        pane.showFound([second])
+
+        XCTAssertNil(value(DevicePane.Identifier.scanResult(first.id), in: pane), "the first list is gone")
+        XCTAssertEqual(value(DevicePane.Identifier.scanResult(second.id), in: pane), "Two")
+    }
+
+    func testTheStatusRowSaysWhyAScanIsNotRunning() {
+        // An empty list means "found nothing", "Bluetooth is off" and "not allowed to use Bluetooth" all at once,
+        // and those want three different things done about them.
+        let pane = DevicePane()
+
+        pane.showScanMessage(ScanUnavailable.bluetoothOff.message)
+
+        XCTAssertEqual(value(DevicePane.Identifier.scanStatus, in: pane), ScanUnavailable.bluetoothOff.message)
+    }
+
     // MARK: - the sections
 
     func testTheThreeSectionsTheArchiveHadAreThere() {
