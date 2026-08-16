@@ -90,6 +90,43 @@ action_required() {
     esac
 }
 
+# Holds the run until the person running it says go. Unlike `action_required` there is nothing to decide:
+# any answer continues, and the return is always 0.
+#
+# **For the point where something has just happened and is worth watching.** A script that detects a state
+# change and races straight on gives nobody time to bring a window forward or start looking, and the part
+# they wanted to see is over before they find it. This stops instead, says what it found, and waits.
+#
+# Reads `/dev/tty` for the same reason `action_required` does: run.sh pipes stdout through tee, so an
+# ordinary prompt can sit in a buffer while the run looks like it has hung. With no terminal it carries on
+# rather than blocking a run nobody is watching.
+wait_for_dev() {
+    local title="$1"
+    shift
+    echo ""
+    yellow "##############################################################################"
+    yellow "##"
+    yellow "##  PAUSED -- $title"
+    yellow "##"
+    local line
+    for line in "$@"; do
+        yellow "##    $line"
+    done
+    yellow "##"
+    yellow "##############################################################################"
+    echo ""
+
+    if [ ! -r /dev/tty ]; then
+        grey "  no terminal to wait on, so carrying straight on"
+        return 0
+    fi
+    local answer=""
+    printf '  Press y and Return when you are ready to carry on: '
+    read -r answer < /dev/tty || true
+    echo ""
+    return 0
+}
+
 start() {
     echo ""
     blue "=============================================================================="

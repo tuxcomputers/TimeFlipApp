@@ -110,6 +110,21 @@ else
     exit 1
 fi
 
+# **Detected, and then it stops rather than racing on.** Signing in takes the browser to the front and the
+# app somewhere behind it, and what happens next is worth watching: the app checks the stored calendar id
+# against Google and either confirms it or forgets it. Carrying straight on would have that settled before
+# anybody had found the window again.
+#
+# Nothing is being decided here, so any answer continues. The checks below only read what already
+# happened -- the confirmation is looked for from the mark taken before the sign-in, so waiting cannot
+# lose it.
+wait_for_dev "the sign-in came back" \
+    "Facet is connected again as $email." \
+    "" \
+    "Bring Facet's Settings window to the front if you want to watch what follows:" \
+    "it re-checks the stored calendar against Google, and the next checks read" \
+    "whether it confirmed the same one or gave up and made another."
+
 check "it is the same account" "$email" \
     "$(sql "SELECT json_extract(setting_value, '\$.email') FROM setting WHERE setting_name = 'google_account';")"
 check_contains "and the Status row agrees" "$(element app-google-status)" "Connected"
