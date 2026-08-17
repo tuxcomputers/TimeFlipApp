@@ -17,11 +17,11 @@ Two rules shape everything below, and are worth knowing before reading it:
 
 - [ ] **[Faces tab](#faces-tab)**: the manual-mode half is built, and the cube half waits for the device work.
 - [ ] **[Menu bar](#menu-bar)**: the item says what is being timed and pauses; every colour that reports a device is still missing.
-- [ ] **[Device tab](#device-tab)**: the three sections are drawn and every value on them is read from the database; no control on the tab writes, there being no Bluetooth for one to write to.
+- [ ] **[Device tab](#device-tab)**: the three sections are drawn and every value on them is read from the database; the TimeFlip section scans, connects, settles the cube's PIN and records the pairing, and the two sections above it are still reports.
 - [ ] **[Categories tab](#categories-tab)**: both lists are there, and a category can be created, renamed, given an icon, a colour or a limit, retired or brought back. Its cost and its project still cannot be changed.
 - [ ] **[Report tab](#report-tab)**: a date or range is picked on two hand-drawn calendars, what each category recorded over it is totalled underneath, and a category folds open to the individual entries behind its total.
 - [ ] **[App tab](#app-tab)**: the App settings section is built and all six rows write to the database.
-- [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; there is no Bluetooth at  all.
+- [ ] **[Backend](#backend)**: the recording chain is built end to end for manual mode; of the Bluetooth work only finding a cube, reaching it and pairing with it are built.
 
 The Settings window draws its tabs Faces, Categories, Report, App, Device, so this list is the window's own order with the menu bar slotted in second. Faces is leftmost because every open of that window lands on it whatever it was last left on, and a tab that is always opened should not be one along from the first. Device is last, being where somebody goes to set a cube up or to work out what is wrong with it.
 
@@ -79,7 +79,7 @@ Three gestures now pause: the glyph on the Faces tab, the dropdown item, and the
 
 ## Device tab
 
-The tab is drawn and wired to nothing. Nothing talks to the cube yet, and manual mode stands in for all of it.
+The tab is drawn, and its bottom section reaches real hardware: a scan lists what answers, pressing a device connects to it, presents a PIN, sets one of the app's own, and records the pairing. Everything above that section is still a report, and manual mode stands in until a cube is paired.
 
 ### Done, in the order it was built
 
@@ -87,12 +87,18 @@ The tab is drawn and wired to nothing. Nothing talks to the cube yet, and manual
 - [x] **Every value read from the database**, at the moment the tab is shown, and re-read on every switch back to it. This tab is re-read where the App tab is not, and the difference is that nothing here writes: whether a cube is paired and whether one is reachable are not settings somebody typed, they are facts that move underneath the window.
 - [x] **What "no device" means, said three different ways** ([DeviceInfoRules.swift](../Sources/FacetApp/DeviceInfoRules.swift)): nothing paired, paired but unreachable, and manual mode. The archive kept them apart and the reasoning survives: "Disconnected" is true of the cube and no answer at all to why the app is plainly still recording time. The values grey together while nothing is live, so a placeholder cannot be mistaken for a reading.
 - [x] **A folding row that is a row rather than a panel** ([DisclosureRow.swift](../Sources/FacetApp/DisclosureRow.swift)): *More*, *LED* and *Double tap* are lines of a list that already has a panel, which is `CLAUDE.md`'s second case for a collapsible group. The whole heading line presses, the words sit inside the button, and the bottom edge moves when it folds.
+- [x] **Finding a cube** ([BluetoothRadio.swift](../Sources/FacetApp/BluetoothRadio.swift), [DeviceScanRules.swift](../Sources/FacetApp/DeviceScanRules.swift)): one owner of the central manager, because CoreBluetooth will only connect a peripheral through the manager that discovered it. The filter matches the vendor name and both names this cube has carried, since a TimeFlip advertises two names and a rename moves only one of them; **All Devices** is the way out of it, and every judgement about an advertisement is a rule taking a value, so it is testable with no radio.
+- [x] **Reaching one, and its PIN** ([DeviceLogin.swift](../Sources/FacetApp/DeviceLogin.swift), [DeviceLoginRules.swift](../Sources/FacetApp/DeviceLoginRules.swift)): two candidates and no third guess, the vendor default then the stored one, each on a connection of its own. `0x02` is acceptance and `0x01` is refusal, which is the opposite of what the spec says and is measured (finding 4 of [timeflip2-firmware-observations.md](timeflip2-firmware-observations.md)). Every byte in both directions is a `debug_log` row ([BLETrace.swift](../Sources/FacetApp/BLETrace.swift)).
+- [x] **Giving the cube a PIN of its own**, once it has let the app in: `0x30`, confirmed by a real login with the new PIN rather than by the command's own acknowledgement. A developer build sets the fixed `123456` and writes it to `config.json` ([DeveloperConfigFile.swift](../Sources/FacetApp/DeveloperConfigFile.swift)); any other build sets nothing at all, because it has nowhere durable to keep a random one and a PIN nobody can read back is a cube nobody can open.
+- [x] **The pairing, written down** ([DevicePairingRecorder.swift](../Sources/FacetApp/DevicePairingRecorder.swift)): `paired`, `device_uuid` and `device_name` at the moment a login is confirmed, with `connection` marked up beside them and back down the moment the link goes. Four rows on three lifetimes, and the tab is redrawn by re-reading them rather than from what was just written. Pairing mid-session also takes the app out of manual mode, which is what stops the Connection row saying "Manual mode, no device" about a cube it is connected to.
 
-**No control on it writes**, and none can until there is a radio to write to. The tab is the shape the rest of the device work gets built into; what each control does arrives with the feature that can honestly do it. The battery level and the four *More* details have no row to read and show `Unknown`: they come off a live connection and are deliberately not stored, a remembered reading being a number that was true at a moment nobody can name.
+**The three sections do three different things now.** Info and Settings are still reports, and what each of their controls does arrives with the feature that can honestly do it. The battery level and the four *More* details have no row to read and show `Unknown`: they come off a live connection and are deliberately not stored, a remembered reading being a number that was true at a moment nobody can name.
+
+**The connection belongs to the app, not to the window.** The scan stops when the Settings window closes or the tab changes, because a scan is for whoever is looking at the list. A connection is not: a cube that has been paired with is this app's device, so the link survives the window and is given back on the way out ([QuitSequence.swift](../Sources/FacetApp/QuitSequence.swift)), which is also where `connection.connected` goes down and `quit_request` is stamped. Dropping it on close would mean forgetting its own device every time somebody shut a window, and reconnecting from scratch, PIN and all, on the next open.
 
 ### Still to do
 
-- [ ] **Scan, pair, and forget a device** (`paired`, `device_uuid`).
+- [ ] **Forgetting a device**, which is what clears `paired` and `device_uuid` (and never `device_name`, since forgetting does not un-rename a cube).
 - [ ] **Connection status, and reconnecting on launch** (`connection`). Note the measured trap: reconnecting is a scan, and nothing in `swift test` scans.
 - [ ] **Battery level**, from the Battery Level characteristic.
 - [ ] **Lock and unlock**, and `pause_on_lock` (locking pauses first, so nothing is recorded while the cube is unattended).
@@ -100,7 +106,7 @@ The tab is drawn and wired to nothing. Nothing talks to the cube yet, and manual
 - [ ] **Auto-pause delay** (`auto_pause_minutes`, whole minutes only, which is all the device supports).
 - [ ] **LED brightness and blink interval** (`led_settings`), the only two LED properties the protocol exposes.
 - [ ] **Double-tap parameters** (`double_tap_settings`), seeded from a real device's registers.
-- [ ] **The firmware-check reminder** (`firmware_check`), there being no way for this app to read the version.
+- [ ] **The firmware-check reminder** (`firmware_check`). Note the version itself is no longer unknown -- it is read on every connect and kept in `device_info` -- so this is a reminder to go and *update*, which only the vendor's app can do, and not a reminder to go and find out what is installed.
 - [ ] **Factory reset**, and what it means for the remembered name and uuid.
 
 ## Categories tab
@@ -234,7 +240,7 @@ The section is built and every row writes. Several of these settings were alread
 
 ### Still to do
 
-- [ ] **The BLE driver**, which is all of it: scan, connect, login, the history stream, live face and pause events, and the commands the Device tab needs. See [docs/TimeFlip2 BLE Protocol v4.3.md](TimeFlip2%20BLE%20Protocol%20v4.3.md) for the contract and [docs/timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) for where the real device  disagrees with it.
+- [ ] **The rest of the BLE driver.** Scanning, connecting, logging in and setting the cube's PIN are built (see the [Device tab](#device-tab)); the history stream, live face and pause events, and the commands the Device tab's own settings need are not, and neither is a connection that outlives the Settings window. See [docs/TimeFlip2 BLE Protocol v4.3.md](TimeFlip2%20BLE%20Protocol%20v4.3.md) for the contract and [docs/timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) for where the real device  disagrees with it.
 - [ ] **Writing settings.** `SettingReader` reads and nothing writes, which every tab above needs before it can save anything.
 - [x] **Daily limit enforcement** ([DailyLimitEnforcement.swift](../Sources/FacetApp/DailyLimitEnforcement.swift), [DailyLimitWatch.swift](../Sources/FacetApp/DailyLimitWatch.swift)): a category measured against its `daily_limit`, the clock stopped when it is spent, and every path that would start it again refusing -- the dropdown's Resume greys, the status item's right half becomes a no-op, and `togglePause` refuses. **Testable with no cube**, because in manual mode the app is the clock: `13-daily-limit` seeds a total 20 seconds short, starts it on the Faces tab and watches the app stop itself. The decision is the archive's, copied with its 19 tests; what is still owed is the half that needs a radio, which is the same `.pause` going out as `0x06 0x01` instead of closing the app's own segment.
   - `.resume` is deliberately not acted on while the app is the clock. With a cube it carries on counting a face somebody is resting on; in manual mode it would be the app recording time against a category nobody has come back to. Raising the limit lifts the refusal, and starting the clock stays the user's to do.

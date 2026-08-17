@@ -137,8 +137,10 @@ for remaining in "${REMAINING_CASES[@]}"; do
     sleep 1.5
     expect_log "picking it starts the clock" "$since" "%\"$NAME\"%"
 
+    # Waited on rather than read once: the log row above and the segment behind it are two statements, and the
+    # row is written first. See `wait_sql`.
     check "it is running, with $remaining seconds of budget left" "1" \
-        "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+        "$(wait_sql "1" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
 
     # **The wait is the test.** Nothing here presses anything: what is being checked is that the app stops itself.
     grey "  waiting out the last $remaining seconds of the budget..."
@@ -150,7 +152,11 @@ for remaining in "${REMAINING_CASES[@]}"; do
         exit 1
     fi
 
-    check "the open segment was closed" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+    # **The row says the limit was reached; the table says the clock stopped, and they do not land together.**
+    # `DailyLimitWatch` records "Daily limit reached" and *then* calls `stopTiming()`, so reading once here is
+    # racing that gap -- and on run 29 it lost, on the third of three identical iterations.
+    check "the open segment was closed" "0" \
+        "$(wait_sql "0" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
 
     # **How far past the limit it stopped, which is the point of running three.** The tick is once a second and the
     # segment closes on the tick that noticed, so a second of overshoot is expected and more than that is the watch
@@ -257,7 +263,8 @@ fi
 since=$(mark)
 python3 scripts/status-item-click.py --right >/dev/null 2>&1
 sleep 1.5
-check "the clock can be started again" "1" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
+check "the clock can be started again" "1" \
+    "$(wait_sql "1" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
 
 # Left as it was found: stopped, so nothing after this is timing against a category this script made.
 python3 scripts/status-item-click.py --right >/dev/null 2>&1

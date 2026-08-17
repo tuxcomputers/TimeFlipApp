@@ -276,7 +276,18 @@ require_test_database() {
     esac
 }
 
-sql() { sqlite3 "$DB" "$1"; }
+# **Waits for a writer rather than failing at one.** The app's database is `journal_mode=delete`, so a
+# write locks the file against readers outright -- and every check here reads `debug_log` at exactly the
+# moment the app is busiest writing it. Without a timeout, sqlite gives up instantly: the read prints
+# `Error: in prepare, database is locked (5)` to stderr, returns **empty on stdout**, and the check then
+# fails against a haystack of `''` as though the row were missing.
+#
+# That is not hypothetical and it is not rare. On 2026-08-17 run 28 it failed
+# `the accepted answer is 0x02` while the row it wanted was sitting in the table: the login writes
+# sixteen rows in 440ms (the PIN rotation, then the Device Information reads), and the check lands in
+# the middle of them. Ten seconds is far longer than any burst the app produces, so this waits rather
+# than races, and a genuine empty result still means what it says.
+sql() { sqlite3 -cmd ".timeout 10000" "$DB" "$1"; }
 
 # The next unused name in a numbered family: `next_name Timer` answers `Timer 1` on a database built from
 # nothing, and `Timer 18` on one that already holds seventeen.
@@ -315,6 +326,33 @@ wait_for() {
         sleep 0.1
         waited=$((waited + 1))
     done
+    return 1
+}
+
+# Waits for a query to answer `expected`, and answers whatever it last saw. Polled like `wait_for`, and
+# for the same reason: the app writes when the thing actually happened, so this is as fast as the app is
+# and still correct on a slow machine.
+#
+#     wait_sql "0" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;"
+#
+# **For the state behind a log row, which does not land with it.** A debug_log row and the write it
+# describes are two separate statements, and the app writes the row *first* in at least one place that
+# matters: `DailyLimitWatch` records "Daily limit reached" and then calls `stopTiming()` to close the
+# segment. A check that waits for the row and then reads the table once is racing that gap, and on
+# 2026-08-17 run 29 it lost -- `the open segment was closed` wanted 0 and got 1, on the third of three
+# identical iterations, having passed the first two.
+#
+# So: wait for a row to know a thing began, and wait on the table to know it finished.
+wait_sql() {
+    local expected="$1" query="$2" timeout="${3:-10}"
+    local waited=0 answer=""
+    while [ "$waited" -lt "$((timeout * 10))" ]; do
+        answer=$(sql "$query")
+        [ "$answer" = "$expected" ] && { printf '%s' "$answer"; return 0; }
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    printf '%s' "$answer"
     return 1
 }
 
@@ -473,6 +511,18 @@ alert_buttons() { python3 scripts/ax-alert.py 2>/dev/null | tr '\n' '|' | sed 's
 # Whether a sheet is up at all. Worth its own check before opening the next one: an alert nobody
 # dismissed is modal, so every later press lands on nothing and the failures arrive somewhere else.
 alert_is_open() { python3 scripts/ax-alert.py >/dev/null 2>&1; }
+
+# Answers the sheet that is up, by the title of one of its buttons.
+#
+#     press_sheet "Reset Device"      # agrees
+#     press_sheet Cancel              # declines
+#
+# **Scoped to the sheet, and that is not tidiness.** A confirmation names its agreeing button after the
+# control that opened it, so `Reset Device` matches two elements -- the sheet's, and the one still behind
+# it. `press` searches the whole tree, finds the one underneath first, and presses *that*: the sheet goes
+# unanswered and a second one opens on top of it. Measured 2026-08-17, and it read as a reset that
+# silently did nothing. See Tests/Methods.md Method 12.
+press_sheet() { python3 scripts/ax-press.py --sheet --title "$1" >/dev/null 2>&1; }
 
 # One element's line from the tree, so a check reads the thing it is about rather than searching the
 # whole window -- and a failure prints that line rather than several hundred.

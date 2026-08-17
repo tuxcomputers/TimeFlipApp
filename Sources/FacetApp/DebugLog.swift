@@ -52,8 +52,29 @@ final class DebugLog {
         /// A category spending its `daily_limit`, and the clock being stopped for it (`DailyLimitWatch`).
         case limit
         /// Looking for a device: what the radio is doing, and both names of every advertisement listed
-        /// (`BluetoothScanner`). Both, because the scan list is where the two disagree.
+        /// (`BluetoothRadio`). Both, because the scan list is where the two disagree.
         case scan
+        /// Reaching a cube and presenting its PIN: each attempt, which PIN was tried, and what the cube made of it
+        /// (`BluetoothRadio`, `DeviceLogin`).
+        case login
+        /// Setting a cube's PIN once it has let the app in, and what became of the new one: whether the cube proved
+        /// it took it, and whether it was written down (`DeviceLogin`, `DeveloperConfigFile`). Its own tag rather
+        /// than `login`, because reaching a cube and changing what it will answer to next time are different
+        /// questions, and the second is the one somebody reads the log for when a cube stops letting them in.
+        case pin
+        /// What a confirmed login wrote down about the device: the pairing, the cube's name, and the connection going
+        /// up and down (`DevicePairingRecorder`). Separate from `login` because these rows outlive the link -- they
+        /// are what the next launch reads to know it has a device at all.
+        case pair
+        /// What a cube says it is: the Device Information reads that follow a login, and what became of them
+        /// (`DeviceLogin`, `DevicePairingRecorder`). Its own tag rather than `login`, because these run after the
+        /// verdict and cannot change it -- a cube that answers none of them is logged in exactly the same -- so a row
+        /// here is never part of the story of why a device could or could not be reached.
+        case info
+        /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
+        case transmit = "ble-tx"
+        /// Bytes received from it, whether asked for or notified.
+        case receive = "ble-rx"
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

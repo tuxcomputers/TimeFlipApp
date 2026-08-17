@@ -39,4 +39,19 @@ final class ManualMode {
         isOn = true
         debugLog?.record(.mode, "Manual mode: on, no device is paired")
     }
+
+    /// Turns it off, for the moment a cube becomes this app's cube.
+    ///
+    /// **The other half of the doc above, and the first thing to use it**: this is not a mirror of `paired` that has
+    /// to be kept in step, it is what the app is doing, and pairing mid-session is the point where timing by hand
+    /// stops being the only thing available. Without it the Device tab would say "Manual mode, no device" on the same
+    /// screen as a cube it had just connected to, which is the contradiction `DeviceInfoRules` puts manual mode first
+    /// to avoid.
+    ///
+    /// Silent when it is already off, since every connection to an already-paired cube would otherwise say so again.
+    func stop(because reason: String) {
+        guard isOn else { return }
+        isOn = false
+        debugLog?.record(.mode, "Manual mode: off, \(reason)")
+    }
 }

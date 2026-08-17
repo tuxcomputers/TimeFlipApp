@@ -338,3 +338,9 @@ enum ReportSwatch {
         return swatch
     }
 }
+
+/// **Its default is written here rather than taken from an initialiser**, unlike the other two, because that is where
+/// it lives: a group is built folded every time (`isExpanded` is a stored `false`), the caller having no say in it.
+extension ReportCategoryGroup: CollapsibleSection {
+    func restoreDefaultState() { setExpanded(false) }
+}

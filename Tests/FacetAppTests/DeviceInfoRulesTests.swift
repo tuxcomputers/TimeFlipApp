@@ -1,4 +1,5 @@
 @testable import FacetApp
+import Foundation
 import XCTest
 
 /// Covers `DeviceInfoRules`: the words the Device tab's Info panel puts against each row.
@@ -80,9 +81,56 @@ final class DeviceInfoRulesTests: XCTestCase {
     // MARK: - the More rows, and the greying
 
     func testADetailTheCubeHasNotReportedSaysUnknown() {
-        XCTAssertEqual(DeviceInfoRules.detail(nil), "Unknown")
-        XCTAssertEqual(DeviceInfoRules.detail(""), "Unknown")
-        XCTAssertEqual(DeviceInfoRules.detail("DI_LABS 2.0"), "DI_LABS 2.0")
+        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: nil), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: ""), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: "DI_LABS 2.0"), "DI_LABS 2.0")
+    }
+
+    func testAnUnpairedAppShowsNoDetailEvenWhenOneIsStored() {
+        // These are stored now, so they outlive the connection that read them -- and a manufacturer reported against
+        // no pairing would claim a device more strongly than the Name row above it is allowed to.
+        XCTAssertEqual(DeviceInfoRules.detail(isPaired: false, reported: "DI_LABS"), "Not paired")
+        XCTAssertEqual(DeviceInfoRules.detail(isPaired: false, reported: nil), "Not paired")
+    }
+
+    // MARK: - what comes off the wire
+
+    func testACharacteristicDecodesToTheStringItHolds() {
+        XCTAssertEqual(DeviceInfoRules.reported(Data("FW_v3.64".utf8)), "FW_v3.64")
+    }
+
+    func testAPaddedFieldLosesItsPadding() {
+        // Each of these is a 20-byte field in the vendor spec, so a shorter string arrives padded. The NULs decode as
+        // valid UTF-8, which is what makes them invisible rather than obviously wrong.
+        let padded = Data("TFv4.1".utf8) + Data(repeating: 0, count: 14)
+
+        XCTAssertEqual(DeviceInfoRules.reported(padded), "TFv4.1")
+    }
+
+    func testACubeThatSaidNothingIsNotTheSameAsOneThatSaidBlank() {
+        // `nil` all the way down, so `DevicePairingRecorder` can tell "did not answer" from "answered" and leave a
+        // stored value alone rather than blanking it.
+        XCTAssertNil(DeviceInfoRules.reported(nil))
+        XCTAssertNil(DeviceInfoRules.reported(Data()))
+        XCTAssertNil(DeviceInfoRules.reported(Data(repeating: 0, count: 20)))
+        XCTAssertNil(DeviceInfoRules.reported(Data("   ".utf8)))
+    }
+
+    func testBytesThatAreNotTextAreNotGuessedAt() {
+        // System ID (0x2A23) is the reason this matters: it sits in the same service and is raw binary, so anything
+        // reaching here that is not UTF-8 is a read this app should report as an absence rather than render.
+        XCTAssertNil(DeviceInfoRules.reported(Data([0xFF, 0xFE, 0xFD])))
+    }
+
+    // MARK: - what a reading amounts to
+
+    func testACubeThatAnsweredNothingReadsAsEmpty() {
+        XCTAssertTrue(DeviceInfo().isEmpty)
+    }
+
+    func testOneAnswerIsEnoughToNotBeEmpty() {
+        // Four independent reads: three failing does not make the fourth worthless.
+        XCTAssertFalse(DeviceInfo(firmware: "FW_v3.64").isEmpty)
     }
 
     func testValuesAreOnlyLiveWhileSomethingCanBeHeard() {

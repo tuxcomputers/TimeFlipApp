@@ -292,7 +292,10 @@ testlog_script_start() {
 # The app's debug_log high-water mark, or 0 when there is no database to ask.
 app_log_mark() {
     local id
-    id=$(sqlite3 "$DB" "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;" 2>/dev/null || echo 0)
+    # The same busy timeout `lib.sh`'s `sql` uses, and for the same reason: a locked read answers empty,
+    # which the fallback below turns into a mark of 0 -- and a window starting at 0 copies the whole log
+    # into the record instead of this script's own rows.
+    id=$(sqlite3 -cmd ".timeout 10000" "$DB" "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;" 2>/dev/null || echo 0)
     printf '%s' "${id:-0}"
 }
 

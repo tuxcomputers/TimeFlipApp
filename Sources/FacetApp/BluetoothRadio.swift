@@ -1,0 +1,731 @@
+import CoreBluetooth
+import Foundation
+
+/// Why a scan is not running, in the words the tab shows.
+///
+/// Separate from "found nothing" on purpose: a radio that is off, or that the user has refused this app, produces an
+/// empty list exactly like a room with no cube in it, and an empty list is the one thing all three states have in
+/// common. Saying which is the difference between somebody turning Bluetooth on and somebody buying a new cube.
+enum ScanUnavailable: Equatable {
+    case bluetoothOff
+    case unauthorised
+    case unsupported
+
+    var message: String {
+        switch self {
+        case .bluetoothOff: return "Bluetooth is off. Turn it on to look for a TimeFlip."
+        case .unauthorised: return "Facet is not allowed to use Bluetooth. Grant it in System Settings > Privacy & Security."
+        case .unsupported: return "This Mac has no Bluetooth radio that Facet can use."
+        }
+    }
+}
+
+/// The radio, and nothing else.
+///
+/// **It decides nothing.** Every judgement about an advertisement belongs to `DeviceScanRules` and every judgement
+/// about a PIN to `DeviceLoginRules`, both of which work on values and so are testable with no hardware; this turns
+/// CoreBluetooth's callbacks into those values, keeps the list, and drives the sequence. That is the same split as
+/// `DailyLimitEnforcement` and `DailyLimitWatch`, and for the same reason: the part worth testing must not be the
+/// part that needs a device on the desk. Sequencing is not deciding -- which PIN to try, and what the answer to it
+/// means, are both asked of the rules.
+///
+/// **It was `BluetoothScanner`, and the rename is the honest one.** Scanning and connecting cannot be two objects:
+/// CoreBluetooth will only connect a peripheral through the very `CBCentralManager` that discovered it, so one owner
+/// of the manager is not a design preference but the framework's rule. The class doc always did say "the radio".
+///
+/// **Nothing here is written to a table, and that is not a breach of the first rule in `CLAUDE.md`.** A scan result is
+/// not a fact about the user's setup, it is what a radio heard in the last few seconds: it goes stale by itself, it is
+/// gone when the window closes, and a stored copy would be a list of devices that were in the room once. A live
+/// connection is the same kind of thing one step further on. What *is* durable about pairing already has rows
+/// (`paired`, `device_uuid`, `device_name`) and this writes none of them, because reaching a cube is not pairing with
+/// it -- `paired` is described in `database/011_setting.sql` as surviving every drop and every refusal, which is only
+/// coherent if connecting never touches it. The two names the filter needs are read from the table when a scan starts,
+/// at the point of use, and not held between scans.
+@MainActor
+final class BluetoothRadio: NSObject {
+    /// Called as the list changes, already ordered. The whole list rather than each arrival, so the tab redraws from
+    /// one answer instead of accumulating its own copy.
+    var onDevicesChanged: (([ScannedDevice]) -> Void)?
+
+    /// Called when scanning starts or stops, including when it stops itself because the radio went away.
+    var onScanningChanged: ((Bool) -> Void)?
+
+    /// Called when a scan cannot run, or `nil` when the reason has cleared.
+    var onUnavailable: ((ScanUnavailable?) -> Void)?
+
+    /// Called when an attempt to reach a device starts, and again when it ends. The two are separate because the
+    /// first is the only thing that can be said for the several seconds in between, and a control that reports
+    /// nothing until it succeeds is one somebody presses twice.
+    var onLoginBegan: ((UUID) -> Void)?
+    var onLoginEnded: ((UUID, DeviceLoginOutcome) -> Void)?
+
+    /// Called when a connection this app was keeping goes away on its own: the cube out of range, switched off, or
+    /// its batteries out. Not called for a disconnect this app asked for.
+    var onConnectionDropped: ((UUID) -> Void)?
+
+    /// Called with a cube's new PIN, once the cube has proved it took it by logging in with it again.
+    ///
+    /// **Whoever handles this is the only thing standing between the app and a cube it cannot open**, so it fires
+    /// before the outcome is reported and it fires from the exchange itself rather than from a summary afterwards.
+    /// Where the PIN is written down is not the radio's business (`DeveloperConfigFile`), for the same reason the
+    /// candidates are handed in rather than worked out here.
+    var onPINChanged: ((String) -> Void)?
+
+    /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
+    ///
+    /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
+    /// all: a cube that answers none of these is still a cube this app logged in to and paired with, and folding the
+    /// two together would make an optional read into something a pairing waits on.
+    var onDeviceInfo: ((UUID, DeviceInfo) -> Void)?
+
+    /// How long a scan runs before stopping itself.
+    ///
+    /// **A cube that is awake answers in about a second, and that is measured rather than assumed.** Across eight
+    /// scans that found one (`logs/testlog.sqlite`, runs 29 and 33): fastest 0.33s, median 0.94s, slowest 2.12s. Ten
+    /// seconds is roughly five times the worst of those, which leaves room for a slow one without leaving somebody
+    /// watching a list that was never going to grow.
+    ///
+    /// **Waiting longer does not find a sleeping cube, it only looks like it might.** A cube that is not awake does
+    /// not advertise at all, so it is not slow to answer -- it never answers, and no timeout reaches it. Two of the
+    /// ten scans recorded found nothing for exactly that reason, and each was followed seconds later by one that
+    /// found the cube immediately, because somebody had flipped it in between. Thirty seconds spent proving that is
+    /// twenty-eight seconds of somebody wondering whether the app is broken.
+    ///
+    /// What the bound is really for is the other end: a scan with no timeout runs until somebody presses the button
+    /// again, and the radio then stays listening for the rest of the session with nothing on screen saying so. It
+    /// also lets the status line say "no devices found" and mean it, instead of "looking" for ever.
+    static let timeoutSeconds: TimeInterval = 10
+
+    /// How long a connect is given before it is called unreachable.
+    ///
+    /// **`CBCentralManager.connect` has no timeout of its own** and will sit there indefinitely waiting for a cube
+    /// that is asleep or gone, so this is the only thing that ends it. Fifteen seconds against a measured worst case
+    /// of 5.4 across 36 logged connects (`Archive/TimeFlipApp/TimeFlipConstants.swift`), which leaves room for a slow
+    /// one without leaving somebody watching a button that will never come back.
+    static let connectTimeoutSeconds: TimeInterval = 15
+
+    /// The pause between a refused PIN and the next attempt.
+    ///
+    /// **Copied from the archive as it stands, and it is worth keeping verbatim.** A refused login drops the link on
+    /// its way out, and an immediate reconnect to the same peripheral races that teardown and comes back as a failure
+    /// before anything is sent -- which reads as "could not reach it" and abandons the candidate that would have
+    /// worked. That is not reasoning, it is what happened on 2026-08-10: `000000` refused, no second login attempt in
+    /// the log at all, and a cube on a rotated PIN left unreachable.
+    static let settleSeconds: TimeInterval = 1
+
+    private let debugLog: DebugLog?
+    private var central: CBCentralManager?
+    private var found: [UUID: ScannedDevice] = [:]
+    private var timeout: Timer?
+
+    /// The peripherals behind the values in `found`.
+    ///
+    /// **Held because CoreBluetooth requires it**: a `CBPeripheral` nobody retains is deallocated, and connecting to
+    /// one needs the object the scan produced rather than its identifier. Cleared with the list at the start of each
+    /// scan, except for one that is currently connected -- dropping that would sever a live link to tidy up a list.
+    private var peripherals: [UUID: CBPeripheral] = [:]
+
+    /// How many devices the scan now running has listed. What the tab's status line reports once it stops.
+    var deviceCount: Int { found.count }
+
+    /// What the filter is matching against for the scan now running. Held only for the length of a scan, which is the
+    /// span of the question it answers: the next scan reads the table again.
+    private var remembered: String?
+    private var previouslyKnown: String?
+    private var isFiltering = true
+
+    private(set) var isScanning = false
+
+    /// One run at reaching a device: which one, which PINs are left to try on it, and what to leave it on.
+    private struct Attempt {
+        let id: UUID
+        var remaining: [String]
+        var presenting: String
+        /// Carried across the reconnect between candidates: which PIN got the app in has no bearing on what the cube
+        /// should be left on.
+        let rotatingTo: String?
+    }
+
+    /// A reset waiting to be proved: which cube, and who to tell.
+    ///
+    /// **While this is set the radio is in a different conversation**, and the ordinary connect callbacks are
+    /// suppressed for that cube: a login here is evidence about a wipe rather than a device being reached, so
+    /// `onLoginBegan`, `onLoginEnded` and `onConnectionDropped` would all be reporting the wrong story to a tab that
+    /// is already showing "Resetting".
+    private struct ResetConfirmation {
+        let id: UUID
+        let reported: (FactoryResetOutcome) -> Void
+    }
+
+    /// How long a cube is given to come back on the vendor PIN before the reset is called unconfirmed.
+    ///
+    /// The archive's `factoryResetConfirmTimeout`, copied: erasing flash and rebooting is not quick, and the number
+    /// was arrived at against real hardware.
+    static let resetConfirmSeconds: TimeInterval = 120
+
+    /// The gap between attempts to meet the cube again after a reset.
+    ///
+    /// Longer than `settleSeconds`, which exists only to let a refused link finish coming down: this one is waiting on
+    /// a device that is erasing its flash and restarting, so the first attempt is deliberately not immediate. Each
+    /// failed attempt costs `connectTimeoutSeconds` on top, which puts roughly six tries inside the window.
+    static let resetRetrySeconds: TimeInterval = 3
+
+    private var resetConfirmation: ResetConfirmation?
+    private var resetDeadline: Timer?
+
+    private var attempt: Attempt?
+    private var connectTimeout: Timer?
+    private var settle: Timer?
+    /// Set while a disconnect is this app's doing, so the delegate can tell one apart from a cube that went away.
+    private var isDisconnectingDeliberately = false
+
+    /// The conversation with the connected peripheral, kept for as long as the connection is.
+    ///
+    /// **`CBPeripheral.delegate` is weak**, so this reference is what keeps the login from being deallocated mid
+    /// exchange -- and afterwards it is what keeps every byte the cube sends unasked reaching the trace.
+    private var login: DeviceLogin?
+
+    /// The device this app is currently logged in to, or `nil`.
+    private(set) var connectedDevice: UUID?
+
+    init(debugLog: DebugLog?) {
+        self.debugLog = debugLog
+        super.init()
+    }
+
+    // MARK: - looking
+
+    /// Starts looking.
+    ///
+    /// **The manager is made here rather than at launch**, so an app nobody has asked to scan never touches the radio
+    /// and never provokes the system's Bluetooth permission prompt. `centralManagerDidUpdateState` is what actually
+    /// begins the scan, because a manager is not usable the instant it is created: its state arrives asynchronously,
+    /// and scanning before `.poweredOn` is a call that silently does nothing.
+    ///
+    /// - Parameters:
+    ///   - filterToTimeFlip: what the **All Devices** box turns off.
+    ///   - remembered: `device_name.name`, read from the table by the caller at this moment.
+    ///   - previouslyKnown: `device_name.previous_name`, likewise.
+    func start(filterToTimeFlip: Bool, remembered: String?, previouslyKnown: String?) {
+        self.isFiltering = filterToTimeFlip
+        self.remembered = remembered
+        self.previouslyKnown = previouslyKnown
+        // A fresh list per scan: a device that has since been switched off should leave the list, and the only
+        // honest way to know it has gone is to stop claiming to have seen it.
+        found = [:]
+        peripherals = peripherals.filter { $0.key == connectedDevice }
+        onDevicesChanged?([])
+        debugLog?.record(
+            .scan,
+            "Scan requested, \(filterToTimeFlip ? "TimeFlip only" : "all devices")"
+                + ", remembered \"\(remembered ?? "")\", previously \"\(previouslyKnown ?? "")\""
+        )
+
+        if central == nil {
+            // **Said out loud, because the gap it opens is otherwise silent.** Building the manager does not start a
+            // scan: the state arrives on the delegate and `beginScanIfReady` runs there. That is usually immediate,
+            // but the first time this app ever asks for the radio it is however long somebody takes to answer the
+            // system's Bluetooth prompt -- once, on one machine, and never again once allowed. Without this row the
+            // log jumps from "Scan requested" to nothing, and a button that has not changed looks broken rather than
+            // waiting, which is exactly how run 24 read it.
+            debugLog?.record(.scan, "Waiting for the radio: building the central manager")
+            central = CBCentralManager(delegate: self, queue: .main)
+            return
+        }
+        beginScanIfReady()
+    }
+
+    func stop() {
+        stop(because: "stopped")
+    }
+
+    /// Stops, saying why in the log. The reason is not shown to the user: what they see is the list and whether it
+    /// is still growing, and "timed out" against a list with the cube in it would read as a failure.
+    private func stop(because reason: String) {
+        timeout?.invalidate()
+        timeout = nil
+        guard isScanning else { return }
+        central?.stopScan()
+        isScanning = false
+        debugLog?.record(.scan, "Scan \(reason), \(found.count) device(s) listed")
+        onScanningChanged?(false)
+    }
+
+    private func beginScanIfReady() {
+        guard let central else { return }
+        guard central.state == .poweredOn else {
+            report(unavailable(for: central.state))
+            return
+        }
+        onUnavailable?(nil)
+        // **No service filter, deliberately, even though the service UUID is known.** This hardware does not reliably
+        // advertise it (measured by the archive's diagnostic scan, and the reason its own scan matched on names), so
+        // asking CoreBluetooth for that service would find nothing at all. The filtering happens above, in
+        // `DeviceScanRules`, where it can also match the names.
+        //
+        // `allowDuplicates` is left off: a second advertisement from a device already in the list tells this nothing
+        // it does not know, and the callback fires many times a second per device.
+        central.scanForPeripherals(withServices: nil, options: nil)
+        isScanning = true
+        // **The row that says the radio is actually listening**, as opposed to `Scan requested`, which says only that
+        // somebody asked. The two are separated by however long the manager takes to power on, and the only other
+        // evidence of the gap closing was `Bluetooth state:` -- which `centralManagerDidUpdateState` writes when the
+        // state *changes*, so it appears on the first scan of a session and never again. From the second scan onwards
+        // there was nothing at all between the request and the first advertisement, which is how `14-device-connect`
+        // failed the first time it ran: it waited 60 seconds for a row that had already been written by `13`.
+        debugLog?.record(.scan, "Scan started, listening for advertisements")
+        // Armed here rather than in `start`, because `start` may only have built the manager: the clock should
+        // measure the time the radio was actually listening, not the wait for it to power on.
+        timeout?.invalidate()
+        timeout = Timer(timeInterval: Self.timeoutSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stop(because: "timed out after \(Int(Self.timeoutSeconds))s") }
+        }
+        // `.common`, so a scan still ends on time while a menu is being held open.
+        if let timeout { RunLoop.main.add(timeout, forMode: .common) }
+        onScanningChanged?(true)
+    }
+
+    private func unavailable(for state: CBManagerState) -> ScanUnavailable? {
+        switch state {
+        case .poweredOn: return nil
+        case .poweredOff: return .bluetoothOff
+        case .unauthorized: return .unauthorised
+        case .unsupported: return .unsupported
+        // `.resetting` and `.unknown` are both "ask again shortly": the delegate fires again when it settles, so
+        // saying anything now would put a message on screen that a moment later is wrong.
+        default: return nil
+        }
+    }
+
+    private func report(_ reason: ScanUnavailable?) {
+        if isScanning {
+            isScanning = false
+            onScanningChanged?(false)
+        }
+        if let reason {
+            debugLog?.record(.scan, "Scan unavailable: \(reason)")
+        }
+        onUnavailable?(reason)
+    }
+
+    private func publish() {
+        onDevicesChanged?(
+            DeviceScanRules.ordered(Array(found.values), remembered: remembered, previouslyKnown: previouslyKnown)
+        )
+    }
+
+    // MARK: - reaching one
+
+    /// Connects to a listed device, presents PINs to it until one is accepted or they run out, and sets the PIN it
+    /// should be left on.
+    ///
+    /// **The candidates and the new PIN are handed in rather than worked out here**, which keeps the rules about what
+    /// to try and what to set in `DeviceLoginRules` where they can be tested without a cube. This drives the sequence
+    /// and reports what came of it.
+    ///
+    /// **The scan stops first.** A radio doing both is slower at each, and the list is about to be acted on rather
+    /// than added to.
+    ///
+    /// - Parameter rotatingTo: the PIN the cube should end up on, or `nil` to leave it on whichever one let the app
+    ///   in. Only a developer build has one to give (`DeveloperMode.devicePIN`).
+    func connect(to id: UUID, presenting candidates: [String], rotatingTo: String? = nil) {
+        guard peripherals[id] != nil else {
+            debugLog?.record(.login, "Asked to connect to \(id.uuidString), which is not a device this scan found")
+            return
+        }
+        guard attempt == nil else {
+            debugLog?.record(.login, "Already reaching a device; ignoring the request for \(id.uuidString)")
+            return
+        }
+        guard let first = candidates.first else {
+            debugLog?.record(.login, "No PIN to present to \(id.uuidString)")
+            end(id, .wrongPIN)
+            return
+        }
+        stop(because: "stopped: a device was chosen")
+        // Anything already connected goes, before rather than after: two live links would leave the app holding a
+        // cube nobody chose, and the one thing worse than not reaching a device is reaching the wrong one silently.
+        disconnect(because: "another device was chosen")
+        attempt = Attempt(
+            id: id, remaining: Array(candidates.dropFirst()), presenting: first, rotatingTo: rotatingTo
+        )
+        onLoginBegan?(id)
+        beginConnect()
+    }
+
+    /// Whether a reset is waiting on the cube to prove itself, which is what the tab shows instead of a connection.
+    var isResetting: Bool { resetConfirmation != nil }
+
+    /// Puts the connected cube back to how it left the factory, and reports only once the cube has **proved** it.
+    ///
+    /// **Sending `0xFF` is not the answer, and this is the archive's central insight about reset.** The command has no
+    /// usable acknowledgement -- the cube reboots without writing a fresh command result, so the characteristic still
+    /// holds the previous command's bytes (`DeviceLoginRules.factoryReset`) -- so a write that landed says only that
+    /// the cube heard something. What proves the wipe took is the cube coming back **on the vendor PIN**: a device
+    /// still holding this app's PIN has plainly not been erased. That is the same shape as setting a PIN, where the
+    /// proof is a login with the new one rather than the command's own reply, and it is right for the same reason.
+    ///
+    /// The sequence, which is `ApplicationDelegate`'s and is kept whole:
+    ///
+    /// 1. Arm the confirmation window **before** sending, so the disconnect the reset causes is expected rather than
+    ///    read as the cube going away.
+    /// 2. Send `0xFF`. A write the cube refused ends it here, nothing having happened.
+    /// 3. Wait for the link to drop, which is the cube rebooting.
+    /// 4. Reach it again presenting **only** the vendor default, over and over until it answers or the window closes.
+    ///    Only the default: the stored PIN would let an unwiped cube in and be mistaken for proof.
+    /// 5. A login on the default is the confirmation. Report it, then let go -- **that login is deliberately not a
+    ///    pairing**, which is the archive's rule: the cube is now a pristine unpaired device, and treating the proof
+    ///    as a pairing would leave the app holding the very thing the user asked it to give up.
+    func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
+        guard let id = connectedDevice, let login else {
+            debugLog?.record(.pair, "Asked to reset with no cube connected")
+            reported(.notSent)
+            return
+        }
+        // Armed first, for the reason above: the drop that follows is part of the reset.
+        resetConfirmation = ResetConfirmation(id: id, reported: reported)
+        resetDeadline?.invalidate()
+        resetDeadline = Timer(timeInterval: Self.resetConfirmSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.debugLog?.record(
+                    .pair,
+                    "The cube never came back on the vendor PIN within \(Int(Self.resetConfirmSeconds))s,"
+                        + " so the reset is not confirmed"
+                )
+                self?.endReset(.notConfirmed)
+            }
+        }
+        if let resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
+
+        login.factoryReset { [weak self] sent in
+            guard let self else { return }
+            guard sent else {
+                self.debugLog?.record(.pair, "The cube would not take the reset command")
+                self.endReset(.notSent)
+                return
+            }
+            self.debugLog?.record(.pair, "Reset sent; letting go of the link so the cube can be met again")
+            // **The link is dropped here rather than waited for, and that is a measured correction.** The archive
+            // assumed the cube reboots and severs the connection, so this waited for `didDisconnectPeripheral` to
+            // start the confirmation. On this firmware it does not: a reset on 2026-08-17 was acknowledged and the
+            // link then stayed up for the whole 104 seconds somebody watched it, with no disconnect at all -- so
+            // nothing was ever tried and a wipe that had actually happened went unconfirmed (finding 6 in
+            // `docs/timeflip2-firmware-observations.md`). Dropping it here covers both firmwares: a cube that does
+            // sever the link is handled by `didDisconnectPeripheral`, and one that does not is let go of anyway.
+            self.disconnect(because: "the cube is being reset")
+            self.retryResetConfirmation()
+        }
+    }
+
+    /// Tries the vendor default on the rebooted cube, again and again until it answers or the window closes.
+    ///
+    /// **Only the vendor default is presented.** Offering the stored PIN as well would let a cube that ignored the
+    /// command log in and be counted as proof, which is the one mistake this whole sequence exists to avoid.
+    private func retryResetConfirmation() {
+        guard resetConfirmation != nil else { return }
+        settle?.invalidate()
+        // **Which cube is read when the timer fires, not captured now.** A `ResetConfirmation` holds a closure and so
+        // is not `Sendable`, which the compiler refuses to let across into a timer -- and re-reading is the better
+        // answer anyway: if the window closed in the meantime there is nothing left to reach for.
+        settle = Timer(timeInterval: Self.resetRetrySeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let id = self.resetConfirmation?.id else { return }
+                self.debugLog?.record(.pair, "Trying the vendor PIN, to see whether the cube was really wiped")
+                self.attempt = Attempt(
+                    id: id, remaining: [], presenting: DeviceLoginRules.defaultPIN, rotatingTo: nil
+                )
+                self.beginConnect()
+            }
+        }
+        if let settle { RunLoop.main.add(settle, forMode: .common) }
+    }
+
+    /// Ends the reset one way or the other, and says so exactly once.
+    private func endReset(_ outcome: FactoryResetOutcome) {
+        guard let confirmation = resetConfirmation else { return }
+        resetConfirmation = nil
+        resetDeadline?.invalidate()
+        resetDeadline = nil
+        settle?.invalidate()
+        settle = nil
+        connectTimeout?.invalidate()
+        connectTimeout = nil
+        attempt = nil
+        debugLog?.record(.pair, "Reset: \(outcome)")
+        // **Let go either way.** A confirmed reset leaves a pristine cube the app has been told to give up, and an
+        // unconfirmed one leaves a device the app must not go on holding as though nothing had been asked.
+        disconnect(because: "the reset is over")
+        confirmation.reported(outcome)
+    }
+
+    /// Drops the connection, if there is one. Says nothing when there is nothing to drop: this is called on every
+    /// window close and every tab change.
+    func disconnect(because reason: String) {
+        cancelAttempt()
+        guard let id = connectedDevice, let peripheral = peripherals[id] else { return }
+        debugLog?.record(.login, "Disconnecting from \(id.uuidString): \(reason)")
+        isDisconnectingDeliberately = true
+        connectedDevice = nil
+        login = nil
+        central?.cancelPeripheralConnection(peripheral)
+    }
+
+    /// Abandons an attempt in flight without reporting an outcome, for the two moments that are not the cube's doing:
+    /// the window closing, and another device being chosen.
+    private func cancelAttempt() {
+        connectTimeout?.invalidate()
+        connectTimeout = nil
+        settle?.invalidate()
+        settle = nil
+        guard let attempt else { return }
+        self.attempt = nil
+        login = nil
+        if let peripheral = peripherals[attempt.id], connectedDevice != attempt.id {
+            isDisconnectingDeliberately = true
+            central?.cancelPeripheralConnection(peripheral)
+        }
+    }
+
+    private func beginConnect() {
+        guard let attempt, let peripheral = peripherals[attempt.id], let central else { return }
+        debugLog?.record(
+            .login,
+            "Connecting to \(DeviceScanRules.label(for: found[attempt.id] ?? placeholder(attempt.id)))"
+                + " (\(attempt.id.uuidString))"
+        )
+        isDisconnectingDeliberately = false
+        central.connect(peripheral, options: nil)
+        connectTimeout?.invalidate()
+        connectTimeout = Timer(timeInterval: Self.connectTimeoutSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let attempt = self.attempt else { return }
+                self.debugLog?.record(.login, "No answer after \(Int(Self.connectTimeoutSeconds))s")
+                self.end(attempt.id, .unreachable)
+            }
+        }
+        if let connectTimeout { RunLoop.main.add(connectTimeout, forMode: .common) }
+    }
+
+    /// Presents the next PIN, once the one before it has been refused.
+    private func retry() {
+        guard var attempt, !attempt.remaining.isEmpty else { return }
+        attempt.presenting = attempt.remaining.removeFirst()
+        self.attempt = attempt
+        login = nil
+        // The link goes down between candidates rather than a second PIN being written over the first. The cube
+        // forgets the password characteristic on disconnect and asks again on reconnect (protocol v4.3), so a fresh
+        // connection is the state the exchange is specified in -- and the command result characteristic is left
+        // holding the refusal, which finding 2 in `docs/timeflip2-firmware-observations.md` says is exactly the
+        // circumstance where a stale value gets read as an answer.
+        if let peripheral = peripherals[attempt.id] {
+            isDisconnectingDeliberately = true
+            central?.cancelPeripheralConnection(peripheral)
+        }
+        settle?.invalidate()
+        settle = Timer(timeInterval: Self.settleSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.beginConnect() }
+        }
+        if let settle { RunLoop.main.add(settle, forMode: .common) }
+    }
+
+    /// Ends the attempt, one way or the other, and says so once.
+    private func end(_ id: UUID, _ outcome: DeviceLoginOutcome) {
+        connectTimeout?.invalidate()
+        connectTimeout = nil
+        settle?.invalidate()
+        settle = nil
+        attempt = nil
+        // **A reset confirmation is not a login anybody asked for**, so it reports through its own channel and none of
+        // the connect callbacks fire. A cube that did not answer this time is not a failure either: it may still be
+        // rebooting, and the window is what decides when to give up.
+        if let confirmation = resetConfirmation, confirmation.id == id {
+            guard outcome == .loggedIn else {
+                debugLog?.record(.pair, "Not back yet (\(outcome)); trying again")
+                retryResetConfirmation()
+                return
+            }
+            debugLog?.record(.pair, "The cube let the app in on the vendor PIN, so the wipe took")
+            endReset(.confirmed)
+            return
+        }
+        debugLog?.record(.login, "\(id.uuidString): \(outcome)")
+        if outcome != .loggedIn, let peripheral = peripherals[id], connectedDevice != id {
+            isDisconnectingDeliberately = true
+            central?.cancelPeripheralConnection(peripheral)
+        }
+        onLoginEnded?(id, outcome)
+    }
+
+    /// What to call a device in a message about it.
+    ///
+    /// **Asked of the radio rather than remembered by the tab**, which is the same reasoning as handing the tab the
+    /// whole list on every change: the scan owns what was found, so a caller keeping names by it would be a second
+    /// copy of a list that moves.
+    func label(for id: UUID) -> String {
+        DeviceScanRules.label(for: found[id] ?? placeholder(id))
+    }
+
+    /// The advertisement a listed device was built from, for a caller that needs more of it than a label -- recording
+    /// a pairing needs the GAP name specifically, which is not always the name shown (`DevicePairingRules.gapName`).
+    ///
+    /// The placeholder stands in for a device that has dropped out of the list while an attempt on it was still
+    /// running, so this answers for anything the radio has reached rather than only for what is currently listed.
+    func device(_ id: UUID) -> ScannedDevice {
+        found[id] ?? placeholder(id)
+    }
+
+    /// Stands in for a device that has left the list while an attempt on it is still running, so a log line can name
+    /// something rather than trailing off.
+    private func placeholder(_ id: UUID) -> ScannedDevice {
+        ScannedDevice(id: id, peripheralName: nil, advertisedName: nil, advertisesTimeFlipService: false)
+    }
+}
+
+// **`@preconcurrency` rather than a hop to the main actor**, which is a change from the version of this file that only
+// scanned. That one read the two names off each advertisement and carried the values across, precisely because
+// `CBPeripheral` is not `Sendable`; connecting needs the peripheral object itself, and there is no value it reduces
+// to. The manager is created with `queue: .main`, so every callback below already arrives on the main thread and the
+// conformance's runtime check is the assertion of that rather than a hope.
+extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        debugLog?.record(.scan, "Bluetooth state: \(central.state.rawValue)")
+        guard central.state == .poweredOn else {
+            found = [:]
+            publish()
+            report(unavailable(for: central.state))
+            return
+        }
+        // Only start on the state that made it possible: this also fires when the radio comes back mid-session,
+        // and picking the scan up then is what the user asked for when they pressed the button.
+        beginScanIfReady()
+    }
+
+    func centralManager(
+        _ central: CBCentralManager,
+        didDiscover peripheral: CBPeripheral,
+        advertisementData: [String: Any],
+        rssi RSSI: NSNumber
+    ) {
+        let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        // Overflow and solicited lists as well as the plain one: a service can arrive in any of the three, and this
+        // costs nothing when it arrives in none of them, which on this hardware is most of the time.
+        let services = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? [])
+            + (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [])
+            + (advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? [])
+        let device = ScannedDevice(
+            id: peripheral.identifier,
+            peripheralName: peripheral.name,
+            advertisedName: advertisedName,
+            advertisesTimeFlipService: services.contains(TimeFlipUUIDs.service)
+        )
+
+        guard !isFiltering
+            || DeviceScanRules.isEligible(device, remembered: remembered, previouslyKnown: previouslyKnown)
+        else {
+            return
+        }
+        // Logged once per device rather than per advertisement, which arrives several times a second. Both names
+        // go in the line, because the list is exactly where they disagree and a label nobody chose is
+        // explicable from this row and guesswork without it.
+        if found[device.id] == nil {
+            debugLog?.record(
+                .scan,
+                "Found \(device.id.uuidString): peripheral \"\(device.peripheralName ?? "")\", "
+                    + "advertised \"\(device.advertisedName ?? "")\""
+                    + (device.advertisesTimeFlipService ? ", TimeFlip service" : "")
+            )
+        }
+        // Kept whether or not the value changed: the list is drawn from the values, and the object behind them is
+        // what a connect needs.
+        peripherals[device.id] = peripheral
+        guard found[device.id] != device else { return }
+        found[device.id] = device
+        publish()
+    }
+
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard let attempt, attempt.id == peripheral.identifier else { return }
+        connectTimeout?.invalidate()
+        connectTimeout = nil
+        debugLog?.record(.login, "Connected to \(peripheral.identifier.uuidString), presenting a PIN")
+        let login = DeviceLogin(
+            peripheral: peripheral,
+            pin: attempt.presenting,
+            rotatingTo: attempt.rotatingTo,
+            debugLog: debugLog,
+            // A reset confirmation asks nothing about the cube: it is proving a wipe and letting go.
+            readsDeviceInfo: resetConfirmation == nil,
+            rotated: { [weak self] pin in self?.onPINChanged?(pin) },
+            // **Only while this is still the cube the app is holding.** These reads land seconds after the login, by
+            // which time the window may have been closed or another device chosen -- and a report acted on then would
+            // write down what one cube says under a pairing that now names a different one.
+            reported: { [weak self] info in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.onDeviceInfo?(attempt.id, info)
+            }
+        ) { [weak self] outcome in
+            self?.finish(attempt.id, outcome)
+        }
+        self.login = login
+        login.begin()
+    }
+
+    /// What `finish` does with a refusal is the one branch that does not end the attempt: there may be another PIN.
+    private func finish(_ id: UUID, _ outcome: DeviceLoginOutcome) {
+        guard let attempt, attempt.id == id else { return }
+        if outcome == .wrongPIN, !attempt.remaining.isEmpty {
+            debugLog?.record(.login, "Refused, and there is another PIN to try")
+            retry()
+            return
+        }
+        if outcome == .loggedIn {
+            connectedDevice = id
+        }
+        end(id, outcome)
+    }
+
+    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard let attempt, attempt.id == peripheral.identifier else { return }
+        debugLog?.record(.login, "Could not connect: \(error?.localizedDescription ?? "no reason given")")
+        end(attempt.id, .unreachable)
+    }
+
+    func centralManager(
+        _ central: CBCentralManager,
+        didDisconnectPeripheral peripheral: CBPeripheral,
+        error: Error?
+    ) {
+        let id = peripheral.identifier
+        debugLog?.record(
+            .login,
+            "Disconnected from \(id.uuidString)"
+                + (isDisconnectingDeliberately ? ", as asked" : ", unexpectedly")
+                + (error.map { ": \($0.localizedDescription)" } ?? "")
+        )
+        // A disconnect this app asked for has already been accounted for by whoever asked. Only an unexpected one
+        // has anything to report, and which of the two it is is the difference between a tidy close and a cube whose
+        // batteries have just come out.
+        guard !isDisconnectingDeliberately else {
+            isDisconnectingDeliberately = false
+            return
+        }
+        // **The cube rebooting is what a reset looks like from here**, so this drop is the sequence proceeding rather
+        // than a device going away. Reported as neither, and answered by reaching for it again.
+        if let confirmation = resetConfirmation, confirmation.id == id {
+            connectedDevice = nil
+            login = nil
+            debugLog?.record(.pair, "The cube dropped the link, which is it rebooting after the reset")
+            retryResetConfirmation()
+            return
+        }
+        if let attempt, attempt.id == id {
+            login = nil
+            end(id, .unreachable)
+            return
+        }
+        guard connectedDevice == id else { return }
+        connectedDevice = nil
+        login = nil
+        onConnectionDropped?(id)
+    }
+}
