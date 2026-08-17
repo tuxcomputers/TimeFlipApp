@@ -68,6 +68,29 @@ struct DevicePairingRecorder {
         return wrote
     }
 
+    /// Records that the app has got back to the cube it was already paired to. Answers whether both rows took it.
+    ///
+    /// **The connection row and nothing else, which is the whole point of it being separate from `recordPairing`.** The
+    /// pairing has not changed: `paired`, `device_uuid` and `device_name` say the same thing they said before the link
+    /// went, and they are described in `database/011_setting.sql` as surviving exactly this. What changed is that the cube
+    /// is reachable again, and that is one row.
+    ///
+    /// **It also stops the log lying.** `recordPairing` writes "Paired with ...", which on the twentieth reconnect of a
+    /// morning is a record of a pairing that did not happen -- and the debug log is what a device run is read from, so a
+    /// line that names the wrong event costs somebody an hour later on.
+    @discardableResult
+    func recordReconnection(with device: ScannedDevice, at moment: Date = Date()) -> Bool {
+        var wrote = settings.write("connection", field: "connected", true)
+        wrote = settings.write("connection", field: "last_connection", Self.stamp(moment)) && wrote
+        debugLog?.record(
+            .pair,
+            wrote
+                ? "Reconnected to \(DeviceScanRules.label(for: device)) (\(device.id.uuidString))"
+                : "RECONNECTION NOT RECORDED for \(device.id.uuidString) -- the table refused a write"
+        )
+        return wrote
+    }
+
     /// Records what the cube says it is. Answers whether every field that arrived took.
     ///
     /// **Only what the cube actually answered is written**, which is the whole reason `DeviceInfo`'s fields are

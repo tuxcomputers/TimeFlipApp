@@ -133,6 +133,45 @@ final class DevicePairingRecorderTests: XCTestCase {
         XCTAssertEqual(settings.string("device_name", field: "name"), "Dibby")
     }
 
+    // MARK: - getting back to it
+
+    func testAReconnectionMarksTheConnectionUpAgain() throws {
+        XCTAssertTrue(recorder.recordPairing(with: cube), "precondition")
+        XCTAssertTrue(recorder.recordConnectionLost(because: "the cube went away"), "precondition")
+
+        XCTAssertTrue(recorder.recordReconnection(with: cube, at: try moment("2026-08-17T09:30:00")))
+
+        XCTAssertEqual(settings.flag("connection", field: "connected"), true)
+        XCTAssertEqual(settings.string("connection", field: "last_connection"), "2026-08-17T09:30:00")
+    }
+
+    func testAReconnectionLeavesTheStampFromTheDropAlone() throws {
+        // The three fields on that row exist to tell three endings apart, and the last drop is worth being able to see
+        // after the app has got back: how long the cube was away is the difference between a flicker and a lunch break.
+        XCTAssertTrue(recorder.recordPairing(with: cube), "precondition")
+        XCTAssertTrue(recorder.recordConnectionLost(because: "the cube went away", at: try moment("2026-08-17T09:20:00")))
+
+        XCTAssertTrue(recorder.recordReconnection(with: cube, at: try moment("2026-08-17T09:30:00")))
+
+        XCTAssertEqual(settings.string("connection", field: "connection_lost"), "2026-08-17T09:20:00")
+    }
+
+    func testAReconnectionDoesNotRewriteThePairing() throws {
+        // A reconnection is not a pairing and must not write one: the pairing rows already say this, and re-writing them
+        // on every reconnect is how `previous_name` gets pushed out of the row by a name it never displaced.
+        let renamed = ScannedDevice(
+            id: cube.id, peripheralName: "Wobble", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
+        )
+        XCTAssertTrue(recorder.recordPairing(with: cube), "precondition")
+        XCTAssertTrue(recorder.recordPairing(with: renamed), "precondition: a rename, so previous_name is filled")
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Dibby", "precondition")
+
+        XCTAssertTrue(recorder.recordReconnection(with: renamed))
+
+        XCTAssertEqual(settings.string("device_name", field: "name"), "Wobble")
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Dibby")
+    }
+
     // MARK: - quitting
 
     func testQuittingMarksTheConnectionDownAndSaysItWasDeliberate() throws {

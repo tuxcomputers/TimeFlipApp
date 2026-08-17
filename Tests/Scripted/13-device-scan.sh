@@ -25,17 +25,10 @@ start "scanning for a TimeFlip, and finding one"
 
 # The cube has to be there, and only a person can put it there. Declining skips the whole script rather than
 # failing it, so the suite stays runnable on a machine with no hardware near it.
-if ! action_required \
-    "Put your TimeFlip within a few metres of this Mac, and make sure it is awake." \
-    "1. Flip the cube onto any face -- a sleeping cube does not advertise, so it cannot be found." \
-    "2. Check Bluetooth is on." \
-    "3. Press y and leave everything alone; the scan runs by itself." \
-    "" \
-    "The FIRST time Facet ever scans, macOS asks whether it may use Bluetooth. That" \
-    "is once, not once per run or per build: after it is allowed the app just scans." \
-    "If the prompt does appear, allow it -- until you do the radio never answers." \
-    "" \
-    "Answer anything else to skip this script. The rest of the run is unaffected."; then
+#
+# **Asked by `device_required`, which asks once a run.** In script order this is normally the one that does
+# the asking and the later device scripts inherit the answer; run on its own, it asks for itself.
+if ! device_required; then
     skip "no TimeFlip was made available, so the scan has nothing to find"
     finish
     exit 0

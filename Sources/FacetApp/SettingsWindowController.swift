@@ -81,9 +81,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// way through a session, and a boolean set when the window opened would refuse the wrong thing.
     var isLimitReached: () -> Bool = { false }
 
-    /// The radio, made the first time somebody asks to scan and kept for the life of the window controller. See
-    /// `wireScan(on:)` for why it is not the pane's.
+    /// The radio.
+    ///
+    /// **Handed in by `main.swift` when the app owns one**, which it does whenever a launch has a device to follow: a
+    /// paired app reaches for its cube whether or not anybody opens this window, so the radio cannot be something the
+    /// window makes on its first scan. Made here only when nobody handed one over, which is a launch with nothing
+    /// paired and every layout test.
+    ///
+    /// Either way it outlives the panes and is not theirs. Panes are rebuilt as tabs are switched, and a radio rebuilt
+    /// with them would drop the manager mid-scan and start the system's Bluetooth prompt again.
     private var radio: BluetoothRadio?
+
+    /// What keeps the paired cube reachable. Told what each login came to and when a link goes, since the radio's
+    /// callbacks are set here.
+    ///
+    /// **Weak, and for the ordinary reason**: the app owns the loop and this window is one of the things that talks to
+    /// it. `nil` in every layout test, and in a launch with nothing paired, which is why every call to it is optional.
+    weak var reconnect: DeviceReconnector?
 
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
@@ -131,7 +145,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         icons: IconStore? = nil,
         colours: ColourStore? = nil,
         settings: SettingStore? = nil,
-        manualMode: ManualMode? = nil
+        manualMode: ManualMode? = nil,
+        radio: BluetoothRadio? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -144,6 +159,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.settings = settings
         self.manualMode = manualMode
         super.init()
+        // After `super.init()`, because installing the radio's callbacks captures `self`.
+        if let radio { adopt(radio) }
     }
 
     /// Reads what the visible pane shows, now.
@@ -267,23 +284,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// is made once, lazily, and told where to draw.
     private func wireScan(on pane: DevicePane) {
         let scanner = deviceRadio()
-        scanner.onScanningChanged = { [weak pane, weak scanner] isScanning in
-            pane?.showScanning(isScanning)
-            guard !isScanning, let scanner else { return }
-            // **Said only once the radio has stopped**, so it is a result rather than a progress report. Before the
-            // timeout existed there was nothing that could honestly say this: a scan that never ended could only
-            // ever be "looking", however long it had heard nothing.
-            pane?.showScanMessage(
-                scanner.deviceCount == 0
-                    ? "No devices found."
-                    : "Found \(scanner.deviceCount) device\(scanner.deviceCount == 1 ? "" : "s")."
-            )
-        }
-        scanner.onDevicesChanged = { [weak pane] devices in pane?.showFound(devices) }
-        scanner.onUnavailable = { [weak pane] reason in
-            guard let pane else { return }
-            pane.showScanMessage(reason?.message ?? (pane.isScanning ? "Looking for devices..." : ""))
-        }
         pane.onScan = { [weak self] includeEverything in
             guard let self else { return }
             self.debugLog?.record(
@@ -302,8 +302,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             scanner.stop()
         }
         wireConnect(on: pane, using: scanner)
+        // What a pane built mid-scan has to be told, since it missed the callback that said so. `isResetting` is the
+        // same question one step further on: a reset survives the window being closed and reopened, and a tab that came
+        // back showing an idle Scan button would be offering to look for the cube it is in the middle of wiping.
         pane.showScanning(scanner.isScanning)
-        pane.showReaching(false)
+        pane.showReaching(scanner.isResetting)
     }
 
     /// Connects the listed devices to the radio that goes and reaches them.
@@ -333,45 +336,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 presenting: DeviceLoginRules.candidates(stored: stored),
                 rotatingTo: DeveloperMode.devicePIN
             )
-        }
-        // **The cube is on the new PIN by the time this runs**, so a failure here is the app losing a PIN the cube
-        // already has rather than a change that did not happen. It is said loudly for that reason -- and it is
-        // survivable only because a developer build's PIN is a compiled-in constant that is presented anyway: this
-        // callback is what a production build would have to make good on before it could ever set a random one.
-        scanner.onPINChanged = { [weak self] pin in
-            guard let file = DeveloperConfigFile.standard else { return }
-            // The write happens on its own line rather than inside the logging call: `debugLog?.record(...)` is
-            // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded
-            // in exactly the build that has no log to notice.
-            let wrote = file.record(pin: pin)
-            self?.debugLog?.record(
-                .pin,
-                wrote
-                    ? "Wrote the new PIN to \(file.url.path)"
-                    : "COULD NOT write the new PIN to \(file.url.path) -- the cube is on \(pin)"
-            )
-        }
-        scanner.onLoginBegan = { [weak pane, weak scanner] id in
-            guard let pane, let scanner else { return }
-            pane.showReaching(true)
-            pane.showScanMessage("Connecting to \(scanner.label(for: id))...")
-        }
-        scanner.onLoginEnded = { [weak self, weak pane, weak scanner] id, outcome in
-            guard let pane, let scanner else { return }
-            pane.showReaching(false)
-            pane.showScanMessage(outcome.message(for: scanner.label(for: id)))
-            // **Only a login that got all the way through pairs anything.** A refused PIN, a device that turned out
-            // not to be a TimeFlip and a cube that stopped answering all leave the table exactly as it was: the app
-            // does not know which cube it was talking to, or knows it cannot open it, and a `paired` row written
-            // anyway would send the next launch looking for a device it cannot log into.
-            guard outcome == .loggedIn else { return }
-            self?.recordPairing(on: pane, with: scanner.device(id))
-        }
-        // **Its own callback, arriving after the pairing rather than with it.** The four Device Information reads run
-        // once the login is over and take a moment; the tab is already showing a paired, connected cube by the time
-        // they land, and this fills the More rows in when they do.
-        scanner.onDeviceInfo = { [weak self, weak pane] _, info in
-            self?.recordDeviceInfo(on: pane, info)
         }
         // **Nothing is asked first**, which is the archive's decision and `DevicePane.forgetPressed` says why: this is
         // local bookkeeping with no round trip to await, and a confirmation in front of the one control that gets a
@@ -417,13 +381,92 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 }
             }
         }
-        scanner.onConnectionDropped = { [weak self, weak pane, weak scanner] id in
-            guard let pane, let scanner else { return }
+    }
+
+    /// Takes the radio on, and is the one place its callbacks are set.
+    ///
+    /// **They are installed here rather than when the Device tab is built, and that is what lets a paired app follow
+    /// its cube with no window open.** A login that lands while Settings has never been opened still has to write down
+    /// that the cube is reachable and what it says it is; wired to a pane, none of that would happen until somebody
+    /// went looking, and the row saying `connected` would be a row nobody wrote.
+    ///
+    /// **So every one of these reaches the pane through `devicePane` instead of capturing one.** That is the property's
+    /// whole purpose (see its own note): the tab view owns the panes and rebuilds them as tabs are switched, so a
+    /// captured pane is a copy to keep in step. Here it is also the difference between a callback that works and one
+    /// that silently does not: `nil` means nobody is looking, which is a normal state and not a failure, so the write
+    /// happens and the redraw is what is skipped.
+    private func adopt(_ radio: BluetoothRadio) {
+        self.radio = radio
+        radio.onScanningChanged = { [weak self, weak radio] isScanning in
+            self?.devicePane?.showScanning(isScanning)
+            guard !isScanning, let radio else { return }
+            // **Said only once the radio has stopped**, so it is a result rather than a progress report. Before the
+            // timeout existed there was nothing that could honestly say this: a scan that never ended could only
+            // ever be "looking", however long it had heard nothing.
+            self?.devicePane?.showScanMessage(
+                radio.deviceCount == 0
+                    ? "No devices found."
+                    : "Found \(radio.deviceCount) device\(radio.deviceCount == 1 ? "" : "s")."
+            )
+        }
+        radio.onDevicesChanged = { [weak self] devices in self?.devicePane?.showFound(devices) }
+        radio.onUnavailable = { [weak self] reason in
+            guard let pane = self?.devicePane else { return }
+            pane.showScanMessage(reason?.message ?? (pane.isScanning ? "Looking for devices..." : ""))
+        }
+        // **The cube is on the new PIN by the time this runs**, so a failure here is the app losing a PIN the cube
+        // already has rather than a change that did not happen. It is said loudly for that reason -- and it is
+        // survivable only because a developer build's PIN is a compiled-in constant that is presented anyway: this
+        // callback is what a production build would have to make good on before it could ever set a random one.
+        radio.onPINChanged = { [weak self] pin in
+            guard let file = DeveloperConfigFile.standard else { return }
+            // The write happens on its own line rather than inside the logging call: `debugLog?.record(...)` is
+            // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded
+            // in exactly the build that has no log to notice.
+            let wrote = file.record(pin: pin)
+            self?.debugLog?.record(
+                .pin,
+                wrote
+                    ? "Wrote the new PIN to \(file.url.path)"
+                    : "COULD NOT write the new PIN to \(file.url.path) -- the cube is on \(pin)"
+            )
+        }
+        radio.onLoginBegan = { [weak self, weak radio] id in
+            guard let self, let radio else { return }
+            self.devicePane?.showReaching(true)
+            self.devicePane?.showScanMessage("Connecting to \(radio.label(for: id))...")
+        }
+        radio.onLoginEnded = { [weak self, weak radio] id, outcome in
+            guard let self, let radio else { return }
+            self.devicePane?.showReaching(false)
+            self.devicePane?.showScanMessage(outcome.message(for: radio.label(for: id)))
+            // **Told either way, and before the recording.** A failure is what starts the next attempt, so the loop has
+            // to hear about the ones that did not work -- that is the whole of what backing off is.
+            self.reconnect?.noteOutcome(outcome)
+            // **Only a login that got all the way through writes anything.** A refused PIN, a device that turned out
+            // not to be a TimeFlip and a cube that stopped answering all leave the table exactly as it was: the app
+            // does not know which cube it was talking to, or knows it cannot open it, and a `paired` row written
+            // anyway would send the next launch looking for a device it cannot log into.
+            guard outcome == .loggedIn else { return }
+            self.recordConnected(on: self.devicePane, with: radio.device(id))
+        }
+        // **Its own callback, arriving after the pairing rather than with it.** The four Device Information reads run
+        // once the login is over and take a moment; the tab is already showing a paired, connected cube by the time
+        // they land, and this fills the More rows in when they do.
+        radio.onDeviceInfo = { [weak self] _, info in
+            self?.recordDeviceInfo(on: self?.devicePane, info)
+        }
+        radio.onConnectionDropped = { [weak self, weak radio] id in
+            guard let self, let radio else { return }
             // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out of
             // range, or its batteries out -- is the one the user did not ask for, and the tab would otherwise go on
             // reading "Connected" for the rest of the session.
-            pane.showScanMessage("The connection to \(scanner.label(for: id)) dropped.")
-            self?.markConnectionDown(on: pane, because: "the connection to \(scanner.label(for: id)) dropped")
+            self.devicePane?.showScanMessage("The connection to \(radio.label(for: id)) dropped.")
+            self.markConnectionDown(on: self.devicePane, because: "the connection to \(radio.label(for: id)) dropped")
+            // **After the row is down, not before.** The loop's first act is to ask whether the app is already
+            // connected, and it reads that from the radio -- but the row is what the tab draws, and a reconnect that
+            // succeeded before the drop was written down would leave `connected` false under a live link.
+            self.reconnect?.noteDropped()
         }
     }
 
@@ -436,11 +479,32 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **Manual mode goes off here**, in front of the redraw, because it is read by the same `deviceSettings()` call
     /// and it outranks the pairing in what the Connection row says. The app now has a cube to follow; it stops being
     /// an app timing by hand at the moment one is paired, not at the next launch.
-    private func recordPairing(on pane: DevicePane, with device: ScannedDevice) {
+    /// Writes down a confirmed login, as either a new pairing or a reconnection to the one already on record.
+    ///
+    /// **The table is what decides which, read here.** The two are the same event on the radio -- a PIN accepted by a
+    /// cube -- and different claims about the app: pairing gains a device, reconnecting reaches the device it already
+    /// has. Asking `paired` and `device_uuid` at this moment is the only way to tell them apart, and it is the honest
+    /// way round: a login to the cube named in `device_uuid` cannot be a new pairing, whoever started it, and a login to
+    /// any other cube is a pairing even if the user got there from a tab that already showed one.
+    private func recordConnected(on pane: DevicePane?, with device: ScannedDevice) {
+        guard let settings else { return }
+        let alreadyPaired = settings.flag("paired", field: "paired") == true
+            && settings.string("device_uuid", field: "uuid") == device.id.uuidString
+        guard alreadyPaired else {
+            recordPairing(on: pane, with: device)
+            return
+        }
+        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordReconnection(with: device)
+        pane?.show(deviceSettings())
+    }
+
+    /// The pane is optional because a login is not always something somebody is watching: a paired app reaches its cube
+    /// at launch with no window open, and the row is what the next open reads.
+    private func recordPairing(on pane: DevicePane?, with device: ScannedDevice) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordPairing(with: device)
         manualMode?.stop(because: "a device is paired")
-        pane.show(deviceSettings())
+        pane?.show(deviceSettings())
     }
 
     /// Forgets the device and puts what the table now says back on the tab.
@@ -523,7 +587,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func deviceRadio() -> BluetoothRadio {
         if let radio { return radio }
         let made = BluetoothRadio(debugLog: debugLog)
-        radio = made
+        adopt(made)
         return made
     }
 

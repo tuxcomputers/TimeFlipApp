@@ -46,6 +46,30 @@ final class DeviceLoginRulesTests: XCTestCase {
         XCTAssertEqual(DeviceLoginRules.candidates(stored: ""), ["000000"])
     }
 
+    // MARK: - going back to a cube already paired
+
+    func testAReconnectPresentsTheStoredPINFirst() {
+        // The other way round from a pairing, and that is the only difference. A cube this app has already set a PIN on
+        // is on that PIN, so trying the default first would spend a whole reconnect on every single reconnect learning
+        // what the app already knew.
+        XCTAssertEqual(DeviceLoginRules.reconnectCandidates(stored: "123456"), ["123456", "000000"])
+    }
+
+    func testAReconnectStillOffersTheDefaultAfterIt() {
+        // A cube whose batteries have come out is back on the vendor default (measured 2026-08-11). Dropping it from the
+        // list would turn a battery change into a Forget and a re-pair.
+        XCTAssertEqual(DeviceLoginRules.reconnectCandidates(stored: "123456").last, "000000")
+    }
+
+    func testAReconnectWithNoStoredPINStillHasSomethingToTry() {
+        XCTAssertEqual(DeviceLoginRules.reconnectCandidates(stored: nil), ["000000"])
+        XCTAssertEqual(DeviceLoginRules.reconnectCandidates(stored: "12345"), ["000000"])
+    }
+
+    func testAReconnectDoesNotPresentTheSamePINTwice() {
+        XCTAssertEqual(DeviceLoginRules.reconnectCandidates(stored: "000000"), ["000000"])
+    }
+
     func testTheDefaultIsWhatTheProtocolSays() {
         // ASCII "000000", six bytes: `docs/TimeFlip2 BLE Protocol v4.3.md`, the password characteristic.
         XCTAssertEqual(Data(DeviceLoginRules.defaultPIN.utf8), Data([0x30, 0x30, 0x30, 0x30, 0x30, 0x30]))

@@ -123,6 +123,16 @@ let timingReadout = TimingReadout(
 let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
 app.delegate = quitSequence
 
+// The radio, which is the app's and not the Settings window's.
+//
+// **It was the window's until reconnecting existed, and that is what moved it.** A paired app has to reach its cube
+// whether or not anybody opens Settings -- which is most launches -- so a radio built on the first scan is one that never
+// gets built. The window still drives it for scanning and pairing; it no longer owns it.
+//
+// **Building it does not touch the radio.** `CBCentralManager` is made on the first scan or reach, inside
+// `BluetoothRadio.start`, so a launch with nothing paired still never provokes the system's Bluetooth prompt.
+let radio = BluetoothRadio(debugLog: debugLog)
+
 // The window is built on its first open, so this costs nothing until Settings is chosen.
 let settingsWindow = SettingsWindowController(
     debugLog: debugLog,
@@ -134,12 +144,25 @@ let settingsWindow = SettingsWindowController(
     icons: IconStore(connection: database),
     colours: ColourStore(connection: database),
     settings: settings,
-    manualMode: manualMode
+    manualMode: manualMode,
+    radio: radio
 )
-// **Set here rather than passed in**, because the radio is built on the first scan and lives behind the window
-// controller, which is made after the quit sequence: a connection now outlives the Settings window, so the app is
-// what gives it back. See `SettingsWindowController.letGoOfTheDevice`.
+// **Set here rather than passed in**, because the window controller is made after the quit sequence: a connection
+// outlives the Settings window, so the app is what gives it back. See `SettingsWindowController.letGoOfTheDevice`.
 quitSequence.letGoOfTheDevice = { settingsWindow.letGoOfTheDevice() }
+
+// What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
+//
+// **The stored PIN is a closure rather than a value**, for the reason every read in this app is at the point of use:
+// `config.json` is a file a developer also edits by hand, and an attempt an hour from now must present what it says then.
+let reconnector = DeviceReconnector(
+    radio: radio,
+    settings: settings,
+    debugLog: debugLog,
+    storedPIN: { DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN },
+    rotatingTo: DeveloperMode.devicePIN
+)
+settingsWindow.reconnect = reconnector
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the
 // recorder recognises it as the same event and grows its duration. When a device arrives, the fetch request
@@ -220,5 +243,11 @@ settingsWindow.onTimingChanged = {
 // of recording would see nothing appear until their next flip -- the entries are all still waiting, and there is
 // suddenly somewhere to put them.
 settingsWindow.onGoogleCalendarSettled = { calendarSync.sweep(because: "a calendar was connected") }
+
+// Last, and after everything a login reports to is wired: reaching the cube writes rows, fills the Device tab and turns
+// manual mode off, so a launch that started looking any earlier could get an answer before there was anywhere to put it.
+//
+// **Whether there is a cube to look for is this call's own question**, read from the table rather than decided here.
+reconnector.follow()
 
 app.run()
