@@ -474,6 +474,18 @@ alert_buttons() { python3 scripts/ax-alert.py 2>/dev/null | tr '\n' '|' | sed 's
 # dismissed is modal, so every later press lands on nothing and the failures arrive somewhere else.
 alert_is_open() { python3 scripts/ax-alert.py >/dev/null 2>&1; }
 
+# Answers the sheet that is up, by the title of one of its buttons.
+#
+#     press_sheet "Reset Device"      # agrees
+#     press_sheet Cancel              # declines
+#
+# **Scoped to the sheet, and that is not tidiness.** A confirmation names its agreeing button after the
+# control that opened it, so `Reset Device` matches two elements -- the sheet's, and the one still behind
+# it. `press` searches the whole tree, finds the one underneath first, and presses *that*: the sheet goes
+# unanswered and a second one opens on top of it. Measured 2026-08-17, and it read as a reset that
+# silently did nothing. See Tests/Methods.md Method 12.
+press_sheet() { python3 scripts/ax-press.py --sheet --title "$1" >/dev/null 2>&1; }
+
 # One element's line from the tree, so a check reads the thing it is about rather than searching the
 # whole window -- and a failure prints that line rather than several hundred.
 element() { tree | grep -m1 "id=$1 " || true; }

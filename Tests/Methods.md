@@ -227,6 +227,51 @@ the app is often what that is.
 Confirmed on the rename: `ax-press.py category-name-11`, `ax-set.py category-name-11-field "Admin work"`, Return,
 then the sheet's own buttons are ordinary named elements (`action-button-1` is the first one added).
 
+## Method 11: Open a collapsible section
+
+A folded section's rows are **not in the accessibility tree at all**, so reading one before opening it looks
+identical to a tab that failed to draw it. Open it first, and press the *heading button*, not the section:
+
+```sh
+python3 scripts/ax-press.py device-more-heading-button   # works
+python3 scripts/ax-press.py device-more                  # does nothing: that is the AXGroup
+```
+
+Every collapsible group carries three elements, and only the middle one is pressable:
+
+```
+AXGroup             id=device-more                  <- the section; pressing it is a no-op
+  AXButton          id=device-more-heading-button   <- press this
+  AXDisclosureTriangle id=device-more-toggle        <- value=0 folded, 1 open; read it to confirm
+```
+
+Confirm on the triangle's `value` rather than by sleeping: `value=1` is the section open. Measured 2026-08-17,
+driving the Device tab's **More** rows -- the first press went to `device-more`, returned success, and changed
+nothing, which read as the four rows being missing rather than hidden.
+
+The naming follows `CategorySection`'s pattern (the borderless button spanning the row, per the root `CLAUDE.md`),
+so `<section-id>-heading-button` and `<section-id>-toggle` hold for every folding group the app has.
+
+## Method 12: Answer a confirmation sheet
+
+**Press the sheet's button with `--sheet`, never by title alone.** A confirmation names its agreeing button after the
+control that opened it, so `Reset Device` matches *two* elements -- the sheet's, and the one behind it:
+
+```sh
+python3 scripts/ax-press.py device-reset                      # opens the sheet
+python3 scripts/ax-alert.py                                   # Cancel / Reset Device, in drawn order
+python3 scripts/ax-press.py --sheet --title "Reset Device"    # answers it
+python3 scripts/ax-press.py --title "Reset Device"            # WRONG: presses the button behind the sheet
+```
+
+Without `--sheet` the whole-tree search finds the pane's button first and presses *that*, which opens a **second**
+sheet on top of the first while the reset never happens. Measured 2026-08-17: two `Button clicked: Reset Device` rows,
+no reset, and two sheets to dismiss.
+
+**AppKit relocates a button titled `Cancel` to the left**, so `ax-alert.py` lists it first whatever order it was added
+in -- and Return therefore fires the *rightmost* button unless key equivalents are set explicitly. Read the order from
+`ax-alert.py` rather than assuming it matches the code.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token

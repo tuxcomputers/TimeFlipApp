@@ -95,4 +95,20 @@ fi
 # And it became tracked time on the way out, since closing a segment is what raises that question.
 expect_log "the closed segment became an entry" "$since" "time_entry created id=%category=$ID%"
 
+# ---------------------------------------------------------------------------- and the device
+#
+# **The quit is where a connection ends now**, the link having stopped belonging to the Settings window when pairing
+# arrived. Nothing else could end it: the process simply stops, so without this step the last thing written says the
+# cube is connected and the next launch reads a link nothing is holding.
+#
+# Recorded whether or not a cube was connected, and the three fields are three different endings: `connected` says
+# reachable now, `connection_lost` says the cube went away, `quit_request` says the app was asked to stop. A quit
+# clears the second so it cannot later be read as the first kind of ending.
+
+expect_log "the quit sequence let go of the device" "$since" "Quit: %device%"
+
+check "the connection is recorded as down" "0" "$(sql "SELECT json_extract(setting_value, '\$.connected') FROM setting WHERE setting_name = 'connection';")"
+check "the quit is stamped with today" "$(date +%Y-%m-%d)" "$(sql "SELECT substr(json_extract(setting_value, '\$.quit_request'), 1, 10) FROM setting WHERE setting_name = 'connection';")"
+check "and no drop is left recorded against a deliberate quit" "" "$(sql "SELECT json_extract(setting_value, '\$.connection_lost') FROM setting WHERE setting_name = 'connection';")"
+
 finish

@@ -43,6 +43,17 @@ def find(element, axattribute, wanted):
     return None
 
 
+def sheets(element, depth=0):
+    """Every AXSheet at or under `element`. Depth-limited: a sheet hangs near the top of a window."""
+    found = []
+    if str(attribute(element, "AXRole") or "") == "AXSheet":
+        found.append(element)
+    if depth < 4:
+        for child in attribute(element, "AXChildren") or []:
+            found.extend(sheets(child, depth + 1))
+    return found
+
+
 def pid_of(app_name):
     for app in NSWorkspace.sharedWorkspace().runningApplications():
         if app.localizedName() == app_name:
@@ -56,6 +67,11 @@ def main():
     parser.add_argument("--desc", help="match AXDescription instead (for elements with no identifier)")
     parser.add_argument("--title", help="match AXTitle instead")
     parser.add_argument("--app", default="Facet", help="the running app (default: Facet)")
+    parser.add_argument(
+        "--sheet",
+        action="store_true",
+        help="search only the open sheet, so a confirmation's button is not confused with the one behind it",
+    )
     arguments = parser.parse_args()
 
     chosen = [
@@ -76,10 +92,24 @@ def main():
     # Windows first, then the menu bar, so a status item -- or an item of the menu it has open -- can be
     # pressed by name too. The extras menu bar is where a status item lives, and is a different attribute from
     # the application menu bar an accessory app does not have.
-    roots = list(attribute(app, "AXWindows") or [])
-    for name in ("AXExtrasMenuBar", "AXMenuBar"):
-        if (bar := attribute(app, name)) is not None:
-            roots.append(bar)
+    # **`--sheet` searches the sheet and nothing else, and it is not a convenience.** A confirmation
+    # names its agreeing button after the control that opened it -- "Reset Device" on both -- and a
+    # whole-tree search finds the one *behind* the sheet first, presses it, and opens a second
+    # confirmation while the first is still up. That is not a hypothetical: it happened on 2026-08-17
+    # and read as a reset that silently did nothing.
+    if arguments.sheet:
+        roots = []
+        for window in attribute(app, "AXWindows") or []:
+            roots.extend(sheets(window))
+        if not roots:
+            sys.exit(f"{arguments.app} has no sheet open")
+        # The frontmost, matching ax-alert.py: a stale sheet must not answer for the one just opened.
+        roots = [roots[-1]]
+    else:
+        roots = list(attribute(app, "AXWindows") or [])
+        for name in ("AXExtrasMenuBar", "AXMenuBar"):
+            if (bar := attribute(app, name)) is not None:
+                roots.append(bar)
     target = next((found for root in roots if (found := find(root, axattribute, wanted)) is not None), None)
     if target is None:
         sys.exit(f"no element with {axattribute} {wanted!r} in {arguments.app}")
