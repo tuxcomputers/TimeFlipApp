@@ -127,6 +127,82 @@ wait_for_dev() {
     return 0
 }
 
+# Asked once a run: is the TimeFlip here? Answers 0 for yes, 1 for anything else, and every script after
+# the first gets that answer back without asking again.
+#
+#     device_required || { skip "no TimeFlip was made available"; finish; exit 0; }
+#
+# **Several scripts need the cube and one person is answering for all of them.** Asking each time treats
+# them as separate questions when they are one, and the repetition is what makes it worse than useless: a
+# prompt drawn this big is meant to stop somebody, and the third identical one in two minutes is the one
+# they answer without reading. Nothing between them changed the answer.
+#
+# **This is the archive's shape, massaged.** `Archive/Tests/00-test-setup.md` established the device once
+# for a whole run and every feature checklist after it simply assumed the result -- neither
+# `02b-reset-device` nor `09b-device-rename` asks whether the cube is there. What does not carry over is
+# how: that was a setup checklist of its own, driven by a Python supervisor holding state between steps.
+# There is no supervisor here, so the gate lives where the need does and the first script to want the cube
+# is the one that asks.
+#
+# **A no is remembered too**, which is half of it: declining because the cube is in another room should
+# skip the device scripts, not ask again in thirty seconds whether it has come back.
+#
+# **Kept in a file, because each script is its own process.** run.sh runs them as `bash "$script"`, so a
+# variable set in one is gone before the next starts and an export only ever travels downwards.
+# `TESTLOG_RUN_ID` is the run's own identity and reaches every script -- exported by run.sh, or made by
+# `testlog_script_start` for a script run on its own -- so a file naming the run it answered for is
+# set-once-per-run with nothing to tidy up: the next run reads an id that is not its own and asks.
+DEVICE_GATE="logs/device-gate"
+
+device_required() {
+    local run="${TESTLOG_RUN_ID:-}" answered="" remembered=""
+
+    # **No identity, no memory.** Everything `testlog.sh` does is best-effort and may answer nothing at all, and
+    # a run with no id must then ask rather than fall back to a shared one: two runs both calling themselves `0`
+    # would have the second inherit the first's answer, about a cube that left the room hours ago.
+    if [ -n "$run" ] && [ -r "$DEVICE_GATE" ]; then
+        read -r answered remembered < "$DEVICE_GATE" || true
+    fi
+    if [ -n "$run" ] && [ "$answered" = "$run" ]; then
+        case "$remembered" in
+            yes) grey "  the TimeFlip was confirmed to be here earlier in this run"; return 0 ;;
+            *)   grey "  no TimeFlip was made available earlier in this run"; return 1 ;;
+        esac
+    fi
+
+    mkdir -p "$(dirname "$DEVICE_GATE")" 2>/dev/null || true
+
+    # Everything the cube is in for, said once, since this is the only time it is asked. The PIN is part of
+    # that: a run that logs in leaves the cube on this developer build's PIN rather than the one it arrived
+    # with, and somebody agreeing to "is your device nearby" has not agreed to that.
+    if action_required \
+        "Put your TimeFlip within a few metres of this Mac, and make sure it is awake." \
+        "1. Flip the cube onto any face -- a sleeping cube does not advertise, so it cannot be found." \
+        "2. Check Bluetooth is on." \
+        "3. Press y and leave everything alone; the rest runs by itself." \
+        "" \
+        "Asked once for the whole run. Every script that needs the cube from here on takes" \
+        "this answer, so leave it where it is until the run finishes." \
+        "" \
+        "These scripts talk to the cube. They present the vendor default PIN (000000) and" \
+        "then the PIN this developer build sets, 123456; a cube answering to the default is" \
+        "put on 123456, which is written to config.json. A reset, if this run includes one," \
+        "asks separately before wiping anything." \
+        "" \
+        "The FIRST time Facet ever scans, macOS asks whether it may use Bluetooth. That" \
+        "is once, not once per run or per build: after it is allowed the app just scans." \
+        "If the prompt does appear, allow it -- until you do the radio never answers." \
+        "" \
+        "Answer anything else to skip every script that needs the cube. The rest of the" \
+        "run is unaffected."; then
+        [ -n "$run" ] && printf '%s yes\n' "$run" > "$DEVICE_GATE"
+        return 0
+    fi
+
+    [ -n "$run" ] && printf '%s no\n' "$run" > "$DEVICE_GATE"
+    return 1
+}
+
 start() {
     echo ""
     blue "=============================================================================="

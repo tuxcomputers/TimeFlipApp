@@ -25,19 +25,7 @@ require_test_database
 ensure_app_running
 start "connecting to a TimeFlip and logging in with a PIN"
 
-if ! action_required \
-    "Put your TimeFlip within a few metres of this Mac, and make sure it is awake." \
-    "1. Flip the cube onto any face -- a sleeping cube does not advertise, so it cannot be found." \
-    "2. Check Bluetooth is on." \
-    "3. Press y and leave everything alone; the connect runs by itself." \
-    "" \
-    "This one talks to the cube. It presents the vendor default PIN (000000) and then" \
-    "the PIN this developer build sets, 123456. If the cube answers to the default it" \
-    "is then put on 123456, which is written to config.json. Nothing else on the device" \
-    "is changed, no setting is written and nothing is paired. The link is dropped again" \
-    "when the window closes." \
-    "" \
-    "Answer anything else to skip this script. The rest of the run is unaffected."; then
+if ! device_required; then
     skip "no TimeFlip was made available, so there is nothing to connect to"
     finish
     exit 0

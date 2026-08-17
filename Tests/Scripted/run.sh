@@ -71,6 +71,11 @@ fi
 echo "Facet scripted checks -- $(date '+%Y-%m-%d %H:%M:%S')"
 echo "$(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD)"
 
+# A run starts with the cube's whereabouts unknown. `device_required` asks once and writes the answer here
+# against this run's id, so the file already invalidates itself; this makes that unconditional, for the case
+# where the run ids start again because somebody deleted logs/testlog.sqlite.
+rm -f logs/device-gate
+
 # The app holds the database open, so it goes first whichever way this run is going: rebuilding under a
 # running app would leave it writing to a file nothing points at any more.
 if pgrep -x Facet >/dev/null; then
