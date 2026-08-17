@@ -16,7 +16,9 @@
 #
 # **It wipes the cube, every run.** Face colours, task settings, the name and the PIN all go back to factory. That is
 # recoverable in seconds -- the cube comes back on 000000, which is the first PIN a connect presents -- but it is a real
-# change to somebody's device, so this asks before doing anything and skips if the answer is anything but yes.
+# change to somebody's device, so it is asked about before anything happens: by `device_required`, once, at the point the
+# run first wants the cube, in a prompt that names this script and says what it erases. Answer anything but yes there and
+# this script never runs.
 #
 # **It needs the cube twice**: connected first, because a reset is a command that has to arrive somewhere, and then
 # again as it comes back. So it pairs from scratch rather than assuming an earlier script left a pairing behind.
@@ -26,27 +28,12 @@ require_test_database
 ensure_app_running
 start "resetting a TimeFlip to factory settings"
 
+# **One gate, and it is `device_required`'s** -- which names this script and says in full that the cube will be
+# erased, because it is the only thing asked all run. There is deliberately no second question here: consent to
+# the wipe is given there or not at all, and a no there skips this script rather than reaching a prompt of its
+# own. See `device_required` in `lib.sh` for the wording that carries it.
 if ! device_required; then
-    skip "no TimeFlip was made available to reset"
-    finish
-    exit 0
-fi
-
-# **Two questions, and only the first one is shared.** Whether the cube is in the room is asked once a run and
-# inherited from here on; whether it may be wiped is this script alone, and consent to the first is not consent
-# to the second. So this one is asked every time, by every run that reaches it, however recently the cube was
-# confirmed to be sitting there.
-if ! action_required \
-    "May this run wipe your TimeFlip?" \
-    "THIS WIPES THE CUBE. Its face colours, task settings, name and PIN all go back to" \
-    "factory defaults, and that cannot be undone. The cube comes back on the vendor PIN" \
-    "000000, which is the first one Facet presents, so pairing it again afterwards is one" \
-    "press of Scan -- but anything you had set on the device itself is gone." \
-    "" \
-    "Press y and leave everything alone; the reset runs by itself." \
-    "" \
-    "Answer anything else to skip this script. The rest of the run is unaffected."; then
-    skip "the cube was not offered up to be wiped"
+    skip "the cube was not offered up, so nothing is reset"
     finish
     exit 0
 fi

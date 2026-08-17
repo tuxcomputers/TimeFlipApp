@@ -145,7 +145,9 @@ wait_for_dev() {
 # is the one that asks.
 #
 # **A no is remembered too**, which is half of it: declining because the cube is in another room should
-# skip the device scripts, not ask again in thirty seconds whether it has come back.
+# skip the device scripts, not ask again in thirty seconds whether it has come back. It is also what makes
+# this safe to be the only prompt: one no covers the wipe as well, since the reset script asks nothing of
+# its own and simply does not run.
 #
 # **Kept in a file, because each script is its own process.** run.sh runs them as `bash "$script"`, so a
 # variable set in one is gone before the next starts and an export only ever travels downwards.
@@ -172,11 +174,23 @@ device_required() {
 
     mkdir -p "$(dirname "$DEVICE_GATE")" 2>/dev/null || true
 
-    # Everything the cube is in for, said once, since this is the only time it is asked. The PIN is part of
-    # that: a run that logs in leaves the cube on this developer build's PIN rather than the one it arrived
-    # with, and somebody agreeing to "is your device nearby" has not agreed to that.
+    # **Everything the run does to the cube, said once, because this is the only time it is asked.** That
+    # includes the two things somebody agreeing to "is your device nearby" has plainly not agreed to on the
+    # face of it: the PIN is changed, and the cube is wiped. Both are stated in full here rather than asked
+    # about again later, so this prompt has to be worth reading -- it is the whole of the consent.
     if action_required \
-        "Put your TimeFlip within a few metres of this Mac, and make sure it is awake." \
+        "May this run use your TimeFlip? It will be RESET to factory settings." \
+        "THIS WIPES THE CUBE. 15-device-reset erases everything stored on the device --" \
+        "face colours, task settings, its name and its PIN -- back to factory defaults," \
+        "and that cannot be undone. The cube comes back on the vendor PIN 000000, which is" \
+        "the first one Facet presents, so pairing it again afterwards is one press of Scan," \
+        "but anything you had set on the device itself is gone." \
+        "" \
+        "The runs also change its PIN. They present 000000 and then the PIN this developer" \
+        "build sets, 123456; a cube answering to the default is put on 123456, which is" \
+        "written to config.json." \
+        "" \
+        "Then:" \
         "1. Flip the cube onto any face -- a sleeping cube does not advertise, so it cannot be found." \
         "2. Check Bluetooth is on." \
         "3. Press y and leave everything alone; the rest runs by itself." \
@@ -184,17 +198,12 @@ device_required() {
         "Asked once for the whole run. Every script that needs the cube from here on takes" \
         "this answer, so leave it where it is until the run finishes." \
         "" \
-        "These scripts talk to the cube. They present the vendor default PIN (000000) and" \
-        "then the PIN this developer build sets, 123456; a cube answering to the default is" \
-        "put on 123456, which is written to config.json. A reset, if this run includes one," \
-        "asks separately before wiping anything." \
-        "" \
         "The FIRST time Facet ever scans, macOS asks whether it may use Bluetooth. That" \
         "is once, not once per run or per build: after it is allowed the app just scans." \
         "If the prompt does appear, allow it -- until you do the radio never answers." \
         "" \
-        "Answer anything else to skip every script that needs the cube. The rest of the" \
-        "run is unaffected."; then
+        "Answer anything else to skip every script that needs the cube, the reset included." \
+        "The rest of the run is unaffected."; then
         [ -n "$run" ] && printf '%s yes\n' "$run" > "$DEVICE_GATE"
         return 0
     fi
