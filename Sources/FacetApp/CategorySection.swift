@@ -24,6 +24,10 @@ final class CategorySection: NSView {
     /// Whether the list under the heading is on show.
     private(set) var isExpanded: Bool
 
+    /// What the section was built folded or open as, kept so opening Settings can put it back there
+    /// (`CollapsibleSection`). Active opens and Inactive does not, and that difference is the caller's to state once.
+    private let defaultExpanded: Bool
+
     private let toggle = NSButton()
     /// Behind the triangle and the title, spanning the row, so the whole line is the target.
     private let headingButton = NSButton()
@@ -42,6 +46,7 @@ final class CategorySection: NSView {
     init(title: String, identifier: String, isExpanded: Bool, content: NSView) {
         self.title = title
         self.isExpanded = isExpanded
+        self.defaultExpanded = isExpanded
         self.content = content
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -199,4 +204,8 @@ final class CategorySection: NSView {
 
     /// Called when the section is folded or unfolded, so the window can record it.
     var onToggle: ((Bool) -> Void)?
+}
+
+extension CategorySection: CollapsibleSection {
+    func restoreDefaultState() { setExpanded(defaultExpanded) }
 }

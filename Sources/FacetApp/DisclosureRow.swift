@@ -23,6 +23,11 @@ final class DisclosureRow: NSView {
 
     private(set) var isExpanded: Bool
 
+    /// What the row was built folded or open as, kept so opening Settings can put it back there
+    /// (`CollapsibleSection`). Held rather than looked up, because the caller's argument is the only place this is
+    /// ever stated and a copy anywhere else would be a second answer to what "default" means.
+    private let defaultExpanded: Bool
+
     /// Called when the row is folded or unfolded, so the window can record it.
     var onToggle: ((Bool) -> Void)?
 
@@ -42,6 +47,7 @@ final class DisclosureRow: NSView {
     init(title: String, identifier: String, isExpanded: Bool, content: NSView, separated: Bool = false) {
         self.title = title
         self.isExpanded = isExpanded
+        self.defaultExpanded = isExpanded
         self.content = content
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -173,4 +179,8 @@ final class DisclosureRow: NSView {
         /// What folds out is indented past the triangle rather than starting where the heading does.
         static let contentInset = DevicePane.Layout.rowInset + 16
     }
+}
+
+extension DisclosureRow: CollapsibleSection {
+    func restoreDefaultState() { setExpanded(defaultExpanded) }
 }
