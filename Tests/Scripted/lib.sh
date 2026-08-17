@@ -329,6 +329,33 @@ wait_for() {
     return 1
 }
 
+# Waits for a query to answer `expected`, and answers whatever it last saw. Polled like `wait_for`, and
+# for the same reason: the app writes when the thing actually happened, so this is as fast as the app is
+# and still correct on a slow machine.
+#
+#     wait_sql "0" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;"
+#
+# **For the state behind a log row, which does not land with it.** A debug_log row and the write it
+# describes are two separate statements, and the app writes the row *first* in at least one place that
+# matters: `DailyLimitWatch` records "Daily limit reached" and then calls `stopTiming()` to close the
+# segment. A check that waits for the row and then reads the table once is racing that gap, and on
+# 2026-08-17 run 29 it lost -- `the open segment was closed` wanted 0 and got 1, on the third of three
+# identical iterations, having passed the first two.
+#
+# So: wait for a row to know a thing began, and wait on the table to know it finished.
+wait_sql() {
+    local expected="$1" query="$2" timeout="${3:-10}"
+    local waited=0 answer=""
+    while [ "$waited" -lt "$((timeout * 10))" ]; do
+        answer=$(sql "$query")
+        [ "$answer" = "$expected" ] && { printf '%s' "$answer"; return 0; }
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    printf '%s' "$answer"
+    return 1
+}
+
 # `expect_log "name" "$since" "pattern"` -- the shape most checks take.
 expect_log() {
     local name="$1" since="$2" pattern="$3" timeout="${4:-15}"
