@@ -84,8 +84,8 @@ if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
 fi
 
 grey "  listening for advertisements..."
-if ! wait_for "$since" "%: peripheral %" 25 >/dev/null; then
-    fail "the scan ran for 25 seconds and no TimeFlip answered it"
+if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
+    fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
     press device-scan
     finish
     exit 1

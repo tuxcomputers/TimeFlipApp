@@ -80,12 +80,21 @@ final class BluetoothRadio: NSObject {
 
     /// How long a scan runs before stopping itself.
     ///
-    /// **A cube that is awake answers in about a second**, advertising intervals being fractions of one, so thirty
-    /// seconds is well past the point where waiting longer adds anything. What the bound is really for is the other
-    /// end: a scan with no timeout runs until somebody presses the button again, and the radio then stays listening
-    /// for the rest of the session with nothing on screen saying so. It also lets the status line say "no devices
-    /// found" and mean it, instead of "looking" for ever.
-    static let timeoutSeconds: TimeInterval = 30
+    /// **A cube that is awake answers in about a second, and that is measured rather than assumed.** Across eight
+    /// scans that found one (`logs/testlog.sqlite`, runs 29 and 33): fastest 0.33s, median 0.94s, slowest 2.12s. Ten
+    /// seconds is roughly five times the worst of those, which leaves room for a slow one without leaving somebody
+    /// watching a list that was never going to grow.
+    ///
+    /// **Waiting longer does not find a sleeping cube, it only looks like it might.** A cube that is not awake does
+    /// not advertise at all, so it is not slow to answer -- it never answers, and no timeout reaches it. Two of the
+    /// ten scans recorded found nothing for exactly that reason, and each was followed seconds later by one that
+    /// found the cube immediately, because somebody had flipped it in between. Thirty seconds spent proving that is
+    /// twenty-eight seconds of somebody wondering whether the app is broken.
+    ///
+    /// What the bound is really for is the other end: a scan with no timeout runs until somebody presses the button
+    /// again, and the radio then stays listening for the rest of the session with nothing on screen saying so. It
+    /// also lets the status line say "no devices found" and mean it, instead of "looking" for ever.
+    static let timeoutSeconds: TimeInterval = 10
 
     /// How long a connect is given before it is called unreachable.
     ///
