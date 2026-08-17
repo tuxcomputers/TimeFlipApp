@@ -43,61 +43,28 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to reset
 #
-# **Paired from scratch, not inherited.** `14-device-connect` leaves a pairing behind on a passing run, but a script
-# that depended on it would skip whenever `14` skipped and would silently test nothing after a reordering. The cost is
-# one scan.
+# **Paired from scratch by `pair_a_cube`**, not inherited. `14-device-connect` leaves a pairing behind on a passing run,
+# but a script that depended on it would skip whenever `14` skipped and would silently test nothing after a reordering.
+# The cost is one scan.
+#
+# An unusable radio is a skip, since it says nothing about the app. Anything else is a failure: this script's subject is
+# what happens to a cube that is right there, so being unable to reach one is not a result.
 
-if [ -n "$(element device-forget)" ]; then
-    # Already paired, from `14` or a `--keep` run. Forgetting is local and instant, and it is what puts the Scan button
-    # back -- there is deliberately no other way to it while a device is paired.
-    grey "  already paired; forgetting first so this pairs its own cube"
-    press device-forget
-    sleep 1
-fi
-
-since=$(mark)
-press device-scan
-sleep 0.5
-
-grey "  waiting for the radio to come up..."
-if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
-    unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
-    if [ -n "$unavailable" ]; then
-        skip "the radio is unusable, so there is nothing to reset ($unavailable)"
+pair_a_cube
+case $? in
+    0) pass "paired a cube to reset" ;;
+    2)
+        skip "the radio is unusable, so there is nothing to reset ($PAIR_REASON)"
         finish
         exit 0
-    fi
-    fail "the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
-    finish
-    exit 1
-fi
-
-grey "  listening for advertisements..."
-if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
-    fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
-    press device-scan
-    finish
-    exit 1
-fi
-
-row=$(tree | grep -m1 -o "device-scan-result-[0-9A-Fa-f-]*")
-if [ -z "$row" ]; then
-    fail "the app logged a device but drew no row to press"
-    press device-scan
-    finish
-    exit 1
-fi
-
-since=$(mark)
-press "$row"
-grey "  pairing, so there is a cube to reset..."
-if ! wait_for "$since" "Paired with %" 60 >/dev/null; then
-    fail "could not pair a cube, so there is nothing to reset"
-    close_settings
-    finish
-    exit 1
-fi
-pass "paired a cube to reset"
+        ;;
+    *)
+        fail "could not pair a cube, so there is nothing to reset: $PAIR_REASON"
+        close_settings
+        finish
+        exit 1
+        ;;
+esac
 
 # The name is read before the reset takes it away, so the assertion further down has something to compare against.
 name_before=$(sql "SELECT IFNULL(json_extract(setting_value, '\$.name'), '') FROM setting WHERE setting_name = 'device_name';")

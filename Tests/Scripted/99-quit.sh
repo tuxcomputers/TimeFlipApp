@@ -1,5 +1,11 @@
 #!/bin/bash
-# Quitting: the way out closes what was left open.
+# Quitting: the way out closes what was left open, and the cube is left as the factory made it.
+#
+# **Two jobs, and the second one is housekeeping rather than a feature.** Before the quit it wipes the device, because
+# the run has been writing events to a cube whose flash this suite cannot otherwise reach: rebuilding `test.sqlite`
+# clears the database and leaves the device's own counter and history untouched, so without this a run's timings sit
+# there waiting to be fetched by the next launch against **production** and filed as real recorded time. That section
+# says more about why it is here and not in `00`.
 #
 # **Numbered 99 so it stays last whatever is added before it.** This is the script that ends the app, so anything
 # after it would run against nothing at all -- and numbering it out at the end rather than one past the last leaves
@@ -19,7 +25,58 @@ require_test_database
 ensure_app_running
 start "quitting closes the open segment"
 
+# ---------------------------------------------------------------------------- the cube goes back to factory
+#
+# **The run put timings on the device, and they must not follow it to production.** The cube keeps its own event
+# counter and its own history in flash, and that survives everything this suite does to the database: rebuilding
+# `test.sqlite` from the DDL does not reach it. So a run leaves the device holding events that were made against the
+# test database, and the next launch against **production** fetches history from that same cube and files them as real
+# recorded time. A factory reset is what clears the counter, which is the archive's reason for its own end-of-run wipe
+# (`Archive/Tests/00-test-setup.md` Step 3 records prod history first, "the end-of-run factory reset later wipes the
+# device's own counter").
+#
+# **Here rather than in `00`**, because what matters is the state the cube is left in, not the state it starts in: a
+# reset at the beginning would clear the previous run's timings and then let this run's own accumulate untouched.
+#
+# **Before the segment is opened, not after.** A reset takes ten seconds when the cube answers at once and up to two
+# minutes when it does not (`BluetoothRadio.resetConfirmSeconds`), and the check further down asserts the closed
+# segment's length is within a minute of what it timed. Wiping the cube in between would push it past that and fail a
+# check about something else entirely.
+#
+# **It also leaves the cube on the vendor PIN**, which is what the next run's `14-device-connect` needs in order to
+# exercise the PIN rotation at all: five of its checks only run when there is a PIN to change. Run 38 came in three
+# checks short for exactly that reason, `16-device-reconnect` having paired the cube after `15-device-reset` wiped it
+# and rotated it back. So this is now what guarantees it, and no ordering of the device scripts depends on it.
+#
+# **A skip here is not a failure of the app**, and it is said loudly rather than passed over: the cube keeps this run's
+# timings, and somebody switching to production wants to know that.
+
 open_settings
+select_tab Device
+
+if ! device_required; then
+    skip "no cube was offered up, so there is nothing on a device to clear"
+elif pair_a_cube; then
+    since=$(mark)
+    press device-reset
+    sleep 1
+    press_sheet "Reset Device"
+    grey "  wiping the cube, so this run's timings cannot reach production..."
+    if wait_for "$since" "Reset: confirmed" 150 >/dev/null; then
+        pass "the cube is wiped, so the run's timings stay in the test database"
+    else
+        # **Failed, not skipped.** An unconfirmed reset means the app could not prove the cube was erased, and the
+        # thing being guarded against -- test timings turning up as real recorded time -- is exactly what happens
+        # next if that is quietly tolerated.
+        fail "the cube was NOT confirmed wiped, so it may still hold this run's timings -- reset it by hand before switching to production"
+    fi
+    check "and the app gave the device up with it" "0" \
+        "$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")"
+else
+    yellow "  the cube could not be reached to wipe it: $PAIR_REASON"
+    skip "the cube was not wiped, so it may still hold this run's timings"
+fi
+
 select_tab Faces
 
 # Something to leave running, so the quit has work to do.

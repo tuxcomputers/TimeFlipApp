@@ -37,57 +37,19 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to come back to
 #
-# **Paired from scratch, for `15`'s reason.** A script that inherited `14`'s pairing would skip whenever `14` skipped and
-# would silently test nothing after a reordering. The cost is one scan.
+# **Paired from scratch by `pair_a_cube`**, for `15-device-reset`'s reason: a script that inherited `14`'s pairing would
+# skip whenever `14` skipped and would silently test nothing after a reordering. The cost is one scan.
+#
+# A cube that cannot be paired is a skip rather than a failure here, unlike in `15`. This script's claim is about what
+# happens to a pairing across a quit, and with no pairing there is no claim to test either way.
 
-if [ -n "$(element device-forget)" ]; then
-    grey "  already paired; forgetting first so this pairs its own cube"
-    press device-forget
-    sleep 1
-fi
-
-since=$(mark)
-press device-scan
-sleep 0.5
-
-grey "  waiting for the radio to come up..."
-if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
-    unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
-    if [ -n "$unavailable" ]; then
-        skip "the radio is unusable, so there is nothing to reconnect to ($unavailable)"
-        finish
-        exit 0
-    fi
-    fail "the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
-    finish
-    exit 1
-fi
-
-grey "  listening for advertisements..."
-if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
-    fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
-    press device-scan
-    finish
-    exit 1
-fi
-
-row=$(tree | grep -m1 -o "device-scan-result-[0-9A-Fa-f-]*")
-if [ -z "$row" ]; then
-    fail "the app logged a device but drew no row to press"
-    press device-scan
-    finish
-    exit 1
-fi
-
-since=$(mark)
-press "$row"
-grey "  pairing, so there is a cube to come back to..."
-if ! wait_for "$since" "Paired with %" 60 >/dev/null; then
-    fail "could not pair a cube, so there is nothing to reconnect to"
+if ! pair_a_cube; then
+    skip "no cube could be paired, so there is nothing to come back to ($PAIR_REASON)"
     close_settings
     finish
-    exit 1
+    exit 0
 fi
+pass "paired a cube to come back to"
 
 # One row per setting, the value being JSON, which is what `08-app-settings` reads them with too.
 setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }

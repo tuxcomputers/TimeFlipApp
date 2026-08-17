@@ -212,6 +212,73 @@ device_required() {
     return 1
 }
 
+# Pairs a cube from scratch, with the Device tab already on show. Answers 0 once the app says `Paired with`.
+#
+#     pair_a_cube || { skip "..."; finish; exit 0; }
+#
+# **Three scripts needed this and had two copies of it**, which is the point at which it stops being repetition and
+# starts being a place for them to drift apart. `14-device-connect` keeps its own, deliberately: that one is the
+# script whose subject *is* connecting, and every step of it is a check rather than a means to an end.
+#
+# **From scratch, forgetting first.** A paired app has no Scan button (`DevicePairingRules.showsScanControls`), so a
+# script that inherited an earlier one's pairing would skip whenever that one skipped, and would silently test nothing
+# after a reordering. The cost is one scan.
+#
+# **The caller decides what a failure means**, because it differs: an unusable radio is a skip in every script that
+# calls this, and a cube that never answered is a failure in some and a skip in others. So this says what happened in
+# the log and answers with which of the two it was:
+#
+#   0  paired
+#   2  the radio cannot be used, which says nothing about the app -- `PAIR_REASON` holds the app's own words
+#   1  everything else: nothing answered the scan, no row to press, or the PIN was refused
+pair_a_cube() {
+    PAIR_REASON=""
+
+    if [ -n "$(element device-forget)" ]; then
+        grey "  already paired; forgetting first so this pairs its own cube"
+        press device-forget
+        sleep 1
+    fi
+
+    local since row
+    since=$(mark)
+    press device-scan
+    sleep 0.5
+
+    grey "  waiting for the radio to come up..."
+    if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
+        PAIR_REASON=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
+        [ -n "$PAIR_REASON" ] && return 2
+        PAIR_REASON="the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
+        return 1
+    fi
+
+    grey "  listening for advertisements..."
+    if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
+        # The scan is stopped on the way out: leaving the radio listening behind a script that has given up is what
+        # the timeout exists to prevent, and this path is reached before it fires.
+        press device-scan
+        PAIR_REASON="the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
+        return 1
+    fi
+
+    row=$(tree | grep -m1 -o "device-scan-result-[0-9A-Fa-f-]*")
+    if [ -z "$row" ]; then
+        press device-scan
+        PAIR_REASON="the app logged a device but drew no row to press"
+        return 1
+    fi
+
+    since=$(mark)
+    press "$row"
+    grey "  pairing..."
+    if ! wait_for "$since" "Paired with %" 60 >/dev/null; then
+        PAIR_REASON="the cube was found but would not pair -- it may be on a PIN this app cannot present"
+        return 1
+    fi
+    return 0
+}
+
 start() {
     echo ""
     blue "=============================================================================="
