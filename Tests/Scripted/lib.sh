@@ -276,7 +276,18 @@ require_test_database() {
     esac
 }
 
-sql() { sqlite3 "$DB" "$1"; }
+# **Waits for a writer rather than failing at one.** The app's database is `journal_mode=delete`, so a
+# write locks the file against readers outright -- and every check here reads `debug_log` at exactly the
+# moment the app is busiest writing it. Without a timeout, sqlite gives up instantly: the read prints
+# `Error: in prepare, database is locked (5)` to stderr, returns **empty on stdout**, and the check then
+# fails against a haystack of `''` as though the row were missing.
+#
+# That is not hypothetical and it is not rare. On 2026-08-17 run 28 it failed
+# `the accepted answer is 0x02` while the row it wanted was sitting in the table: the login writes
+# sixteen rows in 440ms (the PIN rotation, then the Device Information reads), and the check lands in
+# the middle of them. Ten seconds is far longer than any burst the app produces, so this waits rather
+# than races, and a genuine empty result still means what it says.
+sql() { sqlite3 -cmd ".timeout 10000" "$DB" "$1"; }
 
 # The next unused name in a numbered family: `next_name Timer` answers `Timer 1` on a database built from
 # nothing, and `Timer 18` on one that already holds seventeen.
