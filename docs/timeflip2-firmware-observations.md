@@ -4,7 +4,7 @@ Behaviour measured on real hardware that the vendor spec does not describe, and 
 
 This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
-**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02, and finding 4 on the same cube on 2026-08-17.
+**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
 
 ## The evidence file
 
@@ -13,6 +13,10 @@ This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs
 671 rows in one `debug_log` table, carrying the source database's original `debug_log_id` values and timestamps, so ordering by id is true chronological order (verified: no row's timestamp precedes the row before it). It covers the rename history across the whole test session **plus one complete, unedited BLE trace** of a connect-and-rename from id 6716, so the acknowledgement claims can be checked against a full sequence rather than a flattering selection.
 
 Rows 356 to 379 are finding 4, added on 2026-08-17 from a scripted run: the whole of two login attempts, both PINs and both answers, unedited. They come from the test database, which every run rebuilds from the DDL -- so without copying them here the evidence for that finding would have been destroyed by the next run.
+
+Rows 309 to 319 are finding 5, added the same day from a driven run, and copied for the same reason: the accepted login, the pairing it wrote, and the four Device Information reads that followed, with the raw bytes of each.
+
+Rows 340 to 356 and 384 to 399 are finding 6, from the same day: the `0xFF` write and its acknowledgement, the silence that followed it, and then the login two minutes later that proves the wipe took by being accepted on the vendor PIN. The gap between rows 355 and 356 is the finding — nothing was written in it because nothing happened.
 
 ```
 sqlite3 docs/timeflip2-firmware-evidence.sqlite \
@@ -157,8 +161,68 @@ For sizing timeouts, from the same trace: connect 1.03s, service and characteris
 
 ---
 
+## 5. The Device Information strings are exact length, not padded to 20 bytes
+
+Rows 313 to 319. The spec's Tab. 1 gives all four Device Information characteristics a size of **20 bytes**; the cube returns each one at its natural length instead, with no NUL padding and no trailing whitespace:
+
+| Characteristic | UUID | Bytes returned | Value |
+|---|---|---|---|
+| Manufacturer Name String | `0x2A29` | 7 | `DI_LABS` |
+| Model Number String | `0x2A24` | 3 | `2.0` |
+| Hardware Revision String | `0x2A27` | 6 | `TFv4.1` |
+| Firmware Revision String | `0x2A26` | 8 | `FW_v3.64` |
+
+So the 20 in the spec is the field's **maximum**, not its transfer size. The archive's `readString` did a bare `String(data:encoding:)` with no padding handling and was correct on this firmware for exactly that reason.
+
+**`DeviceInfoRules.reported` strips trailing NULs anyway**, and that is deliberate rather than redundant: what is measured here is one cube on one firmware build, and a build that did pad to the documented width would produce strings that compare unequal to themselves and draw labels wider than their words, with nothing on screen to say why. The strip costs nothing when there is nothing to strip.
+
+### All four answered, and quickly
+
+The whole phase -- discovering the service, then four reads -- took **354ms** (row 313 at `14:33:07.966`, row 318 at `14:33:08.320`), against the 10s deadline `DeviceLogin.infoTimeoutSeconds` allows. The first read cost 171ms including discovery; the remaining three came back at 61, 60 and 60ms. This cube exposes the service and answers every one of the four, so the app's handling of a partial answer is untested on hardware.
+
+### They were read after a login, and only after one
+
+Row 313 follows row 309 (`PIN accepted`) and row 312 (`Paired with`), which is the ordering the feature is built on: the pairing is written before these reads start, so nothing about them can delay or fail it. Standard GATT places no authentication on `0x180A`, so these should answer with no PIN presented at all -- but **that has not been measured**, because the app has never asked for them in any other state. Nothing in the app depends on it either way.
+
+---
+
+## 6. A factory reset does **not** drop the connection
+
+Rows 340 to 356, and 384 to 399. `0xFF` was written and acknowledged at `17:54:22.730`, and the link then **stayed up for the whole 104 seconds** somebody watched it — no disconnect, no notification, nothing at all on any characteristic. The next row in the log is a human closing the window.
+
+This contradicts what the archive assumed. `TimeFlipBLEDevice.factoryReset` describes the cube as rebooting, and `ApplicationDelegate` was built around the drop that reboot causes: it armed a confirmation window, waited for the disconnect, and reconnected from there. On this firmware that disconnect never arrives.
+
+**The wipe itself worked perfectly.** That is the other half of the measurement, and the two together are what make this worth writing down:
+
+| | PIN presented | Result |
+|---|---|---|
+| Before the reset (`17:54:14`) | `000000` | refused |
+| Before the reset (`17:54:17`) | `123456` | **accepted** |
+| After the reset (`17:56:28`) | `000000` | **accepted** |
+
+The cube was on the app's PIN, and afterwards it was back on the vendor default — so `0xFF` erased it exactly as documented. What failed was the app noticing, and it failed silently: a reset that had genuinely happened sat unconfirmed until the window timed out.
+
+**Consequence for this app.** `BluetoothRadio.factoryReset` no longer waits for a drop. Once the write is acknowledged it lets go of the link itself and then goes looking for the cube on the vendor PIN, which covers both firmwares — one that severs the connection is still handled by `didDisconnectPeripheral`, and one that does not is disconnected deliberately. Waiting on the device to do it was the whole bug.
+
+### How long the wipe takes, and why one retry is not enough
+
+Measured twice on the fixed code, both times by presenting the vendor PIN every three seconds until it was accepted:
+
+| Run | `0xFF` acknowledged | Attempts refused | Accepted | Wipe took |
+|---|---|---|---|---|
+| `18:06` | `13.566` | 1 (at `18.955`) | `22.075` | **~8.5s** |
+| `18:08` | `31.704` | 2 (at `36.710`, `39.833`) | `42.894` | **~11s** |
+
+So the cube goes on answering the *old* PIN for several seconds after acknowledging the reset — it is not erased when the write returns, and it does not stop answering while it erases. A single confirmation attempt, however well timed, would have failed both runs and reported a wipe that had in fact happened. The retry loop is the feature, not a safety net.
+
+**What is still not known** is whether the cube reboots at all, or merely erases in place. Nothing observable here distinguishes them: no disconnect, and the app was not watching the System State characteristic (`F1196F56`), which is where the archive says a `0x01 0x00` notification would appear if one does.
+
+---
+
 ## Raised with the vendor
 
 Findings 1 to 3 are the subject of an issue against `DI-GROUP/TimeFlip.Docs`. The request is that the spec describe them, not that the behaviour change: a guaranteed-stable advertised name is genuinely useful for scan filtering once documented, rather than merely observed.
 
 **Finding 4 is different in kind and should be raised separately.** The other three are behaviour the spec is silent about; this one is a documented statement that is the wrong way round, and it is the sort of error that costs somebody a day. Either the firmware or the document is wrong, and the vendor is the only one who can say which was intended.
+
+**Finding 6 is worth raising too**, and it is a question rather than a correction: the spec does not say what a client should observe after `0xFF`, and on this firmware the answer is *nothing at all* — the command is acknowledged, the device is genuinely erased, and the connection carries on as though it had not been. Any client that waits for the device to react is waiting for something that never comes. A single documented signal, on the System State characteristic or as a disconnect, would make a reset confirmable without a reconnect.
