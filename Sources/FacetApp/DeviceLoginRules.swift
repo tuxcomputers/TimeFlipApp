@@ -32,6 +32,32 @@ enum DeviceLoginRules {
             .filter { isWellFormed($0) && seen.insert($0).inserted }
     }
 
+    /// The PINs to try on a cube this app is **already paired to**, in order.
+    ///
+    /// The same two, the other way round, and the order is the whole of the difference. A pairing is meeting a cube that
+    /// is probably factory-fresh, so the default goes first; a reconnect is going back to a cube this app has already
+    /// set a PIN on, so that one goes first. Presenting them the pairing way round would cost a whole reconnect
+    /// (`BluetoothRadio.settleSeconds`, plus a connect) on every single reconnect, to learn what the app already knew.
+    ///
+    /// **The default stays on the list, and `defaultPIN`'s own note is why**: a cube whose batteries have come out is
+    /// back on it (measured 2026-08-11), and that is an ordinary Tuesday rather than a lost pairing. Dropping it would
+    /// turn a battery change into a Forget and a re-pair.
+    ///
+    /// **This departs from the archive, which presented the stored PIN and nothing else on a reconnect.** Its reasoning
+    /// was that connecting is gated on already being paired, so a refused stored PIN means the pairing is no longer
+    /// valid and saying so beats silently logging in to a device whose PIN the app has lost track of
+    /// (`ApplicationDelegate.startDeviceEvents`). That reasoning is about *not knowing which cube answered* -- and it
+    /// does not apply here, because this app reconnects by identifier: a reach names one peripheral and gets that one or
+    /// nothing (`BluetoothRadio.reach`). The archive had to try every eligible cube in the room and used the PIN to work
+    /// out which was its own, which is exactly the situation where presenting a public default is how you take over
+    /// somebody else's device. Reaching a known identifier cannot do that.
+    static func reconnectCandidates(stored: String?) -> [String] {
+        var seen: Set<String> = []
+        return [stored, defaultPIN]
+            .compactMap { $0 }
+            .filter { isWellFormed($0) && seen.insert($0).inserted }
+    }
+
     /// Whether a PIN is even presentable. The characteristic is six bytes, so anything else is a bug on this side and
     /// is worth catching before it becomes a rejection that looks like the cube's fault.
     static func isWellFormed(_ pin: String) -> Bool {

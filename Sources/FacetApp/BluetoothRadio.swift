@@ -249,6 +249,15 @@ final class BluetoothRadio: NSObject {
         isScanning = false
         debugLog?.record(.scan, "Scan \(reason), \(found.count) device(s) listed")
         onScanningChanged?(false)
+        // **A scan that was looking for one cube and ended without it is that cube being unreachable**, which is the
+        // only answer a scan can give about a device that never advertised: a cube that is asleep, flat or elsewhere
+        // does not answer slowly, it does not answer at all. Reported after `onScanningChanged`, so whoever draws the
+        // list has already been told the scan is over before it is told the cube was not in it.
+        if let target = reaching {
+            reaching = nil
+            debugLog?.record(.login, "\(target.id.uuidString) did not answer the scan")
+            end(target.id, .unreachable)
+        }
     }
 
     private func beginScanIfReady() {
@@ -352,6 +361,64 @@ final class BluetoothRadio: NSObject {
         onLoginBegan?(id)
         beginConnect()
     }
+
+    /// Goes and finds a cube this app already knows, and logs in to it.
+    ///
+    /// **Reconnecting is a scan, and that is the whole reason this method exists.** CoreBluetooth will not hand back a
+    /// peripheral by identifier: an object to connect to comes from a scan or from nowhere, so "reach the cube we are
+    /// paired to" cannot be a connect. Getting this wrong has already cost this project once -- the device rename
+    /// shipped with every test passing and left the cube unreachable on the next launch, because nothing in `swift test`
+    /// scans (2026-08-01, the Device rename section of `docs/TODO-features-under-development.md`).
+    ///
+    /// **The target is admitted whatever it is called.** The filter is for the list a person reads, and a cube renamed
+    /// out of band matches neither name in the table -- but an identifier is not a name, and this is looking for exactly
+    /// one. So the filter still keeps the list clean while `id` gets in regardless, which is the difference between a
+    /// renamed cube being reachable and being lost.
+    ///
+    /// **It ends by itself.** The scan's own timeout is what says the cube is not there, reported as `.unreachable`
+    /// through `onLoginEnded` like any other way of not getting in: whoever is retrying does not need a second kind of
+    /// failure to understand, and the tab already has words for that one.
+    ///
+    /// - Parameters:
+    ///   - id: `device_uuid.uuid`, read from the table by the caller at this moment.
+    ///   - candidates: the PINs to present, from `DeviceLoginRules.reconnectCandidates`.
+    func reach(
+        _ id: UUID,
+        presenting candidates: [String],
+        rotatingTo: String? = nil,
+        remembered: String?,
+        previouslyKnown: String?
+    ) {
+        guard attempt == nil, resetConfirmation == nil else {
+            debugLog?.record(.login, "Already busy with a device; not reaching for \(id.uuidString)")
+            return
+        }
+        guard connectedDevice != id else { return }
+        // Already in the room and already known: no scan needed, which is the case where a drop is followed straight
+        // away by the cube coming back.
+        if peripherals[id] != nil, !isScanning {
+            debugLog?.record(.login, "Reaching \(id.uuidString), already known to this session")
+            reaching = nil
+            connect(to: id, presenting: candidates, rotatingTo: rotatingTo)
+            return
+        }
+        debugLog?.record(.login, "Reaching for \(id.uuidString): scanning, since a peripheral comes from a scan")
+        reaching = ReachTarget(id: id, candidates: candidates, rotatingTo: rotatingTo)
+        start(filterToTimeFlip: true, remembered: remembered, previouslyKnown: previouslyKnown)
+    }
+
+    /// The cube a `reach` is looking for, and what to do when it turns up. Cleared the moment it does, or when the scan
+    /// gives up on it.
+    private struct ReachTarget {
+        let id: UUID
+        let candidates: [String]
+        let rotatingTo: String?
+    }
+
+    private var reaching: ReachTarget?
+
+    /// Whether the radio is looking for a cube of its own accord, as opposed to for somebody watching the list.
+    var isReaching: Bool { reaching != nil || attempt != nil }
 
     /// Whether a reset is waiting on the cube to prove itself, which is what the tab shows instead of a connection.
     var isResetting: Bool { resetConfirmation != nil }
@@ -477,6 +544,9 @@ final class BluetoothRadio: NSObject {
         connectTimeout = nil
         settle?.invalidate()
         settle = nil
+        // A cube being looked for is abandoned along with one being connected to: both are this app going after a
+        // device, and the two moments that call this -- the window closing, another device being chosen -- end either.
+        reaching = nil
         guard let attempt else { return }
         self.attempt = nil
         login = nil
@@ -619,7 +689,10 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             advertisesTimeFlipService: services.contains(TimeFlipUUIDs.service)
         )
 
+        // The cube a `reach` is looking for gets in whatever it is called: see there for why an identifier outranks the
+        // name filter.
         guard !isFiltering
+            || device.id == reaching?.id
             || DeviceScanRules.isEligible(device, remembered: remembered, previouslyKnown: previouslyKnown)
         else {
             return
@@ -638,9 +711,18 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         // Kept whether or not the value changed: the list is drawn from the values, and the object behind them is
         // what a connect needs.
         peripherals[device.id] = peripheral
-        guard found[device.id] != device else { return }
-        found[device.id] = device
-        publish()
+        if found[device.id] != device {
+            found[device.id] = device
+            publish()
+        }
+        // **Acted on the moment it arrives, rather than when the scan ends.** The cube answers in about a second and the
+        // window is ten, so waiting the scan out would spend nine seconds not connecting to a device already in the
+        // list. Cleared first, so a second advertisement cannot start a second attempt.
+        if let target = reaching, target.id == device.id {
+            reaching = nil
+            debugLog?.record(.login, "The cube turned up, so the scan is done")
+            connect(to: target.id, presenting: target.candidates, rotatingTo: target.rotatingTo)
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
