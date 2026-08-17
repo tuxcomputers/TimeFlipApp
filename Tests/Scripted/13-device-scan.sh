@@ -95,8 +95,10 @@ fi
 check_contains "and the button offers to stop it" "$(tree | grep -m1 'id=device-scan ' || true)" "Stop Scan"
 
 # **The wait is the test.** Nothing is pressed here: what is being checked is that an advertisement arrives and
-# survives the filter. Twenty-five seconds is generous for a cube that is awake and close, and an advertising
-# interval is measured in fractions of a second, so a timeout here is a real absence rather than bad luck.
+# survives the filter. Bounded just past the scan's own window (`BluetoothRadio.timeoutSeconds`, ten seconds), because
+# waiting longer than the radio listens is waiting for something nothing is looking for any more. That is still six
+# times the slowest advertisement measured (2.12s across eight scans), so a timeout here is a real absence -- a cube
+# that is asleep, or not in the room -- rather than bad luck.
 grey "  listening for advertisements..."
 found=$(wait_for "$since" "%: peripheral %" 13)
 if [ -n "$found" ]; then
