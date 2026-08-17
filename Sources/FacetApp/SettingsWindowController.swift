@@ -310,32 +310,214 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **Which PINs to present is decided here, at the moment somebody presses a row**, and handed to the radio
     /// rather than worked out inside it. That keeps the policy in `DeviceLoginRules` where it is testable with no
-    /// cube, and it is the source-of-truth rule's shape even though no table is involved yet: the candidates are
-    /// assembled when they are needed, not when the radio was built. The day a rotated PIN is stored, the read goes
-    /// on this line.
+    /// cube, and it is the source-of-truth rule's shape: the candidates are assembled when they are needed, not when
+    /// the radio was built, so a PIN set on the last connection is read back off disk on this one.
+    ///
+    /// **The stored PIN is read from `config.json` here, not held**, for the reason the scan reads the two names it
+    /// filters on here: the file is one a developer also edits by hand, and what it says is only the answer at the
+    /// moment a connect asks. The compiled-in dev PIN stands in when the file names none, which is a stand-in for the
+    /// stored PIN and never a third candidate (see `DeveloperMode.devicePIN`).
     private func wireConnect(on pane: DevicePane, using scanner: BluetoothRadio) {
         pane.onConnect = { [weak self] id in
             guard let self else { return }
             self.debugLog?.record(.click, "Device clicked: \(scanner.label(for: id))")
-            scanner.connect(to: id, presenting: DeviceLoginRules.candidates(stored: DeveloperMode.devicePIN))
+            // **Written down before the new attempt starts, not after it fails.** Reaching a second device drops the
+            // first one inside the radio, so without this the row would go on saying `connected` about a cube that
+            // was let go a moment ago -- and if the new attempt then failed, nothing would ever correct it.
+            if scanner.connectedDevice != nil {
+                self.markConnectionDown(on: pane, because: "another device was chosen")
+            }
+            let stored = DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN
+            scanner.connect(
+                to: id,
+                presenting: DeviceLoginRules.candidates(stored: stored),
+                rotatingTo: DeveloperMode.devicePIN
+            )
+        }
+        // **The cube is on the new PIN by the time this runs**, so a failure here is the app losing a PIN the cube
+        // already has rather than a change that did not happen. It is said loudly for that reason -- and it is
+        // survivable only because a developer build's PIN is a compiled-in constant that is presented anyway: this
+        // callback is what a production build would have to make good on before it could ever set a random one.
+        scanner.onPINChanged = { [weak self] pin in
+            guard let file = DeveloperConfigFile.standard else { return }
+            // The write happens on its own line rather than inside the logging call: `debugLog?.record(...)` is
+            // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded
+            // in exactly the build that has no log to notice.
+            let wrote = file.record(pin: pin)
+            self?.debugLog?.record(
+                .pin,
+                wrote
+                    ? "Wrote the new PIN to \(file.url.path)"
+                    : "COULD NOT write the new PIN to \(file.url.path) -- the cube is on \(pin)"
+            )
         }
         scanner.onLoginBegan = { [weak pane, weak scanner] id in
             guard let pane, let scanner else { return }
             pane.showReaching(true)
             pane.showScanMessage("Connecting to \(scanner.label(for: id))...")
         }
-        scanner.onLoginEnded = { [weak pane, weak scanner] id, outcome in
+        scanner.onLoginEnded = { [weak self, weak pane, weak scanner] id, outcome in
             guard let pane, let scanner else { return }
             pane.showReaching(false)
             pane.showScanMessage(outcome.message(for: scanner.label(for: id)))
+            // **Only a login that got all the way through pairs anything.** A refused PIN, a device that turned out
+            // not to be a TimeFlip and a cube that stopped answering all leave the table exactly as it was: the app
+            // does not know which cube it was talking to, or knows it cannot open it, and a `paired` row written
+            // anyway would send the next launch looking for a device it cannot log into.
+            guard outcome == .loggedIn else { return }
+            self?.recordPairing(on: pane, with: scanner.device(id))
         }
-        scanner.onConnectionDropped = { [weak pane, weak scanner] id in
+        // **Its own callback, arriving after the pairing rather than with it.** The four Device Information reads run
+        // once the login is over and take a moment; the tab is already showing a paired, connected cube by the time
+        // they land, and this fills the More rows in when they do.
+        scanner.onDeviceInfo = { [weak self, weak pane] _, info in
+            self?.recordDeviceInfo(on: pane, info)
+        }
+        // **Nothing is asked first**, which is the archive's decision and `DevicePane.forgetPressed` says why: this is
+        // local bookkeeping with no round trip to await, and a confirmation in front of the one control that gets a
+        // stuck app moving is a step between somebody and the way out.
+        pane.onForget = { [weak self, weak pane, weak scanner] in
+            guard let self, let pane else { return }
+            self.debugLog?.record(.click, "Button clicked: Forget Device")
+            // **The link goes before the rows do.** The pairing is what licenses holding a connection at all, so an
+            // app that had forgotten its device while still talking to it would be holding one nothing accounts for.
+            // Silent when there is nothing to drop, which is the ordinary case: forgetting an unreachable cube is what
+            // this button is mostly for.
+            scanner?.disconnect(because: "the device was forgotten")
+            self.forgetDevice(on: pane)
+        }
+        // **Asked about first, unlike Forget, and the difference is what it costs to be wrong.** Forgetting changes
+        // nothing on the cube and is undone by pairing again; this erases the device and cannot be undone.
+        pane.onReset = { [weak self, weak pane, weak scanner] in
+            guard let self, let pane, let scanner else { return }
+            self.debugLog?.record(.click, "Button clicked: Reset Device")
+            let name = scanner.connectedDevice.map { scanner.label(for: $0) } ?? "this TimeFlip"
+            self.confirmReset { [weak self, weak pane, weak scanner] confirmed in
+                guard let self, let pane, let scanner else { return }
+                guard confirmed else {
+                    self.debugLog?.record(.pair, "The reset was called off")
+                    return
+                }
+                // **The tab says what is happening for the whole of it**, which may be a minute or more: the cube
+                // erases flash and reboots before it will answer anything, and a window that went quiet through that
+                // would look like a button that did nothing.
+                pane.showReaching(true)
+                pane.showScanMessage("Resetting \(name)...")
+                scanner.factoryReset { [weak self, weak pane] outcome in
+                    guard let self, let pane else { return }
+                    pane.showReaching(false)
+                    pane.showScanMessage(outcome.message(for: name))
+                    // **Only a confirmed wipe changes anything.** The cube proved it by coming back on the vendor PIN;
+                    // without that proof the app knows nothing new and must leave the pairing exactly as it was.
+                    guard outcome == .confirmed else {
+                        pane.show(self.deviceSettings())
+                        return
+                    }
+                    self.forgetResetDevice(on: pane)
+                }
+            }
+        }
+        scanner.onConnectionDropped = { [weak self, weak pane, weak scanner] id in
             guard let pane, let scanner else { return }
             // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out of
             // range, or its batteries out -- is the one the user did not ask for, and the tab would otherwise go on
             // reading "Connected" for the rest of the session.
             pane.showScanMessage("The connection to \(scanner.label(for: id)) dropped.")
+            self?.markConnectionDown(on: pane, because: "the connection to \(scanner.label(for: id)) dropped")
         }
+    }
+
+    /// Writes a confirmed pairing down and puts what the table now says back on the tab.
+    ///
+    /// **The tab is redrawn from the table, not from what was just written**, which is `CLAUDE.md`'s rule about
+    /// reading back after a write: `deviceSettings()` re-reads every row, so a write the table refused shows on
+    /// screen as the row it actually holds rather than as the value the app hoped for.
+    ///
+    /// **Manual mode goes off here**, in front of the redraw, because it is read by the same `deviceSettings()` call
+    /// and it outranks the pairing in what the Connection row says. The app now has a cube to follow; it stops being
+    /// an app timing by hand at the moment one is paired, not at the next launch.
+    private func recordPairing(on pane: DevicePane, with device: ScannedDevice) {
+        guard let settings else { return }
+        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordPairing(with: device)
+        manualMode?.stop(because: "a device is paired")
+        pane.show(deviceSettings())
+    }
+
+    /// Forgets the device and puts what the table now says back on the tab.
+    ///
+    /// **Redrawn from the table, not from what was written**, as every write on this tab is: `deviceSettings()`
+    /// re-reads every row, so the Scan button comes back because `paired` is actually false rather than because this
+    /// asked for it -- and a write the table refused shows as the row it really holds.
+    ///
+    /// **Manual mode is asked the same question it is asked at launch**, at the moment the answer changes. With
+    /// nothing paired there is no cube to follow, so the app times by hand again; `startIfNoDeviceIsPaired` reads
+    /// `paired` from the table itself, which is why it is called rather than told.
+    private func forgetDevice(on pane: DevicePane) {
+        guard let settings else { return }
+        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordForget()
+        manualMode?.startIfNoDeviceIsPaired(settings)
+        // The status line described a device the app no longer has.
+        pane.showScanMessage("")
+        pane.show(deviceSettings())
+    }
+
+    /// Asks before wiping a cube. **The archive's words**, which say exactly what goes and that it cannot be undone.
+    private func confirmReset(_ decided: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Reset this TimeFlip to factory settings?"
+        alert.informativeText = """
+            This erases everything stored on the device -- face colours, task settings, name, and password -- back to \
+            factory defaults. This cannot be undone.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Reset Device")
+        alert.addButton(withTitle: "Cancel")
+        // Return goes on Cancel, explicitly: AppKit relocates a button titled "Cancel" to the left, which would make
+        // the agreeing button the one a stray Return fires. The same measured trap `showNameTaken` documents, and this
+        // is the most destructive answer on the tab.
+        alert.buttons.first?.keyEquivalent = ""
+        if alert.buttons.count > 1 { alert.buttons[1].keyEquivalent = "\r" }
+        alert.beginSheetModal(for: window) { response in
+            decided(response == .alertFirstButtonReturn)
+        }
+    }
+
+    /// Records a **confirmed** wipe: the app gives the cube up, and the name goes with it.
+    ///
+    /// Everything `forgetDevice` does, plus the name being moved out of the way -- see
+    /// `DevicePairingRecorder.recordFactoryReset` for why it is kept in `previous_name` rather than discarded.
+    private func forgetResetDevice(on pane: DevicePane) {
+        guard let settings else { return }
+        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordFactoryReset()
+        manualMode?.startIfNoDeviceIsPaired(settings)
+        pane.show(deviceSettings())
+    }
+
+    /// Writes down what the cube says it is, and puts what the table now says back on the tab.
+    ///
+    /// **Redrawn from the table like every other write here**, so a field the table refused shows on screen as the
+    /// value it actually holds. The pane is optional for the same reason `markConnectionDown`'s is: these reads land
+    /// seconds after the login, and the window may have been closed in between -- the row is what the next open reads.
+    private func recordDeviceInfo(on pane: DevicePane?, _ info: DeviceInfo) {
+        guard let settings else { return }
+        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordInfo(info)
+        pane?.show(deviceSettings())
+    }
+
+    /// Marks the connection down and redraws, for every way a link ends: the cube going away, another device being
+    /// chosen, and the window that owns the link closing.
+    private func markConnectionDown(on pane: DevicePane?, because reason: String) {
+        guard let settings else { return }
+        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordConnectionLost(because: reason)
+        // The pane is optional because this also runs as the window closes, when redrawing is beside the point: the
+        // row is what the next open reads.
+        pane?.show(deviceSettings())
+    }
+
+    /// The Device tab, whichever tab is on show. Found rather than held, in the same way `readSettingsIntoPanes`
+    /// finds the App tab: the tab view owns the panes, and a second reference to one would be a copy to keep in step.
+    private var devicePane: DevicePane? {
+        panes.tabViewItems.compactMap { $0.view as? DevicePane }.first
     }
 
     private func deviceRadio() -> BluetoothRadio {
@@ -350,10 +532,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// Each row falls back to what a fresh database would have seeded, for the reason `appSettings()` gives:
     /// `SettingStore` answers `nil` for a missing or malformed row and refuses to guess what absence means.
     ///
-    /// **Four of these have no row to read and arrive `nil` every time**: the battery level and the four strings the
-    /// cube reports about itself are read off a live connection and are deliberately not stored, a remembered reading
-    /// being a number that was true at a moment nobody can name. `DeviceInfoRules` is what turns their absence into
-    /// words rather than blanks.
+    /// **The battery level has no row to read and arrives `nil` every time**, deliberately: a level is a number that
+    /// was true at a moment nobody can name, so a remembered one would be presented as a reading. The four strings
+    /// beside it in the More rows are the opposite case and now have a row of their own -- what a cube *is* does not
+    /// go stale between connections the way what it is *doing* does -- and they are greyed rather than hidden while
+    /// nothing is connected, which is the same distinction drawn in colour instead of in words. `DeviceInfoRules` is
+    /// what turns an absence into words rather than blanks either way.
     ///
     /// **Manual mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
     /// rule's own reasoning: `ManualMode` is in memory on purpose, describing what this launch is doing rather than
@@ -367,10 +551,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             isManualMode: manualMode?.isOn ?? seeded.isManualMode,
             deviceName: settings.string("device_name", field: "name"),
             batteryPercent: nil,
-            manufacturer: nil,
-            model: nil,
-            hardware: nil,
-            firmware: nil,
+            manufacturer: settings.string("device_info", field: "manufacturer"),
+            model: settings.string("device_info", field: "model"),
+            hardware: settings.string("device_info", field: "hardware"),
+            firmware: settings.string("device_info", field: "firmware"),
             autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
             ledBrightnessPercent: settings.integer("led_settings", field: "brightness")
                 ?? seeded.ledBrightnessPercent,
@@ -1362,6 +1546,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         NSApp.setActivationPolicy(.regular)
         // Before the window is on screen, so it never appears on one tab and switches to another.
         select(Self.tabOnOpen)
+        // Likewise before it is shown, and for the same reason: a section that appeared open and folded itself a
+        // moment later would read as the window undoing something rather than as a tab starting from its own default.
+        restoreDefaultSectionStates()
         // Logged here rather than left to the tab view's delegate, which does not fire for a tab that is already
         // selected -- and since Faces became the *first* tab, that is now every ordinary open. The row is the only
         // evidence of which tab an open landed on, so it says so itself rather than depending on a change happening.
@@ -1376,6 +1563,33 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
+    /// Folds every collapsible section on every tab back to the state it is built in.
+    ///
+    /// **The panes are made once and reused**, which is what makes this necessary: a fold made in one Settings window
+    /// is still there in the next one, so without this the second open shows a tab arranged by a gesture the user made
+    /// minutes ago and has no reason to remember. A fold is not a setting they chose, and nothing about it is stored
+    /// anywhere -- `onToggle` only ever wrote a `debug_log` row -- so the default is simply what a tab opens as.
+    ///
+    /// **Every tab, not the one being shown.** Selecting a tab does not rebuild it either, so a section left open on
+    /// the Categories tab would still be open the next time somebody went there, having never been near this open at
+    /// all.
+    ///
+    /// **Found by walking the tree rather than by a list kept here**, so this stays true of every collapsible group
+    /// the app grows instead of the three it had when it was written. See `CollapsibleSection`.
+    private func restoreDefaultSectionStates() {
+        for item in panes.tabViewItems {
+            guard let view = item.view else { continue }
+            Self.restoreDefaultStates(in: view)
+        }
+    }
+
+    private static func restoreDefaultStates(in view: NSView) {
+        (view as? CollapsibleSection)?.restoreDefaultState()
+        // Kept going into a section that has just been folded: the groups nest (a `DisclosureRow` holds the rows that
+        // fold away, and those may fold too), and a fold hides its content rather than removing it from the tree.
+        for subview in view.subviews { restoreDefaultStates(in: subview) }
+    }
+
     func windowWillClose(_ notification: Notification) {
         // Back to a menu bar app, so the Dock icon goes away with the window that needed it.
         NSApp.setActivationPolicy(.accessory)
@@ -1386,23 +1600,48 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // is looking at still records the day; a scan nobody is looking at is a radio left listening with no control
         // on screen to stop it and nothing saying it is happening. The archive stopped it on close for the same
         // reason (`clearDiscoveredDevicesOnClose`), and this app not doing so was an omission rather than a decision.
+        //
+        // **The connection does keep running**, which is the other side of that same question: a paired cube is the
+        // app's device rather than this window's, and it is let go on the way out and not before. See `stopScanning`.
         stopScanning(because: "the Settings window closed")
     }
 
-    /// Stops any scan and drops any connection, saying what stopped it, for the two moments that are not a button.
+    /// Stops any scan, saying what stopped it, for the two moments that are not a button.
     ///
     /// Silent when nothing is running, which is nearly always: this is called on every close and every tab change,
     /// and a log line each time would bury the ones that mean something.
     ///
-    /// **The connection goes with the scan, and for the same reason.** Reaching a cube is not yet pairing with one:
-    /// nothing outside this tab uses the link, so a connection left open once the tab is gone is a radio talking to
-    /// hardware with no control on screen that could end it, and a cube's batteries paying for it. When pairing
-    /// arrives the link becomes the app's rather than the window's, and this is the line that changes.
+    /// **The connection is not touched, and that is the change a pairing makes.** A scan is for whoever is looking at
+    /// the list, so a scan running behind a closed window is a radio listening with nothing on screen to stop it. A
+    /// connection is not: once a login is confirmed the cube is *this app's* device -- `paired` and `device_uuid` say
+    /// so, and they outlive the window by design -- so dropping the link on close would mean the app forgetting its
+    /// own device every time somebody shut a window, and reconnecting from scratch, PIN and all, the next time it was
+    /// opened. The link now ends where the app does (`QuitSequence`), or when the cube itself goes away.
+    ///
+    /// **`connection.connected` therefore stays true across a close**, which is the honest answer: the row says
+    /// whether the cube is reachable right now, and it is.
     private func stopScanning(because reason: String) {
-        radio?.disconnect(because: reason)
         guard let radio, radio.isScanning else { return }
         debugLog?.record(.scan, "Stopping the scan: \(reason)")
         radio.stop()
+    }
+
+    /// Drops the link on the way out, and records that the app was asked to quit.
+    ///
+    /// **Both halves happen whether or not a cube is connected**, and they are different claims: `quit_request` says
+    /// the app was asked to stop, and `connection_lost` is cleared by it so that a deliberate shutdown is never read
+    /// afterwards as a cube that dropped out. `database/011_setting.sql` describes exactly that distinction, and it is
+    /// only worth anything if the quit path writes it every time.
+    ///
+    /// Returns whether there was a live connection to let go of, so the quit sequence can say which it was.
+    @discardableResult
+    func letGoOfTheDevice(at moment: Date = Date()) -> Bool {
+        let connected = radio?.connectedDevice != nil
+        radio?.disconnect(because: "the app is quitting")
+        if let settings {
+            DevicePairingRecorder(settings: settings, debugLog: debugLog).recordQuit(at: moment)
+        }
+        return connected
     }
 
     private func makeWindow() -> NSWindow {

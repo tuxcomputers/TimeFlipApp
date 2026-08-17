@@ -50,6 +50,8 @@ final class DevicePane: NSView {
         static let scan = "device-scan"
         static let scanAll = "device-scan-all"
         static let scanStatus = "device-scan-status"
+        static let forget = "device-forget"
+        static let reset = "device-reset"
         /// One per listed device, suffixed with the peripheral identifier.
         static func scanResult(_ id: UUID) -> String { "device-scan-result-\(id.uuidString)" }
     }
@@ -71,9 +73,10 @@ final class DevicePane: NSView {
     /// What the tables say, at the moment the tab was shown.
     ///
     /// **Every field is what is stored**, in the unit it is stored in, so nothing here is a second opinion about a
-    /// row. The ones that have no store yet are optional and arrive `nil`: a battery level and the four More details
-    /// are read off a live cube and are deliberately not kept anywhere, a remembered reading being a number that was
-    /// true at some moment nobody can name.
+    /// row. The optional ones are optional because absence is a state the table can be in: the four More details are
+    /// read off the cube on each login and are absent until one has answered for them, and the battery level has no
+    /// store at all and arrives `nil` every time -- a remembered level being a number that was true at some moment
+    /// nobody can name, which is exactly what a manufacturer string is not.
     struct Values: Equatable {
         var isPaired: Bool
         var isConnected: Bool
@@ -138,6 +141,12 @@ final class DevicePane: NSView {
     private var scanButton: NSButton!
     private var scanAllBox: NSButton!
     private var scanStatusLabel: NSTextField!
+    /// What a paired app gets instead of the scan controls. Held in one stack so the swap is one thing being shown or
+    /// hidden rather than two that could disagree about which state the section is in.
+    private var scanControls: NSStackView!
+    private var pairedControls: NSStackView!
+    private var forgetButton: NSButton!
+    private var resetButton: NSButton!
     private var scanResults: NSStackView!
     /// The rows the scan produced, held only so they can be greyed together while one of them is being reached.
     private var deviceButtons: [NSButton] = []
@@ -150,6 +159,12 @@ final class DevicePane: NSView {
 
     /// A listed device was clicked, and the app should go and reach it.
     var onConnect: ((UUID) -> Void)?
+
+    /// **Forget Device** was pressed: the app should stop having a device.
+    var onForget: (() -> Void)?
+
+    /// **Reset Device** was pressed: the cube should be put back to how it left the factory.
+    var onReset: (() -> Void)?
 
     private(set) var moreRow: DisclosureRow!
     private(set) var ledRow: DisclosureRow!
@@ -184,16 +199,40 @@ final class DevicePane: NSView {
         batteryValue.stringValue = DeviceInfoRules.battery(
             isPaired: values.isPaired, isConnected: values.isConnected, percent: values.batteryPercent
         )
-        manufacturerValue.stringValue = DeviceInfoRules.detail(values.manufacturer)
-        modelValue.stringValue = DeviceInfoRules.detail(values.model)
-        hardwareValue.stringValue = DeviceInfoRules.detail(values.hardware)
-        firmwareValue.stringValue = DeviceInfoRules.detail(values.firmware)
+        manufacturerValue.stringValue = DeviceInfoRules.detail(isPaired: values.isPaired, reported: values.manufacturer)
+        modelValue.stringValue = DeviceInfoRules.detail(isPaired: values.isPaired, reported: values.model)
+        hardwareValue.stringValue = DeviceInfoRules.detail(isPaired: values.isPaired, reported: values.hardware)
+        firmwareValue.stringValue = DeviceInfoRules.detail(isPaired: values.isPaired, reported: values.firmware)
 
         // Greyed together while nothing is live, so the placeholders sit back as the placeholders they are rather
         // than presenting as readings. See `DeviceInfoRules.isLive`.
         for field in [nameValue, connectionValue, batteryValue, manufacturerValue, modelValue, hardwareValue, firmwareValue] {
             field?.textColor = live ? .labelColor : .secondaryLabelColor
         }
+
+        // **The TimeFlip section's controls, swapped on the pairing.** Exactly one set is up at a time: looking for a
+        // cube is what an app with no cube does, and once there is one the section is about managing it instead. Both
+        // are hidden through the stack rather than removed, so the row keeps its height and the status label opposite
+        // does not jump as the section changes state.
+        scanControls.isHidden = !DevicePairingRules.showsScanControls(isPaired: values.isPaired)
+        pairedControls.isHidden = !DevicePairingRules.showsPairedControls(isPaired: values.isPaired)
+        // **The list of found devices goes with the Scan button**, because it is the same answer: a scan result is a
+        // device the app might pair with, and once it has one there is nothing left to choose. Leaving the list up
+        // would offer a row that silently drops the pairing just made (`BluetoothRadio.connect` lets go of anything
+        // already connected), sitting under controls that no longer include a way to search.
+        //
+        // **Driven by `isPaired` here rather than cleared by whoever pairs**, so the list and the controls cannot
+        // disagree: one fact decides both, and every path that reaches a pairing redraws through this method.
+        if values.isPaired { showFound([]) }
+        // Dead while a connect is in flight, for the reason `showReaching` greys the device rows: an attempt owns the
+        // pairing state until it resolves, and dropping it from underneath one leaves the two disagreeing about
+        // whether there is a device.
+        forgetButton.isEnabled = DevicePairingRules.allowsForget(isPaired: values.isPaired, isReaching: isReaching)
+        // Reset needs the cube, Forget does not: one is a command that has to arrive somewhere, the other is this
+        // app's own rows.
+        resetButton.isEnabled = DevicePairingRules.allowsReset(
+            isPaired: values.isPaired, isConnected: values.isConnected, isReaching: isReaching
+        )
 
         autoPauseField.value = values.autoPauseMinutes
         ledBrightnessValue.stringValue = "\(values.ledBrightnessPercent) %"
@@ -377,7 +416,34 @@ final class DevicePane: NSView {
         scanAllBox.translatesAutoresizingMaskIntoConstraints = false
         scanAllBox.setAccessibilityIdentifier(Identifier.scanAll)
 
-        let pair = NSStackView(views: [scanButton, scanAllBox])
+        scanControls = NSStackView(views: [scanButton, scanAllBox])
+        scanControls.orientation = .horizontal
+        scanControls.alignment = .centerY
+        scanControls.spacing = 12
+        scanControls.translatesAutoresizingMaskIntoConstraints = false
+
+        // **What a paired app gets in place of the scan controls.** The section stops being about finding a cube the
+        // moment there is one, so the controls change with it rather than a scan sitting beside a device that is
+        // already paired -- see `DevicePairingRules.showsScanControls`.
+        forgetButton = NSButton(title: "Forget Device", target: self, action: #selector(forgetPressed))
+        forgetButton.bezelStyle = .rounded
+        forgetButton.translatesAutoresizingMaskIntoConstraints = false
+        forgetButton.setAccessibilityIdentifier(Identifier.forget)
+
+        resetButton = NSButton(title: "Reset Device", target: self, action: #selector(resetPressed))
+        resetButton.bezelStyle = .rounded
+        resetButton.translatesAutoresizingMaskIntoConstraints = false
+        resetButton.setAccessibilityIdentifier(Identifier.reset)
+
+        pairedControls = NSStackView(views: [forgetButton, resetButton])
+        pairedControls.orientation = .horizontal
+        pairedControls.alignment = .centerY
+        pairedControls.spacing = 12
+        pairedControls.translatesAutoresizingMaskIntoConstraints = false
+
+        // Both in one place, so whichever is up sits exactly where the other did and the status label opposite it
+        // does not move as the section changes state.
+        let pair = NSStackView(views: [scanControls, pairedControls])
         pair.orientation = .horizontal
         pair.alignment = .centerY
         pair.spacing = 12
@@ -483,6 +549,17 @@ final class DevicePane: NSView {
         onConnect?(id)
     }
 
+    // **Nothing is asked before it, deliberately, which is the archive's decision copied.** Forgetting is local
+    // bookkeeping: there is no device round trip to await, no failure to report, and nothing on the cube changes -- it
+    // keeps its name and its PIN. What it costs to undo is pairing again, and a confirmation in front of the one
+    // control that gets a stuck app moving is a step between somebody and the way out.
+    @objc private func forgetPressed() { onForget?() }
+
+    // **This one is asked about first, unlike Forget, and the difference is what it costs to be wrong.** Forgetting
+    // changes nothing on the cube and is undone by pairing again; this erases the device and cannot be undone. The
+    // asking is the window's, for the reason above.
+    @objc private func resetPressed() { onReset?() }
+
     // MARK: - what the scan is doing
 
     private(set) var isScanning = false
@@ -517,6 +594,11 @@ final class DevicePane: NSView {
     /// what the scanner last said, and a device that has dropped out cannot linger here because nothing here
     /// remembers it. That is the database rule's reasoning applied to something that has no table.
     func showFound(_ devices: [ScannedDevice]) {
+        // **A paired app lists nothing, whoever is asking.** The radio calls this directly on every advertisement, so
+        // the rule cannot live only in `show`: a scan that is still running when a pairing lands -- or one the radio
+        // starts by itself when Bluetooth comes back on (`centralManagerDidUpdateState`) -- would otherwise draw rows
+        // straight back under controls that no longer offer any way to stop it.
+        let devices = values.isPaired ? [] : devices
         for view in scanResults.arrangedSubviews {
             scanResults.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -538,6 +620,13 @@ final class DevicePane: NSView {
 
     func showReaching(_ isReaching: Bool) {
         self.isReaching = isReaching
+        // **Forget and Reset go dead with them**, and it is set here as well as in `show` because this is what actually
+        // moves: an attempt begins and ends without the tab being redrawn from the table, so a rule applied only there
+        // would leave the buttons live for the whole of the one moment they must not be.
+        forgetButton.isEnabled = DevicePairingRules.allowsForget(isPaired: values.isPaired, isReaching: isReaching)
+        resetButton.isEnabled = DevicePairingRules.allowsReset(
+            isPaired: values.isPaired, isConnected: values.isConnected, isReaching: isReaching
+        )
         for button in deviceButtons {
             button.isEnabled = !isReaching
         }

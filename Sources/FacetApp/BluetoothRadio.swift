@@ -63,6 +63,21 @@ final class BluetoothRadio: NSObject {
     /// its batteries out. Not called for a disconnect this app asked for.
     var onConnectionDropped: ((UUID) -> Void)?
 
+    /// Called with a cube's new PIN, once the cube has proved it took it by logging in with it again.
+    ///
+    /// **Whoever handles this is the only thing standing between the app and a cube it cannot open**, so it fires
+    /// before the outcome is reported and it fires from the exchange itself rather than from a summary afterwards.
+    /// Where the PIN is written down is not the radio's business (`DeveloperConfigFile`), for the same reason the
+    /// candidates are handed in rather than worked out here.
+    var onPINChanged: ((String) -> Void)?
+
+    /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
+    ///
+    /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
+    /// all: a cube that answers none of these is still a cube this app logged in to and paired with, and folding the
+    /// two together would make an optional read into something a pairing waits on.
+    var onDeviceInfo: ((UUID, DeviceInfo) -> Void)?
+
     /// How long a scan runs before stopping itself.
     ///
     /// **A cube that is awake answers in about a second**, advertising intervals being fractions of one, so thirty
@@ -112,12 +127,42 @@ final class BluetoothRadio: NSObject {
 
     private(set) var isScanning = false
 
-    /// One run at reaching a device: which one, and which PINs are left to try on it.
+    /// One run at reaching a device: which one, which PINs are left to try on it, and what to leave it on.
     private struct Attempt {
         let id: UUID
         var remaining: [String]
         var presenting: String
+        /// Carried across the reconnect between candidates: which PIN got the app in has no bearing on what the cube
+        /// should be left on.
+        let rotatingTo: String?
     }
+
+    /// A reset waiting to be proved: which cube, and who to tell.
+    ///
+    /// **While this is set the radio is in a different conversation**, and the ordinary connect callbacks are
+    /// suppressed for that cube: a login here is evidence about a wipe rather than a device being reached, so
+    /// `onLoginBegan`, `onLoginEnded` and `onConnectionDropped` would all be reporting the wrong story to a tab that
+    /// is already showing "Resetting".
+    private struct ResetConfirmation {
+        let id: UUID
+        let reported: (FactoryResetOutcome) -> Void
+    }
+
+    /// How long a cube is given to come back on the vendor PIN before the reset is called unconfirmed.
+    ///
+    /// The archive's `factoryResetConfirmTimeout`, copied: erasing flash and rebooting is not quick, and the number
+    /// was arrived at against real hardware.
+    static let resetConfirmSeconds: TimeInterval = 120
+
+    /// The gap between attempts to meet the cube again after a reset.
+    ///
+    /// Longer than `settleSeconds`, which exists only to let a refused link finish coming down: this one is waiting on
+    /// a device that is erasing its flash and restarting, so the first attempt is deliberately not immediate. Each
+    /// failed attempt costs `connectTimeoutSeconds` on top, which puts roughly six tries inside the window.
+    static let resetRetrySeconds: TimeInterval = 3
+
+    private var resetConfirmation: ResetConfirmation?
+    private var resetDeadline: Timer?
 
     private var attempt: Attempt?
     private var connectTimeout: Timer?
@@ -262,14 +307,19 @@ final class BluetoothRadio: NSObject {
 
     // MARK: - reaching one
 
-    /// Connects to a listed device and presents PINs to it until one is accepted or they run out.
+    /// Connects to a listed device, presents PINs to it until one is accepted or they run out, and sets the PIN it
+    /// should be left on.
     ///
-    /// **The candidates are handed in rather than worked out here**, which keeps the rule about what to try in
-    /// `DeviceLoginRules` where it can be tested without a cube. This drives the sequence and reports what came of it.
+    /// **The candidates and the new PIN are handed in rather than worked out here**, which keeps the rules about what
+    /// to try and what to set in `DeviceLoginRules` where they can be tested without a cube. This drives the sequence
+    /// and reports what came of it.
     ///
     /// **The scan stops first.** A radio doing both is slower at each, and the list is about to be acted on rather
     /// than added to.
-    func connect(to id: UUID, presenting candidates: [String]) {
+    ///
+    /// - Parameter rotatingTo: the PIN the cube should end up on, or `nil` to leave it on whichever one let the app
+    ///   in. Only a developer build has one to give (`DeveloperMode.devicePIN`).
+    func connect(to id: UUID, presenting candidates: [String], rotatingTo: String? = nil) {
         guard peripherals[id] != nil else {
             debugLog?.record(.login, "Asked to connect to \(id.uuidString), which is not a device this scan found")
             return
@@ -287,9 +337,116 @@ final class BluetoothRadio: NSObject {
         // Anything already connected goes, before rather than after: two live links would leave the app holding a
         // cube nobody chose, and the one thing worse than not reaching a device is reaching the wrong one silently.
         disconnect(because: "another device was chosen")
-        attempt = Attempt(id: id, remaining: Array(candidates.dropFirst()), presenting: first)
+        attempt = Attempt(
+            id: id, remaining: Array(candidates.dropFirst()), presenting: first, rotatingTo: rotatingTo
+        )
         onLoginBegan?(id)
         beginConnect()
+    }
+
+    /// Whether a reset is waiting on the cube to prove itself, which is what the tab shows instead of a connection.
+    var isResetting: Bool { resetConfirmation != nil }
+
+    /// Puts the connected cube back to how it left the factory, and reports only once the cube has **proved** it.
+    ///
+    /// **Sending `0xFF` is not the answer, and this is the archive's central insight about reset.** The command has no
+    /// usable acknowledgement -- the cube reboots without writing a fresh command result, so the characteristic still
+    /// holds the previous command's bytes (`DeviceLoginRules.factoryReset`) -- so a write that landed says only that
+    /// the cube heard something. What proves the wipe took is the cube coming back **on the vendor PIN**: a device
+    /// still holding this app's PIN has plainly not been erased. That is the same shape as setting a PIN, where the
+    /// proof is a login with the new one rather than the command's own reply, and it is right for the same reason.
+    ///
+    /// The sequence, which is `ApplicationDelegate`'s and is kept whole:
+    ///
+    /// 1. Arm the confirmation window **before** sending, so the disconnect the reset causes is expected rather than
+    ///    read as the cube going away.
+    /// 2. Send `0xFF`. A write the cube refused ends it here, nothing having happened.
+    /// 3. Wait for the link to drop, which is the cube rebooting.
+    /// 4. Reach it again presenting **only** the vendor default, over and over until it answers or the window closes.
+    ///    Only the default: the stored PIN would let an unwiped cube in and be mistaken for proof.
+    /// 5. A login on the default is the confirmation. Report it, then let go -- **that login is deliberately not a
+    ///    pairing**, which is the archive's rule: the cube is now a pristine unpaired device, and treating the proof
+    ///    as a pairing would leave the app holding the very thing the user asked it to give up.
+    func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
+        guard let id = connectedDevice, let login else {
+            debugLog?.record(.pair, "Asked to reset with no cube connected")
+            reported(.notSent)
+            return
+        }
+        // Armed first, for the reason above: the drop that follows is part of the reset.
+        resetConfirmation = ResetConfirmation(id: id, reported: reported)
+        resetDeadline?.invalidate()
+        resetDeadline = Timer(timeInterval: Self.resetConfirmSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.debugLog?.record(
+                    .pair,
+                    "The cube never came back on the vendor PIN within \(Int(Self.resetConfirmSeconds))s,"
+                        + " so the reset is not confirmed"
+                )
+                self?.endReset(.notConfirmed)
+            }
+        }
+        if let resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
+
+        login.factoryReset { [weak self] sent in
+            guard let self else { return }
+            guard sent else {
+                self.debugLog?.record(.pair, "The cube would not take the reset command")
+                self.endReset(.notSent)
+                return
+            }
+            self.debugLog?.record(.pair, "Reset sent; letting go of the link so the cube can be met again")
+            // **The link is dropped here rather than waited for, and that is a measured correction.** The archive
+            // assumed the cube reboots and severs the connection, so this waited for `didDisconnectPeripheral` to
+            // start the confirmation. On this firmware it does not: a reset on 2026-08-17 was acknowledged and the
+            // link then stayed up for the whole 104 seconds somebody watched it, with no disconnect at all -- so
+            // nothing was ever tried and a wipe that had actually happened went unconfirmed (finding 6 in
+            // `docs/timeflip2-firmware-observations.md`). Dropping it here covers both firmwares: a cube that does
+            // sever the link is handled by `didDisconnectPeripheral`, and one that does not is let go of anyway.
+            self.disconnect(because: "the cube is being reset")
+            self.retryResetConfirmation()
+        }
+    }
+
+    /// Tries the vendor default on the rebooted cube, again and again until it answers or the window closes.
+    ///
+    /// **Only the vendor default is presented.** Offering the stored PIN as well would let a cube that ignored the
+    /// command log in and be counted as proof, which is the one mistake this whole sequence exists to avoid.
+    private func retryResetConfirmation() {
+        guard resetConfirmation != nil else { return }
+        settle?.invalidate()
+        // **Which cube is read when the timer fires, not captured now.** A `ResetConfirmation` holds a closure and so
+        // is not `Sendable`, which the compiler refuses to let across into a timer -- and re-reading is the better
+        // answer anyway: if the window closed in the meantime there is nothing left to reach for.
+        settle = Timer(timeInterval: Self.resetRetrySeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let id = self.resetConfirmation?.id else { return }
+                self.debugLog?.record(.pair, "Trying the vendor PIN, to see whether the cube was really wiped")
+                self.attempt = Attempt(
+                    id: id, remaining: [], presenting: DeviceLoginRules.defaultPIN, rotatingTo: nil
+                )
+                self.beginConnect()
+            }
+        }
+        if let settle { RunLoop.main.add(settle, forMode: .common) }
+    }
+
+    /// Ends the reset one way or the other, and says so exactly once.
+    private func endReset(_ outcome: FactoryResetOutcome) {
+        guard let confirmation = resetConfirmation else { return }
+        resetConfirmation = nil
+        resetDeadline?.invalidate()
+        resetDeadline = nil
+        settle?.invalidate()
+        settle = nil
+        connectTimeout?.invalidate()
+        connectTimeout = nil
+        attempt = nil
+        debugLog?.record(.pair, "Reset: \(outcome)")
+        // **Let go either way.** A confirmed reset leaves a pristine cube the app has been told to give up, and an
+        // unconfirmed one leaves a device the app must not go on holding as though nothing had been asked.
+        disconnect(because: "the reset is over")
+        confirmation.reported(outcome)
     }
 
     /// Drops the connection, if there is one. Says nothing when there is nothing to drop: this is called on every
@@ -369,6 +526,19 @@ final class BluetoothRadio: NSObject {
         settle?.invalidate()
         settle = nil
         attempt = nil
+        // **A reset confirmation is not a login anybody asked for**, so it reports through its own channel and none of
+        // the connect callbacks fire. A cube that did not answer this time is not a failure either: it may still be
+        // rebooting, and the window is what decides when to give up.
+        if let confirmation = resetConfirmation, confirmation.id == id {
+            guard outcome == .loggedIn else {
+                debugLog?.record(.pair, "Not back yet (\(outcome)); trying again")
+                retryResetConfirmation()
+                return
+            }
+            debugLog?.record(.pair, "The cube let the app in on the vendor PIN, so the wipe took")
+            endReset(.confirmed)
+            return
+        }
         debugLog?.record(.login, "\(id.uuidString): \(outcome)")
         if outcome != .loggedIn, let peripheral = peripherals[id], connectedDevice != id {
             isDisconnectingDeliberately = true
@@ -384,6 +554,15 @@ final class BluetoothRadio: NSObject {
     /// copy of a list that moves.
     func label(for id: UUID) -> String {
         DeviceScanRules.label(for: found[id] ?? placeholder(id))
+    }
+
+    /// The advertisement a listed device was built from, for a caller that needs more of it than a label -- recording
+    /// a pairing needs the GAP name specifically, which is not always the name shown (`DevicePairingRules.gapName`).
+    ///
+    /// The placeholder stands in for a device that has dropped out of the list while an attempt on it was still
+    /// running, so this answers for anything the radio has reached rather than only for what is currently listed.
+    func device(_ id: UUID) -> ScannedDevice {
+        found[id] ?? placeholder(id)
     }
 
     /// Stands in for a device that has left the list while an attempt on it is still running, so a log line can name
@@ -463,7 +642,18 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         let login = DeviceLogin(
             peripheral: peripheral,
             pin: attempt.presenting,
-            debugLog: debugLog
+            rotatingTo: attempt.rotatingTo,
+            debugLog: debugLog,
+            // A reset confirmation asks nothing about the cube: it is proving a wipe and letting go.
+            readsDeviceInfo: resetConfirmation == nil,
+            rotated: { [weak self] pin in self?.onPINChanged?(pin) },
+            // **Only while this is still the cube the app is holding.** These reads land seconds after the login, by
+            // which time the window may have been closed or another device chosen -- and a report acted on then would
+            // write down what one cube says under a pairing that now names a different one.
+            reported: { [weak self] info in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.onDeviceInfo?(attempt.id, info)
+            }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)
         }
@@ -508,6 +698,15 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         // batteries have just come out.
         guard !isDisconnectingDeliberately else {
             isDisconnectingDeliberately = false
+            return
+        }
+        // **The cube rebooting is what a reset looks like from here**, so this drop is the sequence proceeding rather
+        // than a device going away. Reported as neither, and answered by reaching for it again.
+        if let confirmation = resetConfirmation, confirmation.id == id {
+            connectedDevice = nil
+            login = nil
+            debugLog?.record(.pair, "The cube dropped the link, which is it rebooting after the reset")
+            retryResetConfirmation()
             return
         }
         if let attempt, attempt.id == id {

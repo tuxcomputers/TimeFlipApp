@@ -356,6 +356,197 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(name.textColor, .labelColor)
     }
 
+    // MARK: - the TimeFlip section's two states
+
+    /// Hidden through an enclosing stack as well as on the view itself, so this asks the question the eye asks:
+    /// is it on screen at all?
+    private func isShowing(_ identifier: String, in pane: DevicePane) -> Bool {
+        guard let target = view(identifier, in: pane) else { return false }
+        var node: NSView? = target
+        while let current = node, current !== pane {
+            if current.isHidden { return false }
+            node = current.superview
+        }
+        return true
+    }
+
+    func testAnAppWithNoDeviceIsOfferedAScan() {
+        let pane = DevicePane()
+
+        pane.show(.seeded)
+
+        XCTAssertTrue(isShowing(DevicePane.Identifier.scan, in: pane))
+        XCTAssertTrue(isShowing(DevicePane.Identifier.scanAll, in: pane))
+        XCTAssertFalse(isShowing(DevicePane.Identifier.forget, in: pane))
+        XCTAssertFalse(isShowing(DevicePane.Identifier.reset, in: pane))
+    }
+
+    func testAPairedAppGetsForgetAndResetInPlaceOfTheScan() {
+        let pane = DevicePane()
+
+        pane.show(paired)
+
+        // The section stops being about finding a cube the moment there is one.
+        XCTAssertFalse(isShowing(DevicePane.Identifier.scan, in: pane))
+        XCTAssertFalse(isShowing(DevicePane.Identifier.scanAll, in: pane))
+        XCTAssertTrue(isShowing(DevicePane.Identifier.forget, in: pane))
+        XCTAssertTrue(isShowing(DevicePane.Identifier.reset, in: pane))
+    }
+
+    func testTheSwapGoesBothWays() {
+        let pane = DevicePane()
+
+        pane.show(paired)
+        pane.show(.seeded)
+
+        // Forgetting a device is what puts the Scan button back, so the swap has to survive being made twice.
+        XCTAssertTrue(isShowing(DevicePane.Identifier.scan, in: pane))
+        XCTAssertFalse(isShowing(DevicePane.Identifier.forget, in: pane))
+    }
+
+    func testPairingClearsTheListOfFoundDevices() {
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
+        )
+        pane.showFound([cube])
+        XCTAssertNotNil(deviceRow(cube.id, in: pane), "precondition: the scan found one")
+
+        pane.show(paired)
+
+        // The list goes with the Scan button, being the same answer: once there is a device there is nothing left to
+        // choose, and a row left up would silently drop the pairing just made if it were pressed.
+        XCTAssertNil(deviceRow(cube.id, in: pane))
+    }
+
+    func testARedrawWithNothingPairedLeavesALiveScanListAlone() {
+        // The guard that matters: `show` runs on every redraw, including one that happens while a scan is going, and
+        // clearing unconditionally would empty the list out from under somebody about to press a row.
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
+        )
+        pane.showFound([cube])
+
+        pane.show(.seeded)
+
+        XCTAssertNotNil(deviceRow(cube.id, in: pane))
+    }
+
+    func testAPairedPaneStaysEmptyAcrossRedraws() {
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
+        )
+        pane.showFound([cube])
+        pane.show(paired)
+
+        // Every later redraw goes through the same rule, so a reopened window cannot bring the stale list back.
+        pane.show(paired)
+
+        XCTAssertNil(deviceRow(cube.id, in: pane))
+    }
+
+    func testAScanStillRunningCannotDrawRowsIntoAPairedTab() {
+        // The radio calls `showFound` on every advertisement, so the rule cannot live only in `show`: a scan carrying
+        // on behind a pairing would otherwise put the list straight back, under controls with no way to stop it.
+        let pane = DevicePane()
+        let cube = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
+        )
+        pane.show(paired)
+
+        pane.showFound([cube])
+
+        XCTAssertNil(deviceRow(cube.id, in: pane))
+    }
+
+    func testPressingForgetReportsItWithNothingAskedFirst() {
+        // No confirmation, which is the archive's decision: forgetting is local bookkeeping with no round trip to
+        // await, and a step in front of the one control that gets a stuck app moving is a step too many.
+        let pane = DevicePane()
+        pane.show(paired)
+        var asked = 0
+        pane.onForget = { asked += 1 }
+
+        button(DevicePane.Identifier.forget, in: pane)?.performClick(nil)
+
+        XCTAssertEqual(asked, 1)
+    }
+
+    func testForgetStaysPressableWithNothingConnected() {
+        let pane = DevicePane()
+        var values = paired
+        values.isConnected = false
+
+        pane.show(values)
+
+        // It reaches no radio, which is what makes it the way back from a cube on a PIN this app cannot present.
+        XCTAssertEqual(button(DevicePane.Identifier.forget, in: pane)?.isEnabled, true)
+    }
+
+    func testForgetGoesDeadWhileADeviceIsBeingReached() {
+        let pane = DevicePane()
+        pane.show(paired)
+
+        pane.showReaching(true)
+
+        // Set by `showReaching` as well as by `show`, because this is what actually moves: an attempt begins and ends
+        // without the tab being redrawn from the table.
+        XCTAssertEqual(button(DevicePane.Identifier.forget, in: pane)?.isEnabled, false)
+
+        pane.showReaching(false)
+        XCTAssertEqual(button(DevicePane.Identifier.forget, in: pane)?.isEnabled, true)
+    }
+
+    func testPressingResetReportsIt() {
+        let pane = DevicePane()
+        pane.show(paired)
+        var asked = 0
+        pane.onReset = { asked += 1 }
+
+        button(DevicePane.Identifier.reset, in: pane)?.performClick(nil)
+
+        XCTAssertEqual(asked, 1)
+    }
+
+    func testResetGoesDeadWithNothingConnectedWhileForgetStaysLive() {
+        let pane = DevicePane()
+        var values = paired
+        values.isConnected = false
+
+        pane.show(values)
+
+        // One is a command that has to arrive somewhere; the other is this app's own rows.
+        XCTAssertEqual(button(DevicePane.Identifier.reset, in: pane)?.isEnabled, false)
+        XCTAssertEqual(button(DevicePane.Identifier.forget, in: pane)?.isEnabled, true)
+    }
+
+    func testResetGoesDeadWhileADeviceIsBeingReached() {
+        let pane = DevicePane()
+        pane.show(paired)
+
+        pane.showReaching(true)
+
+        XCTAssertEqual(button(DevicePane.Identifier.reset, in: pane)?.isEnabled, false)
+    }
+
+    func testACubeOutOfRangeStillCountsAsPaired() {
+        let pane = DevicePane()
+        var values = paired
+        values.isConnected = false
+
+        pane.show(values)
+
+        // Gated on the pairing, not the connection: a cube in another room has not gone anywhere.
+        XCTAssertFalse(isShowing(DevicePane.Identifier.scan, in: pane))
+        XCTAssertTrue(isShowing(DevicePane.Identifier.forget, in: pane))
+    }
+
     // MARK: - the folds
 
     func testTheThreeGroupsStartFolded() {

@@ -75,6 +75,48 @@ final class QuitSequenceTests: XCTestCase {
         XCTAssertEqual(database.string("SELECT COUNT(*) FROM time_entry;"), "0")
     }
 
+    // MARK: - letting go of the device
+
+    func testQuittingGivesTheDeviceBack() {
+        // The connection outlives the Settings window now, so the app is what ends it. Nothing else would: the
+        // process simply stops, and the last thing written would say the cube is connected.
+        var letGo = 0
+        quit.letGoOfTheDevice = { letGo += 1; return true }
+
+        quit.run(at: moment)
+
+        XCTAssertEqual(letGo, 1)
+    }
+
+    func testTheSegmentIsClosedBeforeTheDeviceIsLetGo() throws {
+        // The entry is made from the app's own rows rather than from anything the cube says, so this is about order
+        // being decided rather than the second step depending on the first.
+        let open = try XCTUnwrap(events.startSegment(face: 8, at: moment))
+        var finalisedWhenLetGo: String?
+        let database = self.database!
+        quit.letGoOfTheDevice = {
+            finalisedWhenLetGo = database.string(
+                "SELECT finalised FROM device_event WHERE device_event_id = \(open.deviceEventID);"
+            )
+            return false
+        }
+
+        quit.run(at: moment.addingTimeInterval(60))
+
+        XCTAssertEqual(finalisedWhenLetGo, "1")
+    }
+
+    func testAQuitWithNoDeviceStillRunsTheRestOfTheSequence() throws {
+        // A build that has never scanned has no radio at all, which is the ordinary case and must not stop the
+        // segment being closed.
+        let open = try XCTUnwrap(events.startSegment(face: 8, at: moment))
+        quit.letGoOfTheDevice = nil
+
+        quit.run(at: moment.addingTimeInterval(60))
+
+        XCTAssertEqual(column("finalised", ofRow: open.deviceEventID), "1")
+    }
+
     func testNothingIsLeftOpenForTheNextLaunchToFind() throws {
         // The defect this exists for. A row left open is closed by the next launch's first click, measuring every
         // second since -- including the hours the app was not running -- and that is an entry, not just a

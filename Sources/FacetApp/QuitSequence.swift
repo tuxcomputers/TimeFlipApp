@@ -11,12 +11,26 @@ import AppKit
 /// the one the app itself offers: an Apple Events quit, a logout, a restart. The menu item goes through
 /// `NSApp.terminate` and so through here as well.
 ///
-/// It is where the rest of the quit steps belong as they arrive -- pausing the cube, letting go of the radio --
-/// and each of them reads what it needs at the step that needs it, not at launch.
+/// **Two steps now**: the open segment is closed, and the cube is let go of.
+///
+/// The second arrived with the connection outliving the Settings window. A link that ends when a window closes needs
+/// nothing here; one that belongs to the app has to be given back by the app, and the `connection` row has to say so
+/// -- otherwise the last thing written before the process ends is `connected`, and the next launch reads a cube that
+/// nothing is holding.
+///
+/// It is where the rest of the quit steps belong as they arrive -- pausing the cube before letting go of it -- and
+/// each of them reads what it needs at the step that needs it, not at launch.
 @MainActor
 final class QuitSequence: NSObject, NSApplicationDelegate {
     private let deviceEvents: DeviceEventRecorder
     private let debugLog: DebugLog?
+
+    /// Drops any live connection and records the quit, answering whether there was one to drop.
+    ///
+    /// **A closure rather than the radio itself**, because the radio is made on the first scan and lives behind the
+    /// Settings window controller: this runs at a moment when there may never have been one. It is set after that
+    /// controller exists (see `main.swift`), which is also why it is a variable rather than an initialiser argument.
+    var letGoOfTheDevice: (() -> Bool)?
 
     init(deviceEvents: DeviceEventRecorder, debugLog: DebugLog?) {
         self.deviceEvents = deviceEvents
@@ -39,5 +53,14 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
         } else {
             debugLog?.record(.quit, "Quit: nothing was being timed")
         }
+        // **After the segment, not before.** Closing it is what turns the session into an entry, and it is done from
+        // the app's own rows rather than from anything the cube says -- so a link dropped first cannot cost anything,
+        // and a link dropped second cannot delay it either.
+        guard let letGoOfTheDevice else { return }
+        // **Called on its own line, and not inside the logging call.** `debugLog?.record(...)` is optional chaining,
+        // so with no logger the argument is never evaluated and the step would silently not happen -- in a build
+        // with the developer flag off, which is every build that matters. Caught by a test with `debugLog: nil`.
+        let dropped = letGoOfTheDevice()
+        debugLog?.record(.quit, dropped ? "Quit: dropped the connection to the device" : "Quit: no device was connected")
     }
 }

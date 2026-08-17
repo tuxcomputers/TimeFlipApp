@@ -62,6 +62,29 @@ final class ManualModeTests: XCTestCase {
         XCTAssertTrue(manualMode.isOn)
     }
 
+    func testPairingMidSessionTurnsItOff() {
+        // The app stops timing by hand at the moment a cube becomes its cube, not at the next launch: the Device tab
+        // would otherwise say "Manual mode, no device" on the same screen as a device it had just connected to.
+        let manualMode = ManualMode(debugLog: nil)
+        manualMode.startIfNoDeviceIsPaired(settings)
+        XCTAssertTrue(manualMode.isOn, "precondition")
+
+        manualMode.stop(because: "a device is paired")
+
+        XCTAssertFalse(manualMode.isOn)
+    }
+
+    func testStoppingItWritesNothingEither() {
+        let manualMode = ManualMode(debugLog: nil)
+        manualMode.startIfNoDeviceIsPaired(settings)
+
+        manualMode.stop(because: "a device is paired")
+
+        // Turning the mode off is not what pairs a device -- `DevicePairingRecorder` writes `paired`, and this reads
+        // it at launch. Writing here would be the second answer the mode is deliberately not.
+        XCTAssertEqual(settings.flag("paired", field: "paired"), false)
+    }
+
     func testTheFlagIsNotWrittenToTheDatabase() {
         let manualMode = ManualMode(debugLog: nil)
         manualMode.startIfNoDeviceIsPaired(settings)

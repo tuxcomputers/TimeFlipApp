@@ -38,6 +38,43 @@ enum DeviceLoginRules {
         pin.utf8.count == length
     }
 
+    /// The command that sets a new PIN: `0x30`, followed by the six bytes of it, written to `TimeFlipUUIDs.command`.
+    /// Section 4 of `docs/TimeFlip2 BLE Protocol v4.3.md`, and the same byte the archive sent.
+    static let setPIN: UInt8 = 0x30
+
+    /// The command that puts a cube back to how it left the factory: `0xFF`, written on its own to
+    /// `TimeFlipUUIDs.command`. It erases everything the device holds -- face colours, task settings, its name and its
+    /// PIN -- and reboots.
+    ///
+    /// **There is nothing to read afterwards, and that is measured rather than assumed.** The archive checked live and
+    /// found the command result characteristic still holding the *previous* command's answer, the cube having rebooted
+    /// without writing a fresh one (`TimeFlipBLEDevice.factoryReset`). So the write being acknowledged is the whole of
+    /// the evidence, which is finding 2 in `docs/timeflip2-firmware-observations.md` in its sharpest form: reading the
+    /// result here would return somebody else's bytes and read as a confirmation.
+    static let factoryReset: UInt8 = 0xFF
+
+    /// The PIN to put on a cube that has just accepted `accepted`, or `nil` to leave it on the one it has.
+    ///
+    /// **Why a cube's PIN is changed at all**: the vendor default is public, so a cube left on it is one that anybody
+    /// within a few metres can take over. The archive did this on pairing, emulating the official app, and the
+    /// reasoning survives inspection.
+    ///
+    /// **`target` is what decides whether anything happens**, and in this build only a developer build has one
+    /// (`DeveloperMode.devicePIN`) -- see there for why a build that cannot write a random PIN down must not set one.
+    ///
+    /// **Massaged from `PairingPasswordRules.rotatesPassword`**, which asked a narrower question: it rotated only a
+    /// cube reached on the vendor default, on the grounds that one reached on the stored PIN already holds the PIN on
+    /// record. This asks whether the cube is already on the PIN this build sets, which gives the same answer in every
+    /// state the archive was reasoning about, and a better one in the state it did not consider: a cube on some
+    /// *other* stored PIN converges onto the one this build knows rather than being left where it was found.
+    ///
+    /// A PIN is never set to the value the cube already answered to. That write costs a command round trip and a
+    /// second login to confirm it, which is a long way to go to change nothing.
+    static func rotation(from accepted: String, to target: String?) -> String? {
+        guard let target, isWellFormed(target), target != accepted else { return nil }
+        return target
+    }
+
     /// What the cube said about the PIN.
     enum Verdict: Equatable {
         case accepted
@@ -81,6 +118,14 @@ enum DeviceLoginOutcome: Equatable {
     case loggedIn
     /// Connected, and neither candidate was accepted.
     case wrongPIN
+    /// Connected and logged in, and then the cube would not take the new PIN the app set on it.
+    ///
+    /// **Not `loggedIn` with a note in the log**, even though the link is up and the old PIN did work. What is
+    /// unknown after a failed set is which PIN the cube is now on, and a link whose authority nobody can name is
+    /// worse than no link: the next command might be refused for a reason the app would read as the cube going away.
+    /// So the attempt ends, the link is dropped, and pressing the device again presents both known PINs from a fresh
+    /// connection -- which is the state this whole exchange is specified in.
+    case newPINRefused
     /// Connected, and it has no TimeFlip service on it. Something else answered the scan.
     case notATimeFlip
     /// It never answered, or the link dropped part way through.
@@ -92,9 +137,38 @@ enum DeviceLoginOutcome: Equatable {
         switch self {
         case .loggedIn: return "Connected to \(name)."
         case .wrongPIN: return "\(name) refused both PINs. Take its batteries out to reset it, then try again."
+        case .newPINRefused: return "\(name) would not take a new PIN. Press it again to reconnect."
         case .notATimeFlip: return "\(name) is not a TimeFlip."
         case .unreachable: return "Could not reach \(name). Flip it to wake it, then try again."
         case .timedOut: return "\(name) stopped answering."
+        }
+    }
+}
+
+/// How a factory reset ended, in the words the Device tab shows.
+///
+/// **Three endings, and the middle one is the whole point.** Sending `0xFF` and the cube actually having been erased
+/// are different claims, because the command has no usable acknowledgement (`DeviceLoginRules.factoryReset`): the only
+/// proof is the cube coming back on the vendor PIN, a device still holding this app's PIN plainly not having been
+/// wiped. Collapsing "sent" into "done" is exactly the mistake that would let the app throw away a cube's name on the
+/// strength of a command that never landed.
+enum FactoryResetOutcome: Equatable {
+    /// The cube came back and let the app in on the vendor PIN. The wipe took.
+    case confirmed
+    /// The command went out and was acknowledged, and the cube never came back on the vendor PIN inside the window.
+    ///
+    /// **Not a failure, and deliberately not reported as one.** The cube may be erasing slowly, or may have been
+    /// carried out of range while it rebooted. What is certain is only that the app cannot say the wipe happened, so
+    /// it changes nothing and says exactly that.
+    case notConfirmed
+    /// Nothing was sent: no cube was connected, or it would not take the command.
+    case notSent
+
+    func message(for name: String) -> String {
+        switch self {
+        case .confirmed: return "\(name) was reset and is back to factory settings."
+        case .notConfirmed: return "\(name) did not come back after the reset, so nothing has been changed. Flip it to wake it, then try again."
+        case .notSent: return "Could not send the reset to \(name)."
         }
     }
 }

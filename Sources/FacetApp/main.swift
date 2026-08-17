@@ -136,6 +136,10 @@ let settingsWindow = SettingsWindowController(
     settings: settings,
     manualMode: manualMode
 )
+// **Set here rather than passed in**, because the radio is built on the first scan and lives behind the window
+// controller, which is made after the quit sequence: a connection now outlives the Settings window, so the app is
+// what gives it back. See `SettingsWindowController.letGoOfTheDevice`.
+quitSequence.letGoOfTheDevice = { settingsWindow.letGoOfTheDevice() }
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the
 // recorder recognises it as the same event and grows its duration. When a device arrives, the fetch request
