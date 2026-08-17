@@ -4,16 +4,16 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   chore/stampCoverage
-    commit:   92c328bb4123638cb849b0dbde015a3924133e38
-    tree:     clean
+    branch:   feature/pairDevice
+    commit:   fe04c9d2fc8d905595e973458e4ec74fae57a81e
+    tree:     dirty
     database: rebuilt from the DDL
-    started:  2026-08-16 21:44:19
-    finished: 2026-08-16 21:52:26
+    started:  2026-08-17 20:33:53
+    finished: 2026-08-17 20:48:11
     outcome:  passed
-    scripts:  15 run, 0 with failures
-    checks:   301 in total
-              301 passed
+    scripts:  17 run, 0 with failures
+    checks:   376 in total
+              376 passed
               0 failed
               0 skipped
 
@@ -33,8 +33,13 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 11-google-reconnect | 17 | 0 | 0 |
 | 12-daily-limit | 32 | 0 | 0 |
 | 13-device-scan | 14 | 0 | 0 |
-| 99-quit | 7 | 0 | 0 |
-| **total** | **301** | **0** | **0** |
+| 14-device-connect | 38 | 0 | 0 |
+| 15-device-reset | 33 | 0 | 0 |
+| 99-quit | 11 | 0 | 0 |
+| **total** | **376** | **0** | **0** |
+
+> The working tree had uncommitted changes when this ran, so it is not evidence about the
+> commit it names. CI refuses a stamp in this state.
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
