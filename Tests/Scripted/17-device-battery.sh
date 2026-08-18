@@ -70,8 +70,18 @@ expect_log "and subscribes, so the cube reports every change by itself" "$since"
 #
 # Counted rather than named, since what there is to subscribe to is the cube's answer and not this script's list.
 
-asked=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE '%notify on requested';")
-took=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message LIKE '%: notifying';")
+# **Waited on rather than counted once**, which is `wait_sql`'s own lesson in `lib.sh` applied to a total this script
+# cannot know in advance. Each subscription is a round trip: the battery one is confirmed first, the sweep's six go out
+# behind it, and their confirmations trickle in about 120ms apart. Counting at the moment the battery row appears
+# caught 7 asked and 1 confirmed and failed a working app -- measured in run 44, where the last confirmation landed
+# 790ms after the row this script had waited for.
+asked=0 took=0
+for _ in $(seq 1 50); do
+    asked=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE '%notify on requested';")
+    took=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message LIKE '%: notifying';")
+    [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ] && break
+    sleep 0.2
+done
 grey "  asked for $asked subscription(s), the cube took $took"
 
 if [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ]; then
