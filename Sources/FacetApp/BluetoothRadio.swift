@@ -86,6 +86,13 @@ final class BluetoothRadio: NSObject {
     /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
     var onFace: ((UUID, Int?) -> Void)?
 
+    /// Called when what the cube says about its own state changes, or `nil` once there is no cube to say.
+    ///
+    /// **Only ever an answer to a question this app asked**, unlike the charge and the face: the cube pushes nothing
+    /// when a double tap pauses it, when auto-pause fires, or when the vendor's app locks it. So this fires on
+    /// connecting and after each command the app reads back, and at no other time.
+    var onCubeStatus: ((UUID, DeviceCommandRules.Status?) -> Void)?
+
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
@@ -220,6 +227,11 @@ final class BluetoothRadio: NSObject {
             if currentFace != nil { debugLog?.record(.face, "The face goes with the link") }
             currentFace = nil
             onFace?(gone, nil)
+            // And the same for what it said about itself. This one is the most obviously perishable of the three: the
+            // app cannot ask a cube it cannot reach, and a remembered lock would leave the dropdown offering to undo
+            // something on a device that is not there.
+            cubeStatus = nil
+            onCubeStatus?(gone, nil)
         }
     }
 
@@ -245,6 +257,20 @@ final class BluetoothRadio: NSObject {
     /// "which way up am I", and nothing more: turning a flip into recorded time is `device_event`'s question and is
     /// not built.
     private(set) var currentFace: Int?
+
+    /// What the cube last said about being locked, being paused, and its auto-pause delay -- `nil` when it has not
+    /// been asked, or when there is no cube.
+    ///
+    /// **Held rather than asked for on demand, and that is forced rather than chosen.** Asking is a round trip, and
+    /// the thing that needs the answer is a menu item's title at the instant the menu opens. So it is read when the
+    /// link comes up and refreshed by the read-back of every command the app sends, which covers every way the app
+    /// itself can change it.
+    ///
+    /// **What it cannot cover is the cube being changed by something else**: a double tap pauses it, auto-pause
+    /// pauses it, and the vendor's app can do either. The `isPaused` here is therefore only as fresh as the last
+    /// answer, and nothing draws it. `isLocked` is the one the dropdown reads, and lock has no such back door -- the
+    /// cube offers no gesture that locks itself.
+    private(set) var cubeStatus: DeviceCommandRules.Status?
 
     init(debugLog: DebugLog?) {
         self.debugLog = debugLog
@@ -747,6 +773,20 @@ final class BluetoothRadio: NSObject {
         onFace?(id, face)
     }
 
+    /// Files what the cube says about itself, and says so only when it is news.
+    ///
+    /// Quiet when nothing moved, matching the charge and the face: every command this app reads back produces one of
+    /// these, and most of them say what the last one said.
+    private func received(status: DeviceCommandRules.Status, from id: UUID) {
+        guard status != cubeStatus else { return }
+        cubeStatus = status
+        debugLog?.record(
+            .command,
+            "The cube is \(status.isLocked ? "locked" : "unlocked") and \(status.isPaused ? "paused" : "running")"
+        )
+        onCubeStatus?(id, status)
+    }
+
     /// What to call a device in a message about it.
     ///
     /// **Asked of the radio rather than remembered by the tab**, which is the same reasoning as handing the tab the
@@ -877,6 +917,11 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             face: { [weak self] face in
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.received(face: face, from: attempt.id)
+            },
+            // The same guard once more, and for the same reason as the two above.
+            status: { [weak self] status in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(status: status, from: attempt.id)
             }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)

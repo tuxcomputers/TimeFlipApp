@@ -86,6 +86,9 @@ final class DeviceLogin: NSObject {
     /// Called with each face the cube reports, whether asked for or pushed. Raw, exactly as the byte arrived: what
     /// counts as a face is `DeviceFaceRules`' judgement, not a delegate's.
     private let face: (Int) -> Void
+    /// Called with whatever the cube last said about its own state, however that answer was drawn out -- the ask on
+    /// connecting, or the read-back of a command. Raw: what to make of it is the radio's and the menu's business.
+    private let status: (DeviceCommandRules.Status) -> Void
     private let finished: (DeviceLoginOutcome) -> Void
 
     private var deadline: Timer?
@@ -108,6 +111,8 @@ final class DeviceLogin: NSObject {
     private var pendingCommand: ((Bool) -> Void)?
     /// How that command is read back, or `nil` for one the spec gives no way to read back.
     private var pendingReadBack: DeviceCommandRules.ReadBack?
+    /// Who is waiting on a plain question about the cube's state. See `askStatus`.
+    private var pendingStatus: ((DeviceCommandRules.Status?) -> Void)?
     /// Whether the question has been sent, so an acknowledgement is the question's rather than the command's. The two
     /// arrive on the same characteristic and are otherwise indistinguishable.
     private var isReadingBack = false
@@ -150,6 +155,9 @@ final class DeviceLogin: NSObject {
     ///     saying, and the first call is the app's own read rather than something the cube volunteered.
     ///   - face: called with each face the cube reports, on the same terms as `battery` and for the same reason -- the
     ///     first call is the read this login makes, and every one after it is a flip.
+    ///   - status: called whenever the cube says what state it is in -- once on connecting, and again every time a
+    ///     command is read back. Unlike the two above, the cube never volunteers this: nothing is pushed when a
+    ///     double tap pauses it, so what arrives here is only ever an answer to a question this app asked.
     init(
         peripheral: CBPeripheral,
         pin: String,
@@ -160,6 +168,7 @@ final class DeviceLogin: NSObject {
         reported: @escaping (DeviceInfo) -> Void,
         battery: @escaping (Int) -> Void = { _ in },
         face: @escaping (Int) -> Void = { _ in },
+        status: @escaping (DeviceCommandRules.Status) -> Void = { _ in },
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
         self.peripheral = peripheral
@@ -171,6 +180,7 @@ final class DeviceLogin: NSObject {
         self.reported = reported
         self.battery = battery
         self.face = face
+        self.status = status
         self.finished = finished
         super.init()
     }
@@ -267,7 +277,7 @@ final class DeviceLogin: NSObject {
             reported(false)
             return
         }
-        guard pendingCommand == nil else {
+        guard !isBusy else {
             debugLog?.record(.command, "A command is already out; not sending another over the top of it")
             reported(false)
             return
@@ -281,6 +291,37 @@ final class DeviceLogin: NSObject {
         write(payload, to: command, type: .withResponse)
     }
 
+    /// Asks the cube what state it is in (`0x10`), and reports what it says.
+    ///
+    /// **The same exchange as a read-back with the command left off**, because that is what it is: the question is
+    /// written, its acknowledgement is waited for, and only then is the answer read. The waiting matters as much here
+    /// as it does there -- a `0x10` reply carries no echoed command byte, and the characteristic it arrives on
+    /// frequently holds the previous command's reply, so a value read at any other moment is somebody else's.
+    ///
+    /// `nil` for a cube that would not answer, which is a different thing from a cube that answered "unlocked".
+    func askStatus(then answered: @escaping (DeviceCommandRules.Status?) -> Void) {
+        guard let command else {
+            debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to ask")
+            answered(nil)
+            return
+        }
+        guard !isBusy else {
+            debugLog?.record(.command, "A command is already out; not asking about state over the top of it")
+            answered(nil)
+            return
+        }
+        pendingStatus = answered
+        // The acknowledgement about to arrive is this question's, not a command's.
+        isReadingBack = true
+        armCommandDeadline()
+        debugLog?.record(.command, "Asking the cube what state it is in")
+        write(DeviceCommandRules.status, to: command, type: .withResponse)
+    }
+
+    /// Whether an exchange is already out. Both kinds share one slot deliberately: they use the same characteristic
+    /// and the same acknowledgement, so two at once could not be told apart.
+    private var isBusy: Bool { pendingCommand != nil || pendingStatus != nil }
+
     private func armCommandDeadline() {
         commandDeadline?.invalidate()
         commandDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
@@ -292,7 +333,7 @@ final class DeviceLogin: NSObject {
                         ? "The cube never said whether the command took"
                         : "The cube never acknowledged the command"
                 )
-                self.finishCommand(false)
+                self.finishExchange(took: false, status: nil)
             }
         }
         if let commandDeadline { RunLoop.main.add(commandDeadline, forMode: .common) }
@@ -302,7 +343,7 @@ final class DeviceLogin: NSObject {
     private func acknowledgedCommand(_ landed: Bool) {
         guard landed else {
             debugLog?.record(.command, "The cube would not take the command")
-            finishCommand(false)
+            finishExchange(took: false, status: nil)
             return
         }
         guard let readBack = pendingReadBack, let command else {
@@ -310,7 +351,7 @@ final class DeviceLogin: NSObject {
             // `0x11`) end here for good, and a row reading "confirmed" would be a claim nobody is in a position to
             // make -- see the read-back matrix in `docs/timeflip.md`.
             debugLog?.record(.command, "The cube took the write; nothing can read this command back")
-            finishCommand(true)
+            finishExchange(took: true, status: nil)
             return
         }
         isReadingBack = true
@@ -326,29 +367,52 @@ final class DeviceLogin: NSObject {
     /// trustworthy is that it is read after this question's own acknowledgement.
     private func askedForConfirmation(_ landed: Bool) {
         guard landed, let commandResult else {
-            debugLog?.record(.command, "The cube would not take the question about whether the command took")
-            finishCommand(false)
+            debugLog?.record(.command, "The cube would not take the question")
+            finishExchange(took: false, status: nil)
             return
         }
         read(commandResult)
     }
 
-    /// What the cube said about whether the command took.
-    private func confirmed(_ value: Data?) {
-        guard let readBack = pendingReadBack else { return }
+    /// What the cube said, whether it was asked to confirm a command or simply asked what state it is in.
+    ///
+    /// **Parsed in one place, whichever question brought it here**, so the state the app holds and the verdict on a
+    /// command are read from the same bytes by the same rule rather than by two that could come to differ.
+    private func answered(_ value: Data?) {
+        let status = DeviceCommandRules.status(from: value)
+        guard let readBack = pendingReadBack else {
+            debugLog?.record(
+                .command,
+                status.map { "The cube is \($0.isLocked ? "locked" : "unlocked") and \($0.isPaused ? "paused" : "running")" }
+                    ?? "That was not an answer about the cube's state"
+            )
+            finishExchange(took: status != nil, status: status)
+            return
+        }
         let took = readBack.took(value)
         debugLog?.record(.command, took ? "The cube confirms it took" : "The cube says it did NOT take")
-        finishCommand(took)
+        finishExchange(took: took, status: status)
     }
 
-    private func finishCommand(_ succeeded: Bool) {
+    /// Ends whichever exchange was out, and tells whoever was waiting.
+    ///
+    /// **Both completions are cleared before either is called.** A caller told about one command is free to send the
+    /// next from inside that call -- the lock sequence does exactly that -- and a slot still holding the finished
+    /// exchange would refuse it as "already busy".
+    private func finishExchange(took: Bool, status: DeviceCommandRules.Status?) {
         commandDeadline?.invalidate()
         commandDeadline = nil
         isReadingBack = false
         pendingReadBack = nil
-        let reported = pendingCommand
+        let reportCommand = pendingCommand
+        let reportStatus = pendingStatus
         pendingCommand = nil
-        reported?(succeeded)
+        pendingStatus = nil
+        // Whatever the cube just said about its state is worth having whichever question drew it out, so this fires
+        // for a read-back as well as for a plain ask.
+        if let status { self.status(status) }
+        reportCommand?(took)
+        reportStatus?(status)
     }
 
     private func finishReset(_ sent: Bool) {
@@ -489,6 +553,7 @@ final class DeviceLogin: NSObject {
         }
         for characteristic in pushable { subscribe(to: characteristic) }
         askWhichFaceIsUp(on: service)
+        // The state question follows this one rather than sitting beside it -- see `askWhatStateItIsIn`.
         askWhatMakesADoubleTap()
     }
 
@@ -536,10 +601,32 @@ final class DeviceLogin: NSObject {
                 guard let self, self.isAskingAboutTaps else { return }
                 self.isAskingAboutTaps = false
                 self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
+                // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
+                // lock, and this is the one question the dropdown cannot draw itself without.
+                self.askWhatStateItIsIn()
             }
         }
         if let tapDeadline { RunLoop.main.add(tapDeadline, forMode: .common) }
         write(Data([DoubleTapRules.read]), to: command, type: .withResponse)
+    }
+
+    /// Asks the cube whether it is locked and whether it is paused, once the link is up.
+    ///
+    /// **Because nothing else will ever say.** The cube pushes a face and a charge unasked, but it never volunteers
+    /// its lock or pause state -- not when a double tap pauses it, not when auto-pause fires, and not when the
+    /// vendor's app changes it. So the only way the app can know is to ask, and the only moments it can ask usefully
+    /// are when the link comes up and after a command of its own.
+    ///
+    /// **This is what makes the Lock item on the dropdown honest.** Without it a freshly connected app would have to
+    /// guess which way the item should read, and the guess it would have to make -- unlocked -- is exactly wrong for
+    /// the cube this app itself locked on the way out last time.
+    ///
+    /// **Sent after the double-tap question has finished, not beside it.** Both write to the command characteristic
+    /// and both wait for an answer on the command result, and neither an acknowledgement nor a `0x10` answer carries
+    /// anything saying which question it belongs to -- so two in flight is two answers nobody can attribute. The face
+    /// read above is safe to fire alongside them only because it has a characteristic of its own.
+    private func askWhatStateItIsIn() {
+        askStatus { _ in }
     }
 
     /// What the cube answered `0x17` with.
@@ -556,6 +643,7 @@ final class DeviceLogin: NSObject {
         tapDeadline?.invalidate()
         tapDeadline = nil
         debugLog?.record(.tap, "The cube's double tap is set to \(parameters.described)")
+        askWhatStateItIsIn()
     }
 
     // MARK: - the PIN this app puts on it
@@ -832,7 +920,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         // Also long after the login, and above the guard for the same reason. Last of the three, so a reset or a
         // question about taps cannot have its acknowledgement taken by a command that happened to be out.
-        if pendingCommand != nil, characteristic.uuid == TimeFlipUUIDs.command {
+        if isBusy, characteristic.uuid == TimeFlipUUIDs.command {
             if isReadingBack {
                 askedForConfirmation(error == nil)
             } else {
@@ -900,7 +988,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // The answer to "did it take". Asked for above the login's own guard for the same reason the taps question is:
         // it runs long after the login, when `step` is nil.
         if isReadingBack, characteristic.uuid == TimeFlipUUIDs.commandResult {
-            confirmed(error == nil ? characteristic.value : nil)
+            answered(error == nil ? characteristic.value : nil)
             return
         }
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable

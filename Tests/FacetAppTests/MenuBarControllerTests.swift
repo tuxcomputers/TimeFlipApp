@@ -20,6 +20,8 @@ final class MenuBarControllerTests: XCTestCase {
         set { reading = TimingReadout.Reading(category: reading.category, state: newValue, seconds: reading.seconds) }
     }
     private var toggles = 0
+    private var cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+    private var cubeToggles = 0
 
     /// Held for the length of the test, because an item's `target` is **weak**: a controller nobody keeps is
     /// deallocated the moment it is built, and then choosing an item reaches nobody, silently.
@@ -41,7 +43,9 @@ final class MenuBarControllerTests: XCTestCase {
             openSettings: {},
             timing: { self.reading },
             showingSeconds: { showingSeconds },
-            togglePause: { self.toggles += 1 }
+            togglePause: { self.toggles += 1 },
+            cube: { self.cube },
+            toggleCubeLock: { self.cubeToggles += 1 }
         )
         kept = controller
         return controller
@@ -88,8 +92,8 @@ final class MenuBarControllerTests: XCTestCase {
 
         XCTAssertEqual(
             items.map { $0.isSeparatorItem ? "---" : ($0.identifier?.rawValue ?? "?") },
-            ["open-settings", "toggle-pause", "---", "quit-app"],
-            "Pause sits under Settings, and Quit stays behind a separator"
+            ["open-settings", "toggle-pause", "toggle-cube-lock", "---", "quit-app"],
+            "Pause sits under Settings, Lock under Pause, and Quit stays behind a separator"
         )
     }
 
@@ -98,6 +102,93 @@ final class MenuBarControllerTests: XCTestCase {
             XCTAssertNotNil(item.identifier?.rawValue, "\(item.title) needs an identifier")
             XCTAssertEqual(item.accessibilityIdentifier(), item.identifier?.rawValue)
         }
+    }
+
+    // MARK: - what Lock says, and when it can be chosen
+
+    func testTheLockItemIsDeadWithNoCubeConnected() {
+        // It ends in a command, and a command needs a live link. A paired cube in another room can be neither locked
+        // nor resumed, so an item offering it would be a control that does nothing and says nothing about why.
+        cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+
+        let item = try? XCTUnwrap(lockItem())
+
+        XCTAssertEqual(item?.isEnabled, false)
+        XCTAssertEqual(item?.title, "Lock")
+    }
+
+    func testAConnectedUnlockedCubeIsOfferedALock() throws {
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+
+        let item = try XCTUnwrap(lockItem())
+
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertEqual(item.title, "Lock")
+    }
+
+    func testALockedCubeIsOfferedAnUnlock() throws {
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+
+        let item = try XCTUnwrap(lockItem())
+
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertEqual(item.title, "Unlock")
+    }
+
+    func testNoTwoItemsEverReadTheSame() throws {
+        // Seen on screen: with the app's clock stopped and the cube locked, the dropdown offered "Resume" twice --
+        // one starting the app's clock and one starting the cube. Two items reading the same thing while doing
+        // entirely different things is a menu nobody can use.
+        state = .paused
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+
+        let titles = menu().items.filter { !$0.isSeparatorItem }.map(\.title)
+
+        XCTAssertEqual(Set(titles).count, titles.count, "two items read the same: \(titles)")
+    }
+
+    func testACubeNobodyHasAskedYetReadsLock() throws {
+        // The safer of the two to be wrong about: offering to lock an already-locked cube sends a command that
+        // changes nothing, while offering to resume a running one would unlock what was never locked.
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: nil)
+
+        XCTAssertEqual(try XCTUnwrap(lockItem()).title, "Lock")
+    }
+
+    func testTheLockItemIsRenamedEveryTimeTheMenuOpens() throws {
+        // The same rule as Pause beside it: the menu never remembers, so nothing has to tell it when the cube
+        // changes.
+        let controller = controller()
+        let menu = controller.makeMenu()
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        controller.refresh(menu)
+        XCTAssertEqual(try XCTUnwrap(item(named: MenuBarController.Identifier.toggleCubeLock, in: menu)).title, "Lock")
+
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        controller.refresh(menu)
+
+        XCTAssertEqual(
+            try XCTUnwrap(item(named: MenuBarController.Identifier.toggleCubeLock, in: menu)).title,
+            "Unlock"
+        )
+    }
+
+    func testChoosingItGoesToTheOneLockPath() throws {
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        let item = try XCTUnwrap(lockItem())
+
+        _ = item.target?.perform(item.action, with: item)
+
+        XCTAssertEqual(cubeToggles, 1)
+    }
+
+    /// The Lock item out of a freshly refreshed menu.
+    private func lockItem() -> NSMenuItem? {
+        item(named: MenuBarController.Identifier.toggleCubeLock, in: menu())
+    }
+
+    private func item(named identifier: String, in menu: NSMenu) -> NSMenuItem? {
+        menu.items.first { $0.identifier?.rawValue == identifier }
     }
 
     // MARK: - what Pause says
@@ -172,7 +263,9 @@ final class MenuBarControllerTests: XCTestCase {
                 badgeDescription: nil,
                 reading: reading,
                 showingSeconds: true,
-                lowBattery: lowBattery
+                lowBattery: lowBattery,
+                // From the same reading the dropdown's Lock item is drawn from, so a test setting one gets the other.
+                isCubeLocked: cube.isLocked == true
             )
         )
     }
@@ -203,6 +296,40 @@ final class MenuBarControllerTests: XCTestCase {
             line(controller(badge: .forEnvironment(.test))),
             "TEST \(attachment) Meeting \(attachment) 0:00:30"
         )
+    }
+
+    func testALockedCubeAddsABadgeBeforeTheGlyph() {
+        // Beside the play/pause glyph rather than in place of it, which is the archive's rule: whether the cube is
+        // still timing or stopped stays worth seeing while it is locked.
+        reading = TimingReadout.Reading(
+            category: CategoryRecord(
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+            ),
+            state: .running,
+            seconds: 30
+        )
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+
+        XCTAssertEqual(
+            line(controller(badge: .forEnvironment(.test))),
+            "TEST \(attachment) Meeting \(attachment) \(attachment) 0:00:30",
+            "the lock badge sits between the name and the play glyph"
+        )
+    }
+
+    func testALockedCubeShowsTheBadgeWithNothingBeingTimed() {
+        // The state that most needs saying: a locked cube is why nothing is running.
+        reading = .idle
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+
+        XCTAssertEqual(line(controller()), "Facet \(attachment)")
+    }
+
+    func testAnUnlockedCubeAddsNothingToTheLine() {
+        reading = .idle
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+
+        XCTAssertEqual(line(controller()), "Facet")
     }
 
     func testWithNothingBeingTimedItIsTheAppsNameAlone() {

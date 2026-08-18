@@ -38,9 +38,6 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     static let deviceSeconds: TimeInterval = 5
 
     private let deviceEvents: DeviceEventRecorder
-    /// Where `pause_on_lock` is read from, at the step that needs it. The store rather than the value, deliberately:
-    /// a launch that read this at startup would act on an answer somebody may have changed since.
-    private let settings: SettingStore?
     private let debugLog: DebugLog?
 
     /// Drops any live connection and records the quit, answering whether there was one to drop.
@@ -50,12 +47,10 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// controller exists (see `main.swift`), which is also why it is a variable rather than an initialiser argument.
     var letGoOfTheDevice: (() -> Bool)?
 
-    /// Whether there is a live link to send anything down. Set from the radio, for the same reason `letGoOfTheDevice`
-    /// is a closure: this object is built before the radio and outlives every window.
-    var isDeviceConnected: (() -> Bool)?
-
-    /// Sends one command to the cube and reports whether it took the write.
-    var sendToTheDevice: ((Data, @escaping (Bool) -> Void) -> Void)?
+    /// Stopping the cube on the way out. Set after the radio exists, for the same reason `letGoOfTheDevice` is a
+    /// closure: this object is built before it and outlives every window. `nil` in a build that never had a radio,
+    /// which quits without touching anything.
+    var cubeLock: CubeLock?
 
     /// Stops the app being held open for ever by a cube that went quiet part way through.
     private var deviceDeadline: Timer?
@@ -64,9 +59,8 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// called, which is what makes the deadline and the last acknowledgement safe to race.
     private var quitFinished: (() -> Void)?
 
-    init(deviceEvents: DeviceEventRecorder, settings: SettingStore? = nil, debugLog: DebugLog?) {
+    init(deviceEvents: DeviceEventRecorder, debugLog: DebugLog?) {
         self.deviceEvents = deviceEvents
-        self.settings = settings
         self.debugLog = debugLog
         super.init()
     }
@@ -78,7 +72,7 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// is locked and not paused goes on recording against whatever face was up, for as long as it sits there with
     /// nobody watching. Pausing first is what stops a closed laptop turning into eight hours of "Meeting".
     ///
-    /// **Gated on `pause_on_lock`**, which is read here rather than anywhere earlier -- see below.
+    /// **Gated on `pause_on_lock`**, which `CubeLock` reads at the step that needs it.
     ///
     /// **`applicationShouldTerminate` rather than `applicationWillTerminate`**, because these are BLE writes: the
     /// process does not outlive `willTerminate` long enough for a round trip, so a pause started there would be a
@@ -97,38 +91,25 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     ///
     /// Returns whether anything was sent. `false` means `finished` will **not** be called and there is nothing to
     /// wait for -- which is what lets the delegate above answer `.terminateNow` from the same fact rather than from a
-    /// second opinion about it. `true` means `finished` is called exactly once: by the second acknowledgement, or by
-    /// the deadline, whichever gets there first.
+    /// second opinion about it. `true` means `finished` is called exactly once: by the sequence finishing, or by the
+    /// deadline, whichever gets there first.
     ///
     /// Separate from the delegate method so it can be driven without terminating anything, which is the same split
     /// `run(at:)` has and for the same reason.
     ///
-    /// **`pause_on_lock` is read here, at the step that needs it**, which is `CLAUDE.md`'s own worked example of the
-    /// source-of-truth rule: not at launch, not passed down the call chain, but asked of the table at the moment the
-    /// answer is about to be acted on. Somebody who changes it on the App tab and quits gets the answer they just set.
-    ///
-    /// **The whole step is gated, not just the pause**, which is the archive's reading of its own setting: quitting is
-    /// one of the two ways the app locks the cube, so the setting that governs "pause whenever the app locks" governs
-    /// whether the quit locks at all. With it off, quitting touches the cube in no way -- which is what somebody
-    /// wanting the cube to go on tracking by itself while the app is shut has asked for.
+    /// **The order, the setting and the read-backs are `CubeLock`'s**, not this method's. The dropdown's Lock item
+    /// does the same thing for a different reason, and two expressions of "what locking the cube means" would be free
+    /// to disagree about the one part of it that is not obvious -- that a locked cube reports itself paused, so the
+    /// pause has to be confirmed before the lock is sent. What is this method's is the deadline: quitting is the only
+    /// caller that cannot afford to wait.
     @discardableResult
     func pauseAndLockTheCube(then finished: @escaping () -> Void) -> Bool {
-        guard let sendToTheDevice, isDeviceConnected?() == true else {
-            debugLog?.record(.quit, "Quit: no cube connected, so there is nothing to pause or lock")
+        guard let cubeLock else {
+            debugLog?.record(.quit, "Quit: nothing to send to, so the cube is left as it is")
             return false
         }
-        // **An unreadable row counts as off**, which is not the seeded default and is deliberate. Of the two ways to
-        // be wrong, leaving the cube running is visible in its own history and undone by flipping it; locking a cube
-        // is not, because nothing in this app sends `0x04 0x02` -- a lock this app applied by accident can only be
-        // lifted from the vendor's app or by a factory reset. `ManualMode.startIfNoDeviceIsPaired` chooses its
-        // fallback the same way and for the same reason: take the failure somebody can get out of.
-        guard settings?.flag("pause_on_lock", field: "enabled") == true else {
-            debugLog?.record(.quit, "Quit: pause_on_lock is off, so the cube is left as it is")
-            return false
-        }
-        // Held rather than captured, so the deadline and the last acknowledgement race for it instead of both firing:
-        // whichever gets here first takes it and leaves `nil` behind. The same shape as `DeviceLogin.finishCommand`,
-        // and it is what makes `letTheQuitProceed` safe to call twice.
+        // Held rather than captured, so the deadline and the sequence race for it instead of both firing: whichever
+        // gets here first takes it and leaves `nil` behind. The same shape as `DeviceLogin.finishExchange`.
         quitFinished = finished
         deviceDeadline?.invalidate()
         deviceDeadline = Timer(timeInterval: Self.deviceSeconds, repeats: false) { [weak self] _ in
@@ -142,30 +123,21 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
         }
         if let deviceDeadline { RunLoop.main.add(deviceDeadline, forMode: .common) }
 
-        // **Sent whatever the cube is already doing, and that is not free.** The archive guarded its pause on the app
-        // believing the cube was running, because `0x06 0x01` is *not* idempotent: measured on hardware 2026-08-12,
-        // the cube mints a `device_event` per write, and four identical writes inside one second left four events and
-        // stranded a row unfinalised (see the archive's `MenuBarController.limitWriteSentAtEventNumber`). This app
-        // cannot make that check honestly -- it has no reading of the cube's pause state, and inventing one would be
-        // the second answer `CLAUDE.md` forbids -- so it sends once per quit and accepts that quitting an
-        // already-paused cube costs one spurious event. What would settle it properly is a status request
-        // (`DeviceCommandRules.status`), whose answer says whether pause mode is already on.
-        sendToTheDevice(DeviceCommandRules.pause(true)) { [weak self] paused in
-            guard let self else { return }
-            self.debugLog?.record(
+        let started = cubeLock.lock { [weak self] stopped in
+            self?.debugLog?.record(
                 .quit,
-                paused ? "Quit: the cube took the pause" : "Quit: the cube did not take the pause"
+                stopped ? "Quit: the cube is paused and locked" : "Quit: the cube was not left locked"
             )
-            // **The lock goes out either way.** A pause that was refused is a reason to want the lock more, not less:
-            // locking still stops the cube changing face behind everybody's back, and the two failures have different
-            // causes. Giving up here would mean one dropped write costing both steps.
-            sendToTheDevice(DeviceCommandRules.lock(true)) { [weak self] locked in
-                self?.debugLog?.record(
-                    .quit,
-                    locked ? "Quit: the cube took the lock" : "Quit: the cube did not take the lock"
-                )
-                self?.letTheQuitProceed()
-            }
+            self?.letTheQuitProceed()
+        }
+        guard started else {
+            // Nothing went out, so nothing is coming back. The deadline is taken down and the completion dropped
+            // rather than called: the delegate above has not asked to delay the quit yet, and replying to a
+            // termination nobody deferred is a reply for the next quit to trip over.
+            deviceDeadline?.invalidate()
+            deviceDeadline = nil
+            quitFinished = nil
+            return false
         }
         return true
     }
