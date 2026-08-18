@@ -228,4 +228,77 @@ final class TimingReadoutTests: XCTestCase {
         // mode rotates rather than rewriting one face (see `ManualFace`).
         XCTAssertEqual(readout.read(at: noon).category?.id, breakID)
     }
+
+    // MARK: - following a cube
+
+    func testACubesFaceIsWhatTheReadingIsAbout() {
+        // **The single answer the menu bar and the Faces tab both draw from.** They asked separately once, and a
+        // launch with a cube connected then drew the face's category on the tab and the app's name in the menu bar.
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        readout.deviceFace = { 5 }
+
+        let reading = readout.read()
+
+        XCTAssertEqual(reading.deviceFace, 5)
+        XCTAssertEqual(reading.category?.id, 2)
+    }
+
+    func testACubeWinsOverWhatTheAppWasTimingByHand() {
+        // A manual session is a stand-in for exactly the device that has turned up, so a reading taken while a cube is
+        // connected is about the cube.
+        startTiming(1, at: noon)
+        XCTAssertEqual(readout.read(at: noon).category?.id, 1, "precondition: timing by hand")
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+
+        readout.deviceFace = { 5 }
+
+        XCTAssertEqual(readout.read(at: noon).category?.id, 2)
+    }
+
+    func testTheLinkDroppingPutsTheManualSessionBack() {
+        // Nothing has to be told: the face is asked for per reading, so a cube going away simply stops being the
+        // answer and what the app is timing by hand is what is left.
+        startTiming(1, at: noon)
+        var face: Int? = 5
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        readout.deviceFace = { face }
+        XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition: following the cube")
+
+        face = nil
+
+        XCTAssertEqual(readout.read(at: noon).category?.id, 1)
+        XCTAssertNil(readout.read(at: noon).deviceFace)
+    }
+
+    func testACubesReadingCarriesNoClockYet() {
+        // The app does not read the cube's history, so it has no segment to call running and no figure that would not
+        // be invented. Both surfaces draw the face and its category and nothing else.
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        readout.deviceFace = { 5 }
+
+        let reading = readout.read(at: noon)
+
+        XCTAssertEqual(reading.state, .idle)
+        XCTAssertEqual(reading.seconds, 0)
+    }
+
+    func testAnUnassignedFaceReadsAsACubeWithNothingOnIt() {
+        // Face 1 is seeded Unassigned. Still a cube, still a face -- there is simply no category to name.
+        readout.deviceFace = { 1 }
+
+        let reading = readout.read(at: noon)
+
+        XCTAssertEqual(reading.deviceFace, 1)
+        XCTAssertNil(reading.category)
+    }
+
+    func testAReassignedFaceShowsUpOnTheNextRead() {
+        readout.deviceFace = { 5 }
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition")
+
+        XCTAssertTrue(faces.assign(categoryID: 1, toFace: 5))
+
+        XCTAssertEqual(readout.read(at: noon).category?.id, 1)
+    }
 }

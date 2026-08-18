@@ -107,22 +107,6 @@ let dayTotal = DayTotal(
     faces: faces
 )
 
-// What is being timed, for both things that draw it. The Faces tab and the status item read one answer rather
-// than each resolving the face, the category and the total for itself -- and it is all read, including whether the
-// clock is running, so a launch inherits the session the last one left instead of starting blank.
-let timingReadout = TimingReadout(
-    categories: categories,
-    faces: faces,
-    events: deviceEvents,
-    dayTotal: dayTotal
-)
-
-// What happens on the way out, and it has to be set before `run()`. Kept in a binding because
-// `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
-// immediately and the app then ends without running any of it, silently.
-let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
-app.delegate = quitSequence
-
 // The radio, which is the app's and not the Settings window's.
 //
 // **It was the window's until reconnecting existed, and that is what moved it.** A paired app has to reach its cube
@@ -132,6 +116,26 @@ app.delegate = quitSequence
 // **Building it does not touch the radio.** `CBCentralManager` is made on the first scan or reach, inside
 // `BluetoothRadio.start`, so a launch with nothing paired still never provokes the system's Bluetooth prompt.
 let radio = BluetoothRadio(debugLog: debugLog)
+
+// What is being timed, for both things that draw it. The Faces tab and the status item read one answer rather
+// than each resolving the face, the category and the total for itself -- and it is all read, including whether the
+// clock is running, so a launch inherits the session the last one left instead of starting blank.
+let timingReadout = TimingReadout(
+    categories: categories,
+    faces: faces,
+    events: deviceEvents,
+    dayTotal: dayTotal
+)
+// Which face the cube is on, asked per reading. **This is what keeps the menu bar and the Faces tab saying the same
+// thing**: both draw from one reading, and this is the question that decides which of the two pictures that reading
+// describes. Set here rather than passed in because the readout is built alongside the tables and the radio is not one.
+timingReadout.deviceFace = { radio.currentFace }
+
+// What happens on the way out, and it has to be set before `run()`. Kept in a binding because
+// `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
+// immediately and the app then ends without running any of it, silently.
+let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
+app.delegate = quitSequence
 
 // The low-battery warning, which two things draw and one thing decides.
 //
@@ -294,6 +298,29 @@ lowBattery.onChanged = {
     menuBar.redraw()
     settingsWindow.redrawLowBattery()
 }
+// The lock badge, repainted the moment the answer moves rather than on the item's next tick.
+//
+// **Without this the badge is invisible for exactly the state it is for.** The tick only runs while something is being
+// timed, so a locked cube with the clock stopped -- which is the ordinary case, since locking pauses -- would leave the
+// item drawn as it was until something else happened to redraw it. This fires on the ask made when a link comes up, on
+// the read-back of every lock or unlock the app sends, and on the link going away, which is what takes the badge off
+// again: `BluetoothRadio` clears the status with the connection and reports that as a change like any other.
+radio.onCubeStatus = { _, _ in
+    menuBar.redraw()
+}
+// A flip repaints both surfaces, from here rather than from either of them.
+//
+// **One callback with two listeners, so it is assigned once.** The Settings window used to take this for itself, and
+// the menu bar needing it too would have been a second assignment quietly replacing the first -- the tab would simply
+// have stopped following flips, with nothing to see. Both are told, and both then read the same `TimingReadout`.
+//
+// The menu bar needs it for the same reason the lock badge does: the item's tick only runs while the app itself is
+// timing something, and following a cube is precisely when it is not.
+radio.onFace = { _, _ in
+    menuBar.redraw()
+    settingsWindow.redrawTiming()
+}
+
 // A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press
 // something: the segment it is measuring may already be over the limit.
 dailyLimit.start()

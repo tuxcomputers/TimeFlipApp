@@ -325,6 +325,18 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(line(controller()), "Facet \(attachment)")
     }
 
+    func testTheBadgeGoesWhenTheCubeDoes() {
+        // A link that drops takes the status with it (`BluetoothRadio` clears it), and the badge has to go with that
+        // -- a lock drawn for a cube nobody can reach is a claim about hardware the app cannot see.
+        reading = .idle
+        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        XCTAssertEqual(line(controller()), "Facet \(attachment)", "precondition")
+
+        cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+
+        XCTAssertEqual(line(controller()), "Facet")
+    }
+
     func testAnUnlockedCubeAddsNothingToTheLine() {
         reading = .idle
         cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)

@@ -93,6 +93,30 @@ struct StatusItemTitle: Equatable {
         // name drawn in whatever the line's own colour turns out to be.
         let flash: NSColor? = lowBattery.isLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
         let lockGlyphName = isCubeLocked ? "lock.fill" : nil
+        // **Following a cube: the face's category, and nothing that would be invented.** No glyph and no figure,
+        // which is exactly what the Faces tab draws for the same reading -- the app does not read the cube's history
+        // yet, so it has no segment to call running and no total it could stand behind. The name and the icon are
+        // what is actually known, and they are what somebody glances up for: which face the cube is on.
+        if reading.deviceFace != nil, let category = reading.category {
+            return StatusItemTitle(
+                text: category.name,
+                iconName: category.iconName,
+                glyphName: nil,
+                lockGlyphName: lockGlyphName,
+                duration: nil,
+                // Not green: green is a claim that time is being recorded, and here it is the cube recording it
+                // rather than this app. The ordinary label colour says what is true -- this is the face it is on.
+                colour: .labelColor,
+                nameColour: flash ?? .labelColor,
+                spoken: spoken(
+                    [category.name]
+                        + (isCubeLocked ? ["device locked"] : [])
+                        + (lowBattery.isLow ? ["low battery"] : [])
+                        + [appLabel],
+                    badgeDescription: badgeDescription
+                )
+            )
+        }
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
         // starts. `guard` on both, though the readout only ever pairs them: a category with no state to draw, or a
         // state with no category to name, is half a session either way.

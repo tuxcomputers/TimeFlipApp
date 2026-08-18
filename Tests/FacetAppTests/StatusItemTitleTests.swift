@@ -281,4 +281,50 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title.lockGlyphName, "lock.fill")
         XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
     }
+
+    // MARK: - following a cube
+
+    private func onCube(_ face: Int = 2, category: CategoryRecord?) -> TimingReadout.Reading {
+        TimingReadout.Reading(category: category, state: .idle, seconds: 0, deviceFace: face)
+    }
+
+    func testFollowingACubeNamesTheFacesCategory() {
+        // The bug this exists for: with a cube connected the Faces tab drew the face's category while the status item
+        // drew the app's name, because each asked its own question. One reading now decides, and both draw it.
+        let title = title(onCube(category: category(name: "Deep Work", icon: "ic_admin")))
+
+        XCTAssertEqual(title.text, "Deep Work")
+        XCTAssertEqual(title.iconName, "ic_admin")
+    }
+
+    func testFollowingACubeDrawsNoClockAndNoGlyph() {
+        // The app does not read the cube's history yet, so it has no segment to call running and no figure it could
+        // stand behind. Drawing either would be inventing one -- and the Faces tab draws neither for this reading.
+        let title = title(onCube(category: category()))
+
+        XCTAssertNil(title.glyphName)
+        XCTAssertNil(title.duration)
+    }
+
+    func testFollowingACubeIsNotGreen() {
+        // Green is a claim that this app is recording time. Here the cube is, and the app is only naming the face.
+        let title = title(onCube(category: category()))
+
+        XCTAssertEqual(title.colour, .labelColor)
+    }
+
+    func testAFaceWithNoCategoryFallsBackToTheAppsName() {
+        // An unassigned face has nothing to name, so the item says whose it is rather than going blank.
+        let title = title(onCube(category: nil))
+
+        XCTAssertEqual(title.text, appLabel)
+    }
+
+    func testTheLockAndTheWarningStillShowWhileFollowingACube() {
+        let title = title(onCube(category: category()), lowBattery: flashOn, isCubeLocked: true)
+
+        XCTAssertEqual(title.lockGlyphName, "lock.fill")
+        XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
+        XCTAssertTrue(title.spoken.contains("low battery"), title.spoken)
+    }
 }

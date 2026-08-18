@@ -33,6 +33,23 @@ final class TimingReadout {
         /// The category's total for the day so far, in seconds. Zero when there is no category to total.
         let seconds: TimeInterval
 
+        /// The face the cube is resting on, or `nil` when there is no cube to follow and the app is timing by hand.
+        ///
+        /// **What tells the two pictures apart**, and it is on the reading rather than asked separately by each thing
+        /// that draws so that they cannot come to disagree -- which they did: the Faces tab drew the cube's face
+        /// while the menu bar went on drawing the manual session, because each asked its own question.
+        let deviceFace: Int?
+
+        /// Written out rather than left to the memberwise one so `deviceFace` can default to "no cube": a reading is
+        /// about what the app is timing unless it says otherwise, which is what every reading was before there was a
+        /// cube to follow.
+        init(category: CategoryRecord?, state: TimingState, seconds: TimeInterval, deviceFace: Int? = nil) {
+            self.category = category
+            self.state = state
+            self.seconds = seconds
+            self.deviceFace = deviceFace
+        }
+
         /// Nothing being timed, which is what a view built without a database draws.
         static let idle = Reading(category: nil, state: .idle, seconds: 0)
 
@@ -49,6 +66,13 @@ final class TimingReadout {
     private let events: DeviceEventRecorder
     private let dayTotal: DayTotal
 
+    /// Which face the cube is resting on, asked at the moment a reading is taken. `nil` when no cube is connected,
+    /// which is what makes the app fall back to what it is timing by hand.
+    ///
+    /// A closure rather than a radio, for the reason every dependency here is one: this is read per draw, and what it
+    /// asks must be the live answer rather than one taken when the app started.
+    var deviceFace: () -> Int? = { nil }
+
     init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
         self.faces = faces
@@ -58,6 +82,22 @@ final class TimingReadout {
 
     /// The session as it stands at `now`.
     func read(at now: Date = Date()) -> Reading {
+        // **A cube wins whenever there is one.** What the app is timing by hand is a stand-in for exactly the device
+        // that has turned up, so a reading taken while a cube is connected is about the cube.
+        if let deviceFace = deviceFace() {
+            return Reading(
+                // Read here rather than held, like the manual face's: a category renamed, recoloured or reassigned
+                // between two flips draws differently on the second one with nothing having to be told.
+                category: faces.categoryID(forFace: deviceFace).flatMap { categories.category(id: $0) },
+                // **Idle, and not because nothing is happening.** The cube is timing -- it always is -- but this app
+                // does not yet read its history, so it has no segment to call running and no figure that would not be
+                // invented. What is drawn is the face and its category, which is all that is actually known, and the
+                // clock arrives when history ingestion does.
+                state: .idle,
+                seconds: 0,
+                deviceFace: deviceFace
+            )
+        }
         let face = events.currentManualFace()
         let category = faces.categoryID(forFace: face).flatMap { categories.category(id: $0) }
         return Reading(
@@ -66,7 +106,8 @@ final class TimingReadout {
             // holding no category is idle whatever the table says about segments: there would be nothing to draw
             // beside the clock.
             state: ManualTimerRules.state(categoryID: category?.id, isRunning: isRunning(on: face)),
-            seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0
+            seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
+            deviceFace: nil
         )
     }
 
