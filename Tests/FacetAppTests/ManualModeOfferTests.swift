@@ -1,0 +1,82 @@
+@testable import FacetApp
+import XCTest
+
+/// Covers when a failed attempt on the paired cube is put to the user, and when it is retried quietly.
+///
+/// **Worth testing away from the loop it drives**, which is the reason the rule is a struct rather than two lines
+/// inside `DeviceReconnector`: every case here is a sequence of events, and reproducing them through the real loop
+/// would need a radio, a run loop and ten seconds of waiting for each one.
+final class ManualModeOfferTests: XCTestCase {
+    func testTheFirstFailureAsks() {
+        // One attempt, and if the cube did not answer it, say so. The archive counted failures before asking and it
+        // bought nothing: each round is the same scan over the same airspace, so three of them find the same nothing
+        // three times while somebody watches an app that appears to be doing something.
+        var offer = ManualModeOffer()
+
+        XCTAssertEqual(offer.recordFailedAttempt(), .ask)
+    }
+
+    func testItKeepsAskingUntilTheCubeIsReached() {
+        // Retry is one more attempt, and the offer again if that finds nothing too. No limit, deliberately: each
+        // answer is somebody deciding to wait again rather than the app deciding for them.
+        var offer = ManualModeOffer()
+
+        XCTAssertEqual(offer.recordFailedAttempt(), .ask)
+        XCTAssertEqual(offer.recordFailedAttempt(), .ask)
+        XCTAssertEqual(offer.recordFailedAttempt(), .ask)
+    }
+
+    func testOnceTheCubeHasBeenReachedFailuresAreQuiet() {
+        // The startup-only half of the rule. Losing a cube mid-session is a different situation from never having had
+        // one: somebody who walked away from a working app must not come back to a dialog.
+        var offer = ManualModeOffer()
+        offer.recordConnected()
+
+        XCTAssertEqual(offer.recordFailedAttempt(), .keepTrying)
+    }
+
+    func testReachingTheCubeSettlesItForTheWholeLaunch() {
+        // One-way, which is what "startup only" means: an hour of drops later, it is still not asking.
+        var offer = ManualModeOffer()
+        XCTAssertEqual(offer.recordFailedAttempt(), .ask, "precondition: it asks before anything is reached")
+
+        offer.recordConnected()
+
+        for _ in 0..<5 {
+            XCTAssertEqual(offer.recordFailedAttempt(), .keepTrying)
+        }
+        XCTAssertTrue(offer.hasReachedTheCube)
+    }
+
+    func testNothingIsReachedUntilSomethingSaysSo() {
+        XCTAssertFalse(ManualModeOffer().hasReachedTheCube)
+    }
+
+    // MARK: - why it gave up
+
+    func testNothingAnsweringReadsAsNothingAnswering() {
+        XCTAssertEqual(ManualModeOffer.reason(for: .unreachable), "nothing answered")
+    }
+
+    func testACubeThatWasFoundIsNotDescribedAsMissing() {
+        // The distinction the archive got wrong twice, and the reason this is derived from the outcome rather than
+        // passed in at a call site: "nothing was in range" and "it was right there and refused this app's PIN" are
+        // different problems with different fixes, and the log line is where somebody looks first.
+        for outcome in [DeviceLoginOutcome.wrongPIN, .newPINRefused, .timedOut] {
+            XCTAssertTrue(
+                ManualModeOffer.reason(for: outcome).contains("cube"),
+                "\(outcome) means the cube answered, so the reason must not read as an empty room"
+            )
+            XCTAssertNotEqual(ManualModeOffer.reason(for: outcome), ManualModeOffer.reason(for: .unreachable))
+        }
+    }
+
+    func testEveryOutcomeHasSomethingToSay() {
+        // A reason nobody wrote would be an empty parenthesis in the one line explaining why the app gave up.
+        for outcome in [
+            DeviceLoginOutcome.unreachable, .wrongPIN, .newPINRefused, .notATimeFlip, .timedOut, .loggedIn,
+        ] {
+            XCTAssertFalse(ManualModeOffer.reason(for: outcome).isEmpty)
+        }
+    }
+}

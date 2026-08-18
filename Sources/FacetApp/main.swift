@@ -173,8 +173,26 @@ let reconnector = DeviceReconnector(
     settings: settings,
     debugLog: debugLog,
     storedPIN: { DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN },
-    rotatingTo: DeveloperMode.devicePIN
+    rotatingTo: DeveloperMode.devicePIN,
+    // Asked rather than told, so there is one answer to "is this launch timing by hand" and the loop reads it at the
+    // moment it is about to act on it -- which matters because pairing a cube turns the mode off underneath it.
+    isTimingByHand: { manualMode.isOn }
 )
+// What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
+// menu bar that says nothing.
+//
+// **Turning the mode on lives here and not in the loop**, which is the one thing this closure decides. The reconnector
+// stops either way; what the answer changes is whether this launch is an app that times by hand, and that is
+// `ManualMode`'s to record. Choosing manual mode leaves the pairing exactly as it was -- the cube is still this app's
+// cube, and pairing one from the Device tab is what ends the mode (`ManualMode.stop`).
+reconnector.onCubeNotFound = { _, answer in
+    ManualModeAlert.ask { picked in
+        if picked == .switchToManualMode {
+            manualMode.start(because: "the cube could not be found and manual mode was chosen")
+        }
+        answer(picked)
+    }
+}
 settingsWindow.reconnect = reconnector
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the

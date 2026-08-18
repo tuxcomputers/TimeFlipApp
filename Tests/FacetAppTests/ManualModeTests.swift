@@ -62,6 +62,31 @@ final class ManualModeTests: XCTestCase {
         XCTAssertTrue(manualMode.isOn)
     }
 
+    func testAPairedLaunchCanBeAskedIntoManualMode() {
+        // The offer being answered. A paired app does not start by timing by hand, but it can end up there when its
+        // cube could not be found and somebody said to get on without it.
+        setPaired(true)
+        let manualMode = ManualMode(debugLog: nil)
+        manualMode.startIfNoDeviceIsPaired(settings)
+        XCTAssertFalse(manualMode.isOn, "precondition: a paired launch is not in manual mode")
+
+        manualMode.start(because: "the cube could not be found and manual mode was chosen")
+
+        XCTAssertTrue(manualMode.isOn)
+    }
+
+    func testChoosingManualModeDoesNotUnpairTheCube() {
+        // The mode and the pairing are different facts. A failed scan is not permission to forget a device: the cube
+        // is still this app's cube, and the next launch looks for it again.
+        setPaired(true)
+        let manualMode = ManualMode(debugLog: nil)
+
+        manualMode.start(because: "the cube could not be found and manual mode was chosen")
+
+        XCTAssertEqual(settings.flag("paired", field: "paired"), true)
+        XCTAssertNil(settings.json("manual_mode"), "and the mode itself is still written nowhere")
+    }
+
     func testPairingMidSessionTurnsItOff() {
         // The app stops timing by hand at the moment a cube becomes its cube, not at the next launch: the Device tab
         // would otherwise say "Manual mode, no device" on the same screen as a device it had just connected to.

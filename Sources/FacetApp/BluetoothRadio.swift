@@ -369,8 +369,23 @@ final class BluetoothRadio: NSObject {
             isScanning = false
             onScanningChanged?(false)
         }
-        if let reason {
-            debugLog?.record(.scan, "Scan unavailable: \(reason)")
+        guard let reason else {
+            // `.resetting` and `.unknown`: ask again shortly. Nothing is ended here, because the delegate fires again
+            // when the state settles and the reach is still perfectly good until it does.
+            onUnavailable?(nil)
+            return
+        }
+        debugLog?.record(.scan, "Scan unavailable: \(reason)")
+        // **A reach that cannot even start is that cube being unreachable**, and saying so is what keeps the app
+        // honest about it. Without this, Bluetooth being switched off at launch left `reaching` set for ever: no scan
+        // to time out, so no outcome, so `isReaching` stayed true and the reconnect loop stood down permanently --
+        // no retry, no offer of manual mode, and nothing on screen saying the app had stopped. The three reasons that
+        // get here are all settled states (off, unauthorised, unsupported) rather than "ask again shortly", which is
+        // why ending on them does not race the radio coming up.
+        if let target = reaching {
+            reaching = nil
+            debugLog?.record(.login, "Cannot reach \(target.id.uuidString): \(reason)")
+            end(target.id, .unreachable)
         }
         onUnavailable?(reason)
     }
