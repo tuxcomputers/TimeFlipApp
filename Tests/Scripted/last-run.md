@@ -5,16 +5,16 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   feature/battery
-    commit:   b7bbca070d2ce662a6e4b6ad7a2c39fb92212c75
-    tree:     dirty
+    commit:   e4d895d83c73c3de7808cec346d383e5a66a6f5f
+    tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-18 20:57:06
-    finished: 2026-08-18 21:11:34
-    outcome:  failed
-    scripts:  18 run, 1 with failures
-    checks:   392 in total
-              391 passed
-              1 failed
+    started:  2026-08-18 21:19:11
+    finished: 2026-08-18 21:30:49
+    outcome:  passed
+    scripts:  19 run, 0 with failures
+    checks:   410 in total
+              410 passed
+              0 failed
               0 skipped
 
 | script | passed | failed | skipped |
@@ -36,11 +36,9 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 14-device-connect | 38 | 0 | 0 |
 | 15-device-reset | 33 | 0 | 0 |
 | 16-device-reconnect | 22 | 0 | 0 |
-| 17-device-battery | 4 | 1 | 0 |
-| **total** | **391** | **1** | **0** |
-
-> The working tree had uncommitted changes when this ran, so it is not evidence about the
-> commit it names. CI refuses a stamp in this state.
+| 17-device-battery | 10 | 0 | 0 |
+| 99-quit | 13 | 0 | 0 |
+| **total** | **410** | **0** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
