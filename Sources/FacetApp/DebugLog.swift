@@ -71,6 +71,12 @@ final class DebugLog {
         /// verdict and cannot change it -- a cube that answers none of them is logged in exactly the same -- so a row
         /// here is never part of the story of why a device could or could not be reached.
         case info
+        /// The cube's charge: the figure being shown as it changes, and the warning arming and clearing
+        /// (`BluetoothRadio`, `LowBatteryWatch`). **A row per change, not per reading** -- the cube pushes a value
+        /// every time it wavers between two adjacent percentages, which the archive measured at 2,168 notifications
+        /// in one day for a charge that was only ever 98 or 99. Every one of those is already in the trace below, so
+        /// a row here means the answer moved rather than that the cube spoke.
+        case battery
         /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
         case transmit = "ble-tx"
         /// Bytes received from it, whether asked for or notified.

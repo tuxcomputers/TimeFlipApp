@@ -33,6 +33,15 @@ enum TimeFlipUUIDs {
     static let hardwareRevisionString = "2A27"
     static let firmwareRevisionString = "2A26"
 
+    /// The standard Battery Service and the one characteristic in it, which is where the charge comes from.
+    ///
+    /// **Bluetooth SIG's as well**, and the vendor lists it in `docs/TimeFlip2 BLE Protocol v4.3.md` Tab. 1 as one
+    /// byte, read **and notify**. Both halves of that are used and both are needed: the cube pushes a value only when
+    /// it changes, so a subscription on its own leaves a freshly connected app with no figure at all until the charge
+    /// next moves -- which on the archive's logged traffic was sometimes over an hour. See `DeviceLogin.followBattery`.
+    static let batteryServiceString = "180F"
+    static let batteryLevelString = "2A19"
+
     /// The service everything TimeFlip-specific hangs off, and the only UUID a scan could ask about.
     static var service: CBUUID { CBUUID(string: serviceString) }
 
@@ -58,6 +67,11 @@ enum TimeFlipUUIDs {
     static var hardwareRevision: CBUUID { CBUUID(string: hardwareRevisionString) }
     static var firmwareRevision: CBUUID { CBUUID(string: firmwareRevisionString) }
 
+    /// Where the charge is. Discovered after the login like the Device Information service, and for the same reason:
+    /// a login that waited on it would spend round trips in front of the answer somebody is watching for.
+    static var batteryService: CBUUID { CBUUID(string: batteryServiceString) }
+    static var batteryLevel: CBUUID { CBUUID(string: batteryLevelString) }
+
     /// The four the Device Information service is asked for, in the order the tab shows them.
     static var deviceInformationCharacteristics: [CBUUID] {
         [manufacturerName, modelNumber, hardwareRevision, firmwareRevision]
@@ -79,6 +93,8 @@ enum TimeFlipUUIDs {
         case modelNumber: return "modelNumber"
         case hardwareRevision: return "hardwareRevision"
         case firmwareRevision: return "firmwareRevision"
+        case batteryService: return "batteryService"
+        case batteryLevel: return "batteryLevel"
         default: return uuid.uuidString
         }
     }

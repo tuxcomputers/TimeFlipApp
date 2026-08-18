@@ -37,8 +37,8 @@ final class DevicePaneTests: XCTestCase {
 
     /// The field *inside* the control carries the identifier, so the control itself is its owner. The App tab's tests
     /// reach for one the same way, for the same reason.
-    private func stepper(_ identifier: String, in pane: DevicePane) -> SteppedNumberField? {
-        descendants(of: pane).compactMap { $0 as? SteppedNumberField }
+    private func stepper(_ identifier: String, in root: NSView) -> SteppedNumberField? {
+        descendants(of: root).compactMap { $0 as? SteppedNumberField }
             .first { descendants(of: $0).contains { $0.accessibilityIdentifier() == identifier } }
     }
 
@@ -311,6 +311,101 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(value(DevicePane.Identifier.battery, in: pane), "34%")
         XCTAssertEqual(value(DevicePane.Identifier.manufacturer, in: pane), "DI_LABS 2.0")
         XCTAssertEqual(value(DevicePane.Identifier.firmware, in: pane), "FW_v3.64")
+    }
+
+    // MARK: - the low-battery flash
+
+    func testTheBatteryRowFlashesRedWhileTheCubeIsFlat() {
+        // The Device tab's half of the warning. Red on the coloured phase and back to the ordinary label colour on
+        // the other, in step with the menu bar because both are told by the same watch.
+        let pane = DevicePane()
+        pane.show(paired)
+        let battery = try? XCTUnwrap(view(DevicePane.Identifier.battery, in: pane) as? NSTextField)
+
+        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: true))
+        XCTAssertEqual(battery?.textColor, .systemRed)
+
+        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: false))
+        XCTAssertEqual(battery?.textColor, .labelColor)
+    }
+
+    func testARedrawKeepsThePhaseTheFlashIsOn() {
+        // A reading arriving redraws the whole tab, and every row on it is greyed or ungreyed together. Without the
+        // row being repainted from the warning afterwards, each new reading would knock the flash back to plain text
+        // -- which on this hardware is several times a minute.
+        let pane = DevicePane()
+        pane.show(paired)
+        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: true))
+
+        var values = paired
+        values.batteryPercent = 4
+        pane.show(values)
+
+        let battery = try? XCTUnwrap(view(DevicePane.Identifier.battery, in: pane) as? NSTextField)
+        XCTAssertEqual(value(DevicePane.Identifier.battery, in: pane), "4%")
+        XCTAssertEqual(battery?.textColor, .systemRed)
+    }
+
+    func testAWarningThatHasClearedLeavesTheRowGreyedWithTheRest() {
+        // Nothing connected greys the whole Info panel, and the Battery row goes back to sitting with it rather than
+        // keeping a colour from a cube that is no longer there.
+        let pane = DevicePane()
+        pane.show(paired)
+        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: true))
+
+        pane.showLowBattery(.none)
+        var values = paired
+        values.isConnected = false
+        values.batteryPercent = nil
+        pane.show(values)
+
+        let battery = try? XCTUnwrap(view(DevicePane.Identifier.battery, in: pane) as? NSTextField)
+        XCTAssertEqual(value(DevicePane.Identifier.battery, in: pane), "Unknown")
+        XCTAssertEqual(battery?.textColor, .secondaryLabelColor)
+    }
+
+    func testAutoPauseIsTheSameControlAtTheSameSizeAsTheAppTabsFields() throws {
+        // **One width for every stepped field in the window**, and one place it comes from. The Device tab used to
+        // pin this one to 90 of its own, which is the width of the *box* -- so the box, its unit and its arrows were
+        // being squeezed into the space of the box alone, and the one row on this tab with arrows was the one row
+        // whose arrows did not line up with anybody's.
+        let device = DevicePane()
+        device.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        device.layoutSubtreeIfNeeded()
+        let app = AppSettingsPane()
+        app.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        app.layoutSubtreeIfNeeded()
+
+        let autoPause = try XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: device))
+        let warning = try XCTUnwrap(stepper(AppSettingsPane.Identifier.batteryWarning, in: app))
+
+        XCTAssertEqual(autoPause.frame.width, warning.frame.width, accuracy: 0.5)
+        XCTAssertEqual(autoPause.frame.height, warning.frame.height, accuracy: 0.5)
+    }
+
+    func testEveryFieldFollowsTheOneWidthThatDecidesThem() throws {
+        // The single value: `SteppedNumberField.Layout.fieldWidth`. Changing it has to move every box in the app,
+        // which is only true while nothing outside the control has a width of its own to disagree with.
+        let device = DevicePane()
+        device.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        device.layoutSubtreeIfNeeded()
+        let app = AppSettingsPane()
+        app.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        app.layoutSubtreeIfNeeded()
+
+        for (identifier, root) in [
+            (DevicePane.Identifier.autoPause, device as NSView),
+            (AppSettingsPane.Identifier.batteryWarning, app as NSView),
+            (AppSettingsPane.Identifier.dailyReset, app as NSView),
+            (AppSettingsPane.Identifier.fetchInterval, app as NSView),
+            (AppSettingsPane.Identifier.blipTime, app as NSView),
+        ] {
+            let box = try XCTUnwrap(
+                descendants(of: root).first { $0.accessibilityIdentifier() == identifier } as? NSTextField,
+                identifier
+            )
+            XCTAssertEqual(box.frame.width, SteppedNumberField.Layout.fieldWidth, accuracy: 0.5, identifier)
+        }
     }
 
     func testTheSettingsRowsCarryTheirUnits() {

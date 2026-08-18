@@ -133,6 +133,18 @@ app.delegate = quitSequence
 // `BluetoothRadio.start`, so a launch with nothing paired still never provokes the system's Bluetooth prompt.
 let radio = BluetoothRadio(debugLog: debugLog)
 
+// The low-battery warning, which two things draw and one thing decides.
+//
+// **Built here, beside the radio, because it is the app's and not the window's** -- the flash it drives is in the menu
+// bar, which is up whether or not Settings has ever been opened. It asks the radio for the charge and the table for
+// what counts as low, holding neither: the only thing it remembers is whether the warning is currently on, which is
+// what hysteresis *is* and exists nowhere else.
+let lowBattery = LowBatteryWatch(
+    level: { radio.batteryPercent },
+    settings: settings,
+    debugLog: debugLog
+)
+
 // The window is built on its first open, so this costs nothing until Settings is chosen.
 let settingsWindow = SettingsWindowController(
     debugLog: debugLog,
@@ -145,7 +157,8 @@ let settingsWindow = SettingsWindowController(
     colours: ColourStore(connection: database),
     settings: settings,
     manualMode: manualMode,
-    radio: radio
+    radio: radio,
+    lowBattery: lowBattery
 )
 // **Set here rather than passed in**, because the window controller is made after the quit sequence: a connection
 // outlives the Settings window, so the app is what gives it back. See `SettingsWindowController.letGoOfTheDevice`.
@@ -220,9 +233,20 @@ let menuBar = MenuBarController(
     togglePause: { settingsWindow.togglePause() },
     // Greys the dropdown's Resume and turns the item's right half into a no-op. `togglePause` refuses as well,
     // which is the enforcement; these two are what stop it looking like a control that is simply broken.
-    isLimitReached: { dailyLimit.isReached }
+    isLimitReached: { dailyLimit.isReached },
+    // Asked as the item is drawn, like everything else it shows. What makes it draw twice a second while a warning
+    // is up is the watch itself, below.
+    lowBattery: { lowBattery.alert }
 )
 menuBar.start()
+
+// Both surfaces repaint from one decision, which is the whole reason the warning is an object rather than a flag in
+// each of them: the menu bar's category name and the Device tab's Battery row flash in step because they are told to
+// flash by the same timer.
+lowBattery.onChanged = {
+    menuBar.redraw()
+    settingsWindow.redrawLowBattery()
+}
 // A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press
 // something: the segment it is measuring may already be over the limit.
 dailyLimit.start()

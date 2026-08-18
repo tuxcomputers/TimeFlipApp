@@ -71,6 +71,14 @@ final class BluetoothRadio: NSObject {
     /// candidates are handed in rather than worked out here.
     var onPINChanged: ((String) -> Void)?
 
+    /// Called when the charge to show for a device changes, with the figure or `nil` once there is no live reading.
+    ///
+    /// **Not called per notification.** The cube reports its level every time it wavers between two adjacent
+    /// percentages, thousands of times a day, and `BatteryRules.shown` absorbs that: this fires when the answer moves,
+    /// which is what anything drawing it or warning about it actually cares about. Every raw value is still in the
+    /// trace.
+    var onBatteryLevel: ((UUID, Int?) -> Void)?
+
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
@@ -186,7 +194,33 @@ final class BluetoothRadio: NSObject {
     private var login: DeviceLogin?
 
     /// The device this app is currently logged in to, or `nil`.
-    private(set) var connectedDevice: UUID?
+    ///
+    /// **The charge goes with it**, in one place rather than at each of the several ways a link ends: the window
+    /// closing, another device being chosen, a reset, and the cube simply going away all pass through here, and a
+    /// percentage that outlived any of them would be a reading from a device nobody can hear.
+    private(set) var connectedDevice: UUID? {
+        didSet {
+            guard oldValue != connectedDevice, let gone = oldValue else { return }
+            // Said out loud, because the alternative is a figure that simply stops moving. A charge nobody can
+            // confirm any more and a charge that has not changed look identical in a log otherwise, and the whole
+            // point of the row above is that it appears only when the answer moves.
+            if batteryPercent != nil { debugLog?.record(.battery, "The charge goes with the link") }
+            batteryPercent = nil
+            onBatteryLevel?(gone, nil)
+        }
+    }
+
+    /// The charge to show for the connected cube, or `nil` when there is no live reading.
+    ///
+    /// **Not a table value and deliberately not one.** `deviceSettings()` says why the level has no row: a remembered
+    /// percentage is a number that was true at a moment nobody can name. It lives here for as long as the connection
+    /// it describes, which is the same standing the scan list and `connectedDevice` have (see this class's note on
+    /// why none of that is a breach of the database rule), and whoever draws it asks for it then.
+    ///
+    /// **What is held is the *shown* figure, not the last byte received.** `BatteryRules.shown` needs the figure on
+    /// show to judge the next reading against, so this is both the answer and the state the rule works from -- one
+    /// value, not a reading kept beside a rendering of it.
+    private(set) var batteryPercent: Int?
 
     init(debugLog: DebugLog?) {
         self.debugLog = debugLog
@@ -626,6 +660,24 @@ final class BluetoothRadio: NSObject {
         onLoginEnded?(id, outcome)
     }
 
+    /// Files one reading off the cube, and says so only if it changed what is being shown.
+    ///
+    /// The judgement is `BatteryRules.shown`'s and the reasoning is there: this hardware reports a charge that
+    /// wavers across one percent all day, so the figure follows the lower of the two until a reading genuinely
+    /// climbs past it. Every reading, absorbed or not, is already in the trace as `ble-rx`; a `battery` row means
+    /// the answer moved.
+    private func received(batteryLevel raw: Int, from id: UUID) {
+        let shown = BatteryRules.shown(batteryPercent, reading: raw)
+        guard shown != batteryPercent else { return }
+        batteryPercent = shown
+        debugLog?.record(
+            .battery,
+            "Charge \(shown.map(String.init) ?? "?")%"
+                + (raw == shown ? "" : " (the cube said \(raw)%)")
+        )
+        onBatteryLevel?(id, shown)
+    }
+
     /// What to call a device in a message about it.
     ///
     /// **Asked of the radio rather than remembered by the tab**, which is the same reasoning as handing the tab the
@@ -736,7 +788,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             rotatingTo: attempt.rotatingTo,
             debugLog: debugLog,
             // A reset confirmation asks nothing about the cube: it is proving a wipe and letting go.
-            readsDeviceInfo: resetConfirmation == nil,
+            staysWithTheCube: resetConfirmation == nil,
             rotated: { [weak self] pin in self?.onPINChanged?(pin) },
             // **Only while this is still the cube the app is holding.** These reads land seconds after the login, by
             // which time the window may have been closed or another device chosen -- and a report acted on then would
@@ -744,6 +796,12 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             reported: { [weak self] info in
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.onDeviceInfo?(attempt.id, info)
+            },
+            // The same guard, and it earns it more often than the one above: this goes on arriving for the life of
+            // the connection, so it is the callback most likely to fire against a cube the app has let go of.
+            battery: { [weak self] level in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(batteryLevel: level, from: attempt.id)
             }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)

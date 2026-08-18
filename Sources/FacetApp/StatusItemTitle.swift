@@ -40,6 +40,18 @@ struct StatusItemTitle: Equatable {
     /// `MenuBarController.attachment(of:colour:size:font:)`).
     let colour: NSColor
 
+    /// What the category's name and its icon are drawn in, which is `colour` except while the cube is flat.
+    ///
+    /// **Only this much of the line flashes, which is the archive's choice and worth keeping**
+    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
+    /// changing colour twice a second is harder to read at the exact moment the app is asking for attention.
+    ///
+    /// **The off phase is `.labelColor`, where the archive used `.white`.** That is the one thing not copied, and it
+    /// is a correction rather than a preference: the menu bar tints from the wallpaper rather than from the appearance
+    /// setting (see `MenuBarController.attachment(of:colour:size:font:)`), so white against a light strip is a name
+    /// that disappears for half of every second instead of one that flashes.
+    let nameColour: NSColor
+
     /// What VoiceOver reads. Spelled out, because a glyph says nothing to a screen reader and neither does the
     /// badge's colour -- and the item's own title would otherwise read as "0:07", which is not a description of
     /// anything.
@@ -51,13 +63,19 @@ struct StatusItemTitle: Equatable {
     ///     is drawn separately, carrying its own colour and weight.
     ///   - reading: the session, read at the moment this is being composed.
     ///   - showingSeconds: whether the figure carries seconds, from `display_seconds`.
+    /// - Parameter lowBattery: the warning and which half of its flash is up, asked for as the item is drawn.
     static func make(
         appLabel: String,
         badgeDescription: String?,
         reading: TimingReadout.Reading,
         showingSeconds: Bool,
-        isLimitReached: Bool = false
+        isLimitReached: Bool = false,
+        lowBattery: LowBatteryAlert = .none
     ) -> StatusItemTitle {
+        // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
+        // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
+        // name drawn in whatever the line's own colour turns out to be.
+        let flash: NSColor? = lowBattery.isLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
         // starts. `guard` on both, though the readout only ever pairs them: a category with no state to draw, or a
         // state with no category to name, is half a session either way.
@@ -70,7 +88,14 @@ struct StatusItemTitle: Equatable {
                 // The ordinary text colour, as the previous app's own no-device placeholder drew it: green is a
                 // claim about a reading, and there is no reading here to make it about.
                 colour: .labelColor,
-                spoken: spoken([appLabel], badgeDescription: badgeDescription)
+                // **The warning still flashes with nothing being timed**, on the app's own name. A flat cube is a
+                // fact about the device rather than about the session, and the moment somebody is most likely to
+                // miss it is the moment nothing is running.
+                nameColour: flash ?? .labelColor,
+                spoken: spoken(
+                    [appLabel] + (lowBattery.isLow ? ["low battery"] : []),
+                    badgeDescription: badgeDescription
+                )
             )
         }
         let duration = DurationFormat.hoursMinutesSeconds(
@@ -91,6 +116,7 @@ struct StatusItemTitle: Equatable {
             // true -- so the colour and the pause are two faces of one fact, drawn from the same answer
             // (`DailyLimitEnforcement.isReached`) rather than from two comparisons that could disagree by a second.
             colour: isLimitReached ? .systemRed : .systemGreen,
+            nameColour: flash ?? (isLimitReached ? .systemRed : .systemGreen),
             spoken: spoken(
                 // The name first, then what the glyph means, then the figure, then whose menu bar item this is.
                 // Reading order, so the answer comes before the qualifications.
@@ -98,8 +124,12 @@ struct StatusItemTitle: Equatable {
                 // **The limit is said, not just coloured.** A colour is the whole of the signal on screen, so
                 // without this the one state the item exists to warn about would be the one state it did not
                 // mention to anybody reading it aloud.
+                // **The warning is said, not just flashed**, for the same reason the limit is: a colour is the whole
+                // of the signal on screen, so without this the one state worth interrupting somebody for would be
+                // invisible to anybody reading the item aloud.
                 [category.name, reading.state == .running ? "running" : "paused", duration]
                     + (isLimitReached ? ["daily limit reached"] : [])
+                    + (lowBattery.isLow ? ["low battery"] : [])
                     + [appLabel],
                 badgeDescription: badgeDescription
             )
