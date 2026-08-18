@@ -86,6 +86,10 @@ final class DebugLog {
         /// (`DeviceLogin`, `BluetoothRadio`). **A row per change**, as `battery` is, so a row here means the cube
         /// turned over rather than that it spoke -- every arrival is already in the trace below.
         case face
+        /// Commands the app tells the cube to obey, and whether it acknowledged them (`DeviceCommandRules`,
+        /// `DeviceLogin.send`). Its own tag rather than `login`, because these are the app changing the device's
+        /// behaviour rather than reaching it -- and an acknowledgement here says the cube heard, never that it obeyed.
+        case command
         /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
         case transmit = "ble-tx"
         /// Bytes received from it, whether asked for or notified.

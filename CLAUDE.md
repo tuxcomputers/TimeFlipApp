@@ -183,6 +183,49 @@ what was in it.
   explain the actual constraint before implementing anything -- don't silently build something
   that looks like it does what was asked but can't actually behave that way on real hardware.
 
+## A command the device can be asked about is read back before it is believed
+
+**Every command that has a read-back is sent and then read back, and only what the read says is treated as
+what happened.** Not the write landing, not the vendor's acknowledgement, and not what the app asked for: the
+device's own answer to a question about its state.
+
+This is the device-side half of the database rule at the top of this file. An in-memory copy of what the app
+last sent is exactly the second answer that rule exists to forbid, and the cube is freer to disagree with it
+than a table is -- it drops its password on every disconnect, it reboots, its batteries come out, and a user
+can double-tap it or use the vendor's app behind this one's back.
+
+**What an acknowledgement actually proves, and it is less than it looks.** There are two, and neither is the
+state changing. CoreBluetooth's `.withResponse` callback says the bytes reached the device at the ATT layer.
+The vendor's own `[cmd, 0x02]` on the command result says the firmware accepted the command. A cube refuses
+every command until a PIN has been accepted, and refuses it *after* the write has already succeeded -- so a
+command can be acknowledged twice over and still have done nothing at all.
+
+**Which commands can be confirmed is a matrix, not a rule of thumb**, and it is written out in
+`docs/timeflip.md` under *Confirming a command actually took effect*. In short:
+
+- **A dedicated read-back**: `0x10` (status: lock, pause, auto-pause), `0x14` (task parameters), `0x17`
+  (double-tap registers), `0x07` (device time). Send the command, then send the read, then compare against
+  what was asked for. These are the ones this rule is about.
+- **No read-back defined**: `0x09` (LED brightness), `0x0A` (blink interval), `0x11` (face colour). The
+  vendor spec defines nothing that reads these back, so the write is genuinely all there is. **Say so at the
+  call site** rather than leaving a reader to assume the read-back was forgotten.
+- **A read impossible by nature**: `0x30` (set password). Confirmation is functional instead -- log in with
+  the new PIN and treat only that as proof. `0xFF` (factory reset) is the same shape: the cube reboots
+  without writing a fresh command result, so the proof is the cube coming back on the vendor PIN.
+
+**Two measured traps in the `0x10` answer**, both from the archive and both easy to build on top of by
+accident:
+
+- **It carries no echoed command byte.** `0x17` answers with `17 3A .. 3B .. 3C .. 3D ..`, which identifies
+  itself; `0x10` answers with four bare bytes. The command result characteristic frequently holds the
+  *previous* command's reply (finding 2, `docs/timeflip2-firmware-observations.md`), so nothing about a
+  `0x10` answer says it is one. The only thing that makes it trustworthy is sequence: read strictly after
+  this command's own acknowledgement, and treat anything arriving otherwise as somebody else's.
+- **A locked cube reports itself paused whatever its pause byte says.** The archive reads it as
+  `paused = locked ? true : data[1] == 0x01`, and `docs/timeflip.md` records the same as "pause (0x01/0x02
+  unless locked)". So a pause confirmed *after* a lock proves nothing, and pause must be confirmed before
+  the lock is sent.
+
 ## The device tests are archived, and are being rebuilt per feature
 
 There is no device-test suite at the moment. The previous one -- the Bench and Interactive

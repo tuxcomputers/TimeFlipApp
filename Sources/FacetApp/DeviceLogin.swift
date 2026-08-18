@@ -104,6 +104,15 @@ final class DeviceLogin: NSObject {
     private var resetDeadline: Timer?
     private var resetReported: ((Bool) -> Void)?
 
+    /// The command that has been written and not yet settled, and what to tell about it. See `send`.
+    private var pendingCommand: ((Bool) -> Void)?
+    /// How that command is read back, or `nil` for one the spec gives no way to read back.
+    private var pendingReadBack: DeviceCommandRules.ReadBack?
+    /// Whether the question has been sent, so an acknowledgement is the question's rather than the command's. The two
+    /// arrive on the same characteristic and are otherwise indistinguishable.
+    private var isReadingBack = false
+    private var commandDeadline: Timer?
+
     /// The Device Information phase, which runs after the login and has nothing to do with `Step`.
     ///
     /// **Kept apart from the login's state on purpose.** `Step` exists because one characteristic answers three
@@ -231,6 +240,115 @@ final class DeviceLogin: NSObject {
         let payload = Data([DeviceLoginRules.factoryReset])
         debugLog?.record(.pair, "Sending the factory reset command")
         write(payload, to: command, type: .withResponse)
+    }
+
+    // MARK: - telling the cube to do something
+
+    /// Sends one command, reads back whether it took, and reports **that**.
+    ///
+    /// **The read-back is here rather than at the call site, so no caller can forget it** -- which is the rule in
+    /// `CLAUDE.md`: a command the cube can be asked about is read back before it is believed. `DeviceCommandRules
+    /// .readBack(for:)` says which question confirms which command, and for a command the spec gives no read for it
+    /// answers `nil` -- in which case what is reported is the acknowledgement, and the log says so in those words
+    /// rather than claiming a confirmation nobody made.
+    ///
+    /// **An acknowledgement is weaker evidence than it looks**, which is why it is not the answer on its own.
+    /// `.withResponse` says the bytes reached the device at the ATT layer, and the cube refuses commands until a PIN
+    /// has been accepted -- *after* the write has already succeeded. So a command can be acknowledged and have done
+    /// nothing.
+    ///
+    /// **One at a time.** A second command sent while the first is still out would take the first's acknowledgement
+    /// for its own, both arriving on the same characteristic with nothing to tell them apart -- and the read-back
+    /// makes that worse, since a `0x10` answer carries no echoed command byte either. The refusal is reported rather
+    /// than queued: what to do about a busy cube is the caller's question.
+    func send(_ payload: Data, then reported: @escaping (Bool) -> Void) {
+        guard let command else {
+            debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to send to")
+            reported(false)
+            return
+        }
+        guard pendingCommand == nil else {
+            debugLog?.record(.command, "A command is already out; not sending another over the top of it")
+            reported(false)
+            return
+        }
+        pendingCommand = reported
+        pendingReadBack = DeviceCommandRules.readBack(for: payload)
+        isReadingBack = false
+        armCommandDeadline()
+        // The bytes themselves go into the trace as `ble-tx` by `write`, so what this row adds is why they went.
+        debugLog?.record(.command, "Sending \(BLETrace.describe(payload))")
+        write(payload, to: command, type: .withResponse)
+    }
+
+    private func armCommandDeadline() {
+        commandDeadline?.invalidate()
+        commandDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.debugLog?.record(
+                    .command,
+                    self.isReadingBack
+                        ? "The cube never said whether the command took"
+                        : "The cube never acknowledged the command"
+                )
+                self.finishCommand(false)
+            }
+        }
+        if let commandDeadline { RunLoop.main.add(commandDeadline, forMode: .common) }
+    }
+
+    /// The command was acknowledged. Either ask the cube whether it took, or stop here if nothing can ask.
+    private func acknowledgedCommand(_ landed: Bool) {
+        guard landed else {
+            debugLog?.record(.command, "The cube would not take the command")
+            finishCommand(false)
+            return
+        }
+        guard let readBack = pendingReadBack, let command else {
+            // Said in these words on purpose. The three commands with no read command in the spec (`0x09`, `0x0A`,
+            // `0x11`) end here for good, and a row reading "confirmed" would be a claim nobody is in a position to
+            // make -- see the read-back matrix in `docs/timeflip.md`.
+            debugLog?.record(.command, "The cube took the write; nothing can read this command back")
+            finishCommand(true)
+            return
+        }
+        isReadingBack = true
+        armCommandDeadline()
+        debugLog?.record(.command, "Asking whether it took: \(BLETrace.describe(readBack.request))")
+        write(readBack.request, to: command, type: .withResponse)
+    }
+
+    /// The read-back question was acknowledged, so its answer is the next thing on the command result.
+    ///
+    /// **Read only now, and never earlier.** A `0x10` answer carries no echoed command byte to identify it, and that
+    /// characteristic frequently holds the previous command's reply, so the only thing that makes the value
+    /// trustworthy is that it is read after this question's own acknowledgement.
+    private func askedForConfirmation(_ landed: Bool) {
+        guard landed, let commandResult else {
+            debugLog?.record(.command, "The cube would not take the question about whether the command took")
+            finishCommand(false)
+            return
+        }
+        read(commandResult)
+    }
+
+    /// What the cube said about whether the command took.
+    private func confirmed(_ value: Data?) {
+        guard let readBack = pendingReadBack else { return }
+        let took = readBack.took(value)
+        debugLog?.record(.command, took ? "The cube confirms it took" : "The cube says it did NOT take")
+        finishCommand(took)
+    }
+
+    private func finishCommand(_ succeeded: Bool) {
+        commandDeadline?.invalidate()
+        commandDeadline = nil
+        isReadingBack = false
+        pendingReadBack = nil
+        let reported = pendingCommand
+        pendingCommand = nil
+        reported?(succeeded)
     }
 
     private func finishReset(_ sent: Bool) {
@@ -712,6 +830,16 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             finishReset(error == nil)
             return
         }
+        // Also long after the login, and above the guard for the same reason. Last of the three, so a reset or a
+        // question about taps cannot have its acknowledgement taken by a command that happened to be out.
+        if pendingCommand != nil, characteristic.uuid == TimeFlipUUIDs.command {
+            if isReadingBack {
+                askedForConfirmation(error == nil)
+            } else {
+                acknowledgedCommand(error == nil)
+            }
+            return
+        }
         guard let step else { return }
         // The reason is already in the row above; what matters here is that the cube never took the write, so there
         // is nothing to read an answer from. Which step it happened on decides what it means: a refused PIN write is
@@ -767,6 +895,12 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {
             taps(answered: characteristic.value)
+            return
+        }
+        // The answer to "did it take". Asked for above the login's own guard for the same reason the taps question is:
+        // it runs long after the login, when `step` is nil.
+        if isReadingBack, characteristic.uuid == TimeFlipUUIDs.commandResult {
+            confirmed(error == nil ? characteristic.value : nil)
             return
         }
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable

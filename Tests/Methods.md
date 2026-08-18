@@ -292,6 +292,12 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **Quitting is not instant while a cube is connected.** The quit pauses and locks the device over BLE before it
+  terminates, so `osascript ... to quit` returning, or the menu item having been pressed, is not the app having gone.
+  A step that quits and relaunches can otherwise start a second instance on top of the first. `quit_app` already polls
+  for the process to disappear (10s), which covers the quit's own 5s device budget. From the archive's Method 3, where
+  it cost a run.
+
 - **A popover is invisible to accessibility.** The icon picker and the colour list are not in the app's
   `AXWindows`, not in its `AXChildren`, and not under the window that opened them, so `ax-dump.py` shows nothing
   and `ax-press.py` cannot press a cell by name. Click them by position ([Method 9](#method-9)). The click that

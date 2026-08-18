@@ -120,7 +120,7 @@ let timingReadout = TimingReadout(
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
 // immediately and the app then ends without running any of it, silently.
-let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
+let quitSequence = QuitSequence(deviceEvents: deviceEvents, settings: settings, debugLog: debugLog)
 app.delegate = quitSequence
 
 // The radio, which is the app's and not the Settings window's.
@@ -163,6 +163,11 @@ let settingsWindow = SettingsWindowController(
 // **Set here rather than passed in**, because the window controller is made after the quit sequence: a connection
 // outlives the Settings window, so the app is what gives it back. See `SettingsWindowController.letGoOfTheDevice`.
 quitSequence.letGoOfTheDevice = { settingsWindow.letGoOfTheDevice() }
+// The other half of the way out: the cube is paused and then locked before the link is given back, so a device left on
+// the desk is not still counting time against whatever face was up when the app went away. Set here for the reason
+// above -- these are the app's radio, not the window's.
+quitSequence.isDeviceConnected = { radio.connectedDevice != nil }
+quitSequence.sendToTheDevice = { command, reported in radio.send(command, reported) }
 
 // What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
 //

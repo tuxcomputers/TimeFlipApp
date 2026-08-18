@@ -516,6 +516,23 @@ final class BluetoothRadio: NSObject {
     /// 5. A login on the default is the confirmation. Report it, then let go -- **that login is deliberately not a
     ///    pairing**, which is the archive's rule: the cube is now a pristine unpaired device, and treating the proof
     ///    as a pairing would leave the app holding the very thing the user asked it to give up.
+    /// Sends one command to the connected cube, and reports whether it took the write.
+    ///
+    /// **Nothing here decides what to send or what a refusal means.** The bytes are `DeviceCommandRules`' and the
+    /// sequence is the caller's, which is the same split every other part of this class keeps: the radio owns the
+    /// central manager and nothing else.
+    ///
+    /// `false` with no cube connected, rather than nothing at all. A caller waiting on a completion that never comes
+    /// is the failure mode that hangs a quit, and "there was no device" is a perfectly good answer to give it.
+    func send(_ command: Data, _ reported: @escaping (Bool) -> Void) {
+        guard connectedDevice != nil, let login else {
+            debugLog?.record(.command, "Asked to send a command with no cube connected")
+            reported(false)
+            return
+        }
+        login.send(command, then: reported)
+    }
+
     func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
         guard let id = connectedDevice, let login else {
             debugLog?.record(.pair, "Asked to reset with no cube connected")
