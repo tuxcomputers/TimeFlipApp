@@ -111,6 +111,8 @@ final class DeviceLogin: NSObject {
     /// The battery phase, which follows the Device Information one and then never ends: the subscription stays up for
     /// as long as the connection does, so the last thing this object does is go on receiving.
     private var isFollowingBattery = false
+    /// The listening phase, last of the lot, which subscribes to everything the cube can push. Also never ends.
+    private var isListening = false
     /// The characteristics asked for and not yet answered. Built from what discovery actually found rather than from
     /// the four that were asked for, so a cube missing one does not leave this waiting on a read nobody will answer.
     private var awaitingInfo: Set<CBUUID> = []
@@ -169,7 +171,7 @@ final class DeviceLogin: NSObject {
         // everything here would be several round trips spent in front of the one answer somebody is waiting for --
         // which is why Device Information is discovered separately once the verdict is out (`readDeviceInfo`), and
         // why battery will be too.
-        peripheral.discoverServices([TimeFlipUUIDs.service])
+        discoverServices([TimeFlipUUIDs.service])
     }
 
     private func finish(_ outcome: DeviceLoginOutcome) {
@@ -218,8 +220,7 @@ final class DeviceLogin: NSObject {
         if let resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
         let payload = Data([DeviceLoginRules.factoryReset])
         debugLog?.record(.pair, "Sending the factory reset command")
-        debugLog?.transmitted(payload, to: command.uuid, type: .withResponse)
-        peripheral.writeValue(payload, for: command, type: .withResponse)
+        write(payload, to: command, type: .withResponse)
     }
 
     private func finishReset(_ sent: Bool) {
@@ -254,7 +255,7 @@ final class DeviceLogin: NSObject {
         }
         if let infoDeadline { RunLoop.main.add(infoDeadline, forMode: .common) }
         debugLog?.record(.info, "Asking the cube what it is")
-        peripheral.discoverServices([TimeFlipUUIDs.deviceInformation])
+        discoverServices([TimeFlipUUIDs.deviceInformation])
     }
 
     /// Hands over what arrived, whether that is four values, some of them, or none.
@@ -317,7 +318,48 @@ final class DeviceLogin: NSObject {
     private func followBattery() {
         isFollowingBattery = true
         debugLog?.record(.battery, "Asking the cube for its charge")
-        peripheral.discoverServices([TimeFlipUUIDs.batteryService])
+        discoverServices([TimeFlipUUIDs.batteryService])
+    }
+
+    // MARK: - hearing everything else it says
+
+    /// Subscribes to every characteristic the cube can push, whether or not anything in this app reads it.
+    ///
+    /// **Because a cube can only be measured while somebody is listening.** CoreBluetooth delivers a notification
+    /// only on a characteristic that has been subscribed to, so an app that subscribes to what its features need
+    /// hears exactly what it already expected, and everything else the device volunteers is not "ignored" -- it is
+    /// never sent at all, and leaves no trace that it could have been. This app currently reads the charge and
+    /// nothing else, so without this the cube's faces, its double taps and its system state would all be invisible
+    /// until the feature that wanted them was built, at which point their behaviour would have to be discovered from
+    /// scratch. The trace is worth more than the quiet: `docs/timeflip2-firmware-observations.md` is entirely made of
+    /// things nobody set out to measure.
+    ///
+    /// **By property, not by a list of UUIDs.** Everything whose `properties` carry `.notify` is subscribed to, so a
+    /// characteristic this app has never heard of is subscribed to as well -- which is the point, and is more than a
+    /// hardcoded list could do. `TimeFlipUUIDs.name(for:)` falls back to the bare UUID, so an unnamed one in the log
+    /// is a genuine finding rather than a gap.
+    ///
+    /// **The archive subscribed to five and this subscribes to whatever there is**, which is the same instinct one
+    /// step further: it listed faces, double tap, system state, events data and battery because it had a feature for
+    /// each. What is kept is its reason for logging every arrival at the top of the delegate callback, before any
+    /// dispatch, so a value nothing handles is still recorded rather than dropped a few lines later.
+    private func listenToTheCube() {
+        guard let service = peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.service }) else { return }
+        isListening = true
+        // Everything, rather than the three the login needed: this is the phase whose job is to find out what there
+        // is, and asking for a list would be assuming the answer.
+        discoverCharacteristics(nil, of: service)
+    }
+
+    /// Subscribes to each one that says it can notify, and says so when a cube offers none.
+    private func listen(to service: CBService, error: Error?) {
+        guard error == nil else { return }
+        let pushable = (service.characteristics ?? []).filter { $0.properties.contains(.notify) }
+        guard !pushable.isEmpty else {
+            debugLog?.record(.login, "Nothing on the TimeFlip service can notify, so there is nothing to listen to")
+            return
+        }
+        for characteristic in pushable { subscribe(to: characteristic) }
     }
 
     // MARK: - the PIN this app puts on it
@@ -350,8 +392,7 @@ final class DeviceLogin: NSObject {
         // is the difference between a cube to reconnect and a cube to take the batteries out of.
         debugLog?.record(.pin, "Setting the cube's PIN to \(newPIN)")
         let payload = Data([DeviceLoginRules.setPIN]) + Data(newPIN.utf8)
-        debugLog?.transmitted(payload, to: command.uuid, type: .withResponse)
-        peripheral.writeValue(payload, for: command, type: .withResponse)
+        write(payload, to: command, type: .withResponse)
     }
 
     /// The cube's answer to `0x30`, which is read for the record and then not judged.
@@ -371,8 +412,7 @@ final class DeviceLogin: NSObject {
         step = .confirming
         debugLog?.record(.pin, "Presenting \(newPIN), so the cube has to prove it took it")
         let data = Data(newPIN.utf8)
-        debugLog?.transmitted(data, to: password.uuid, type: .withResponse)
-        peripheral.writeValue(data, for: password, type: .withResponse)
+        write(data, to: password, type: .withResponse)
     }
 
     /// The verdict on the new PIN, which is what makes it the cube's PIN as far as this app is concerned.
@@ -390,10 +430,51 @@ final class DeviceLogin: NSObject {
     }
 }
 
+
+// MARK: - talking to it
+
+/// Every request this class makes of the cube goes through one of these, and every one of them writes a `ble-tx` row
+/// on the way past.
+///
+/// **Wrappers rather than a rule to remember**, which is the difference between a trace that is complete and one that
+/// is complete until somebody adds a read. Before these existed the log held four `ble-tx` rows against twenty-two
+/// inbound ones, because writes were traced at their call sites and reads, subscriptions and discoveries were not
+/// traced at all -- so the log recorded the cube's half of a conversation whose other half was invisible.
+extension DeviceLogin {
+    func discoverServices(_ uuids: [CBUUID]) {
+        debugLog?.discovering(services: uuids)
+        peripheral.discoverServices(uuids)
+    }
+
+    /// `nil` asks for every characteristic the service has, which is what the listening phase wants: the point there
+    /// is to find whatever the cube offers, including anything the spec does not mention.
+    func discoverCharacteristics(_ uuids: [CBUUID]?, of service: CBService) {
+        debugLog?.discovering(characteristics: uuids, of: service.uuid)
+        peripheral.discoverCharacteristics(uuids, for: service)
+    }
+
+    func read(_ characteristic: CBCharacteristic) {
+        debugLog?.requested(characteristic.uuid)
+        peripheral.readValue(for: characteristic)
+    }
+
+    func subscribe(to characteristic: CBCharacteristic) {
+        debugLog?.subscribing(true, to: characteristic.uuid)
+        peripheral.setNotifyValue(true, for: characteristic)
+    }
+
+    func write(_ data: Data, to characteristic: CBCharacteristic, type: CBCharacteristicWriteType) {
+        debugLog?.transmitted(data, to: characteristic.uuid, type: type)
+        peripheral.writeValue(data, for: characteristic, type: type)
+    }
+}
+
 // `@preconcurrency`, for the reason given on `BluetoothRadio`'s conformance: the manager is created with
 // `queue: .main`, so these arrive on the main thread, and a `CBPeripheral` has no value form to carry across.
 extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        // Traced before it is acted on, like every inbound thing here.
+        debugLog?.discovered(services: peripheral.services?.map(\.uuid) ?? [], error: error)
         // The login's discovery, the Device Information one and the battery one land in the same callback, and which
         // is which is not in the arguments: `peripheral.services` accumulates, so by the third call it holds all
         // three. The phase is what tells them apart, and they are checked first so a late failure cannot be read as a
@@ -409,9 +490,10 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                         ?? "This cube has no Battery service, so there is no charge to report"
                 )
                 isFollowingBattery = false
+                listenToTheCube()
                 return
             }
-            peripheral.discoverCharacteristics([TimeFlipUUIDs.batteryLevel], for: service)
+            discoverCharacteristics([TimeFlipUUIDs.batteryLevel], of: service)
             return
         }
         if isReadingInfo {
@@ -426,7 +508,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                 reportDeviceInfo()
                 return
             }
-            peripheral.discoverCharacteristics(TimeFlipUUIDs.deviceInformationCharacteristics, for: service)
+            discoverCharacteristics(TimeFlipUUIDs.deviceInformationCharacteristics, of: service)
             return
         }
         if let error {
@@ -442,12 +524,22 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             finish(.notATimeFlip)
             return
         }
-        peripheral.discoverCharacteristics(
-            [TimeFlipUUIDs.password, TimeFlipUUIDs.commandResult, TimeFlipUUIDs.command], for: service
+        discoverCharacteristics(
+            [TimeFlipUUIDs.password, TimeFlipUUIDs.commandResult, TimeFlipUUIDs.command], of: service
         )
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        debugLog?.discovered(
+            characteristics: (service.characteristics ?? []).map(\.uuid), of: service.uuid, error: error
+        )
+        // **Before the login's branch below**, which is the one that writes a PIN: the listening phase asks the
+        // TimeFlip service for its characteristics a second time, and without this that answer would be read as a
+        // login starting over.
+        if isListening, service.uuid == TimeFlipUUIDs.service {
+            listen(to: service, error: error)
+            return
+        }
         if service.uuid == TimeFlipUUIDs.batteryService {
             guard error == nil,
                   let characteristic = service.characteristics?
@@ -459,12 +551,14 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                         ?? "The Battery service has no level characteristic"
                 )
                 isFollowingBattery = false
+                listenToTheCube()
                 return
             }
             // The pull, then the push. Both are queued on the same connection and CoreBluetooth serialises them, so
             // the order here is the order they happen: a figure now, and every change to it after that.
-            peripheral.readValue(for: characteristic)
-            peripheral.setNotifyValue(true, for: characteristic)
+            read(characteristic)
+            subscribe(to: characteristic)
+            listenToTheCube()
             return
         }
         if service.uuid == TimeFlipUUIDs.deviceInformation {
@@ -483,7 +577,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                 reportDeviceInfo()
                 return
             }
-            for characteristic in present { peripheral.readValue(for: characteristic) }
+            for characteristic in present { read(characteristic) }
             return
         }
         if let error {
@@ -516,12 +610,11 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         let data = Data(pin.utf8)
         debugLog?.record(.login, "Presenting a PIN")
-        debugLog?.transmitted(data, to: password.uuid, type: .withResponse)
         // `.withResponse`, so a write that the cube refused is distinguishable from one it took. The verdict is read
         // only once that acknowledgement arrives, since reading before the cube has processed the write is how a
         // stale command result gets mistaken for an answer.
         step = .presenting
-        peripheral.writeValue(data, for: password, type: .withResponse)
+        write(data, to: password, type: .withResponse)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -543,12 +636,15 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // Every step reads the same characteristic for its answer; what differs is where the write went.
         let awaited = step == .setting ? TimeFlipUUIDs.command : TimeFlipUUIDs.password
         guard characteristic.uuid == awaited, let commandResult else { return }
-        peripheral.readValue(for: commandResult)
+        read(commandResult)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        // Logged before anything is made of it, and logged whatever it is: a value this app has no handler for is
-        // exactly the kind of thing the trace exists to catch (see `BLETrace`).
+        // **Logged before anything is made of it, and logged whatever it is.** This is the single point every
+        // inbound byte passes through, so a value this app has no handler for is recorded here rather than dropped
+        // silently a few lines down -- which is the archive's reasoning at its own version of this line, and half of
+        // what makes the trace worth having. The other half is `listenToTheCube`: a characteristic nobody subscribed
+        // to is not ignored, it is never delivered.
         debugLog?.received(characteristic.value, from: characteristic.uuid, error: error)
         // **The one value that arrives both ways**: the read this app asked for on connecting, and every notification
         // the cube sends afterwards. They are indistinguishable here and do not need to be told apart -- a percentage
@@ -609,24 +705,17 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
     }
 
-    /// Whether the cube took the subscription.
+    /// Whether the cube took a subscription, for every characteristic and not only the ones a feature reads.
     ///
-    /// **Worth a row of its own, because a refused subscription and a cube with a steady charge look identical**:
-    /// both are silence. Without this, a battery that stopped updating would be indistinguishable from a battery that
-    /// had not moved, and the app would go on showing a figure nobody could date.
+    /// **A refused subscription and a characteristic that never changes are identical from here**: both are silence.
+    /// Without this row a charge that stopped arriving would be indistinguishable from a charge that had not moved,
+    /// and the app would go on showing a figure nobody could date.
     func peripheral(
         _ peripheral: CBPeripheral,
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        guard characteristic.uuid == TimeFlipUUIDs.batteryLevel else { return }
-        debugLog?.record(
-            .battery,
-            error.map { "The cube refused the charge subscription: \($0.localizedDescription)" }
-                ?? (characteristic.isNotifying
-                    ? "Subscribed to the charge; the cube reports it when it changes"
-                    : "The charge subscription is off")
-        )
+        debugLog?.notifying(characteristic.uuid, isNotifying: characteristic.isNotifying, error: error)
     }
 
     /// Traffic that arrives once the login is over: a notification the cube sent unasked, or a read some later

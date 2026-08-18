@@ -6,6 +6,10 @@ import CoreBluetooth
 /// about behaviour nobody has checked. The rest arrive with the feature that uses them, which is what the Device
 /// Information four below are: they were not here until a tab wanted them on screen.
 ///
+/// **Listening counts as talking to one.** The app subscribes to every characteristic that says it can notify, so
+/// five the cube pushes on are named here with no feature reading them yet -- see their own note for why a name is
+/// not a claim.
+///
 /// Each is a computed property rather than a `static let`: `CBUUID` is a class and is not `Sendable`, so held as a
 /// stored global it is shared mutable state and the compiler refuses it. The strings are the constants.
 enum TimeFlipUUIDs {
@@ -13,6 +17,23 @@ enum TimeFlipUUIDs {
     static let commandResultString = "F1196F53-71A4-11E6-BDF4-0800200C9A66"
     static let commandString = "F1196F54-71A4-11E6-BDF4-0800200C9A66"
     static let passwordString = "F1196F57-71A4-11E6-BDF4-0800200C9A66"
+
+    /// The five the cube pushes on, from `docs/TimeFlip2 BLE Protocol v4.3.md` Tab. 1.
+    ///
+    /// **Nothing here reads any of them, and they are still named**, which is the one exception to this file's rule
+    /// above and has its own reason. `DeviceLogin.listenToTheCube` subscribes to everything whose properties say it
+    /// can notify, so the app *does* talk to these -- it listens to them -- and every value they push is a `ble-rx`
+    /// row. Without a name each of those rows would be a bare 128-bit UUID, which is a trace nobody can read at a
+    /// glance and exactly the state finding 3 was found in.
+    ///
+    /// **They are names, not claims about behaviour.** The subscription is driven by the characteristic's own
+    /// properties rather than by this list, so a cube offering something not named here is still subscribed to and
+    /// still logged, under its bare UUID -- which the trace treats as a finding rather than as noise.
+    static let eventsDataString = "F1196F51-71A4-11E6-BDF4-0800200C9A66"
+    static let facesString = "F1196F52-71A4-11E6-BDF4-0800200C9A66"
+    static let doubleTapString = "F1196F55-71A4-11E6-BDF4-0800200C9A66"
+    static let systemStateString = "F1196F56-71A4-11E6-BDF4-0800200C9A66"
+    static let historyString = "F1196F58-71A4-11E6-BDF4-0800200C9A66"
 
     /// The standard Device Information service and the four strings the Device tab's **More** rows show.
     ///
@@ -95,6 +116,11 @@ enum TimeFlipUUIDs {
         case firmwareRevision: return "firmwareRevision"
         case batteryService: return "batteryService"
         case batteryLevel: return "batteryLevel"
+        case CBUUID(string: eventsDataString): return "eventsData"
+        case CBUUID(string: facesString): return "faces"
+        case CBUUID(string: doubleTapString): return "doubleTap"
+        case CBUUID(string: systemStateString): return "systemState"
+        case CBUUID(string: historyString): return "history"
         default: return uuid.uuidString
         }
     }

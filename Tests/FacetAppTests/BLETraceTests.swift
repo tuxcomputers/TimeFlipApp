@@ -48,7 +48,25 @@ final class BLETraceTests: XCTestCase {
         XCTAssertEqual(TimeFlipUUIDs.name(for: TimeFlipUUIDs.password), "password")
         XCTAssertEqual(TimeFlipUUIDs.name(for: TimeFlipUUIDs.commandResult), "commandResult")
 
-        let unhandled = CBUUID(string: "F1196F55-71A4-11E6-BDF4-0800200C9A66")
+        // **Not one of the cube's own any more.** This used to be the double-tap characteristic, which was the
+        // obvious example of something the app never touched -- and it is now subscribed to and named, along with the
+        // other four the cube pushes on, so the trace can be read without a spec open beside it. Anything genuinely
+        // unknown still falls back to its UUID, which is the behaviour this asserts.
+        let unhandled = CBUUID(string: "F1196FFF-71A4-11E6-BDF4-0800200C9A66")
         XCTAssertEqual(TimeFlipUUIDs.name(for: unhandled), unhandled.uuidString)
+    }
+
+    func testEverythingTheCubePushesOnIsNamed() {
+        // Nothing in the app reads any of these yet. They are named because `DeviceLogin.listenToTheCube` subscribes
+        // to them, so their values land in the trace, and a row that reads `F1196F52-...: 02` is a row nobody skims.
+        for (string, name) in [
+            (TimeFlipUUIDs.eventsDataString, "eventsData"),
+            (TimeFlipUUIDs.facesString, "faces"),
+            (TimeFlipUUIDs.doubleTapString, "doubleTap"),
+            (TimeFlipUUIDs.systemStateString, "systemState"),
+            (TimeFlipUUIDs.historyString, "history"),
+        ] {
+            XCTAssertEqual(TimeFlipUUIDs.name(for: CBUUID(string: string)), name)
+        }
     }
 }

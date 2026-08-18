@@ -58,7 +58,31 @@ expect_log "and the cube answers, so there is a figure without waiting for it to
 # The subscription is logged separately because a refused one and a steady charge are both silence: without this row
 # there is no way to tell a cube that stopped reporting from a cube with nothing to report.
 
-expect_log "and subscribes, so the cube reports every change by itself" "$since" "Subscribed to the charge%" 30
+expect_log "and subscribes, so the cube reports every change by itself" "$since" "batteryLevel: notifying" 30
+
+# ---------------------------------------------------------------------------- and everything else it can push
+#
+# **The app reads the charge and nothing else, and it listens to all of it.** A notification is only delivered on a
+# characteristic that has been subscribed to, so anything not subscribed to is not ignored -- it is never sent, and
+# leaves no evidence it could have been. `DeviceLogin.listenToTheCube` therefore subscribes to every characteristic
+# whose properties say it can notify, which is what puts the cube's faces, its double taps and its system state in the
+# trace years before a feature reads them.
+#
+# Counted rather than named, since what there is to subscribe to is the cube's answer and not this script's list.
+
+asked=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE '%notify on requested';")
+took=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message LIKE '%: notifying';")
+grey "  asked for $asked subscription(s), the cube took $took"
+
+if [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ]; then
+    pass "every characteristic the cube can push on is subscribed to, not only the one a feature reads"
+else
+    fail "asked for $asked subscription(s) and $took were confirmed"
+fi
+
+check_contains "and the trace names what the service actually has" \
+    "$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'timeFlipService: characteristics%' ORDER BY debug_log_id DESC LIMIT 1;")" \
+    "characteristics"
 
 # ---------------------------------------------------------------------------- what the tab says
 #
@@ -84,7 +108,7 @@ fi
 # produces one of each and proves nothing by volume: **the figure on show never climbs by one.** A rise of a single
 # percent is what the flap is made of, so any increase here has to be two or more.
 
-raw=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message LIKE '%batteryLevel%';")
+raw=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message GLOB 'batteryLevel: [0-9A-F][0-9A-F]*';")
 answers=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %';")
 grey "  the cube reported $raw time(s); the figure on show moved $answers time(s)"
 
