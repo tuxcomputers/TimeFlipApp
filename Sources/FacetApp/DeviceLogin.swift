@@ -381,11 +381,16 @@ final class DeviceLogin: NSObject {
     private func answered(_ value: Data?) {
         let status = DeviceCommandRules.status(from: value)
         guard let readBack = pendingReadBack else {
-            debugLog?.record(
-                .command,
-                status.map { "The cube is \($0.isLocked ? "locked" : "unlocked") and \($0.isPaused ? "paused" : "running")" }
-                    ?? "That was not an answer about the cube's state"
-            )
+            // **What the cube is does not get written down here**, though this is where the bytes are read. Saying it
+            // is `BluetoothRadio.received(status:)`'s job and only its job: it holds the answer, and it records it
+            // only when it is news. Both of us said it for a while, so one ask produced two identical rows and a log
+            // read as though the cube had been asked twice.
+            //
+            // What is left is the case the radio never hears about. An answer that was not one reports no status at
+            // all, so nothing downstream would mention it, and a question that went unanswered is worth a row.
+            if status == nil {
+                debugLog?.record(.command, "That was not an answer about the cube's state")
+            }
             finishExchange(took: status != nil, status: status)
             return
         }
