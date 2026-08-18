@@ -17,6 +17,11 @@ final class SettingsWindowControllerTests: XCTestCase {
         SettingsWindowController(debugLog: nil, categories: nil, faces: nil)
     }
 
+    /// The App tab's pane, whichever tab is on show. Found the way the controller finds it.
+    private func appPane(in controller: SettingsWindowController) -> AppSettingsPane? {
+        controller.panes.tabViewItems.compactMap { $0.view as? AppSettingsPane }.first
+    }
+
     func testTheBarHasOneSegmentPerTab() {
         let bar = controller().tabBar
 
@@ -93,5 +98,33 @@ final class SettingsWindowControllerTests: XCTestCase {
             controller.panes.tabViewItems[faces].view is FacesPane,
             "the pane built for a tab has to be the one that tab is for"
         )
+    }
+
+    // MARK: - what a written setting has to reach
+
+    func testChangingTheWarningLevelTellsTheLowBatteryWatch() throws {
+        // **The one path nothing else covers.** `LowBatteryWatchTests` proves the watch re-judges when asked, and
+        // `AppSettingsPaneTests` proves the field reports a change; this is the join between them, and without it
+        // raising the level against a steady cube would look like a control that did nothing -- for as long as the
+        // charge held, which the measurements put at over an hour.
+        let database = TemporaryDatabase()
+        try database.bootstrap()
+        let settings = SettingStore(connection: database.connection())
+        defer { database.remove() }
+
+        // A cube sitting at 15%: above the seeded warning level of 10, so nothing is wrong yet.
+        let watch = LowBatteryWatch(level: { 15 }, settings: settings, debugLog: nil)
+        defer { watch.stop() }
+        let controller = SettingsWindowController(
+            debugLog: nil, categories: nil, faces: nil, settings: settings, lowBattery: watch
+        )
+        controller.select(.app)
+        let pane = try XCTUnwrap(appPane(in: controller))
+        XCTAssertFalse(watch.alert.isLow, "precondition: 15% is not low while the level is the seeded 10%")
+
+        pane.onChange?(.batteryWarningPercent(20))
+
+        XCTAssertEqual(settings.integer("low_battery_level", field: "percent"), 20, "the row has to be written first")
+        XCTAssertTrue(watch.alert.isLow, "the warning was never told that what counts as low had moved")
     }
 }

@@ -224,6 +224,16 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title(.idle, lowBattery: flashOff).nameColour, .labelColor)
     }
 
+    func testEachPhaseIsADifferentTitle() {
+        // What makes the item actually repaint: `MenuBarController` draws only when the title differs from the last
+        // one it drew, so a flash that produced an equal title twice would be a warning that never blinks.
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        XCTAssertNotEqual(title(reading, lowBattery: flashOn), title(reading, lowBattery: flashOff))
+        XCTAssertNotEqual(title(reading, lowBattery: flashOff), title(reading))
+        XCTAssertNotEqual(title(.idle, lowBattery: flashOn), title(.idle, lowBattery: flashOff))
+    }
+
     func testTheWarningIsSaidAloudAndNotOnlyFlashed() {
         // A colour is the whole of the signal on screen. Said on both phases, because the warning stands whichever
         // half of the flash the item happens to be drawing.
