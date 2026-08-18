@@ -20,16 +20,21 @@ final class StatusItemTitleTests: XCTestCase {
         _ reading: TimingReadout.Reading,
         showingSeconds: Bool = true,
         badge: String? = nil,
-        isLimitReached: Bool = false
+        isLimitReached: Bool = false,
+        lowBattery: LowBatteryAlert = .none
     ) -> StatusItemTitle {
         StatusItemTitle.make(
             appLabel: appLabel,
             badgeDescription: badge,
             reading: reading,
             showingSeconds: showingSeconds,
-            isLimitReached: isLimitReached
+            isLimitReached: isLimitReached,
+            lowBattery: lowBattery
         )
     }
+
+    private let flashOn = LowBatteryAlert(isLow: true, isBlinkOn: true)
+    private let flashOff = LowBatteryAlert(isLow: true, isBlinkOn: false)
 
     // MARK: - a category over its daily limit
 
@@ -172,5 +177,71 @@ final class StatusItemTitleTests: XCTestCase {
         // The state the app sits in before anything is timed, which is exactly when somebody is most likely to be
         // wondering which database this launch opened.
         XCTAssertEqual(title(.idle, badge: "test database").spoken, "Facet, test database")
+    }
+
+    // MARK: - a cube running out of charge
+
+    func testTheNameAlternatesWhileTheCubeIsFlat() {
+        // The archive's flash, on the archive's half of the line: red on one phase, and the ordinary text colour on
+        // the other rather than its `.white`, which against a light menu bar is a name that vanishes rather than one
+        // that flashes.
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        XCTAssertEqual(title(reading, lowBattery: flashOn).nameColour, .systemRed)
+        XCTAssertEqual(title(reading, lowBattery: flashOff).nameColour, .labelColor)
+    }
+
+    func testTheFigureBesideItDoesNotFlash() {
+        // Only the name and its icon alternate. The figure is a clock somebody reads, and a duration changing colour
+        // twice a second is hardest to read at the exact moment the app is asking for attention.
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        for phase in [flashOn, flashOff] {
+            XCTAssertEqual(title(reading, lowBattery: phase).colour, .systemGreen)
+        }
+    }
+
+    func testAHealthyCubeLeavesTheNameTheColourOfTheLine() {
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        XCTAssertEqual(title(reading).nameColour, title(reading).colour)
+        XCTAssertEqual(title(reading, isLimitReached: true).nameColour, .systemRed)
+    }
+
+    func testTheFlashIsVisibleAgainstAnOverLimitLine() {
+        // Both states at once, which is the case a single colour cannot show: the line is already red for the limit,
+        // so a flash that alternated red with red would not be a flash at all.
+        let reading = TimingReadout.Reading(category: category(), state: .paused, seconds: 3600)
+
+        XCTAssertEqual(title(reading, isLimitReached: true, lowBattery: flashOn).nameColour, .systemRed)
+        XCTAssertEqual(title(reading, isLimitReached: true, lowBattery: flashOff).nameColour, .labelColor)
+    }
+
+    func testTheWarningFlashesOnTheAppNameWhileNothingIsTimed() {
+        // A flat cube is a fact about the device rather than about the session, and the moment somebody is most
+        // likely to miss it is the moment nothing is running.
+        XCTAssertEqual(title(.idle, lowBattery: flashOn).nameColour, .systemRed)
+        XCTAssertEqual(title(.idle, lowBattery: flashOff).nameColour, .labelColor)
+    }
+
+    func testEachPhaseIsADifferentTitle() {
+        // What makes the item actually repaint: `MenuBarController` draws only when the title differs from the last
+        // one it drew, so a flash that produced an equal title twice would be a warning that never blinks.
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        XCTAssertNotEqual(title(reading, lowBattery: flashOn), title(reading, lowBattery: flashOff))
+        XCTAssertNotEqual(title(reading, lowBattery: flashOff), title(reading))
+        XCTAssertNotEqual(title(.idle, lowBattery: flashOn), title(.idle, lowBattery: flashOff))
+    }
+
+    func testTheWarningIsSaidAloudAndNotOnlyFlashed() {
+        // A colour is the whole of the signal on screen. Said on both phases, because the warning stands whichever
+        // half of the flash the item happens to be drawing.
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        XCTAssertTrue(title(reading, lowBattery: flashOn).spoken.contains("low battery"))
+        XCTAssertTrue(title(reading, lowBattery: flashOff).spoken.contains("low battery"))
+        XCTAssertTrue(title(.idle, lowBattery: flashOn).spoken.contains("low battery"))
+        XCTAssertFalse(title(reading).spoken.contains("low battery"))
     }
 }

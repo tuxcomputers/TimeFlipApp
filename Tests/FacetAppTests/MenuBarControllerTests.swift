@@ -162,13 +162,17 @@ final class MenuBarControllerTests: XCTestCase {
     /// What an image in a line of text comes back as when the string is read as plain text.
     private let attachment = "\u{FFFC}"
 
-    private func title(_ controller: MenuBarController) -> NSAttributedString {
+    private func title(
+        _ controller: MenuBarController,
+        lowBattery: LowBatteryAlert = .none
+    ) -> NSAttributedString {
         controller.makeTitle(
             StatusItemTitle.make(
                 appLabel: "Facet",
                 badgeDescription: nil,
                 reading: reading,
-                showingSeconds: true
+                showingSeconds: true,
+                lowBattery: lowBattery
             )
         )
     }
@@ -237,6 +241,35 @@ final class MenuBarControllerTests: XCTestCase {
         reading = .idle
 
         XCTAssertEqual(colour(of: "Facet", in: title(controller())), .labelColor)
+    }
+
+    func testAFlatCubeFlashesTheNameAndLeavesTheClockAlone() {
+        // Where the warning actually reaches the screen. `StatusItemTitleTests` pins which colours are chosen; this
+        // pins that the drawing applies them to the right stretch of the line -- the name and its icon alternate,
+        // and the figure beside them stays the colour it was, being a clock somebody is reading.
+        reading = TimingReadout.Reading(
+            category: CategoryRecord(
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+            ),
+            state: .running,
+            seconds: 30
+        )
+        let flashing = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: true))
+        let between = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: false))
+
+        XCTAssertEqual(colour(of: "Meeting", in: flashing), .systemRed)
+        XCTAssertEqual(colour(of: "0:00:30", in: flashing), .systemGreen)
+        XCTAssertEqual(colour(of: "Meeting", in: between), .labelColor)
+        XCTAssertEqual(colour(of: "0:00:30", in: between), .systemGreen)
+    }
+
+    func testTheAppsNameFlashesWhenThereIsNoSessionToFlash() {
+        reading = .idle
+
+        XCTAssertEqual(
+            colour(of: "Facet", in: title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: true))),
+            .systemRed
+        )
     }
 
     func testACategoryWithNoIconDrawsOneAttachmentRatherThanTwo() {

@@ -107,6 +107,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// collaborator it does not own.
     private weak var manualMode: ManualMode?
 
+    /// The low-battery warning, which this window feeds and one of whose two surfaces it draws.
+    ///
+    /// **Fed rather than owned**, and not held as a value: it is asked to think again whenever a reading arrives, a
+    /// link goes, or the warning level itself is written, and what it decides is asked for at the moment the Battery
+    /// row is painted. The menu bar reads the same object, which is what keeps the two flashing together.
+    private weak var lowBattery: LowBatteryWatch?
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
@@ -146,7 +153,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         colours: ColourStore? = nil,
         settings: SettingStore? = nil,
         manualMode: ManualMode? = nil,
-        radio: BluetoothRadio? = nil
+        radio: BluetoothRadio? = nil,
+        lowBattery: LowBatteryWatch? = nil
     ) {
         self.debugLog = debugLog
         self.categories = categories
@@ -158,6 +166,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.colours = colours
         self.settings = settings
         self.manualMode = manualMode
+        self.lowBattery = lowBattery
         super.init()
         // After `super.init()`, because installing the radio's callbacks captures `self`.
         if let radio { adopt(radio) }
@@ -209,6 +218,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // typed, they are facts that move underneath this window, and showing what was true when it opened is
             // exactly the two-answers problem `CLAUDE.md` exists for.
             pane.show(deviceSettings())
+            // A tab opened part way through a warning starts on the phase the menu bar is on, rather than waiting up
+            // to half a second to find out there is one.
+            pane.showLowBattery(lowBattery?.alert ?? .none)
 
         default:
             break
@@ -456,6 +468,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         radio.onDeviceInfo = { [weak self] _, info in
             self?.recordDeviceInfo(on: self?.devicePane, info)
         }
+        // **Nothing is written down**, which makes this the one radio callback that files nothing: the charge has no
+        // row and is not going to get one (see `deviceSettings`). What it does is tell the warning to think again --
+        // which happens whether or not anybody has this window open, because the flash the warning drives is in the
+        // menu bar -- and then redraw the tab if somebody is looking.
+        radio.onBatteryLevel = { [weak self] _, _ in
+            guard let self else { return }
+            self.lowBattery?.reconsider(because: "a charge arrived")
+            self.devicePane?.show(self.deviceSettings())
+        }
         radio.onConnectionDropped = { [weak self, weak radio] id in
             guard let self, let radio else { return }
             // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out of
@@ -468,6 +489,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // succeeded before the drop was written down would leave `connected` false under a live link.
             self.reconnect?.noteDropped()
         }
+    }
+
+    /// Repaints the Device tab's Battery row on the phase the warning is now on.
+    ///
+    /// Called from `LowBatteryWatch` twice a second while a warning is up, and once more when it clears. Does nothing
+    /// when the tab is not on show, which is most of the time and not a failure: the row is painted from the same
+    /// answer when the tab is next opened.
+    func redrawLowBattery() {
+        devicePane?.showLowBattery(lowBattery?.alert ?? .none)
     }
 
     /// Writes a confirmed pairing down and puts what the table now says back on the tab.
@@ -596,12 +626,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// Each row falls back to what a fresh database would have seeded, for the reason `appSettings()` gives:
     /// `SettingStore` answers `nil` for a missing or malformed row and refuses to guess what absence means.
     ///
-    /// **The battery level has no row to read and arrives `nil` every time**, deliberately: a level is a number that
-    /// was true at a moment nobody can name, so a remembered one would be presented as a reading. The four strings
-    /// beside it in the More rows are the opposite case and now have a row of their own -- what a cube *is* does not
-    /// go stale between connections the way what it is *doing* does -- and they are greyed rather than hidden while
-    /// nothing is connected, which is the same distinction drawn in colour instead of in words. `DeviceInfoRules` is
-    /// what turns an absence into words rather than blanks either way.
+    /// **The battery level has no row to read, and is asked of the radio instead**: it is a fact about the live
+    /// connection rather than about the app's setup, so it is read from the thing that holds the connection at the
+    /// moment the tab is drawn, and it is `nil` the instant there is no cube on the other end. Storing it was never
+    /// on -- a remembered level is a number that was true at a moment nobody can name, and it would be presented as a
+    /// reading. The four strings beside it in the More rows are the opposite case and have a row of their own -- what
+    /// a cube *is* does not go stale between connections the way what it is *doing* does -- and they are greyed rather
+    /// than hidden while nothing is connected, which is the same distinction drawn in colour instead of in words.
+    /// `DeviceInfoRules` is what turns an absence into words rather than blanks either way.
     ///
     /// **Manual mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
     /// rule's own reasoning: `ManualMode` is in memory on purpose, describing what this launch is doing rather than
@@ -614,7 +646,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             isConnected: settings.flag("connection", field: "connected") ?? seeded.isConnected,
             isManualMode: manualMode?.isOn ?? seeded.isManualMode,
             deviceName: settings.string("device_name", field: "name"),
-            batteryPercent: nil,
+            batteryPercent: radio?.batteryPercent,
             manufacturer: settings.string("device_info", field: "manufacturer"),
             model: settings.string("device_info", field: "model"),
             hardware: settings.string("device_info", field: "hardware"),
@@ -711,6 +743,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         pane.adopt(change)
+        // **What counts as low has just moved, so the warning is asked again now.** Nothing else would ask it: the
+        // warning is worked out when a reading arrives, and a cube whose charge is steady may not report one for over
+        // an hour -- so somebody raising the level from 10 to 20 with a cube sitting at 15 would watch a control that
+        // appeared to do nothing. It reads `low_battery_level` itself, at that moment, which is why this tells it to
+        // think again rather than telling it what was written.
+        if case .batteryWarningPercent = change {
+            lowBattery?.reconsider(because: "the warning level changed")
+        }
         // The status item draws from settings too -- `display_seconds` decides whether its figure carries them -- and
         // it repaints on a tick that only runs while something is being timed. So a setting changed against a paused
         // session would be stored and not shown, which reads as a control that did nothing. Measured, on a paused

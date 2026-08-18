@@ -109,6 +109,11 @@ final class MenuBarController: NSObject {
     /// would grey the wrong thing.
     private let isLimitReached: () -> Bool
 
+    /// Whether the cube is flat, and which half of the flash is up. **Asked per draw like everything else here**, and
+    /// what makes the draws happen is `LowBatteryWatch.onChanged`, which fires on every phase: this class owns no
+    /// blink of its own, so the item and the Device tab's Battery row cannot come to flash out of step.
+    private let lowBattery: () -> LowBatteryAlert
+
     /// `nil` in a build without the dev flag, which is the whole of how logging is switched off here.
     private let debugLog: DebugLog?
 
@@ -129,7 +134,8 @@ final class MenuBarController: NSObject {
         timing: @escaping () -> TimingReadout.Reading = { .idle },
         showingSeconds: @escaping () -> Bool = { true },
         togglePause: @escaping () -> Void = {},
-        isLimitReached: @escaping () -> Bool = { false }
+        isLimitReached: @escaping () -> Bool = { false },
+        lowBattery: @escaping () -> LowBatteryAlert = { .none }
     ) {
         self.databaseBadge = databaseBadge
         self.debugLog = debugLog
@@ -138,6 +144,7 @@ final class MenuBarController: NSObject {
         self.showingSeconds = showingSeconds
         self.togglePause = togglePause
         self.isLimitReached = isLimitReached
+        self.lowBattery = lowBattery
         super.init()
     }
 
@@ -176,7 +183,10 @@ final class MenuBarController: NSObject {
             showingSeconds: showingSeconds(),
             // Asked per draw, like everything else here: the limit lands part way through a session, so a copy taken
             // when the item was built would go on drawing green through the one state the colour exists to warn about.
-            isLimitReached: isLimitReached()
+            isLimitReached: isLimitReached(),
+            // Likewise per draw, and the reason is sharper still: this changes twice a second while it is up, so a
+            // copy taken anywhere other than here would be a flash frozen on one of its two phases.
+            lowBattery: lowBattery()
         )
         if title != lastDrawn {
             let drawn = makeTitle(title)
@@ -215,8 +225,10 @@ final class MenuBarController: NSObject {
     /// Internal so the order can be asserted without putting a real item in the menu bar.
     func makeTitle(_ parts: StatusItemTitle) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        // One colour for the whole line, images included, and `StatusItemTitle`'s to choose.
+        // One colour for the line and one for the category's name and icon, both `StatusItemTitle`'s to choose. The
+        // two differ only while the cube is flat, which is when the name flashes and the figure beside it does not.
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour]
+        let named: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.nameColour]
         let title = NSMutableAttributedString()
         if let databaseBadge {
             title.append(NSAttributedString(
@@ -235,10 +247,10 @@ final class MenuBarController: NSObject {
         // against a dark menu bar and Peach `#ffdab9` against a light one. The `white_lines` column exists because
         // half of these colours cannot be read against an arbitrary background.
         if let iconName = parts.iconName, let icon = ActivityIcon.image(named: iconName, pointSize: size) {
-            title.append(attachment(of: icon, colour: parts.colour, size: size, font: font))
+            title.append(attachment(of: icon, colour: parts.nameColour, size: size, font: font))
             title.append(NSAttributedString(string: " ", attributes: plain))
         }
-        title.append(NSAttributedString(string: parts.text, attributes: plain))
+        title.append(NSAttributedString(string: parts.text, attributes: named))
         if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
             title.append(NSAttributedString(string: " ", attributes: plain))
             title.append(attachment(of: glyph, colour: parts.colour, size: size, font: font))

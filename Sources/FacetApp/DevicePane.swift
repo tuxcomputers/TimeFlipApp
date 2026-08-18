@@ -66,8 +66,6 @@ final class DevicePane: NSView {
         static let rowPadding: CGFloat = 11
         static let minimumRowHeight: CGFloat = 38
         static let separatorHeight: CGFloat = 1
-        /// The auto-pause field, wide enough for the three digits its ceiling needs.
-        static let numberWidth: CGFloat = 90
     }
 
     /// What the tables say, at the moment the tab was shown.
@@ -121,6 +119,9 @@ final class DevicePane: NSView {
     }
 
     private(set) var values: Values = .seeded
+
+    /// Which half of the low-battery flash the Battery row is currently drawing. See `showLowBattery`.
+    private var lowBattery = LowBatteryAlert.none
 
     private var nameValue: NSTextField!
     private var connectionValue: NSTextField!
@@ -209,6 +210,9 @@ final class DevicePane: NSView {
         for field in [nameValue, connectionValue, batteryValue, manufacturerValue, modelValue, hardwareValue, firmwareValue] {
             field?.textColor = live ? .labelColor : .secondaryLabelColor
         }
+        // After the greying, because the warning outranks it: the loop above has just painted the Battery row the same
+        // colour as everything beside it, and a flat cube is the one row that must not read like the rest.
+        paintBattery()
 
         // **The TimeFlip section's controls, swapped on the pairing.** Exactly one set is up at a time: looking for a
         // cube is what an app with no cube does, and once there is one the section is about managing it instead. Both
@@ -242,6 +246,27 @@ final class DevicePane: NSView {
         doubleTapValues[Identifier.doubleTapLimit]?.stringValue = "\(values.doubleTapLimit)"
         doubleTapValues[Identifier.doubleTapLatency]?.stringValue = "\(values.doubleTapLatency)"
         doubleTapValues[Identifier.doubleTapWindow]?.stringValue = "\(values.doubleTapWindow)"
+    }
+
+    /// Flashes the Battery row while the cube is flat, in step with the menu bar.
+    ///
+    /// **Told, not worked out here**, and told by the one object that owns the warning (`LowBatteryWatch`): the row
+    /// and the status item flash together, which is only true if one thing decides when. A pane that ran its own
+    /// timer would drift out of step within seconds of opening.
+    ///
+    /// The alert is held rather than read because it is not a value the tab shows -- it is which half of a flash is
+    /// currently up, told twice a second -- and `show(_:)` repaints from it so a redraw part way through a flash
+    /// does not land on the wrong phase.
+    func showLowBattery(_ alert: LowBatteryAlert) {
+        guard alert != lowBattery else { return }
+        lowBattery = alert
+        paintBattery()
+    }
+
+    private func paintBattery() {
+        guard let batteryValue else { return }
+        let live = DeviceInfoRules.isLive(isConnected: values.isConnected)
+        batteryValue.textColor = lowBattery.isBlinkOn ? .systemRed : (live ? .labelColor : .secondaryLabelColor)
     }
 
     // MARK: - the sections
@@ -349,10 +374,15 @@ final class DevicePane: NSView {
         // **Its label states the ceiling**, which is the archive's wording kept as it stands: 240 minutes is the
         // device's own limit (command 0x05), and a number the cube would refuse is worth naming before it is typed
         // rather than after. 0 disables it, which is the vendor protocol's own disabled-by-default behaviour.
+        //
+        // **It is given no width here**, which is what makes this row read like the App tab's four.
+        // `SteppedNumberField.Layout.fieldWidth` is the one number that sizes every stepped field in the app, and a
+        // width set from outside is not a second opinion about the box -- it is a cap on the whole control, box,
+        // unit and arrows together. At 90 it was capping the lot at the width of the box alone, which is why this
+        // one field came out narrower than the others and its arrows sat where nobody else's did.
         autoPauseField = SteppedNumberField(
             value: values.autoPauseMinutes, range: 0...240, suffix: "min", identifier: Identifier.autoPause
         )
-        autoPauseField.widthAnchor.constraint(equalToConstant: Layout.numberWidth).isActive = true
 
         ledBrightnessValue = value(identifier: Identifier.ledBrightness)
         ledBlinkValue = value(identifier: Identifier.ledBlink)

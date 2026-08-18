@@ -4,19 +4,21 @@ Behaviour measured on real hardware that the vendor spec does not describe, and 
 
 This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
-**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
+**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Finding 7 is older traffic from the same cube, 2026-07-28 to 2026-08-14, recorded by the archived app rather than this one. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
 
 ## The evidence file
 
 [`timeflip2-firmware-evidence.sqlite`](timeflip2-firmware-evidence.sqlite) sits beside this document and holds the debug log rows every claim below rests on. Every row id quoted here is a row in it.
 
-671 rows in one `debug_log` table, carrying the source database's original `debug_log_id` values and timestamps, so ordering by id is true chronological order (verified: no row's timestamp precedes the row before it). It covers the rename history across the whole test session **plus one complete, unedited BLE trace** of a connect-and-rename from id 6716, so the acknowledgement claims can be checked against a full sequence rather than a flattering selection.
+753 rows in one `debug_log` table, carrying the source database's original `debug_log_id` values and timestamps, so ordering by id is true chronological order (verified: no row's timestamp precedes the row before it). It covers the rename history across the whole test session **plus one complete, unedited BLE trace** of a connect-and-rename from id 6716, so the acknowledgement claims can be checked against a full sequence rather than a flattering selection.
 
 Rows 356 to 379 are finding 4, added on 2026-08-17 from a scripted run: the whole of two login attempts, both PINs and both answers, unedited. They come from the test database, which every run rebuilds from the DDL -- so without copying them here the evidence for that finding would have been destroyed by the next run.
 
 Rows 309 to 319 are finding 5, added the same day from a driven run, and copied for the same reason: the accepted login, the pairing it wrote, and the four Device Information reads that followed, with the raw bytes of each.
 
 Rows 340 to 356 and 384 to 399 are finding 6, from the same day: the `0xFF` write and its acknowledgement, the silence that followed it, and then the login two minutes later that proves the wipe took by being accepted on the vendor PIN. The gap between rows 355 and 356 is the finding — nothing was written in it because nothing happened.
+
+Rows 14520 to 14534 and 19557 to 19580 are finding 7, and they are the odd ones out here: they come from the **archived app's own production database**, not from a scripted run of this one, because the charge is the one thing the rebuild had never read at the time the finding was written. Both stretches are unedited runs of consecutive ids. The first is a connect sequence with the battery read inside it; the second is seven minutes in which nothing was asked for and values arrived anyway.
 
 ```
 sqlite3 docs/timeflip2-firmware-evidence.sqlite \
@@ -32,6 +34,9 @@ sqlite3 docs/timeflip2-firmware-evidence.sqlite \
 | `scan` | one scanned advertisement: both names it carried, and the name being searched for |
 | `device-name` | the name read on connect, and the name the device later reported |
 | `login` | reaching a cube and presenting a PIN: each attempt, and what the cube made of it |
+| `battery` | the charge, as the archived app recorded every reading it received |
+| `conn-phase` | how long a step of the archived app's connect sequence took |
+| `hist-*` | its history fetches, which are the only other traffic in the quiet window of finding 7 |
 
 Checked in deliberately, at 60 KB. These measurements cost an evening of device time and several wrong conclusions along the way, and a claim about firmware behaviour is worth little without the trace behind it.
 
@@ -216,6 +221,53 @@ Measured twice on the fixed code, both times by presenting the vendor PIN every 
 So the cube goes on answering the *old* PIN for several seconds after acknowledging the reset — it is not erased when the write returns, and it does not stop answering while it erases. A single confirmation attempt, however well timed, would have failed both runs and reported a wipe that had in fact happened. The retry loop is the feature, not a safety net.
 
 **What is still not known** is whether the cube reboots at all, or merely erases in place. Nothing observable here distinguishes them: no disconnect, and the app was not watching the System State characteristic (`F1196F56`), which is where the archive says a `0x01 0x00` notification would appear if one does.
+
+## 7. The battery level is pushed only when it changes, and it changes constantly
+
+Battery Level (`0x2A19`) is listed in the spec as read and notify, with nothing said about when a notification arrives. Measured across eleven days of the archived app's own BLE trace (2026-08-02 to 2026-08-13, the same cube), it is **on change, and only on change**:
+
+| | | |
+|---|---|---|
+| Values that answered a read the app made | 13 | 10 of them repeated the level already held |
+| Values the cube volunteered | 2,834 | **none** repeated the level already held |
+
+Not one unsolicited value in 2,834 restated something the host already knew, so a notification *is* a change. The ten repeats are all on the other line, and they are what a read is for: a cube asked at the start of a connection usually answers with the same level it had at the end of the last one. The three that did not are the charge having moved while the app was away.
+
+The counts come from replaying the trace rather than from a single query, since a value has to be attributed to a read or to the cube by what preceded it. The rows themselves:
+
+```sql
+SELECT COUNT(*) FROM debug_log WHERE tag='ble-tx' AND message = 'read request batteryLevel';
+SELECT COUNT(*) FROM debug_log WHERE tag='ble-rx' AND message LIKE 'batteryLevel -> %';
+```
+
+**Match the value rows exactly.** `LIKE '%atteryLevel%'` also matches the discovery and subscription rows the trace writes once per connection (`characteristics on batteryService: batteryLevel`, `notify on batteryLevel`), which is 26 rows that are not readings and which inflated this table's first draft.
+
+**So a subscription alone is not enough.** Rows 14520 to 14534 are why: a connect sequence in which the app reads the level (`14528`, answered at `14529` with `63`, which is hex for 99%). Without that read, a freshly connected app has no figure at all until the charge next moves, and the gaps between moves ran to over an hour. Reading once on connecting and subscribing afterwards is what covers both.
+
+### The level dithers across one percent, and each waver is a notification
+
+Rows 19557 to 19580, seven minutes of an ordinary connected session. The only thing the app asked for in it is a history fetch at `17:51:48`; everything after that arrived unasked:
+
+```
+17:53:08  batteryLevel -> 63      99%
+17:53:10  batteryLevel -> 62      98%
+17:56:02  batteryLevel -> 63      99%
+17:56:04  batteryLevel -> 62      98%
+17:56:16  batteryLevel -> 63      99%
+17:56:18  batteryLevel -> 62      98%
+17:56:42  batteryLevel -> 63      99%
+17:56:44  batteryLevel -> 62      98%
+```
+
+Always the same two adjacent values, always about two seconds apart, in bursts with minutes of silence between them. Over the whole trace the gaps fall out as 1,108 under 3s, 891 at 3-10s, 583 at 10-60s, 189 at 1-5m, 60 at 5-60m and 15 over an hour: a median of 4 seconds, and a quarter of them at exactly the 2 seconds a dithering pair takes.
+
+**While the link is actually up, that is a value every 11 seconds.** Taking every gap of two minutes or less as time connected gives 8.3 hours across the trace and 326 values an hour within it, and the figure holds across the three days with enough traffic to measure separately: 329, 278 and 355 an hour.
+
+**The charge itself barely moved.** The app's own `battery` rows, which go back further than the trace, put it at 100% on 2026-07-28 and 98% on 2026-08-14; on 2026-08-13 alone the cube reported 2,168 values while never saying anything other than 98 or 99. The volume is not a battery running down, it is a reading that cannot settle.
+
+**Consequence for this app.** Neither the figure on screen nor the low-battery warning can be driven straight off a reading. `BatteryRules.shown` holds the lower of the two adjacent values and adopts a higher one only once a reading climbs two percent clear of it, so a dithering cube draws one steady figure; `BatteryRules.latched` keeps the archive's five-point recovery margin so the warning does not arm and disarm twice a second at the threshold. `BluetoothRadio` logs a `battery` row only when the answer moves, which is why the app's own log will not reproduce the counts above -- the raw values are all still there under `ble-rx`.
+
+---
 
 ---
 

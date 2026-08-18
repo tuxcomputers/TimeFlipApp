@@ -30,6 +30,13 @@ final class SteppedNumberField: NSView {
     enum Layout {
         /// The archive's measurements. The field is wider than the digits need so that every value field in the
         /// window can share one width.
+        ///
+        /// **This is the only place a stepped field's width is decided, and changing it moves every one of them**:
+        /// the App tab's four, the Device tab's auto-pause, and the Categories tab's daily limit, whose column is
+        /// derived from these numbers (`CategoryTable.Layout.limitColumnWidth`) rather than measured again. Nothing
+        /// outside this control may pin a width on one -- the Device tab did until 2026-08-18, and since a width set
+        /// there caps the box, the unit and the arrows together, that field ended up the only one on any tab whose
+        /// arrows did not line up with the rest. `DevicePaneTests` pins both halves of that.
         static let fieldWidth: CGFloat = 90
         static let suffixWidth: CGFloat = 34
         static let spacing: CGFloat = 4
