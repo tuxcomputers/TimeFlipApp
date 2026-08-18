@@ -111,8 +111,11 @@ final class DeviceLogin: NSObject {
     /// The battery phase, which follows the Device Information one and then never ends: the subscription stays up for
     /// as long as the connection does, so the last thing this object does is go on receiving.
     private var isFollowingBattery = false
-    /// The listening phase, last of the lot, which subscribes to everything the cube can push. Also never ends.
+    /// The listening phase, which subscribes to everything the cube can push. Never ends.
     private var isListening = false
+    /// Whether a `0x17` is out and its answer still expected.
+    private var isAskingAboutTaps = false
+    private var tapDeadline: Timer?
     /// The characteristics asked for and not yet answered. Built from what discovery actually found rather than from
     /// the four that were asked for, so a cube missing one does not leave this waiting on a read nobody will answer.
     private var awaitingInfo: Set<CBUUID> = []
@@ -360,6 +363,49 @@ final class DeviceLogin: NSObject {
             return
         }
         for characteristic in pushable { subscribe(to: characteristic) }
+        askWhatMakesADoubleTap()
+    }
+
+    /// Asks the cube what its accelerometer is set to (`0x17`), and writes the answer down.
+    ///
+    /// **A read, and only a read.** Nothing is compared against `double_tap_settings` and nothing is written back:
+    /// that row is what the app would like the cube to be on, this is what it is actually running, and the two are
+    /// different facts. Until something sends `0x16` they have no reason to agree, and pretending otherwise would be
+    /// the app inventing a claim about hardware nobody has checked.
+    ///
+    /// **Worth asking on every connection** because it is the only explanation of a physical behaviour: the cube
+    /// pauses its own tracking on a double tap, unconditionally, with no command to disable it
+    /// (`Archive/Tests/Methods.md` Method 22), so how hard a knock has to be is the whole of what decides whether a
+    /// desk being bumped stops somebody's timer.
+    private func askWhatMakesADoubleTap() {
+        guard let command else { return }
+        isAskingAboutTaps = true
+        tapDeadline?.invalidate()
+        tapDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isAskingAboutTaps else { return }
+                self.isAskingAboutTaps = false
+                self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
+            }
+        }
+        if let tapDeadline { RunLoop.main.add(tapDeadline, forMode: .common) }
+        write(Data([DoubleTapRules.read]), to: command, type: .withResponse)
+    }
+
+    /// What the cube answered `0x17` with.
+    ///
+    /// A value that is not an answer to *this* question is logged and waited past rather than treated as a failure:
+    /// the command result characteristic is shared, it now notifies as well as answering reads, and finding 2 in
+    /// `docs/timeflip2-firmware-observations.md` is that it frequently holds somebody else's reply.
+    private func taps(answered value: Data?) {
+        guard let parameters = DoubleTapRules.parameters(from: value) else {
+            debugLog?.record(.tap, "That was not an answer about double taps, so it is being waited past")
+            return
+        }
+        isAskingAboutTaps = false
+        tapDeadline?.invalidate()
+        tapDeadline = nil
+        debugLog?.record(.tap, "The cube's double tap is set to \(parameters.described)")
     }
 
     // MARK: - the PIN this app puts on it
@@ -619,8 +665,17 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         debugLog?.acknowledged(characteristic.uuid, error: error)
-        // Asked before the login's own steps, which by now are over: `step` is nil once a PIN has been accepted, so
-        // without this the acknowledgement the reset is waiting on would be discarded by the guard below.
+        // Both of these run long after the login, when `step` is nil, so they are asked before the guard below that
+        // would otherwise discard the acknowledgement they are waiting on.
+        if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.command, let commandResult {
+            guard error == nil else {
+                isAskingAboutTaps = false
+                debugLog?.record(.tap, "The cube would not take the question about double taps")
+                return
+            }
+            read(commandResult)
+            return
+        }
         if isResetting, characteristic.uuid == TimeFlipUUIDs.command {
             finishReset(error == nil)
             return
@@ -659,6 +714,10 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                 return
             }
             battery(Int(level))
+            return
+        }
+        if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {
+            taps(answered: characteristic.value)
             return
         }
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable
