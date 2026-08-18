@@ -79,6 +79,13 @@ final class BluetoothRadio: NSObject {
     /// trace.
     var onBatteryLevel: ((UUID, Int?) -> Void)?
 
+    /// Called when the face a device is resting on changes, with the face or `nil` once there is no live reading.
+    ///
+    /// **Called per change, not per arrival**, matching `onBatteryLevel`: a cube left alone re-reports nothing, but
+    /// the read taken when a link comes up can name the face the app is already showing, and a redraw for an answer
+    /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
+    var onFace: ((UUID, Int?) -> Void)?
+
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
@@ -195,9 +202,9 @@ final class BluetoothRadio: NSObject {
 
     /// The device this app is currently logged in to, or `nil`.
     ///
-    /// **The charge goes with it**, in one place rather than at each of the several ways a link ends: the window
-    /// closing, another device being chosen, a reset, and the cube simply going away all pass through here, and a
-    /// percentage that outlived any of them would be a reading from a device nobody can hear.
+    /// **The charge and the face go with it**, in one place rather than at each of the several ways a link ends: the
+    /// window closing, another device being chosen, a reset, and the cube simply going away all pass through here, and
+    /// either of them outliving that would be a reading from a device nobody can hear.
     private(set) var connectedDevice: UUID? {
         didSet {
             guard oldValue != connectedDevice, let gone = oldValue else { return }
@@ -207,6 +214,12 @@ final class BluetoothRadio: NSObject {
             if batteryPercent != nil { debugLog?.record(.battery, "The charge goes with the link") }
             batteryPercent = nil
             onBatteryLevel?(gone, nil)
+            // The same reasoning one line down, and it matters more: a face is drawn as a lit cube with a category on
+            // it, so a face left behind by a dropped link is a picture of hardware claiming to be somewhere it may no
+            // longer be.
+            if currentFace != nil { debugLog?.record(.face, "The face goes with the link") }
+            currentFace = nil
+            onFace?(gone, nil)
         }
     }
 
@@ -221,6 +234,17 @@ final class BluetoothRadio: NSObject {
     /// show to judge the next reading against, so this is both the answer and the state the rule works from -- one
     /// value, not a reading kept beside a rendering of it.
     private(set) var batteryPercent: Int?
+
+    /// The face the connected cube is resting on, or `nil` when there is no live reading.
+    ///
+    /// **Not a table value, for the same reason the charge is not one.** Which way up a cube is lying is a fact about
+    /// this minute, and a remembered face is a claim about hardware nobody can check. It lives for as long as the
+    /// connection that reported it, and whoever draws it asks for it then.
+    ///
+    /// **What the app does with a face it has never seen before is not decided here.** This is the cube's answer to
+    /// "which way up am I", and nothing more: turning a flip into recorded time is `device_event`'s question and is
+    /// not built.
+    private(set) var currentFace: Int?
 
     init(debugLog: DebugLog?) {
         self.debugLog = debugLog
@@ -678,6 +702,19 @@ final class BluetoothRadio: NSObject {
         onBatteryLevel?(id, shown)
     }
 
+    /// Files the face the cube is resting on, and says so only if it moved.
+    ///
+    /// No rule absorbing anything, unlike the charge beside it: a face is one of twelve discrete answers rather than a
+    /// noisy measurement, and the cube has never been seen to repeat one unprompted. What this does guard against is
+    /// the read taken when a link comes up naming the face already on show, which is the ordinary case for a cube
+    /// nobody has touched since the last connection.
+    private func received(face: Int, from id: UUID) {
+        guard face != currentFace else { return }
+        currentFace = face
+        debugLog?.record(.face, "Face \(face) is up")
+        onFace?(id, face)
+    }
+
     /// What to call a device in a message about it.
     ///
     /// **Asked of the radio rather than remembered by the tab**, which is the same reasoning as handing the tab the
@@ -802,6 +839,12 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             battery: { [weak self] level in
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.received(batteryLevel: level, from: attempt.id)
+            },
+            // The same guard again, and it earns it for the same reason: this goes on arriving for the life of the
+            // connection, so a flip landing after the app let the cube go would draw a face nobody is holding.
+            face: { [weak self] face in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(face: face, from: attempt.id)
             }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)

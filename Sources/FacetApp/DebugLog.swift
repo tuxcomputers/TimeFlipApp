@@ -82,6 +82,10 @@ final class DebugLog {
         /// in one day for a charge that was only ever 98 or 99. Every one of those is already in the trace below, so
         /// a row here means the answer moved rather than that the cube spoke.
         case battery
+        /// Which face the cube is resting on: the read taken when the link comes up, and every flip after it
+        /// (`DeviceLogin`, `BluetoothRadio`). **A row per change**, as `battery` is, so a row here means the cube
+        /// turned over rather than that it spoke -- every arrival is already in the trace below.
+        case face
         /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
         case transmit = "ble-tx"
         /// Bytes received from it, whether asked for or notified.

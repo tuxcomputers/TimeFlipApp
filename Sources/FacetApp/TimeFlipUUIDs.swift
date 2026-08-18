@@ -20,11 +20,11 @@ enum TimeFlipUUIDs {
 
     /// The five the cube pushes on, from `docs/TimeFlip2 BLE Protocol v4.3.md` Tab. 1.
     ///
-    /// **Nothing here reads any of them, and they are still named**, which is the one exception to this file's rule
-    /// above and has its own reason. `DeviceLogin.listenToTheCube` subscribes to everything whose properties say it
-    /// can notify, so the app *does* talk to these -- it listens to them -- and every value they push is a `ble-rx`
-    /// row. Without a name each of those rows would be a bare 128-bit UUID, which is a trace nobody can read at a
-    /// glance and exactly the state finding 3 was found in.
+    /// **Only `faces` is read; the other four are still named**, which is the one exception to this file's rule above
+    /// and has its own reason. `DeviceLogin.listenToTheCube` subscribes to everything whose properties say it can
+    /// notify, so the app *does* talk to these -- it listens to them -- and every value they push is a `ble-rx` row.
+    /// Without a name each of those rows would be a bare 128-bit UUID, which is a trace nobody can read at a glance
+    /// and exactly the state finding 3 was found in.
     ///
     /// **They are names, not claims about behaviour.** The subscription is driven by the characteristic's own
     /// properties rather than by this list, so a cube offering something not named here is still subscribed to and
@@ -87,6 +87,11 @@ enum TimeFlipUUIDs {
     static var modelNumber: CBUUID { CBUUID(string: modelNumberString) }
     static var hardwareRevision: CBUUID { CBUUID(string: hardwareRevisionString) }
     static var firmwareRevision: CBUUID { CBUUID(string: firmwareRevisionString) }
+
+    /// Which face the cube is resting on. One byte, read **and** notify, and both halves are used for the same reason
+    /// the charge's are: the subscription gives every flip from now on, and the read is the only way to know which way
+    /// up a cube already is (see `DeviceLogin.askWhichFaceIsUp`).
+    static var faces: CBUUID { CBUUID(string: facesString) }
 
     /// Where the charge is. Discovered after the login like the Device Information service, and for the same reason:
     /// a login that waited on it would spend round trips in front of the answer somebody is watching for.

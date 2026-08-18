@@ -83,6 +83,9 @@ final class DeviceLogin: NSObject {
     /// Called with each battery percentage the cube reports, whether asked for or pushed. Raw, exactly as the byte
     /// arrived: what to *show* for a run of readings is `BatteryRules`' judgement and not a delegate's.
     private let battery: (Int) -> Void
+    /// Called with each face the cube reports, whether asked for or pushed. Raw, exactly as the byte arrived: what
+    /// counts as a face is `DeviceFaceRules`' judgement, not a delegate's.
+    private let face: (Int) -> Void
     private let finished: (DeviceLoginOutcome) -> Void
 
     private var deadline: Timer?
@@ -136,6 +139,8 @@ final class DeviceLogin: NSObject {
     ///   - battery: called with each percentage the cube reports, for as long as the connection lasts. Called many
     ///     times rather than once, which is what makes it unlike `reported`: the charge is something the cube goes on
     ///     saying, and the first call is the app's own read rather than something the cube volunteered.
+    ///   - face: called with each face the cube reports, on the same terms as `battery` and for the same reason -- the
+    ///     first call is the read this login makes, and every one after it is a flip.
     init(
         peripheral: CBPeripheral,
         pin: String,
@@ -145,6 +150,7 @@ final class DeviceLogin: NSObject {
         rotated: @escaping (String) -> Void,
         reported: @escaping (DeviceInfo) -> Void,
         battery: @escaping (Int) -> Void = { _ in },
+        face: @escaping (Int) -> Void = { _ in },
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
         self.peripheral = peripheral
@@ -155,6 +161,7 @@ final class DeviceLogin: NSObject {
         self.rotated = rotated
         self.reported = reported
         self.battery = battery
+        self.face = face
         self.finished = finished
         super.init()
     }
@@ -363,7 +370,32 @@ final class DeviceLogin: NSObject {
             return
         }
         for characteristic in pushable { subscribe(to: characteristic) }
+        askWhichFaceIsUp(on: service)
         askWhatMakesADoubleTap()
+    }
+
+    /// Asks the cube which face it is resting on.
+    ///
+    /// **A read on top of the subscription, and both are needed** -- the same shape as the charge, for the same
+    /// measured reason. A GATT subscription yields the *next* value and never the current one, and a cube that is not
+    /// touched does not flip, so a subscription on its own leaves the app with no face at all until somebody moves the
+    /// cube. That can be hours, and for all of them the tab would be showing nothing while the cube sat there knowing
+    /// the answer. The read is what puts a face on screen at the moment the link comes up; the subscription taken out
+    /// a few lines above is what keeps it true afterwards.
+    ///
+    /// **`R, N` is the vendor's own answer**, in `docs/TimeFlip2 BLE Protocol v4.3.md`'s characteristic table, and the
+    /// archive read it at connect on exactly this reasoning. The round trip is in the evidence database:
+    /// `read request faces` answered with `faces -> 02`.
+    ///
+    /// **No deadline**, matching the battery: nothing downstream waits on it, and a cube that never answers leaves the
+    /// tab drawing what it drew before, plus the request itself in the trace.
+    private func askWhichFaceIsUp(on service: CBService) {
+        guard let faces = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.faces }) else {
+            debugLog?.record(.face, "This cube has no faces characteristic, so there is no face to ask about")
+            return
+        }
+        debugLog?.record(.face, "Asking the cube which face is up")
+        read(faces)
     }
 
     /// Asks the cube what its accelerometer is set to (`0x17`), and writes the answer down.
@@ -714,6 +746,23 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                 return
             }
             battery(Int(level))
+            return
+        }
+        // **The other value that arrives both ways**, and on the same terms as the charge: the read this login makes
+        // on connecting, and every flip afterwards. Which of the two it is does not matter here -- a face is a face
+        // however it got here.
+        if characteristic.uuid == TimeFlipUUIDs.faces {
+            guard error == nil, let up = DeviceFaceRules.face(from: characteristic.value) else {
+                debugLog?.record(
+                    .face,
+                    error.map { "The face could not be read: \($0.localizedDescription)" }
+                        // The bytes themselves are already in the trace above, so what is worth saying here is that
+                        // they were not a face this app will draw -- which is a different thing from silence.
+                        ?? "The cube named no face this app recognises"
+                )
+                return
+            }
+            face(up)
             return
         }
         if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {

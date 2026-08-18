@@ -477,6 +477,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self.lowBattery?.reconsider(because: "a charge arrived")
             self.devicePane?.show(self.deviceSettings())
         }
+        // **Nothing is written down here either**, and for a stronger reason than the charge's: a flip is a thing the
+        // cube did, and what that means for recorded time is `device_event`'s question. Nothing about which face is up
+        // is stored, so this redraws the Faces tab and stops there. Fires on the read taken when a link comes up as
+        // well as on every flip after it, which is what puts a face on the tab before anybody touches the cube.
+        radio.onFace = { [weak self] _, _ in
+            self?.redrawTiming()
+        }
         radio.onConnectionDropped = { [weak self, weak radio] id in
             guard let self, let radio else { return }
             // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out of
@@ -1492,12 +1499,31 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// whether to keep going, and reading twice for one repaint would be two answers where one will do.
     private func draw(_ reading: TimingReadout.Reading) {
         guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
+        // **The cube wins whenever there is one.** A face being reported means the app is watching hardware, and the
+        // manual control is a stand-in for exactly the hardware that has just turned up. The reading above is still
+        // taken: it costs one read, it is what the tick is repainting from anyway, and it is what this falls back to
+        // the moment the link drops.
+        if let face = radio?.currentFace {
+            pane.timingView.show(face: face, category: categoryOnFace(face))
+            return
+        }
         pane.timingView.show(
             category: reading.category,
             state: reading.state,
             elapsed: reading.seconds,
             isLimitReached: isLimitReached()
         )
+    }
+
+    /// The category a face of the cube holds, read at this moment.
+    ///
+    /// **Two reads, both taken here rather than kept.** Which category a face holds is `face`'s answer and what that
+    /// category *is* is `category`'s, so a face renamed, recoloured or reassigned between two flips draws differently
+    /// on the second one without anything having to be told. `nil` covers both a face holding the seeded *Unassigned*
+    /// row and a category that has since gone, which draw the same way: an unlit cube.
+    private func categoryOnFace(_ face: Int) -> CategoryRecord? {
+        guard let faces, let categories, let id = faces.categoryID(forFace: face) else { return nil }
+        return categories.category(id: id)
     }
 
     /// The manual face in use right now, which is `DeviceEventRecorder`'s answer to give: it owns the table the

@@ -6,9 +6,13 @@ import XCTest
 /// than acts.
 @MainActor
 final class TimingViewTests: XCTestCase {
-    private func category(colour: NSColor? = .red, whiteLines: Bool = false) -> CategoryRecord {
+    private func category(
+        colour: NSColor? = .red,
+        whiteLines: Bool = false,
+        iconName: String? = "ic_admin"
+    ) -> CategoryRecord {
         CategoryRecord(
-            id: 7, name: "Deep Work", iconName: "ic_admin",
+            id: 7, name: "Deep Work", iconName: iconName,
             colourID: 0, colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isActive: true
         )
     }
@@ -165,5 +169,116 @@ final class TimingViewTests: XCTestCase {
         XCTAssertEqual(view.playPauseButton.accessibilityIdentifier(), TimingView.Identifier.playPause)
         XCTAssertEqual(view.elapsedLabel.accessibilityIdentifier(), TimingView.Identifier.elapsed)
         XCTAssertEqual(view.categoryNameLabel.accessibilityIdentifier(), TimingView.Identifier.categoryName)
+        XCTAssertEqual(view.deviceView.accessibilityIdentifier(), TimingView.Identifier.deviceFace)
+        XCTAssertEqual(view.centreIconView.accessibilityIdentifier(), TimingView.Identifier.centreIcon)
+    }
+
+    // MARK: - the face the cube is resting on
+
+    func testAFaceDrawsTheCubeWithItsCategoryOnIt() {
+        let view = view()
+
+        view.show(face: 2, category: category())
+
+        XCTAssertFalse(view.deviceView.isHidden)
+        XCTAssertNotNil(view.deviceView.image, "the cube, lit in the face's colour")
+        XCTAssertFalse(view.centreIconView.isHidden)
+        XCTAssertNotNil(view.centreIconView.image, "the category's icon, on the centre face")
+        XCTAssertEqual(view.categoryNameLabel.stringValue, "Deep Work")
+    }
+
+    func testTheCentreIconTakesTheInkTheLinesAreDrawnIn() {
+        // Black on a light face, white on a dark one, and both from the colour row's own `white_lines` rather than
+        // from anything decided here -- so the icon can never be drawn in a colour the lines around it are not.
+        let light = view()
+        light.show(face: 2, category: category(colour: .yellow, whiteLines: false))
+        XCTAssertEqual(light.centreIconView.contentTintColor, .black)
+
+        let dark = view()
+        dark.show(face: 2, category: category(colour: .black, whiteLines: true))
+        XCTAssertEqual(dark.centreIconView.contentTintColor, .white)
+    }
+
+    func testTheClockAndTheControlAreNotDrawnOnACube() {
+        // The archive's arrangement: a face is a picture of where the cube is, and the cube's own timing is not
+        // something a click on this window starts or stops.
+        let view = view()
+
+        view.show(face: 2, category: category())
+
+        XCTAssertTrue(view.playPauseButton.superview?.isHidden ?? false, "no glyph and no clock")
+        XCTAssertFalse(view.playPauseButton.isEnabled, "nothing to click at")
+    }
+
+    func testAFaceWithNoCategoryStillDrawsTheCube() {
+        // An unassigned face is still a face the cube is resting on. It comes out unlit, with no icon on it, rather
+        // than the column going blank -- and drawing a placeholder icon would read as artwork that failed to load.
+        let view = view()
+
+        view.show(face: 5, category: nil)
+
+        XCTAssertFalse(view.deviceView.isHidden)
+        XCTAssertTrue(view.centreIconView.isHidden)
+        XCTAssertEqual(view.categoryNameLabel.stringValue, "")
+    }
+
+    func testACategoryWithNoIconLeavesTheCentreFaceBare() {
+        let view = view()
+
+        view.show(face: 5, category: category(iconName: nil))
+
+        XCTAssertFalse(view.deviceView.isHidden, "the body is still lit")
+        XCTAssertTrue(view.centreIconView.isHidden)
+    }
+
+    func testTheCentreIconIsSizedToTheCentreFace() {
+        // Derived from the artwork rather than picked: the pentagon's inscribed square is 0.29 of the cube, and the
+        // cube is drawn at `markScale` of the icon's box to leave room for the ring.
+        let view = view(width: 400)
+
+        view.show(face: 2, category: category())
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            view.centreIconView.frame.width,
+            (400 * TimingView.Layout.centreIconScale).rounded(),
+            accuracy: 0.5
+        )
+        XCTAssertEqual(view.centreIconView.frame.width, view.centreIconView.frame.height)
+    }
+
+    func testTheCubeFillsTheSquare() {
+        let view = view(width: 400)
+
+        view.show(face: 2, category: category())
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.deviceView.frame.width, 400, accuracy: 0.5)
+        XCTAssertEqual(view.deviceView.frame.height, 400, accuracy: 0.5, "the square the column reserves for it")
+    }
+
+    func testTheCubeIsCentredOnTheSquareSoTheIconLandsOnItsCentreFace() {
+        let view = view(width: 400)
+
+        view.show(face: 2, category: category())
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.centreIconView.frame.midX, view.deviceView.frame.midX, accuracy: 0.5)
+        XCTAssertEqual(view.centreIconView.frame.midY, view.deviceView.frame.midY, accuracy: 0.5)
+    }
+
+    func testGoingBackToTimingByHandTakesTheCubeAway() {
+        // The link dropping is what does this, and the artwork is cleared rather than merely hidden: a face left in
+        // memory could be shown again by a later resize, which would be a picture of hardware nobody is holding.
+        let view = view()
+        view.show(face: 2, category: category())
+
+        view.show(category: category(), state: .running, elapsed: 60)
+
+        XCTAssertTrue(view.deviceView.isHidden)
+        XCTAssertNil(view.deviceView.image)
+        XCTAssertTrue(view.centreIconView.isHidden)
+        XCTAssertNil(view.centreIconView.image)
+        XCTAssertTrue(view.playPauseButton.isEnabled, "the manual control is back")
     }
 }
