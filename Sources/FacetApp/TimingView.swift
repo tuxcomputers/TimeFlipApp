@@ -147,7 +147,7 @@ final class TimingView: NSView {
     ///
     /// Given the category rather than looking it up, for the same reason `show(category:state:elapsed:)` is: which
     /// category a face holds lives in `face`, and reading it belongs to whoever is about to draw (see
-    /// `SettingsWindowController.categoryOnFace`). The face number is taken as well as the category so a face holding
+    /// `TimingReadout.read`). The face number is taken as well as the category so a face holding
     /// nothing is still a face -- the cube is drawn unlit rather than the column going blank.
     ///
     /// **No clock and no play/pause**, which is the archive's arrangement and its reasoning: this is a picture of

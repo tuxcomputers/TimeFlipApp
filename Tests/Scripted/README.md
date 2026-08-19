@@ -150,6 +150,12 @@ renumbered to make room.
 | `10-google-calendar` | the account, and recorded time reaching the calendar `03` made |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
 | `12-daily-limit` | a category spending its `daily_limit` stops the clock, and every way of starting it again refuses |
+| `13-device-scan` | the radio comes up, the scan lists what answers it, and stops on its own |
+| `14-device-connect` | pairing, the PIN the cube is on, and what the Device tab says afterwards |
+| `15-device-reset` | the factory reset, and the cube coming back on the vendor PIN |
+| `16-device-reconnect` | a paired app reaching its own cube at launch, with the window shut |
+| `17-device-battery` | the charge: read on connecting, pushed after that, and shown without flapping |
+| `18-device-face` | the face the cube is on, in the menu bar and on the Faces tab (**asks you to turn the cube**) |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written

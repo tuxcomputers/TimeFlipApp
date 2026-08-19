@@ -4,7 +4,7 @@ import AppKit
 ///
 /// Pure, the way `BatteryRules` is pure: what a byte off the radio means, and what a face comes out looking like,
 /// with no view, no database and no peripheral in sight. The reads that turn a face into a category happen at the
-/// point of use (see `SettingsWindowController.categoryOnFace`); what arrives here is the answer, not the question.
+/// point of use (see `TimingReadout.read`); what arrives here is the answer, not the question.
 enum DeviceFaceRules {
     /// The faces a cube reports.
     ///

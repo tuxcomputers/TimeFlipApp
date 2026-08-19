@@ -127,6 +127,66 @@ wait_for_dev() {
     return 0
 }
 
+# Asks for something only a pair of hands can do, then watches the database until it has happened.
+#
+#     ask_and_detect "SELECT message FROM debug_log WHERE ... ;" \
+#         "Turn the cube to the Break face" \
+#         "Break is face 8; the app is watching for it"
+#
+# Answers 0 once the query returns anything at all, and 1 when there is no terminal to ask.
+#
+# **Detected, not confirmed**, which is the archive's rule and the reason nothing here says "have you done
+# that? (y/n)". A person answering yes records their optimism; the app's own row records the cube. It is
+# also what makes a mis-turn harmless: the query names the face that was asked for, so turning the cube to
+# some other one simply does not satisfy it and the banner is still on screen saying which one.
+#
+# **No timeout, deliberately.** A physical action takes as long as the person takes, and a run that failed
+# because they answered the door would be failing about the wrong thing. `Archive/testrunner/actions.py`
+# reached the same place from the other direction: `act_ask_user_or_detect` treats `timeout_seconds = 0` as
+# "wait indefinitely" and says why in the same words. It reports that it is still waiting every half minute,
+# so an unattended run reads as waiting rather than as hung.
+#
+# **A run with no terminal skips rather than blocking.** That is CI or a pipe, and there is nobody there to
+# turn anything -- the same answer `action_required` gives, for the same reason.
+ask_and_detect() {
+    local query="$1" title="$2"
+    shift 2
+    echo ""
+    yellow "##############################################################################"
+    yellow "##"
+    yellow "##  OVER TO YOU -- THE CUBE NEEDS TURNING"
+    yellow "##"
+    yellow "##  $title"
+    yellow "##"
+    local line
+    for line in "$@"; do
+        yellow "##    $line"
+    done
+    yellow "##"
+    yellow "##  Nothing to press: this is watching the database and carries on by itself."
+    yellow "##"
+    yellow "##############################################################################"
+    echo ""
+
+    if [ ! -r /dev/tty ]; then
+        grey "  no terminal to ask, so this is being skipped"
+        return 1
+    fi
+
+    local waited=0 found=""
+    while true; do
+        found=$(sql "$query")
+        if [ -n "$found" ]; then
+            grey "  seen: $found"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        [ $((waited % 30)) -eq 0 ] && yellow "  still waiting ($((waited))s) -- $title"
+    done
+}
+
+
 # Asked once a run: is the TimeFlip here? Answers 0 for yes, 1 for anything else, and every script after
 # the first gets that answer back without asking again.
 #
