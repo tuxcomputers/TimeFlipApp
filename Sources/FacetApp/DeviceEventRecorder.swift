@@ -342,7 +342,17 @@ final class DeviceEventRecorder {
     /// `MAX` over the whole table -- which would pick up a higher number from an earlier second after a
     /// device reset. `IFNULL` puts the empty-table sentinel in the query, so Swift never sees a NULL that
     /// would arrive as a plausible-looking zero.
-    private func newestOnRecord() -> DeviceEventMark {
+    /// The newest segment on record: the pair that identifies it, not the number alone.
+    ///
+    /// **The newest row, not the highest number**, which are different questions and only the first is useful. Event
+    /// numbers restart at 1 after a factory reset, so `MAX(event_number)` returns a stranded value from a generation
+    /// the cube has abandoned -- on the previous app's production database it returned 38 while the newest segment was
+    /// event 10, and a fetch resuming from 38 asked for events the cube no longer had.
+    ///
+    /// **Internal because the table is the position.** `HistoryIngestor` reads it on every refresh rather than keeping
+    /// a cursor: a saved high-water mark cannot follow the cube's counter back down through a reset, and a copy of it
+    /// is one more thing to keep in step.
+    func newestOnRecord() -> DeviceEventMark {
         let empty = DeviceEventMark.none
         var mark = empty
         connection.forEachRow(

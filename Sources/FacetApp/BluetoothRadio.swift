@@ -604,6 +604,27 @@ final class BluetoothRadio: NSObject {
         login.askStatus { _ in }
     }
 
+    /// Asks the cube which event it is on, and hands back that one frame.
+    ///
+    /// `nil` with no cube connected, which is a different answer from "the cube has no history": one means there was
+    /// nobody to ask, and `DeviceHistoryRules.resumeFrom` leaves the stored position standing for it.
+    func readLastEvent(_ answered: @escaping (DeviceEventSegment?) -> Void) {
+        guard connectedDevice != nil, let login else {
+            answered(nil)
+            return
+        }
+        login.readLastEvent(then: answered)
+    }
+
+    /// Asks the cube for its history from `eventNumber` onwards.
+    func fetchHistory(from eventNumber: Int, _ answered: @escaping ([DeviceEventSegment]) -> Void) {
+        guard connectedDevice != nil, let login else {
+            answered([])
+            return
+        }
+        login.fetchHistory(from: eventNumber, then: answered)
+    }
+
     func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
         guard let id = connectedDevice, let login else {
             debugLog?.record(.pair, "Asked to reset with no cube connected")

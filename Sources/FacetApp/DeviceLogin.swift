@@ -96,6 +96,33 @@ final class DeviceLogin: NSObject {
     private var password: CBCharacteristic?
     private var commandResult: CBCharacteristic?
     private var command: CBCharacteristic?
+
+    /// The history characteristic, which is its own channel: a request is written to it and the answer arrives on it.
+    ///
+    /// **Not the command characteristic, and that is what makes this simple.** Everything about the command channel
+    /// here exists because one characteristic answers three different questions and a value on it is otherwise
+    /// unattributable. History has none of that problem -- the only thing that ever arrives here is history -- so a
+    /// fetch can be out at the same time as a command without either having to know about the other.
+    private var history: CBCharacteristic?
+
+    /// The history request that is out, if any.
+    private var fetch: HistoryFetch?
+
+    /// One request for history, and what has arrived for it so far.
+    private struct HistoryFetch {
+        /// `true` for the single-frame read that asks which event the cube is on, `false` for a stream.
+        let isSingleFrame: Bool
+        var frames: [DeviceEventSegment] = []
+        let answered: ([DeviceEventSegment]) -> Void
+    }
+
+    /// How long a stream may go quiet before it is given up on.
+    ///
+    /// **Per frame, not for the whole transfer.** A cube with a long backlog answers for as long as it takes and each
+    /// frame resets this; what it catches is a stream that stopped part way, which otherwise leaves a fetch out for
+    /// ever and every later refresh standing down behind it.
+    private static let historyFrameSeconds: TimeInterval = 6
+    private var historyDeadline: Timer?
     private var step: Step?
     /// The PIN being set, from the moment the cube is asked to take it. Held because the confirmation presents it
     /// again and the caller is told it only once the cube has proved it.
@@ -316,6 +343,105 @@ final class DeviceLogin: NSObject {
         armCommandDeadline()
         debugLog?.record(.command, "Asking the cube what state it is in")
         write(DeviceCommandRules.status, to: command, type: .withResponse)
+    }
+
+    /// Asks the cube which event it is on: one frame, the newest it holds.
+    ///
+    /// **The cheap check.** It comes back as a whole frame -- face, start and duration, not just a number -- so when
+    /// it turns out nothing has changed the row can still be brought up to date from it without paying for the stream.
+    /// That is the archive's arrangement and the reason the fetch below is usually not made at all.
+    func readLastEvent(then answered: @escaping (DeviceEventSegment?) -> Void) {
+        request(DeviceHistoryRules.readEvent(), isSingleFrame: true, describing: "which event it is on") { frames in
+            answered(frames.first)
+        }
+    }
+
+    /// Asks the cube for everything from `eventNumber` onwards, as a stream ending in a sentinel.
+    func fetchHistory(from eventNumber: Int, then answered: @escaping ([DeviceEventSegment]) -> Void) {
+        request(
+            DeviceHistoryRules.readHistory(from: eventNumber),
+            isSingleFrame: false,
+            describing: "its history from event \(eventNumber)",
+            then: answered
+        )
+    }
+
+    /// Writes a history request and waits for what comes back on the same characteristic.
+    ///
+    /// **One at a time**, because the answers carry nothing that says which request they belong to -- the same reason
+    /// the command channel allows one exchange. A second request would have its frames counted into the first.
+    private func request(
+        _ payload: Data,
+        isSingleFrame: Bool,
+        describing what: String,
+        then answered: @escaping ([DeviceEventSegment]) -> Void
+    ) {
+        guard let history else {
+            debugLog?.record(.history, "This cube has no history characteristic, so there is nothing to ask")
+            answered([])
+            return
+        }
+        guard fetch == nil else {
+            debugLog?.record(.history, "A history request is already out; not asking for \(what) over the top of it")
+            answered([])
+            return
+        }
+        fetch = HistoryFetch(isSingleFrame: isSingleFrame, answered: answered)
+        armHistoryDeadline()
+        debugLog?.record(.history, "Asking the cube for \(what)")
+        // **Written with a response.** A request that never reached the cube and one it is still thinking about look
+        // identical from here, and the deadline would blame the cube for a write that was dropped.
+        write(payload, to: history, type: .withResponse)
+    }
+
+    /// Ends the fetch that is out, with whatever it has.
+    private func finishFetch(_ reason: String) {
+        historyDeadline?.invalidate()
+        historyDeadline = nil
+        guard let outstanding = fetch else { return }
+        fetch = nil
+        debugLog?.record(.history, "\(outstanding.frames.count) frame(s) of history: \(reason)")
+        outstanding.answered(outstanding.frames)
+    }
+
+    private func armHistoryDeadline() {
+        historyDeadline?.invalidate()
+        historyDeadline = Timer(timeInterval: Self.historyFrameSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.finishFetch("the cube stopped part way") }
+        }
+        if let historyDeadline { RunLoop.main.add(historyDeadline, forMode: .common) }
+    }
+
+    /// A frame arrived on the history characteristic.
+    private func received(historyFrame value: Data?) {
+        guard var outstanding = fetch else { return }
+        guard let value else {
+            finishFetch("the cube answered with nothing")
+            return
+        }
+        if DeviceHistoryRules.isEndOfStream(value) {
+            finishFetch("the cube says that is all of it")
+            return
+        }
+        guard let segment = DeviceHistoryRules.segment(from: value) else {
+            // **Ends the fetch rather than skipping the frame.** A frame this app cannot read means the stream is not
+            // what it is being read as, and carrying on would count later frames into a record with a hole in it. What
+            // has arrived is kept: it parsed, so it is real, and the next refresh resumes from where it got to.
+            finishFetch("a frame this app cannot read")
+            return
+        }
+        outstanding.frames.append(segment)
+        fetch = outstanding
+        if outstanding.isSingleFrame {
+            finishFetch("the cube named its latest")
+            return
+        }
+        guard outstanding.frames.count < DeviceHistoryRules.frameCap else {
+            finishFetch("as many frames as this app will take in one go")
+            return
+        }
+        // Reset per frame: the cube answers a long backlog for as long as it takes.
+        armHistoryDeadline()
     }
 
     /// Whether an exchange is already out. Both kinds share one slot deliberately: they use the same characteristic
@@ -886,6 +1012,10 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             case TimeFlipUUIDs.password: password = characteristic
             case TimeFlipUUIDs.commandResult: commandResult = characteristic
             case TimeFlipUUIDs.command: command = characteristic
+            // Not in the guard below either: a cube that cannot be asked for history can still be reached, timed
+            // against and looked at. What it cannot do is bring its own record of the day back, and `HistoryIngestor`
+            // is what says so at the point that would have happened.
+            case TimeFlipUUIDs.history: history = characteristic
             default: break
             }
         }
@@ -984,6 +1114,16 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                 return
             }
             face(up)
+            return
+        }
+        // History is its own channel, so this needs no guard about which question is out: nothing else arrives here.
+        if characteristic.uuid == TimeFlipUUIDs.history {
+            guard error == nil else {
+                debugLog?.record(.history, "The history could not be read: \(error?.localizedDescription ?? "")")
+                finishFetch("the cube reported an error")
+                return
+            }
+            received(historyFrame: characteristic.value)
             return
         }
         if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {

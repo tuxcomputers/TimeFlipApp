@@ -93,6 +93,10 @@ enum TimeFlipUUIDs {
     /// up a cube already is (see `DeviceLogin.askWhichFaceIsUp`).
     static var faces: CBUUID { CBUUID(string: facesString) }
 
+    /// The cube's own record of what it has been doing. Read, **write** and notify, and all three matter: a request is
+    /// written to it and the answer comes back on it, frame by frame, until a sentinel (see `DeviceHistoryRules`).
+    static var history: CBUUID { CBUUID(string: historyString) }
+
     /// Where the charge is. Discovered after the login like the Device Information service, and for the same reason:
     /// a login that waited on it would spend round trips in front of the answer somebody is watching for.
     static var batteryService: CBUUID { CBUUID(string: batteryServiceString) }

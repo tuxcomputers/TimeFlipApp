@@ -103,12 +103,6 @@ final class TimingReadout {
     /// relaunch works it out again from `paired`, and pairing turns it off before a face is ever asked for.
     var isTimingByHand: () -> Bool = { false }
 
-    /// Whether the cube is paused, asked at the moment a reading is taken. `nil` for a cube that has not answered.
-    ///
-    /// **Asked rather than held, like the face beside it**, and for a sharper reason: this is the one thing the cube
-    /// can change without telling anybody. A double tap pauses it, and no notification follows -- so a copy taken when
-    /// the link came up would go on claiming the cube was running for as long as the connection lasted.
-    var isDevicePaused: () -> Bool? = { nil }
 
     init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
@@ -145,7 +139,16 @@ final class TimingReadout {
                 // the very thing this comment says it does not have.
                 seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
                 deviceFace: deviceFace,
-                deviceIsPaused: isDevicePaused()
+                // **Out of the cube's own history, not out of a status read.** Every history frame carries the pause
+                // in its face byte -- the vendor adds a paused interval "for the facet with Side + 128" -- so the open
+                // segment the cube reported *is* whether it is paused, refreshed on every fetch and needing nothing
+                // asked for on its own. It was `0x10` and a per-flip re-ask before ingestion existed, which was the
+                // best available then and is strictly worse now: that answer went stale the moment somebody
+                // double-tapped, and this one arrives with the record of the double tap itself.
+                //
+                // Matched on the face, because the open row is not always the cube's: a manual segment left open when
+                // a cube arrives is still the newest open row, and its pause is the app's own, not the device's.
+                deviceIsPaused: events.openSegment().flatMap { $0.face == deviceFace ? $0.isPaused : nil }
             )
         }
         let face = events.currentManualFace()

@@ -135,9 +135,6 @@ timingReadout.deviceFace = { radio.currentFace }
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
 // `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
 timingReadout.isTimingByHand = { manualMode.isOn }
-// Whether the cube is paused, for the glyph both surfaces draw. Asked per reading; why is
-// `TimingReadout.isDevicePaused`.
-timingReadout.isDevicePaused = { radio.cubeStatus?.isPaused }
 
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
@@ -235,6 +232,23 @@ settingsWindow.reconnect = reconnector
 // cube is the one that knows what has happened -- somebody flipping it while the app believed nothing was running is
 // precisely the event that would go unnoticed with the timer off. So a connected cube keeps it asking whatever the
 // app's own rows say, and only an app timing nothing *with no cube to ask* lets it stop.
+// The cube's own record of what it has been doing, on its way into `device_event`.
+//
+// **Built before the timer**, because the timer's tick is what asks it. The reads are handed in as closures for the
+// reason every dependency in this app is: what the radio is doing is the radio's answer, at the moment it is wanted.
+let historyIngestor = HistoryIngestor(
+    events: deviceEvents,
+    readLastEvent: { radio.readLastEvent($0) },
+    fetchHistory: { from, answered in radio.fetchHistory(from: from, answered) },
+    debugLog: debugLog
+)
+// Recorded time changed, so everything drawn from it is stale: the readings on both surfaces, the day's totals, and
+// whether a category has spent its limit.
+historyIngestor.onChanged = {
+    menuBar.redraw()
+    settingsWindow.redrawTiming()
+}
+
 let historyTimer = HistoryTimer(
     settings: settings,
     debugLog: debugLog,
@@ -242,7 +256,13 @@ let historyTimer = HistoryTimer(
         deviceEvents.openSegment() != nil || settings.flag("connection", field: "connected") == true
     }
 ) {
+    // **Two sources, one tick.** With a cube connected the cube is what knows what has happened, so the tick fetches
+    // its history; with none, the app is its own source and the tick is what grows the open segment it is measuring.
+    // Both, not either: a manual segment left open when a cube arrives still needs its duration kept honest.
     deviceEvents.refreshOpenSegment(at: Date())
+    if radio.connectedDevice != nil {
+        historyIngestor.refresh(because: "the timer asked")
+    }
 }
 historyTimer.start()
 
@@ -327,12 +347,10 @@ radio.onCubeStatus = { _, _ in
 radio.onFace = { _, _ in
     menuBar.redraw()
     settingsWindow.redrawTiming()
-    // **A flip is the moment to ask whether it is still running**, because the cube can stop itself and say nothing:
-    // a double tap pauses its tracking unconditionally, the vendor's app can pause it too, and no notification
-    // announces either. Asking on every flip does not make the answer instant -- a double tap with no flip after it
-    // stays unseen until something else asks -- but it bounds how stale the glyph can be by how long the cube has sat
-    // untouched, which is the only bound available without polling a device on a timer.
-    radio.askStatus()
+    // **A flip closed a segment and opened another**, which is exactly what history is a record of, so this is the
+    // moment to go and get it rather than waiting out the rest of the tick. It also refreshes whether the cube is
+    // paused, because every frame carries that in its face byte -- see `timingReadout.isDevicePaused`.
+    historyIngestor.refresh(because: "the cube was turned")
 }
 
 // A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press

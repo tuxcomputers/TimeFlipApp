@@ -371,24 +371,48 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertEqual(readout.read(at: noon).state, .running)
     }
 
-    func testWhetherTheCubeIsPausedIsAskedPerReading() {
-        // The one thing the cube changes without telling anybody: a double tap pauses its tracking and nothing is
-        // sent to say so. A copy taken when the link came up would claim it was running for the rest of the session.
-        var paused = false
+    /// A segment the cube reported, left open, which is what a history fetch writes for the interval it is on.
+    private func cubeIsOn(face: Int, paused: Bool, at moment: Date) {
+        events.record(
+            DeviceEventSegment(
+                eventNumber: 40,
+                face: face,
+                startedAt: moment,
+                durationSeconds: 0,
+                isPaused: paused
+            )
+        )
+    }
+
+    func testWhetherTheCubeIsPausedComesOutOfItsOwnOpenSegment() {
+        // Every history frame carries the pause in its face byte, so the interval the cube reported is the answer --
+        // no status read, and nothing to go stale between one fetch and the next.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.deviceFace = { 5 }
-        readout.isDevicePaused = { paused }
+        cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, false, "precondition")
 
-        paused = true
+        // The next fetch brings the same interval back marked paused, which is what a double tap looks like.
+        cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-60))
 
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
     }
 
-    func testACubeThatHasNotAnsweredSaysNothingEitherWay() {
+    func testACubeWithNoHistoryYetSaysNothingEitherWay() {
+        // Nothing has been fetched, so there is no interval to read a pause off. Drawn as no glyph rather than as
+        // running, which would be a claim about hardware on no evidence.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.deviceFace = { 5 }
-        readout.isDevicePaused = { nil }
+
+        XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+    }
+
+    func testAnOpenSegmentOnAnotherFaceIsNotThisCubesPause() {
+        // A manual segment left open when a cube arrives is still the newest open row, and its pause is the app's own.
+        // Matching on the face is what keeps one from answering for the other.
+        startTiming(breakID, at: noon.addingTimeInterval(-300))
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
 
         XCTAssertNil(readout.read(at: noon).deviceIsPaused)
     }
@@ -397,7 +421,6 @@ final class TimingReadoutTests: XCTestCase {
         // There is no cube to be paused, so the field is empty rather than false -- "not paused" would be an answer
         // about hardware that is not there.
         startTiming(meetingID, at: noon.addingTimeInterval(-60))
-        readout.isDevicePaused = { false }
 
         XCTAssertNil(readout.read(at: noon).deviceIsPaused)
     }
@@ -407,7 +430,7 @@ final class TimingReadoutTests: XCTestCase {
         // tick must not start and the reading must not read as a session somebody could pause.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.deviceFace = { 5 }
-        readout.isDevicePaused = { false }
+        cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
 
         let reading = readout.read(at: noon)
         XCTAssertEqual(reading.state, .idle)
