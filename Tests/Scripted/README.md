@@ -201,6 +201,11 @@ than from anything it was told, and that file is committed. On a pull request,
 
 - the run was on **this** branch;
 - it **passed**, with zero failing checks;
+- **nothing was skipped.** A skip is a check saying it could not answer -- no cube on the desk, no Google
+  account connected, a prompt nobody was there to answer -- and the run still reports `passed` with the
+  totals adding up, so a branch could merge on coverage that was never taken. In practice this means a run
+  meant for a pull request needs the cube in reach, an account connected, and every prompt answered rather
+  than skipped past. The failure names which scripts skipped and how many;
 - the tree was **clean** when it ran, since a run against uncommitted changes is not evidence about the
   commit it names;
 - the commit it names is **in this branch's history**, and nothing under `Sources/`, `Tests/Scripted/` or
