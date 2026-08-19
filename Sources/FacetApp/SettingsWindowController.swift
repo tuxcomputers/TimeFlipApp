@@ -1532,6 +1532,34 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// and decides the rest.
     private func startTiming(_ category: CategoryRecord) {
         guard let faces else { return }
+        // **With a cube on the desk the click lands on the cube's face**, and starts no clock. Which face is up is
+        // the reading's answer rather than the radio's, so this cannot land somewhere other than the face the tab is
+        // drawing -- the two questions were separate once and gave different answers (see `draw`).
+        if let face = timing?.read().deviceFace {
+            assignToCube(face: face, category)
+            return
+        }
+        // **A paired app does not start timing by hand because somebody clicked a category.** It has a cube, and it is
+        // either reaching for it or has been told to give up -- and being told is a button, not a click on a list. The
+        // click is refused rather than reinterpreted: an app that quietly started its own clock would be recording
+        // against a category while the cube it is paired to records against another, and whichever was later would
+        // look like the answer.
+        //
+        // **`ManualMode` is the whole question, not `paired` beside it.** It is initialised from `paired` at launch and
+        // otherwise moved only by pairing and by somebody answering the offer, so asking it covers all three cases at
+        // once: never paired, paired and still looking, and paired but given up on. Asking `paired` here as well would
+        // be a second answer to a question that already has one.
+        //
+        // **No `ManualMode` at all refuses too.** That is a controller built without one, which is a layout test rather
+        // than a launch -- and of the two ways to be wrong, refusing a click is visible and recoverable while starting
+        // a clock nobody asked for writes rows.
+        guard manualMode?.isOn == true else {
+            debugLog?.record(
+                .mode,
+                "Timing: \"\(category.name)\" was not started -- a device is paired, and manual mode has not been chosen"
+            )
+            return
+        }
         // Already timing this one, so the click has nothing to ask for: the clock is where it should be, and
         // restarting it would rotate the face and close a segment for a gesture that asked for no change. Ahead of
         // the face write as well as the segment, since the face already holds this category too.
@@ -1562,6 +1590,57 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         redrawTotals()
         onTimingChanged?()
         startTicking()
+    }
+
+    /// A category was clicked while a cube is connected: the face the cube is resting on takes it, and that is all.
+    ///
+    /// **The archive's `pickCategory`, massaged.** Its shape is kept exactly -- refuse a face that will not take it,
+    /// start the clock in manual mode, otherwise put the category on the face that is up -- because the reasoning
+    /// behind it survives: somebody looking at a lit cube and clicking a category is saying "this face is that", and
+    /// making them find the face in a list afterwards would be saying it twice. What is not kept is where the answer
+    /// comes from. The archive read `appState.currentFaceID`, a published property the app kept in step by hand;
+    /// here the face is whatever the reading says, asked for at the moment of the click.
+    ///
+    /// **No segment, no clock, no tick.** The cube is doing the timing and this app does not read its history yet, so
+    /// opening a segment here would be the app recording a stretch it did not measure. The click changes which
+    /// category a face names and nothing else, which is why this is a separate path rather than a flag inside
+    /// `startTiming`: the two gestures share a control and share almost nothing else.
+    ///
+    /// **A locked face keeps what it has, and is told about.** Faces 2 and 8 are seeded locked by `008_face.sql`, so
+    /// this is the ordinary case on a fresh database rather than an edge of it, and a click that quietly did nothing
+    /// would read as a list that had stopped responding. The write refuses on its own (`FaceStore.assign`); this
+    /// exists to say which of the two reasons it was.
+    private func assignToCube(face: Int, _ category: CategoryRecord) {
+        guard let faces else { return }
+        // Asked before the write rather than after it, so the refusal can name the reason rather than the symptom.
+        // A face with no row at all is not a face this cube reported, which is a different fault from a locked one.
+        guard faces.isLocked(face: face) == false else {
+            debugLog?.record(
+                .mode,
+                faces.isLocked(face: face) == nil
+                    ? "Face \(face) has no row, so it cannot take \"\(category.name)\""
+                    : "Face \(face) is locked, so it keeps what it has rather than taking \"\(category.name)\""
+            )
+            return
+        }
+        // The click asked for no change, and saying so is what tells a deliberate no-op apart from a list that has
+        // stopped responding -- the same reason the manual path records its own.
+        guard faces.categoryID(forFace: face) != category.id else {
+            debugLog?.record(.mode, "Face \(face) already holds \"\(category.name)\", so the click changes nothing")
+            return
+        }
+        guard faces.assign(categoryID: category.id, toFace: face) else {
+            debugLog?.record(.mode, "Face \(face) refused category \"\(category.name)\"")
+            return
+        }
+        debugLog?.record(.mode, "Face \(face) now holds \"\(category.name)\" (category_id \(category.id))")
+        redrawTiming()
+        redrawTotals()
+        // **Through the same funnel, though no clock started.** What this actually means here is "the reading
+        // changed, and the menu bar draws that reading too" -- nothing else tells it, since `onFace` fires on a turn
+        // of the cube and not on a face being given a different category. The two timers it also wakes stand
+        // themselves down again when they find nothing being timed, which is what they already do between sessions.
+        onTimingChanged?()
     }
 
     /// Stop the clock, or start it again.

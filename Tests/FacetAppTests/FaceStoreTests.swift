@@ -109,6 +109,37 @@ final class FaceStoreTests: XCTestCase {
         XCTAssertTrue(faces.facesHolding(categoryID: fresh).isEmpty)
     }
 
+    // MARK: - asking whether a face is locked
+
+    func testTheSeededFacesReportTheirLock() {
+        // Faces 2 and 8 are the two the DDL seeds with a category, and both are seeded locked -- which makes a locked
+        // face the ordinary case on a fresh database rather than an edge of it.
+        XCTAssertEqual(faces.isLocked(face: 2), true)
+        XCTAssertEqual(faces.isLocked(face: 8), true)
+        XCTAssertEqual(faces.isLocked(face: 5), false, "an Unassigned face is free to take one")
+    }
+
+    func testAManualFaceIsNeverLocked() {
+        // Being reassigned is the whole point of them, so the guard `assign` shares must never catch one.
+        for face in ManualFace.all {
+            XCTAssertEqual(faces.isLocked(face: face), false, "manual face \(face)")
+        }
+    }
+
+    func testAFaceWithNoRowAnswersNothingRatherThanUnlocked() {
+        // The two are different faults and a caller reports them differently: one is a face somebody protected, the
+        // other is not a face at all.
+        XCTAssertNil(faces.isLocked(face: 99))
+    }
+
+    func testALockChangedElsewhereIsSeenByTheNextRead() {
+        XCTAssertEqual(faces.isLocked(face: 2), true, "precondition")
+
+        XCTAssertTrue(database.execute("UPDATE face SET locked = 0 WHERE face_id = 2;"))
+
+        XCTAssertEqual(faces.isLocked(face: 2), false)
+    }
+
     // MARK: - the design rule
 
     func testAChangeMadeElsewhereIsSeenByTheNextRead() throws {
