@@ -158,6 +158,22 @@ final class BluetoothRadio: NSObject {
 
     private(set) var isScanning = false
 
+    /// Whether anybody is still waiting for a scan. Not the same question as `isScanning`, and the gap between them
+    /// is where the radio was being used by nobody.
+    ///
+    /// **Building the manager does not start a scan**, so between `start` and the delegate's first callback there is a
+    /// request in flight with nothing to show for it. `centralManagerDidUpdateState` picks it up on `.poweredOn`, and
+    /// that is deliberate: somebody who presses Scan with Bluetooth off and then switches it on gets the scan they
+    /// asked for. But there was nothing recording whether they were *still* asking, so the pickup fired for requests
+    /// that had already been abandoned.
+    ///
+    /// Measured on hardware 2026-08-19. A paired launch with Bluetooth off reaches for its cube, the manager comes up
+    /// powered off, the reach is reported unreachable and the offer of manual mode is taken -- and then switching
+    /// Bluetooth back on **forty minutes later** started a ten-second scan nobody had asked for, in an app that had
+    /// been told to stop looking. Nothing connected, because the reach target was long gone, so the only trace was
+    /// four rows in the log.
+    private var wantsToScan = false
+
     /// One run at reaching a device: which one, which PINs are left to try on it, and what to leave it on.
     private struct Attempt {
         let id: UUID
@@ -291,6 +307,7 @@ final class BluetoothRadio: NSObject {
     ///   - remembered: `device_name.name`, read from the table by the caller at this moment.
     ///   - previouslyKnown: `device_name.previous_name`, likewise.
     func start(filterToTimeFlip: Bool, remembered: String?, previouslyKnown: String?) {
+        wantsToScan = true
         self.isFiltering = filterToTimeFlip
         self.remembered = remembered
         self.previouslyKnown = previouslyKnown
@@ -328,6 +345,10 @@ final class BluetoothRadio: NSObject {
     private func stop(because reason: String) {
         timeout?.invalidate()
         timeout = nil
+        // **Withdrawn ahead of the guard, not inside it.** A stop can land while the manager is still powering up, when
+        // there is no scan yet to stop -- pressing Scan with the radio off and pressing it again to cancel is exactly
+        // that -- and leaving the want set would have the cancelled scan start whenever Bluetooth came back.
+        wantsToScan = false
         guard isScanning else { return }
         central?.stopScan()
         isScanning = false
@@ -346,6 +367,10 @@ final class BluetoothRadio: NSObject {
 
     private func beginScanIfReady() {
         guard let central else { return }
+        // **Nobody is waiting for this any more.** Reached when the radio comes back long after the request that built
+        // the manager was abandoned -- see `wantsToScan`. Silent, because there is nothing to report about a scan that
+        // is correctly not happening.
+        guard wantsToScan else { return }
         guard central.state == .poweredOn else {
             report(unavailable(for: central.state))
             return
@@ -410,6 +435,11 @@ final class BluetoothRadio: NSObject {
         // why ending on them does not race the radio coming up.
         if let target = reaching {
             reaching = nil
+            // **The reach is over, so its scan is not wanted either.** This is the one that was missing: the request
+            // outlived the thing that made it, and the radio coming back hours later ran it. A scan somebody pressed
+            // Scan for is deliberately *not* withdrawn here -- it has no `reaching` target, and picking it up when the
+            // radio returns is what they asked for.
+            wantsToScan = false
             debugLog?.record(.login, "Cannot reach \(target.id.uuidString): \(reason)")
             end(target.id, .unreachable)
         }

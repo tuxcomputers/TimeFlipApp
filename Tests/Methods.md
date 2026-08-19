@@ -272,6 +272,34 @@ no reset, and two sheets to dismiss.
 in -- and Return therefore fires the *rightmost* button unless key equivalents are set explicitly. Read the order from
 `ax-alert.py` rather than assuming it matches the code.
 
+## Method 13: Answer an app-modal alert
+
+**`ax-alert.py` cannot see one, and `--sheet` does not apply.** An `NSAlert` run with `runModal()` -- as opposed to
+`beginSheetModal` -- is a window of the app's own, not an `AXSheet` hanging off another window, and both of those
+tools only walk sheets. The whole-tree search is what finds it:
+
+```sh
+python3 scripts/ax-dump.py | head -8
+#   AXWindow  id=_NS:87  desc=alert
+#     AXStaticText  value=Unable to find your device, retry or switch to manual mode
+#     AXButton  id=action-button-1  title=Retry
+#     AXButton  id=action-button-2  title=Switch to Manual Mode
+
+python3 scripts/ax-press.py --title "Switch to Manual Mode"
+```
+
+**An `AXPress` does actuate it, from inside the modal run loop.** That was the open question: `runModal` blocks the
+main thread, so it was not obvious the app would service an accessibility request at all, let alone act on it. It
+does -- the alert dismissed and the app carried on. Measured 2026-08-19 against the manual-mode offer, which is the
+only app-modal alert this app puts up.
+
+**The buttons carry identifiers as well as titles**, `action-button-1` upwards in the order they were added, the same
+scheme [Method 10](#method-10) records for sheets. Prefer the title: the order is the order `addButton` was called
+in, which is a detail of the code rather than of the screen, and AppKit relocates a button titled `Cancel` regardless.
+
+`--sheet` would find nothing here, so the ambiguity [Method 12](#method-12) warns about does not arise -- but check
+that no control *behind* the alert shares the title before matching on it.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token
