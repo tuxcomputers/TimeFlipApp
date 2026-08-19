@@ -11,18 +11,28 @@ import XCTest
 final class DeviceReconnectorOfferTests: XCTestCase {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
+    /// A real log, because what the loop does once it has stood down is *nothing* -- and the only way to tell nothing
+    /// from a thing that failed silently is the row it writes on the way past.
+    private var debugLog: DebugLog!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
         settings = SettingStore(connection: database.connection())
+        debugLog = DebugLog(databaseURL: database.url)
     }
 
     override func tearDown() {
+        debugLog = nil
         settings = nil
         database.remove()
         super.tearDown()
+    }
+
+    /// Whether the log holds a row matching `pattern`, which is a SQL `LIKE`.
+    private func logged(_ pattern: String) -> Bool {
+        database.string("SELECT COUNT(*) FROM debug_log WHERE message LIKE '\(pattern)';") != "0"
     }
 
     private func setPaired(_ paired: Bool) {
@@ -43,7 +53,7 @@ final class DeviceReconnectorOfferTests: XCTestCase {
         let loop = DeviceReconnector(
             radio: BluetoothRadio(debugLog: nil),
             settings: settings,
-            debugLog: nil,
+            debugLog: debugLog,
             storedPIN: { nil },
             isTimingByHand: isTimingByHand
         )
@@ -135,8 +145,63 @@ final class DeviceReconnectorOfferTests: XCTestCase {
         loop.noteDropped()
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(asked, 2, "the offer is not suppressed by the mode; what the mode stops is the attempts")
+        XCTAssertEqual(asked, 1, "the question came back after it had already been answered")
         XCTAssertTrue(timingByHand)
+    }
+
+    // MARK: - taking manual mode ends the loop for the launch
+
+    /// The loop with the mode already on, which is where a launch is the moment after the offer is answered.
+    private func loopTimingByHand() -> DeviceReconnector {
+        setPaired(true)
+        return reconnector(isTimingByHand: { true })
+    }
+
+    func testADropSchedulesNothingOnceManualModeIsTaken() {
+        // The gate in `attempt` would stand the attempt down anyway. What this is about is the arranging: without it
+        // the log says "Looking for the cube again in 8s" and then quietly does not, which is a record of an app still
+        // hunting for a cube it was told to stop hunting for.
+        let loop = loopTimingByHand()
+
+        loop.noteDropped()
+
+        XCTAssertFalse(logged("Looking for the cube again%"), "an attempt was scheduled while timing by hand")
+        XCTAssertTrue(logged("Timing by hand, so the cube is not being looked for again%"))
+    }
+
+    func testAFailedOutcomeSchedulesNothingEither() {
+        // The other way into the scheduler. Both are covered by the one gate, and both are checked, because a gate
+        // that covered one of two callers would be a loop that stopped only for some kinds of failure.
+        let loop = loopTimingByHand()
+
+        loop.noteOutcome(.unreachable)
+
+        XCTAssertFalse(logged("Looking for the cube again%"))
+    }
+
+    func testTheOfferDoesNotComeBack() {
+        let loop = loopTimingByHand()
+
+        loop.noteOutcome(.unreachable)
+
+        XCTAssertTrue(logged("Timing by hand, so the offer is not put up again%"))
+    }
+
+    func testForgettingTheDeviceIsStillAWayBackOut() {
+        // One of the two ways out. Forgetting turns manual mode on for its own reason -- nothing is paired -- and
+        // pairing again turns it off, at which point this is a loop again. Modelled here as the table changing under a
+        // loop that reads it per attempt, which is exactly what happens.
+        var timingByHand = true
+        setPaired(true)
+        let loop = reconnector(isTimingByHand: { timingByHand })
+        loop.noteDropped()
+        XCTAssertFalse(logged("Looking for the cube again%"), "precondition: stood down")
+
+        // Paired again, and the mode off with it.
+        timingByHand = false
+        loop.noteDropped()
+
+        XCTAssertTrue(logged("Looking for the cube again%"))
     }
 
     func testWithNoPresenterItRetriesRatherThanStopping() {

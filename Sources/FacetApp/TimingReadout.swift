@@ -73,6 +73,20 @@ final class TimingReadout {
     /// asks must be the live answer rather than one taken when the app started.
     var deviceFace: () -> Int? = { nil }
 
+    /// Whether this launch is timing by hand, which is the one thing that stops the cube being asked about at all.
+    ///
+    /// **Somebody offered manual mode and taking it has said to get on without the device.** So the radio is not
+    /// consulted for the rest of the launch: a cube drifting into range would otherwise appear in the menu bar and on
+    /// the Faces tab an hour later, and take the click with it, since a click follows the reading. That is the app
+    /// changing its mind on somebody's behalf.
+    ///
+    /// **The same answer the reconnect loop stands down on**, asked of `ManualMode` per reading rather than copied
+    /// here, so the two halves cannot come to disagree about whether this launch follows a cube.
+    ///
+    /// The way back out is a restart or forgetting the device, and neither needs telling: the mode is per-launch, so a
+    /// relaunch works it out again from `paired`, and pairing turns it off before a face is ever asked for.
+    var isTimingByHand: () -> Bool = { false }
+
     init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
         self.faces = faces
@@ -82,9 +96,11 @@ final class TimingReadout {
 
     /// The session as it stands at `now`.
     func read(at now: Date = Date()) -> Reading {
-        // **A cube wins whenever there is one.** What the app is timing by hand is a stand-in for exactly the device
-        // that has turned up, so a reading taken while a cube is connected is about the cube.
-        if let deviceFace = deviceFace() {
+        // **A cube wins whenever there is one** -- unless this launch has been told to get on without one. What the
+        // app is timing by hand is otherwise a stand-in for exactly the device that has turned up, so a reading taken
+        // while a cube is connected is about the cube. Both questions are asked here rather than resolved by whoever
+        // set the closures, so there is one place that decides which of the two pictures a reading describes.
+        if !isTimingByHand(), let deviceFace = deviceFace() {
             return Reading(
                 // Read here rather than held, like the manual face's: a category renamed, recoloured or reassigned
                 // between two flips draws differently on the second one with nothing having to be told.

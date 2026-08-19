@@ -292,6 +292,47 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertNil(reading.category)
     }
 
+    // MARK: - timing by hand ignores the cube
+
+    func testTimingByHandIgnoresACubeEntirely() {
+        // Somebody offered manual mode and took it has said to get on without the device. A cube drifting into range
+        // must not then appear in the menu bar and on the Faces tab, and must not take the click with it.
+        startTiming(breakID, at: noon.addingTimeInterval(-300))
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        XCTAssertEqual(readout.read(at: noon).category?.id, meetingID, "precondition: following the cube")
+
+        readout.isTimingByHand = { true }
+
+        let reading = readout.read(at: noon)
+        XCTAssertNil(reading.deviceFace)
+        XCTAssertEqual(reading.category?.id, breakID, "what the app is timing by hand")
+        XCTAssertEqual(reading.state, .running, "and its clock, which the cube reading has none of")
+    }
+
+    func testItIsAskedPerReadingRatherThanOnce() {
+        // The way back out of manual mode is a restart or forgetting the device, and pairing turns the mode off. That
+        // has to reach the reading with nothing being told, which is only true if the question is asked every time.
+        var byHand = true
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        readout.isTimingByHand = { byHand }
+        XCTAssertNil(readout.read(at: noon).deviceFace, "precondition")
+
+        byHand = false
+
+        XCTAssertEqual(readout.read(at: noon).deviceFace, 5)
+    }
+
+    func testTimingByHandWithNoCubeIsTheOrdinaryReading() {
+        // The commonest case of all -- nothing ever paired -- and it must be untouched by the gate.
+        startTiming(meetingID, at: noon.addingTimeInterval(-60))
+        readout.isTimingByHand = { true }
+
+        XCTAssertEqual(readout.read(at: noon).category?.id, meetingID)
+        XCTAssertEqual(readout.read(at: noon).state, .running)
+    }
+
     func testAReassignedFaceShowsUpOnTheNextRead() {
         readout.deviceFace = { 5 }
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))

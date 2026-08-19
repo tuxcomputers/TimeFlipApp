@@ -168,6 +168,14 @@ final class DeviceReconnector {
     /// so no timer is left running behind the dialog -- which is half of what stops somebody coming back to an app
     /// that quietly carried on. The other half is the gate in `attempt`.
     private func ask(because reason: String) {
+        // **Asked once a launch, and never again once the answer was manual mode.** Nothing should reach this in that
+        // state -- no attempt is made, so no outcome comes back to fail -- but an offer reappearing after somebody has
+        // said to get on without the device would be the app asking them to decide again, and standing down here is
+        // what makes "the radio is ignored from now on" true of every path rather than of the ones thought of.
+        guard !isTimingByHand() else {
+            debugLog?.record(.mode, "Timing by hand, so the offer is not put up again this launch")
+            return
+        }
         guard let onCubeNotFound else {
             // No presenter, so there is nobody to ask. Retrying is the only thing left that is not giving up silently.
             scheduleAttempt()
@@ -206,6 +214,21 @@ final class DeviceReconnector {
     }
 
     private func scheduleAttempt() {
+        // **Manual mode ends the loop for the rest of the launch, and it ends it here as well as at `attempt`.**
+        // The gate down there is what stops an attempt happening; this is what stops one being *arranged*, which is a
+        // different fault and a visible one: a drop would otherwise write "Looking for the cube again in 8s" and then
+        // quietly stand down eight seconds later, so the log would describe an app still hunting for a cube it has
+        // been told to stop hunting for. Two callers reach this -- a link that went away and an attempt that failed --
+        // and neither is a reason to start again once somebody has said to get on without the device.
+        //
+        // **The way back out is a restart or forgetting the device**, deliberately, and neither needs anything here:
+        // the mode is per-launch and in memory, so a relaunch works it out again from `paired`, and forgetting turns
+        // it on for the honest reason that nothing is paired -- after which pairing turns it off and this loop is a
+        // loop again.
+        guard !isTimingByHand() else {
+            debugLog?.record(.pair, "Timing by hand, so the cube is not being looked for again this launch")
+            return
+        }
         let delay = DeviceReconnectRules.delay(afterFailures: failures)
         failures += 1
         debugLog?.record(.pair, "Looking for the cube again in \(Int(delay))s (attempt \(failures + 1))")

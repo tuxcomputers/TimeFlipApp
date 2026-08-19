@@ -129,7 +129,12 @@ let timingReadout = TimingReadout(
 // Which face the cube is on, asked per reading. **This is what keeps the menu bar and the Faces tab saying the same
 // thing**: both draw from one reading, and this is the question that decides which of the two pictures that reading
 // describes. Set here rather than passed in because the readout is built alongside the tables and the radio is not one.
+//
 timingReadout.deviceFace = { radio.currentFace }
+// **Timing by hand means the cube is not asked about at all**, which is the other half of the reconnect loop standing
+// down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
+// `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
+timingReadout.isTimingByHand = { manualMode.isOn }
 
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated

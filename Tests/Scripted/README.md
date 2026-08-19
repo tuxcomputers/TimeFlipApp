@@ -156,6 +156,7 @@ renumbered to make room.
 | `16-device-reconnect` | a paired app reaching its own cube at launch, with the window shut |
 | `17-device-battery` | the charge: read on connecting, pushed after that, and shown without flapping |
 | `18-device-face` | the face the cube is on, in the menu bar and on the Faces tab (**asks you to turn the cube**) |
+| `19-manual-mode` | a paired app that cannot find its cube: what a click refuses, and what taking manual mode stops (**asks you to switch Bluetooth off and on**) |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written
