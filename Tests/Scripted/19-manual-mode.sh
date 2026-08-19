@@ -133,12 +133,17 @@ open_before=$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")
 # them may well be holding it already when this runs -- and a check that asserted "no manual face holds Break" would
 # fail on a rotation an earlier script left behind rather than on anything this click did.
 faces_before=$(sql "SELECT group_concat(face_id || ':' || category_id, ',') FROM face WHERE face_id IN (13, 14) ORDER BY face_id;")
+# **The refusal is drawn, not merely logged.** The rows go dead when a click would do nothing, so this is checked
+# before pressing: the row being disabled is the whole of what tells somebody why nothing happens, and it used to be
+# invisible. `ax-dump.py` prints `disabled` only when a control is off, so the word appearing on the row is the check.
+check_contains "the category rows are drawn dead" "$(element "category-row-$BREAK")" "disabled"
+
 since=$(mark)
 press "category-row-$BREAK"
 sleep 1.5
 
-expect_log "a click is refused while a device is paired and manual mode has not been chosen" "$since" \
-    "%was not started -- a device is paired, and manual mode has not been chosen"
+# Pressed anyway, to prove the drawing and the behaviour agree. A dead row does not actuate, so there is no log line
+# to wait for here -- what is checked is that nothing moved.
 check "so no segment is opened" "$open_before" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
 # The failure that would matter most: falling through to the manual path, which writes the category onto the next
 # manual face -- so a refused click would quietly rearrange the rotation on its way to doing nothing.
@@ -197,6 +202,13 @@ select_tab Faces
 since=$(mark)
 press "category-row-$BREAK"
 sleep 1.5
+
+# The other half of the drawing: the rows come back live the moment the click has something to do again.
+case "$(element "category-row-$BREAK")" in
+    "") fail "there is no category row to check" ;;
+    *disabled*) fail "the category rows are still dead after choosing manual mode" ;;
+    *) pass "the category rows are live again once manual mode is chosen" ;;
+esac
 
 expect_log "the same click now starts the clock" "$since" "Timing: started \"Break\"%"
 check "and a segment is open" "1" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"

@@ -329,4 +329,130 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
         XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Drafting"))
         XCTAssertEqual(openSegments, 0, "a create with a cube connected started a clock")
     }
+
+    // MARK: - the list says what the click will do
+
+    /// Brings the Faces tab up **and makes it reload**.
+    ///
+    /// Away and back, deliberately. Faces is the tab a controller starts on, so selecting it changes nothing and the
+    /// tab view's delegate never fires -- which is what fills the list and applies the rule to it. A real window gets
+    /// there by being opened; a test has to ask for a switch that is actually a switch.
+    private func showFacesTab() -> FacesPane? {
+        controller.select(.categories)
+        controller.select(.faces)
+        return controller.panes.selectedTabViewItem?.view as? FacesPane
+    }
+
+    /// Every category row currently drawn on the Faces tab.
+    private func rows() -> [CategoryRowView] {
+        guard let pane = showFacesTab() else { return [] }
+        func walk(_ view: NSView) -> [CategoryRowView] {
+            (view as? CategoryRowView).map { [$0] } ?? view.subviews.flatMap(walk)
+        }
+        return walk(pane.categoryList)
+    }
+
+    private func timingView() -> TimingView? {
+        showFacesTab()?.timingView
+    }
+
+    func testAnUnlockedFaceLeavesTheRowsLive() {
+        cubeIsOn(freeFace)
+
+        XCTAssertFalse(rows().isEmpty, "no rows to check")
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled))
+    }
+
+    func testALockedFaceDrawsTheRowsDead() {
+        // The whole point of the rule being a value: the refusal was invisible, so a click that did nothing read as a
+        // list that had stopped responding. Watched happening on hardware before this existed.
+        cubeIsOn(lockedFace)
+
+        XCTAssertFalse(rows().isEmpty, "no rows to check")
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testAPairedAppStillLookingDrawsThemDeadToo() {
+        // The other refusal, and it has to look the same: in both cases a click does nothing, and the reason is
+        // elsewhere on the screen rather than in the list.
+        pairADevice()
+
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testTimingByHandLeavesThemLive() {
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled))
+    }
+
+    func testUnlockingTheFaceBringsTheRowsBack() {
+        cubeIsOn(lockedFace)
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled }, "precondition")
+
+        XCTAssertTrue(faces.setLocked(false, face: lockedFace))
+        controller.redrawTiming()
+
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled))
+    }
+
+    // MARK: - the lock in the corner
+
+    func testTheLockIsDrawnForTheFaceOnShow() {
+        cubeIsOn(lockedFace)
+        controller.redrawTiming()
+
+        XCTAssertEqual(timingView()?.lockButton.isHidden, false)
+        XCTAssertEqual(timingView()?.lockButton.contentTintColor, .systemRed)
+    }
+
+    func testThereIsNoLockWithoutACube() {
+        controller.redrawTiming()
+
+        XCTAssertEqual(timingView()?.lockButton.isHidden, true)
+    }
+
+    func testPressingTheLockLocksTheFaceTheCubeIsOn() {
+        cubeIsOn(freeFace)
+        controller.redrawTiming()
+        XCTAssertEqual(faces.isLocked(face: freeFace), false, "precondition")
+
+        timingView()?.onToggleLock?()
+
+        XCTAssertEqual(faces.isLocked(face: freeFace), true)
+    }
+
+    func testPressingItAgainUnlocksIt() {
+        cubeIsOn(lockedFace)
+        controller.redrawTiming()
+
+        timingView()?.onToggleLock?()
+
+        XCTAssertEqual(faces.isLocked(face: lockedFace), false)
+    }
+
+    func testLockingImmediatelyRefusesTheNextClick() {
+        // The two halves meeting: the lock is written, the tab is redrawn from the table, and the click that follows
+        // reads the same answer. Nothing is told -- both ends ask.
+        cubeIsOn(freeFace)
+        controller.redrawTiming()
+
+        timingView()?.onToggleLock?()
+        click("Break")
+
+        XCTAssertNil(faces.categoryID(forFace: freeFace), "a locked face took a category")
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testTheLockFollowsTheFaceRatherThanWhatWasDrawn() {
+        // The cube can be turned between the tab being drawn and the click landing, so the toggle reads the face now
+        // rather than acting on the one the button was drawn for.
+        var face = freeFace
+        readout.deviceFace = { face }
+        controller.redrawTiming()
+
+        face = 6
+        timingView()?.onToggleLock?()
+
+        XCTAssertEqual(faces.isLocked(face: 6), true, "the face the cube is on now")
+        XCTAssertEqual(faces.isLocked(face: freeFace), false, "not the one the lock was drawn for")
+    }
 }

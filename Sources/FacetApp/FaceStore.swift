@@ -52,6 +52,18 @@ final class FaceStore {
         ) && connection.changes > 0
     }
 
+    /// Locks or unlocks a face, and reports whether it took.
+    ///
+    /// **Not gated on anything.** A locked face refuses a *category*, which is the whole of what locking does; the lock
+    /// itself is always the user's to change, or it would be a switch that can only be flicked one way. `changes` is
+    /// still checked, so a face with no row reads as refused rather than as done.
+    @discardableResult
+    func setLocked(_ locked: Bool, face faceID: Int) -> Bool {
+        connection.execute(
+            "UPDATE face SET locked = \(locked ? 1 : 0) WHERE face_id = \(faceID);"
+        ) && connection.changes > 0
+    }
+
     /// Clears a face back to *Unassigned*.
     func clear(face faceID: Int) -> Bool {
         assign(categoryID: 0, toFace: faceID)

@@ -22,6 +22,7 @@ final class TimingView: NSView {
         static let categoryName = "timing-category-name"
         static let deviceFace = "timing-device-face"
         static let centreIcon = "timing-centre-icon"
+        static let faceLock = "timing-face-lock"
     }
 
     /// The device seen from above, which is the app's own mark: `ic_facet.svg`.
@@ -45,6 +46,15 @@ final class TimingView: NSView {
         /// the same pentagon -- and the largest square inside it -- shrank by exactly that much with it. Deriving it
         /// rather than writing 0.21 means redrawing the ring moves the icon with it.
         static let centreIconScale: CGFloat = glyphScale * markScale
+
+        /// The lock in the corner of the square, as a fraction of it.
+        ///
+        /// **The margin the ring leaves, derived rather than chosen.** The cube occupies `markScale` of the box and
+        /// the rest is the ring, so `(1 - markScale) / 2` is exactly the band of empty square outside it -- which is
+        /// where a lock can sit without landing on the artwork. Redrawing the ring moves and resizes the lock with it,
+        /// the same way `centreIconScale` follows the mark. The archive wrote 40 points here, which was right for one
+        /// window width and nothing else; everything in this column is sized off the square instead.
+        static let lockScale: CGFloat = (1 - markScale) / 2
 
         /// The size the device artwork is rendered at, independent of how large it is drawn. A vector re-renders at
         /// draw size, so this only has to be generous enough that nothing downstream upscales a raster made too small.
@@ -71,6 +81,25 @@ final class TimingView: NSView {
     /// The cube, lit in the face's colour. Filled and hidden by `show(face:category:)`, and empty the rest of the
     /// time: with no cube to follow there is no device to draw, and a picture of one would be reporting hardware
     /// that is not there.
+    /// The lock in the corner of the cube, red for locked and green for open.
+    ///
+    /// **The archive's control, massaged.** Its behaviour and its colours are kept whole -- see `showFaceLock` -- and
+    /// what changes is that it is an `NSButton` sized off the square rather than a SwiftUI `Button` at a fixed 40
+    /// points. The measured reason for sizing the glyph by symbol configuration rather than by scaling an image into a
+    /// frame is the archive's, and still applies: the open lock's bounding box is the wider of the two, because its
+    /// shackle swings out, so scaling both to fit one square drew the open one smaller and the lock appeared to change
+    /// size as it toggled.
+    let lockButton = NSButton()
+    private var lockWidth: NSLayoutConstraint!
+    private var lockHeight: NSLayoutConstraint!
+
+    /// Whether the face on show keeps what it has. Held only so `layout` can re-render the glyph at a new size without
+    /// being told again which one to draw; `showFaceLock` is what decides it.
+    private var isFaceLocked = false
+
+    /// Pressing the lock. `nil` leaves it inert, which is what a view built without a window gets.
+    var onToggleLock: (() -> Void)?
+
     let deviceView = NSImageView()
 
     /// The face's category icon, on the device's centre face.
@@ -117,6 +146,7 @@ final class TimingView: NSView {
         // There is no cube in this picture. Clearing the artwork rather than merely hiding it means a link that drops
         // cannot leave a lit face behind it in memory, waiting to be shown again by a later resize.
         showDevice(nil, category: nil)
+        showFaceLock(nil)
         symbolName = ManualTimerRules.symbolName(for: state)
         let isHidden = symbolName == nil
         centred.isHidden = isHidden
@@ -152,11 +182,14 @@ final class TimingView: NSView {
     ///
     /// **No clock and no play/pause**, which is the archive's arrangement and its reasoning: this is a picture of
     /// where the cube is, and the cube's own timing is not something a click on this window starts or stops.
-    func show(face: Int, category: CategoryRecord?) {
+    /// - Parameter isLocked: whether this face keeps the category it has. Drawn as the lock in the corner, and the
+    ///   same answer the category list is drawn live or dead from -- see `FacesTabRules`.
+    func show(face: Int, category: CategoryRecord?, isLocked: Bool = false) {
         state = .idle
         centred.isHidden = true
         playPauseButton.isEnabled = false
         showDevice(face, category: category)
+        showFaceLock(isLocked)
         categoryNameLabel.isHidden = false
         categoryNameLabel.stringValue = category?.name ?? ""
         // Applied here as well as in `layout()`, for the reason the other `show` gives: the fitted size depends on the
@@ -216,6 +249,12 @@ final class TimingView: NSView {
             centreIconWidth.constant = centreIconSize
             centreIconHeight.constant = centreIconSize
         }
+        let lockSize = (side * Layout.lockScale).rounded()
+        if lockWidth.constant != lockSize {
+            lockWidth.constant = lockSize
+            lockHeight.constant = lockSize
+        }
+        apply(lockSize: lockSize)
         centred.spacing = (glyphSize * Layout.elapsedGapScale).rounded()
         apply(glyphSize: glyphSize)
         apply(elapsedFontSize: (glyphSize * Layout.elapsedFontScale).rounded())
@@ -314,6 +353,20 @@ final class TimingView: NSView {
                 view.setContentCompressionResistancePriority(.defaultLow, for: axis)
             }
         }
+        lockButton.isBordered = false
+        lockButton.bezelStyle = .inline
+        lockButton.imagePosition = .imageOnly
+        lockButton.title = ""
+        // No focus ring, for the reason the play/pause glyph and the category rows give: a control that draws its own
+        // appearance does not want a second one drawn over it, and here the ring would outline a corner of the cube.
+        lockButton.focusRingType = .none
+        lockButton.target = self
+        lockButton.action = #selector(toggleLock)
+        lockButton.translatesAutoresizingMaskIntoConstraints = false
+        lockButton.isHidden = true
+        lockButton.identifier = NSUserInterfaceItemIdentifier(Identifier.faceLock)
+        lockButton.setAccessibilityIdentifier(Identifier.faceLock)
+
         deviceView.identifier = NSUserInterfaceItemIdentifier(Identifier.deviceFace)
         deviceView.setAccessibilityIdentifier(Identifier.deviceFace)
         centreIconView.identifier = NSUserInterfaceItemIdentifier(Identifier.centreIcon)
@@ -324,12 +377,16 @@ final class TimingView: NSView {
         squareArea.addSubview(deviceView)
         squareArea.addSubview(centreIconView)
         squareArea.addSubview(centred)
+        // Last, so it is above the artwork it sits on the corner of.
+        squareArea.addSubview(lockButton)
         addSubview(categoryNameLabel)
 
         glyphWidth = playPauseButton.widthAnchor.constraint(equalToConstant: 1)
         glyphHeight = playPauseButton.heightAnchor.constraint(equalToConstant: 1)
         centreIconWidth = centreIconView.widthAnchor.constraint(equalToConstant: 1)
         centreIconHeight = centreIconView.heightAnchor.constraint(equalToConstant: 1)
+        lockWidth = lockButton.widthAnchor.constraint(equalToConstant: 1)
+        lockHeight = lockButton.heightAnchor.constraint(equalToConstant: 1)
 
         NSLayoutConstraint.activate([
             squareArea.topAnchor.constraint(equalTo: topAnchor),
@@ -352,6 +409,13 @@ final class TimingView: NSView {
             centreIconWidth,
             centreIconHeight,
 
+            // The top-leading corner, which is the archive's placement: the band of square outside the ring, where it
+            // lands on nothing the artwork is drawing.
+            lockButton.topAnchor.constraint(equalTo: squareArea.topAnchor),
+            lockButton.leadingAnchor.constraint(equalTo: squareArea.leadingAnchor),
+            lockWidth,
+            lockHeight,
+
             centred.centerXAnchor.constraint(equalTo: squareArea.centerXAnchor),
             centred.centerYAnchor.constraint(equalTo: squareArea.centerYAnchor),
             centred.leadingAnchor.constraint(greaterThanOrEqualTo: squareArea.leadingAnchor),
@@ -364,6 +428,48 @@ final class TimingView: NSView {
             categoryNameLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
             categoryNameLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// Draws the lock at the size the square currently gives it.
+    ///
+    /// **A template tinted red or green**, which is the archive's rule and its reasoning: the colour says whether the
+    /// face will accept a new category, matching the list going dead beside it. So the two never have to be read
+    /// together to be understood -- a red lock and a dead list are one fact drawn twice.
+    private func apply(lockSize: CGFloat) {
+        let name = isFaceLocked ? "lock.fill" : "lock.open.fill"
+        let configuration = NSImage.SymbolConfiguration(pointSize: lockSize, weight: .regular)
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        image.isTemplate = true
+        lockButton.image = image
+        lockButton.contentTintColor = isFaceLocked ? .systemRed : .systemGreen
+    }
+
+    /// Shows or hides the lock, and says which way it is.
+    ///
+    /// **Hidden rather than switched off when there is no cube.** Manual mode's face is *meant* to be reassigned --
+    /// every category picked lands on it -- so a lock there could only get in the way of the one gesture this tab has.
+    /// The archive drew it the same way, and for the same reason: there is no lock to offer, not a lock that happens
+    /// to be open.
+    private func showFaceLock(_ isLocked: Bool?) {
+        guard let isLocked else {
+            lockButton.isHidden = true
+            return
+        }
+        isFaceLocked = isLocked
+        lockButton.isHidden = false
+        // Both spelled out, rather than one name for the control: what it is called has to say what pressing it does,
+        // and "Lock" on a locked face reads as a label for the state it is already in.
+        lockButton.toolTip = isLocked
+            ? "Unlock this face so its category can be changed"
+            : "Lock this face to keep its category"
+        lockButton.setAccessibilityLabel(isLocked ? "Unlock face" : "Lock face")
+        apply(lockSize: lockWidth.constant)
+    }
+
+    @objc
+    private func toggleLock() {
+        onToggleLock?()
     }
 
     @objc

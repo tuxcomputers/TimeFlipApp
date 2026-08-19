@@ -222,6 +222,18 @@ check_turn() {
     check_contains "and draws the cube for it" "$(tree)" "timing-device-face"
     check_contains "with the category's icon on its centre face" "$(tree)" "timing-centre-icon"
 
+    # **The lock, and it is on**: faces 2 and 8 are the two `008_face.sql` seeds locked, which is why they are also the
+    # two this script uses. So the lock is drawn here, and the category rows beside it are dead -- one fact drawn
+    # twice, which is what `FacesTabRules` exists to guarantee.
+    check_contains "the face's lock is drawn on the cube" "$(tree)" "timing-face-lock"
+    check_contains "and it says what pressing it would do" "$(element timing-face-lock)" "Unlock face"
+    local row
+    row=$(sql "SELECT category_id FROM face WHERE face_id = $face;")
+    case "$(element "category-row-$row")" in
+        *disabled*) pass "so the category rows are dead, which is what says the click would be refused" ;;
+        *) fail "the face is locked but the category rows are still live" ;;
+    esac
+
     # The menu bar, which is the half that was wrong. Read as the whole line: the name is in the drawn title and again
     # in the spoken description, and either one carrying it is the item saying it.
     item=$(status_item)

@@ -281,4 +281,111 @@ final class TimingViewTests: XCTestCase {
         XCTAssertNil(view.centreIconView.image)
         XCTAssertTrue(view.playPauseButton.isEnabled, "the manual control is back")
     }
+
+    // MARK: - the lock in the corner
+
+    /// The lock's size as Auto Layout sees it.
+    ///
+    /// **Its alignment rect, not its frame.** Constraints act on the alignment rect, and this button's frame is
+    /// noticeably larger than it: measured at a 53pt lock, the frame came back 53.5 x 73.5 while the alignment rect was
+    /// exactly 53 x 53. The extra is AppKit's own insets for a symbol image whose bounding box is taller than its point
+    /// size -- which is the same fact the archive recorded about lock glyphs, seen from the other side. Asserting on
+    /// the frame reads as a broken constraint when nothing is broken.
+    private func lockSize(of view: TimingView) -> NSRect {
+        view.lockButton.alignmentRect(forFrame: view.lockButton.frame)
+    }
+
+    func testThereIsNoLockWithoutACube() {
+        // Manual mode's face is meant to be reassigned, so a lock there could only get in the way. Hidden rather than
+        // drawn open: there is no lock to offer, not one that happens to be unlocked.
+        let view = view()
+
+        view.show(category: nil, state: .idle, elapsed: 0)
+
+        XCTAssertTrue(view.lockButton.isHidden)
+    }
+
+    func testFollowingACubeDrawsTheLock() {
+        let view = view()
+
+        view.show(face: 5, category: nil, isLocked: false)
+
+        XCTAssertFalse(view.lockButton.isHidden)
+    }
+
+    func testTheLockSaysWhichWayItIsInBothWords() {
+        // What it is called has to say what pressing it does. "Lock" on a locked face reads as a label for the state
+        // it is already in.
+        let view = view()
+
+        view.show(face: 5, category: nil, isLocked: true)
+        XCTAssertEqual(view.lockButton.accessibilityLabel(), "Unlock face")
+
+        view.show(face: 5, category: nil, isLocked: false)
+        XCTAssertEqual(view.lockButton.accessibilityLabel(), "Lock face")
+    }
+
+    func testTheColourSaysWhetherTheFaceWillTakeACategory() {
+        // Red and green, matching the list going dead beside it -- so the two are one fact drawn twice rather than two
+        // that have to be read together.
+        let view = view()
+
+        view.show(face: 5, category: nil, isLocked: true)
+        XCTAssertEqual(view.lockButton.contentTintColor, .systemRed)
+
+        view.show(face: 5, category: nil, isLocked: false)
+        XCTAssertEqual(view.lockButton.contentTintColor, .systemGreen)
+    }
+
+    func testTheLockSitsInTheCornerOutsideTheRing() {
+        // The band of square the ring leaves empty, which is the whole reason it can sit on the artwork without
+        // landing on any of it.
+        let view = view(width: 400)
+        view.show(face: 5, category: nil, isLocked: false)
+        view.layoutSubtreeIfNeeded()
+
+        let expected = (400 * TimingView.Layout.lockScale).rounded()
+        XCTAssertEqual(lockSize(of: view).width, expected, accuracy: 0.5)
+        XCTAssertEqual(lockSize(of: view).height, expected, accuracy: 0.5)
+        XCTAssertEqual(lockSize(of: view).minX, 0, accuracy: 0.5, "not against the leading edge")
+    }
+
+    func testTheLockIsSizedFromTheSquareRatherThanFixed() {
+        // The archive's 40 points was right for one window width and nothing else. Everything in this column follows
+        // the square, and a lock that did not would swamp a narrow window and vanish in a wide one.
+        let narrow = view(width: 200)
+        narrow.show(face: 5, category: nil, isLocked: false)
+        narrow.layoutSubtreeIfNeeded()
+        let wide = view(width: 600)
+        wide.show(face: 5, category: nil, isLocked: false)
+        wide.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(lockSize(of: narrow).width, lockSize(of: wide).width)
+    }
+
+    func testTheLockGoesWhenTheCubeDoes() {
+        // A link that drops must not leave a lock behind on a face nobody is holding.
+        let view = view()
+        view.show(face: 5, category: nil, isLocked: true)
+        XCTAssertFalse(view.lockButton.isHidden, "precondition")
+
+        view.show(category: nil, state: .idle, elapsed: 0)
+
+        XCTAssertTrue(view.lockButton.isHidden)
+    }
+
+    func testPressingTheLockReportsIt() {
+        let view = TimingView()
+        // In a window, because that is what a click needs -- the same reason `testTheControlReportsItsClick` hosts it.
+        let window = OffscreenWindow.host(view)
+        var pressed = 0
+        view.onToggleLock = { pressed += 1 }
+        view.show(face: 5, category: nil, isLocked: false)
+        view.layoutSubtreeIfNeeded()
+
+        view.lockButton.performClick(nil)
+        _ = window
+
+        XCTAssertEqual(pressed, 1)
+    }
 }

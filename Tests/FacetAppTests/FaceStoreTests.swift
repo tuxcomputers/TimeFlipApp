@@ -140,6 +140,41 @@ final class FaceStoreTests: XCTestCase {
         XCTAssertEqual(faces.isLocked(face: 2), false)
     }
 
+    // MARK: - locking a face
+
+    func testAFaceCanBeLockedAndUnlocked() {
+        XCTAssertTrue(faces.setLocked(true, face: 5))
+        XCTAssertEqual(faces.isLocked(face: 5), true)
+
+        XCTAssertTrue(faces.setLocked(false, face: 5))
+        XCTAssertEqual(faces.isLocked(face: 5), false)
+    }
+
+    func testUnlockingASeededFaceLetsItTakeACategoryAgain() {
+        // The gesture the lock exists for, end to end: face 2 is seeded locked holding Meeting, and refuses Break
+        // until it is unlocked.
+        let breakID = try? categoryID(named: "Break")
+        XCTAssertFalse(faces.assign(categoryID: breakID ?? 1, toFace: 2), "precondition: locked faces refuse")
+
+        XCTAssertTrue(faces.setLocked(false, face: 2))
+
+        XCTAssertTrue(faces.assign(categoryID: breakID ?? 1, toFace: 2))
+    }
+
+    func testLockingIsNotItselfRefusedByTheLock() {
+        // Or it would be a switch that can only be flicked one way. Locking stops a *category* landing; it does not
+        // stop the lock being changed.
+        XCTAssertEqual(faces.isLocked(face: 8), true, "precondition: seeded locked")
+
+        XCTAssertTrue(faces.setLocked(false, face: 8))
+        XCTAssertTrue(faces.setLocked(true, face: 8))
+    }
+
+    func testAFaceWithNoRowRefusesTheLock() {
+        // Reported rather than silently doing nothing, so a caller can tell "not a face" from "done".
+        XCTAssertFalse(faces.setLocked(true, face: 99))
+    }
+
     // MARK: - the design rule
 
     func testAChangeMadeElsewhereIsSeenByTheNextRead() throws {
