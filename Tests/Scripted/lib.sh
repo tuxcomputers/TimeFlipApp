@@ -57,6 +57,12 @@ yellow() { printf '\033[1;33m%s\033[0m\n' "$*"; }
 #
 # **Non-interactive answers no**, rather than waiting for a person who is not there. A run with no
 # terminal is CI or a pipe, and a step needing hands is one it should skip and say so.
+#
+# **Only `y` or `n` is an answer, and anything else asks again.** This used to treat every key that was
+# not a yes as a no, which is a mistyped character silently choosing the destructive one: on 2026-08-18 a
+# stray `t` skipped the whole Google calendar section, and the run finished green having not checked it.
+# A skip is a real answer somebody may want to give, so it keeps its key -- what it no longer has is every
+# other key on the keyboard as a synonym. EOF still ends it, so a closed pipe cannot loop for ever.
 action_required() {
     local title="$1"
     shift
@@ -81,13 +87,15 @@ action_required() {
     fi
 
     local answer=""
-    printf '  Type y and press Return when you are ready (anything else skips this): '
-    read -r answer < /dev/tty || return 1
-    echo ""
-    case "$answer" in
-        y | Y | yes | YES | Yes) return 0 ;;
-        *) return 1 ;;
-    esac
+    while true; do
+        printf '  Answer y (go ahead) or n (skip this): '
+        read -r answer < /dev/tty || return 1
+        case "$answer" in
+            y | Y | yes | YES | Yes) echo ""; return 0 ;;
+            n | N | no | NO | No) echo ""; return 1 ;;
+            *) red "  '$answer' is not an answer here. Type y or n." ;;
+        esac
+    done
 }
 
 # Holds the run until the person running it says go. Unlike `action_required` there is nothing to decide:
@@ -120,9 +128,11 @@ wait_for_dev() {
         grey "  no terminal to wait on, so carrying straight on"
         return 0
     fi
-    local answer=""
-    printf '  Press y and Return when you are ready to carry on: '
-    read -r answer < /dev/tty || true
+    # **No key in particular**, unlike `action_required`: there is nothing being decided here, so there is no
+    # wrong key to press and nothing a mistyped one could choose. Asking for `y` would only be a rule with
+    # no answer behind it.
+    printf '  Press Return when you are ready to carry on: '
+    read -r _ < /dev/tty || true
     echo ""
     return 0
 }
