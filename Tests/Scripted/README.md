@@ -220,6 +220,13 @@ None of it is enforced on a push to main, where the stamp goes on naming the fea
 **So: run the suite, then commit the stamp along with your change.** If you did not run it, CI will say so
 rather than let a green build imply otherwise.
 
+**A contributor with no TimeFlip cannot clear this, and is not meant to.** The suite needs a cube in range
+and a person to turn it, so a fork's pull request lands here red however good the change is -- which is the
+honest state of it: the change has not been tried against hardware. What clears it is somebody who *has* a
+device running the suite against that branch and committing the stamp. `CONTRIBUTING.md` says what a
+contributor should do, and the two things that make it possible: leaving "Allow edits by maintainers"
+ticked, and not force-pushing the branch while it is being run.
+
 ## When one of these fails
 
 The app is still there if you passed `--keep-running`. Beyond that:

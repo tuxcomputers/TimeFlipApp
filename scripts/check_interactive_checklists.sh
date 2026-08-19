@@ -31,6 +31,13 @@
 # `Sources/`, `Tests/Scripted/` or `database/` has changed since. Editing a README does not force a re-run;
 # changing the app does.
 #
+# **A contributor with no device cannot clear this, and is not meant to.** The suite needs a cube in range
+# and a person to turn it, so a fork's pull request will land here red however good the change is. That is
+# the honest state of it rather than a gate to route around: the change genuinely has not been checked
+# against hardware. What clears it is somebody who has a device running the suite against that branch and
+# committing the stamp -- so the message says so, because a red check whose advice you cannot follow reads
+# as a dead end rather than as a step somebody else takes.
+#
 # **Only on a pull request.** `--branch` is empty on a push to main, and after a merge the stamp goes on
 # naming the feature branch that ran it -- so enforcing the branch, ancestry and staleness checks there
 # would fail every push for ever. What is still enforced on main is that a stamp exists and reports a run
@@ -163,6 +170,10 @@ $(git diff --name-only "$ran_commit" HEAD -- Sources Tests/Scripted database ":!
     echo "The scripted suite has not been run on this branch as it stands:$problems"
     echo ""
     echo "Run Tests/Scripted/run.sh and commit the stamp it writes."
+    echo ""
+    echo "If you do not have a TimeFlip, you cannot clear this and are not expected to."
+    echo "Open the pull request anyway and say so in it: somebody with a device in range runs the"
+    echo "suite against your branch and commits the stamp, and this goes green. See CONTRIBUTING.md."
     return 1
   fi
 
