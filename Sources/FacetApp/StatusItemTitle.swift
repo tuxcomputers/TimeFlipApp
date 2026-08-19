@@ -93,23 +93,35 @@ struct StatusItemTitle: Equatable {
         // name drawn in whatever the line's own colour turns out to be.
         let flash: NSColor? = lowBattery.isLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
         let lockGlyphName = isCubeLocked ? "lock.fill" : nil
-        // **Following a cube: the face's category, and nothing that would be invented.** No glyph and no figure,
-        // which is exactly what the Faces tab draws for the same reading -- the app does not read the cube's history
-        // yet, so it has no segment to call running and no total it could stand behind. The name and the icon are
-        // what is actually known, and they are what somebody glances up for: which face the cube is on.
+        // **Following a cube: the face's category and what it has recorded today.**
+        //
+        // The figure is the archive's, copied: its menu bar drew the same day total in device mode, out of the same
+        // per-category durations. What is deliberately absent is the play/pause glyph -- it says whether *this app's*
+        // clock is running, and while a cube is being followed the app is not running one. A glyph here would be
+        // answering a question nobody asked with a state nothing is in.
         if reading.deviceFace != nil, let category = reading.category {
+            // Formatted once and used twice, drawn and spoken, so the two cannot come to read differently.
+            let onTheFace = DurationFormat.hoursMinutesSeconds(
+                reading.seconds,
+                // Truncated like the session's, for the same reason: a figure shown must never be ahead of the time
+                // actually recorded.
+                rounding: .truncate,
+                showingSeconds: showingSeconds
+            )
             return StatusItemTitle(
                 text: category.name,
                 iconName: category.iconName,
                 glyphName: nil,
                 lockGlyphName: lockGlyphName,
-                duration: nil,
+                duration: onTheFace,
                 // Not green: green is a claim that time is being recorded, and here it is the cube recording it
                 // rather than this app. The ordinary label colour says what is true -- this is the face it is on.
                 colour: .labelColor,
                 nameColour: flash ?? .labelColor,
+                // The figure is said as well as drawn, for the reason the limit and the lock are: what is on the line
+                // has to reach somebody reading it aloud, and a duration is the one part of it that is never a colour.
                 spoken: spoken(
-                    [category.name]
+                    [category.name, onTheFace]
                         + (isCubeLocked ? ["device locked"] : [])
                         + (lowBattery.isLow ? ["low battery"] : [])
                         + [appLabel],

@@ -17,11 +17,32 @@ final class TimingViewTests: XCTestCase {
         )
     }
 
+    /// Hosts, kept alive for the length of a test: a superview does the retaining, so a container dropped on the way
+    /// out of the helper would take the constraints holding the view's width with it.
+    private var hosts: [NSView] = []
+
     /// 384pt wide, which is what the left column comes to in a 640pt window.
+    ///
+    /// **In a container, pinned the way the pane pins it**, rather than by setting the view's own frame. `TimingView`
+    /// turns autoresizing off in its initialiser, so a frame set on it is advisory: with nothing holding its width,
+    /// Auto Layout is free to shrink the whole view until its contents fit, and it does. That went unnoticed while the
+    /// only thing under the square was the name -- the frame was generous enough that nothing had to give -- and
+    /// showed up the moment a second row appeared, as a 400pt column reporting a 374pt square.
+    ///
+    /// `bottom <= host.bottom` is `FacesPane`'s own constraint, so the column here can grow with its contents exactly
+    /// as it does in the window.
     private func view(width: CGFloat = 384) -> TimingView {
         let view = TimingView()
-        view.frame = NSRect(x: 0, y: 0, width: width, height: width + 100)
-        view.layoutSubtreeIfNeeded()
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: width + 200))
+        hosts.append(host)
+        host.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: host.topAnchor),
+            view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            view.bottomAnchor.constraint(lessThanOrEqualTo: host.bottomAnchor),
+        ])
+        host.layoutSubtreeIfNeeded()
         return view
     }
 
@@ -388,4 +409,83 @@ final class TimingViewTests: XCTestCase {
 
         XCTAssertEqual(pressed, 1)
     }
+
+    // MARK: - the figure under the name
+
+    func testFollowingACubeDrawsTheFigureUnderTheName() {
+        // Under the name rather than in the square, because with a cube the square *is* the cube: a figure on the
+        // artwork would be writing over the picture.
+        let view = view(width: 400)
+
+        view.show(face: 5, category: category(), isLocked: false, elapsed: 3661)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.faceElapsedLabel.stringValue, "1:01:01")
+        // AppKit's y grows upward, so the bottom of the column is `minY == 0` and "under the name" is a smaller y
+        // than the name's.
+        XCTAssertEqual(view.faceElapsedLabel.frame.minY, 0, accuracy: 0.5, "not at the bottom of the column")
+        XCTAssertLessThanOrEqual(
+            view.faceElapsedLabel.frame.maxY, view.categoryNameLabel.frame.minY + 0.5,
+            "the figure is not under the name"
+        )
+    }
+
+    func testTheFigureIsTruncatedNotRounded() {
+        // What is shown must never be ahead of the time actually recorded, which is the rule every figure the app
+        // draws follows.
+        let view = view()
+
+        view.show(face: 5, category: category(), elapsed: 59.9)
+
+        XCTAssertEqual(view.faceElapsedLabel.stringValue, "0:00:59")
+    }
+
+    func testTheFigureFollowsTheSecondsSetting() {
+        let view = view()
+
+        view.show(face: 5, category: category(), elapsed: 3661, showingSeconds: false)
+
+        XCTAssertEqual(view.faceElapsedLabel.stringValue, "1:01")
+    }
+
+    func testAFaceWithNoCategoryDrawsNoFigure() {
+        // An unlit cube with a number under it would be a total about a category that is not there.
+        let view = view()
+
+        view.show(face: 5, category: nil, elapsed: 500)
+
+        XCTAssertEqual(view.faceElapsedLabel.stringValue, "")
+    }
+
+    func testTheFigureGoesWithTheCube() {
+        let view = view()
+        view.show(face: 5, category: category(), elapsed: 500)
+        XCTAssertFalse(view.faceElapsedLabel.stringValue.isEmpty, "precondition")
+
+        view.show(category: category(), state: .paused, elapsed: 90)
+
+        XCTAssertEqual(view.faceElapsedLabel.stringValue, "", "a figure left over from a cube that has gone")
+    }
+
+    func testAnEmptyFigureTakesNoHeightSoTheSquareIsUnchanged() {
+        // An empty text field is not a field of no height -- it sizes to its font regardless -- so this is driven
+        // rather than left alone. Without it the square lost four points to a label showing nothing.
+        let withCube = view(width: 400)
+        withCube.show(face: 5, category: category(), elapsed: 500)
+        withCube.layoutSubtreeIfNeeded()
+        let manual = view(width: 400)
+        manual.show(category: category(), state: .paused, elapsed: 500)
+        manual.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(manual.faceElapsedLabel.frame.height, 0, accuracy: 0.5)
+        XCTAssertEqual(
+            withCube.squareSide, manual.squareSide, accuracy: 0.5,
+            "the square changed size depending on whether a figure was under the name"
+        )
+    }
+}
+
+private extension TimingView {
+    /// The square the column reserves for the device, whichever picture is in it.
+    var squareSide: CGFloat { deviceView.superview?.frame.width ?? 0 }
 }

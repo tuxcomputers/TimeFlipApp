@@ -297,13 +297,21 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title.iconName, "ic_admin")
     }
 
-    func testFollowingACubeDrawsNoClockAndNoGlyph() {
-        // The app does not read the cube's history yet, so it has no segment to call running and no figure it could
-        // stand behind. Drawing either would be inventing one -- and the Faces tab draws neither for this reading.
+    func testFollowingACubeDrawsTheFigureButNoGlyph() {
+        // The figure is the archive's, out of the same day totals its menu bar used. The glyph is not: it says whether
+        // *this app's* clock is running, and while a cube is being followed the app is not running one.
         let title = title(onCube(category: category()))
 
         XCTAssertNil(title.glyphName)
-        XCTAssertNil(title.duration)
+        XCTAssertEqual(title.duration, "0:00:00")
+    }
+
+    func testFollowingACubeSaysTheFigureAloud() {
+        // Said as well as drawn, for the reason the limit and the lock are: a duration is the one part of the line
+        // that is never a colour, so it has to reach somebody reading it aloud.
+        let title = title(onCube(category: category()))
+
+        XCTAssertTrue(title.spoken.contains("0:00:00"), title.spoken)
     }
 
     func testFollowingACubeIsNotGreen() {

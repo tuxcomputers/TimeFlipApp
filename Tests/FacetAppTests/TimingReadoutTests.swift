@@ -270,16 +270,54 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertNil(readout.read(at: noon).deviceFace)
     }
 
-    func testACubesReadingCarriesNoClockYet() {
-        // The app does not read the cube's history, so it has no segment to call running and no figure that would not
-        // be invented. Both surfaces draw the face and its category and nothing else.
+    func testACubesReadingIsNeverRunning() {
+        // The app does not read the cube's history, so there is no segment of its own to call running -- whatever the
+        // cube is doing, this app is not the thing measuring it.
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
         readout.deviceFace = { 5 }
 
-        let reading = readout.read(at: noon)
+        XCTAssertEqual(readout.read(at: noon).state, .idle)
+    }
 
-        XCTAssertEqual(reading.state, .idle)
-        XCTAssertEqual(reading.seconds, 0)
+    func testACubesReadingCarriesTheCategorysTotalForTheDay() {
+        // The same figure a manual session shows, read the same way. Recorded here by hand, which is the only source
+        // there is until the cube's history is ingested -- and exactly what makes the figure real rather than invented.
+        startTiming(meetingID, at: noon.addingTimeInterval(-600))
+        events.closeOpenSegment(at: noon.addingTimeInterval(-300))
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+
+        XCTAssertEqual(readout.read(at: noon).seconds, 300)
+    }
+
+    func testAFaceWhoseCategoryHasRecordedNothingReadsZero() {
+        // Which is what every cube face reads today, the cube's own history not being ingested. It is a true answer,
+        // not a missing one.
+        XCTAssertTrue(faces.assign(categoryID: breakID, toFace: 5))
+        readout.deviceFace = { 5 }
+
+        XCTAssertEqual(readout.read(at: noon).seconds, 0)
+    }
+
+    func testAnUnassignedCubeFaceHasNothingToTotal() {
+        readout.deviceFace = { 1 }
+
+        XCTAssertEqual(readout.read(at: noon).seconds, 0)
+    }
+
+    func testTheTotalIsTheCategorysRatherThanTheFaces() {
+        // Two faces, one category: the figure follows the category, so turning the cube between them shows the same
+        // total rather than splitting it.
+        startTiming(meetingID, at: noon.addingTimeInterval(-600))
+        events.closeOpenSegment(at: noon.addingTimeInterval(-300))
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 6))
+
+        readout.deviceFace = { 5 }
+        let first = readout.read(at: noon).seconds
+        readout.deviceFace = { 6 }
+
+        XCTAssertEqual(readout.read(at: noon).seconds, first)
     }
 
     func testAnUnassignedFaceReadsAsACubeWithNothingOnIt() {

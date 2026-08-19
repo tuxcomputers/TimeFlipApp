@@ -244,15 +244,21 @@ check_turn() {
     # failure this cannot see, and both being wrong in *different* ways is exactly the fault that shipped.
     check_contains "so both surfaces agree about what the cube is on" "$item" "$tab_name"
 
-    # **No clock, and not because the cube is idle.** The cube is timing -- it always is -- but this app does not read
-    # its history yet, so a figure here would be one nothing measured. The play/pause glyph is absent for the same
-    # reason and is deliberately not checked here: every image in the line is the same character in text, so that claim
-    # lives in `StatusItemTitleTests.testFollowingACubeDrawsNoClockAndNoGlyph` instead.
-    if printf '%s' "$item" | grep -qE '[0-9]:[0-9][0-9]'; then
-        fail "the menu bar is showing a figure, which would be a duration nothing measured"
+    # **The figure, on both, and it is the same one.** It is the category's total for the day out of `time_entry`,
+    # which is the archive's own menu-bar figure. Until the cube's history is ingested it reads 0:00:00 for a category
+    # nothing has timed by hand -- a true total rather than a missing one -- so what is checked is that the two
+    # surfaces carry the *same* string, not any particular value.
+    #
+    # The play/pause glyph is absent and is deliberately not checked here: every image in the line is the same
+    # character in text, so that claim lives in `StatusItemTitleTests` instead.
+    local figure
+    figure=$(element timing-face-elapsed | sed -n 's/.*value=\(.*\)$/\1/p')
+    if [ -n "$figure" ]; then
+        pass "the Faces tab shows the category's total under its name ($figure)"
     else
-        pass "and neither of them shows a clock, since the app does not read the cube's history yet"
+        fail "no figure under the name on the Faces tab"
     fi
+    check_contains "and the menu bar shows the same one" "$item" "$figure"
 
     # **Reading a face is all this does.** Filing what the cube was doing is `device_event`'s question and the app has
     # not been given it yet, so a row against a cube's face would be a feature nobody asked for.

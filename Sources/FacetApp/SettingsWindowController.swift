@@ -1512,7 +1512,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             ).doesAnything
         )
         if let face = reading.deviceFace {
-            pane.timingView.show(face: face, category: reading.category, isLocked: isLocked)
+            pane.timingView.show(
+                face: face,
+                category: reading.category,
+                isLocked: isLocked,
+                // The same figure the menu bar draws, out of the same reading, so the two cannot differ by a read.
+                elapsed: reading.seconds,
+                // Read at the moment it is drawn, like every other setting: the App tab can change it while this
+                // window is open, and the next redraw is what carries it.
+                showingSeconds: settings?.flag("display_seconds", field: "enabled") ?? true
+            )
             return
         }
         pane.timingView.show(

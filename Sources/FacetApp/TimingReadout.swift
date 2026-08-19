@@ -101,16 +101,26 @@ final class TimingReadout {
         // while a cube is connected is about the cube. Both questions are asked here rather than resolved by whoever
         // set the closures, so there is one place that decides which of the two pictures a reading describes.
         if !isTimingByHand(), let deviceFace = deviceFace() {
+            // Read here rather than held, like the manual face's: a category renamed, recoloured or reassigned
+            // between two flips draws differently on the second one with nothing having to be told.
+            let category = faces.categoryID(forFace: deviceFace).flatMap { categories.category(id: $0) }
             return Reading(
-                // Read here rather than held, like the manual face's: a category renamed, recoloured or reassigned
-                // between two flips draws differently on the second one with nothing having to be told.
-                category: faces.categoryID(forFace: deviceFace).flatMap { categories.category(id: $0) },
+                category: category,
                 // **Idle, and not because nothing is happening.** The cube is timing -- it always is -- but this app
-                // does not yet read its history, so it has no segment to call running and no figure that would not be
-                // invented. What is drawn is the face and its category, which is all that is actually known, and the
-                // clock arrives when history ingestion does.
+                // does not yet read its history, so there is no open segment of its own to call running. What the app
+                // *has* recorded against this category today is a different question, and it is answered below.
                 state: .idle,
-                seconds: 0,
+                // **The category's total for the day, the same figure a manual session shows and read the same way.**
+                //
+                // It is a real total rather than an invented one: `time_entry` is what the app has recorded against
+                // this category today, and this reads it. What it is not yet is a *complete* total, because the cube's
+                // own history is not ingested -- so on a launch that has only followed a cube it will read zero, and
+                // it will start filling in the moment ingestion lands, with nothing here needing to change.
+                //
+                // **It does not tick, and should not.** A day total moves when time is recorded, and nothing is being
+                // recorded here; a figure counting up beside a cube the app is not reading would be the app inventing
+                // the very thing this comment says it does not have.
+                seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
                 deviceFace: deviceFace
             )
         }

@@ -23,6 +23,9 @@ final class TimingView: NSView {
         static let deviceFace = "timing-device-face"
         static let centreIcon = "timing-centre-icon"
         static let faceLock = "timing-face-lock"
+        /// The figure under the name while a cube is being followed. A different element from `elapsed`, because it is
+        /// in a different place for a different reason -- see `faceElapsedLabel`.
+        static let faceElapsed = "timing-face-elapsed"
     }
 
     /// The device seen from above, which is the app's own mark: `ic_facet.svg`.
@@ -55,6 +58,10 @@ final class TimingView: NSView {
         /// the same way `centreIconScale` follows the mark. The archive wrote 40 points here, which was right for one
         /// window width and nothing else; everything in this column is sized off the square instead.
         static let lockScale: CGFloat = (1 - markScale) / 2
+
+        /// The figure under the name, as a fraction of the name's own size. The same relationship the manual figure
+        /// has to the glyph it sits under, so the pair reads the same way in both pictures.
+        static let faceElapsedScale: CGFloat = 0.4
 
         /// The size the device artwork is rendered at, independent of how large it is drawn. A vector re-renders at
         /// draw size, so this only has to be generous enough that nothing downstream upscales a raster made too small.
@@ -92,6 +99,7 @@ final class TimingView: NSView {
     let lockButton = NSButton()
     private var lockWidth: NSLayoutConstraint!
     private var lockHeight: NSLayoutConstraint!
+    private var faceElapsedHeight: NSLayoutConstraint!
 
     /// Whether the face on show keeps what it has. Held only so `layout` can re-render the glyph at a new size without
     /// being told again which one to draw; `showFaceLock` is what decides it.
@@ -99,6 +107,18 @@ final class TimingView: NSView {
 
     /// Pressing the lock. `nil` leaves it inert, which is what a view built without a window gets.
     var onToggleLock: (() -> Void)?
+
+    /// The category's total for the day, under its name, while a cube is being followed.
+    ///
+    /// **Its own label, in its own place, and not `elapsedLabel` moved.** A manual session's figure sits inside the
+    /// square under the play/pause glyph, because that is what the square holds; with a cube there the square is the
+    /// cube, and putting a figure on the artwork would be writing over the picture. So this one goes under the name,
+    /// which is where the column has room.
+    ///
+    /// **Going beyond the archive, deliberately.** Its Faces tab showed no figure in device mode at all -- the day
+    /// total was in the menu bar only -- so there is no prior art to follow here, only the reason the menu bar had it:
+    /// what a category has recorded today is the question somebody opens this tab to answer.
+    let faceElapsedLabel = NSTextField(labelWithString: "")
 
     let deviceView = NSImageView()
 
@@ -147,6 +167,9 @@ final class TimingView: NSView {
         // cannot leave a lit face behind it in memory, waiting to be shown again by a later resize.
         showDevice(nil, category: nil)
         showFaceLock(nil)
+        // Emptied and collapsed, so the column's bottom comes back up to the name.
+        faceElapsedLabel.stringValue = ""
+        applyFigureHeight()
         symbolName = ManualTimerRules.symbolName(for: state)
         let isHidden = symbolName == nil
         centred.isHidden = isHidden
@@ -184,12 +207,30 @@ final class TimingView: NSView {
     /// where the cube is, and the cube's own timing is not something a click on this window starts or stops.
     /// - Parameter isLocked: whether this face keeps the category it has. Drawn as the lock in the corner, and the
     ///   same answer the category list is drawn live or dead from -- see `FacesTabRules`.
-    func show(face: Int, category: CategoryRecord?, isLocked: Bool = false) {
+    /// - Parameter elapsed: the category's total for the day. Drawn under its name, since the square is the cube.
+    ///   `0` with no category to total is drawn as `0:00:00` rather than left blank: a face that has recorded nothing
+    ///   today is a real answer, and a gap where a figure belongs reads as one that failed to arrive.
+    func show(
+        face: Int,
+        category: CategoryRecord?,
+        isLocked: Bool = false,
+        elapsed: TimeInterval = 0,
+        showingSeconds: Bool = true
+    ) {
         state = .idle
         centred.isHidden = true
         playPauseButton.isEnabled = false
         showDevice(face, category: category)
         showFaceLock(isLocked)
+        // Nothing on the face means nothing to total, and an unlit cube with a figure under it would be a number
+        // about a category that is not there.
+        faceElapsedLabel.stringValue = category == nil ? "" : DurationFormat.hoursMinutesSeconds(
+            elapsed,
+            // Truncated, like every other figure the app draws: what is shown must never be ahead of what is recorded.
+            rounding: .truncate,
+            showingSeconds: showingSeconds
+        )
+        applyFigureHeight()
         categoryNameLabel.isHidden = false
         categoryNameLabel.stringValue = category?.name ?? ""
         // Applied here as well as in `layout()`, for the reason the other `show` gives: the fitted size depends on the
@@ -259,6 +300,22 @@ final class TimingView: NSView {
         apply(glyphSize: glyphSize)
         apply(elapsedFontSize: (glyphSize * Layout.elapsedFontScale).rounded())
         apply(nameFontFitting: side)
+        // Sized off the name it sits under rather than off the square, so the two move together as the name shrinks
+        // to fit a long category.
+        let figureSize = ((categoryNameLabel.font?.pointSize ?? Layout.nameFontSize) * Layout.faceElapsedScale).rounded()
+        if faceElapsedLabel.font?.pointSize != figureSize {
+            faceElapsedLabel.font = .monospacedDigitSystemFont(ofSize: figureSize, weight: .medium)
+        }
+        applyFigureHeight()
+    }
+
+    /// Gives the figure its height, or takes it away entirely when there is nothing to show.
+    private func applyFigureHeight() {
+        let wanted = faceElapsedLabel.stringValue.isEmpty
+            ? 0
+            : ceil(faceElapsedLabel.intrinsicContentSize.height)
+        guard faceElapsedHeight.constant != wanted else { return }
+        faceElapsedHeight.constant = wanted
     }
 
     private func apply(glyphSize: CGFloat) {
@@ -353,6 +410,17 @@ final class TimingView: NSView {
                 view.setContentCompressionResistancePriority(.defaultLow, for: axis)
             }
         }
+        faceElapsedLabel.font = .monospacedDigitSystemFont(ofSize: Layout.nameFontSize * Layout.faceElapsedScale, weight: .medium)
+        faceElapsedLabel.textColor = .secondaryLabelColor
+        faceElapsedLabel.alignment = .center
+        faceElapsedLabel.translatesAutoresizingMaskIntoConstraints = false
+        faceElapsedLabel.setAccessibilityIdentifier(Identifier.faceElapsed)
+        // **So the driven height wins.** A label resists being compressed below its font's height at `.defaultHigh`,
+        // which is exactly the priority the height constraint holds -- and a tie is not a win, so an empty label went
+        // on occupying 26 points of the column. Lowering this leaves the constraint deciding, while keeping the square
+        // (required) able to win over both if a short window ever forces it.
+        faceElapsedLabel.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
         lockButton.isBordered = false
         lockButton.bezelStyle = .inline
         lockButton.imagePosition = .imageOnly
@@ -380,6 +448,7 @@ final class TimingView: NSView {
         // Last, so it is above the artwork it sits on the corner of.
         squareArea.addSubview(lockButton)
         addSubview(categoryNameLabel)
+        addSubview(faceElapsedLabel)
 
         glyphWidth = playPauseButton.widthAnchor.constraint(equalToConstant: 1)
         glyphHeight = playPauseButton.heightAnchor.constraint(equalToConstant: 1)
@@ -387,6 +456,16 @@ final class TimingView: NSView {
         centreIconHeight = centreIconView.heightAnchor.constraint(equalToConstant: 1)
         lockWidth = lockButton.widthAnchor.constraint(equalToConstant: 1)
         lockHeight = lockButton.heightAnchor.constraint(equalToConstant: 1)
+        // **Driven, because an empty label is not a label of no height.** A text field sizes itself to its font
+        // whether or not it holds anything, so left to itself this took four points off the bottom of the column --
+        // and the square, which is measured from the width the column has left, shrank by the same four. Measured:
+        // `testTheCubeFillsTheSquare` came back 396 against a 400pt column.
+        faceElapsedHeight = faceElapsedLabel.heightAnchor.constraint(equalToConstant: 0)
+        // **The one constraint here that may give way.** The column is allowed to be shorter than the space it sits
+        // in but not taller, so on a short enough window something has to yield -- and of everything in this view the
+        // figure is the piece that can be squeezed without the picture going wrong. The square staying square is what
+        // the whole layout is measured from.
+        faceElapsedHeight.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
             squareArea.topAnchor.constraint(equalTo: topAnchor),
@@ -426,7 +505,14 @@ final class TimingView: NSView {
             categoryNameLabel.topAnchor.constraint(equalTo: squareArea.bottomAnchor, constant: Layout.nameSpacing),
             categoryNameLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
             categoryNameLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            categoryNameLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            // **Under the name, and it is the bottom of the column now.** With nothing to show its height is driven to
+            // zero, so the name reaches the bottom exactly as it did before there was a figure to put here.
+            faceElapsedLabel.topAnchor.constraint(equalTo: categoryNameLabel.bottomAnchor),
+            faceElapsedLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            faceElapsedLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            faceElapsedLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+            faceElapsedHeight,
         ])
     }
 
