@@ -26,6 +26,7 @@ final class TimingView: NSView {
         /// The figure under the name while a cube is being followed. A different element from `elapsed`, because it is
         /// in a different place for a different reason -- see `faceElapsedLabel`.
         static let faceElapsed = "timing-face-elapsed"
+        static let faceGlyph = "timing-face-glyph"
     }
 
     /// The device seen from above, which is the app's own mark: `ic_facet.svg`.
@@ -62,6 +63,10 @@ final class TimingView: NSView {
         /// The figure under the name, as a fraction of the name's own size. The same relationship the manual figure
         /// has to the glyph it sits under, so the pair reads the same way in both pictures.
         static let faceElapsedScale: CGFloat = 0.4
+
+        /// Between the glyph and the figure it stands beside. A fixed gap rather than a scaled one: it is the space
+        /// between two things on one short line, not a proportion of the picture.
+        static let faceGlyphSpacing: CGFloat = 6
 
         /// The size the device artwork is rendered at, independent of how large it is drawn. A vector re-renders at
         /// draw size, so this only has to be generous enough that nothing downstream upscales a raster made too small.
@@ -100,6 +105,8 @@ final class TimingView: NSView {
     private var lockWidth: NSLayoutConstraint!
     private var lockHeight: NSLayoutConstraint!
     private var faceElapsedHeight: NSLayoutConstraint!
+    private var faceGlyphWidth: NSLayoutConstraint!
+    private var faceGlyphHeight: NSLayoutConstraint!
 
     /// Whether the face on show keeps what it has. Held only so `layout` can re-render the glyph at a new size without
     /// being told again which one to draw; `showFaceLock` is what decides it.
@@ -120,6 +127,21 @@ final class TimingView: NSView {
     /// what a category has recorded today is the question somebody opens this tab to answer.
     let faceElapsedLabel = NSTextField(labelWithString: "")
 
+    /// Whether the cube is running or paused, beside the figure it qualifies.
+    ///
+    /// **Beside rather than inside the square**, which is where the manual glyph goes: with a cube the square is the
+    /// cube, and its centre face already carries the category's icon. Putting a second glyph there would be two
+    /// symbols on one picture answering different questions. Under the name it reads as what it is -- a note on the
+    /// figure next to it.
+    ///
+    /// An image view rather than a button, because there is nothing to press: the app cannot pause a cube from here.
+    /// Pausing is the cube's own gesture and the dropdown's Lock, and a glyph that looked pressable would be offering
+    /// a control this app does not have.
+    let faceGlyphView = NSImageView()
+
+    /// The row under the name: the glyph, then the figure.
+    private let faceStatus = NSStackView()
+
     let deviceView = NSImageView()
 
     /// The face's category icon, on the device's centre face.
@@ -133,6 +155,8 @@ final class TimingView: NSView {
     private var centreIconWidth: NSLayoutConstraint!
     private var centreIconHeight: NSLayoutConstraint!
     private var symbolName: String?
+    /// Which glyph sits beside the figure, held so `layout` can re-render it at a new size.
+    private var faceGlyphName: String?
 
     private(set) var state: TimingState = .idle
 
@@ -169,6 +193,8 @@ final class TimingView: NSView {
         showFaceLock(nil)
         // Emptied and collapsed, so the column's bottom comes back up to the name.
         faceElapsedLabel.stringValue = ""
+        faceGlyphName = nil
+        faceGlyphView.isHidden = true
         applyFigureHeight()
         symbolName = ManualTimerRules.symbolName(for: state)
         let isHidden = symbolName == nil
@@ -210,12 +236,16 @@ final class TimingView: NSView {
     /// - Parameter elapsed: the category's total for the day. Drawn under its name, since the square is the cube.
     ///   `0` with no category to total is drawn as `0:00:00` rather than left blank: a face that has recorded nothing
     ///   today is a real answer, and a gap where a figure belongs reads as one that failed to arrive.
+    /// - Parameter isDevicePaused: whether the cube itself is paused, or `nil` for one that has not answered. Drawn
+    ///   as the glyph beside the figure; nothing is drawn for `nil`, since a guess would be a claim about hardware on
+    ///   no evidence.
     func show(
         face: Int,
         category: CategoryRecord?,
         isLocked: Bool = false,
         elapsed: TimeInterval = 0,
-        showingSeconds: Bool = true
+        showingSeconds: Bool = true,
+        isDevicePaused: Bool? = nil
     ) {
         state = .idle
         centred.isHidden = true
@@ -230,6 +260,12 @@ final class TimingView: NSView {
             rounding: .truncate,
             showingSeconds: showingSeconds
         )
+        // Nothing to qualify means nothing to draw beside it, so the glyph goes with the figure rather than sitting
+        // alone under an unlit cube.
+        faceGlyphName = faceElapsedLabel.stringValue.isEmpty
+            ? nil
+            : isDevicePaused.map { $0 ? "pause.fill" : "play.fill" }
+        faceGlyphView.isHidden = faceGlyphName == nil
         applyFigureHeight()
         categoryNameLabel.isHidden = false
         categoryNameLabel.stringValue = category?.name ?? ""
@@ -306,7 +342,27 @@ final class TimingView: NSView {
         if faceElapsedLabel.font?.pointSize != figureSize {
             faceElapsedLabel.font = .monospacedDigitSystemFont(ofSize: figureSize, weight: .medium)
         }
+        if faceGlyphWidth.constant != figureSize {
+            faceGlyphWidth.constant = figureSize
+            faceGlyphHeight.constant = figureSize
+        }
+        apply(faceGlyphSize: figureSize)
         applyFigureHeight()
+    }
+
+    /// Draws the glyph at the size of the figure it stands beside, so the pair reads as one line.
+    private func apply(faceGlyphSize: CGFloat) {
+        guard let faceGlyphName else {
+            faceGlyphView.image = nil
+            return
+        }
+        let configuration = NSImage.SymbolConfiguration(pointSize: faceGlyphSize, weight: .regular)
+        guard let image = NSImage(systemSymbolName: faceGlyphName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        image.isTemplate = true
+        faceGlyphView.image = image
+        // The secondary colour the figure is drawn in: the pair is one note under the name, not two things.
+        faceGlyphView.contentTintColor = .secondaryLabelColor
     }
 
     /// Gives the figure its height, or takes it away entirely when there is nothing to show.
@@ -314,6 +370,7 @@ final class TimingView: NSView {
         let wanted = faceElapsedLabel.stringValue.isEmpty
             ? 0
             : ceil(faceElapsedLabel.intrinsicContentSize.height)
+
         guard faceElapsedHeight.constant != wanted else { return }
         faceElapsedHeight.constant = wanted
     }
@@ -421,6 +478,24 @@ final class TimingView: NSView {
         // (required) able to win over both if a short window ever forces it.
         faceElapsedLabel.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
+        faceGlyphView.imageScaling = .scaleProportionallyUpOrDown
+        faceGlyphView.translatesAutoresizingMaskIntoConstraints = false
+        faceGlyphView.setAccessibilityIdentifier(Identifier.faceGlyph)
+        faceGlyphView.isHidden = true
+        // No say in the row's size, like the artwork above: the glyph is rendered at whatever size the name decides
+        // and drawn into it, so its own image must not push the column wider.
+        for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            faceGlyphView.setContentHuggingPriority(.defaultLow, for: axis)
+            faceGlyphView.setContentCompressionResistancePriority(.defaultLow, for: axis)
+        }
+
+        faceStatus.orientation = .horizontal
+        faceStatus.alignment = .centerY
+        faceStatus.spacing = Layout.faceGlyphSpacing
+        faceStatus.translatesAutoresizingMaskIntoConstraints = false
+        faceStatus.addView(faceGlyphView, in: .leading)
+        faceStatus.addView(faceElapsedLabel, in: .leading)
+
         lockButton.isBordered = false
         lockButton.bezelStyle = .inline
         lockButton.imagePosition = .imageOnly
@@ -448,7 +523,7 @@ final class TimingView: NSView {
         // Last, so it is above the artwork it sits on the corner of.
         squareArea.addSubview(lockButton)
         addSubview(categoryNameLabel)
-        addSubview(faceElapsedLabel)
+        addSubview(faceStatus)
 
         glyphWidth = playPauseButton.widthAnchor.constraint(equalToConstant: 1)
         glyphHeight = playPauseButton.heightAnchor.constraint(equalToConstant: 1)
@@ -460,8 +535,18 @@ final class TimingView: NSView {
         // whether or not it holds anything, so left to itself this took four points off the bottom of the column --
         // and the square, which is measured from the width the column has left, shrank by the same four. Measured:
         // `testTheCubeFillsTheSquare` came back 396 against a 400pt column.
-        faceElapsedHeight = faceElapsedLabel.heightAnchor.constraint(equalToConstant: 0)
-        // **The one constraint here that may give way.** The column is allowed to be shorter than the space it sits
+        // Sized by constraint, not by its image: content priorities are `.defaultLow` above so the artwork cannot
+        // push the column, which leaves nothing else to decide how big it is.
+        faceGlyphWidth = faceGlyphView.widthAnchor.constraint(equalToConstant: 1)
+        faceGlyphHeight = faceGlyphView.heightAnchor.constraint(equalToConstant: 1)
+        NSLayoutConstraint.activate([faceGlyphWidth, faceGlyphHeight])
+
+        // **On the row, not on the label inside it.** The stack takes its own height from its contents, so driving the
+        // label alone left the row a few points taller than the figure -- enough for the glyph, centred in it, to
+        // reach up over the bottom of the name. The row is the thing that has to be exactly this tall or exactly
+        // nothing.
+        faceElapsedHeight = faceStatus.heightAnchor.constraint(equalToConstant: 0)
+        // **The one constraint here that may give way.** (On the row above.) The column is allowed to be shorter than the space it sits
         // in but not taller, so on a short enough window something has to yield -- and of everything in this view the
         // figure is the piece that can be squeezed without the picture going wrong. The square staying square is what
         // the whole layout is measured from.
@@ -508,10 +593,11 @@ final class TimingView: NSView {
 
             // **Under the name, and it is the bottom of the column now.** With nothing to show its height is driven to
             // zero, so the name reaches the bottom exactly as it did before there was a figure to put here.
-            faceElapsedLabel.topAnchor.constraint(equalTo: categoryNameLabel.bottomAnchor),
-            faceElapsedLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            faceElapsedLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            faceElapsedLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+            faceStatus.topAnchor.constraint(equalTo: categoryNameLabel.bottomAnchor),
+            faceStatus.centerXAnchor.constraint(equalTo: centerXAnchor),
+            faceStatus.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
+            faceStatus.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            faceStatus.bottomAnchor.constraint(equalTo: bottomAnchor),
             faceElapsedHeight,
         ])
     }

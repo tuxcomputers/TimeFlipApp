@@ -96,9 +96,13 @@ struct StatusItemTitle: Equatable {
         // **Following a cube: the face's category and what it has recorded today.**
         //
         // The figure is the archive's, copied: its menu bar drew the same day total in device mode, out of the same
-        // per-category durations. What is deliberately absent is the play/pause glyph -- it says whether *this app's*
-        // clock is running, and while a cube is being followed the app is not running one. A glyph here would be
-        // answering a question nobody asked with a state nothing is in.
+        // per-category durations. So is the glyph, and out of the same answer -- `MenuBarStatusStyle.showsPauseIcon`
+        // took the *device's* paused state, not the app's, which is the distinction that makes a glyph mean anything
+        // here: the app is running no clock while it follows a cube, but the cube certainly is.
+        //
+        // **No glyph until the cube has answered.** `nil` is a cube that has not been asked yet or would not say, and
+        // guessing "running" would be the app making a claim about hardware on no evidence -- the one thing
+        // `CLAUDE.md`'s read-back rule exists to stop.
         if reading.deviceFace != nil, let category = reading.category {
             // Formatted once and used twice, drawn and spoken, so the two cannot come to read differently.
             let onTheFace = DurationFormat.hoursMinutesSeconds(
@@ -111,7 +115,7 @@ struct StatusItemTitle: Equatable {
             return StatusItemTitle(
                 text: category.name,
                 iconName: category.iconName,
-                glyphName: nil,
+                glyphName: reading.deviceIsPaused.map { $0 ? "pause.fill" : "play.fill" },
                 lockGlyphName: lockGlyphName,
                 duration: onTheFace,
                 // Not green: green is a claim that time is being recorded, and here it is the cube recording it
@@ -121,7 +125,9 @@ struct StatusItemTitle: Equatable {
                 // The figure is said as well as drawn, for the reason the limit and the lock are: what is on the line
                 // has to reach somebody reading it aloud, and a duration is the one part of it that is never a colour.
                 spoken: spoken(
-                    [category.name, onTheFace]
+                    [category.name]
+                        + (reading.deviceIsPaused.map { [$0 ? "device paused" : "device running"] } ?? [])
+                        + [onTheFace]
                         + (isCubeLocked ? ["device locked"] : [])
                         + (lowBattery.isLow ? ["low battery"] : [])
                         + [appLabel],

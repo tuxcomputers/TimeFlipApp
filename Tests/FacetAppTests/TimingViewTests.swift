@@ -485,6 +485,73 @@ final class TimingViewTests: XCTestCase {
     }
 }
 
+extension TimingViewTests {
+    // MARK: - the glyph beside the figure
+
+    func testTheGlyphSaysWhetherTheCubeIsRunning() {
+        let view = view()
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertFalse(view.faceGlyphView.isHidden)
+        let running = view.faceGlyphView.image
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: true)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertNotNil(running)
+        XCTAssertNotEqual(view.faceGlyphView.image?.size, .zero)
+    }
+
+    func testACubeThatHasNotAnsweredDrawsNoGlyph() {
+        let view = view()
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: nil)
+
+        XCTAssertTrue(view.faceGlyphView.isHidden)
+    }
+
+    func testTheGlyphGoesWithTheFigure() {
+        // Nothing to qualify means nothing to draw beside it: a glyph alone under an unlit cube would be a note on a
+        // figure that is not there.
+        let view = view()
+
+        view.show(face: 5, category: nil, elapsed: 60, isDevicePaused: false)
+
+        XCTAssertTrue(view.faceGlyphView.isHidden)
+        XCTAssertEqual(view.faceElapsedLabel.stringValue, "")
+    }
+
+    func testTheGlyphGoesWhenTheCubeDoes() {
+        let view = view()
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        XCTAssertFalse(view.faceGlyphView.isHidden, "precondition")
+
+        view.show(category: category(), state: .paused, elapsed: 90)
+
+        XCTAssertTrue(view.faceGlyphView.isHidden)
+    }
+
+    func testTheGlyphIsDrawnBesideTheFigureRatherThanInTheSquare() {
+        // The square is the cube, and its centre face already carries the category's icon: a second glyph there would
+        // be two symbols on one picture answering different questions.
+        let view = view(width: 400)
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.layoutSubtreeIfNeeded()
+
+        // Both converted into the view's own space: the figure lives inside the row's stack now, so its `frame` is in
+        // the stack's coordinates and comparing it with anything outside would be comparing two different origins.
+        let glyph = view.faceGlyphView.convert(view.faceGlyphView.bounds, to: view)
+        let figure = view.faceElapsedLabel.convert(view.faceElapsedLabel.bounds, to: view)
+        // Centres rather than edges, for the reason the lock test gives: a text field's frame is larger than the box
+        // Auto Layout positioned, so edges from two different kinds of view do not compare cleanly. Which is above
+        // which is the claim, and centres say it exactly.
+        XCTAssertLessThan(glyph.midY, view.categoryNameLabel.frame.midY, "not under the name")
+        XCTAssertLessThan(glyph.midX, figure.midX, "not to the left of the figure")
+    }
+}
+
 private extension TimingView {
     /// The square the column reserves for the device, whichever picture is in it.
     var squareSide: CGFloat { deviceView.superview?.frame.width ?? 0 }

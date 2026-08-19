@@ -371,6 +371,49 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertEqual(readout.read(at: noon).state, .running)
     }
 
+    func testWhetherTheCubeIsPausedIsAskedPerReading() {
+        // The one thing the cube changes without telling anybody: a double tap pauses its tracking and nothing is
+        // sent to say so. A copy taken when the link came up would claim it was running for the rest of the session.
+        var paused = false
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        readout.isDevicePaused = { paused }
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, false, "precondition")
+
+        paused = true
+
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
+    }
+
+    func testACubeThatHasNotAnsweredSaysNothingEitherWay() {
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        readout.isDevicePaused = { nil }
+
+        XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+    }
+
+    func testAManualReadingCarriesNoDeviceState() {
+        // There is no cube to be paused, so the field is empty rather than false -- "not paused" would be an answer
+        // about hardware that is not there.
+        startTiming(meetingID, at: noon.addingTimeInterval(-60))
+        readout.isDevicePaused = { false }
+
+        XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+    }
+
+    func testTheCubesPauseIsNotTheAppsClock() {
+        // A paused cube is still an idle *app*: nothing here is being measured by this process, so the status item's
+        // tick must not start and the reading must not read as a session somebody could pause.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        readout.isDevicePaused = { false }
+
+        let reading = readout.read(at: noon)
+        XCTAssertEqual(reading.state, .idle)
+        XCTAssertFalse(reading.isTiming(meetingID))
+    }
+
     func testAReassignedFaceShowsUpOnTheNextRead() {
         readout.deviceFace = { 5 }
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))

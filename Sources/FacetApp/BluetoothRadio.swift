@@ -589,6 +589,21 @@ final class BluetoothRadio: NSObject {
         login.send(command, then: reported)
     }
 
+    /// Asks the cube what state it is in, so what the app holds is not older than it needs to be.
+    ///
+    /// **Because a cube pauses itself and does not say so.** A double tap stops its tracking, unconditionally and with
+    /// no command to turn that off (`Archive/Tests/Methods.md` Method 22), and the vendor's own app can pause it too.
+    /// Nothing arrives to announce either: `systemState` carries sync and hardware health, not pause. So the only way
+    /// the app's answer stays true is by asking again, and the only honest moment to ask is one where the cube may
+    /// have been handled.
+    ///
+    /// The answer is not returned. It goes where every other answer to this question goes -- `received(status:from:)`
+    /// -- so there is one place that holds it and one row that says it moved.
+    func askStatus() {
+        guard connectedDevice != nil, let login else { return }
+        login.askStatus { _ in }
+    }
+
     func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
         guard let id = connectedDevice, let login else {
             debugLog?.record(.pair, "Asked to reset with no cube connected")

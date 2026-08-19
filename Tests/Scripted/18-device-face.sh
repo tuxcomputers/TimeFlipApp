@@ -249,8 +249,9 @@ check_turn() {
     # nothing has timed by hand -- a true total rather than a missing one -- so what is checked is that the two
     # surfaces carry the *same* string, not any particular value.
     #
-    # The play/pause glyph is absent and is deliberately not checked here: every image in the line is the same
-    # character in text, so that claim lives in `StatusItemTitleTests` instead.
+    # The glyph beside it is checked on the tab rather than in the menu bar line, where every image is the same
+    # character in text and one cannot be told from another. It says what the *cube* is doing, which is a fact the app
+    # has only because it asked -- so a cube that has not answered draws none, and that is a pass too.
     local figure
     figure=$(element timing-face-elapsed | sed -n 's/.*value=\(.*\)$/\1/p')
     if [ -n "$figure" ]; then
@@ -259,6 +260,15 @@ check_turn() {
         fail "no figure under the name on the Faces tab"
     fi
     check_contains "and the menu bar shows the same one" "$item" "$figure"
+
+    # **Asked again on every flip**, because a cube pauses itself on a double tap and sends nothing to say so. This is
+    # the row that says the app re-asked rather than drawing what it was told when the link came up.
+    expect_log "the app asks the cube what state it is in again after the turn" "$base" "Asking the cube what state it is in" 20
+    if [ -n "$(element timing-face-glyph)" ]; then
+        pass "and the tab draws whether the cube is running or paused"
+    else
+        grey "  no glyph: the cube has not said whether it is paused"
+    fi
 
     # **Reading a face is all this does.** Filing what the cube was doing is `device_event`'s question and the app has
     # not been given it yet, so a row against a cube's face would be a feature nobody asked for.

@@ -1520,7 +1520,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 elapsed: reading.seconds,
                 // Read at the moment it is drawn, like every other setting: the App tab can change it while this
                 // window is open, and the next redraw is what carries it.
-                showingSeconds: settings?.flag("display_seconds", field: "enabled") ?? true
+                showingSeconds: settings?.flag("display_seconds", field: "enabled") ?? true,
+                // The same answer the menu bar's glyph is drawn from, out of the same reading.
+                isDevicePaused: reading.deviceIsPaused
             )
             return
         }

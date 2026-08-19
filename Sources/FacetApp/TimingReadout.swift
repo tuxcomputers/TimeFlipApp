@@ -40,14 +40,30 @@ final class TimingReadout {
         /// while the menu bar went on drawing the manual session, because each asked its own question.
         let deviceFace: Int?
 
+        /// Whether the cube itself is paused, or `nil` when there is no cube being followed -- and also when there is
+        /// one that has not answered the question yet.
+        ///
+        /// **A different question from `state`, which is about this app's own clock.** While a cube is being followed
+        /// the app is running no clock at all, so `state` is idle; what is or is not running is the cube, and this is
+        /// the cube's own answer to it. Keeping them apart is what stops a cube's reading starting the status item's
+        /// tick, or reading as a session that could be clicked to pause.
+        let deviceIsPaused: Bool?
+
         /// Written out rather than left to the memberwise one so `deviceFace` can default to "no cube": a reading is
         /// about what the app is timing unless it says otherwise, which is what every reading was before there was a
         /// cube to follow.
-        init(category: CategoryRecord?, state: TimingState, seconds: TimeInterval, deviceFace: Int? = nil) {
+        init(
+            category: CategoryRecord?,
+            state: TimingState,
+            seconds: TimeInterval,
+            deviceFace: Int? = nil,
+            deviceIsPaused: Bool? = nil
+        ) {
             self.category = category
             self.state = state
             self.seconds = seconds
             self.deviceFace = deviceFace
+            self.deviceIsPaused = deviceIsPaused
         }
 
         /// Nothing being timed, which is what a view built without a database draws.
@@ -87,6 +103,13 @@ final class TimingReadout {
     /// relaunch works it out again from `paired`, and pairing turns it off before a face is ever asked for.
     var isTimingByHand: () -> Bool = { false }
 
+    /// Whether the cube is paused, asked at the moment a reading is taken. `nil` for a cube that has not answered.
+    ///
+    /// **Asked rather than held, like the face beside it**, and for a sharper reason: this is the one thing the cube
+    /// can change without telling anybody. A double tap pauses it, and no notification follows -- so a copy taken when
+    /// the link came up would go on claiming the cube was running for as long as the connection lasted.
+    var isDevicePaused: () -> Bool? = { nil }
+
     init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
         self.faces = faces
@@ -121,7 +144,8 @@ final class TimingReadout {
                 // recorded here; a figure counting up beside a cube the app is not reading would be the app inventing
                 // the very thing this comment says it does not have.
                 seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
-                deviceFace: deviceFace
+                deviceFace: deviceFace,
+                deviceIsPaused: isDevicePaused()
             )
         }
         let face = events.currentManualFace()

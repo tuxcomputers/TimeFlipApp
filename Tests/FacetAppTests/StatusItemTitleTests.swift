@@ -284,8 +284,18 @@ final class StatusItemTitleTests: XCTestCase {
 
     // MARK: - following a cube
 
-    private func onCube(_ face: Int = 2, category: CategoryRecord?) -> TimingReadout.Reading {
-        TimingReadout.Reading(category: category, state: .idle, seconds: 0, deviceFace: face)
+    private func onCube(
+        _ face: Int = 2,
+        category: CategoryRecord?,
+        isDevicePaused: Bool? = nil
+    ) -> TimingReadout.Reading {
+        TimingReadout.Reading(
+            category: category,
+            state: .idle,
+            seconds: 0,
+            deviceFace: face,
+            deviceIsPaused: isDevicePaused
+        )
     }
 
     func testFollowingACubeNamesTheFacesCategory() {
@@ -297,13 +307,28 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title.iconName, "ic_admin")
     }
 
-    func testFollowingACubeDrawsTheFigureButNoGlyph() {
-        // The figure is the archive's, out of the same day totals its menu bar used. The glyph is not: it says whether
-        // *this app's* clock is running, and while a cube is being followed the app is not running one.
+    func testFollowingACubeDrawsTheFigure() {
         let title = title(onCube(category: category()))
 
-        XCTAssertNil(title.glyphName)
         XCTAssertEqual(title.duration, "0:00:00")
+    }
+
+    func testTheGlyphIsTheCubesOwnState() {
+        // The archive's `showsPauseIcon` took the *device's* paused state, not the app's, which is what makes a glyph
+        // mean anything here: this app runs no clock while it follows a cube, but the cube certainly is.
+        XCTAssertEqual(title(onCube(category: category(), isDevicePaused: false)).glyphName, "play.fill")
+        XCTAssertEqual(title(onCube(category: category(), isDevicePaused: true)).glyphName, "pause.fill")
+    }
+
+    func testACubeThatHasNotAnsweredGetsNoGlyph() {
+        // Guessing "running" would be a claim about hardware on no evidence, which is the one thing the read-back
+        // rule exists to stop.
+        XCTAssertNil(title(onCube(category: category(), isDevicePaused: nil)).glyphName)
+    }
+
+    func testTheCubesStateIsSaidAloudAsWellAsDrawn() {
+        XCTAssertTrue(title(onCube(category: category(), isDevicePaused: true)).spoken.contains("device paused"))
+        XCTAssertTrue(title(onCube(category: category(), isDevicePaused: false)).spoken.contains("device running"))
     }
 
     func testFollowingACubeSaysTheFigureAloud() {

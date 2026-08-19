@@ -135,6 +135,9 @@ timingReadout.deviceFace = { radio.currentFace }
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
 // `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
 timingReadout.isTimingByHand = { manualMode.isOn }
+// Whether the cube is paused, for the glyph both surfaces draw. Asked per reading; why is
+// `TimingReadout.isDevicePaused`.
+timingReadout.isDevicePaused = { radio.cubeStatus?.isPaused }
 
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
@@ -324,6 +327,12 @@ radio.onCubeStatus = { _, _ in
 radio.onFace = { _, _ in
     menuBar.redraw()
     settingsWindow.redrawTiming()
+    // **A flip is the moment to ask whether it is still running**, because the cube can stop itself and say nothing:
+    // a double tap pauses its tracking unconditionally, the vendor's app can pause it too, and no notification
+    // announces either. Asking on every flip does not make the answer instant -- a double tap with no flip after it
+    // stays unseen until something else asks -- but it bounds how stale the glyph can be by how long the cube has sat
+    // untouched, which is the only bound available without polling a device on a timer.
+    radio.askStatus()
 }
 
 // A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press
