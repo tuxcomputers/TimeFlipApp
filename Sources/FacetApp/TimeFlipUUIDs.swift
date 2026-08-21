@@ -97,6 +97,12 @@ enum TimeFlipUUIDs {
     /// written to it and the answer comes back on it, frame by frame, until a sentinel (see `DeviceHistoryRules`).
     static var history: CBUUID { CBUUID(string: historyString) }
 
+    /// What the cube says about its own condition: what it wants pushed back to it, and whether its hardware works.
+    /// Read **and** notify, and the read is the half that matters most -- the conditions it reports are standing ones,
+    /// so a cube reset before this launch, or one whose flash has failed, says so once and then sits there (see
+    /// `DeviceLogin.askWhatStateTheCubeIsIn`).
+    static var systemState: CBUUID { CBUUID(string: systemStateString) }
+
     /// Where the charge is. Discovered after the login like the Device Information service, and for the same reason:
     /// a login that waited on it would spend round trips in front of the answer somebody is watching for.
     static var batteryService: CBUUID { CBUUID(string: batteryServiceString) }

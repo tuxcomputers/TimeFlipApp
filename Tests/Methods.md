@@ -320,6 +320,13 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **A single-event history read (`0x01`) is answered by a read, not a notification.** `0x02`'s reply is documented
+  as "data flow with notification"; `0x01`'s is not described as a notification at all, and waiting for one times out
+  every time. Write the command, then read the characteristic's value. Measured by the archive
+  (`Archive/TimeFlipApp/TimeFlipBLEDevice.readLastEventLocked`) and reproduced here on 2026-08-20: the write was
+  acknowledged, the cube echoed "read history" on `eventsData`, and nothing arrived on the history characteristic for
+  the whole six-second deadline.
+
 - **Quitting is not instant while a cube is connected.** The quit pauses and locks the device over BLE before it
   terminates, so `osascript ... to quit` returning, or the menu item having been pressed, is not the app having gone.
   A step that quits and relaunches can otherwise start a second instance on top of the first. `quit_app` already polls

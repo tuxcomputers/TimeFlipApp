@@ -106,6 +106,116 @@ final class DeviceHistoryRulesTests: XCTestCase {
         XCTAssertNil(DeviceHistoryRules.segment(from: Data([0, 0, 0, 1, 3])))
     }
 
+    // MARK: - the seventeen-byte answer, which is what a single-event read returns
+
+    func testASeventeenByteFrameIsASegment() {
+        // **The vendor's own table for a single-event read is bytes 0 to 16.** Requiring eighteen threw away every
+        // reply the cube gave to `0x01` and logged "a frame this app cannot read" while the cube was answering
+        // perfectly well (measured 2026-08-21). `docs/timeflip.md` says the duration is five bytes at 13 to 17 and is
+        // wrong; the spec, and `CLAUDE.md`, say the spec wins.
+        let short = frame(event: 7, face: 3, start: 1_786_600_000, duration: 90).prefix(17)
+
+        let segment = DeviceHistoryRules.segment(from: Data(short))
+
+        XCTAssertEqual(segment?.eventNumber, 7)
+        XCTAssertEqual(segment?.face, 3)
+        XCTAssertEqual(segment?.durationSeconds, 90)
+    }
+
+    func testEventZeroIsNotASegment() {
+        // How "there is no history" arrives: the cube answers a request for an event it does not have with a frame
+        // numbered zero. The archive reads it the same way, calling such frames "sentinel-like".
+        XCTAssertNil(DeviceHistoryRules.segment(from: frame(event: 0)))
+    }
+
+    func testTheAnswerAnEmptyCubeActuallyGaveIsReadAsNothing() {
+        // Captured off the wire on 2026-08-21, in answer to `01 FF FF FF FF` from a cube holding no history. Event,
+        // side and moment are all zero and the trailing four bytes carry the cube's clock, which is neither a duration
+        // nor anything this app wants -- so the whole frame has to come back as "no answer" rather than as a segment
+        // on face 0 in 1970.
+        let measured = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x6A, 0x87, 0xF7, 0xA1,
+        ])
+
+        XCTAssertEqual(measured.count, 17)
+        XCTAssertNil(DeviceHistoryRules.segment(from: measured))
+    }
+
+    func testAnEmptyAnswerIsToldApartFromAFrameThisAppCannotRead() {
+        // Both come back as `nil` from `segment(from:)` and they mean entirely different things: one is a cube with no
+        // history, the other is a fault. The measured empty answer, and a genuinely broken frame beside it.
+        let empty = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x6A, 0x87, 0xF7, 0xA1,
+        ])
+
+        XCTAssertTrue(DeviceHistoryRules.isNoSuchEvent(empty))
+        XCTAssertFalse(DeviceHistoryRules.isNoSuchEvent(frame(event: 7, face: 66)), "a real event with a bad side")
+    }
+
+    func testTheSentinelIsNotReportedAsAMissingEvent() {
+        // It starts with four zero bytes too, and it already has its own answer: the stream is over.
+        XCTAssertFalse(DeviceHistoryRules.isNoSuchEvent(Data(repeating: 0, count: 20)))
+    }
+
+    func testARealFrameFromTheEvidenceDatabaseReadsCorrectly() {
+        // Captured from the previous app against this same cube (`docs/timeflip2-firmware-evidence.sqlite`), which
+        // makes it the only frame in this suite that was not built by it. Event 8, side 6, and a duration of 20,285
+        // seconds in four big-endian bytes -- so it pins the layout end to end against something real.
+        let measured = Data([
+            0x00, 0x00, 0x00, 0x08, 0x06, 0x00, 0x00, 0x00, 0x00,
+            0x6A, 0x7D, 0x28, 0x59, 0x00, 0x00, 0x4F, 0x3D,
+        ])
+
+        let segment = DeviceHistoryRules.segment(from: measured)
+
+        XCTAssertEqual(segment?.eventNumber, 8)
+        XCTAssertEqual(segment?.face, 6)
+        XCTAssertEqual(segment?.durationSeconds, 20_285)
+        XCTAssertEqual(segment?.startedAt, Date(timeIntervalSince1970: 1_786_587_225))
+        XCTAssertEqual(segment?.isPaused, false)
+    }
+
+    func testAPausedFrameFromTheEvidenceDatabaseReadsCorrectly() {
+        // The same source, and the pause encoding on a real frame: side `0x88` is face 8 with the pause bit.
+        let measured = Data([
+            0x00, 0x00, 0x00, 0x02, 0x88, 0x00, 0x00, 0x00, 0x00,
+            0x6A, 0x6E, 0x76, 0xCA, 0x00, 0x00, 0x00, 0x01,
+        ])
+
+        let segment = DeviceHistoryRules.segment(from: measured)
+
+        XCTAssertEqual(segment?.eventNumber, 2)
+        XCTAssertEqual(segment?.face, 8)
+        XCTAssertEqual(segment?.isPaused, true)
+        XCTAssertEqual(segment?.durationSeconds, 1)
+    }
+
+    // MARK: - the duration field, whose byte order firmware disagrees with the spec about
+
+    func testABigEndianDurationIsRead() {
+        // What the archive measured on firmware shipping 2026-01, and what the spec's table says.
+        XCTAssertEqual(DeviceHistoryRules.duration(from: [0x00, 0x00, 0x00, 0x5A]), 90)
+    }
+
+    func testALittleEndianDurationIsReadToo() {
+        // The same number the other way round. Both are tried because firmware disagrees with its own spec, and
+        // taking the *smaller* non-zero reading is what picks the sane one: 90 seconds is 1,509,949,440 read
+        // backwards, so the plausible duration is always the lesser of the two.
+        XCTAssertEqual(DeviceHistoryRules.duration(from: [0x5A, 0x00, 0x00, 0x00]), 90)
+    }
+
+    func testADurationOfNothingIsZeroRatherThanAGuess() {
+        XCTAssertEqual(DeviceHistoryRules.duration(from: [0x00, 0x00, 0x00, 0x00]), 0)
+    }
+
+    func testAJustStartedSegmentReadsAsZeroSeconds() {
+        // The frame the cube reuses for the interval it is on: it exists before it has lasted any time at all, and a
+        // zero duration must stay zero rather than being read as one of the two large mirror values.
+        XCTAssertEqual(DeviceHistoryRules.segment(from: frame(duration: 0))?.durationSeconds, 0)
+    }
+
     // MARK: - the end of a stream
 
     func testAnAllZeroFrameEndsTheStream() {

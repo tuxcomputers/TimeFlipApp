@@ -38,6 +38,8 @@ final class CubeLockTests: XCTestCase {
     private func cubeLock(
         connected: Bool = true,
         answering: Bool = true,
+        isPaused: Bool? = nil,
+        isLocked: Bool? = nil,
         into sent: NSMutableArray
     ) -> CubeLock {
         CubeLock(
@@ -47,8 +49,96 @@ final class CubeLockTests: XCTestCase {
                 sent.add(command)
                 reported(answering)
             },
+            isPaused: { isPaused },
+            isLocked: { isLocked },
             debugLog: nil
         )
+    }
+
+    // MARK: - the plain pause, without a lock
+
+    func testARunningCubeIsPaused() {
+        let sent = NSMutableArray()
+        cubeLock(isPaused: false, into: sent).togglePause { _ in }
+
+        XCTAssertEqual(sent as! [Data], [DeviceCommandRules.pause(true)])
+    }
+
+    func testAPausedCubeIsStarted() {
+        // The direction comes out of `device_event`, which is the same answer both surfaces draw their glyph from --
+        // so the click flips what is on show rather than something only the app can see.
+        let sent = NSMutableArray()
+        cubeLock(isPaused: true, into: sent).togglePause { _ in }
+
+        XCTAssertEqual(sent as! [Data], [DeviceCommandRules.pause(false)])
+    }
+
+    func testNothingElseGoesWithIt() {
+        // A pause, not the lock sequence. Somebody stopping the cube from the menu bar has not asked for it to be
+        // frozen on the face it is on, and a lock is recoverable only from the dropdown or the vendor's app.
+        let sent = NSMutableArray()
+        setPauseOnLock(true)
+        cubeLock(isPaused: false, into: sent).togglePause { _ in }
+
+        XCTAssertEqual(sent.count, 1)
+    }
+
+    func testItIsNotGatedOnPauseOnLock() {
+        // That setting says what *locking* does. Pausing is its own gesture and nothing about it locks anything.
+        setPauseOnLock(false)
+        let sent = NSMutableArray()
+        cubeLock(isPaused: false, into: sent).togglePause { _ in }
+
+        XCTAssertEqual(sent as! [Data], [DeviceCommandRules.pause(true)])
+    }
+
+    func testALockedCubeIsLeftAlone() {
+        // Measured, not tidiness: a locked cube reports itself paused whatever its pause byte says, so nothing sent
+        // here could be read back afterwards. The way out is the lock.
+        let sent = NSMutableArray()
+        var reported = false
+        let sending = cubeLock(isPaused: false, isLocked: true, into: sent).togglePause { _ in reported = true }
+
+        XCTAssertFalse(sending)
+        XCTAssertEqual(sent.count, 0)
+        XCTAssertFalse(reported, "nothing was sent, so there is nothing to report")
+    }
+
+    func testACubeNobodyHasAskedAboutIsStillPausable() {
+        // `nil` is "not asked yet", not "locked". Refusing on it would leave the gesture dead until something else
+        // happened to put a command on the wire.
+        let sent = NSMutableArray()
+        cubeLock(isPaused: false, isLocked: nil, into: sent).togglePause { _ in }
+
+        XCTAssertEqual(sent as! [Data], [DeviceCommandRules.pause(true)])
+    }
+
+    func testACubeWithNoOpenSegmentIsPaused() {
+        // Reset and not yet flipped: there is no record to read a direction out of. Of the two ways to be wrong,
+        // stopping a cube nobody is timing on costs nothing and is undone by clicking again.
+        let sent = NSMutableArray()
+        cubeLock(isPaused: nil, into: sent).togglePause { _ in }
+
+        XCTAssertEqual(sent as! [Data], [DeviceCommandRules.pause(true)])
+    }
+
+    func testPausingNeedsACube() {
+        let sent = NSMutableArray()
+        var reported = false
+        let sending = cubeLock(connected: false, isPaused: false, into: sent).togglePause { _ in reported = true }
+
+        XCTAssertFalse(sending)
+        XCTAssertEqual(sent.count, 0)
+        XCTAssertFalse(reported)
+    }
+
+    func testACubeThatWouldNotTakeItSaysSo() {
+        // The read-back is what decides, not the write landing. `send` reports the `0x10` verdict and it is passed
+        // straight on rather than being softened into a success.
+        var took: Bool?
+        cubeLock(answering: false, isPaused: false, into: NSMutableArray()).togglePause { took = $0 }
+
+        XCTAssertEqual(took, false)
     }
 
     // MARK: - stopping it

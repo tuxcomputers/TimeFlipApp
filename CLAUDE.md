@@ -317,15 +317,40 @@ and it still enforces the two rules that matter the moment one exists: no unchec
 
 ## TimeFlip2 BLE protocol documentation
 
-- `docs/TimeFlip2 BLE Protocol v4.3.md` is the official vendor protocol spec and takes priority
-  over `docs/timeflip.md` (a developer-written summary of this codebase's BLE driver) whenever
-  the two disagree.
-- If the official spec doesn't cover something, fall back to `docs/timeflip.md`.
-- `docs/timeflip2-firmware-observations.md` records behavior **measured on the real device** where
-  the spec is silent or wrong, with `docs/timeflip2-firmware-evidence.sqlite` holding the debug log
-  rows behind each claim. Measurements beat the spec, so check it before trusting the spec on
-  anything to do with the device name, or with whether a command is acknowledged. Add to it only
-  from an actual device run, citing the evidence rows, and never from reasoning about the protocol.
+**How to operate the device is answered in this order, and the first one that answers wins:**
+
+1. **The archive's code** (`Archive/TimeFlipApp/`). It drove this hardware for a year, so where it
+   disagrees with any document it is because the document was wrong and the code had to work anyway.
+   Its comments say which measurement forced each departure.
+2. **`docs/TimeFlip2 BLE Protocol v4.3.md`**, the official vendor spec.
+3. **`docs/timeflip.md`**, a developer-written summary of the previous codebase's BLE driver.
+
+Only reach for a lower one when the one above it is silent. This ordering is not a preference, it is
+what two long debugging sessions cost: `docs/timeflip.md` says a history frame's duration is five
+bytes little-endian at 13-17, the vendor table says four bytes at 13-16, and the archive's parser
+reads four bytes and tries both byte orders because firmware disagrees with its own spec. Following
+`timeflip.md` produced a rebuild that rejected every single-event answer the cube gave, reported it
+as "a frame this app cannot read", and sent somebody hunting a parser bug while the cube answered
+correctly (2026-08-21). The same day, the archive's `readLastEventLocked` turned out to have already
+recorded that a `0x01` reply arrives as a **read** and never as a notification -- "waiting on a
+notification here reliably timed out against real hardware" -- which the rebuild had to rediscover
+from a live trace.
+
+`docs/timeflip2-firmware-observations.md` sits with the archive at the top and outranks both
+documents: it records behaviour **measured on the real device** where the spec is silent or wrong,
+with `docs/timeflip2-firmware-evidence.sqlite` holding the debug log rows behind each claim. Check it
+before trusting the spec on anything to do with the device name, or with whether a command is
+acknowledged. Add to it only from an actual device run, citing the evidence rows, and never from
+reasoning about the protocol.
+
+**Query that database rather than only reading the prose around it.** It holds 753 real rows from the
+previous app against this same cube, including actual history frames, and those frames are what
+finally settled the layout above after the documents had disagreed for an afternoon:
+
+```sh
+sqlite3 docs/timeflip2-firmware-evidence.sqlite \
+  "SELECT DISTINCT message FROM debug_log WHERE message LIKE 'history ->%';"
+```
 
 ## Debug print messages
 

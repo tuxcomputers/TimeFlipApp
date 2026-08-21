@@ -503,6 +503,29 @@ extension TimingViewTests {
         XCTAssertNotEqual(view.faceGlyphView.image?.size, .zero)
     }
 
+    func testTheGlyphSaysInWordsWhichOneItIs() {
+        // A symbol is one character to anything reading the accessibility tree, so without this nothing outside the
+        // app can tell a running cube from a paused one on this tab -- which is what both a screen reader and a
+        // scripted check are here to ask.
+        let view = view()
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        XCTAssertEqual(view.faceGlyphView.accessibilityLabel(), "Device running")
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: true)
+        XCTAssertEqual(view.faceGlyphView.accessibilityLabel(), "Device paused")
+    }
+
+    func testACubeThatHasNotAnsweredSaysNothingEither() {
+        // Nothing drawn and nothing said. A label left behind from the last draw would be the tree reporting a state
+        // the cube has not claimed.
+        let view = view()
+
+        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: nil)
+
+        XCTAssertNil(view.faceGlyphView.accessibilityLabel())
+    }
+
     func testACubeThatHasNotAnsweredDrawsNoGlyph() {
         let view = view()
 

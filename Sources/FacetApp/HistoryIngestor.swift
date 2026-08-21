@@ -82,7 +82,11 @@ final class HistoryIngestor {
         isRefreshing = true
 
         // Step 1. The position, read from the table, every time.
-        let recorded = events.newestOnRecord()
+        //
+        // **The cube's own faces, not the newest row of any kind.** Manual segments live in this table too and carry
+        // the epoch as their event number, so a manual stretch recorded after a cube's would answer this with a number
+        // no cube can reach -- see `DeviceEventRecorder.newestFromTheCube`.
+        let recorded = events.newestFromTheCube()
         debugLog?.record(
             .history,
             "Fetching history (\(reason)); on record: "

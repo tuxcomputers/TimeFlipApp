@@ -221,6 +221,34 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(askedFrom, [5])
     }
 
+    func testAManualSegmentDoesNotAnswerWhereTheCubeIsUpTo() {
+        // **The one that reached hardware.** `device_event` holds the app's own segments too, on faces above 12, and
+        // they carry the epoch as their event number because nothing issued them one. Read the newest row of any kind
+        // and a manual stretch timed after the cube's answers this with about 1.8 billion -- which no cube can reach,
+        // so every refresh restarts from zero and re-streams the whole history, and the cheap check never matches.
+        events.record(segment(5, at: 5000))
+        events.startSegment(face: ManualFace.first, at: Date(timeIntervalSince1970: 9000))
+        deviceLast = segment(7, at: 7000)
+        stream = [segment(5, at: 5000), segment(6, at: 6000), segment(7, at: 7000)]
+
+        refresh(ingestor())
+
+        XCTAssertEqual(askedFrom, [5], "a manual segment answered where the cube's history is up to")
+    }
+
+    func testACubeSittingStillIsStillRecognisedAfterAManualSegment() {
+        // The same fault seen from the other side: the cheap check compares against the position, so a poisoned
+        // position turns every tick into a full stream of a history that has not changed.
+        events.record(segment(5, at: 5000, seconds: 60))
+        events.startSegment(face: ManualFace.first, at: Date(timeIntervalSince1970: 9000))
+        deviceLast = segment(5, at: 5000, seconds: 120)
+
+        let outcome = refresh(ingestor())
+
+        XCTAssertEqual(outcome, .unchanged)
+        XCTAssertTrue(askedFrom.isEmpty, "the stream was fetched for a segment already on record")
+    }
+
     // MARK: - a stream that did not finish
 
     func testAStreamShortOfTheCubesLatestDoesNotOpenASegment() {

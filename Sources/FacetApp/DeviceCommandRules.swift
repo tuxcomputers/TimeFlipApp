@@ -27,6 +27,63 @@ enum DeviceCommandRules {
         Data([lockCommand, on ? 0x01 : 0x02])
     }
 
+    /// Sets the cube's clock (`0x08`): the command byte then the epoch as `uint64` big-endian, in **UTC**.
+    ///
+    /// **The cube stamps every history frame with this clock**, so a cube whose time has never been set has nothing to
+    /// date an interval with. `docs/timeflip.md` puts "set device time" first in the sequence a factory reset calls
+    /// for, and the system state characteristic has a code for the cube asking for it outright (`0x0201`,
+    /// `timeRequired`). The archive set it on every connect (`TimeFlipBLEDevice.initializeSession`) and this app now
+    /// does the same.
+    ///
+    /// **UTC, and the spec is explicit about it** ("in utc(0) format"), so this takes seconds since the epoch and no
+    /// timezone enters into it. Which timezone a segment is *displayed* in is `timezone`'s question, decided when the
+    /// row is written, and nothing to do with what the cube counts in.
+    static func setTime(_ secondsSinceEpoch: UInt64) -> Data {
+        var bytes: [UInt8] = [timeCommand]
+        bytes += (0..<8).map { UInt8(truncatingIfNeeded: secondsSinceEpoch >> (8 * (7 - $0))) }
+        return Data(bytes)
+    }
+
+    /// Asks what the cube's clock says (`0x07`). The answer echoes the command byte, unlike `0x10`.
+    static let readTime = Data([readTimeCommand])
+
+    /// The seconds in a `0x07` answer, or `nil` when it is not one.
+    ///
+    /// **Two four-byte candidates, and the first non-zero one wins.** This is the archive's tolerance
+    /// (`TimeFlipBLEDevice.readDeviceTime`) copied as it stands, and the reason is in its own comment: "payload
+    /// sometimes comes as 8 bytes with leading zeros then BE timestamp", while `docs/timeflip.md` adds that some
+    /// firmware historically answered in 32 bits. The wide form puts the seconds in the *second* four bytes and the
+    /// narrow form puts them in the first, so trying each in turn reads both.
+    ///
+    /// **Reading "everything after the command byte" as one big-endian number does not work, and the shortcut cost a
+    /// false failure the day it was written.** The characteristic is 20 bytes wide and the answer is padded with
+    /// zeros, so a shift over the whole remainder pushes the real value out of the top and leaves nothing: the cube
+    /// echoed `07 00 00 00 00 6A 88 20 A9` followed by eleven zeros, which was exactly the time it had been asked for,
+    /// and the app reported that the clock would not set (2026-08-21). Anything reading this field must take a fixed
+    /// number of bytes and ignore the padding.
+    ///
+    /// **The echoed `0x07` is checked**, and it is worth having: this is one of the few answers on the command result
+    /// that identifies itself, so unlike a `0x10` reply it cannot be mistaken for the previous command's.
+    static func time(from value: Data?) -> UInt64? {
+        guard let value, value.count >= 5, value[value.startIndex] == readTimeCommand else { return nil }
+        let payload = [UInt8](value.dropFirst())
+        for start in [0, 4] where payload.count >= start + 4 {
+            var seconds: UInt64 = 0
+            for byte in payload[start..<(start + 4)] { seconds = seconds << 8 | UInt64(byte) }
+            if seconds > 0 { return seconds }
+        }
+        return nil
+    }
+
+    /// How far out a clock read back after `0x08` may be and still count as set.
+    ///
+    /// **Not equality, because time passes.** The write, its acknowledgement and the read are three round trips, each
+    /// around 100 ms in the traces, and the cube's clock has one-second resolution -- so an exact comparison would
+    /// report a perfectly good write as a failure roughly whenever it straddled a second boundary. Five seconds is far
+    /// wider than any round trip seen and far narrower than the error this is meant to catch, which is a clock that was
+    /// never set at all.
+    static let timeTolerance: UInt64 = 5
+
     /// Status request (`0x10`): the read-back that says whether a pause or a lock actually took.
     ///
     /// Neither command has an answer of its own beyond the write being acknowledged, and an acknowledgement says the
@@ -98,6 +155,17 @@ enum DeviceCommandRules {
             return ReadBack(request: status) { status(from: $0)?.isPaused == wanted }
         case lockCommand:
             return ReadBack(request: status) { status(from: $0)?.isLocked == wanted }
+        case timeCommand:
+            // The clock this command asked for, read back out of the command's own bytes rather than passed in
+            // alongside them: there is one place that knows the layout and it is `setTime`.
+            var asked: UInt64 = 0
+            for byte in command.dropFirst() { asked = asked << 8 | UInt64(byte) }
+            return ReadBack(request: readTime) { answer in
+                guard let told = time(from: answer) else { return false }
+                return told > asked
+                    ? told - asked <= timeTolerance
+                    : asked - told <= timeTolerance
+            }
         default:
             return nil
         }
@@ -105,4 +173,6 @@ enum DeviceCommandRules {
 
     private static let lockCommand: UInt8 = 0x04
     private static let pauseCommand: UInt8 = 0x06
+    private static let readTimeCommand: UInt8 = 0x07
+    private static let timeCommand: UInt8 = 0x08
 }

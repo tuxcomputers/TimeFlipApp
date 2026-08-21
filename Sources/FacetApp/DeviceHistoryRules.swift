@@ -59,22 +59,49 @@ enum DeviceHistoryRules {
         return frame.prefix(17).allSatisfy { $0 == 0 }
     }
 
+    /// Whether this frame is the cube saying it has no such event, which is how "no history at all" arrives.
+    ///
+    /// **A different answer from a frame this app cannot read, and telling them apart is the whole point.** Both come
+    /// back as `nil` from `segment(from:)`, but one is an ordinary state and the other is a fault worth chasing -- and
+    /// reporting the ordinary one as a parse failure cost a long session on 2026-08-21 looking for a bug in the
+    /// parser while the cube was answering perfectly correctly.
+    ///
+    /// The cube fills the event number with zero and leaves junk in the duration field, which is measured rather than
+    /// documented: what arrives is thirteen zero bytes and then four that track the cube's own clock, ticking a second
+    /// at a time between requests. `docs/timeflip2-firmware-evidence.sqlite` holds the same answer given to the
+    /// previous app, so it is the firmware's habit rather than anything this app provoked.
+    static func isNoSuchEvent(_ frame: Data) -> Bool {
+        guard frame.count >= 4, !isEndOfStream(frame) else { return false }
+        return frame.prefix(4).allSatisfy { $0 == 0 }
+    }
+
     /// Reads one frame into a segment, or answers `nil` for anything that is not one.
     ///
-    /// The layout, from `docs/timeflip.md` §5 and the vendor spec:
+    /// **The layout is the vendor spec's own table**, which `docs/TimeFlip2 BLE Protocol v4.3.md` draws under
+    /// *History read request for a single event* as bytes 0 to 16 -- **seventeen**, not twenty:
     ///
-    /// - `0...3` event number, `u32` big-endian
-    /// - `4` face. Above 127 the interval was **paused** and the face is `value - 128`; `66` is the cube reporting an
-    ///   accelerometer error rather than a face; `0` is not a face at all
-    /// - `5...12` start of the interval, seconds since the epoch, `u64` big-endian
-    /// - `13...17` duration in seconds, five bytes **little**-endian -- the one field that changes byte order, and the
-    ///   archive keeps all five although some firmware fills only four
-    /// - `18...19` a previous-event pointer, ignored here as it is there
+    /// - `0...3` `N event`, `u32` big-endian. **Zero is not an event.** The cube answers a request for an event it
+    ///   does not have with a frame numbered 0, so this is how "there is no history" arrives, and the archive reads it
+    ///   the same way ("treat zero eventNumber frames as sentinel-like")
+    /// - `4` `Side`. Above 127 the interval was **paused** and the face is `value - 128`; `66` is the cube reporting
+    ///   an accelerometer error rather than a face; `0` is not a face at all
+    /// - `5...12` `Moment flip`, seconds since the epoch, `u64` big-endian
+    /// - `13...16` `Duration side`, **four** bytes -- see `duration(from:)` for the byte order, which is measured
+    ///   rather than documented
+    /// - `17...19` present only on the streamed form, where the vendor's example shows a previous-event pointer.
+    ///   Ignored here as it is there
+    ///
+    /// **Seventeen bytes, and requiring eighteen was a real bug**: a single-event answer is exactly this length, so
+    /// every reply to `0x01` was thrown away with "a frame this app cannot read" while the cube was answering
+    /// perfectly well (measured 2026-08-21). `docs/timeflip.md` describes a five-byte duration at `13...17` and is
+    /// wrong about both, which is why `CLAUDE.md` puts the vendor spec above it.
     static func segment(from frame: Data) -> DeviceEventSegment? {
-        guard frame.count >= 18, !isEndOfStream(frame) else { return nil }
+        guard frame.count >= 17, !isEndOfStream(frame) else { return nil }
         let bytes = [UInt8](frame)
 
         let eventNumber = Int(UInt32(bytes[0]) << 24 | UInt32(bytes[1]) << 16 | UInt32(bytes[2]) << 8 | UInt32(bytes[3]))
+        // The cube's way of saying it has nothing to give, so it is not a segment and not an error either.
+        guard eventNumber > 0 else { return nil }
         guard let face = face(from: bytes[4]) else { return nil }
 
         var startEpoch: UInt64 = 0
@@ -82,16 +109,29 @@ enum DeviceHistoryRules {
         // A segment that began at the epoch is a frame that did not carry a time, not one from 1970.
         guard startEpoch > 0 else { return nil }
 
-        var duration: UInt64 = 0
-        for byte in bytes[13...17].reversed() { duration = duration << 8 | UInt64(byte) }
-
         return DeviceEventSegment(
             eventNumber: eventNumber,
             face: face,
             startedAt: Date(timeIntervalSince1970: TimeInterval(startEpoch)),
-            durationSeconds: TimeInterval(duration),
+            durationSeconds: TimeInterval(duration(from: Array(bytes[13..<min(bytes.count, 17)]))),
             isPaused: bytes[4] > 127
         )
+    }
+
+    /// `Duration side`, from the four bytes the vendor's table gives it.
+    ///
+    /// **Copied from the archive as it stands** (`TimeFlipHistoryParser.durationTolerant`), because it is a
+    /// measurement rather than a preference and re-deriving it costs the same experiment: firmware disagrees with its
+    /// own spec about the byte order of this one field, so both readings are taken and the **smaller** non-zero one
+    /// wins. That works because a plausible duration is a small number: 90 seconds is `00 00 00 5A` one way round and
+    /// `1509949440` the other, so the sane interpretation is always the lesser. Its own comment records the evidence,
+    /// "prefer 4-byte big-endian at bytes 13-16 (observed on firmware shipping 2026-01)".
+    static func duration(from bytes: [UInt8]) -> UInt64 {
+        var big: UInt64 = 0
+        for byte in bytes { big = big << 8 | UInt64(byte) }
+        var little: UInt64 = 0
+        for (shift, byte) in bytes.enumerated() { little |= UInt64(byte) << (8 * shift) }
+        return [big, little].filter { $0 > 0 }.min() ?? 0
     }
 
     /// The face a frame's byte 4 names, and whether that interval was paused.
@@ -141,6 +181,12 @@ enum DeviceHistoryRules {
     ///
     /// **A cube that did not answer leaves the position standing**, so a timed-out read re-requests the same thing
     /// rather than re-streaming everything the cube holds.
+    ///
+    /// **A cube reporting no history at all is that same case, and it is knowingly left alone.** An empty cube is a
+    /// reset one, so the stored position is unreachable and the stream from it comes straight back as a sentinel --
+    /// which repeats until the cube has anything at all, and then heals on its own: the cheap check answers, the two
+    /// tests below catch the generation change, and the next stream starts from the beginning. Restarting from zero on
+    /// an empty answer would buy nothing but one wasted request per refresh in the meantime.
     ///
     /// **What this still does not cover**, and the archive says so too: a cube reset while the app was not running,
     /// which then counts *past* the stored position before the next launch. It reports both a higher number and a

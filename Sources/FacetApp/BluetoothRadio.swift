@@ -93,6 +93,22 @@ final class BluetoothRadio: NSObject {
     /// connecting and after each command the app reads back, and at no other time.
     var onCubeStatus: ((UUID, DeviceCommandRules.Status?) -> Void)?
 
+    /// Called with what the cube says about itself: what it wants pushed back, and whether its hardware is working.
+    ///
+    /// **Every arrival, not only the changes**, unlike the charge and the face. There are few of them, each one is
+    /// either a request or a fault, and a repeat is the cube saying it is still waiting.
+    var onSystemState: ((UUID, DeviceSystemStateRules.State) -> Void)?
+
+    /// Told when the link is all the way up: every characteristic found, every notification subscribed to, and the
+    /// cube able to answer a question. **The mirror of `onConnectionDropped`**, and the pair is the point -- the app
+    /// has had a way to hear that a cube went since there were cubes, and nothing but a login *outcome* to hear that
+    /// one arrived.
+    ///
+    /// **Not `onLoginEnded`, which is a different moment.** That one fires when the PIN is accepted, several round
+    /// trips before the listening phase has discovered anything: a fetch made then finds no history characteristic,
+    /// because there is not one yet. This is the first moment the cube can actually be asked.
+    var onCubeReady: ((UUID) -> Void)?
+
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
@@ -839,6 +855,22 @@ final class BluetoothRadio: NSObject {
         onFace?(id, face)
     }
 
+    /// Files what the cube says about its own condition.
+    ///
+    /// **Written down every time, and loudly when it is not "fine".** This is the one channel on which a cube reports
+    /// that it has been put back to the factory or that its flash memory has failed, and a flash fault means it records
+    /// no history at all -- which from the outside is indistinguishable from a cube that has simply been reset. Both of
+    /// those are hours of confusion if they are not in the log, so the row goes in whether or not anything acts on it.
+    private func received(systemState state: DeviceSystemStateRules.State, from id: UUID) {
+        debugLog?.record(
+            .info,
+            state.isEverythingFine
+                ? "The cube says it is fine: \(DeviceSystemStateRules.describe(state))"
+                : "The cube says: \(DeviceSystemStateRules.describe(state))"
+        )
+        onSystemState?(id, state)
+    }
+
     /// Files what the cube says about itself, and says so only when it is news.
     ///
     /// Quiet when nothing moved, matching the charge and the face: every command this app reads back produces one of
@@ -988,6 +1020,18 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             status: { [weak self] status in
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.received(status: status, from: attempt.id)
+            },
+            // The same guard as the three above, and for the same reason.
+            systemState: { [weak self] state in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(systemState: state, from: attempt.id)
+            },
+            // The same guard again: a login that finished discovering after the app let the cube go has nothing to
+            // announce, and announcing it would send a fetch down a link nobody is holding.
+            ready: { [weak self] in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.debugLog?.record(.login, "The cube is ready to be asked things")
+                self.onCubeReady?(attempt.id)
             }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)

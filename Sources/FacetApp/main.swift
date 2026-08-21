@@ -179,6 +179,13 @@ let cubeLock = CubeLock(
     settings: settings,
     isConnected: { radio.connectedDevice != nil },
     send: { command, reported in radio.send(command, reported) },
+    // The cube's own account of what it is doing, out of `device_event` by way of the readout -- the same answer the
+    // menu bar and the Faces tab draw their play/pause glyph from, so the click flips what is on show rather than
+    // something only the app can see. Read at the moment it is needed, never held.
+    isPaused: { timingReadout.read().deviceIsPaused },
+    // A different source, because nothing else answers it: no history frame carries a lock bit and `device_event` has
+    // no column for one, so `0x10` is all there is. See `CubeLock.isLocked`.
+    isLocked: { radio.cubeStatus?.isLocked },
     debugLog: debugLog
 )
 // The other half of the way out: the cube is paused and then locked before the link is given back, so a device left on
@@ -309,11 +316,33 @@ let menuBar = MenuBarController(
         )
     },
     // Whichever way it is offering. What the app is holding decides, and the commands are `CubeLock`'s.
+    //
+    // **Two gestures end here**: the dropdown's Lock item and a double click on the item's right half.
+    //
+    // **The history fetch afterwards is the same one the pause gesture makes, and for the same reason.** Both halves
+    // of this sequence move the cube's pause -- locking pauses it first, unlocking resumes it -- and the cube says
+    // nothing when its pause changes. Without asking, the glyph on both surfaces would go on drawing the old state
+    // until the timer next fired, which a shipped build floors at a minute.
     toggleCubeLock: {
         if radio.cubeStatus?.isLocked == true {
-            cubeLock.resume { _ in }
+            cubeLock.resume { _ in
+                historyIngestor.refresh(because: "the cube was unlocked from the menu bar")
+            }
         } else {
-            cubeLock.lock { _ in }
+            cubeLock.lock { _ in
+                historyIngestor.refresh(because: "the cube was locked from the menu bar")
+            }
+        }
+    },
+    // A single click on the right half, with a cube on the other end: stop it counting, or start it again.
+    //
+    // **The history fetch afterwards is not tidying up, it is how the app finds out.** The cube says nothing when its
+    // pause changes -- no notification follows `0x06`, which the archive measured and worked around the same way --
+    // so without this the open segment would go on reporting the old state until the next tick, and the glyph the
+    // click was aimed at would sit there unchanged for as long as that took.
+    toggleCubePause: {
+        cubeLock.togglePause { _ in
+            historyIngestor.refresh(because: "the cube was paused from the menu bar")
         }
     }
 )
@@ -351,6 +380,39 @@ radio.onFace = { _, _ in
     // moment to go and get it rather than waiting out the rest of the tick. It also refreshes whether the cube is
     // paused, because every frame carries that in its face byte -- see `timingReadout.isDevicePaused`.
     historyIngestor.refresh(because: "the cube was turned")
+}
+// **The link coming up is its own reason to ask, and it used to be nobody's.** The fetch on connect happened only
+// because the face read that follows a login produced a flip nobody had made, so the log said "the cube was turned"
+// about a cube sitting still, and a cube whose faces characteristic went missing would have brought back no history at
+// all. This asks because the link is up, which is what is actually true.
+//
+// **`onCubeReady`, not `onLoginEnded`.** A login ends when the PIN is accepted, which is several round trips before
+// the characteristics are discovered -- ask then and the cube has no history characteristic yet, which is precisely
+// the fault this pass fixed.
+//
+// The face read still fires its own refresh a moment later and `HistoryIngestor` drops it while this one is running,
+// with a row saying so. That is the guard doing its job rather than a duplicate to be designed away: both are real
+// reasons to ask, and the one that arrives second is simply not needed yet.
+radio.onCubeReady = { _ in
+    historyIngestor.refresh(because: "the link came up")
+}
+// What the cube says about its own condition, which until now the app subscribed to and threw away.
+//
+// **A factory reset is the one this can act on, and acting means asking again.** There is no cursor to clear first:
+// the resume position is read out of `device_event` on every refresh and checked against what the cube can reach, so a
+// counter back at the bottom is followed down without anything having to be told a reset happened. That is the
+// archive's own reasoning, kept whole -- and its own caveat with it: a cube straight after a reset holds no history at
+// all, so this finds nothing until the first flip.
+//
+// **The rest is written down and not acted on**, deliberately. The cube can ask for its time, its face colours, its
+// LED brightness, its blink interval, its task parameters or its auto-pause delay, and this app has no way to push most
+// of those yet -- so a row saying it asked is the honest answer, and it is a great deal better than the silence there
+// was before. `BluetoothRadio.received(systemState:from:)` writes it, including the hardware half, which is where a
+// **flash memory fault** turns up: history lives in flash, so a cube reporting one records nothing, and from the
+// outside that looks exactly like a cube that was reset.
+radio.onSystemState = { _, state in
+    guard state.sync == .factoryReset else { return }
+    historyIngestor.refresh(because: "the cube says it was put back to the factory")
 }
 
 // A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press

@@ -89,6 +89,17 @@ final class DeviceLogin: NSObject {
     /// Called with whatever the cube last said about its own state, however that answer was drawn out -- the ask on
     /// connecting, or the read-back of a command. Raw: what to make of it is the radio's and the menu's business.
     private let status: (DeviceCommandRules.Status) -> Void
+
+    /// Told what the cube says about itself: what it wants pushed back, and whether its hardware is working.
+    private let systemState: (DeviceSystemStateRules.State) -> Void
+
+    /// Told once every characteristic has been found and subscribed to, so the cube can now be asked things.
+    ///
+    /// **Not the same moment as `finished(.loggedIn)`, and the difference is the whole reason this exists.** A login
+    /// ends when the PIN is accepted, which is several round trips before the listening phase has discovered anything:
+    /// at that point `history` is still nil and a fetch made on the strength of it reports "no history characteristic"
+    /// against a cube that has one. This fires after that discovery, which is the first moment a request can land.
+    private let ready: () -> Void
     private let finished: (DeviceLoginOutcome) -> Void
 
     private var deadline: Timer?
@@ -196,6 +207,8 @@ final class DeviceLogin: NSObject {
         battery: @escaping (Int) -> Void = { _ in },
         face: @escaping (Int) -> Void = { _ in },
         status: @escaping (DeviceCommandRules.Status) -> Void = { _ in },
+        systemState: @escaping (DeviceSystemStateRules.State) -> Void = { _ in },
+        ready: @escaping () -> Void = {},
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
         self.peripheral = peripheral
@@ -208,6 +221,8 @@ final class DeviceLogin: NSObject {
         self.battery = battery
         self.face = face
         self.status = status
+        self.systemState = systemState
+        self.ready = ready
         self.finished = finished
         super.init()
     }
@@ -238,10 +253,17 @@ final class DeviceLogin: NSObject {
         deadline = nil
         finished(outcome)
         // **Only once the verdict is out, and never in front of it.** A cube that will not say what it is is still a
-        // cube the app reached, so nothing about these four reads is allowed to delay a pairing, colour an outcome or
-        // fail one. Putting them here rather than inside `loggedIn` also covers both ways a login succeeds -- with a
+        // cube the app reached, so nothing about what follows is allowed to delay a pairing, colour an outcome or
+        // fail one. Putting it here rather than inside `loggedIn` also covers both ways a login succeeds -- with a
         // new PIN set and without.
-        if outcome == .loggedIn, staysWithTheCube { readDeviceInfo() }
+        //
+        // **The clock goes first, ahead of everything else the connection does.** The cube stamps every history frame
+        // with its own clock, so a cube whose time has never been set has nothing to date an interval with -- which
+        // makes this the one command that has to land before the app starts asking the cube what it has been doing.
+        // Chained rather than merely queued first, so "first" means finished rather than sent.
+        if outcome == .loggedIn, staysWithTheCube {
+            setTheClock { [weak self] in self?.readDeviceInfo() }
+        }
     }
 
     // MARK: - putting the cube back to the factory
@@ -350,6 +372,9 @@ final class DeviceLogin: NSObject {
     /// **The cheap check.** It comes back as a whole frame -- face, start and duration, not just a number -- so when
     /// it turns out nothing has changed the row can still be brought up to date from it without paying for the stream.
     /// That is the archive's arrangement and the reason the fetch below is usually not made at all.
+    ///
+    /// **The answer arrives as a read, not as a notification**, unlike the stream. See `didWriteValueFor`, which is
+    /// where the read is issued and where the archive's measurement behind it is written out.
     func readLastEvent(then answered: @escaping (DeviceEventSegment?) -> Void) {
         request(DeviceHistoryRules.readEvent(), isSingleFrame: true, describing: "which event it is on") { frames in
             answered(frames.first)
@@ -421,6 +446,14 @@ final class DeviceLogin: NSObject {
         }
         if DeviceHistoryRules.isEndOfStream(value) {
             finishFetch("the cube says that is all of it")
+            return
+        }
+        // **Said as what it is.** An event numbered zero is the cube reporting it has no such event, which for a
+        // request for its latest means it holds no history at all -- an ordinary state for a cube that has been reset,
+        // and not the same thing as a frame this app failed to read. Reporting it as the latter is what sent somebody
+        // looking for a parser bug while the cube answered correctly.
+        if DeviceHistoryRules.isNoSuchEvent(value) {
+            finishFetch("the cube has no such event, so there is no history of it to bring back")
             return
         }
         guard let segment = DeviceHistoryRules.segment(from: value) else {
@@ -677,12 +710,34 @@ final class DeviceLogin: NSObject {
     /// Subscribes to each one that says it can notify, and says so when a cube offers none.
     private func listen(to service: CBService, error: Error?) {
         guard error == nil else { return }
+        // **Taken here because here is where it exists.** This is the discovery that asked for everything; the
+        // login's asked for the three characteristics a login needs, so nothing before this point has ever seen
+        // `F1196F58`. Held rather than looked up per fetch for the reason every other characteristic is: it is the
+        // object CoreBluetooth wants back, and it belongs to this connection and dies with it.
+        //
+        // A cube without one can still be reached, timed against and looked at. What it cannot do is bring its own
+        // record of the day back, which is why `readLastEvent` and `fetchHistory` say so rather than failing quietly.
+        history = service.characteristics?.first { $0.uuid == TimeFlipUUIDs.history }
+        debugLog?.record(
+            .history,
+            history == nil
+                ? "This cube offers no history characteristic, so it cannot be asked what it has been doing"
+                : "The cube's history characteristic is there, so its record of the day can be asked for"
+        )
         let pushable = (service.characteristics ?? []).filter { $0.properties.contains(.notify) }
         guard !pushable.isEmpty else {
             debugLog?.record(.login, "Nothing on the TimeFlip service can notify, so there is nothing to listen to")
             return
         }
         for characteristic in pushable { subscribe(to: characteristic) }
+        // **Said after the subscriptions and before the reads**, which is the order the answers need rather than a
+        // preference. A history request is answered by notifications on the characteristic it is written to, so
+        // asking before subscribing would send the question and miss the reply; CoreBluetooth serialises operations on
+        // a peripheral, so a subscription queued above has happened by the time anything queued below is written. And
+        // it comes before the reads so whoever wants the cube's record of the day is first in the queue rather than
+        // behind two round trips of face and double-tap.
+        ready()
+        askWhatStateTheCubeIsIn(on: service)
         askWhichFaceIsUp(on: service)
         // The state question follows this one rather than sitting beside it -- see `askWhatStateItIsIn`.
         askWhatMakesADoubleTap()
@@ -703,6 +758,58 @@ final class DeviceLogin: NSObject {
     ///
     /// **No deadline**, matching the battery: nothing downstream waits on it, and a cube that never answers leaves the
     /// tab drawing what it drew before, plus the request itself in the trace.
+    /// Sets the cube's clock to this machine's, then reads it back.
+    ///
+    /// **The first thing a confirmed connection does.** Every history frame the cube files carries a timestamp from
+    /// this clock, so a cube that has never been told the time has nothing to stamp an interval with -- and a factory
+    /// reset clears it, which the scripted suite does. `docs/timeflip.md` puts setting the time at the head of the
+    /// sequence a reset calls for, the system state characteristic has a code for the cube asking for it (`0x0201`),
+    /// and the archive set it on every connect (`TimeFlipBLEDevice.initializeSession`, which opens with
+    /// `setDeviceTime`). This app had never sent `0x08` at all.
+    ///
+    /// **Read back before it is believed**, per the rule in `CLAUDE.md`: `0x07` is the read the vendor defines for it,
+    /// and `DeviceCommandRules.readBack` compares the answer against what was asked within a tolerance, because three
+    /// round trips pass between the two and the cube's clock counts in whole seconds.
+    ///
+    /// **What follows runs either way.** A clock that would not set is worth a row and is not worth stranding a
+    /// pairing over: the cube is still reachable, still reports its face, and still answers everything else.
+    private func setTheClock(then next: @escaping () -> Void) {
+        let now = UInt64(Date().timeIntervalSince1970)
+        debugLog?.record(.command, "Setting the cube's clock to \(now)")
+        send(DeviceCommandRules.setTime(now)) { [weak self] took in
+            self?.debugLog?.record(
+                .command,
+                took
+                    ? "The cube's clock is set"
+                    : "The cube would not take the time, so its history may carry no usable timestamps"
+            )
+            next()
+        }
+    }
+
+    /// Asks the cube what it says about itself on the system state characteristic.
+    ///
+    /// **A read on top of the subscription, and both are needed** -- the same shape as the face and the charge, for
+    /// the same measured reason. A GATT subscription yields the *next* value and never the current one, and this
+    /// characteristic reports **standing** conditions: a cube that was factory reset before this launch, or one whose
+    /// flash memory has failed, says so once and then sits there. Subscribing alone means the app never hears either.
+    ///
+    /// **This is what the rebuild was missing and the archive had** (`TimeFlipBLEDevice.readSystemState`). The
+    /// characteristic was subscribed to from the start and had no handler at all, so every notification was traced and
+    /// dropped -- and a cube quietly recording nothing because its flash is faulty looks exactly like a cube that has
+    /// been reset, which is exactly the confusion it cost on 2026-08-21.
+    ///
+    /// **No deadline**, matching the face and the charge: nothing downstream waits on it, and a cube that never
+    /// answers leaves the request itself in the trace.
+    private func askWhatStateTheCubeIsIn(on service: CBService) {
+        guard let state = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.systemState }) else {
+            debugLog?.record(.info, "This cube has no system state characteristic, so it cannot say how it is")
+            return
+        }
+        debugLog?.record(.info, "Asking the cube how it is")
+        read(state)
+    }
+
     private func askWhichFaceIsUp(on service: CBService) {
         guard let faces = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.faces }) else {
             debugLog?.record(.face, "This cube has no faces characteristic, so there is no face to ask about")
@@ -1012,10 +1119,11 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             case TimeFlipUUIDs.password: password = characteristic
             case TimeFlipUUIDs.commandResult: commandResult = characteristic
             case TimeFlipUUIDs.command: command = characteristic
-            // Not in the guard below either: a cube that cannot be asked for history can still be reached, timed
-            // against and looked at. What it cannot do is bring its own record of the day back, and `HistoryIngestor`
-            // is what says so at the point that would have happened.
-            case TimeFlipUUIDs.history: history = characteristic
+            // **The history characteristic is deliberately not picked up here**, and a version of this that tried to
+            // was worse than useless. This branch answers the login's own discovery, which asks for exactly the three
+            // above -- so `F1196F58` is never in the list, the case never fired, and every fetch reported "this cube
+            // has no history characteristic" against a cube that had one all along. It is found in `listen(to:)`,
+            // which is the phase that asks for everything.
             default: break
             }
         }
@@ -1061,6 +1169,22 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             } else {
                 acknowledgedCommand(error == nil)
             }
+            return
+        }
+        // **A single-frame request is answered by a read, and waiting for a notification never works.** The archive
+        // measured this and wrote down why (`TimeFlipBLEDevice.readLastEventLocked`): `0x02`'s reply is documented as
+        // "data flow with notification" and `0x01`'s is not described as a notification at all, and waiting on one
+        // "reliably timed out against real hardware". This app reproduced that exactly on 2026-08-20 -- the write
+        // acknowledged, then six seconds of nothing, then a fallback stream from a position no cube could reach.
+        //
+        // So the acknowledgement is the cue to go and read the value, which is the only difference between the two
+        // requests. Streaming needs nothing here: its frames arrive as notifications, which is what it asked for.
+        if let outstanding = fetch, outstanding.isSingleFrame, characteristic.uuid == TimeFlipUUIDs.history {
+            guard error == nil, let history else {
+                finishFetch("the cube would not take the question")
+                return
+            }
+            read(history)
             return
         }
         guard let step else { return }
@@ -1114,6 +1238,16 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
                 return
             }
             face(up)
+            return
+        }
+        // Its own characteristic, so no guard about which question is out: nothing else arrives here, and it arrives
+        // both as the answer to the read taken when the link came up and unasked whenever the cube's state moves.
+        if characteristic.uuid == TimeFlipUUIDs.systemState {
+            guard let state = DeviceSystemStateRules.state(from: characteristic.value) else {
+                debugLog?.record(.info, "The cube's system state came back as something this app cannot read")
+                return
+            }
+            systemState(state)
             return
         }
         // History is its own channel, so this needs no guard about which question is out: nothing else arrives here.

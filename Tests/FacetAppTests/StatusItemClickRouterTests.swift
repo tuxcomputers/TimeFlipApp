@@ -20,10 +20,80 @@ final class StatusItemClickRouterTests: XCTestCase {
         XCTAssertEqual(StatusItemClickRouter.action(isLeftSide: false, timing: .paused), .togglePause)
     }
 
-    func testTheRightHalfDoesNothingWithNoClockToStop() {
+    func testTheRightHalfDoesNothingWithNoClockAndNoCube() {
         // Inert rather than falling through to the menu: a right half that quietly did the left half's job would be
         // a merge nobody would notice had happened.
         XCTAssertEqual(StatusItemClickRouter.action(isLeftSide: false, timing: .idle), .ignore)
+    }
+
+    // MARK: - with a cube on the other end
+
+    func testASingleClickPausesTheCube() {
+        XCTAssertEqual(
+            StatusItemClickRouter.action(isLeftSide: false, timing: .idle, isCubeConnected: true, clickCount: 1),
+            .toggleCubePause
+        )
+    }
+
+    func testADoubleClickLocksTheCube() {
+        XCTAssertEqual(
+            StatusItemClickRouter.action(isLeftSide: false, timing: .idle, isCubeConnected: true, clickCount: 2),
+            .toggleCubeLock
+        )
+    }
+
+    func testAThirdClickDoesNotLandBackOnThePause() {
+        // `>= 2` rather than `== 2`. A click held down and repeated would otherwise alternate between locking the
+        // cube and pausing it, which is two commands nobody asked for.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(isLeftSide: false, timing: .idle, isCubeConnected: true, clickCount: 3),
+            .toggleCubeLock
+        )
+    }
+
+    func testTheLeftHalfStillOpensTheMenuHoweverManyClicks() {
+        // A double click on the left is two menus, not a lock. The gesture belongs to the right half alone, and the
+        // left one keeps being the only route to Quit.
+        for clicks in 1...3 {
+            XCTAssertEqual(
+                StatusItemClickRouter.action(
+                    isLeftSide: true, timing: .idle, isCubeConnected: true, clickCount: clicks
+                ),
+                .showMenu,
+                "\(clicks) clicks on the left half"
+            )
+        }
+    }
+
+    func testAPairedCubeInAnotherRoomIsNotACube() {
+        // The connection, not the pairing, matching `CubeLockRules.isEnabled`: a command needs a live link, and a
+        // gesture that sent one into nothing would be a control that does nothing and says nothing about why.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(isLeftSide: false, timing: .idle, isCubeConnected: false, clickCount: 2),
+            .ignore
+        )
+    }
+
+    // MARK: - which of the two the right half is acting on
+
+    func testARunningManualSessionIsNotTakenOverByACube() {
+        // The app's own clock is asked about first, in the order `TimingReadout` itself reads them -- so the half
+        // cannot come to act on the cube while the item beside it draws a manual session.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(isLeftSide: false, timing: .running, isCubeConnected: true),
+            .togglePause
+        )
+    }
+
+    func testASpentDailyLimitDoesNotFallThroughToTheCube() {
+        // The refusal has to hold. Falling through would mean the same click, in the same place, resuming the cube
+        // instead -- which is the enforcement undone by clicking a second time.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(
+                isLeftSide: false, timing: .paused, isCubeConnected: true, isLimitReached: true
+            ),
+            .ignore
+        )
     }
 
     func testItAsksTheSameQuestionTheDropdownAsks() {
@@ -34,6 +104,14 @@ final class StatusItemClickRouterTests: XCTestCase {
                 StatusItemClickRouter.action(isLeftSide: false, timing: state) == .togglePause,
                 ManualTimerRules.isClickable(state),
                 "the half and the menu item have to agree about \(state)"
+            )
+            // And with a cube connected as well: the cube's gestures are what the half does *instead of* the app's
+            // own pause, never on top of it.
+            XCTAssertEqual(
+                StatusItemClickRouter.action(isLeftSide: false, timing: state, isCubeConnected: true)
+                    == .togglePause,
+                ManualTimerRules.isClickable(state),
+                "a connected cube changed what the half means about \(state)"
             )
         }
     }

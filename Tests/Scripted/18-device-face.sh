@@ -245,9 +245,9 @@ check_turn() {
     check_contains "so both surfaces agree about what the cube is on" "$item" "$tab_name"
 
     # **The figure, on both, and it is the same one.** It is the category's total for the day out of `time_entry`,
-    # which is the archive's own menu-bar figure. Until the cube's history is ingested it reads 0:00:00 for a category
-    # nothing has timed by hand -- a true total rather than a missing one -- so what is checked is that the two
-    # surfaces carry the *same* string, not any particular value.
+    # which is the archive's own menu-bar figure. What it reads depends on what the cube has done today and on how
+    # much of its history has been ingested and closed out into entries, so what is checked is that the two surfaces
+    # carry the *same* string, not any particular value.
     #
     # The glyph beside it is checked on the tab rather than in the menu bar line, where every image is the same
     # character in text and one cannot be told from another. It says what the *cube* is doing, which is a fact the app
@@ -261,19 +261,32 @@ check_turn() {
     fi
     check_contains "and the menu bar shows the same one" "$item" "$figure"
 
-    # **Asked again on every flip**, because a cube pauses itself on a double tap and sends nothing to say so. This is
-    # the row that says the app re-asked rather than drawing what it was told when the link came up.
-    expect_log "the app asks the cube what state it is in again after the turn" "$base" "Asking the cube what state it is in" 20
+    # **The history is fetched on every flip**, which is how the app finds out what the cube has been doing -- and it
+    # replaces the `0x10` this script used to expect here. A flip is a moment the cube may have been handled, and the
+    # history answers both questions at once: which segments have finished, and whether the open one is paused. A
+    # double tap arrives as an interval filed for `Side + 128`, so nothing has to ask about pause separately.
+    expect_log "the app fetches the cube's history after the turn" "$base" "Fetching history (the cube was turned)%" 20
     if [ -n "$(element timing-face-glyph)" ]; then
         pass "and the tab draws whether the cube is running or paused"
     else
-        grey "  no glyph: the cube has not said whether it is paused"
+        grey "  no glyph: the cube's history has not said whether it is paused"
     fi
 
-    # **Reading a face is all this does.** Filing what the cube was doing is `device_event`'s question and the app has
-    # not been given it yet, so a row against a cube's face would be a feature nobody asked for.
-    check "nothing is recorded against the face, which is not this feature's job yet" "0" \
-        "$(sql "SELECT COUNT(*) FROM device_event WHERE device_event_id > $events_before AND device_face = $face;")"
+    # **The turn is filed**, which is the half that changed when ingestion landed: this used to check that *nothing*
+    # was recorded against a cube's face, because filing what the cube had been doing was a feature the app did not
+    # have. It has it now, so the same line asserts the opposite.
+    #
+    # Waited on rather than read once. The rows arrive from a stream of notifications a few frames long, and the log
+    # row above says the fetch began rather than that it landed. `MIN(1, COUNT(*))` because what is being waited for
+    # is "any row at all", and how many the stream brings depends on what the cube was doing before anybody asked.
+    if wait_for_value \
+        "SELECT MIN(1, COUNT(*)) FROM device_event WHERE device_event_id > $events_before AND device_face = $face;" \
+        "1" 20
+    then
+        pass "and the turn is filed in device_event against face $face"
+    else
+        fail "the cube's own record of the turn never reached device_event"
+    fi
 }
 
 # ---------------------------------------------------------------------------- the first turn

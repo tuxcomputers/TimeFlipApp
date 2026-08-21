@@ -76,6 +76,17 @@ else
 
     seeded=0
     offset=0
+    # **The app's own faces, alternating, which is what wrote a row like this.** A seeded segment carries the epoch as
+    # its event number, and only `DeviceEventRecorder.startSegment` ever does that -- a cube issues small numbers of its
+    # own. So a seed on a cube face is a row no cube could have produced, and putting one there cost a real debugging
+    # session on 2026-08-21: `DeviceEventRecorder.newestFromTheCube` filters the app's faces out precisely so a manual
+    # segment cannot answer "where is the cube's history up to", and a seed on face 8 walked straight past that filter.
+    # The app then asked a cube for event 1,787,051,381 on every refresh, got nothing, and recorded nothing, for ever.
+    #
+    # Alternating rather than all three on one face, for the reason `ManualFace` alternates: consecutive segments on one
+    # face means a face reassigned under a finished segment changes the answer to whose time it was. `12-daily-limit`
+    # seeds on 13 for the same reason this does.
+    manual_face=13
     for pair in "147.612311840057:1" "38.6364130973816:2" "9.5:1"; do
         secs="${pair%%:*}"
         category="${pair##*:}"
@@ -87,9 +98,11 @@ else
                  event_number, event_type_id, device_face, start_time, timezone_id,
                  start_epoch, duration_seconds, paused, finalised, processed
              ) VALUES (
-                 $start, 1, 8, strftime('%Y-%m-%dT%H:%M:%S', $start, 'unixepoch', 'localtime'), $zone,
+                 $start, 1, $manual_face, strftime('%Y-%m-%dT%H:%M:%S', $start, 'unixepoch', 'localtime'), $zone,
                  $start, $secs, 0, 1, 1
              );"
+
+        [ "$manual_face" = "13" ] && manual_face=14 || manual_face=13
 
         event=$(sql "SELECT device_event_id FROM device_event WHERE start_epoch = $start AND event_number = $start;")
         [ -z "$event" ] && continue

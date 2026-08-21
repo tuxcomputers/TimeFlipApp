@@ -266,6 +266,14 @@ final class TimingView: NSView {
             ? nil
             : isDevicePaused.map { $0 ? "pause.fill" : "play.fill" }
         faceGlyphView.isHidden = faceGlyphName == nil
+        // **Said in words as well as drawn**, which is what the menu bar's own line already does for the same fact
+        // (`StatusItemTitle` spells "device paused" into the spoken description). A symbol is one character to
+        // anything reading the accessibility tree, so a glyph with no label cannot be told from any other -- and
+        // "which one is showing" is exactly the question both a screen reader and a scripted check are here to ask.
+        //
+        // A readout, not an instruction: it says what the cube is doing, because that is all this is. Pressing it
+        // does nothing -- see `faceGlyphView`.
+        faceGlyphView.setAccessibilityLabel(isDevicePaused.map { $0 ? "Device paused" : "Device running" })
         applyFigureHeight()
         categoryNameLabel.isHidden = false
         categoryNameLabel.stringValue = category?.name ?? ""
