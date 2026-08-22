@@ -12,6 +12,9 @@ struct TemporaryDatabase {
 
     var url: URL { directory.appendingPathComponent("appdata.sqlite") }
 
+    /// The trace's own file, beside the app's, exactly as the two sit in Application Support.
+    var debugURL: URL { directory.appendingPathComponent("debug.sqlite") }
+
     /// The one real copy of the DDL, located from this file's own path so no test depends on
     /// bundling or on the working directory a runner happens to use.
     ///
@@ -36,6 +39,17 @@ struct TemporaryDatabase {
         try DatabaseBootstrap.ensureDatabase(at: url, ddlDirectory: Self.ddlDirectory)
     }
 
+    /// Brings up the trace's database as well, for a test that hands a `DebugLog` somewhere.
+    ///
+    /// **Separate because the two really are separate files**, and a test that pointed `DebugLog` at `url` would be
+    /// testing a shape the app does not have. That is not hypothetical: when `debug_log` moved out on 2026-08-22,
+    /// three `DeviceReconnectorOfferTests` started failing, and they failed *positively* -- `logged()` reads a count
+    /// and a query against a missing table answers `nil`, which is not `"0"`, so "is there a row?" came back yes.
+    @discardableResult
+    func bootstrapDebug() throws -> DatabaseBootstrap.Outcome {
+        try DatabaseBootstrap.ensureDebugDatabase(at: debugURL, ddlDirectory: Self.ddlDirectory)
+    }
+
     /// A read connection to this database, for the readers that sit on one.
     @MainActor
     func connection() -> DatabaseConnection {
@@ -56,9 +70,11 @@ struct TemporaryDatabase {
     }
 
     /// The first column of the first row, or `nil` if the query returned nothing.
-    func string(_ sql: String) -> String? {
+    func string(_ sql: String) -> String? { Self.string(sql, in: url) }
+
+    private static func string(_ sql: String, in databaseURL: URL) -> String? {
         var handle: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             sqlite3_close(handle)
             return nil
         }
@@ -73,6 +89,9 @@ struct TemporaryDatabase {
         }
         return String(cString: value)
     }
+
+    /// The same, against the trace's database.
+    func debugString(_ sql: String) -> String? { Self.string(sql, in: debugURL) }
 
     func remove() {
         try? FileManager.default.removeItem(at: directory)

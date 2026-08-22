@@ -68,6 +68,45 @@ enum DatabaseBootstrap {
             .appendingPathComponent("appdata.sqlite")
     }
 
+    /// `~/Library/Application Support/Facet/debug.sqlite`, beside the app's own database.
+    ///
+    /// **A separate file, and that is the point of it.** It is what somebody sends in when they turn the debug setting
+    /// on, so it carries the trace and nothing else: no `time_entry`, no `category`, no Google account. It also takes
+    /// the log out of the file the app is trying to write, which is not a theoretical tidiness -- `debug_log` was a
+    /// table in `appdata.sqlite` until 2026-08-22, anything reading it locked the file against the app, and a
+    /// confirmed pairing was lost to exactly that (see `DatabaseConnection`'s busy timeout).
+    ///
+    /// It sits in the same directory as `production.sqlite` and `test.sqlite` so a session switching between those
+    /// finds its log in the one place.
+    static func debugDatabaseURL() -> URL {
+        defaultDatabaseURL().deletingLastPathComponent().appendingPathComponent("debug.sqlite")
+    }
+
+    /// Brings the debug database up: `debug.sqlite`, with the `500` files and nothing else.
+    @discardableResult
+    static func ensureDebugDatabase(at databaseURL: URL? = nil, ddlDirectory: URL? = nil) throws -> Outcome {
+        try ensureDatabase(
+            at: databaseURL ?? debugDatabaseURL(),
+            ddlDirectory: ddlDirectory,
+            numbered: firstDebugDDLNumber..<Int.max
+        )
+    }
+
+    /// Which database a numbered DDL file belongs to.
+    ///
+    /// **Below 500 is the app's; 500 and above is the debug log's.** One flat directory holds both, because
+    /// `Package.swift` processes `Resources` and SwiftPM flattens what it processes -- a real subdirectory would be
+    /// folded back in here and applied to whichever database asked first. So the number carries the answer, the same
+    /// way `Tests/Scripted` numbers a check by whether it needs a TimeFlip.
+    ///
+    /// The gap between `011` and `500` is deliberate room: the app's schema grows upwards into it and the debug
+    /// database's grows upwards from `500`, and neither renumbers the other to make space.
+    static let firstDebugDDLNumber = 500
+
+    private static func ddlNumber(of file: URL) -> Int {
+        Int(file.lastPathComponent.prefix(3)) ?? 0
+    }
+
     /// The bundled `database/` directory, found by asking for a file known to be in it.
     ///
     /// Two bundles, because the executable runs two ways: `Bundle.main` when it is a built `.app`,
@@ -80,14 +119,19 @@ enum DatabaseBootstrap {
             .deletingLastPathComponent()
     }
 
-    /// Open (creating if needed), then apply every `.sql` file in filename order.
+    /// Open (creating if needed), then apply the `.sql` files this database owns, in filename order.
     ///
-    /// Both parameters are injectable so this is testable against a temporary database and the
-    /// repository's own `database/` directory, with no bundle involved.
+    /// **`numbered` is what keeps the two schemas apart.** One flat directory holds both, so without it the debug
+    /// log's tables would be created in `appdata.sqlite` and the app's in `debug.sqlite` -- each database getting the
+    /// other's schema as well as its own. It defaults to the app's range, so an existing caller keeps its meaning.
+    ///
+    /// All three parameters are injectable so this is testable against a temporary database and the repository's own
+    /// `database/` directory, with no bundle involved.
     @discardableResult
     static func ensureDatabase(
         at databaseURL: URL? = nil,
-        ddlDirectory: URL? = nil
+        ddlDirectory: URL? = nil,
+        numbered: Range<Int> = 0..<firstDebugDDLNumber
     ) throws -> Outcome {
         let url = databaseURL ?? defaultDatabaseURL()
         guard let ddl = ddlDirectory ?? bundledDDLDirectory() else {
@@ -102,6 +146,7 @@ enum DatabaseBootstrap {
             files = try FileManager.default
                 .contentsOfDirectory(at: ddl, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "sql" }
+                .filter { numbered.contains(ddlNumber(of: $0)) }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
         } catch {
             throw Failure.ddlDirectoryUnreadable(ddl, error.localizedDescription)
