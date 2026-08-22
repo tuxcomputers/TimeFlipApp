@@ -335,22 +335,59 @@ final class DeviceEventRecorder {
         return found
     }
 
-    /// Where the newest recorded segment sits.
+    /// The newest segment on record: the pair that identifies it, not the number alone.
     ///
-    /// One statement for both halves, so they cannot come from two reads of a table something else is
-    /// writing, and with the event number scoped to that epoch by the subquery rather than being a second
-    /// `MAX` over the whole table -- which would pick up a higher number from an earlier second after a
-    /// device reset. `IFNULL` puts the empty-table sentinel in the query, so Swift never sees a NULL that
-    /// would arrive as a plausible-looking zero.
-    private func newestOnRecord() -> DeviceEventMark {
+    /// **The newest row, not the highest number**, which are different questions and only the first is useful. Event
+    /// numbers restart at 1 after a factory reset, so `MAX(event_number)` returns a stranded value from a generation
+    /// the cube has abandoned -- on the previous app's production database it returned 38 while the newest segment was
+    /// event 10, and a fetch resuming from 38 asked for events the cube no longer had.
+    ///
+    /// **Every face, manual ones included**, because the question this one answers is "what is the newest row in this
+    /// table" -- which is what `record` needs in order to tell a segment that supersedes what is open from one that
+    /// arrived late. Where the app is up to in the *cube's* history is a different question with a different answer,
+    /// and giving them one implementation broke manual mode's own refresh: see `newestFromTheCube`.
+    func newestOnRecord() -> DeviceEventMark {
+        mark(where: everyFace)
+    }
+
+    /// Where the app is up to in the **cube's** history: the newest segment on record that came from a device.
+    ///
+    /// **Scoped to the cube's own faces, and the answer is wrong without it.** `device_event` holds the app's manual
+    /// segments too, on faces above `ManualFace.highestDeviceFace`, and those carry the epoch as their event number
+    /// (`startSegment`) because nothing issued them one. So a manual segment recorded after a cube's is the newest row
+    /// in the table, with an event number of about 1.8 billion -- and a fetch resuming from that asks a cube for an
+    /// event no cube can reach. `DeviceHistoryRules.resumeFrom` rejects it and restarts from zero, so nothing is
+    /// recorded wrongly, but the cheap check can then never match and every single refresh re-streams the cube's
+    /// entire history. Measured on `test.sqlite` 2026-08-20, where `19-manual-mode` had left four manual rows behind.
+    ///
+    /// **Internal because the table is the position.** `HistoryIngestor` reads it on every refresh rather than keeping
+    /// a cursor: a saved high-water mark cannot follow the cube's counter back down through a reset, and a copy of it
+    /// is one more thing to keep in step.
+    func newestFromTheCube() -> DeviceEventMark {
+        mark(where: "device_face <= \(ManualFace.highestDeviceFace)")
+    }
+
+    /// Written out so both marks are one statement with one condition in it, rather than two queries that could come
+    /// to differ about what "newest" means.
+    private let everyFace = "1 = 1"
+
+    /// The pair, over whichever rows `condition` leaves in view.
+    ///
+    /// One statement for both halves, so they cannot come from two reads of a table something else is writing, and
+    /// with the event number scoped to that epoch by the subquery rather than being a second `MAX` over the whole
+    /// table -- which would pick up a higher number from an earlier second after a device reset. `IFNULL` puts the
+    /// empty-table sentinel in the query, so Swift never sees a NULL that would arrive as a plausible-looking zero.
+    private func mark(where condition: String) -> DeviceEventMark {
         let empty = DeviceEventMark.none
         var mark = empty
         connection.forEachRow(
             """
             SELECT IFNULL(MAX(start_epoch), \(empty.startEpoch)),
                    IFNULL((SELECT MAX(event_number) FROM device_event
-                            WHERE start_epoch = (SELECT MAX(start_epoch) FROM device_event)), \(empty.eventNumber))
-            FROM device_event;
+                            WHERE \(condition)
+                              AND start_epoch = (SELECT MAX(start_epoch) FROM device_event WHERE \(condition))),
+                          \(empty.eventNumber))
+            FROM device_event WHERE \(condition);
             """
         ) { row in
             mark = DeviceEventMark(startEpoch: Int(row.int(0)), eventNumber: Int(row.int(1)))

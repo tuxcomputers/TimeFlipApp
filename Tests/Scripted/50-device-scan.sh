@@ -29,9 +29,9 @@ start "scanning for a TimeFlip, and finding one"
 # **Asked by `device_required`, which asks once a run.** In script order this is normally the one that does
 # the asking and the later device scripts inherit the answer; run on its own, it asks for itself.
 if ! device_required; then
-    skip "no TimeFlip was made available, so the scan has nothing to find"
+    fail "no TimeFlip was made available, so the scan has nothing to find"
     finish
-    exit 0
+    exit $?
 fi
 
 open_settings
@@ -64,7 +64,7 @@ expect_log "pressing Scan starts a filtered scan" "$since" "%Scan requested, Tim
 # **`Scan started` is the row that means the radio is listening**, as opposed to `Scan requested`, which means only
 # that the button was pressed. Waiting on the state callback instead looks equivalent and is not: it fires when the
 # state *changes*, so it is written on the first scan of a session and never again, which is exactly how
-# `14-device-connect` failed on its first run.
+# `51-device-connect` failed on its first run.
 grey "  waiting for the radio to come up..."
 if wait_for "$since" "%Scan started%" 60 >/dev/null; then
     pass "the radio answered, and the scan is running"
@@ -75,9 +75,9 @@ else
     # radio refuses -- so if a scan never started, this is why.
     unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
     if [ -n "$unavailable" ]; then
-        skip "the radio is unusable, so nothing can be found ($unavailable)"
+        fail "the radio is unusable, so nothing can be found ($unavailable)"
         finish
-        exit 0
+        exit $?
     fi
     fail "the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
     finish
@@ -124,7 +124,7 @@ fi
 # to "Unnamed device" rather than to blank, so an empty title here means the label never reached the row.
 #
 # **A title, not a value**, because the row is a button: the whole of it is how you reach the device, so the name is
-# what the button is called rather than a label's contents. `14-device-connect` is what presses it.
+# what the button is called rather than a label's contents. `51-device-connect` is what presses it.
 name=$(tree | grep -m1 "id=device-scan-result-" | sed -E 's/.*title=([^ ]*.*)$/\1/')
 if [ -n "$name" ]; then
     pass "the row carries a name ($name)"

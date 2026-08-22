@@ -11,6 +11,7 @@ import XCTest
 final class QuitSequenceTests: XCTestCase {
     private var database: TemporaryDatabase!
     private var events: DeviceEventRecorder!
+    private var settings: SettingStore!
     private var quit: QuitSequence!
 
     private let moment = Date(timeIntervalSince1970: 1_786_600_000)
@@ -33,14 +34,24 @@ final class QuitSequenceTests: XCTestCase {
             ),
             debugLog: nil
         )
+        settings = SettingStore(connection: connection)
         quit = QuitSequence(deviceEvents: events, debugLog: nil)
     }
 
     override func tearDown() {
         quit = nil
+        settings = nil
         events = nil
         database.remove()
         super.tearDown()
+    }
+
+    private func setPauseOnLock(_ enabled: Bool) {
+        XCTAssertTrue(
+            database.execute(
+                "UPDATE setting SET setting_value = '{\"enabled\":\(enabled)}' WHERE setting_name = 'pause_on_lock';"
+            )
+        )
     }
 
     private func column(_ name: String, ofRow rowID: Int) -> String? {
@@ -131,5 +142,97 @@ final class QuitSequenceTests: XCTestCase {
         // yesterday's start to now.
         XCTAssertNil(events.closeOpenSegment(at: moment.addingTimeInterval(86_400)))
         XCTAssertEqual(database.string("SELECT SUM(duration_seconds) FROM time_entry;"), "120.0")
+    }
+
+    // MARK: - stopping the cube on the way out
+
+    /// A lock wired to a cube that answers, and a note of what was sent. What the sequence *is* belongs to
+    /// `CubeLockTests`; what is checked here is the quit's own part -- that it waits, and that it does not wait for
+    /// ever.
+    private func cubeLock(answering: Bool = true, into sent: NSMutableArray) -> CubeLock {
+        CubeLock(
+            settings: settings,
+            isConnected: { true },
+            send: { command, reported in
+                sent.add(command)
+                reported(answering)
+            },
+            debugLog: nil
+        )
+    }
+
+    private func silentCubeLock() -> CubeLock {
+        // Nothing ever answers, which is a cube that went out of range mid-quit.
+        CubeLock(settings: settings, isConnected: { true }, send: { _, _ in }, debugLog: nil)
+    }
+
+    func testTheCubeIsStoppedBeforeTheAppGoes() {
+        setPauseOnLock(true)
+        let sent = NSMutableArray()
+        quit.cubeLock = cubeLock(into: sent)
+        var finished = false
+
+        XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
+
+        XCTAssertTrue(finished)
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.pause(true))
+        XCTAssertEqual(sent[1] as? Data, DeviceCommandRules.lock(true))
+    }
+
+    func testACubeThatNeverAnswersDoesNotHoldTheQuitOpen() {
+        // The deadline, which is the quit's own contribution: the app must not sit in the menu bar waiting for a cube
+        // that has gone. Nothing else here spends real time.
+        setPauseOnLock(true)
+        quit.cubeLock = silentCubeLock()
+        var finished = false
+        XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
+        XCTAssertFalse(finished, "precondition: nothing has answered yet")
+
+        let ran = expectation(description: "the deadline fires")
+        DispatchQueue.main.asyncAfter(deadline: .now() + QuitSequence.deviceSeconds + 1) { ran.fulfill() }
+        wait(for: [ran], timeout: QuitSequence.deviceSeconds + 5)
+
+        XCTAssertTrue(finished)
+    }
+
+    func testTheQuitIsNotFinishedTwice() {
+        // The deadline and the sequence race for it. Two replies to one quit is the sort of thing that works until it
+        // does not.
+        setPauseOnLock(true)
+        let sent = NSMutableArray()
+        quit.cubeLock = cubeLock(into: sent)
+        var finishes = 0
+
+        quit.pauseAndLockTheCube { finishes += 1 }
+
+        XCTAssertEqual(finishes, 1)
+    }
+
+    func testWithNothingToSendToTheQuitJustProceeds() {
+        // A build that never scanned, or a cube that went away before the quit. Reported by the return value rather
+        // than by calling back, because a completion run here would reply to a termination the delegate has not asked
+        // to delay yet.
+        setPauseOnLock(true)
+        quit.cubeLock = nil
+        var finished = false
+
+        XCTAssertFalse(quit.pauseAndLockTheCube { finished = true })
+
+        XCTAssertFalse(finished)
+    }
+
+    func testARefusedSequenceDoesNotDelayTheQuitEither() {
+        // `pause_on_lock` off: `CubeLock` sends nothing, so there is nothing to wait for and the quit must not be
+        // deferred on the strength of having asked.
+        setPauseOnLock(false)
+        let sent = NSMutableArray()
+        quit.cubeLock = cubeLock(into: sent)
+        var finished = false
+
+        XCTAssertFalse(quit.pauseAndLockTheCube { finished = true })
+
+        XCTAssertEqual(sent.count, 0)
+        XCTAssertFalse(finished)
     }
 }

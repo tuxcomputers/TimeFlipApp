@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   stroke-linejoin="round"
+   stroke-linecap="round"
+   viewBox="0 0 65.0 65.0"
+   version="1.1"
+   id="svg2"
+   sodipodi:docname="ic_facet.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs2" />
+  <sodipodi:namedview
+     id="namedview2"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="13.702303"
+     inkscape:cx="31.928939"
+     inkscape:cy="35.140078"
+     inkscape:window-width="3008"
+     inkscape:window-height="1576"
+     inkscape:window-x="0"
+     inkscape:window-y="30"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="g2" />
+  <!-- The app icon, at icon size. Everything inside is `Facet.svg`'s own coordinates, scaled by 65/512, so the mark,
+       the ring's weight, its dashes and its arrowhead are that file's rather than a fresh guess at them.
+       What is deliberately left behind is that file's white disc: this artwork is loaded as a template image, where
+       only the alpha survives, and a full-bleed opaque circle would flatten the whole icon into a solid blob. -->
+  <g
+     transform="scale(0.126953125)"
+     id="g2">
+    <g
+       transform="matrix(5.801852,0,0,5.801852,67.44481,67.43981)"
+       id="g1"
+       style="display:inline">
+      <path
+         id="faces"
+         d="m 32.5,5.5 15.87,5.157 9.809,13.5 V 40.843 L 48.37,54.343 32.5,59.5 16.63,54.343 6.821,40.843 V 24.157 l 9.809,-13.5 z"
+         fill="#ff8b97a5" />
+      <path
+         id="inner-lines"
+         d="M 48.37,27.343 42.308,46 H 22.692 L 16.63,27.343 32.5,15.813 Z M 32.5,15.813 V 5.5 m 15.87,21.843 9.809,-3.186 M 42.308,46 48.37,54.343 M 22.692,46 16.63,54.343 m 0,-27 -9.809,-3.186"
+         fill="none"
+         stroke="#ff00ff"
+         stroke-width="1.5" />
+      <path
+         id="outer-line"
+         d="m 32.5,5.5 15.87,5.157 9.809,13.5 V 40.843 L 48.37,54.343 32.5,59.5 16.63,54.343 6.821,40.843 V 24.157 l 9.809,-13.5 z"
+         fill="none"
+         stroke="#000000"
+         stroke-width="1.5" />
+    </g>
+    <!-- The one thing not taken from `Facet.svg`: the ring is drawn at radius 204.8 rather than that file's 251.4,
+         which is 26 of the icon's own 65 units instead of 31.9. The app icon's ring bleeds to the very edge of its
+         canvas, which at 512 reads as a border and at 32 reads as a rim in danger of being clipped; pulled in, it
+         sits about midway between the mark's points and the edge of the box, with room for the arrowhead's outer
+         corner. The weight, the dash length and the arrowhead are all left at full size, so shrinking the circle
+         has not quietly thinned the line it is drawn with.
+
+         Circular arcs rather than the app icon's beziers, since the radius is now a number to be edited: `A r r 0
+         large-arc sweep x y`, clockwise, 270 degrees solid and the remaining 90 dashed. -->
+    <path
+       id="ring"
+       d="M 429.6764,364.5314 A 204.8,204.8 0 1 1 364.5314,82.3236"
+       fill="none"
+       stroke="#e83a43"
+       stroke-width="9.24063" />
+    <!-- Offset by one dash so the pattern opens on a gap: the arrowhead reaches about 16 degrees along this arc, and
+         without it the first dash would be drawn underneath the arrow and never seen. -->
+    <path
+       id="ring-ahead"
+       d="m 399.69259,110.3433 a 204.8,204.8 0 0 1 2.03398,289.62213"
+       fill="none"
+       stroke="#e83a43"
+       stroke-width="9.22258"
+       stroke-dasharray="55.3355, 55.3355"
+       stroke-dashoffset="55.3355"
+       inkscape:transform-center-x="-22.219561"
+       inkscape:transform-center-y="-0.059866642" />
+    <!-- The arrowhead drawn out, where `Facet.svg` has a `marker-end` referring to a stock Inkscape marker. Same
+         geometry (the marker's own path, placed at the ring's end and turned to its tangent), as an ordinary filled
+         path: markers are the corner of SVG most likely to go unsupported in a rasteriser, and an icon that silently
+         loses its arrow is worse than one with a few more numbers in it. -->
+    <path
+       id="ring-arrow"
+       d="M 367.2713,53.5261 413.8975,113.1742 339.8501,97.4107 C 358.8071,91.4836 370.2214,73.2184 367.2713,53.5261 Z"
+       fill="#e83a43" />
+  </g>
+</svg>

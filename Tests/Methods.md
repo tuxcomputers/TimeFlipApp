@@ -272,6 +272,34 @@ no reset, and two sheets to dismiss.
 in -- and Return therefore fires the *rightmost* button unless key equivalents are set explicitly. Read the order from
 `ax-alert.py` rather than assuming it matches the code.
 
+## Method 13: Answer an app-modal alert
+
+**`ax-alert.py` cannot see one, and `--sheet` does not apply.** An `NSAlert` run with `runModal()` -- as opposed to
+`beginSheetModal` -- is a window of the app's own, not an `AXSheet` hanging off another window, and both of those
+tools only walk sheets. The whole-tree search is what finds it:
+
+```sh
+python3 scripts/ax-dump.py | head -8
+#   AXWindow  id=_NS:87  desc=alert
+#     AXStaticText  value=Unable to find your device, retry or switch to manual mode
+#     AXButton  id=action-button-1  title=Retry
+#     AXButton  id=action-button-2  title=Switch to Manual Mode
+
+python3 scripts/ax-press.py --title "Switch to Manual Mode"
+```
+
+**An `AXPress` does actuate it, from inside the modal run loop.** That was the open question: `runModal` blocks the
+main thread, so it was not obvious the app would service an accessibility request at all, let alone act on it. It
+does -- the alert dismissed and the app carried on. Measured 2026-08-19 against the manual-mode offer, which is the
+only app-modal alert this app puts up.
+
+**The buttons carry identifiers as well as titles**, `action-button-1` upwards in the order they were added, the same
+scheme [Method 10](#method-10) records for sheets. Prefer the title: the order is the order `addButton` was called
+in, which is a detail of the code rather than of the screen, and AppKit relocates a button titled `Cancel` regardless.
+
+`--sheet` would find nothing here, so the ambiguity [Method 12](#method-12) warns about does not arise -- but check
+that no control *behind* the alert shares the title before matching on it.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token
@@ -291,6 +319,51 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 `scripts/codesign-identity.sh`. A bare `swift-bundler bundle` is the trap.
 
 ## Notes that have cost time
+
+- **The suite's own polling can make the app's writes fail.** The database is `journal_mode=delete`, so a reader
+  locks the file against writers, and `wait_for` polls `debug_log` every 100ms for the whole of a run. Any app
+  connection without `sqlite3_busy_timeout` drops its write instantly rather than waiting. On 2026-08-22 that lost a
+  confirmed pairing: the app was connected and logged in, one of `recordPairing`'s six writes came back busy, and
+  `55-device-face` waited a minute for a `Paired with` row nothing would write. Both handles now wait. If a run shows
+  the app failing to record something it plainly did, suspect contention before logic.
+
+- **An apostrophe in a `wait_for` pattern breaks the query, not the match.** The pattern is interpolated into a SQL
+  string literal, so `The cube's clock is set` closes the quote at `cube` and sqlite3 refuses the whole statement.
+  Nothing reaches stdout, the poll sees empty, and the wait times out saying the app never wrote a row it wrote
+  170ms earlier. `wait_for` now doubles apostrophes itself, which is SQL's own escape. The error text was in
+  `logs/screen.txt` three hundred times while the FAIL line blamed the app -- when a check fails on a row you can see
+  in the table, grep the run log for `Error:` before believing the verdict.
+
+- **Turning a paused cube resumes it, in firmware.** No command, no acknowledgement: the next history frame simply
+  reports the new face running. Measured by the archive on 2026-08-12 and relied on by `DailyLimitEnforcement`, which
+  is why it never needs to send `.resume` after a flip. The one exception is a *locked* cube, which refuses the turn
+  and reports no event at all. Confirmed again from ordinary use, 2026-08-22.
+
+- **A locked cube and a paused cube strand a flip in different places.** Locked, it refuses to change face at all, so
+  a step waiting on `Face N is up` waits for ever. Paused, it still reports the turn -- the prompt is satisfied and the
+  face check passes -- but it files no history for the interval, so anything waiting on `device_event` fails twenty
+  seconds later, on a line about ingestion. Put the cube into both states deliberately before asking a person to turn
+  it: unlocked *and* running.
+
+- **A log row saying a question went out is not the answer being in.** The two are separate rows and the gap is real
+  work: on 2026-08-22 `0x10` was written at 11:30:34.074 and `The cube is locked and paused` landed at 11:30:34.192,
+  118ms later. `55-device-face` waited for the ask and then read the answer, found nothing, took a locked cube for an
+  unlocked one, pressed a dropdown item that said *Unlock*, and spent twenty seconds waiting for a pause that was never
+  going to be sent. Wait on the row that carries the answer, not the row that carries the request -- the same rule
+  `wait_sql` states for table writes, applied to a second log row.
+
+- **A single-event history read (`0x01`) is answered by a read, not a notification.** `0x02`'s reply is documented
+  as "data flow with notification"; `0x01`'s is not described as a notification at all, and waiting for one times out
+  every time. Write the command, then read the characteristic's value. Measured by the archive
+  (`Archive/TimeFlipApp/TimeFlipBLEDevice.readLastEventLocked`) and reproduced here on 2026-08-20: the write was
+  acknowledged, the cube echoed "read history" on `eventsData`, and nothing arrived on the history characteristic for
+  the whole six-second deadline.
+
+- **Quitting is not instant while a cube is connected.** The quit pauses and locks the device over BLE before it
+  terminates, so `osascript ... to quit` returning, or the menu item having been pressed, is not the app having gone.
+  A step that quits and relaunches can otherwise start a second instance on top of the first. `quit_app` already polls
+  for the process to disappear (10s), which covers the quit's own 5s device budget. From the archive's Method 3, where
+  it cost a run.
 
 - **A popover is invisible to accessibility.** The icon picker and the colour list are not in the app's
   `AXWindows`, not in its `AXChildren`, and not under the window that opened them, so `ax-dump.py` shows nothing
@@ -381,6 +454,26 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 - **Which button Return fires can only be answered by pressing Return.** Never take it from the app's
   stated intent: `CategoryRenameRules` documented that Return dismissed its dialogues, and for months
   Return in fact agreed to the rename. Press it at the sheet and read the table.
+
+## The type checker's budget is a time budget, so a local build proves nothing
+
+`error: the compiler is unable to type-check this expression in reasonable time` is not a portable
+verdict: it is a timeout, so the same expression can compile here and fail on a slower CI runner. On
+2026-08-22 `StatusItemTitle` did exactly that and the branch's CI build failed outright while
+`swift build` was clean locally.
+
+The shape that causes it is a chain of `+` on array literals with ternaries and optional maps inside
+it, passed as a call argument. Six terms was over the line; five was near it. Build the array with
+statements instead -- `var parts: [String] = [...]` then `if ... { parts.append(...) }` -- which also
+puts the reading order in the code.
+
+To find them before CI does, with the threshold in milliseconds:
+
+```sh
+swift build -Xswiftc -warn-long-expression-type-checking=200
+```
+
+Nothing in this codebase exceeds 200ms as of 2026-08-22, so any output at all is new.
 
 ## Notes for the hermetic suite (`swift test`)
 

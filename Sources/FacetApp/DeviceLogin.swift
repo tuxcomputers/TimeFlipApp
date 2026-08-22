@@ -83,6 +83,23 @@ final class DeviceLogin: NSObject {
     /// Called with each battery percentage the cube reports, whether asked for or pushed. Raw, exactly as the byte
     /// arrived: what to *show* for a run of readings is `BatteryRules`' judgement and not a delegate's.
     private let battery: (Int) -> Void
+    /// Called with each face the cube reports, whether asked for or pushed. Raw, exactly as the byte arrived: what
+    /// counts as a face is `DeviceFaceRules`' judgement, not a delegate's.
+    private let face: (Int) -> Void
+    /// Called with whatever the cube last said about its own state, however that answer was drawn out -- the ask on
+    /// connecting, or the read-back of a command. Raw: what to make of it is the radio's and the menu's business.
+    private let status: (DeviceCommandRules.Status) -> Void
+
+    /// Told what the cube says about itself: what it wants pushed back, and whether its hardware is working.
+    private let systemState: (DeviceSystemStateRules.State) -> Void
+
+    /// Told once every characteristic has been found and subscribed to, so the cube can now be asked things.
+    ///
+    /// **Not the same moment as `finished(.loggedIn)`, and the difference is the whole reason this exists.** A login
+    /// ends when the PIN is accepted, which is several round trips before the listening phase has discovered anything:
+    /// at that point `history` is still nil and a fetch made on the strength of it reports "no history characteristic"
+    /// against a cube that has one. This fires after that discovery, which is the first moment a request can land.
+    private let ready: () -> Void
     private let finished: (DeviceLoginOutcome) -> Void
 
     private var deadline: Timer?
@@ -90,6 +107,33 @@ final class DeviceLogin: NSObject {
     private var password: CBCharacteristic?
     private var commandResult: CBCharacteristic?
     private var command: CBCharacteristic?
+
+    /// The history characteristic, which is its own channel: a request is written to it and the answer arrives on it.
+    ///
+    /// **Not the command characteristic, and that is what makes this simple.** Everything about the command channel
+    /// here exists because one characteristic answers three different questions and a value on it is otherwise
+    /// unattributable. History has none of that problem -- the only thing that ever arrives here is history -- so a
+    /// fetch can be out at the same time as a command without either having to know about the other.
+    private var history: CBCharacteristic?
+
+    /// The history request that is out, if any.
+    private var fetch: HistoryFetch?
+
+    /// One request for history, and what has arrived for it so far.
+    private struct HistoryFetch {
+        /// `true` for the single-frame read that asks which event the cube is on, `false` for a stream.
+        let isSingleFrame: Bool
+        var frames: [DeviceEventSegment] = []
+        let answered: ([DeviceEventSegment]) -> Void
+    }
+
+    /// How long a stream may go quiet before it is given up on.
+    ///
+    /// **Per frame, not for the whole transfer.** A cube with a long backlog answers for as long as it takes and each
+    /// frame resets this; what it catches is a stream that stopped part way, which otherwise leaves a fetch out for
+    /// ever and every later refresh standing down behind it.
+    private static let historyFrameSeconds: TimeInterval = 6
+    private var historyDeadline: Timer?
     private var step: Step?
     /// The PIN being set, from the moment the cube is asked to take it. Held because the confirmation presents it
     /// again and the caller is told it only once the cube has proved it.
@@ -100,6 +144,17 @@ final class DeviceLogin: NSObject {
     private var isResetting = false
     private var resetDeadline: Timer?
     private var resetReported: ((Bool) -> Void)?
+
+    /// The command that has been written and not yet settled, and what to tell about it. See `send`.
+    private var pendingCommand: ((Bool) -> Void)?
+    /// How that command is read back, or `nil` for one the spec gives no way to read back.
+    private var pendingReadBack: DeviceCommandRules.ReadBack?
+    /// Who is waiting on a plain question about the cube's state. See `askStatus`.
+    private var pendingStatus: ((DeviceCommandRules.Status?) -> Void)?
+    /// Whether the question has been sent, so an acknowledgement is the question's rather than the command's. The two
+    /// arrive on the same characteristic and are otherwise indistinguishable.
+    private var isReadingBack = false
+    private var commandDeadline: Timer?
 
     /// The Device Information phase, which runs after the login and has nothing to do with `Step`.
     ///
@@ -136,6 +191,11 @@ final class DeviceLogin: NSObject {
     ///   - battery: called with each percentage the cube reports, for as long as the connection lasts. Called many
     ///     times rather than once, which is what makes it unlike `reported`: the charge is something the cube goes on
     ///     saying, and the first call is the app's own read rather than something the cube volunteered.
+    ///   - face: called with each face the cube reports, on the same terms as `battery` and for the same reason -- the
+    ///     first call is the read this login makes, and every one after it is a flip.
+    ///   - status: called whenever the cube says what state it is in -- once on connecting, and again every time a
+    ///     command is read back. Unlike the two above, the cube never volunteers this: nothing is pushed when a
+    ///     double tap pauses it, so what arrives here is only ever an answer to a question this app asked.
     init(
         peripheral: CBPeripheral,
         pin: String,
@@ -145,6 +205,10 @@ final class DeviceLogin: NSObject {
         rotated: @escaping (String) -> Void,
         reported: @escaping (DeviceInfo) -> Void,
         battery: @escaping (Int) -> Void = { _ in },
+        face: @escaping (Int) -> Void = { _ in },
+        status: @escaping (DeviceCommandRules.Status) -> Void = { _ in },
+        systemState: @escaping (DeviceSystemStateRules.State) -> Void = { _ in },
+        ready: @escaping () -> Void = {},
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
         self.peripheral = peripheral
@@ -155,6 +219,10 @@ final class DeviceLogin: NSObject {
         self.rotated = rotated
         self.reported = reported
         self.battery = battery
+        self.face = face
+        self.status = status
+        self.systemState = systemState
+        self.ready = ready
         self.finished = finished
         super.init()
     }
@@ -185,10 +253,17 @@ final class DeviceLogin: NSObject {
         deadline = nil
         finished(outcome)
         // **Only once the verdict is out, and never in front of it.** A cube that will not say what it is is still a
-        // cube the app reached, so nothing about these four reads is allowed to delay a pairing, colour an outcome or
-        // fail one. Putting them here rather than inside `loggedIn` also covers both ways a login succeeds -- with a
+        // cube the app reached, so nothing about what follows is allowed to delay a pairing, colour an outcome or
+        // fail one. Putting it here rather than inside `loggedIn` also covers both ways a login succeeds -- with a
         // new PIN set and without.
-        if outcome == .loggedIn, staysWithTheCube { readDeviceInfo() }
+        //
+        // **The clock goes first, ahead of everything else the connection does.** The cube stamps every history frame
+        // with its own clock, so a cube whose time has never been set has nothing to date an interval with -- which
+        // makes this the one command that has to land before the app starts asking the cube what it has been doing.
+        // Chained rather than merely queued first, so "first" means finished rather than sent.
+        if outcome == .loggedIn, staysWithTheCube {
+            setTheClock { [weak self] in self?.readDeviceInfo() }
+        }
     }
 
     // MARK: - putting the cube back to the factory
@@ -224,6 +299,284 @@ final class DeviceLogin: NSObject {
         let payload = Data([DeviceLoginRules.factoryReset])
         debugLog?.record(.pair, "Sending the factory reset command")
         write(payload, to: command, type: .withResponse)
+    }
+
+    // MARK: - telling the cube to do something
+
+    /// Sends one command, reads back whether it took, and reports **that**.
+    ///
+    /// **The read-back is here rather than at the call site, so no caller can forget it** -- which is the rule in
+    /// `CLAUDE.md`: a command the cube can be asked about is read back before it is believed. `DeviceCommandRules
+    /// .readBack(for:)` says which question confirms which command, and for a command the spec gives no read for it
+    /// answers `nil` -- in which case what is reported is the acknowledgement, and the log says so in those words
+    /// rather than claiming a confirmation nobody made.
+    ///
+    /// **An acknowledgement is weaker evidence than it looks**, which is why it is not the answer on its own.
+    /// `.withResponse` says the bytes reached the device at the ATT layer, and the cube refuses commands until a PIN
+    /// has been accepted -- *after* the write has already succeeded. So a command can be acknowledged and have done
+    /// nothing.
+    ///
+    /// **One at a time.** A second command sent while the first is still out would take the first's acknowledgement
+    /// for its own, both arriving on the same characteristic with nothing to tell them apart -- and the read-back
+    /// makes that worse, since a `0x10` answer carries no echoed command byte either. The refusal is reported rather
+    /// than queued: what to do about a busy cube is the caller's question.
+    func send(_ payload: Data, then reported: @escaping (Bool) -> Void) {
+        guard let command else {
+            debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to send to")
+            reported(false)
+            return
+        }
+        guard !isBusy else {
+            debugLog?.record(.command, "A command is already out; not sending another over the top of it")
+            reported(false)
+            return
+        }
+        pendingCommand = reported
+        pendingReadBack = DeviceCommandRules.readBack(for: payload)
+        isReadingBack = false
+        armCommandDeadline()
+        // The bytes themselves go into the trace as `ble-tx` by `write`, so what this row adds is why they went.
+        debugLog?.record(.command, "Sending \(BLETrace.describe(payload))")
+        write(payload, to: command, type: .withResponse)
+    }
+
+    /// Asks the cube what state it is in (`0x10`), and reports what it says.
+    ///
+    /// **The same exchange as a read-back with the command left off**, because that is what it is: the question is
+    /// written, its acknowledgement is waited for, and only then is the answer read. The waiting matters as much here
+    /// as it does there -- a `0x10` reply carries no echoed command byte, and the characteristic it arrives on
+    /// frequently holds the previous command's reply, so a value read at any other moment is somebody else's.
+    ///
+    /// `nil` for a cube that would not answer, which is a different thing from a cube that answered "unlocked".
+    func askStatus(then answered: @escaping (DeviceCommandRules.Status?) -> Void) {
+        guard let command else {
+            debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to ask")
+            answered(nil)
+            return
+        }
+        guard !isBusy else {
+            debugLog?.record(.command, "A command is already out; not asking about state over the top of it")
+            answered(nil)
+            return
+        }
+        pendingStatus = answered
+        // The acknowledgement about to arrive is this question's, not a command's.
+        isReadingBack = true
+        armCommandDeadline()
+        debugLog?.record(.command, "Asking the cube what state it is in")
+        write(DeviceCommandRules.status, to: command, type: .withResponse)
+    }
+
+    /// Asks the cube which event it is on: one frame, the newest it holds.
+    ///
+    /// **The cheap check.** It comes back as a whole frame -- face, start and duration, not just a number -- so when
+    /// it turns out nothing has changed the row can still be brought up to date from it without paying for the stream.
+    /// That is the archive's arrangement and the reason the fetch below is usually not made at all.
+    ///
+    /// **The answer arrives as a read, not as a notification**, unlike the stream. See `didWriteValueFor`, which is
+    /// where the read is issued and where the archive's measurement behind it is written out.
+    func readLastEvent(then answered: @escaping (DeviceEventSegment?) -> Void) {
+        request(DeviceHistoryRules.readEvent(), isSingleFrame: true, describing: "which event it is on") { frames in
+            answered(frames.first)
+        }
+    }
+
+    /// Asks the cube for everything from `eventNumber` onwards, as a stream ending in a sentinel.
+    func fetchHistory(from eventNumber: Int, then answered: @escaping ([DeviceEventSegment]) -> Void) {
+        request(
+            DeviceHistoryRules.readHistory(from: eventNumber),
+            isSingleFrame: false,
+            describing: "its history from event \(eventNumber)",
+            then: answered
+        )
+    }
+
+    /// Writes a history request and waits for what comes back on the same characteristic.
+    ///
+    /// **One at a time**, because the answers carry nothing that says which request they belong to -- the same reason
+    /// the command channel allows one exchange. A second request would have its frames counted into the first.
+    private func request(
+        _ payload: Data,
+        isSingleFrame: Bool,
+        describing what: String,
+        then answered: @escaping ([DeviceEventSegment]) -> Void
+    ) {
+        guard let history else {
+            debugLog?.record(.history, "This cube has no history characteristic, so there is nothing to ask")
+            answered([])
+            return
+        }
+        guard fetch == nil else {
+            debugLog?.record(.history, "A history request is already out; not asking for \(what) over the top of it")
+            answered([])
+            return
+        }
+        fetch = HistoryFetch(isSingleFrame: isSingleFrame, answered: answered)
+        armHistoryDeadline()
+        debugLog?.record(.history, "Asking the cube for \(what)")
+        // **Written with a response.** A request that never reached the cube and one it is still thinking about look
+        // identical from here, and the deadline would blame the cube for a write that was dropped.
+        write(payload, to: history, type: .withResponse)
+    }
+
+    /// Ends the fetch that is out, with whatever it has.
+    private func finishFetch(_ reason: String) {
+        historyDeadline?.invalidate()
+        historyDeadline = nil
+        guard let outstanding = fetch else { return }
+        fetch = nil
+        debugLog?.record(.history, "\(outstanding.frames.count) frame(s) of history: \(reason)")
+        outstanding.answered(outstanding.frames)
+    }
+
+    private func armHistoryDeadline() {
+        historyDeadline?.invalidate()
+        historyDeadline = Timer(timeInterval: Self.historyFrameSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.finishFetch("the cube stopped part way") }
+        }
+        if let historyDeadline { RunLoop.main.add(historyDeadline, forMode: .common) }
+    }
+
+    /// A frame arrived on the history characteristic.
+    private func received(historyFrame value: Data?) {
+        guard var outstanding = fetch else { return }
+        guard let value else {
+            finishFetch("the cube answered with nothing")
+            return
+        }
+        if DeviceHistoryRules.isEndOfStream(value) {
+            finishFetch("the cube says that is all of it")
+            return
+        }
+        // **Said as what it is.** An event numbered zero is the cube reporting it has no such event, which for a
+        // request for its latest means it holds no history at all -- an ordinary state for a cube that has been reset,
+        // and not the same thing as a frame this app failed to read. Reporting it as the latter is what sent somebody
+        // looking for a parser bug while the cube answered correctly.
+        if DeviceHistoryRules.isNoSuchEvent(value) {
+            finishFetch("the cube has no such event, so there is no history of it to bring back")
+            return
+        }
+        guard let segment = DeviceHistoryRules.segment(from: value) else {
+            // **Ends the fetch rather than skipping the frame.** A frame this app cannot read means the stream is not
+            // what it is being read as, and carrying on would count later frames into a record with a hole in it. What
+            // has arrived is kept: it parsed, so it is real, and the next refresh resumes from where it got to.
+            finishFetch("a frame this app cannot read")
+            return
+        }
+        outstanding.frames.append(segment)
+        fetch = outstanding
+        if outstanding.isSingleFrame {
+            finishFetch("the cube named its latest")
+            return
+        }
+        guard outstanding.frames.count < DeviceHistoryRules.frameCap else {
+            finishFetch("as many frames as this app will take in one go")
+            return
+        }
+        // Reset per frame: the cube answers a long backlog for as long as it takes.
+        armHistoryDeadline()
+    }
+
+    /// Whether an exchange is already out. Both kinds share one slot deliberately: they use the same characteristic
+    /// and the same acknowledgement, so two at once could not be told apart.
+    private var isBusy: Bool { pendingCommand != nil || pendingStatus != nil }
+
+    private func armCommandDeadline() {
+        commandDeadline?.invalidate()
+        commandDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.debugLog?.record(
+                    .command,
+                    self.isReadingBack
+                        ? "The cube never said whether the command took"
+                        : "The cube never acknowledged the command"
+                )
+                self.finishExchange(took: false, status: nil)
+            }
+        }
+        if let commandDeadline { RunLoop.main.add(commandDeadline, forMode: .common) }
+    }
+
+    /// The command was acknowledged. Either ask the cube whether it took, or stop here if nothing can ask.
+    private func acknowledgedCommand(_ landed: Bool) {
+        guard landed else {
+            debugLog?.record(.command, "The cube would not take the command")
+            finishExchange(took: false, status: nil)
+            return
+        }
+        guard let readBack = pendingReadBack, let command else {
+            // Said in these words on purpose. The three commands with no read command in the spec (`0x09`, `0x0A`,
+            // `0x11`) end here for good, and a row reading "confirmed" would be a claim nobody is in a position to
+            // make -- see the read-back matrix in `docs/timeflip.md`.
+            debugLog?.record(.command, "The cube took the write; nothing can read this command back")
+            finishExchange(took: true, status: nil)
+            return
+        }
+        isReadingBack = true
+        armCommandDeadline()
+        debugLog?.record(.command, "Asking whether it took: \(BLETrace.describe(readBack.request))")
+        write(readBack.request, to: command, type: .withResponse)
+    }
+
+    /// The read-back question was acknowledged, so its answer is the next thing on the command result.
+    ///
+    /// **Read only now, and never earlier.** A `0x10` answer carries no echoed command byte to identify it, and that
+    /// characteristic frequently holds the previous command's reply, so the only thing that makes the value
+    /// trustworthy is that it is read after this question's own acknowledgement.
+    private func askedForConfirmation(_ landed: Bool) {
+        guard landed, let commandResult else {
+            debugLog?.record(.command, "The cube would not take the question")
+            finishExchange(took: false, status: nil)
+            return
+        }
+        read(commandResult)
+    }
+
+    /// What the cube said, whether it was asked to confirm a command or simply asked what state it is in.
+    ///
+    /// **Parsed in one place, whichever question brought it here**, so the state the app holds and the verdict on a
+    /// command are read from the same bytes by the same rule rather than by two that could come to differ.
+    private func answered(_ value: Data?) {
+        let status = DeviceCommandRules.status(from: value)
+        guard let readBack = pendingReadBack else {
+            // **What the cube is does not get written down here**, though this is where the bytes are read. Saying it
+            // is `BluetoothRadio.received(status:)`'s job and only its job: it holds the answer, and it records it
+            // only when it is news. Both of us said it for a while, so one ask produced two identical rows and a log
+            // read as though the cube had been asked twice.
+            //
+            // What is left is the case the radio never hears about. An answer that was not one reports no status at
+            // all, so nothing downstream would mention it, and a question that went unanswered is worth a row.
+            if status == nil {
+                debugLog?.record(.command, "That was not an answer about the cube's state")
+            }
+            finishExchange(took: status != nil, status: status)
+            return
+        }
+        let took = readBack.took(value)
+        debugLog?.record(.command, took ? "The cube confirms it took" : "The cube says it did NOT take")
+        finishExchange(took: took, status: status)
+    }
+
+    /// Ends whichever exchange was out, and tells whoever was waiting.
+    ///
+    /// **Both completions are cleared before either is called.** A caller told about one command is free to send the
+    /// next from inside that call -- the lock sequence does exactly that -- and a slot still holding the finished
+    /// exchange would refuse it as "already busy".
+    private func finishExchange(took: Bool, status: DeviceCommandRules.Status?) {
+        commandDeadline?.invalidate()
+        commandDeadline = nil
+        isReadingBack = false
+        pendingReadBack = nil
+        let reportCommand = pendingCommand
+        let reportStatus = pendingStatus
+        pendingCommand = nil
+        pendingStatus = nil
+        // Whatever the cube just said about its state is worth having whichever question drew it out, so this fires
+        // for a read-back as well as for a plain ask.
+        if let status { self.status(status) }
+        reportCommand?(took)
+        reportStatus?(status)
     }
 
     private func finishReset(_ sent: Bool) {
@@ -357,13 +710,113 @@ final class DeviceLogin: NSObject {
     /// Subscribes to each one that says it can notify, and says so when a cube offers none.
     private func listen(to service: CBService, error: Error?) {
         guard error == nil else { return }
+        // **Taken here because here is where it exists.** This is the discovery that asked for everything; the
+        // login's asked for the three characteristics a login needs, so nothing before this point has ever seen
+        // `F1196F58`. Held rather than looked up per fetch for the reason every other characteristic is: it is the
+        // object CoreBluetooth wants back, and it belongs to this connection and dies with it.
+        //
+        // A cube without one can still be reached, timed against and looked at. What it cannot do is bring its own
+        // record of the day back, which is why `readLastEvent` and `fetchHistory` say so rather than failing quietly.
+        history = service.characteristics?.first { $0.uuid == TimeFlipUUIDs.history }
+        debugLog?.record(
+            .history,
+            history == nil
+                ? "This cube offers no history characteristic, so it cannot be asked what it has been doing"
+                : "The cube's history characteristic is there, so its record of the day can be asked for"
+        )
         let pushable = (service.characteristics ?? []).filter { $0.properties.contains(.notify) }
         guard !pushable.isEmpty else {
             debugLog?.record(.login, "Nothing on the TimeFlip service can notify, so there is nothing to listen to")
             return
         }
         for characteristic in pushable { subscribe(to: characteristic) }
+        // **Said after the subscriptions and before the reads**, which is the order the answers need rather than a
+        // preference. A history request is answered by notifications on the characteristic it is written to, so
+        // asking before subscribing would send the question and miss the reply; CoreBluetooth serialises operations on
+        // a peripheral, so a subscription queued above has happened by the time anything queued below is written. And
+        // it comes before the reads so whoever wants the cube's record of the day is first in the queue rather than
+        // behind two round trips of face and double-tap.
+        ready()
+        askWhatStateTheCubeIsIn(on: service)
+        askWhichFaceIsUp(on: service)
+        // The state question follows this one rather than sitting beside it -- see `askWhatStateItIsIn`.
         askWhatMakesADoubleTap()
+    }
+
+    /// Asks the cube which face it is resting on.
+    ///
+    /// **A read on top of the subscription, and both are needed** -- the same shape as the charge, for the same
+    /// measured reason. A GATT subscription yields the *next* value and never the current one, and a cube that is not
+    /// touched does not flip, so a subscription on its own leaves the app with no face at all until somebody moves the
+    /// cube. That can be hours, and for all of them the tab would be showing nothing while the cube sat there knowing
+    /// the answer. The read is what puts a face on screen at the moment the link comes up; the subscription taken out
+    /// a few lines above is what keeps it true afterwards.
+    ///
+    /// **`R, N` is the vendor's own answer**, in `docs/TimeFlip2 BLE Protocol v4.3.md`'s characteristic table, and the
+    /// archive read it at connect on exactly this reasoning. The round trip is in the evidence database:
+    /// `read request faces` answered with `faces -> 02`.
+    ///
+    /// **No deadline**, matching the battery: nothing downstream waits on it, and a cube that never answers leaves the
+    /// tab drawing what it drew before, plus the request itself in the trace.
+    /// Sets the cube's clock to this machine's, then reads it back.
+    ///
+    /// **The first thing a confirmed connection does.** Every history frame the cube files carries a timestamp from
+    /// this clock, so a cube that has never been told the time has nothing to stamp an interval with -- and a factory
+    /// reset clears it, which the scripted suite does. `docs/timeflip.md` puts setting the time at the head of the
+    /// sequence a reset calls for, the system state characteristic has a code for the cube asking for it (`0x0201`),
+    /// and the archive set it on every connect (`TimeFlipBLEDevice.initializeSession`, which opens with
+    /// `setDeviceTime`). This app had never sent `0x08` at all.
+    ///
+    /// **Read back before it is believed**, per the rule in `CLAUDE.md`: `0x07` is the read the vendor defines for it,
+    /// and `DeviceCommandRules.readBack` compares the answer against what was asked within a tolerance, because three
+    /// round trips pass between the two and the cube's clock counts in whole seconds.
+    ///
+    /// **What follows runs either way.** A clock that would not set is worth a row and is not worth stranding a
+    /// pairing over: the cube is still reachable, still reports its face, and still answers everything else.
+    private func setTheClock(then next: @escaping () -> Void) {
+        let now = UInt64(Date().timeIntervalSince1970)
+        debugLog?.record(.command, "Setting the cube's clock to \(now)")
+        send(DeviceCommandRules.setTime(now)) { [weak self] took in
+            self?.debugLog?.record(
+                .command,
+                took
+                    ? "The cube's clock is set"
+                    : "The cube would not take the time, so its history may carry no usable timestamps"
+            )
+            next()
+        }
+    }
+
+    /// Asks the cube what it says about itself on the system state characteristic.
+    ///
+    /// **A read on top of the subscription, and both are needed** -- the same shape as the face and the charge, for
+    /// the same measured reason. A GATT subscription yields the *next* value and never the current one, and this
+    /// characteristic reports **standing** conditions: a cube that was factory reset before this launch, or one whose
+    /// flash memory has failed, says so once and then sits there. Subscribing alone means the app never hears either.
+    ///
+    /// **This is what the rebuild was missing and the archive had** (`TimeFlipBLEDevice.readSystemState`). The
+    /// characteristic was subscribed to from the start and had no handler at all, so every notification was traced and
+    /// dropped -- and a cube quietly recording nothing because its flash is faulty looks exactly like a cube that has
+    /// been reset, which is exactly the confusion it cost on 2026-08-21.
+    ///
+    /// **No deadline**, matching the face and the charge: nothing downstream waits on it, and a cube that never
+    /// answers leaves the request itself in the trace.
+    private func askWhatStateTheCubeIsIn(on service: CBService) {
+        guard let state = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.systemState }) else {
+            debugLog?.record(.info, "This cube has no system state characteristic, so it cannot say how it is")
+            return
+        }
+        debugLog?.record(.info, "Asking the cube how it is")
+        read(state)
+    }
+
+    private func askWhichFaceIsUp(on service: CBService) {
+        guard let faces = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.faces }) else {
+            debugLog?.record(.face, "This cube has no faces characteristic, so there is no face to ask about")
+            return
+        }
+        debugLog?.record(.face, "Asking the cube which face is up")
+        read(faces)
     }
 
     /// Asks the cube what its accelerometer is set to (`0x17`), and writes the answer down.
@@ -386,10 +839,32 @@ final class DeviceLogin: NSObject {
                 guard let self, self.isAskingAboutTaps else { return }
                 self.isAskingAboutTaps = false
                 self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
+                // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
+                // lock, and this is the one question the dropdown cannot draw itself without.
+                self.askWhatStateItIsIn()
             }
         }
         if let tapDeadline { RunLoop.main.add(tapDeadline, forMode: .common) }
         write(Data([DoubleTapRules.read]), to: command, type: .withResponse)
+    }
+
+    /// Asks the cube whether it is locked and whether it is paused, once the link is up.
+    ///
+    /// **Because nothing else will ever say.** The cube pushes a face and a charge unasked, but it never volunteers
+    /// its lock or pause state -- not when a double tap pauses it, not when auto-pause fires, and not when the
+    /// vendor's app changes it. So the only way the app can know is to ask, and the only moments it can ask usefully
+    /// are when the link comes up and after a command of its own.
+    ///
+    /// **This is what makes the Lock item on the dropdown honest.** Without it a freshly connected app would have to
+    /// guess which way the item should read, and the guess it would have to make -- unlocked -- is exactly wrong for
+    /// the cube this app itself locked on the way out last time.
+    ///
+    /// **Sent after the double-tap question has finished, not beside it.** Both write to the command characteristic
+    /// and both wait for an answer on the command result, and neither an acknowledgement nor a `0x10` answer carries
+    /// anything saying which question it belongs to -- so two in flight is two answers nobody can attribute. The face
+    /// read above is safe to fire alongside them only because it has a characteristic of its own.
+    private func askWhatStateItIsIn() {
+        askStatus { _ in }
     }
 
     /// What the cube answered `0x17` with.
@@ -406,6 +881,7 @@ final class DeviceLogin: NSObject {
         tapDeadline?.invalidate()
         tapDeadline = nil
         debugLog?.record(.tap, "The cube's double tap is set to \(parameters.described)")
+        askWhatStateItIsIn()
     }
 
     // MARK: - the PIN this app puts on it
@@ -643,6 +1119,11 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             case TimeFlipUUIDs.password: password = characteristic
             case TimeFlipUUIDs.commandResult: commandResult = characteristic
             case TimeFlipUUIDs.command: command = characteristic
+            // **The history characteristic is deliberately not picked up here**, and a version of this that tried to
+            // was worse than useless. This branch answers the login's own discovery, which asks for exactly the three
+            // above -- so `F1196F58` is never in the list, the case never fired, and every fetch reported "this cube
+            // has no history characteristic" against a cube that had one all along. It is found in `listen(to:)`,
+            // which is the phase that asks for everything.
             default: break
             }
         }
@@ -678,6 +1159,32 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         if isResetting, characteristic.uuid == TimeFlipUUIDs.command {
             finishReset(error == nil)
+            return
+        }
+        // Also long after the login, and above the guard for the same reason. Last of the three, so a reset or a
+        // question about taps cannot have its acknowledgement taken by a command that happened to be out.
+        if isBusy, characteristic.uuid == TimeFlipUUIDs.command {
+            if isReadingBack {
+                askedForConfirmation(error == nil)
+            } else {
+                acknowledgedCommand(error == nil)
+            }
+            return
+        }
+        // **A single-frame request is answered by a read, and waiting for a notification never works.** The archive
+        // measured this and wrote down why (`TimeFlipBLEDevice.readLastEventLocked`): `0x02`'s reply is documented as
+        // "data flow with notification" and `0x01`'s is not described as a notification at all, and waiting on one
+        // "reliably timed out against real hardware". This app reproduced that exactly on 2026-08-20 -- the write
+        // acknowledged, then six seconds of nothing, then a fallback stream from a position no cube could reach.
+        //
+        // So the acknowledgement is the cue to go and read the value, which is the only difference between the two
+        // requests. Streaming needs nothing here: its frames arrive as notifications, which is what it asked for.
+        if let outstanding = fetch, outstanding.isSingleFrame, characteristic.uuid == TimeFlipUUIDs.history {
+            guard error == nil, let history else {
+                finishFetch("the cube would not take the question")
+                return
+            }
+            read(history)
             return
         }
         guard let step else { return }
@@ -716,8 +1223,51 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             battery(Int(level))
             return
         }
+        // **The other value that arrives both ways**, and on the same terms as the charge: the read this login makes
+        // on connecting, and every flip afterwards. Which of the two it is does not matter here -- a face is a face
+        // however it got here.
+        if characteristic.uuid == TimeFlipUUIDs.faces {
+            guard error == nil, let up = DeviceFaceRules.face(from: characteristic.value) else {
+                debugLog?.record(
+                    .face,
+                    error.map { "The face could not be read: \($0.localizedDescription)" }
+                        // The bytes themselves are already in the trace above, so what is worth saying here is that
+                        // they were not a face this app will draw -- which is a different thing from silence.
+                        ?? "The cube named no face this app recognises"
+                )
+                return
+            }
+            face(up)
+            return
+        }
+        // Its own characteristic, so no guard about which question is out: nothing else arrives here, and it arrives
+        // both as the answer to the read taken when the link came up and unasked whenever the cube's state moves.
+        if characteristic.uuid == TimeFlipUUIDs.systemState {
+            guard let state = DeviceSystemStateRules.state(from: characteristic.value) else {
+                debugLog?.record(.info, "The cube's system state came back as something this app cannot read")
+                return
+            }
+            systemState(state)
+            return
+        }
+        // History is its own channel, so this needs no guard about which question is out: nothing else arrives here.
+        if characteristic.uuid == TimeFlipUUIDs.history {
+            guard error == nil else {
+                debugLog?.record(.history, "The history could not be read: \(error?.localizedDescription ?? "")")
+                finishFetch("the cube reported an error")
+                return
+            }
+            received(historyFrame: characteristic.value)
+            return
+        }
         if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {
             taps(answered: characteristic.value)
+            return
+        }
+        // The answer to "did it take". Asked for above the login's own guard for the same reason the taps question is:
+        // it runs long after the login, when `step` is nil.
+        if isReadingBack, characteristic.uuid == TimeFlipUUIDs.commandResult {
+            answered(error == nil ? characteristic.value : nil)
             return
         }
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable

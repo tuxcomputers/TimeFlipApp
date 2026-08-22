@@ -129,7 +129,23 @@ for script in "${scripts[@]}"; do
     fi
 done
 
-testlog_run_finish "$TESTLOG_RUN_ID" "$([ -z "$failed" ] && echo passed || echo failed)" "$ran"
+# **A run that skipped anything did not pass, and says so.** `passed` is a word somebody reads at the top of the
+# stamp and stops reading, so it has to mean every check answered. On 2026-08-22 a run wrote `outcome: passed` with
+# `1 skipped` under it, and the script that skipped was `55-device-face`, which had tested nothing whatsoever.
+#
+# `incomplete` rather than `failed`, because the two are genuinely different and the difference is what somebody does
+# next: a failure is the app being wrong and wants a fix, while a skip is a check that could not answer and wants the
+# thing it needed -- a cube on the desk, a Google account, somebody at the keyboard. CI refuses both
+# (`scripts/check_interactive_checklists.sh`, which has counted skips since f00cfd3), so this changes what the record
+# says rather than what it permits.
+if [ -n "$failed" ]; then
+    outcome=failed
+elif [ "$(testlog_skipped_total "$TESTLOG_RUN_ID")" -gt 0 ] 2>/dev/null; then
+    outcome=incomplete
+else
+    outcome=passed
+fi
+testlog_run_finish "$TESTLOG_RUN_ID" "$outcome" "$ran"
 
 # The committed half of the record. Written either way, because a stamp that only appeared on success
 # would let a failing branch keep an older passing one -- which is the staleness it exists to catch.

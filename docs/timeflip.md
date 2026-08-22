@@ -104,12 +104,24 @@ Commands:
 - `0x02 <event#>`: sequential stream starting at event#, stopping at sentinel
 
 Frame layout (spec v4.3 and observed firmware):
-- Bytes 0–3: event ID (u32 big-endian). `0xFF..FF` asks for last.
+- Bytes 0–3: event ID (u32 big-endian). `0xFF..FF` asks for last. **Event 0 means the cube has no such event**, i.e.
+  no history at all: not a segment, and not an error either.
 - Byte 4: face; `>127` means pause event for `(value−128)`; `66` signals accelerometer error; 0 is invalid.
 - Bytes 5–12: flip timestamp, seconds since epoch, big-endian u64.
-- Bytes 13–17: duration seconds, 5-byte little-endian (Swift keeps 5 bytes; some firmware only populates four).
-- Remaining bytes (18–19) may hold previous-event pointer per doc; Swift ignores.
+- Bytes 13–16: duration seconds, **four** bytes. Firmware disagrees with the spec about the byte order, so read both
+  ways and take the smaller non-zero value: a plausible duration is small, and 90 seconds read backwards is
+  1,509,949,440. Big-endian was observed on firmware shipping 2026-01.
+- Bytes 17–19 exist only on the streamed (`0x02`) form, where the vendor's example shows a previous-event pointer.
+  **A single-event (`0x01`) answer is 17 bytes**, which is exactly the table the spec draws for it.
 - Sentinel: all-zero payload (Swift checks first 17 zeros; spec shows 20 zeros).
+
+**An earlier version of this file said the duration was five bytes little-endian at 13–17, and it was wrong on both
+counts.** The rebuild inherited it and rejected every single-event answer as too short, logging "a frame this app
+cannot read" while the cube answered correctly (2026-08-21). The vendor table is the authority here, per `CLAUDE.md`.
+
+**Intervals shorter than 5 seconds are never in history.** The spec says `0x02` returns "all intervals that lasted for
+at least 5 sec", so a quick flip, or a flip a few seconds after an unlock, leaves nothing to fetch. An empty answer is
+therefore an ordinary state and not evidence of a fault.
 
 Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at 2048 frames, and stops on sentinel or parse failure. Parsed into `TimeFlipHistoryEntry {eventNumber?, faceID, startedAt, duration, isPaused}`.
 

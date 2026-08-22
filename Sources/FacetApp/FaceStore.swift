@@ -24,6 +24,20 @@ final class FaceStore {
         return assigned
     }
 
+    /// Whether a face keeps what it has. `nil` for a face with no row at all, which is a different answer from
+    /// "not locked" and is worth telling apart: one is a face somebody has protected, the other is not a face.
+    ///
+    /// **A reader, so a refusal can say which.** `assign` already refuses a locked face at the write, and that is
+    /// where the guarantee belongs -- but "the write refused" is not something anybody can act on, and a category
+    /// that silently fails to land is a control that reads as broken rather than as one being deliberate.
+    func isLocked(face faceID: Int) -> Bool? {
+        var locked: Bool?
+        connection.forEachRow("SELECT locked FROM face WHERE face_id = \(faceID);") { row in
+            locked = row.bool(0)
+        }
+        return locked
+    }
+
     /// Puts a category on a face, and reports whether it took.
     ///
     /// A locked face keeps what it has: locking exists to stop a face being reassigned by accident, so the
@@ -35,6 +49,18 @@ final class FaceStore {
         // nothing, and "refused" has to be distinguishable from "done".
         return connection.execute(
             "UPDATE face SET category_id = \(categoryID) WHERE face_id = \(faceID) AND locked = 0;"
+        ) && connection.changes > 0
+    }
+
+    /// Locks or unlocks a face, and reports whether it took.
+    ///
+    /// **Not gated on anything.** A locked face refuses a *category*, which is the whole of what locking does; the lock
+    /// itself is always the user's to change, or it would be a switch that can only be flicked one way. `changes` is
+    /// still checked, so a face with no row reads as refused rather than as done.
+    @discardableResult
+    func setLocked(_ locked: Bool, face faceID: Int) -> Bool {
+        connection.execute(
+            "UPDATE face SET locked = \(locked ? 1 : 0) WHERE face_id = \(faceID);"
         ) && connection.changes > 0
     }
 

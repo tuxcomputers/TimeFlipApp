@@ -79,6 +79,36 @@ final class BluetoothRadio: NSObject {
     /// trace.
     var onBatteryLevel: ((UUID, Int?) -> Void)?
 
+    /// Called when the face a device is resting on changes, with the face or `nil` once there is no live reading.
+    ///
+    /// **Called per change, not per arrival**, matching `onBatteryLevel`: a cube left alone re-reports nothing, but
+    /// the read taken when a link comes up can name the face the app is already showing, and a redraw for an answer
+    /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
+    var onFace: ((UUID, Int?) -> Void)?
+
+    /// Called when what the cube says about its own state changes, or `nil` once there is no cube to say.
+    ///
+    /// **Only ever an answer to a question this app asked**, unlike the charge and the face: the cube pushes nothing
+    /// when a double tap pauses it, when auto-pause fires, or when the vendor's app locks it. So this fires on
+    /// connecting and after each command the app reads back, and at no other time.
+    var onCubeStatus: ((UUID, DeviceCommandRules.Status?) -> Void)?
+
+    /// Called with what the cube says about itself: what it wants pushed back, and whether its hardware is working.
+    ///
+    /// **Every arrival, not only the changes**, unlike the charge and the face. There are few of them, each one is
+    /// either a request or a fault, and a repeat is the cube saying it is still waiting.
+    var onSystemState: ((UUID, DeviceSystemStateRules.State) -> Void)?
+
+    /// Told when the link is all the way up: every characteristic found, every notification subscribed to, and the
+    /// cube able to answer a question. **The mirror of `onConnectionDropped`**, and the pair is the point -- the app
+    /// has had a way to hear that a cube went since there were cubes, and nothing but a login *outcome* to hear that
+    /// one arrived.
+    ///
+    /// **Not `onLoginEnded`, which is a different moment.** That one fires when the PIN is accepted, several round
+    /// trips before the listening phase has discovered anything: a fetch made then finds no history characteristic,
+    /// because there is not one yet. This is the first moment the cube can actually be asked.
+    var onCubeReady: ((UUID) -> Void)?
+
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
@@ -144,6 +174,22 @@ final class BluetoothRadio: NSObject {
 
     private(set) var isScanning = false
 
+    /// Whether anybody is still waiting for a scan. Not the same question as `isScanning`, and the gap between them
+    /// is where the radio was being used by nobody.
+    ///
+    /// **Building the manager does not start a scan**, so between `start` and the delegate's first callback there is a
+    /// request in flight with nothing to show for it. `centralManagerDidUpdateState` picks it up on `.poweredOn`, and
+    /// that is deliberate: somebody who presses Scan with Bluetooth off and then switches it on gets the scan they
+    /// asked for. But there was nothing recording whether they were *still* asking, so the pickup fired for requests
+    /// that had already been abandoned.
+    ///
+    /// Measured on hardware 2026-08-19. A paired launch with Bluetooth off reaches for its cube, the manager comes up
+    /// powered off, the reach is reported unreachable and the offer of manual mode is taken -- and then switching
+    /// Bluetooth back on **forty minutes later** started a ten-second scan nobody had asked for, in an app that had
+    /// been told to stop looking. Nothing connected, because the reach target was long gone, so the only trace was
+    /// four rows in the log.
+    private var wantsToScan = false
+
     /// One run at reaching a device: which one, which PINs are left to try on it, and what to leave it on.
     private struct Attempt {
         let id: UUID
@@ -195,9 +241,9 @@ final class BluetoothRadio: NSObject {
 
     /// The device this app is currently logged in to, or `nil`.
     ///
-    /// **The charge goes with it**, in one place rather than at each of the several ways a link ends: the window
-    /// closing, another device being chosen, a reset, and the cube simply going away all pass through here, and a
-    /// percentage that outlived any of them would be a reading from a device nobody can hear.
+    /// **The charge and the face go with it**, in one place rather than at each of the several ways a link ends: the
+    /// window closing, another device being chosen, a reset, and the cube simply going away all pass through here, and
+    /// either of them outliving that would be a reading from a device nobody can hear.
     private(set) var connectedDevice: UUID? {
         didSet {
             guard oldValue != connectedDevice, let gone = oldValue else { return }
@@ -207,6 +253,17 @@ final class BluetoothRadio: NSObject {
             if batteryPercent != nil { debugLog?.record(.battery, "The charge goes with the link") }
             batteryPercent = nil
             onBatteryLevel?(gone, nil)
+            // The same reasoning one line down, and it matters more: a face is drawn as a lit cube with a category on
+            // it, so a face left behind by a dropped link is a picture of hardware claiming to be somewhere it may no
+            // longer be.
+            if currentFace != nil { debugLog?.record(.face, "The face goes with the link") }
+            currentFace = nil
+            onFace?(gone, nil)
+            // And the same for what it said about itself. This one is the most obviously perishable of the three: the
+            // app cannot ask a cube it cannot reach, and a remembered lock would leave the dropdown offering to undo
+            // something on a device that is not there.
+            cubeStatus = nil
+            onCubeStatus?(gone, nil)
         }
     }
 
@@ -221,6 +278,31 @@ final class BluetoothRadio: NSObject {
     /// show to judge the next reading against, so this is both the answer and the state the rule works from -- one
     /// value, not a reading kept beside a rendering of it.
     private(set) var batteryPercent: Int?
+
+    /// The face the connected cube is resting on, or `nil` when there is no live reading.
+    ///
+    /// **Not a table value, for the same reason the charge is not one.** Which way up a cube is lying is a fact about
+    /// this minute, and a remembered face is a claim about hardware nobody can check. It lives for as long as the
+    /// connection that reported it, and whoever draws it asks for it then.
+    ///
+    /// **What the app does with a face it has never seen before is not decided here.** This is the cube's answer to
+    /// "which way up am I", and nothing more: turning a flip into recorded time is `device_event`'s question and is
+    /// not built.
+    private(set) var currentFace: Int?
+
+    /// What the cube last said about being locked, being paused, and its auto-pause delay -- `nil` when it has not
+    /// been asked, or when there is no cube.
+    ///
+    /// **Held rather than asked for on demand, and that is forced rather than chosen.** Asking is a round trip, and
+    /// the thing that needs the answer is a menu item's title at the instant the menu opens. So it is read when the
+    /// link comes up and refreshed by the read-back of every command the app sends, which covers every way the app
+    /// itself can change it.
+    ///
+    /// **What it cannot cover is the cube being changed by something else**: a double tap pauses it, auto-pause
+    /// pauses it, and the vendor's app can do either. The `isPaused` here is therefore only as fresh as the last
+    /// answer, and nothing draws it. `isLocked` is the one the dropdown reads, and lock has no such back door -- the
+    /// cube offers no gesture that locks itself.
+    private(set) var cubeStatus: DeviceCommandRules.Status?
 
     init(debugLog: DebugLog?) {
         self.debugLog = debugLog
@@ -241,6 +323,7 @@ final class BluetoothRadio: NSObject {
     ///   - remembered: `device_name.name`, read from the table by the caller at this moment.
     ///   - previouslyKnown: `device_name.previous_name`, likewise.
     func start(filterToTimeFlip: Bool, remembered: String?, previouslyKnown: String?) {
+        wantsToScan = true
         self.isFiltering = filterToTimeFlip
         self.remembered = remembered
         self.previouslyKnown = previouslyKnown
@@ -278,6 +361,10 @@ final class BluetoothRadio: NSObject {
     private func stop(because reason: String) {
         timeout?.invalidate()
         timeout = nil
+        // **Withdrawn ahead of the guard, not inside it.** A stop can land while the manager is still powering up, when
+        // there is no scan yet to stop -- pressing Scan with the radio off and pressing it again to cancel is exactly
+        // that -- and leaving the want set would have the cancelled scan start whenever Bluetooth came back.
+        wantsToScan = false
         guard isScanning else { return }
         central?.stopScan()
         isScanning = false
@@ -296,6 +383,10 @@ final class BluetoothRadio: NSObject {
 
     private func beginScanIfReady() {
         guard let central else { return }
+        // **Nobody is waiting for this any more.** Reached when the radio comes back long after the request that built
+        // the manager was abandoned -- see `wantsToScan`. Silent, because there is nothing to report about a scan that
+        // is correctly not happening.
+        guard wantsToScan else { return }
         guard central.state == .poweredOn else {
             report(unavailable(for: central.state))
             return
@@ -345,8 +436,28 @@ final class BluetoothRadio: NSObject {
             isScanning = false
             onScanningChanged?(false)
         }
-        if let reason {
-            debugLog?.record(.scan, "Scan unavailable: \(reason)")
+        guard let reason else {
+            // `.resetting` and `.unknown`: ask again shortly. Nothing is ended here, because the delegate fires again
+            // when the state settles and the reach is still perfectly good until it does.
+            onUnavailable?(nil)
+            return
+        }
+        debugLog?.record(.scan, "Scan unavailable: \(reason)")
+        // **A reach that cannot even start is that cube being unreachable**, and saying so is what keeps the app
+        // honest about it. Without this, Bluetooth being switched off at launch left `reaching` set for ever: no scan
+        // to time out, so no outcome, so `isReaching` stayed true and the reconnect loop stood down permanently --
+        // no retry, no offer of manual mode, and nothing on screen saying the app had stopped. The three reasons that
+        // get here are all settled states (off, unauthorised, unsupported) rather than "ask again shortly", which is
+        // why ending on them does not race the radio coming up.
+        if let target = reaching {
+            reaching = nil
+            // **The reach is over, so its scan is not wanted either.** This is the one that was missing: the request
+            // outlived the thing that made it, and the radio coming back hours later ran it. A scan somebody pressed
+            // Scan for is deliberately *not* withdrawn here -- it has no `reaching` target, and picking it up when the
+            // radio returns is what they asked for.
+            wantsToScan = false
+            debugLog?.record(.login, "Cannot reach \(target.id.uuidString): \(reason)")
+            end(target.id, .unreachable)
         }
         onUnavailable?(reason)
     }
@@ -477,6 +588,59 @@ final class BluetoothRadio: NSObject {
     /// 5. A login on the default is the confirmation. Report it, then let go -- **that login is deliberately not a
     ///    pairing**, which is the archive's rule: the cube is now a pristine unpaired device, and treating the proof
     ///    as a pairing would leave the app holding the very thing the user asked it to give up.
+    /// Sends one command to the connected cube, and reports whether it took the write.
+    ///
+    /// **Nothing here decides what to send or what a refusal means.** The bytes are `DeviceCommandRules`' and the
+    /// sequence is the caller's, which is the same split every other part of this class keeps: the radio owns the
+    /// central manager and nothing else.
+    ///
+    /// `false` with no cube connected, rather than nothing at all. A caller waiting on a completion that never comes
+    /// is the failure mode that hangs a quit, and "there was no device" is a perfectly good answer to give it.
+    func send(_ command: Data, _ reported: @escaping (Bool) -> Void) {
+        guard connectedDevice != nil, let login else {
+            debugLog?.record(.command, "Asked to send a command with no cube connected")
+            reported(false)
+            return
+        }
+        login.send(command, then: reported)
+    }
+
+    /// Asks the cube what state it is in, so what the app holds is not older than it needs to be.
+    ///
+    /// **Because a cube pauses itself and does not say so.** A double tap stops its tracking, unconditionally and with
+    /// no command to turn that off (`Archive/Tests/Methods.md` Method 22), and the vendor's own app can pause it too.
+    /// Nothing arrives to announce either: `systemState` carries sync and hardware health, not pause. So the only way
+    /// the app's answer stays true is by asking again, and the only honest moment to ask is one where the cube may
+    /// have been handled.
+    ///
+    /// The answer is not returned. It goes where every other answer to this question goes -- `received(status:from:)`
+    /// -- so there is one place that holds it and one row that says it moved.
+    func askStatus() {
+        guard connectedDevice != nil, let login else { return }
+        login.askStatus { _ in }
+    }
+
+    /// Asks the cube which event it is on, and hands back that one frame.
+    ///
+    /// `nil` with no cube connected, which is a different answer from "the cube has no history": one means there was
+    /// nobody to ask, and `DeviceHistoryRules.resumeFrom` leaves the stored position standing for it.
+    func readLastEvent(_ answered: @escaping (DeviceEventSegment?) -> Void) {
+        guard connectedDevice != nil, let login else {
+            answered(nil)
+            return
+        }
+        login.readLastEvent(then: answered)
+    }
+
+    /// Asks the cube for its history from `eventNumber` onwards.
+    func fetchHistory(from eventNumber: Int, _ answered: @escaping ([DeviceEventSegment]) -> Void) {
+        guard connectedDevice != nil, let login else {
+            answered([])
+            return
+        }
+        login.fetchHistory(from: eventNumber, then: answered)
+    }
+
     func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
         guard let id = connectedDevice, let login else {
             debugLog?.record(.pair, "Asked to reset with no cube connected")
@@ -678,6 +842,49 @@ final class BluetoothRadio: NSObject {
         onBatteryLevel?(id, shown)
     }
 
+    /// Files the face the cube is resting on, and says so only if it moved.
+    ///
+    /// No rule absorbing anything, unlike the charge beside it: a face is one of twelve discrete answers rather than a
+    /// noisy measurement, and the cube has never been seen to repeat one unprompted. What this does guard against is
+    /// the read taken when a link comes up naming the face already on show, which is the ordinary case for a cube
+    /// nobody has touched since the last connection.
+    private func received(face: Int, from id: UUID) {
+        guard face != currentFace else { return }
+        currentFace = face
+        debugLog?.record(.face, "Face \(face) is up")
+        onFace?(id, face)
+    }
+
+    /// Files what the cube says about its own condition.
+    ///
+    /// **Written down every time, and loudly when it is not "fine".** This is the one channel on which a cube reports
+    /// that it has been put back to the factory or that its flash memory has failed, and a flash fault means it records
+    /// no history at all -- which from the outside is indistinguishable from a cube that has simply been reset. Both of
+    /// those are hours of confusion if they are not in the log, so the row goes in whether or not anything acts on it.
+    private func received(systemState state: DeviceSystemStateRules.State, from id: UUID) {
+        debugLog?.record(
+            .info,
+            state.isEverythingFine
+                ? "The cube says it is fine: \(DeviceSystemStateRules.describe(state))"
+                : "The cube says: \(DeviceSystemStateRules.describe(state))"
+        )
+        onSystemState?(id, state)
+    }
+
+    /// Files what the cube says about itself, and says so only when it is news.
+    ///
+    /// Quiet when nothing moved, matching the charge and the face: every command this app reads back produces one of
+    /// these, and most of them say what the last one said.
+    private func received(status: DeviceCommandRules.Status, from id: UUID) {
+        guard status != cubeStatus else { return }
+        cubeStatus = status
+        debugLog?.record(
+            .command,
+            "The cube is \(status.isLocked ? "locked" : "unlocked") and \(status.isPaused ? "paused" : "running")"
+        )
+        onCubeStatus?(id, status)
+    }
+
     /// What to call a device in a message about it.
     ///
     /// **Asked of the radio rather than remembered by the tab**, which is the same reasoning as handing the tab the
@@ -802,6 +1009,29 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             battery: { [weak self] level in
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.received(batteryLevel: level, from: attempt.id)
+            },
+            // The same guard again, and it earns it for the same reason: this goes on arriving for the life of the
+            // connection, so a flip landing after the app let the cube go would draw a face nobody is holding.
+            face: { [weak self] face in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(face: face, from: attempt.id)
+            },
+            // The same guard once more, and for the same reason as the two above.
+            status: { [weak self] status in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(status: status, from: attempt.id)
+            },
+            // The same guard as the three above, and for the same reason.
+            systemState: { [weak self] state in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(systemState: state, from: attempt.id)
+            },
+            // The same guard again: a login that finished discovering after the app let the cube go has nothing to
+            // announce, and announcing it would send a fetch down a link nobody is holding.
+            ready: { [weak self] in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.debugLog?.record(.login, "The cube is ready to be asked things")
+                self.onCubeReady?(attempt.id)
             }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)

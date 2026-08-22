@@ -87,10 +87,10 @@ select_tab App
 
 email=$(sql "SELECT json_extract(setting_value, '\$.email') FROM setting WHERE setting_name = 'google_account';")
 if [ -z "$email" ]; then
-    skip "no Google account is connected, so there is no calendar to set up"
-    skip "connect one on Settings -> App; 10 explains what that turns on"
+    fail "no Google account is connected, so there is no calendar to set up"
+    fail "connect one on Settings -> App; 10 explains what that turns on"
     finish
-    exit 0
+    exit $?
 fi
 
 stored_name() { sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';"; }
@@ -121,7 +121,7 @@ if [ -n "$(stored_id)" ]; then
     check "and the app no longer holds a calendar" "|" "$(stored_id)|$(stored_name)"
     check_contains "the Calendar row offers to make another" "$(tree)" "id=app-google-calendar-create"
 else
-    skip "no calendar is stored, so there is none to delete (the first run on this machine)"
+    fail "no calendar is stored, so there is none to delete (the first run on this machine)"
 fi
 
 # ---- this run's, made and named

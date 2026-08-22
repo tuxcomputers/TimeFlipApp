@@ -80,8 +80,40 @@ final class MenuBarController: NSObject {
         static let statusItem = "status-item"
         static let settings = "open-settings"
         static let togglePause = "toggle-pause"
+        static let toggleCubeLock = "toggle-cube-lock"
         static let quit = "quit-app"
     }
+
+    /// The cube as it stands, asked when the menu is about to be drawn. Two answers rather than one because they
+    /// fail differently: there may be no cube at all, and there may be a cube nobody has asked yet.
+    struct CubeReading: Equatable {
+        let isConnected: Bool
+        /// `nil` when the cube has not been asked, or would not answer. See `CubeLockRules.title`.
+        let isLocked: Bool?
+    }
+
+    private let cube: () -> CubeReading
+
+    /// Locks the cube, or starts it again -- whichever the item is offering. What that means in commands is
+    /// `CubeLock`'s, not this class's.
+    ///
+    /// **The double click ends here too**, rather than in a second implementation that reads the cube's lock state
+    /// for itself. One way of locking, whichever gesture asked for it.
+    private let toggleCubeLock: () -> Void
+
+    /// Stops the cube counting, or starts it again, without locking it. The single click on the right half.
+    ///
+    /// **Not `togglePause`**, and the two must not be folded together: that one is the app's own clock, this one is
+    /// `0x06` going out to hardware. They are never both live -- the router picks one -- but naming them the same
+    /// thing is how the previous app came to have a dropdown item and a status-item half that meant different things.
+    private let toggleCubePause: () -> Void
+
+    /// The pause a single click asked for, waiting to see whether a second click turns it into a lock.
+    ///
+    /// **The whole reason the cube's pause is deferred and the app's own is not.** AppKit sends the action for the
+    /// first click of a pair with `clickCount == 1`, so without this a double click would pause the cube *and* lock
+    /// it. Held for `NSEvent.doubleClickInterval`, which is the user's own setting rather than a number chosen here.
+    private var pendingCubePause: DispatchWorkItem?
 
     /// What to do when Settings is chosen. A closure rather than a window this class owns: it draws
     /// the menu, it does not decide what the app's windows are.
@@ -135,8 +167,14 @@ final class MenuBarController: NSObject {
         showingSeconds: @escaping () -> Bool = { true },
         togglePause: @escaping () -> Void = {},
         isLimitReached: @escaping () -> Bool = { false },
-        lowBattery: @escaping () -> LowBatteryAlert = { .none }
+        lowBattery: @escaping () -> LowBatteryAlert = { .none },
+        cube: @escaping () -> CubeReading = { CubeReading(isConnected: false, isLocked: nil) },
+        toggleCubeLock: @escaping () -> Void = {},
+        toggleCubePause: @escaping () -> Void = {}
     ) {
+        self.cube = cube
+        self.toggleCubeLock = toggleCubeLock
+        self.toggleCubePause = toggleCubePause
         self.databaseBadge = databaseBadge
         self.debugLog = debugLog
         self.openSettings = openSettings
@@ -186,7 +224,11 @@ final class MenuBarController: NSObject {
             isLimitReached: isLimitReached(),
             // Likewise per draw, and the reason is sharper still: this changes twice a second while it is up, so a
             // copy taken anywhere other than here would be a flash frozen on one of its two phases.
-            lowBattery: lowBattery()
+            lowBattery: lowBattery(),
+            // The same answer the dropdown's Lock item reads. Asked per draw, though it can only change when the app
+            // itself sends a command or reaches a cube: the badge has to come off the moment the link goes, and the
+            // link going is not something this class is told about.
+            isCubeLocked: cube().isLocked == true
         )
         if title != lastDrawn {
             let drawn = makeTitle(title)
@@ -251,6 +293,13 @@ final class MenuBarController: NSObject {
             title.append(NSAttributedString(string: " ", attributes: plain))
         }
         title.append(NSAttributedString(string: parts.text, attributes: named))
+        // Before the play/pause glyph, and in red rather than the line's colour -- see `StatusItemTitle.lockGlyphName`
+        // for why it sits beside that glyph instead of replacing it, and why this is the one image here that does not
+        // take the colour of the text next to it.
+        if let lockGlyphName = parts.lockGlyphName, let lock = symbol(named: lockGlyphName, size: size) {
+            title.append(NSAttributedString(string: " ", attributes: plain))
+            title.append(attachment(of: lock, colour: .systemRed, size: size, font: font))
+        }
         if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
             title.append(NSAttributedString(string: " ", attributes: plain))
             title.append(attachment(of: glyph, colour: parts.colour, size: size, font: font))
@@ -330,6 +379,9 @@ final class MenuBarController: NSObject {
         // Under Settings, because it acts on what Settings is showing. Its title and whether it can be
         // chosen at all are set when the menu opens, not here.
         menu.addItem(item(title: "Pause", identifier: Identifier.togglePause, action: #selector(menuTogglePause)))
+        // Under Pause, because it is the same kind of choice one step further: Pause stops the clock, this stops the
+        // cube. Its title and whether it can be chosen are set when the menu opens, like the item above it.
+        menu.addItem(item(title: "Lock", identifier: Identifier.toggleCubeLock, action: #selector(menuToggleCubeLock)))
         // Quit sits under a separator, away from anything ordinary: it is the only way out of the app,
         // so it should not be adjacent to a choice somebody makes routinely.
         menu.addItem(.separator())
@@ -348,14 +400,21 @@ final class MenuBarController: NSObject {
     /// else keeping this object alive -- and when that fails the menu simply stops updating, with nothing to
     /// see. We are already the code that opens it, so there is no reason to be told.
     func refresh(_ menu: NSMenu) {
-        guard let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) else {
-            return
+        if let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) {
+            let state = timing().state
+            pause.title = ManualTimerRules.pauseMenuTitle(for: state)
+            // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
+            // than advisory: the item still reads "Resume", because that is what it would do, and it will not do it.
+            pause.isEnabled = ManualTimerRules.isClickable(state, isLimitReached: isLimitReached())
         }
-        let state = timing().state
-        pause.title = ManualTimerRules.pauseMenuTitle(for: state)
-        // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
-        // than advisory: the item still reads "Resume", because that is what it would do, and it will not do it.
-        pause.isEnabled = ManualTimerRules.isClickable(state, isLimitReached: isLimitReached())
+        if let lock = menu.items.first(where: { $0.identifier?.rawValue == Identifier.toggleCubeLock }) {
+            // Both asked at the moment the menu opens, like everything else here. What the cube is doing is the
+            // radio's answer and it is only ever as fresh as the last question -- but the alternative, a title pushed
+            // in when something changed, would be a copy of it that could be wrong with nothing to say so.
+            let cube = self.cube()
+            lock.title = CubeLockRules.title(isLocked: cube.isLocked)
+            lock.isEnabled = CubeLockRules.isEnabled(isConnected: cube.isConnected)
+        }
     }
 
     /// One menu item, targeted at this controller and named for a script.
@@ -392,7 +451,11 @@ final class MenuBarController: NSObject {
         let isLeftSide = location.x <= button.bounds.width / 2
         let state = timing().state
         let action = StatusItemClickRouter.action(
-            isLeftSide: isLeftSide, timing: state, isLimitReached: isLimitReached()
+            isLeftSide: isLeftSide,
+            timing: state,
+            isCubeConnected: cube().isConnected,
+            isLimitReached: isLimitReached(),
+            clickCount: event.clickCount
         )
 
         // Recorded whatever the outcome, including `ignore`. A click that deliberately did nothing and
@@ -412,10 +475,49 @@ final class MenuBarController: NSObject {
             // The same closure the dropdown's Pause item and the Timing column's control end in, so the three
             // ways to pause cannot come to mean different things. What it draws afterwards comes back here as a
             // `redraw()` (see `main.swift`), rather than this knowing what it changed.
+            //
+            // **At once, unlike the cube's.** This is manual mode, which has no lock, so there is no second
+            // gesture the click might turn out to have been half of.
             togglePause()
+        case .toggleCubePause:
+            deferCubePause()
+        case .toggleCubeLock:
+            // **Upgrade, not addition.** The first click of this pair already scheduled a pause; cancelling it is
+            // what stops a double click from pausing the cube *and* locking it.
+            cancelPendingCubePause(because: "a second click made it a lock")
+            // The same closure the dropdown's Lock item ends in. One way of locking, whichever gesture asked.
+            toggleCubeLock()
         case .ignore:
             break
         }
+    }
+
+    /// Holds a cube pause back long enough for a second click to cancel it.
+    ///
+    /// **`NSEvent.doubleClickInterval` rather than a number chosen here**: it is the user's own setting, so somebody
+    /// who has slowed their double click down gets the same gesture rather than a pause that fires under it.
+    ///
+    /// The archive did exactly this and for exactly this reason, and it is the one piece of its click handling that
+    /// had to come back the moment the right half grew a second meaning.
+    private func deferCubePause() {
+        cancelPendingCubePause(because: "a newer click replaced it")
+        let pending = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingCubePause = nil
+                self.toggleCubePause()
+            }
+        }
+        pendingCubePause = pending
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: pending)
+    }
+
+    /// Drops a scheduled cube pause, saying why. Silent when there was nothing waiting, which is the ordinary case.
+    private func cancelPendingCubePause(because reason: String) {
+        guard let pending = pendingCubePause else { return }
+        pending.cancel()
+        pendingCubePause = nil
+        debugLog?.record(.click, "The waiting cube pause was dropped: \(reason)")
     }
 
     /// Presents the dropdown by lending the item its menu for exactly one click.
@@ -442,6 +544,14 @@ final class MenuBarController: NSObject {
         // What it was called when it was chosen, which is what the person clicking it meant.
         debugLog?.record(.menu, "Menu item clicked: \(ManualTimerRules.pauseMenuTitle(for: timing().state))")
         togglePause()
+    }
+
+    @objc
+    private func menuToggleCubeLock() {
+        // What it was called when it was chosen, which is what the person clicking it meant.
+        let cube = self.cube()
+        debugLog?.record(.menu, "Menu item clicked: \(CubeLockRules.title(isLocked: cube.isLocked))")
+        toggleCubeLock()
     }
 
     @objc

@@ -33,6 +33,39 @@ final class TimingReadout {
         /// The category's total for the day so far, in seconds. Zero when there is no category to total.
         let seconds: TimeInterval
 
+        /// The face the cube is resting on, or `nil` when there is no cube to follow and the app is timing by hand.
+        ///
+        /// **What tells the two pictures apart**, and it is on the reading rather than asked separately by each thing
+        /// that draws so that they cannot come to disagree -- which they did: the Faces tab drew the cube's face
+        /// while the menu bar went on drawing the manual session, because each asked its own question.
+        let deviceFace: Int?
+
+        /// Whether the cube itself is paused, or `nil` when there is no cube being followed -- and also when there is
+        /// one that has not answered the question yet.
+        ///
+        /// **A different question from `state`, which is about this app's own clock.** While a cube is being followed
+        /// the app is running no clock at all, so `state` is idle; what is or is not running is the cube, and this is
+        /// the cube's own answer to it. Keeping them apart is what stops a cube's reading starting the status item's
+        /// tick, or reading as a session that could be clicked to pause.
+        let deviceIsPaused: Bool?
+
+        /// Written out rather than left to the memberwise one so `deviceFace` can default to "no cube": a reading is
+        /// about what the app is timing unless it says otherwise, which is what every reading was before there was a
+        /// cube to follow.
+        init(
+            category: CategoryRecord?,
+            state: TimingState,
+            seconds: TimeInterval,
+            deviceFace: Int? = nil,
+            deviceIsPaused: Bool? = nil
+        ) {
+            self.category = category
+            self.state = state
+            self.seconds = seconds
+            self.deviceFace = deviceFace
+            self.deviceIsPaused = deviceIsPaused
+        }
+
         /// Nothing being timed, which is what a view built without a database draws.
         static let idle = Reading(category: nil, state: .idle, seconds: 0)
 
@@ -49,6 +82,28 @@ final class TimingReadout {
     private let events: DeviceEventRecorder
     private let dayTotal: DayTotal
 
+    /// Which face the cube is resting on, asked at the moment a reading is taken. `nil` when no cube is connected,
+    /// which is what makes the app fall back to what it is timing by hand.
+    ///
+    /// A closure rather than a radio, for the reason every dependency here is one: this is read per draw, and what it
+    /// asks must be the live answer rather than one taken when the app started.
+    var deviceFace: () -> Int? = { nil }
+
+    /// Whether this launch is timing by hand, which is the one thing that stops the cube being asked about at all.
+    ///
+    /// **Somebody offered manual mode and taking it has said to get on without the device.** So the radio is not
+    /// consulted for the rest of the launch: a cube drifting into range would otherwise appear in the menu bar and on
+    /// the Faces tab an hour later, and take the click with it, since a click follows the reading. That is the app
+    /// changing its mind on somebody's behalf.
+    ///
+    /// **The same answer the reconnect loop stands down on**, asked of `ManualMode` per reading rather than copied
+    /// here, so the two halves cannot come to disagree about whether this launch follows a cube.
+    ///
+    /// The way back out is a restart or forgetting the device, and neither needs telling: the mode is per-launch, so a
+    /// relaunch works it out again from `paired`, and pairing turns it off before a face is ever asked for.
+    var isTimingByHand: () -> Bool = { false }
+
+
     init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
         self.faces = faces
@@ -58,6 +113,44 @@ final class TimingReadout {
 
     /// The session as it stands at `now`.
     func read(at now: Date = Date()) -> Reading {
+        // **A cube wins whenever there is one** -- unless this launch has been told to get on without one. What the
+        // app is timing by hand is otherwise a stand-in for exactly the device that has turned up, so a reading taken
+        // while a cube is connected is about the cube. Both questions are asked here rather than resolved by whoever
+        // set the closures, so there is one place that decides which of the two pictures a reading describes.
+        if !isTimingByHand(), let deviceFace = deviceFace() {
+            // Read here rather than held, like the manual face's: a category renamed, recoloured or reassigned
+            // between two flips draws differently on the second one with nothing having to be told.
+            let category = faces.categoryID(forFace: deviceFace).flatMap { categories.category(id: $0) }
+            return Reading(
+                category: category,
+                // **Idle, and not because nothing is happening.** The cube is timing -- it always is -- but this app
+                // does not yet read its history, so there is no open segment of its own to call running. What the app
+                // *has* recorded against this category today is a different question, and it is answered below.
+                state: .idle,
+                // **The category's total for the day, the same figure a manual session shows and read the same way.**
+                //
+                // It is a real total rather than an invented one: `time_entry` is what the app has recorded against
+                // this category today, and this reads it. What it is not yet is a *complete* total, because the cube's
+                // own history is not ingested -- so on a launch that has only followed a cube it will read zero, and
+                // it will start filling in the moment ingestion lands, with nothing here needing to change.
+                //
+                // **It does not tick, and should not.** A day total moves when time is recorded, and nothing is being
+                // recorded here; a figure counting up beside a cube the app is not reading would be the app inventing
+                // the very thing this comment says it does not have.
+                seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
+                deviceFace: deviceFace,
+                // **Out of the cube's own history, not out of a status read.** Every history frame carries the pause
+                // in its face byte -- the vendor adds a paused interval "for the facet with Side + 128" -- so the open
+                // segment the cube reported *is* whether it is paused, refreshed on every fetch and needing nothing
+                // asked for on its own. It was `0x10` and a per-flip re-ask before ingestion existed, which was the
+                // best available then and is strictly worse now: that answer went stale the moment somebody
+                // double-tapped, and this one arrives with the record of the double tap itself.
+                //
+                // Matched on the face, because the open row is not always the cube's: a manual segment left open when
+                // a cube arrives is still the newest open row, and its pause is the app's own, not the device's.
+                deviceIsPaused: events.openSegment().flatMap { $0.face == deviceFace ? $0.isPaused : nil }
+            )
+        }
         let face = events.currentManualFace()
         let category = faces.categoryID(forFace: face).flatMap { categories.category(id: $0) }
         return Reading(
@@ -66,7 +159,8 @@ final class TimingReadout {
             // holding no category is idle whatever the table says about segments: there would be nothing to draw
             // beside the clock.
             state: ManualTimerRules.state(categoryID: category?.id, isRunning: isRunning(on: face)),
-            seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0
+            seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
+            deviceFace: nil
         )
     }
 

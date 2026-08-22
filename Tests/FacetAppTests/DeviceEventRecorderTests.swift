@@ -432,4 +432,58 @@ final class DeviceEventRecorderTests: XCTestCase {
         XCTAssertEqual(second.closedRows, 1, "it found the open row without being told about it")
         XCTAssertEqual(column("finalised", ofRow: first.deviceEventID), "1")
     }
+    // MARK: - where the app is up to, which is two different questions
+
+    func testWithNoRowsAtAllBothMarksAreEmpty() {
+        XCTAssertEqual(recorder.newestOnRecord(), .none)
+        XCTAssertEqual(recorder.newestFromTheCube(), .none)
+    }
+
+    func testTheNewestRowIsTheNewestRowWhicheverFaceItIsOn() {
+        // What `record` needs: whether an arriving segment supersedes what is open, over the whole table.
+        recorder.record(segment(eventNumber: 4, face: 8, at: 0))
+        recorder.startSegment(face: ManualFace.first, at: moment.addingTimeInterval(600))
+
+        XCTAssertEqual(recorder.newestOnRecord().startEpoch, Int(moment.timeIntervalSince1970) + 600)
+    }
+
+    func testTheCubesPositionIgnoresTheAppsOwnSegments() {
+        // **The bug this split exists for.** A manual segment carries the epoch as its event number, because nothing
+        // issued it one -- so read the newest row of any kind and "where is the cube's history up to" is answered with
+        // about 1.8 billion, a number no cube can reach. Every refresh then re-streams the lot and the cheap check can
+        // never match.
+        recorder.record(segment(eventNumber: 4, face: 8, at: 0))
+        recorder.startSegment(face: ManualFace.first, at: moment.addingTimeInterval(600))
+
+        let mark = recorder.newestFromTheCube()
+
+        XCTAssertEqual(mark.eventNumber, 4)
+        XCTAssertEqual(mark.startEpoch, Int(moment.timeIntervalSince1970))
+    }
+
+    func testTheCubesPositionIsEmptyWhileOnlyTheAppHasTimedAnything() {
+        // A launch that has only ever timed by hand has no cube position at all, which is what sends the next fetch
+        // back to the beginning rather than to a manual segment's epoch.
+        recorder.startSegment(face: ManualFace.first, at: moment)
+
+        XCTAssertEqual(recorder.newestFromTheCube(), .none)
+        XCTAssertNotEqual(recorder.newestOnRecord(), .none)
+    }
+
+    func testTheHighestFaceACubeCanReportStillCounts() {
+        // The boundary, so the filter cannot drift onto face 11 or 13 without a test noticing.
+        recorder.record(segment(eventNumber: 7, face: ManualFace.highestDeviceFace, at: 0))
+
+        XCTAssertEqual(recorder.newestFromTheCube().eventNumber, 7)
+    }
+
+    func testWithinOneSecondTheHigherEventNumberWins() {
+        // Two segments sharing a second, which the previous app's production database holds several of. The pair is
+        // what identifies a segment, so the mark has to name the later of the two rather than either.
+        recorder.record(segment(eventNumber: 4, face: 8, at: 0))
+        recorder.record(segment(eventNumber: 5, face: 8, at: 0))
+
+        XCTAssertEqual(recorder.newestFromTheCube().eventNumber, 5)
+    }
+
 }

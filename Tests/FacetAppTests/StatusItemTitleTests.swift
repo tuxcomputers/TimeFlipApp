@@ -21,7 +21,8 @@ final class StatusItemTitleTests: XCTestCase {
         showingSeconds: Bool = true,
         badge: String? = nil,
         isLimitReached: Bool = false,
-        lowBattery: LowBatteryAlert = .none
+        lowBattery: LowBatteryAlert = .none,
+        isCubeLocked: Bool = false
     ) -> StatusItemTitle {
         StatusItemTitle.make(
             appLabel: appLabel,
@@ -29,8 +30,13 @@ final class StatusItemTitleTests: XCTestCase {
             reading: reading,
             showingSeconds: showingSeconds,
             isLimitReached: isLimitReached,
-            lowBattery: lowBattery
+            lowBattery: lowBattery,
+            isCubeLocked: isCubeLocked
         )
+    }
+
+    private var running: TimingReadout.Reading {
+        TimingReadout.Reading(category: category(), state: .running, seconds: 30)
     }
 
     private let flashOn = LowBatteryAlert(isLow: true, isBlinkOn: true)
@@ -243,5 +249,115 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertTrue(title(reading, lowBattery: flashOff).spoken.contains("low battery"))
         XCTAssertTrue(title(.idle, lowBattery: flashOn).spoken.contains("low battery"))
         XCTAssertFalse(title(reading).spoken.contains("low battery"))
+    }
+
+    // MARK: - the cube being locked
+
+    func testALockedCubeCarriesItsOwnGlyph() {
+        let title = title(running, isCubeLocked: true)
+
+        XCTAssertEqual(title.lockGlyphName, "lock.fill")
+    }
+
+    func testAnUnlockedCubeCarriesNone() {
+        let title = title(running, isCubeLocked: false)
+
+        XCTAssertNil(title.lockGlyphName)
+    }
+
+    func testTheLockIsSaidOutLoud() {
+        // A badge is the whole of the signal on screen, so without this the state that explains why a cube is not
+        // changing face would be invisible to anybody reading the item aloud.
+        let title = title(running, isCubeLocked: true)
+
+        XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
+    }
+
+    func testALockedCubeIsDrawnAndSaidWithNothingBeingTimed() {
+        // A fact about the device rather than about the session, and the moment it matters most is when nothing is
+        // running -- because being locked is why.
+        let title = title(.idle, isCubeLocked: true)
+
+        XCTAssertEqual(title.lockGlyphName, "lock.fill")
+        XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
+    }
+
+    // MARK: - following a cube
+
+    private func onCube(
+        _ face: Int = 2,
+        category: CategoryRecord?,
+        isDevicePaused: Bool? = nil
+    ) -> TimingReadout.Reading {
+        TimingReadout.Reading(
+            category: category,
+            state: .idle,
+            seconds: 0,
+            deviceFace: face,
+            deviceIsPaused: isDevicePaused
+        )
+    }
+
+    func testFollowingACubeNamesTheFacesCategory() {
+        // The bug this exists for: with a cube connected the Faces tab drew the face's category while the status item
+        // drew the app's name, because each asked its own question. One reading now decides, and both draw it.
+        let title = title(onCube(category: category(name: "Deep Work", icon: "ic_admin")))
+
+        XCTAssertEqual(title.text, "Deep Work")
+        XCTAssertEqual(title.iconName, "ic_admin")
+    }
+
+    func testFollowingACubeDrawsTheFigure() {
+        let title = title(onCube(category: category()))
+
+        XCTAssertEqual(title.duration, "0:00:00")
+    }
+
+    func testTheGlyphIsTheCubesOwnState() {
+        // The archive's `showsPauseIcon` took the *device's* paused state, not the app's, which is what makes a glyph
+        // mean anything here: this app runs no clock while it follows a cube, but the cube certainly is.
+        XCTAssertEqual(title(onCube(category: category(), isDevicePaused: false)).glyphName, "play.fill")
+        XCTAssertEqual(title(onCube(category: category(), isDevicePaused: true)).glyphName, "pause.fill")
+    }
+
+    func testACubeThatHasNotAnsweredGetsNoGlyph() {
+        // Guessing "running" would be a claim about hardware on no evidence, which is the one thing the read-back
+        // rule exists to stop.
+        XCTAssertNil(title(onCube(category: category(), isDevicePaused: nil)).glyphName)
+    }
+
+    func testTheCubesStateIsSaidAloudAsWellAsDrawn() {
+        XCTAssertTrue(title(onCube(category: category(), isDevicePaused: true)).spoken.contains("device paused"))
+        XCTAssertTrue(title(onCube(category: category(), isDevicePaused: false)).spoken.contains("device running"))
+    }
+
+    func testFollowingACubeSaysTheFigureAloud() {
+        // Said as well as drawn, for the reason the limit and the lock are: a duration is the one part of the line
+        // that is never a colour, so it has to reach somebody reading it aloud.
+        let title = title(onCube(category: category()))
+
+        XCTAssertTrue(title.spoken.contains("0:00:00"), title.spoken)
+    }
+
+    func testFollowingACubeIsNotGreen() {
+        // Green is a claim that this app is recording time. Here the cube is, and the app is only naming the face.
+        let title = title(onCube(category: category()))
+
+        XCTAssertEqual(title.colour, .labelColor)
+    }
+
+    func testAFaceWithNoCategoryFallsBackToTheAppsName() {
+        // An unassigned face has nothing to name, so the item says whose it is rather than going blank.
+        let title = title(onCube(category: nil))
+
+        XCTAssertEqual(title.text, appLabel)
+    }
+
+    func testTheLockAndTheWarningStillShowWhileFollowingACube() {
+        let title = title(onCube(category: category()), lowBattery: flashOn, isCubeLocked: true)
+
+        XCTAssertEqual(title.lockGlyphName, "lock.fill")
+        XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
+        XCTAssertTrue(title.spoken.contains("low battery"), title.spoken)
     }
 }

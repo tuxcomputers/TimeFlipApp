@@ -57,6 +57,12 @@ yellow() { printf '\033[1;33m%s\033[0m\n' "$*"; }
 #
 # **Non-interactive answers no**, rather than waiting for a person who is not there. A run with no
 # terminal is CI or a pipe, and a step needing hands is one it should skip and say so.
+#
+# **Only `y` or `n` is an answer, and anything else asks again.** This used to treat every key that was
+# not a yes as a no, which is a mistyped character silently choosing the destructive one: on 2026-08-18 a
+# stray `t` skipped the whole Google calendar section, and the run finished green having not checked it.
+# A skip is a real answer somebody may want to give, so it keeps its key -- what it no longer has is every
+# other key on the keyboard as a synonym. EOF still ends it, so a closed pipe cannot loop for ever.
 action_required() {
     local title="$1"
     shift
@@ -81,13 +87,15 @@ action_required() {
     fi
 
     local answer=""
-    printf '  Type y and press Return when you are ready (anything else skips this): '
-    read -r answer < /dev/tty || return 1
-    echo ""
-    case "$answer" in
-        y | Y | yes | YES | Yes) return 0 ;;
-        *) return 1 ;;
-    esac
+    while true; do
+        printf '  Answer y (go ahead) or n (skip this): '
+        read -r answer < /dev/tty || return 1
+        case "$answer" in
+            y | Y | yes | YES | Yes) echo ""; return 0 ;;
+            n | N | no | NO | No) echo ""; return 1 ;;
+            *) red "  '$answer' is not an answer here. Type y or n." ;;
+        esac
+    done
 }
 
 # Holds the run until the person running it says go. Unlike `action_required` there is nothing to decide:
@@ -120,17 +128,79 @@ wait_for_dev() {
         grey "  no terminal to wait on, so carrying straight on"
         return 0
     fi
-    local answer=""
-    printf '  Press y and Return when you are ready to carry on: '
-    read -r answer < /dev/tty || true
+    # **No key in particular**, unlike `action_required`: there is nothing being decided here, so there is no
+    # wrong key to press and nothing a mistyped one could choose. Asking for `y` would only be a rule with
+    # no answer behind it.
+    printf '  Press Return when you are ready to carry on: '
+    read -r _ < /dev/tty || true
     echo ""
     return 0
 }
 
+# Asks for something only a pair of hands can do, then watches the database until it has happened.
+#
+#     ask_and_detect "SELECT message FROM debug_log WHERE ... ;" \
+#         "Turn the cube to the Break face" \
+#         "Break is face 8; the app is watching for it"
+#
+# Answers 0 once the query returns anything at all, and 1 when there is no terminal to ask.
+#
+# **Detected, not confirmed**, which is the archive's rule and the reason nothing here says "have you done
+# that? (y/n)". A person answering yes records their optimism; the app's own row records the cube. It is
+# also what makes a mis-turn harmless: the query names the face that was asked for, so turning the cube to
+# some other one simply does not satisfy it and the banner is still on screen saying which one.
+#
+# **No timeout, deliberately.** A physical action takes as long as the person takes, and a run that failed
+# because they answered the door would be failing about the wrong thing. `Archive/testrunner/actions.py`
+# reached the same place from the other direction: `act_ask_user_or_detect` treats `timeout_seconds = 0` as
+# "wait indefinitely" and says why in the same words. It reports that it is still waiting every half minute,
+# so an unattended run reads as waiting rather than as hung.
+#
+# **A run with no terminal skips rather than blocking.** That is CI or a pipe, and there is nobody there to
+# turn anything -- the same answer `action_required` gives, for the same reason.
+ask_and_detect() {
+    local query="$1" title="$2"
+    shift 2
+    echo ""
+    yellow "##############################################################################"
+    yellow "##"
+    yellow "##  OVER TO YOU -- THE CUBE NEEDS TURNING"
+    yellow "##"
+    yellow "##  $title"
+    yellow "##"
+    local line
+    for line in "$@"; do
+        yellow "##    $line"
+    done
+    yellow "##"
+    yellow "##  Nothing to press: this is watching the database and carries on by itself."
+    yellow "##"
+    yellow "##############################################################################"
+    echo ""
+
+    if [ ! -r /dev/tty ]; then
+        grey "  no terminal to ask, so this is being skipped"
+        return 1
+    fi
+
+    local waited=0 found=""
+    while true; do
+        found=$(sql "$query")
+        if [ -n "$found" ]; then
+            grey "  seen: $found"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        [ $((waited % 30)) -eq 0 ] && yellow "  still waiting ($((waited))s) -- $title"
+    done
+}
+
+
 # Asked once a run: is the TimeFlip here? Answers 0 for yes, 1 for anything else, and every script after
 # the first gets that answer back without asking again.
 #
-#     device_required || { skip "no TimeFlip was made available"; finish; exit 0; }
+#     device_required || { fail "no TimeFlip was made available"; finish; exit $?; }
 #
 # **Several scripts need the cube and one person is answering for all of them.** Asking each time treats
 # them as separate questions when they are one, and the repetition is what makes it worse than useless: a
@@ -180,7 +250,7 @@ device_required() {
     # about again later, so this prompt has to be worth reading -- it is the whole of the consent.
     if action_required \
         "May this run use your TimeFlip? It will be RESET to factory settings." \
-        "THIS WIPES THE CUBE. 15-device-reset erases everything stored on the device --" \
+        "THIS WIPES THE CUBE. 52-device-reset erases everything stored on the device --" \
         "face colours, task settings, its name and its PIN -- back to factory defaults," \
         "and that cannot be undone. The cube comes back on the vendor PIN 000000, which is" \
         "the first one Facet presents, so pairing it again afterwards is one press of Scan," \
@@ -214,10 +284,10 @@ device_required() {
 
 # Pairs a cube from scratch, with the Device tab already on show. Answers 0 once the app says `Paired with`.
 #
-#     pair_a_cube || { skip "..."; finish; exit 0; }
+#     pair_a_cube || { pair_verdict "..."; finish; exit $?; }
 #
 # **Three scripts needed this and had two copies of it**, which is the point at which it stops being repetition and
-# starts being a place for them to drift apart. `14-device-connect` keeps its own, deliberately: that one is the
+# starts being a place for them to drift apart. `51-device-connect` keeps its own, deliberately: that one is the
 # script whose subject *is* connecting, and every step of it is a check rather than a means to an end.
 #
 # **From scratch, forgetting first.** A paired app has no Scan button (`DevicePairingRules.showsScanControls`), so a
@@ -233,6 +303,19 @@ device_required() {
 #   1  everything else: nothing answered the scan, no row to press, or the PIN was refused
 pair_a_cube() {
     PAIR_REASON=""
+    PAIR_STATUS=0
+
+    # **The Scan button has to be on screen, and this is checked rather than assumed.** `press` swallows everything --
+    # its output, its exit code, and the case where the element is not in the tree at all -- so pressing a button that
+    # is not there does nothing and says nothing. The wait below then times out after a full minute and reports the
+    # radio as the culprit, which is a diagnosis pointing away from the fault: on 2026-08-22 `57-cube-pause` reached
+    # here without ever having opened the Settings window, sat for 60 seconds, and skipped itself blaming a
+    # permission prompt that was not there.
+    if [ -z "$(element device-scan)" ] && [ -z "$(element device-forget)" ]; then
+        PAIR_REASON="neither Scan nor Forget is on screen -- open the Settings window on the Device tab first"
+        PAIR_STATUS=1
+        return 1
+    fi
 
     if [ -n "$(element device-forget)" ]; then
         grey "  already paired; forgetting first so this pairs its own cube"
@@ -248,8 +331,9 @@ pair_a_cube() {
     grey "  waiting for the radio to come up..."
     if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
         PAIR_REASON=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
-        [ -n "$PAIR_REASON" ] && return 2
+        [ -n "$PAIR_REASON" ] && { PAIR_STATUS=2; return 2; }
         PAIR_REASON="the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -259,6 +343,7 @@ pair_a_cube() {
         # the timeout exists to prevent, and this path is reached before it fires.
         press device-scan
         PAIR_REASON="the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -266,6 +351,7 @@ pair_a_cube() {
     if [ -z "$row" ]; then
         press device-scan
         PAIR_REASON="the app logged a device but drew no row to press"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -274,9 +360,28 @@ pair_a_cube() {
     grey "  pairing..."
     if ! wait_for "$since" "Paired with %" 60 >/dev/null; then
         PAIR_REASON="the cube was found but would not pair -- it may be on a PIN this app cannot present"
+        PAIR_STATUS=1
         return 1
     fi
     return 0
+}
+
+# Records what a failed `pair_a_cube` means, so the eight scripts that pair do not each decide it.
+#
+# **A cube that was promised and then would not pair is a failure, not a skip**, and that distinction is the whole of
+# this. `device_required` has already confirmed a TimeFlip is here for this run, so from that point on "no cube could
+# be paired" is the app failing to do the thing the script exists to check -- not the environment being unable to
+# answer. Reported as a skip it read as green: on 2026-08-22 `55-device-face` tested nothing at all because a busy
+# database dropped one write of `recordPairing`, and the run finished `outcome: passed`.
+#
+# Status 2 stays a skip, and that is the case worth keeping: the radio itself is off or refused, which says nothing
+# about this app and is exactly the state an outside contributor without a device is in. See `CONTRIBUTING.md`.
+pair_verdict() {
+    if [ "${PAIR_STATUS:-1}" = "2" ]; then
+        fail "the radio could not be used, so $1 ($PAIR_REASON)"
+    else
+        fail "a cube was confirmed for this run and then would not pair, so $1 ($PAIR_REASON)"
+    fi
 }
 
 start() {
@@ -379,7 +484,15 @@ check_contains() {
 # tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
 # but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
 SKIPPED=0
-skip() { SKIPPED=$((SKIPPED + 1)); announce "$*"; printf '\033[0;33m    SKIP\033[0m\n'; testlog_check skip; }
+# **There is no `skip`, deliberately, and calling one is meant to be an error.** A skip is a check reporting that it
+# could not answer, and a run full of them reads green while proving nothing: on 2026-08-22 `55-device-face` skipped
+# its entire self and the run still stamped `outcome: passed`. So a missing cube, an unusable radio, an unconnected
+# Google account and a prompt nobody answered are failures -- they say what is needed, and the run stays red until it
+# is there. See `README.md`, under the order.
+#
+# The counter and its plumbing stay, in `finish`, the stamp and `scripts/check_interactive_checklists.sh`. They are
+# now a guard rather than a feature: if anything ever manages to record a skip again, every one of them still refuses
+# the run, and the number is where it will show.
 
 # Ends the script and decides its exit status. Non-zero on any failure, which is what lets run.sh stop
 # rather than carry on into scripts whose starting state the failure just invalidated.
@@ -471,6 +584,21 @@ mark() { sql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;"; }
 # happened, so this is as fast as the app is and still correct on a slow machine.
 wait_for() {
     local since="$1" pattern="$2" timeout="${3:-15}"
+    # **An apostrophe in the pattern is doubled, because the pattern goes inside a SQL string literal.** `The cube's
+    # clock is set` closes the quote at `cube` and the rest becomes syntax, so sqlite3 refuses the query, prints
+    # nothing to stdout, and this polls an empty answer for its whole timeout before reporting that the app never
+    # wrote a row it wrote immediately. Doubling is SQL's own escape and is what sqlite3 expects.
+    #
+    # Measured 2026-08-22: `57-cube-pause` failed on "no debug_log row matching 'Setting the cube's clock to %' within
+    # 30s" with that exact row sitting in the table, 170ms after the mark. Three of its checks carried an apostrophe
+    # and none of them could ever have matched. Escaped here rather than in each script, so the next pattern with one
+    # in it simply works.
+    #
+    # **The error was never hidden, and that is the part worth remembering.** `sql` does not redirect stderr, so
+    # `Error: in prepare, near "s": syntax error` went to the terminal and into `logs/screen.txt` -- three hundred
+    # times, once per poll. What failed was not the diagnosis being unavailable but the verdict pointing away from it:
+    # the FAIL line said the app had written no row. A loud signal beside a confident wrong summary is read as noise.
+    pattern=${pattern//\'/\'\'}
     local waited=0 found=""
     while [ "$waited" -lt "$((timeout * 10))" ]; do
         found=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '$pattern' ORDER BY debug_log_id LIMIT 1;")

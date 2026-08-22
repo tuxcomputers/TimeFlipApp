@@ -4,16 +4,16 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   feature/battery
-    commit:   e4d895d83c73c3de7808cec346d383e5a66a6f5f
+    branch:   feature/assignFace
+    commit:   6ee539c89136936bd56700bfeff839306ea85372
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-18 21:19:11
-    finished: 2026-08-18 21:30:49
+    started:  2026-08-22 19:12:06
+    finished: 2026-08-22 19:26:08
     outcome:  passed
-    scripts:  19 run, 0 with failures
-    checks:   410 in total
-              410 passed
+    scripts:  22 run, 0 with failures
+    checks:   522 in total
+              522 passed
               0 failed
               0 skipped
 
@@ -32,13 +32,16 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 10-google-calendar | 10 | 0 | 0 |
 | 11-google-reconnect | 17 | 0 | 0 |
 | 12-daily-limit | 32 | 0 | 0 |
-| 13-device-scan | 14 | 0 | 0 |
-| 14-device-connect | 38 | 0 | 0 |
-| 15-device-reset | 33 | 0 | 0 |
-| 16-device-reconnect | 22 | 0 | 0 |
-| 17-device-battery | 10 | 0 | 0 |
+| 50-device-scan | 14 | 0 | 0 |
+| 51-device-connect | 41 | 0 | 0 |
+| 52-device-reset | 33 | 0 | 0 |
+| 53-device-reconnect | 22 | 0 | 0 |
+| 54-device-battery | 10 | 0 | 0 |
+| 55-device-face | 43 | 0 | 0 |
+| 56-manual-mode | 28 | 0 | 0 |
+| 57-cube-pause | 38 | 0 | 0 |
 | 99-quit | 13 | 0 | 0 |
-| **total** | **410** | **0** | **0** |
+| **total** | **522** | **0** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.

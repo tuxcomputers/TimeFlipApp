@@ -33,11 +33,28 @@ final class ManualMode {
     func startIfNoDeviceIsPaired(_ settings: SettingStore) {
         let isPaired = settings.flag("paired", field: "paired") ?? false
         guard !isPaired else {
+            // **A paired app does not start by timing by hand**, even before it has reached anything. It has a cube
+            // and is about to look for it (`DeviceReconnector.follow`), and only that search failing is a reason to
+            // offer this -- which is a question put to the user rather than a mode the app slid into on its own.
             debugLog?.record(.mode, "Manual mode: off, a device is paired")
             return
         }
+        start(because: "no device is paired")
+    }
+
+    /// Turns it on, for a reason that is not the absence of a pairing.
+    ///
+    /// **The one caller is somebody answering the offer**, which is what makes this different from the method above:
+    /// there *is* a cube on record, the app looked for it and could not find it, and this is the user saying to get on
+    /// without it. The pairing is untouched -- the mode and the pairing are different facts, so the cube is still this
+    /// app's cube and pairing is not something a failed scan may undo.
+    ///
+    /// Nothing is written down, for the reason the whole class is in memory: the mode is per-launch, so a stored answer
+    /// would outlive the restart somebody made specifically to get out of it.
+    func start(because reason: String) {
+        guard !isOn else { return }
         isOn = true
-        debugLog?.record(.mode, "Manual mode: on, no device is paired")
+        debugLog?.record(.mode, "Manual mode: on, \(reason)")
     }
 
     /// Turns it off, for the moment a cube becomes this app's cube.

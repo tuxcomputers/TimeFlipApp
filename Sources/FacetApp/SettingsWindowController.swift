@@ -1473,7 +1473,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// status item asks the same question and the two must not answer it separately. See there for what each
     /// piece is read from and why the figure is the category's total for the day rather than this session's
     /// stopwatch.
-    private func redrawTiming() {
+    /// Internal, because a flip has two things to repaint and only one callback to hear it on: `main.swift` owns
+    /// `BluetoothRadio.onFace` and calls this and the menu bar from it. It lived here and was assigned here until the
+    /// menu bar needed it too, at which point a second assignment would have silently replaced the first.
+    func redrawTiming() {
         draw(timing?.read() ?? .idle)
     }
 
@@ -1492,6 +1495,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// whether to keep going, and reading twice for one repaint would be two answers where one will do.
     private func draw(_ reading: TimingReadout.Reading) {
         guard let pane = panes.selectedTabViewItem?.view as? FacesPane else { return }
+        // **Both pictures come out of the one reading**, which is what keeps this tab and the menu bar saying the
+        // same thing. They did not, briefly: this asked the radio for the face while the status item asked
+        // `TimingReadout` what was being timed, so a launch with a cube connected drew the cube's category here and
+        // the app's name up there. Which of the two a reading describes is `TimingReadout.read`'s to decide.
+        // **The lock, the list and the click all come off one answer.** Asked here and again at the click, rather than
+        // written out twice: the archive's `canAssignToFaceOnShow` was read by both for exactly this reason, and this
+        // app had only the click half until a locked face was watched refusing one on hardware with nothing on screen
+        // to say so.
+        let isLocked = reading.deviceFace.map { faces?.isLocked(face: $0) == true } ?? false
+        pane.categoryList.allowPicking(
+            FacesTabRules.click(
+                deviceFace: reading.deviceFace,
+                isFaceLocked: isLocked,
+                isTimingByHand: manualMode?.isOn == true
+            ).doesAnything
+        )
+        if let face = reading.deviceFace {
+            pane.timingView.show(
+                face: face,
+                category: reading.category,
+                isLocked: isLocked,
+                // The same figure the menu bar draws, out of the same reading, so the two cannot differ by a read.
+                elapsed: reading.seconds,
+                // Read at the moment it is drawn, like every other setting: the App tab can change it while this
+                // window is open, and the next redraw is what carries it.
+                showingSeconds: settings?.flag("display_seconds", field: "enabled") ?? true,
+                // The same answer the menu bar's glyph is drawn from, out of the same reading.
+                isDevicePaused: reading.deviceIsPaused
+            )
+            return
+        }
         pane.timingView.show(
             category: reading.category,
             state: reading.state,
@@ -1521,6 +1555,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// and decides the rest.
     private func startTiming(_ category: CategoryRecord) {
         guard let faces else { return }
+        // **What a click means is `FacesTabRules`', asked here and again when the list is drawn**, so a row that looks
+        // live is one that does something. Everything the branches used to say inline is said there instead -- why a
+        // cube's face wins, why a paired app refuses, and why a locked face keeps what it has.
+        //
+        // **No `ManualMode` at all refuses too**, which falls out of asking rather than being a case of its own: that
+        // is a controller built without one, so a layout test rather than a launch, and of the two ways to be wrong,
+        // refusing a click is visible and recoverable while starting a clock nobody asked for writes rows.
+        let reading = timing?.read()
+        switch FacesTabRules.click(
+            deviceFace: reading?.deviceFace,
+            isFaceLocked: reading?.deviceFace.map { faces.isLocked(face: $0) == true } ?? false,
+            isTimingByHand: manualMode?.isOn == true
+        ) {
+        case let .assignToFace(face):
+            assignToCube(face: face, category)
+            return
+        case let .faceIsLocked(face):
+            debugLog?.record(
+                .mode,
+                "Face \(face) is locked, so it keeps what it has rather than taking \"\(category.name)\""
+            )
+            return
+        case .waitingForTheDevice:
+            debugLog?.record(
+                .mode,
+                "Timing: \"\(category.name)\" was not started -- a device is paired, and manual mode has not been chosen"
+            )
+            return
+        case .startTiming:
+            break
+        }
         // Already timing this one, so the click has nothing to ask for: the clock is where it should be, and
         // restarting it would rotate the face and close a segment for a gesture that asked for no change. Ahead of
         // the face write as well as the segment, since the face already holds this category too.
@@ -1551,6 +1616,51 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         redrawTotals()
         onTimingChanged?()
         startTicking()
+    }
+
+    /// A category was clicked while a cube is connected: the face the cube is resting on takes it, and that is all.
+    ///
+    /// **The archive's `pickCategory`, massaged.** Its shape is kept exactly -- refuse a face that will not take it,
+    /// start the clock in manual mode, otherwise put the category on the face that is up -- because the reasoning
+    /// behind it survives: somebody looking at a lit cube and clicking a category is saying "this face is that", and
+    /// making them find the face in a list afterwards would be saying it twice. What is not kept is where the answer
+    /// comes from. The archive read `appState.currentFaceID`, a published property the app kept in step by hand;
+    /// here the face is whatever the reading says, asked for at the moment of the click.
+    ///
+    /// **No segment, no clock, no tick.** The cube is doing the timing and this app does not read its history yet, so
+    /// opening a segment here would be the app recording a stretch it did not measure. The click changes which
+    /// category a face names and nothing else, which is why this is a separate path rather than a flag inside
+    /// `startTiming`: the two gestures share a control and share almost nothing else.
+    ///
+    /// **A locked face keeps what it has, and is told about.** Faces 2 and 8 are seeded locked by `008_face.sql`, so
+    /// this is the ordinary case on a fresh database rather than an edge of it, and a click that quietly did nothing
+    /// would read as a list that had stopped responding. The write refuses on its own (`FaceStore.assign`); this
+    /// exists to say which of the two reasons it was.
+    private func assignToCube(face: Int, _ category: CategoryRecord) {
+        guard let faces else { return }
+        // **The lock is not re-asked here.** `FacesTabRules` decided before this was called, from the same read the
+        // list was drawn from, and asking again would be a second answer that could differ from the one the user is
+        // looking at. The write refuses a locked face on its own anyway (`FaceStore.assign`), which is where that
+        // guarantee belongs; what reaches the guard below is a face that was unlocked a moment ago and is not now.
+        //
+        // The click asked for no change, and saying so is what tells a deliberate no-op apart from a list that has
+        // stopped responding -- the same reason the manual path records its own.
+        guard faces.categoryID(forFace: face) != category.id else {
+            debugLog?.record(.mode, "Face \(face) already holds \"\(category.name)\", so the click changes nothing")
+            return
+        }
+        guard faces.assign(categoryID: category.id, toFace: face) else {
+            debugLog?.record(.mode, "Face \(face) refused category \"\(category.name)\"")
+            return
+        }
+        debugLog?.record(.mode, "Face \(face) now holds \"\(category.name)\" (category_id \(category.id))")
+        redrawTiming()
+        redrawTotals()
+        // **Through the same funnel, though no clock started.** What this actually means here is "the reading
+        // changed, and the menu bar draws that reading too" -- nothing else tells it, since `onFace` fires on a turn
+        // of the cube and not on a face being given a different category. The two timers it also wakes stand
+        // themselves down again when they find nothing being timed, which is what they already do between sessions.
+        onTimingChanged?()
     }
 
     /// Stop the clock, or start it again.
@@ -1941,8 +2051,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         faces.timingView.onTogglePause = { [weak self] in
             self?.togglePause()
         }
+        faces.timingView.onToggleLock = { [weak self] in
+            self?.toggleFaceLock()
+        }
         wire(faces.createControl, startsTiming: true)
         return faces
+    }
+
+    /// Locks or unlocks the face the cube is resting on.
+    ///
+    /// **Which face, and whether it is locked, are both read here rather than taken from the button.** The lock draws
+    /// what the table said when the tab was last drawn, and the cube can be turned between that and the click landing;
+    /// a toggle working from what was drawn would then lock a face nobody was looking at. So this reads the face from
+    /// the reading and its lock from the table, at this moment, and inverts what it finds.
+    ///
+    /// **The tab is redrawn from the table afterwards, not from what was asked for**, which is `CLAUDE.md`'s rule about
+    /// reading back after a write: a refused write shows as the lock it really is rather than the one that was wanted.
+    /// It also redraws the list, since the lock is exactly what decides whether the rows are live.
+    private func toggleFaceLock() {
+        guard let faces, let face = timing?.read().deviceFace else {
+            // Not reachable through the button, which is hidden when there is no cube -- but the closure outlives any
+            // one drawing of it, and a click landing as the link drops would otherwise write to whatever face was last
+            // on screen.
+            debugLog?.record(.click, "The lock was pressed with no cube face to lock")
+            return
+        }
+        let wanted = !(faces.isLocked(face: face) ?? false)
+        debugLog?.record(.click, "Button clicked: face \(face) lock -> \(wanted ? "locked" : "unlocked")")
+        if !faces.setLocked(wanted, face: face) {
+            debugLog?.record(.click, "Face \(face) would not take the lock")
+        }
+        redrawTiming()
     }
 
     /// The Report tab: the date range, and the totals it asks for.

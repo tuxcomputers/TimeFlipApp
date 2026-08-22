@@ -64,6 +64,21 @@ final class CategoryListView: NSView {
         shownCategories = categories
     }
 
+    /// Draws the rows live or dead.
+    ///
+    /// **What makes a refusal visible.** A click the window is going to refuse -- a locked face, or a device the app
+    /// has not found yet -- otherwise produces a log row and nothing on screen at all, which reads as a list that has
+    /// stopped responding rather than as one being deliberate. `FacesTabRules` is what decides, and the window asks it
+    /// the same question here and at the click, so the drawing and the behaviour cannot come apart.
+    ///
+    /// Applied after every `show`, since that rebuilds the rows: a state held only here would be thrown away by the
+    /// next redraw, which happens on every flip of the cube.
+    func allowPicking(_ allowed: Bool) {
+        for row in rows.views.compactMap({ $0 as? CategoryRowView }) {
+            row.isEnabled = allowed
+        }
+    }
+
     /// Adds a row or a divider, spanning the panel's full width.
     ///
     /// The width constraint has to be activated **after** the view is in the stack, not while building it:

@@ -19,6 +19,7 @@ final class CreateStartsTimingTests: XCTestCase {
     private var faces: FaceStore!
     private var events: DeviceEventRecorder!
     private var readout: TimingReadout!
+    private var manualMode: ManualMode!
     private var controller: SettingsWindowController!
 
     override func setUpWithError() throws {
@@ -38,6 +39,11 @@ final class CreateStartsTimingTests: XCTestCase {
         )
         let dayTotal = DayTotal(settings: settings, entries: entries, events: events, faces: faces)
         readout = TimingReadout(categories: categories, faces: faces, events: events, dayTotal: dayTotal)
+        // **Turned on the way a launch turns it on**, from a table with nothing paired, rather than set by hand. The
+        // clock only starts by hand while the app is timing by hand, so a controller with no `ManualMode` refuses every
+        // start -- and a test that skipped this would be describing a state no launch reaches.
+        manualMode = ManualMode(debugLog: nil)
+        manualMode.startIfNoDeviceIsPaired(settings)
         controller = SettingsWindowController(
             debugLog: nil,
             categories: categories,
@@ -45,12 +51,14 @@ final class CreateStartsTimingTests: XCTestCase {
             deviceEvents: events,
             timing: readout,
             entries: entries,
-            settings: settings
+            settings: settings,
+            manualMode: manualMode
         )
     }
 
     override func tearDown() {
         controller = nil
+        manualMode = nil
         database.remove()
         super.tearDown()
     }

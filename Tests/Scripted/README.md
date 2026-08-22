@@ -130,10 +130,30 @@ wrong place.
 Each script depends on what the ones above it proved, so they read top to bottom as the app coming up
 and then being used.
 
+**Below `50` needs no TimeFlip; `50` and above needs one.** The number says what a script requires
+before anybody opens it, and that is the whole of the rule: a check that does not touch the device is
+written somewhere in `01`-`49`, and a check that does is written at `50` or above. Both ranges have
+room, so a new script takes the next free number in its own half and nothing is renumbered to make
+space.
+
+The point of the split is that "did the device half run?" is answerable from the file names alone,
+by a person or by a script. Before it, the two were interleaved -- `12` needed nothing and `13`
+needed a cube -- so the only way to know what a run had actually covered was to read every file.
+
 **Quit is `99`, and everything else comes before it.** It is the one script that ends the app, so
-anything after it would run against nothing at all. Numbering it out at the end rather than one past
-the last leaves the numbers in between free: a new script takes the next one, and nothing has to be
-renumbered to make room.
+anything after it would run against nothing at all. It needs a cube as well (it wipes it), which the
+`50` rule already allows for: `99` is above `50`, and it sorts last where it belongs.
+
+**There is no skip. Every check passes or fails.** A skip is a check reporting that it could not
+answer, and a run full of them reads green while proving nothing -- which is exactly what happened on
+2026-08-22, when `55-device-face` skipped its whole self and the run still stamped `outcome: passed`.
+So the missing cube, the radio that will not come up, the Google account nobody connected and the
+prompt nobody answered are all failures now. They say what is needed, and the run is red until it is
+there.
+
+What this does *not* cover is a device legitimately having nothing to say -- a cube that never told
+this Mac its name, say. That is not a check failing to run, it is the app handling a real case
+correctly, so it passes and the line says which case it met.
 
 | | |
 |---|---|
@@ -150,6 +170,14 @@ renumbered to make room.
 | `10-google-calendar` | the account, and recorded time reaching the calendar `03` made |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
 | `12-daily-limit` | a category spending its `daily_limit` stops the clock, and every way of starting it again refuses |
+| `50-device-scan` | the radio comes up, the scan lists what answers it, and stops on its own |
+| `51-device-connect` | pairing, the PIN the cube is on, and what the Device tab says afterwards |
+| `52-device-reset` | the factory reset, and the cube coming back on the vendor PIN |
+| `53-device-reconnect` | a paired app reaching its own cube at launch, with the window shut |
+| `54-device-battery` | the charge: read on connecting, pushed after that, and shown without flapping |
+| `55-device-face` | the face the cube is on, in the menu bar and on the Faces tab (**asks you to turn the cube**) |
+| `56-manual-mode` | a paired app that cannot find its cube: what a click refuses, and what taking manual mode stops (**asks you to switch Bluetooth off and on**) |
+| `57-cube-pause` | the status item's right half: one click stops and starts the cube, two lock and unlock it (**ends by asking you to turn a paused cube**) |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written
@@ -194,6 +222,11 @@ than from anything it was told, and that file is committed. On a pull request,
 
 - the run was on **this** branch;
 - it **passed**, with zero failing checks;
+- **nothing was skipped.** A skip is a check saying it could not answer -- no cube on the desk, no Google
+  account connected, a prompt nobody was there to answer -- and the run still reports `passed` with the
+  totals adding up, so a branch could merge on coverage that was never taken. In practice this means a run
+  meant for a pull request needs the cube in reach, an account connected, and every prompt answered rather
+  than skipped past. The failure names which scripts skipped and how many;
 - the tree was **clean** when it ran, since a run against uncommitted changes is not evidence about the
   commit it names;
 - the commit it names is **in this branch's history**, and nothing under `Sources/`, `Tests/Scripted/` or
@@ -207,6 +240,13 @@ None of it is enforced on a push to main, where the stamp goes on naming the fea
 
 **So: run the suite, then commit the stamp along with your change.** If you did not run it, CI will say so
 rather than let a green build imply otherwise.
+
+**A contributor with no TimeFlip cannot clear this, and is not meant to.** The suite needs a cube in range
+and a person to turn it, so a fork's pull request lands here red however good the change is -- which is the
+honest state of it: the change has not been tried against hardware. What clears it is somebody who *has* a
+device running the suite against that branch and committing the stamp. `CONTRIBUTING.md` says what a
+contributor should do, and the two things that make it possible: leaving "Allow edits by maintainers"
+ticked, and not force-pushing the branch while it is being run.
 
 ## When one of these fails
 

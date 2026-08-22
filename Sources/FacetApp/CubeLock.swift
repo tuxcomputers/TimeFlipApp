@@ -1,0 +1,185 @@
+import Foundation
+
+/// Stopping the cube and starting it again: the lock, and the plain pause underneath it.
+///
+/// **One place that knows the order**, because there are several ways in -- the dropdown's Lock item, the quit, and
+/// both halves of the status item's right-hand gesture -- and the order is not arbitrary in any of them. Written
+/// twice it would be two answers to one question, which is the fault the first rule in `CLAUDE.md` exists to prevent.
+///
+/// `lock` and `resume` are the pair the dropdown and the quit use; `togglePause` is the single click, which stops the
+/// cube without locking it. What each of them reads to decide, and where it reads it from, is explained on each.
+///
+/// Every command goes out through `send`, so every one of them is read back before it is believed (see the read-back
+/// rule in `CLAUDE.md`). What this adds on top is the sequencing and the setting.
+@MainActor
+final class CubeLock {
+    /// Where `pause_on_lock` is read from, at the step that needs it.
+    private let settings: SettingStore?
+
+    /// Sends one command and reports whether the cube confirmed it took. `BluetoothRadio.send`, handed in rather than
+    /// held, so this can be driven through both sequences in a test with no radio.
+    private let send: (Data, @escaping (Bool) -> Void) -> Void
+
+    /// Whether there is a live link to send anything down.
+    private let isConnected: () -> Bool
+
+    /// Whether the cube is counting or stopped, **read from `device_event` at the moment it is needed**.
+    ///
+    /// The app already knows this without asking: `HistoryIngestor` brings the cube's own record of the day into
+    /// `device_event`, and a paused stretch arrives there as an interval the cube filed for `Side + 128`. So the open
+    /// segment's `paused` is the cube's own account of what it is doing, and it is the same answer both surfaces draw
+    /// their play/pause glyph from (`TimingReadout.Reading.deviceIsPaused`).
+    ///
+    /// `nil` for a cube with no open segment to read -- one that has been reset and not yet flipped, say.
+    private let isPaused: () -> Bool?
+
+    /// Whether the cube is locked.
+    ///
+    /// **A different source from `isPaused`, because the protocol gives no other.** A history frame carries an event
+    /// number, a face, a start and a duration, and the face byte is where pause rides; there is no lock bit anywhere
+    /// in it and no `locked` column in `device_event`. `0x10` is the only read the vendor defines, so this is
+    /// `BluetoothRadio.cubeStatus` -- read when the link comes up and refreshed by the read-back of every command the
+    /// app sends. It has no back door to go stale through: the cube offers no gesture that locks itself, unlike
+    /// pause, which a double tap or auto-pause changes with nothing said.
+    private let isLocked: () -> Bool?
+
+    private let debugLog: DebugLog?
+
+    init(
+        settings: SettingStore?,
+        isConnected: @escaping () -> Bool,
+        send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
+        isPaused: @escaping () -> Bool? = { nil },
+        isLocked: @escaping () -> Bool? = { nil },
+        debugLog: DebugLog?
+    ) {
+        self.settings = settings
+        self.isConnected = isConnected
+        self.send = send
+        self.isPaused = isPaused
+        self.isLocked = isLocked
+        self.debugLog = debugLog
+    }
+
+    /// Stops the cube counting, or starts it again -- whichever it is not doing now.
+    ///
+    /// **Which way to flip comes out of `device_event`, not out of a fresh question to the cube.** The app already
+    /// holds the cube's own account of what it is doing: `HistoryIngestor` brings the history in on every tick and on
+    /// every flip, and a paused stretch arrives as the interval the cube filed for `Side + 128`. Asking `0x10` first
+    /// would be a second answer to a question already answered, which is the fault the first rule in `CLAUDE.md`
+    /// exists to prevent -- and it would be the *worse* of the two answers to act on, because it is not the one the
+    /// menu bar and the Faces tab drew their glyph from. A gesture whose direction can disagree with the symbol
+    /// sitting next to it is a gesture nobody can aim.
+    ///
+    /// **The read-back is untouched by this.** `send` still confirms the result against `0x10` before it is believed,
+    /// per the read-back rule; what is taken from the table is only which command to send.
+    ///
+    /// **A locked cube is left alone**, which is the archive's rule and rests on a measurement rather than on taste:
+    /// a locked cube reports itself paused whatever its pause byte says, so nothing sent here could be read back
+    /// afterwards and there would be no way to tell what was actually done. The way out is the lock, not this.
+    ///
+    /// **A cube with no open segment is paused rather than refused.** That is a cube which has recorded nothing yet --
+    /// reset and not yet flipped -- so there is no record to read a direction out of, and of the two ways to be wrong,
+    /// stopping a cube nobody is timing on costs nothing and is undone by clicking again. The read-back is what turns
+    /// the guess into an answer, and the history fetch that follows puts it in the table.
+    ///
+    /// Returns whether anything was sent. `false` means `finished` will not be called.
+    @discardableResult
+    func togglePause(then finished: @escaping (Bool) -> Void) -> Bool {
+        guard isConnected() else {
+            debugLog?.record(.command, "No cube connected, so there is nothing to pause or resume")
+            return false
+        }
+        guard isLocked() != true else {
+            debugLog?.record(.command, "The cube is locked, so pausing it means nothing; unlock it first")
+            return false
+        }
+        let wanted = !(isPaused() ?? false)
+        send(DeviceCommandRules.pause(wanted)) { [weak self] took in
+            self?.debugLog?.record(
+                .command,
+                took
+                    ? (wanted ? "The cube is paused" : "The cube is running")
+                    : (wanted ? "The cube would not pause" : "The cube would not resume")
+            )
+            finished(took)
+        }
+        return true
+    }
+
+    /// Stops the cube: pauses it, then locks it.
+    ///
+    /// **Pause first, and that order is the protocol's rather than a preference.** Lock "freezes TimeFlip to count
+    /// time on the last active facet" (`docs/TimeFlip2 BLE Protocol v4.3.md`, Tab. 1's footnote), so a cube that is
+    /// locked and not paused goes on recording against whatever face was up, for as long as it sits there with
+    /// nobody watching. There is a second reason to send it in this order and it is the one that cannot be worked
+    /// around: **a locked cube reports itself paused whatever its pause byte says**, so a pause sent after a lock
+    /// could never be confirmed -- the read-back would answer "paused" either way.
+    ///
+    /// **Gated on `pause_on_lock`**, read here rather than anywhere earlier. The whole sequence is gated and not just
+    /// the pause: it is the setting that says what locking from the app means, and with it off the app does not lock
+    /// from either of the two places it can.
+    ///
+    /// Returns whether anything was sent. `false` means `finished` will not be called and there is nothing to wait
+    /// for, which is what lets the quit answer `.terminateNow` from the same fact rather than a second opinion.
+    @discardableResult
+    func lock(then finished: @escaping (Bool) -> Void) -> Bool {
+        guard isConnected() else {
+            debugLog?.record(.command, "No cube connected, so there is nothing to pause or lock")
+            return false
+        }
+        // **An unreadable row counts as off**, which is not the seeded default and is deliberate. Of the two ways to
+        // be wrong, leaving the cube running is visible in its own history and undone by flipping it; locking one is
+        // recoverable only from the dropdown or the vendor's app, and a launch that cannot read its own settings is
+        // not one to be handing a lock. `ManualMode.startIfNoDeviceIsPaired` chooses its fallback the same way.
+        guard settings?.flag("pause_on_lock", field: "enabled") == true else {
+            debugLog?.record(.command, "pause_on_lock is off, so the cube is left as it is")
+            return false
+        }
+        // **Sent whatever the cube is already doing, and that is not free.** `0x06 0x01` is not idempotent: measured
+        // on hardware 2026-08-12, the cube mints a `device_event` per write (see the archive's
+        // `MenuBarController.limitWriteSentAtEventNumber`). The app now *does* have an answer about the cube's pause
+        // state -- `BluetoothRadio.cubeStatus` -- but it is only as fresh as the last question, and a double tap or
+        // auto-pause changes it with nothing said, so skipping the write on the strength of it would be acting on a
+        // claim about hardware nobody has checked this second. One spurious event is the cheaper wrong answer.
+        send(DeviceCommandRules.pause(true)) { [weak self] paused in
+            self?.debugLog?.record(.command, paused ? "The cube is paused" : "The cube would not pause")
+            // **The lock goes out either way.** A pause that did not take is a reason to want the lock more, not
+            // less: locking still stops the cube changing face behind everybody's back, and giving up here would let
+            // one failure cost both steps.
+            self?.send(DeviceCommandRules.lock(true)) { locked in
+                self?.debugLog?.record(.command, locked ? "The cube is locked" : "The cube would not lock")
+                finished(locked)
+            }
+        }
+        return true
+    }
+
+    /// Starts it again: unlocks, then resumes.
+    ///
+    /// **Unlock first, which is the mirror of the reason lock goes last.** A locked cube reports itself paused
+    /// whatever its pause byte says, so a resume sent while it is still locked could not be confirmed: the read-back
+    /// would answer "paused" and the app would report a failure that may or may not have happened.
+    ///
+    /// **Not gated on `pause_on_lock`.** That setting says what *locking* does, and refusing to undo a lock because
+    /// the setting that made it has since been turned off would strand somebody's cube in the one state this app can
+    /// otherwise not get it out of.
+    @discardableResult
+    func resume(then finished: @escaping (Bool) -> Void) -> Bool {
+        guard isConnected() else {
+            debugLog?.record(.command, "No cube connected, so there is nothing to unlock")
+            return false
+        }
+        send(DeviceCommandRules.lock(false)) { [weak self] unlocked in
+            self?.debugLog?.record(.command, unlocked ? "The cube is unlocked" : "The cube would not unlock")
+            // **The resume goes out either way, for the mirror of the reason the lock does.** A cube left paused and
+            // unlocked is a cube that quietly records nothing while somebody flips it, which is worse than a lock
+            // they can see. If the unlock failed the resume cannot be confirmed either, and that is what it reports.
+            self?.send(DeviceCommandRules.pause(false)) { running in
+                self?.debugLog?.record(.command, running ? "The cube is running" : "The cube would not resume")
+                finished(unlocked && running)
+            }
+        }
+        return true
+    }
+}

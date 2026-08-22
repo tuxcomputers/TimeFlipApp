@@ -22,11 +22,11 @@ email=$(sql "SELECT json_extract(setting_value, '\$.email') FROM setting WHERE s
 calendar_id=$(sql "SELECT json_extract(setting_value, '\$.calendar_id') FROM setting WHERE setting_name = 'google_account';")
 
 if [ -z "$email" ]; then
-    skip "no Google account is connected, so the calendar and the sync cannot be checked"
-    skip "connect one on Settings -> App to include this section"
+    fail "no Google account is connected, so the calendar and the sync cannot be checked"
+    fail "connect one on Settings -> App to include this section"
     grey "  the google_account row is: $account"
     finish
-    exit 0
+    exit $?
 fi
 
 pass "an account is connected ($email)"
@@ -48,9 +48,9 @@ check_contains "and says so in the Status row" "$(element app-google-status)" "C
 calendar_name=$(sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';")
 
 if [ -z "$calendar_id" ]; then
-    skip "03 made no calendar, so there is nothing to sync into"
+    fail "03 made no calendar, so there is nothing to sync into"
     finish
-    exit 0
+    exit $?
 fi
 
 pass "03 left a calendar to sync into ($calendar_name)"

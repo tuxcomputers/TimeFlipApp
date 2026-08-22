@@ -27,9 +27,9 @@ ensure_app_running
 start "reconnecting to a paired TimeFlip at launch"
 
 if ! device_required; then
-    skip "no TimeFlip was made available, so there is nothing to reconnect to"
+    fail "no TimeFlip was made available, so there is nothing to reconnect to"
     finish
-    exit 0
+    exit $?
 fi
 
 open_settings
@@ -37,17 +37,17 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to come back to
 #
-# **Paired from scratch by `pair_a_cube`**, for `15-device-reset`'s reason: a script that inherited `14`'s pairing would
-# skip whenever `14` skipped and would silently test nothing after a reordering. The cost is one scan.
+# **Paired from scratch by `pair_a_cube`**, for `52-device-reset`'s reason: a script that inherited `51`'s pairing would
+# skip whenever `51` skipped and would silently test nothing after a reordering. The cost is one scan.
 #
-# A cube that cannot be paired is a skip rather than a failure here, unlike in `15`. This script's claim is about what
+# A cube that cannot be paired is a skip rather than a failure here, unlike in `52`. This script's claim is about what
 # happens to a pairing across a quit, and with no pairing there is no claim to test either way.
 
 if ! pair_a_cube; then
-    skip "no cube could be paired, so there is nothing to come back to ($PAIR_REASON)"
+    pair_verdict "there is nothing to come back to"
     close_settings
     finish
-    exit 0
+    exit $?
 fi
 pass "paired a cube to come back to"
 
@@ -62,7 +62,7 @@ check "the cube is reachable before the quit" "$(setting connection connected)" 
 # ---------------------------------------------------------------------------- the quit
 #
 # The window is closed first so the relaunch has nothing on screen: the app is about to be asked to reach its cube with
-# no window at all, and a Settings window left open would make this the same test `14` already does.
+# no window at all, and a Settings window left open would make this the same test `51` already does.
 
 close_settings
 since=$(mark)
