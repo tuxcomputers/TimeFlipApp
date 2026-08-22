@@ -112,10 +112,30 @@ status_item() {
 }
 
 # Opens the dropdown and presses the Lock/Unlock item, whichever one it is currently offering.
+#
+# **Each step is checked, because both of them can do nothing and say nothing.** A status item exposes no
+# accessibility action at all, so opening the menu takes a real posted mouse event -- and a mouse event can be
+# swallowed by the window server with no error anywhere. `press` then finds no `toggle-cube-lock`, because the menu
+# holding it is not open, and swallows that too. What reached the log on 2026-08-23 was a check waiting twenty
+# seconds for the cube to unlock, reported as the app failing to unlock it, when the app was never asked: there was
+# a twenty-seven second hole in `debug_log` where the menu should have opened.
+#
+# So: wait for the app's own row saying the menu opened, rather than sleeping and hoping, and say plainly which of
+# the two steps failed. `02-menu-bar` asserts this same row, so it is the app's established way of saying so.
 press_cube_lock() {
-    python3 scripts/status-item-click.py >/dev/null 2>&1
-    sleep 0.8
-    press toggle-cube-lock
+    local since; since=$(mark)
+    if ! python3 scripts/status-item-click.py >/dev/null 2>&1; then
+        fail "the status item could not be clicked at all, so the dropdown was never asked to open"
+        return 1
+    fi
+    if ! wait_for "$since" "%side=left%showMenu%" 5 >/dev/null; then
+        fail "the status item was clicked and the dropdown did not open, so there was no Lock item to press"
+        return 1
+    fi
+    if ! python3 scripts/ax-press.py toggle-cube-lock >/dev/null 2>&1; then
+        fail "the dropdown is open but has no toggle-cube-lock item to press"
+        return 1
+    fi
     sleep 1.5
 }
 

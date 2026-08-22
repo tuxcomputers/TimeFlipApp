@@ -4,17 +4,17 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   feature/groupings
-    commit:   5619360109f230c447a7501fbed4d08c3db8d8e4
+    branch:   chore/stampTrap
+    commit:   2e313b7e01c6d4fbf9d79fb2a6587af417c9edf0
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-22 22:28:45
-    finished: 2026-08-22 22:55:05
-    outcome:  passed
-    scripts:  23 run, 0 with failures
-    checks:   562 in total
-              562 passed
-              0 failed
+    started:  2026-08-22 23:40:01
+    finished: 2026-08-22 23:53:46
+    outcome:  failed
+    scripts:  20 run, 1 with failures
+    checks:   449 in total
+              448 passed
+              1 failed
               0 skipped
 
 | script | passed | failed | skipped |
@@ -34,15 +34,12 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 12-daily-limit | 32 | 0 | 0 |
 | 13-device-tab | 27 | 0 | 0 |
 | 50-device-scan | 14 | 0 | 0 |
-| 51-device-connect | 38 | 0 | 0 |
+| 51-device-connect | 41 | 0 | 0 |
 | 52-device-reset | 33 | 0 | 0 |
 | 53-device-reconnect | 22 | 0 | 0 |
 | 54-device-battery | 10 | 0 | 0 |
-| 55-device-face | 43 | 0 | 0 |
-| 56-manual-mode | 28 | 0 | 0 |
-| 57-cube-pause | 38 | 0 | 0 |
-| 99-quit | 13 | 0 | 0 |
-| **total** | **562** | **0** | **0** |
+| 55-device-face | 5 | 1 | 0 |
+| **total** | **448** | **1** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
