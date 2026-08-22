@@ -320,6 +320,11 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **Turning a paused cube resumes it, in firmware.** No command, no acknowledgement: the next history frame simply
+  reports the new face running. Measured by the archive on 2026-08-12 and relied on by `DailyLimitEnforcement`, which
+  is why it never needs to send `.resume` after a flip. The one exception is a *locked* cube, which refuses the turn
+  and reports no event at all. Confirmed again from ordinary use, 2026-08-22.
+
 - **A locked cube and a paused cube strand a flip in different places.** Locked, it refuses to change face at all, so
   a step waiting on `Face N is up` waits for ever. Paused, it still reports the turn -- the prompt is satisfied and the
   face check passes -- but it files no history for the interval, so anything waiting on `device_event` fails twenty

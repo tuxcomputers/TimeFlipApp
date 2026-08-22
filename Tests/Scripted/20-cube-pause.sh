@@ -17,6 +17,12 @@
 # whatever its pause byte says (`docs/timeflip.md`), so a pause sent while it is locked could never be read back. The
 # single click refuses, says so, and the double click is the way out.
 #
+# **The last section asks you to turn the cube, and it is the one worth the interruption.** Everything before it flips
+# a state the app itself asked to flip, so an app drawing what it sent rather than what the cube says would pass the
+# lot. Turning a *paused* cube resumes it in firmware, with no command and no acknowledgement (measured by the archive
+# on 2026-08-12, and recorded in `DailyLimitEnforcement`), so the only way the app can know is by reading the cube's
+# own history back. That is the claim this whole script exists to make, tested where the app cannot have cheated.
+#
 # **Runs after `19`, and before the wipe in `99`.** It needs a live link, and `19` leaves the radio on and the device
 # forgotten, so there is nothing here to inherit.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -254,5 +260,83 @@ case "$(status_item)" in
     *"device locked"*) fail "the menu bar still shows the cube as locked" ;;
     *) pass "and the lock goes from the menu bar with it" ;;
 esac
+
+# ---------------------------------------------------------------------------- and a turn lifts a pause nobody lifted
+#
+# **The firmware resumes a paused cube when it is turned, and this is the check that the app follows it.** Measured by
+# the archive on 2026-08-12 and written into `DailyLimitEnforcement`: "a flip always resumes the cube, the one
+# exception being a locked cube, which refuses the flip and reports no event". So a cube paused on face A and then
+# turned to face B is running again on face B, and nothing the app did lifted it.
+#
+# **That is the hardest version of this whole branch's claim.** Every other check here flips a state the app itself
+# asked to flip, so the app could be drawing what it sent and still pass. Here the change happens inside the cube,
+# with no command and no acknowledgement, and reaches the app only as a history frame the ingest brings back. If the
+# glyph follows this, it is reading the cube's account rather than remembering its own.
+#
+# **Three things are checked and the third is the one that proves it**: a new event on the target face, that event
+# timing rather than paused, and *no resume on the wire between the two*. Without the third, an app that hopefully
+# sent `0x06 0x02` on every turn would look identical from the outside.
+#
+# Needs a person, so it is last: everything above runs without one, and a run with nobody at the keyboard should get
+# all of it before it reaches something that waits.
+
+MEETING_FACE=2
+BREAK_FACE=8
+
+# Paused first, with the click already proven above. `open_paused` is waited on rather than read straight after the
+# log row, because the row says the read-back confirmed and the segment is written by the ingest that follows it.
+since=$(mark)
+if [ "$(open_paused)" != "1" ]; then
+    click_right
+    expect_log "the cube is stopped, ready to be turned while it is stopped" "$since" "The cube is paused" 20
+fi
+if ! wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;" "1" 25; then
+    skip "the cube could not be got into a paused state, so the turn has nothing to lift"
+    finish
+    exit 0
+fi
+pass "the cube is paused, and the app's record says so"
+
+# Which way to ask for. Read from the app's own last answer rather than assumed, and the target is the other of the
+# two faces `008_face.sql` seeds with a real category -- a turn to an unassigned face still files an event, but there
+# would be no name to read on either surface.
+on_face=$(sql "SELECT CAST(replace(replace(message, 'Face ', ''), ' is up', '') AS INTEGER) FROM debug_log
+                WHERE tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;")
+if [ "$on_face" = "$MEETING_FACE" ]; then target=$BREAK_FACE; else target=$MEETING_FACE; fi
+target_name=$(sql "SELECT category_name FROM category WHERE category_id = (SELECT category_id FROM face WHERE face_id = $target);")
+grey "  the cube is on face ${on_face:-unknown}, so the turn asked for is face $target ('$target_name')"
+
+# **The line everything below measures from, taken while the cube is still paused.** `event_number` rather than
+# `device_event_id`: the cube issues the numbers, so a higher one is the cube having started something new, which is
+# the claim -- a higher row id could just be the ingest rewriting what was already there.
+paused_at=$(mark)
+event_before=$(sql "SELECT IFNULL(MAX(event_number), 0) FROM device_event WHERE device_face BETWEEN 1 AND 12;")
+
+if ask_and_detect \
+    "SELECT device_event_id FROM device_event WHERE device_face = $target AND event_number > $event_before AND paused = 0 ORDER BY device_event_id DESC LIMIT 1;" \
+    "Turn the cube, while it is stopped, so the $target_name face is up" \
+    "That is face $target. The cube is paused right now, and turning it is expected to start it" \
+    "again by itself -- nothing here will send it a resume." \
+    "Nothing to press: this is watching the database and carries on by itself."
+then
+    pass "the turn files a new event on face $target, and that event is timing rather than paused"
+
+    # **The one that says it was the cube.** `CubeLock` writes `Sending 06 02` for every resume it puts on the wire,
+    # from any of its three callers, so a count of zero across the turn is the app having sent none. `DailyLimitWatch`
+    # is the one thing that could legitimately send one here, and only for a pause it placed itself on a category that
+    # has spent its budget -- so a failure on this line is worth reading as a daily limit before reading it as a bug.
+    check "and the app sent no resume, so it was the cube that started itself" "0" \
+        "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $paused_at AND tag = 'command' AND message LIKE 'Sending 06 02%';")"
+
+    # And both surfaces have to have followed it, with nobody having clicked anything.
+    check_contains "the menu bar draws the cube running again, unasked" "$(status_item)" "device running"
+    open_settings
+    select_tab Faces
+    check_contains "and the Faces tab draws the same" "$(element timing-face-glyph)" "Device running"
+    check_contains "on the face it was turned to" "$(element timing-category-name)" "$target_name"
+    close_settings
+else
+    skip "nobody was there to turn the cube, so the firmware's own resume was not checked"
+fi
 
 finish
