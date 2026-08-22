@@ -404,6 +404,12 @@ radio.onFace = { _, _ in
 radio.onCubeReady = { _ in
     historyIngestor.refresh(because: "the link came up")
 }
+// **The other end of the same thought.** A fetch waits on answers the radio delivers, so a link ending mid-conversation
+// leaves it in flight with nothing ever going to finish it -- and one fetch at a time then means no fetch ever again.
+// The mirror of the refresh above: what a link coming up starts, a link going has to let go of.
+radio.onLinkEnded = { _ in
+    historyIngestor.linkEnded()
+}
 // What the cube says about its own condition, which until now the app subscribed to and threw away.
 //
 // **A factory reset is the one this can act on, and acting means asking again.** There is no cursor to clear first:

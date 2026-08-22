@@ -403,6 +403,83 @@ final class HistoryIngestorTests: XCTestCase {
         XCTAssertEqual(lastEventReads, 2, "three requests during one fetch are one re-run, not three")
     }
 
+    // MARK: - a fetch does not outlive its link
+
+    func testAFetchLeftInFlightByALostLinkDoesNotBlockTheNextOne() {
+        // **The fault this exists for cost a whole session on a device run, 2026-08-22.** A stream request went out,
+        // the suite pressed Forget Device before the answer came back, and the closure the radio was holding was
+        // simply never called. `isRefreshing` stayed true for the life of the process, so every later refresh was
+        // refused and no history was ingested again until relaunch -- while the log showed six refusals that each
+        // looked like an ordinary bit of coalescing.
+        deviceLast = segment(2, at: 2000)
+        var strand: (([DeviceEventSegment]) -> Void)?
+        let loop = HistoryIngestor(
+            events: events,
+            readLastEvent: { [self] answered in
+                lastEventReads += 1
+                answered(deviceLast)
+            },
+            // The link ends here: the answer is kept and never delivered, which is what a dropped connection does.
+            fetchHistory: { [self] from, answered in
+                askedFrom.append(from)
+                strand = answered
+            },
+            debugLog: nil
+        )
+
+        loop.refresh(because: "the cube was turned")
+        XCTAssertEqual(lastEventReads, 1, "precondition: a fetch got as far as asking for the stream")
+        XCTAssertNotNil(strand, "precondition: and is waiting on an answer that will never come")
+
+        loop.linkEnded()
+
+        // The next reason to ask gets a fetch of its own rather than a refusal.
+        loop.refresh(because: "the link came up")
+        XCTAssertEqual(lastEventReads, 2)
+    }
+
+    func testAnAnswerFromAnAbandonedFetchIsIgnored() {
+        // A late answer must not finish a fetch that is no longer anybody's: `done` would clear the *current* fetch's
+        // isRefreshing, letting a second conversation start on top of it -- the exact thing one-at-a-time prevents.
+        deviceLast = segment(2, at: 2000)
+        stream = [segment(1, at: 1000), segment(2, at: 2000)]
+        var strand: (([DeviceEventSegment]) -> Void)?
+        let loop = HistoryIngestor(
+            events: events,
+            readLastEvent: { [self] answered in
+                lastEventReads += 1
+                answered(deviceLast)
+            },
+            fetchHistory: { [self] from, answered in
+                askedFrom.append(from)
+                // Only the first fetch is stranded; the second is answered normally.
+                if strand == nil { strand = answered } else { answered(stream) }
+            },
+            debugLog: nil
+        )
+
+        loop.refresh(because: "the cube was turned")
+        loop.linkEnded()
+        loop.refresh(because: "the link came up")
+        XCTAssertTrue(rows().count > 0, "precondition: the second fetch recorded something")
+        let after = rows().count
+
+        // The cube finally answers the question the abandoned fetch asked.
+        strand?([segment(9, at: 9000)])
+
+        XCTAssertEqual(rows().count, after, "the abandoned fetch's frames were written anyway")
+    }
+
+    func testALinkEndingWithNothingInFlightIsNotWorthSaying() {
+        // Every window close and tab change ends a link, so this is called constantly. Saying so each time would bury
+        // the row that matters in ones that mean nothing happened.
+        let loop = ingestor()
+
+        loop.linkEnded()
+
+        XCTAssertEqual(lastEventReads, 0)
+    }
+
     private var pending: HistoryIngestor?
 
     // MARK: - telling the app
