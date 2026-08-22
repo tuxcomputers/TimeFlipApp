@@ -209,7 +209,7 @@ final class DeviceReconnector {
     /// not change which device this app is paired to. So this is the start of the next attempt rather than an ending.
     func noteDropped() {
         guard settings.flag("paired", field: "paired") == true else { return }
-        debugLog?.record(.pair, "The cube went away; it is still this app's device, so it will be looked for again")
+        debugLog?.record(.pair, "The cube went away; it is still paired here, so it will be looked for again")
         scheduleAttempt()
     }
 

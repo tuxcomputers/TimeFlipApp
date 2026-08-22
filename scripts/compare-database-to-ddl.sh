@@ -8,6 +8,13 @@
 #
 #   scripts/compare-database-to-ddl.sh                    # production.sqlite
 #   scripts/compare-database-to-ddl.sh path/to/other.db
+#   scripts/compare-database-to-ddl.sh ~/Library/Application\ Support/Facet/debug.sqlite
+#
+# **Which half of the DDL is the reference depends on the target.** One directory holds two schemas --
+# below 500 the app's, 500 and above the trace's (DatabaseBootstrap.firstDebugDDLNumber) -- so a
+# reference built from all of it would report `debug_log` missing from production.sqlite and every app
+# table missing from debug.sqlite. A target named `debug*.sqlite` is compared against the 500 files, and
+# anything else against the rest.
 #
 # The target is only ever read. Exits 0 when it matches the DDL, 1 when it does not.
 set -euo pipefail
@@ -23,9 +30,21 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 REFERENCE="$WORK/reference.sqlite"
 
-# The reference is what a brand-new database looks like: every DDL file, in the order the app runs
-# them (AppDataStore.runDatabaseDDL, filename-sorted).
+# The reference is what a brand-new database looks like: every DDL file this target owns, in the order
+# the app runs them (DatabaseBootstrap.ensureDatabase, filename-sorted).
+case "$(basename "$TARGET")" in
+  debug*) WANT_DEBUG=1 ;;
+  *)      WANT_DEBUG=0 ;;
+esac
+
 for sql_file in "$REPO_ROOT"/database/*.sql; do
+  number="$(basename "$sql_file")"
+  number="${number:0:3}"
+  if [ "$WANT_DEBUG" = "1" ]; then
+    [ "$number" -ge 500 ] 2>/dev/null || continue
+  else
+    [ "$number" -lt 500 ] 2>/dev/null || continue
+  fi
   { echo "PRAGMA foreign_keys = ON;"; cat "$sql_file"; } | sqlite3 "$REFERENCE"
 done
 

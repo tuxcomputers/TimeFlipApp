@@ -32,7 +32,7 @@ expect_log "the launch records which mode it is in" "$since" "Manual mode:%" 20
 # real pairing in it and manual mode off. What is worth saying out loud either way is that the launch agrees with the
 # row it read -- a paired cube changes what every later script means, since segments would come from the device
 # instead of from the app.
-mode=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Manual mode:%' ORDER BY debug_log_id LIMIT 1;")
+mode=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Manual mode:%' ORDER BY debug_log_id LIMIT 1;")
 paired=$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")
 if [ "$paired" = "1" ]; then
     check_contains "manual mode is off, a device being paired" "$mode" "off, a device is paired"
@@ -42,7 +42,7 @@ fi
 
 # The debug log is how every other script in this folder checks anything, so its own writing is worth
 # one check of its own: a silent log would make every later script pass by finding nothing to object to.
-rows=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since;")
+rows=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since;")
 if [ "${rows:-0}" -gt 0 ]; then
     pass "the debug log is being written ($rows rows so far)"
 else
@@ -51,7 +51,7 @@ fi
 
 # The zone is a foreign key rather than text on the row, so a launch that could not resolve one leaves
 # every timestamp pointing at the seeded Unknown. Worth knowing before a script reads a time.
-unknown=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND timezone_id = 0;")
+unknown=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND timezone_id = 0;")
 check "every logged row resolved a real time zone" "0" "$unknown"
 
 # ---------------------------------------------------------------------------- one instance only
@@ -95,7 +95,7 @@ rm -f "$refusal"
 # is claimed and the database is open, so a second one of those is the failure this exists to prevent --
 # and it is a sharper test than counting processes, which cannot tell "refused" from "never started".
 check "and it never opened the database" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Manual mode%';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Manual mode%';")"
 
 check "the original is still the only one running" "1" "$(pgrep -x Facet | wc -l | tr -d ' ')"
 

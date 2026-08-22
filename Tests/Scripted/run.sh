@@ -102,8 +102,22 @@ else
         echo "Could not rebuild the test database; refusing to run against whatever is there instead."
         exit 2
     fi
+    # **The trace goes with it, and is rebuilt here rather than left to the app.** It is a separate file now, so
+    # `switch-database.sh` does not touch it, and a run that said it was starting from nothing would otherwise inherit
+    # every row the last one wrote.
+    #
+    # Rebuilt immediately, because waiting for the app to do it is a race this run lost on 2026-08-22: `01-launch`
+    # calls `mark` before the app it is about to check has started, `sqlite3` creates the file it was pointed at, and
+    # the query then fails with "no such table". Every check after that measured from an empty baseline and produced a
+    # malformed query. The suite owns its databases; the app is what is being tested, not what prepares the ground.
+    debug_db="$HOME/Library/Application Support/Facet/debug.sqlite"
+    rm -f "$debug_db"
+    for ddl in database/5*.sql; do
+        { echo "PRAGMA foreign_keys = ON;"; cat "$ddl"; } | sqlite3 "$debug_db"
+    done
+
     if [ ! -f "$HOME/.config/facet/scripted-seed.json" ]; then
-        echo "Note: a new database has no Google account, so 10-google-calendar will skip."
+        echo "Note: a new database has no Google account, so 10-google-calendar will FAIL."
         echo "      Connect one on the App tab once; it is captured and reseeded from then on."
     fi
 fi
@@ -113,6 +127,8 @@ echo "${#scripts[@]} script(s) to run"
 # The durable record, alongside screen.txt. See Tests/Scripted/testlog.sh for what it holds and why one
 # overwritten text file is not enough to work out why something failed.
 DB="$HOME/Library/Application Support/Facet/appdata.sqlite"
+# testlog.sh reads the app's log out of the trace's file, so it needs to know where that is before it is sourced.
+DEBUG_DB="$HOME/Library/Application Support/Facet/debug.sqlite"
 source Tests/Scripted/testlog.sh
 TESTLOG_RUN_ID=$(testlog_run_start "$((1 - KEEP_DATABASE))" "$FILTER" "run.sh $*")
 export TESTLOG_RUN_ID

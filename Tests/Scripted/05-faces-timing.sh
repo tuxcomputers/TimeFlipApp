@@ -22,7 +22,7 @@ sleep 0.5
 set_field category-name-field "$NAME"
 press save-category
 sleep 1.5
-ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+ID=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
 if [ -z "$ID" ]; then
     fail "could not create a category to time against"
     finish
@@ -37,7 +37,7 @@ pass "a category to time against ($NAME, id $ID)"
 # Categories tab's identical control deliberately does not (`04` makes several and starts none of them):
 # there, a name is a list being maintained rather than a day being recorded.
 
-expect_log "creating it on the Faces tab starts timing it" "$since" "Timing: started \"$NAME\"%"
+expect_log "creating it on the Faces tab starts timing it" "$since" "Timing: started $NAME%"
 expect_log "and says which face it went to" "$since" "%(category_id $ID) on face %"
 
 # ---------------------------------------------------------------------------- starting, by picking a row
@@ -53,7 +53,7 @@ sleep 1.5
 # **"started", not "running".** Picking a category is a fresh start and says so, naming the category id
 # and the face it went to; the play/pause control below says "running" when it resumes one. Two actions,
 # two words, and a script that expected one wording for both would wait for a row nobody writes.
-expect_log "picking a category starts timing it" "$since" "Timing: started \"Break\"%"
+expect_log "picking a category starts timing it" "$since" "Timing: started Break%"
 
 # Clicking the one already running asks for nothing, and says so rather than rotating the face and closing a
 # segment for a gesture that wanted no change. Worth a check of its own now that a create leaves a category
@@ -61,13 +61,13 @@ expect_log "picking a category starts timing it" "$since" "Timing: started \"Bre
 since=$(mark)
 press "category-row-$BREAK"
 sleep 1
-expect_log "clicking the one already running changes nothing" "$since" "%already timing \"Break\"%"
+expect_log "clicking the one already running changes nothing" "$since" "%already timing Break%"
 
 # Back to this run's own category for everything below.
 since=$(mark)
 press "category-row-$ID"
 sleep 1.5
-expect_log "and picking another moves the clock to it" "$since" "Timing: started \"$NAME\"%"
+expect_log "and picking another moves the clock to it" "$since" "Timing: started $NAME%"
 
 # A row in `device_event`, open, on one of the app's own faces. This is the fact behind the clock: the
 # readout is drawn from it every time rather than from anything the click remembered.
@@ -111,7 +111,7 @@ fi
 since=$(mark)
 press timing-play-pause
 sleep 1.5
-expect_log "the play/pause control stops it" "$since" "Timing: stopped \"$NAME\"%"
+expect_log "the play/pause control stops it" "$since" "Timing: stopped $NAME%"
 
 # **Pausing closes the segment rather than flagging it.** There is no "paused" state held anywhere: an
 # open row is what running means, so stopping means there is no open row.
@@ -123,7 +123,7 @@ check "the segment that was running is finalised" "1" "$(sql "SELECT finalised F
 since=$(mark)
 press timing-play-pause
 sleep 1.5
-expect_log "it starts again on the same category" "$since" "Timing: running \"$NAME\"%"
+expect_log "it starts again on the same category" "$since" "Timing: running $NAME%"
 
 resumed=$(sql "SELECT device_event_id FROM device_event WHERE finalised != 1 ORDER BY device_event_id DESC LIMIT 1;")
 if [ -n "$resumed" ] && [ "$resumed" != "$open_row" ]; then

@@ -17,8 +17,9 @@ final class DebugLogTests: XCTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
         database = TemporaryDatabase()
-        try database.bootstrap()
-        log = DebugLog(databaseURL: database.url)
+        // The trace's own database, which is the only one that has `debug_log` in it.
+        try database.bootstrapDebug()
+        log = DebugLog(databaseURL: database.debugURL)
     }
 
     override func tearDown() {
@@ -31,7 +32,7 @@ final class DebugLogTests: XCTestCase {
     /// Every `debug_log` row, oldest first.
     private func rows() -> [(loggedAt: String, timezoneID: Int64, tag: String, message: String)] {
         var handle: OpaquePointer?
-        guard sqlite3_open_v2(database.url.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(database.debugURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             XCTFail("could not open the database")
             return []
         }
@@ -99,7 +100,10 @@ final class DebugLogTests: XCTestCase {
         let timezoneID = try XCTUnwrap(rows().first?.timezoneID)
         XCTAssertNotEqual(timezoneID, 0, "0 is the Unknown sentinel, and this machine has a real zone")
         XCTAssertEqual(
-            database.string("SELECT timezone_name FROM timezone WHERE timezone_id = \(timezoneID);"),
+            // **The trace's own `timezone` table, not the app's.** The two files each carry one and each fills it
+            // independently, so the same zone can be a different id in each -- which is why nothing may join across
+            // them, and why a row in a submitted `debug.sqlite` is readable without the app's database beside it.
+            database.debugString("SELECT timezone_name FROM timezone WHERE timezone_id = \(timezoneID);"),
             TimeZone.current.identifier,
             "the zone row should be got-or-created for the machine's current zone"
         )

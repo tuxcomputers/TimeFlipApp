@@ -114,12 +114,17 @@ latter, so asking for it alone comes back empty and reads as an app with nothing
 
 Every click the app handles writes a row. Take the high-water mark first, act, then read past it:
 
+**The trace is its own database.** `debug_log` moved out of `appdata.sqlite` on 2026-08-22, so it is
+`debug.sqlite` beside it -- one file, whichever of production or test the app is pointed at.
+
 ```sh
-DB=~/Library/Application\ Support/Facet/appdata.sqlite
+DB=~/Library/Application\ Support/Facet/debug.sqlite
 BASE=$(sqlite3 "$DB" "SELECT MAX(debug_log_id) FROM debug_log;")
 # ... do the thing ...
 sqlite3 -header -column "$DB" "SELECT logged_at, tag, message FROM debug_log WHERE debug_log_id > $BASE ORDER BY debug_log_id;"
 ```
+
+In the scripted suite, `dsql` is that database's `sql` and `mark` already reads it.
 
 Rows, not console text: stdout only reaches a terminal when the app is launched from one, and a row
 survives the session either way.

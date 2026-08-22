@@ -30,7 +30,7 @@ fi
 # discover there was nothing to do.
 since=$(mark)
 sleep $((INTERVAL + 3))
-ticks=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer fired%';")
+ticks=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer fired%';")
 check "it does not fire while nothing is being timed" "0" "$ticks"
 
 # ---------------------------------------------------------------------------- while something is
@@ -42,7 +42,7 @@ sleep 0.5
 set_field category-name-field "$NAME"
 press save-category
 sleep 1
-ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+ID=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
 sleep 2
 
 # **Measured from before the create, because the create is what starts the clock now.** Making a category on the
@@ -51,7 +51,7 @@ sleep 2
 expect_log "starting to time starts the timer" "$since" "History timer started%"
 
 # It says the interval it is on, so two consecutive lines are what show a change taking effect.
-started=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer started%' ORDER BY debug_log_id LIMIT 1;")
+started=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer started%' ORDER BY debug_log_id LIMIT 1;")
 check_contains "and names the interval it is asking on" "$started" "every ${INTERVAL}s"
 
 since=$(mark)
@@ -72,7 +72,7 @@ expect_log "pausing stops it" "$since" "History timer stopped, nothing is being 
 # The real check: no more fires after it said it stopped.
 since=$(mark)
 sleep $((INTERVAL + 3))
-after=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer fired%';")
+after=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer fired%';")
 check "and it stays stopped" "0" "$after"
 
 # ---------------------------------------------------------------------------- coming back

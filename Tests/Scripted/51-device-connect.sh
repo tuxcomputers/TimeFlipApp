@@ -60,7 +60,7 @@ sleep 0.5
 # this check waited 60 seconds for on its first run, and the app now says when the radio actually starts listening.
 grey "  waiting for the radio to come up..."
 if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
-    unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
+    unavailable=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
     if [ -n "$unavailable" ]; then
         fail "the radio is unusable, so there is nothing to connect to ($unavailable)"
         finish
@@ -124,7 +124,7 @@ verdict=$(wait_for "$since" "%PIN accepted%" 40)
 if [ -n "$verdict" ]; then
     pass "the cube accepted a PIN"
 else
-    refused=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message = 'PIN refused';")
+    refused=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message = 'PIN refused';")
     if [ "${refused:-0}" -gt 0 ]; then
         fail "the cube refused every PIN offered ($refused attempt(s)) -- it is on a PIN this app cannot name, so take its batteries out to put it back on 000000"
     else
@@ -142,8 +142,8 @@ fi
 # now reads this characteristic three times -- the verdict, the cube's answer to 0x30, and the verdict on the new PIN
 # -- and the newest of those is not the one this check is about. A refused first candidate leaves an `01` in front of
 # it too, so the first row is no better an anchor than the last.
-accepted_at=$(sql "SELECT debug_log_id FROM debug_log WHERE debug_log_id > $since AND tag = 'login' AND message = 'PIN accepted' ORDER BY debug_log_id LIMIT 1;")
-answer=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND debug_log_id < ${accepted_at:-0} AND tag = 'ble-rx' AND message LIKE 'commandResult:%' ORDER BY debug_log_id DESC LIMIT 1;")
+accepted_at=$(dsql "SELECT debug_log_id FROM debug_log WHERE debug_log_id > $since AND tag = 'login' AND message = 'PIN accepted' ORDER BY debug_log_id LIMIT 1;")
+answer=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND debug_log_id < ${accepted_at:-0} AND tag = 'ble-rx' AND message LIKE 'commandResult:%' ORDER BY debug_log_id DESC LIMIT 1;")
 check_contains "the accepted answer is 0x02, as measured and not as documented" "$answer" "commandResult: 02"
 
 # ---------------------------------------------------------------------------- the PIN the app leaves it on
@@ -171,7 +171,7 @@ if wait_for "$since" "The cube is now on %" 25 >/dev/null; then
 
     # **The bytes of the command, checked as bytes.** `30` is the set-password command and the six that follow are the
     # new PIN in ASCII, which the trace renders beside the hex. This is the only place the whole payload is visible.
-    sent=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %' ORDER BY debug_log_id LIMIT 1;")
+    sent=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %' ORDER BY debug_log_id LIMIT 1;")
     check_contains "0x30 went out on the command characteristic, carrying the new PIN" "$sent" "30 31 32 33 34 35 36"
 
     # **The confirmation is a real login, not the command's own acknowledgement.** A cube that acknowledges 0x30 has
@@ -181,7 +181,7 @@ if wait_for "$since" "The cube is now on %" 25 >/dev/null; then
 
     check "config.json holds the PIN the cube is now on" "123456" "$(config_pin)"
 else
-    left=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'pin' ORDER BY debug_log_id DESC LIMIT 1;")
+    left=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'pin' ORDER BY debug_log_id DESC LIMIT 1;")
     check_contains "the cube was already on this build's PIN, so it was left alone" "$left" "already on the PIN"
 
     # The file may legitimately name nothing here: with no PIN written down, the compiled-in constant stands in as the
@@ -284,7 +284,7 @@ if wait_for "$since" "The cube says it is %" 25 >/dev/null; then
 else
     # Reported against the log rather than assumed: the app says which of the two happened, and they are different
     # findings -- one is a cube without the service, the other is a cube that stopped answering mid-read.
-    said=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'info' ORDER BY debug_log_id DESC LIMIT 1;")
+    said=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'info' ORDER BY debug_log_id DESC LIMIT 1;")
     pass "this cube said nothing about what it is (${said:-no info rows at all}), which pairs and connects the same"
 fi
 
@@ -321,7 +321,7 @@ since=$(mark)
 close_settings
 sleep 1
 
-if [ -n "$(sql "SELECT 1 FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Disconnecting from %';")" ]; then
+if [ -n "$(dsql "SELECT 1 FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Disconnecting from %';")" ]; then
     fail "closing the window dropped the connection, which is what a paired device is not"
 else
     pass "closing the window left the connection alone"

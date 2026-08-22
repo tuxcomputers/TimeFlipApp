@@ -354,6 +354,13 @@ sqlite3 docs/timeflip2-firmware-evidence.sqlite \
 
 ## Debug print messages
 
+- **A message is plain text: no apostrophes, and no quotation marks around a value.** They are read back out of
+  `debug_log` by SQL `LIKE` patterns, and a pattern goes inside a single-quoted string literal -- so `The cube's
+  clock is set` closes the quote at `cube` and sqlite refuses the whole statement, answering nothing rather than
+  failing. `Tests/Scripted/lib.sh` doubles apostrophes defensively, but a message that never carries one cannot be
+  got wrong by whoever writes the next pattern. Quotation marks around an interpolated name cost an escape in the
+  Swift source for no gain: `Timing: started Break (category_id 1)` reads as well as the quoted form did.
+
 - All dev-only `print(...)` console messages (gated on `DeveloperMode.isEnabled`) must lead with
   a zero-padded 24-hour local time, followed by the `[Tag]` naming the action/source, e.g.:
   ```

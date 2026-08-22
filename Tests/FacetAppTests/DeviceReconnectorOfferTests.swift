@@ -19,8 +19,9 @@ final class DeviceReconnectorOfferTests: XCTestCase {
         try super.setUpWithError()
         database = TemporaryDatabase()
         try database.bootstrap()
+        try database.bootstrapDebug()
         settings = SettingStore(connection: database.connection())
-        debugLog = DebugLog(databaseURL: database.url)
+        debugLog = DebugLog(databaseURL: database.debugURL)
     }
 
     override func tearDown() {
@@ -32,7 +33,12 @@ final class DeviceReconnectorOfferTests: XCTestCase {
 
     /// Whether the log holds a row matching `pattern`, which is a SQL `LIKE`.
     private func logged(_ pattern: String) -> Bool {
-        database.string("SELECT COUNT(*) FROM debug_log WHERE message LIKE '\(pattern)';") != "0"
+        // **A count, read as a number, so an unanswerable query is "no" rather than "yes".** This compared the text
+        // against `"0"` until 2026-08-22, and a query that could not run at all answers `nil` -- which is not `"0"`,
+        // so a missing table made every `logged` come back true and three `XCTAssertFalse`s fail at once. The lesson
+        // is the shape rather than the table: a helper that turns "I could not tell you" into an affirmative will
+        // eventually assert something nobody checked.
+        (Int(database.debugString("SELECT COUNT(*) FROM debug_log WHERE message LIKE '\(pattern)';") ?? "0") ?? 0) > 0
     }
 
     private func setPaired(_ paired: Bool) {

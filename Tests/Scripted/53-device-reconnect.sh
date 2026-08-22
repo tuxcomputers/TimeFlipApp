@@ -97,7 +97,7 @@ expect_log "and the cube lets it in" "$since" "%PIN accepted%" 60
 # pairing that did not happen, on every launch, for ever.
 expect_log "it is recorded as getting back to the device, not as a new pairing" "$since" "Reconnected to %" 20
 
-already=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Paired with %';")
+already=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Paired with %';")
 check "nothing is recorded as a fresh pairing" "$already" "0"
 
 check "the table says the cube is reachable again" \
@@ -145,7 +145,7 @@ ensure_app_running
 
 expect_log "a launch with nothing paired says so" "$since" "Nothing paired, so there is no cube to follow" 20
 
-scans=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Reaching for %';")
+scans=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Reaching for %';")
 check "and does not go looking for one" "$scans" "0"
 
 finish

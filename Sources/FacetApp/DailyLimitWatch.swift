@@ -115,7 +115,7 @@ final class DailyLimitWatch {
         case .pause:
             debugLog?.record(
                 .limit,
-                "Daily limit reached: \"\(reading.category?.name ?? "nothing")\" has spent "
+                "Daily limit reached: \(reading.category?.name ?? "nothing") has spent "
                     + "\(reading.category?.dailyLimitMinutes ?? 0)m, stopping the clock"
             )
             stopTiming()

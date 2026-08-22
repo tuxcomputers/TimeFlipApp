@@ -77,8 +77,8 @@ expect_log "and subscribes, so the cube reports every change by itself" "$since"
 # 790ms after the row this script had waited for.
 asked=0 took=0
 for _ in $(seq 1 50); do
-    asked=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE '%notify on requested';")
-    took=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message LIKE '%: notifying';")
+    asked=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE '%notify on requested';")
+    took=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message LIKE '%: notifying';")
     [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ] && break
     sleep 0.2
 done
@@ -91,7 +91,7 @@ else
 fi
 
 check_contains "and the trace names what the service actually has" \
-    "$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'timeFlipService: characteristics%' ORDER BY debug_log_id DESC LIMIT 1;")" \
+    "$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'timeFlipService: characteristics%' ORDER BY debug_log_id DESC LIMIT 1;")" \
     "characteristics"
 
 # ---------------------------------------------------------------------------- what the tab says
@@ -99,7 +99,7 @@ check_contains "and the trace names what the service actually has" \
 # The Battery row is read from the radio at the moment the tab is drawn, so it must agree with the last figure the log
 # recorded. A row that disagreed would be the two-answers problem in its plainest form.
 
-shown=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %' ORDER BY debug_log_id DESC LIMIT 1;")
+shown=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %' ORDER BY debug_log_id DESC LIMIT 1;")
 percent=$(printf '%s' "$shown" | sed -n 's/^Charge \([0-9]*\)%.*/\1/p')
 grey "  the log's latest figure is ${percent:-unknown}%"
 
@@ -118,11 +118,11 @@ fi
 # produces one of each and proves nothing by volume: **the figure on show never climbs by one.** A rise of a single
 # percent is what the flap is made of, so any increase here has to be two or more.
 
-raw=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message GLOB 'batteryLevel: [0-9A-F][0-9A-F]*';")
-answers=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %';")
+raw=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message GLOB 'batteryLevel: [0-9A-F][0-9A-F]*';")
+answers=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %';")
 grey "  the cube reported $raw time(s); the figure on show moved $answers time(s)"
 
-climbs=$(sql "
+climbs=$(dsql "
     WITH shown AS (
         SELECT debug_log_id,
                CAST(substr(message, 8, instr(message, '%') - 8) AS INTEGER) AS percent

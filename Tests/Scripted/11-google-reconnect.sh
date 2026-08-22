@@ -58,7 +58,7 @@ sleep 1.5
 expect_log "disconnecting is recorded" "$since" "Google account disconnected"
 
 # **REFUSED is in the same log line**, so a disconnect the table would not accept is not read as success.
-refused=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE '%disconnected REFUSED%';")
+refused=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE '%disconnected REFUSED%';")
 check "and the table accepted it" "0" "$refused"
 
 check "the email is cleared" "" "$(sql "SELECT json_extract(setting_value, '\$.email') FROM setting WHERE setting_name = 'google_account';")"
@@ -145,7 +145,7 @@ check_contains "and the Calendar row shows it" "$(element app-google-calendar)" 
 
 # Nothing was made. A sign-in that could not resolve the stored id makes a fresh calendar instead, which is
 # correct behaviour and the wrong outcome here -- and it is the failure this whole script exists to catch.
-made=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Google calendar created%';")
+made=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Google calendar created%';")
 check "no second calendar was made" "0" "$made"
 
 finish

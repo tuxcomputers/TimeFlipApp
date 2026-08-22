@@ -548,7 +548,7 @@ final class DeviceLogin: NSObject {
             // What is left is the case the radio never hears about. An answer that was not one reports no status at
             // all, so nothing downstream would mention it, and a question that went unanswered is worth a row.
             if status == nil {
-                debugLog?.record(.command, "That was not an answer about the cube's state")
+                debugLog?.record(.command, "That was not an answer about the state of the cube")
             }
             finishExchange(took: status != nil, status: status)
             return
@@ -722,7 +722,7 @@ final class DeviceLogin: NSObject {
             .history,
             history == nil
                 ? "This cube offers no history characteristic, so it cannot be asked what it has been doing"
-                : "The cube's history characteristic is there, so its record of the day can be asked for"
+                : "The history characteristic is there, so its record of the day can be asked for"
         )
         let pushable = (service.characteristics ?? []).filter { $0.properties.contains(.notify) }
         guard !pushable.isEmpty else {
@@ -775,12 +775,12 @@ final class DeviceLogin: NSObject {
     /// pairing over: the cube is still reachable, still reports its face, and still answers everything else.
     private func setTheClock(then next: @escaping () -> Void) {
         let now = UInt64(Date().timeIntervalSince1970)
-        debugLog?.record(.command, "Setting the cube's clock to \(now)")
+        debugLog?.record(.command, "Setting the clock on the cube to \(now)")
         send(DeviceCommandRules.setTime(now)) { [weak self] took in
             self?.debugLog?.record(
                 .command,
                 took
-                    ? "The cube's clock is set"
+                    ? "The clock on the cube is set"
                     : "The cube would not take the time, so its history may carry no usable timestamps"
             )
             next()
@@ -880,7 +880,7 @@ final class DeviceLogin: NSObject {
         isAskingAboutTaps = false
         tapDeadline?.invalidate()
         tapDeadline = nil
-        debugLog?.record(.tap, "The cube's double tap is set to \(parameters.described)")
+        debugLog?.record(.tap, "The double tap on the cube is set to \(parameters.described)")
         askWhatStateItIsIn()
     }
 
@@ -912,7 +912,7 @@ final class DeviceLogin: NSObject {
         // The value goes in the log as well as in the trace beneath it. It is the one thing here that cannot be
         // recovered from anywhere else if the write down the line fails, and a PIN somebody can read off a terminal
         // is the difference between a cube to reconnect and a cube to take the batteries out of.
-        debugLog?.record(.pin, "Setting the cube's PIN to \(newPIN)")
+        debugLog?.record(.pin, "Setting the PIN on the cube to \(newPIN)")
         let payload = Data([DeviceLoginRules.setPIN]) + Data(newPIN.utf8)
         write(payload, to: command, type: .withResponse)
     }
@@ -1244,7 +1244,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // both as the answer to the read taken when the link came up and unasked whenever the cube's state moves.
         if characteristic.uuid == TimeFlipUUIDs.systemState {
             guard let state = DeviceSystemStateRules.state(from: characteristic.value) else {
-                debugLog?.record(.info, "The cube's system state came back as something this app cannot read")
+                debugLog?.record(.info, "The system state came back as something this app cannot read")
                 return
             }
             systemState(state)
@@ -1309,7 +1309,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             // this as a wrong PIN would spend the next candidate on a question the cube never heard. It is also the
             // shape a stale command result takes (finding 2 in `docs/timeflip2-firmware-observations.md`), which is
             // the one case where the bytes in front of you belong to somebody else's command.
-            debugLog?.record(.login, "The cube's answer to the PIN could not be read")
+            debugLog?.record(.login, "The answer to the PIN could not be read")
             finish(.timedOut)
         }
     }
@@ -1330,6 +1330,6 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
     /// Traffic that arrives once the login is over: a notification the cube sent unasked, or a read some later
     /// feature asked for. Nothing is done with it here beyond putting it in the trace, which is the point.
     func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
-        debugLog?.record(.login, "The cube now reports its name as \"\(peripheral.name ?? "")\"")
+        debugLog?.record(.login, "The cube now reports its name as \(peripheral.name ?? "")")
     }
 }

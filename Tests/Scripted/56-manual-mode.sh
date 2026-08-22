@@ -223,7 +223,7 @@ case "$(element "category-row-$BREAK")" in
     *) pass "the category rows are live again once manual mode is chosen" ;;
 esac
 
-expect_log "the same click now starts the clock" "$since" "Timing: started \"Break\"%"
+expect_log "the same click now starts the clock" "$since" "Timing: started Break%"
 check "and a segment is open" "1" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
 check_contains "the menu bar is timing it" "$(status_item)" "Break"
 
@@ -251,15 +251,15 @@ grey "  watching for 40s to see whether the app reaches for the cube..."
 sleep 40
 
 check "the app does not go back to looking for the cube" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Looking for the cube again%';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Looking for the cube again%';")"
 check "it starts no scan of its own" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE '%Scan started%';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE '%Scan started%';")"
 check "and reaches for nothing" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Reaching for %';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Reaching for %';")"
 # **The offer does not come back either.** Being asked again would be the app inviting somebody to decide something
 # they have already decided.
 check "the question is not put again" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Offering manual mode:%';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Offering manual mode:%';")"
 check "so nothing is connected" "0" "$(setting connection connected)"
 # The menu bar is still drawing what the app is timing by hand. A cube that had crept back in would be drawn instead,
 # with no clock, so the figure is what says the reading is still the manual one.
@@ -288,7 +288,7 @@ check "forgetting the device gives the pairing up" "0" "$(setting paired paired)
 # of tidying-up that could reset the mode along with the pairing, and a launch that dropped out of manual mode at this
 # point would go back to timing nothing, with no cube to time instead.
 check "and manual mode is not turned off along with the pairing" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'mode' AND message LIKE 'Manual mode: off%';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'mode' AND message LIKE 'Manual mode: off%';")"
 check_contains "so the menu bar is still timing by hand" "$(status_item)" "Break"
 # The Scan button is hidden while a cube is paired, so its coming back is the whole of what "and reconnect" means.
 if [ -n "$(element device-scan)" ]; then

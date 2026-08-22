@@ -253,7 +253,8 @@ ticked, and not force-pushing the branch while it is being run.
 The app is still there if you passed `--keep-running`. Beyond that:
 
 ```sh
-sqlite3 ~/Library/Application\ Support/Facet/appdata.sqlite \
+# The trace is its own file, beside the app's database.
+sqlite3 ~/Library/Application\ Support/Facet/debug.sqlite \
   "SELECT logged_at, tag, message FROM debug_log ORDER BY debug_log_id DESC LIMIT 40;"
 
 python3 scripts/ax-dump.py          # what the script can see and press

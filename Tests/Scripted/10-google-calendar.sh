@@ -70,7 +70,7 @@ sleep 0.5
 set_field category-name-field "$NAME"
 press save-category
 sleep 1
-ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+ID=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
 
 BLIP=$(sql "SELECT json_extract(setting_value, '\$.seconds') FROM setting WHERE setting_name = 'blip_time';")
 BLIP=${BLIP:-5}
@@ -97,7 +97,7 @@ expect_log "recording an entry starts a sweep" "$since" "Calendar sync started%"
 if wait_for_value "SELECT synced_to_google_calendar FROM time_entry WHERE time_entry_id = $entry;" "1" 60 >/dev/null; then
     pass "the entry is marked synced, which means its event was read back and checked"
 else
-    reason=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'sync' ORDER BY debug_log_id DESC LIMIT 1;")
+    reason=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'sync' ORDER BY debug_log_id DESC LIMIT 1;")
     fail "the entry is still unsynced after 60s (last sync line: ${reason:-none})"
 fi
 
@@ -105,7 +105,7 @@ expect_log "and the sweep says what it did" "$since" "Calendar sync finished%" 3
 
 # **Nothing is left behind unexplained.** A sweep that stopped says so; if it did, the run should not
 # read as clean.
-stopped=$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Calendar sync stopped%';")
+stopped=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Calendar sync stopped%';")
 check "the sweep did not stop part way" "0" "$stopped"
 
 finish

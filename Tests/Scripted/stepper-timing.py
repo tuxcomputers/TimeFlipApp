@@ -29,7 +29,9 @@ import sqlite3
 import sys
 from datetime import datetime
 
-DB = pathlib.Path.home() / "Library" / "Application Support" / "Facet" / "appdata.sqlite"
+# The trace's own database, not the app's. `debug_log` moved out of `appdata.sqlite` on 2026-08-22 so the
+# file a user sends in carries the log and nothing else -- see docs/database-design.md.
+DB = pathlib.Path.home() / "Library" / "Application Support" / "Facet" / "debug.sqlite"
 
 
 def main():
@@ -41,7 +43,9 @@ def main():
     rows = connection.execute(
         "SELECT logged_at, message FROM debug_log"
         " WHERE debug_log_id > ? AND message LIKE ? ORDER BY debug_log_id",
-        (since, f'Category "{name}" daily limit -> %'),
+        # Unquoted: every debug message is plain text now, so that a SQL LIKE pattern never has to escape
+        # its way around one (see the debug message rules in CLAUDE.md).
+        (since, f'Category {name} daily limit -> %'),
     ).fetchall()
 
     ticks = []

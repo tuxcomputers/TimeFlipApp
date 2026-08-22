@@ -4,12 +4,12 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   feature/assignFace
-    commit:   6ee539c89136936bd56700bfeff839306ea85372
+    branch:   feature/debugLog
+    commit:   9b384472f86d3cae3fd8f3fa70a1c504a06cc7c2
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-22 19:12:06
-    finished: 2026-08-22 19:26:08
+    started:  2026-08-22 20:17:31
+    finished: 2026-08-22 20:30:46
     outcome:  passed
     scripts:  22 run, 0 with failures
     checks:   522 in total

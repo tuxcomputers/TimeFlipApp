@@ -73,7 +73,7 @@ else
     # Checked here rather than before the button: an unusable radio leaves the button reading "Scan for Devices"
     # perfectly correctly, so a check on the title reports the wrong thing, and the reason is written the moment the
     # radio refuses -- so if a scan never started, this is why.
-    unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
+    unavailable=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
     if [ -n "$unavailable" ]; then
         fail "the radio is unusable, so nothing can be found ($unavailable)"
         finish

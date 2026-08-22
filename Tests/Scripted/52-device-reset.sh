@@ -119,7 +119,7 @@ press_sheet Cancel
 sleep 1
 
 expect_log "cancelling says so" "$since" "The reset was called off"
-check "and nothing was sent to the cube" "0" "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %FF%';")"
+check "and nothing was sent to the cube" "0" "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %FF%';")"
 check "the app still has its device" "1" "$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")"
 if alert_is_open; then
     fail "the sheet is still up after Cancel, so every later press lands on nothing"
@@ -137,7 +137,7 @@ press_sheet "Reset Device"
 
 expect_log "the command goes out on the command characteristic" "$since" "Sending the factory reset command" 20
 # The bytes, as bytes. One byte and no arguments, which is the whole of 0xFF.
-sent=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %' ORDER BY debug_log_id LIMIT 1;")
+sent=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %' ORDER BY debug_log_id LIMIT 1;")
 check_contains "and it is 0xFF, on its own" "$sent" "command withResponse: FF"
 expect_log "the cube acknowledges the write" "$since" "command: write acknowledged" 20
 
@@ -179,7 +179,7 @@ esac
 # **A confirming login is not a pairing**, which is the archive's rule: the cube is a pristine unpaired device now, and
 # treating the proof as a pairing would leave the app holding the very thing it was told to give up.
 expect_log "and it lets go once the wipe is proved" "$since" "Disconnecting from %the reset is over"
-check "the login that proved it did not pair anything" "0" "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Paired with %';")"
+check "the login that proved it did not pair anything" "0" "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Paired with %';")"
 
 # ---------------------------------------------------------------------------- what a confirmed reset wrote
 

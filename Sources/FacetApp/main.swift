@@ -56,7 +56,15 @@ let timezones = TimezoneStore(connection: database)
 let databaseBadge = DeveloperMode.isEnabled
     ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
     : nil
-let debugLog = DeveloperMode.isEnabled ? DebugLog(databaseURL: databaseURL) : nil
+// **The trace goes in its own file**, brought up here rather than at the top: it is only wanted when developer mode
+// is on, and a launch without it should not create a database nobody is going to write to. A failure to open it is
+// not a reason to refuse the launch either -- the app works perfectly well without a trace, and `DebugLog` already
+// keeps printing to the terminal when the recording half cannot start.
+let debugLog: DebugLog? = {
+    guard DeveloperMode.isEnabled else { return nil }
+    let url = (try? DatabaseBootstrap.ensureDebugDatabase().databaseURL) ?? DatabaseBootstrap.debugDatabaseURL()
+    return DebugLog(databaseURL: url)
+}()
 
 // With no device paired there is nothing to follow, so the app times by hand. Startup is the first
 // place that needs the answer, which is why the read happens here and not sooner.

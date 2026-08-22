@@ -60,8 +60,8 @@ close_settings
 # **The clock, before anything else the connection does.** The cube stamps every history frame with its own clock, so
 # one that has never been told the time has nothing to date an interval with -- and a factory reset clears it, which
 # `52-device-reset` does. This app sent `0x08` nowhere at all until 2026-08-21.
-expect_log "the cube's clock is set as the first thing after the link is confirmed" "$link" "Setting the cube's clock to %" 30
-expect_log "and the cube's own answer confirms it" "$link" "The cube's clock is set" 30
+expect_log "the cube's clock is set as the first thing after the link is confirmed" "$link" "Setting the clock on the cube to %" 30
+expect_log "and the cube's own answer confirms it" "$link" "The clock on the cube is set" 30
 
 # **What the cube says about its own condition**, which the app subscribed to and dropped until 2026-08-21. The row is
 # what tells a reset cube apart from one whose flash memory has failed -- and a flash fault means it records no history
@@ -82,7 +82,7 @@ expect_log "and says whether it is locked, which is what the clicks below are ai
 # sent a pause it could never reverse. Nothing in `swift test` can see this: a `CBPeripheral` cannot be built outside
 # CoreBluetooth, so discovery has no seam a hermetic test can reach.
 expect_log "the cube's history characteristic is found when the link comes up" "$link" \
-    "The cube's history characteristic is there%" 30
+    "The history characteristic is there%" 30
 
 # **And it is asked at once, because the link came up.** Not because of anything else that happens to follow a login:
 # the fetch used to ride on the face read, so the log claimed the cube had been turned when it had been sitting still,
@@ -98,12 +98,12 @@ fi
 # **`56` leaves manual mode on**, and pairing is what ends it (`SettingsWindowController`). Reported rather than
 # asserted, because it is only on at all when `56` actually ran -- but it is the first thing to look at if the
 # routing check below fails, since a click in manual mode is routed to the app's own clock instead of the cube.
-grey "  $(sql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Manual mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
+grey "  $(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Manual mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
 # What the cube last said about itself. Written by `BluetoothRadio` and only when the answer is news, which is enough:
 # the ask made when a link comes up always writes one, since the held status is cleared with the connection.
 status_row() {
-    sql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'command' AND message LIKE 'The cube is %ocked and %' ORDER BY debug_log_id DESC LIMIT 1;"
+    dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'command' AND message LIKE 'The cube is %ocked and %' ORDER BY debug_log_id DESC LIMIT 1;"
 }
 
 # The status item's own line. Matched through the spoken description rather than the drawn title: the glyph is an
@@ -244,7 +244,7 @@ click_right
 expect_log "a single click on a locked cube is refused, and says why" "$since" \
     "The cube is locked, so pausing it means nothing; unlock it first" 10
 check "and nothing was put on the wire for it" "0" \
-    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'command' AND message LIKE 'Sending 06 %';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'command' AND message LIKE 'Sending 06 %';")"
 
 # ---------------------------------------------------------------------------- and two more unlock it
 
@@ -310,7 +310,7 @@ pass "the cube is paused, and the app's record says so"
 # Which way to ask for. Read from the app's own last answer rather than assumed, and the target is the other of the
 # two faces `008_face.sql` seeds with a real category -- a turn to an unassigned face still files an event, but there
 # would be no name to read on either surface.
-on_face=$(sql "SELECT CAST(replace(replace(message, 'Face ', ''), ' is up', '') AS INTEGER) FROM debug_log
+on_face=$(dsql "SELECT CAST(replace(replace(message, 'Face ', ''), ' is up', '') AS INTEGER) FROM debug_log
                 WHERE tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;")
 if [ "$on_face" = "$MEETING_FACE" ]; then target=$BREAK_FACE; else target=$MEETING_FACE; fi
 target_name=$(sql "SELECT category_name FROM category WHERE category_id = (SELECT category_id FROM face WHERE face_id = $target);")
@@ -336,7 +336,7 @@ then
     # is the one thing that could legitimately send one here, and only for a pause it placed itself on a category that
     # has spent its budget -- so a failure on this line is worth reading as a daily limit before reading it as a bug.
     check "and the app sent no resume, so it was the cube that started itself" "0" \
-        "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $paused_at AND tag = 'command' AND message LIKE 'Sending 06 02%';")"
+        "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $paused_at AND tag = 'command' AND message LIKE 'Sending 06 02%';")"
 
     # And both surfaces have to have followed it, with nobody having clicked anything.
     check_contains "the menu bar draws the cube running again, unasked" "$(status_item)" "device running"

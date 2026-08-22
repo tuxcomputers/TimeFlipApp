@@ -20,7 +20,7 @@ final class BLETraceTests: XCTestCase {
         // decoded those by hand from hex; this is that work done once.
         XCTAssertEqual(
             BLETrace.describe(Data("password set".utf8)),
-            "70 61 73 73 77 6F 72 64 20 73 65 74 \"password set\""
+            "70 61 73 73 77 6F 72 64 20 73 65 74 (password set)"
         )
     }
 

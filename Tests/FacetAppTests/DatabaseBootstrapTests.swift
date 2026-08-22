@@ -35,6 +35,31 @@ final class DatabaseBootstrapTests: XCTestCase {
         try DatabaseBootstrap.ensureDatabase(at: databaseURL, ddlDirectory: ddlDirectory)
     }
 
+    /// Every table a database actually holds, sorted. `sqlite_sequence` is sqlite's own bookkeeping for
+    /// `AUTOINCREMENT`, so it is not part of anybody's schema and is left out.
+    private func tableNames(in databaseURL: URL) -> [String] {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            XCTFail("could not open \(databaseURL.lastPathComponent)")
+            return []
+        }
+        defer { sqlite3_close(handle) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;",
+            -1, &stmt, nil
+        ) == SQLITE_OK else {
+            return []
+        }
+        var names: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            names.append(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return names
+    }
+
     /// One read-only query against the built database.
     private func scalar(_ sql: String) throws -> Int64 {
         var handle: OpaquePointer?
@@ -60,13 +85,33 @@ final class DatabaseBootstrapTests: XCTestCase {
 
         XCTAssertTrue(outcome.createdDatabase)
         XCTAssertTrue(FileManager.default.fileExists(atPath: databaseURL.path))
+        // **Every file this database owns, and none of the other's.** One directory holds both schemas and the
+        // number says which is which -- below 500 the app's, 500 and up the trace's -- so counting the directory
+        // outright would expect `appdata.sqlite` to grow the debug log's tables as well.
+        let appFiles = try FileManager.default.contentsOfDirectory(atPath: ddlDirectory.path)
+            .filter { $0.hasSuffix(".sql") }
+            .filter { (Int($0.prefix(3)) ?? 0) < DatabaseBootstrap.firstDebugDDLNumber }
         XCTAssertEqual(
-            outcome.filesApplied.count,
-            try FileManager.default.contentsOfDirectory(atPath: ddlDirectory.path)
-                .filter { $0.hasSuffix(".sql") }.count,
-            "every .sql file in database/ should have been applied"
+            outcome.filesApplied.count, appFiles.count,
+            "every .sql file below \(DatabaseBootstrap.firstDebugDDLNumber) should have been applied"
         )
         XCTAssertEqual(outcome.filesApplied, outcome.filesApplied.sorted(), "applied in filename order")
+    }
+
+    /// The other half of the split, from the other side: the trace's database gets the `500` files and nothing else.
+    ///
+    /// Worth its own case rather than trusting the count above, because the failure that matters is not "too few
+    /// files" but "the wrong ones" -- an `appdata.sqlite` carrying `debug_log`, or a `debug.sqlite` carrying
+    /// `time_entry`, would both satisfy a count and neither is the shape the app has.
+    func testTheDebugDatabaseGetsItsOwnSchemaAndNotTheApps() throws {
+        let debugURL = directory.appendingPathComponent("debug.sqlite")
+
+        try bootstrap()
+        try DatabaseBootstrap.ensureDebugDatabase(at: debugURL, ddlDirectory: ddlDirectory)
+
+        XCTAssertEqual(tableNames(in: debugURL), ["debug_log", "timezone"], "the trace's file, and only it")
+        XCTAssertFalse(tableNames(in: databaseURL).contains("debug_log"), "the app's file keeps no trace table")
+        XCTAssertTrue(tableNames(in: databaseURL).contains("time_entry"), "precondition: the app's schema is there")
     }
 
     func testTheSchemaAndItsSeedsAreThere() throws {

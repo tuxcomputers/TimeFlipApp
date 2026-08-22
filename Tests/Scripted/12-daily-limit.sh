@@ -63,7 +63,7 @@ stage_category() {
     set_field category-name-field "$name"
     press save-category
     sleep 1
-    id=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $created AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+    id=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $created AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
     if [ -z "$id" ]; then
         return 1
     fi
@@ -135,7 +135,7 @@ for remaining in "${REMAINING_CASES[@]}"; do
     since=$(mark)
     press "category-row-$ID"
     sleep 1.5
-    expect_log "picking it starts the clock" "$since" "%\"$NAME\"%"
+    expect_log "picking it starts the clock" "$since" "%$NAME%"
 
     # Waited on rather than read once: the log row above and the segment behind it are two statements, and the
     # row is written first. See `wait_sql`.
