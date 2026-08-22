@@ -5,16 +5,16 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   feature/groupings
-    commit:   9d8731c6fcbf1257d44e2f3bf8a91c88e03ac5cf
+    commit:   5619360109f230c447a7501fbed4d08c3db8d8e4
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-22 22:07:40
-    finished: 2026-08-22 22:19:27
-    outcome:  failed
-    scripts:  20 run, 1 with failures
-    checks:   464 in total
-              463 passed
-              1 failed
+    started:  2026-08-22 22:28:45
+    finished: 2026-08-22 22:55:05
+    outcome:  passed
+    scripts:  23 run, 0 with failures
+    checks:   562 in total
+              562 passed
+              0 failed
               0 skipped
 
 | script | passed | failed | skipped |
@@ -38,8 +38,11 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 52-device-reset | 33 | 0 | 0 |
 | 53-device-reconnect | 22 | 0 | 0 |
 | 54-device-battery | 10 | 0 | 0 |
-| 55-device-face | 23 | 1 | 0 |
-| **total** | **463** | **1** | **0** |
+| 55-device-face | 43 | 0 | 0 |
+| 56-manual-mode | 28 | 0 | 0 |
+| 57-cube-pause | 38 | 0 | 0 |
+| 99-quit | 13 | 0 | 0 |
+| **total** | **562** | **0** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
