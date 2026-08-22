@@ -100,7 +100,7 @@ expect_log "and the cube answers, so the app knows which way the lock is" "$link
 # answer is news, which is enough: the ask made when a link comes up always writes one, since the held status is
 # cleared with the connection.
 status_row() {
-    sql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'command' AND message LIKE 'The cube is %ocked and %' ORDER BY debug_log_id DESC LIMIT 1;"
+    dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'command' AND message LIKE 'The cube is %ocked and %' ORDER BY debug_log_id DESC LIMIT 1;"
 }
 
 # The status item's own line, which is where the lock badge shows up. Matched through the spoken description rather
@@ -258,7 +258,7 @@ fi
 # **Asked for the face it is not already on**, which is the archive's own correction to itself: asking for the one it
 # is resting on would leave the poll with nothing to detect, and the run would sit there indefinitely while somebody
 # stared at a cube that was already right.
-resting=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;" | sed -n 's/^Face \([0-9]*\) is up$/\1/p')
+resting=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;" | sed -n 's/^Face \([0-9]*\) is up$/\1/p')
 grey "  the cube is resting on face ${resting:-unknown}"
 if [ "${resting:-0}" = "$BREAK_FACE" ]; then
     first_face=$MEETING_FACE; first_name="$meeting"

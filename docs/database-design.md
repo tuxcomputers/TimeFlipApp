@@ -319,7 +319,19 @@ Connection is **gated by pairing**: an app that isn't paired has no device to be
 
 Practically, that means going out of range does **not** write to `paired`. To ask "does this need pairing?" read `paired`; to ask "can the app reach it right now?" read `connection.connected`.
 
-### `debug_log` (`database/012_debug_log.sql`)
+## The debug database (`debug.sqlite`)
+
+**A separate file, in the same directory as `production.sqlite` and `test.sqlite`.** It is what somebody sends in when they turn the `debug` setting on, so it holds the trace and nothing else: no `time_entry`, no `category`, no Google account. It also keeps the log out of the file the app is writing — anything reading `debug_log` locked `appdata.sqlite` against the app, and a confirmed pairing was lost to exactly that on 2026-08-22 (see `DatabaseConnection`'s busy timeout, which is the other half of the answer).
+
+**Its DDL lives in the same `database/` directory, numbered from 500.** Below 500 is the app's schema; 500 and above is this one's. One directory holds both because `Package.swift` processes `Resources` and SwiftPM flattens what it processes, so a real subdirectory would be folded back in and applied to whichever database asked first. `DatabaseBootstrap.firstDebugDDLNumber` is where the line is drawn, and the gap between `011` and `500` is room for both schemas to grow without either renumbering the other.
+
+### `timezone` (`database/500_timezone.sql`)
+
+The same table as the app's, and a deliberate second copy of it. `debug_log.logged_at` is local time and needs its zone, and a foreign key cannot cross database files — so this file carries its own.
+
+**The two fill independently, so the same zone can hold a different id in each.** Nothing may join across the files, and nothing needs to: the point of the copy is that a submitted `debug.sqlite` is readable on its own, without the app's database beside it.
+
+### `debug_log` (`database/501_debug_log.sql`)
 
 Every `DeveloperMode.debugPrint` message, recorded here whenever the `debug` setting's `enabled` field is `true` (see above), in addition to being printed to the terminal — lets a failed test session be reconstructed from the database afterward rather than depending on a terminal transcript that was never captured.
 
@@ -327,14 +339,14 @@ Every `DeveloperMode.debugPrint` message, recorded here whenever the `debug` set
 |------------------------|---------|--------------------------------------------------------------------|
 | `debug_log_id`         | INTEGER | Row identifier, primary key, autoincrementing.                     |
 | `logged_at`            | TEXT    | When the message was printed, as a local-time ISO 8601 timestamp with no UTC offset. |
-| `timezone_id`          | INTEGER | References `timezone.timezone_id` — the IANA zone `logged_at` was recorded in.       |
+| `timezone_id`          | INTEGER | References `timezone.timezone_id` **in this file** — the IANA zone `logged_at` was recorded in. |
 | `tag`                  | TEXT    | The `DeveloperMode.DebugTag` raw value (e.g. `history`, `entry`) identifying which subsystem logged this message — matches the bracketed tag in the terminal output. |
 | `message`              | TEXT    | The debug message text, exactly as printed (without the timestamp/tag prefix, which are separate columns here). |
 
 Foreign keys:
-- The `timezone_id` column references the PK of the table `timezone` described above. `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
+- The `timezone_id` column references the PK of `timezone` in this same file, described above. `NOT NULL DEFAULT 0` — id `0` is the seeded `Unknown` sentinel.
 
 Constraints:
 - `logged_at`, `timezone_id`, `tag`, `message` are all `NOT NULL`.
 
-No retention/cleanup is implemented yet — this table grows for as long as `debug.enabled` stays `true`.
+No retention/cleanup is implemented yet — this file grows for as long as `debug.enabled` stays `true`. `Tests/Scripted/run.sh` deletes it on a clean rebuild, so a scripted run starts from an empty trace; the app recreates it on its next launch.

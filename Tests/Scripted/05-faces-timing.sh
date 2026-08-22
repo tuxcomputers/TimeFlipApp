@@ -22,7 +22,7 @@ sleep 0.5
 set_field category-name-field "$NAME"
 press save-category
 sleep 1.5
-ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+ID=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
 if [ -z "$ID" ]; then
     fail "could not create a category to time against"
     finish

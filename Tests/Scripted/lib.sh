@@ -22,6 +22,13 @@ cd "$REPO_ROOT"
 
 SUPPORT="$HOME/Library/Application Support/Facet"
 DB="$SUPPORT/appdata.sqlite"
+# **The trace lives in its own file**, beside the app's rather than inside it, so a check that waits on a `debug_log`
+# row reads a different database from one that reads `device_event`. `dsql` is that database's `sql`, and which one a
+# query wants is decided by which table it names -- see the two of them below.
+#
+# It is not a symlink like `appdata.sqlite` and does not need to be: it holds no data worth keeping between runs, and
+# `switch-database.sh` repoints the app's file without this one caring which side it lands on.
+DEBUG_DB="$SUPPORT/debug.sqlite"
 APP=".build/bundler/apps/Facet/Facet.app"
 BINARY="$APP/Contents/MacOS/Facet"
 
@@ -185,7 +192,7 @@ ask_and_detect() {
 
     local waited=0 found=""
     while true; do
-        found=$(sql "$query")
+        found=$(anysql "$query")
         if [ -n "$found" ]; then
             grey "  seen: $found"
             return 0
@@ -330,7 +337,7 @@ pair_a_cube() {
 
     grey "  waiting for the radio to come up..."
     if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
-        PAIR_REASON=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
+        PAIR_REASON=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
         [ -n "$PAIR_REASON" ] && { PAIR_STATUS=2; return 2; }
         PAIR_REASON="the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
         PAIR_STATUS=1
@@ -554,6 +561,34 @@ require_test_database() {
 # than races, and a genuine empty result still means what it says.
 sql() { sqlite3 -cmd ".timeout 10000" "$DB" "$1"; }
 
+# The same, against the trace's database. **Every query naming `debug_log` goes through this**, and the split is worth
+# saying plainly because it used to be one file: a `sql` call asking for `debug_log` now answers nothing at all rather
+# than failing loudly, since sqlite reports "no such table" on stderr and an empty result on stdout -- which reads
+# exactly like a row that has not been written yet.
+#
+# The timeout is the same 10 seconds and for a milder version of the same reason. The app writes this file constantly
+# while a run polls it, but nothing else does, so the contention that made the app's own timeout necessary is largely
+# what moving the table removed.
+dsql() { sqlite3 -cmd ".timeout 10000" "$DEBUG_DB" "$1"; }
+
+# Runs a query a *caller* supplied, against whichever database it is asking about.
+#
+# **For the three helpers that take a whole query rather than a pattern** -- `ask_and_detect`, `wait_sql` and
+# `wait_for_value`. Every other call site names its table when it is written, so it can pick `sql` or `dsql` then;
+# these cannot, because the table is in the argument. Deciding from the text keeps the caller writing one query and
+# not also having to say where it lives.
+#
+# A query joining `debug_log` to an app table would be answered wrongly rather than refused, and there is no way to
+# answer it at all -- they are separate files. There are none today (checked when the log moved out, 2026-08-22), and
+# a check that needs both should wait for the row and then read the table, which is what `wait_sql` already exists to
+# do.
+anysql() {
+    case "$1" in
+        *debug_log*) dsql "$1" ;;
+        *)           sql "$1" ;;
+    esac
+}
+
 # The next unused name in a numbered family: `next_name Timer` answers `Timer 1` on a database built from
 # nothing, and `Timer 18` on one that already holds seventeen.
 #
@@ -575,7 +610,7 @@ next_name() {
 }
 
 # The newest debug_log id right now. Every wait is measured from one of these -- see rule 3 above.
-mark() { sql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;"; }
+mark() { dsql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;"; }
 
 # Waits for a debug_log row after `since` whose message matches `pattern` (a SQL LIKE, so % is the
 # wildcard). Prints the message it found, empty on timeout.
@@ -601,7 +636,7 @@ wait_for() {
     pattern=${pattern//\'/\'\'}
     local waited=0 found=""
     while [ "$waited" -lt "$((timeout * 10))" ]; do
-        found=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '$pattern' ORDER BY debug_log_id LIMIT 1;")
+        found=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '$pattern' ORDER BY debug_log_id LIMIT 1;")
         [ -n "$found" ] && { printf '%s' "$found"; return 0; }
         sleep 0.1
         waited=$((waited + 1))
@@ -627,7 +662,7 @@ wait_sql() {
     local expected="$1" query="$2" timeout="${3:-10}"
     local waited=0 answer=""
     while [ "$waited" -lt "$((timeout * 10))" ]; do
-        answer=$(sql "$query")
+        answer=$(anysql "$query")
         [ "$answer" = "$expected" ] && { printf '%s' "$answer"; return 0; }
         sleep 0.1
         waited=$((waited + 1))
@@ -656,7 +691,7 @@ wait_for_value() {
     local query="$1" want="$2" timeout="${3:-15}"
     local waited=0
     while [ "$waited" -lt "$((timeout * 10))" ]; do
-        [ "$(sql "$query")" = "$want" ] && return 0
+        [ "$(anysql "$query")" = "$want" ] && return 0
         sleep 0.1
         waited=$((waited + 1))
     done

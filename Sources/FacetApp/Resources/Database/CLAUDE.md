@@ -102,8 +102,15 @@ and don't count it when reasoning about the schema.
 
 ## File numbering and dependency order
 
+- **The number also says which database the file belongs to: below `500` the app's `appdata.sqlite`, `500`
+  and above the trace's `debug.sqlite`.** One directory holds both because `Package.swift` processes
+  `Resources` and SwiftPM flattens what it processes, so a real subdirectory would be folded back in and
+  applied to whichever database asked first. `DatabaseBootstrap.firstDebugDDLNumber` is where the line is
+  drawn, and the gap from `011` to `500` is room for both schemas to grow without either renumbering the
+  other. A table needed by both is written twice, once in each range -- `timezone` is the only one, and
+  `docs/database-design.md` says why the two copies may never be joined.
 - DDL files are named `<NNN>_<tablename>.sql` and applied in ascending filename order (see
-  `AppDataStore.runDatabaseDDL`). Foreign keys are **enforced** (`PRAGMA foreign_keys = ON`), so a
+  `DatabaseBootstrap.ensureDatabase`). Foreign keys are **enforced** (`PRAGMA foreign_keys = ON`), so a
   table must be numbered **after every table it references** — a parent is created and seeded before
   any child that points at it, otherwise the child's seed insert fails on a missing parent row. For
   example `004_icon`, `005_colour`, and `006_project` all precede `007_category`, which references

@@ -37,7 +37,7 @@ expect_log "picking a day sets the range" "$since" "Report range $DAY%"
 
 # **The end starts unset**, which is the common case said in one click: pick a day and the report covers
 # that day. The app says so rather than silently picking an end.
-range=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Report range%' ORDER BY debug_log_id DESC LIMIT 1;")
+range=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Report range%' ORDER BY debug_log_id DESC LIMIT 1;")
 check_contains "one day, with no end picked" "$range" "not set, reporting one day"
 
 expect_log "and it totals what is in that day" "$since" "Report totals $DAY%"

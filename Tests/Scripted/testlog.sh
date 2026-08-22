@@ -299,13 +299,15 @@ testlog_script_start() {
     TESTLOG_CHECK_SEQ=0
 }
 
-# The app's debug_log high-water mark, or 0 when there is no database to ask.
+# The trace's debug_log high-water mark, or 0 when there is no database to ask. `DEBUG_DB` rather than `DB`
+# since the log moved into its own file (2026-08-22); attaching the app's would find no such table and
+# copy nothing, silently, which is the failure this whole record exists to prevent.
 app_log_mark() {
     local id
     # The same busy timeout `lib.sh`'s `sql` uses, and for the same reason: a locked read answers empty,
     # which the fallback below turns into a mark of 0 -- and a window starting at 0 copies the whole log
     # into the record instead of this script's own rows.
-    id=$(sqlite3 -cmd ".timeout 10000" "$DB" "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;" 2>/dev/null || echo 0)
+    id=$(sqlite3 -cmd ".timeout 10000" "$DEBUG_DB" "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;" 2>/dev/null || echo 0)
     printf '%s' "${id:-0}"
 }
 
@@ -317,7 +319,7 @@ testlog_copy_app_log() {
     local from
     from=$(tlog "SELECT IFNULL(log_from, 0) FROM script WHERE script_id = $script;")
     sqlite3 "$TESTLOG" "
-        ATTACH DATABASE '$(sq "$DB")' AS app;
+        ATTACH DATABASE '$(sq "$DEBUG_DB")' AS app;
         INSERT OR IGNORE INTO app_log (run_id, script_id, debug_log_id, logged_at, tag, message)
         SELECT $run, $script, debug_log_id, logged_at, tag, message
           FROM app.debug_log WHERE debug_log_id > ${from:-0};

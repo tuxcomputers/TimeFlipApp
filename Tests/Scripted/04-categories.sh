@@ -102,7 +102,7 @@ expect_log "a typed name is saved as a new category" "$since" "%Save new categor
 
 # The id it was given, from the app's own line, so everything below addresses the row that was just made
 # rather than guessing which one it is.
-ID=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+ID=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
 if [ -n "$ID" ]; then
     pass "the new category has an id ($ID)"
 else

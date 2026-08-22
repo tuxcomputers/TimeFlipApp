@@ -59,7 +59,7 @@ check "it opens again" "yes" "$(settings_is_open && echo yes || echo no)"
 # being timed is what somebody opening this window most often wants, and a window that reopened on the
 # Device tab because that is where they last were would bury it. The row is written by the open itself
 # rather than by the tab view, precisely because selecting an already-selected tab fires nothing.
-opened=$(sql "SELECT message FROM debug_log WHERE message LIKE 'Settings opened on %' ORDER BY debug_log_id DESC LIMIT 1;")
+opened=$(dsql "SELECT message FROM debug_log WHERE message LIKE 'Settings opened on %' ORDER BY debug_log_id DESC LIMIT 1;")
 check_contains "it opens on Faces however it was left" "$opened" "Faces"
 
 # ============================================================================ the run's calendar

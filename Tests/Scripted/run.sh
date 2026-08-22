@@ -102,8 +102,13 @@ else
         echo "Could not rebuild the test database; refusing to run against whatever is there instead."
         exit 2
     fi
+    # **The trace goes with it.** It is a separate file now, so `switch-database.sh` does not touch it, and a run that
+    # said it was starting from nothing would otherwise inherit every row the last one wrote. The app recreates it on
+    # its next launch from the `500` DDL.
+    rm -f "$HOME/Library/Application Support/Facet/debug.sqlite"
+
     if [ ! -f "$HOME/.config/facet/scripted-seed.json" ]; then
-        echo "Note: a new database has no Google account, so 10-google-calendar will skip."
+        echo "Note: a new database has no Google account, so 10-google-calendar will FAIL."
         echo "      Connect one on the App tab once; it is captured and reseeded from then on."
     fi
 fi
@@ -113,6 +118,8 @@ echo "${#scripts[@]} script(s) to run"
 # The durable record, alongside screen.txt. See Tests/Scripted/testlog.sh for what it holds and why one
 # overwritten text file is not enough to work out why something failed.
 DB="$HOME/Library/Application Support/Facet/appdata.sqlite"
+# testlog.sh reads the app's log out of the trace's file, so it needs to know where that is before it is sourced.
+DEBUG_DB="$HOME/Library/Application Support/Facet/debug.sqlite"
 source Tests/Scripted/testlog.sh
 TESTLOG_RUN_ID=$(testlog_run_start "$((1 - KEEP_DATABASE))" "$FILTER" "run.sh $*")
 export TESTLOG_RUN_ID
