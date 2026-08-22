@@ -304,9 +304,9 @@ final class HistoryIngestorTests: XCTestCase {
 
     // MARK: - one at a time
 
-    func testARefreshArrivingMidFetchIsDropped() {
+    func testARefreshArrivingMidFetchDoesNotRunOnTopOfIt() {
         // Two fetches at once would be two conversations on one characteristic with nothing in the answers to say
-        // which is which. The next tick reads the table again and picks up whatever is still due.
+        // which is which.
         deviceLast = segment(2, at: 2000)
         stream = [segment(1, at: 1000), segment(2, at: 2000)]
         var inner: HistoryIngestor.Outcome?
@@ -330,8 +330,77 @@ final class HistoryIngestorTests: XCTestCase {
 
         refresh(loop)
 
+        // **`.nothingToAsk` to the caller that arrived mid-fetch, even though it is now run afterwards.** Its own
+        // request was not answered, and handing it the re-run's outcome would report an answer to somebody else's
+        // question.
         XCTAssertEqual(inner, .nothingToAsk, "a second refresh ran on top of the first")
-        XCTAssertEqual(lastEventReads, 1)
+    }
+
+    func testARefreshArrivingMidFetchRunsWhenThatOneIsDone() {
+        // **It used to be dropped, and that was wrong for six of the seven callers.** Only the timer can afford to
+        // wait for the next trigger; the others ask *because* a state change has just happened -- the cube turned,
+        // locked, unlocked, paused, reset, or a link came up -- and the tick they would wait for is up to ten seconds
+        // away, during which both surfaces go on drawing a play/pause glyph from a `device_event` that says the
+        // opposite of what the app has just done and confirmed.
+        //
+        // Found by a device run on 2026-08-22: the timer's fetch went out one row before a pause command, and the
+        // refresh the confirmed pause asked for was dropped into a fetch that had already read the cube's answer.
+        deviceLast = segment(2, at: 2000)
+        stream = [segment(1, at: 1000), segment(2, at: 2000)]
+        var order: [String] = []
+        let loop = HistoryIngestor(
+            events: events,
+            readLastEvent: { [self] answered in
+                lastEventReads += 1
+                order.append("read \(lastEventReads)")
+                if lastEventReads == 1 {
+                    self.pending?.refresh(because: "a second trigger")
+                }
+                answered(deviceLast)
+            },
+            fetchHistory: { [self] from, answered in
+                askedFrom.append(from)
+                answered(stream)
+            },
+            debugLog: nil
+        )
+        pending = loop
+
+        loop.refresh(because: "the first") { _ in order.append("first done") }
+
+        XCTAssertEqual(lastEventReads, 2, "the second refresh was asked for and never happened")
+        // **The order is the whole point**: one at a time still holds, so the second conversation starts only once
+        // the first has finished and reported. Asserting the count alone would pass for two fetches interleaved.
+        XCTAssertEqual(order, ["read 1", "first done", "read 2"])
+    }
+
+    func testManyRefreshesArrivingMidFetchCollapseIntoOne() {
+        // Only the latest reason is kept, so a burst during one fetch costs one re-run rather than one apiece. They
+        // all want the same thing: the table brought up to date once this conversation is over.
+        deviceLast = segment(2, at: 2000)
+        stream = [segment(1, at: 1000), segment(2, at: 2000)]
+        let loop = HistoryIngestor(
+            events: events,
+            readLastEvent: { [self] answered in
+                lastEventReads += 1
+                if lastEventReads == 1 {
+                    for reason in ["turned", "paused", "locked"] {
+                        self.pending?.refresh(because: reason)
+                    }
+                }
+                answered(deviceLast)
+            },
+            fetchHistory: { [self] from, answered in
+                askedFrom.append(from)
+                answered(stream)
+            },
+            debugLog: nil
+        )
+        pending = loop
+
+        refresh(loop)
+
+        XCTAssertEqual(lastEventReads, 2, "three requests during one fetch are one re-run, not three")
     }
 
     private var pending: HistoryIngestor?

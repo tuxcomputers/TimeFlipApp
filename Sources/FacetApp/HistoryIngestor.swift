@@ -48,11 +48,28 @@ final class HistoryIngestor {
 
     /// Whether a refresh is already running.
     ///
-    /// **The only state this object keeps, and it is about the radio rather than about the cube.** Two fetches at once
-    /// would be two conversations on one characteristic with nothing in the answers to say which is which -- the same
-    /// reason `DeviceLogin` allows one at a time. A refresh that arrives while one is running is dropped rather than
-    /// queued: the next trigger is a tick away, and it will read the table again and pick up whatever is still due.
+    /// **About the radio rather than about the cube.** Two fetches at once would be two conversations on one
+    /// characteristic with nothing in the answers to say which is which -- the same reason `DeviceLogin` allows one
+    /// at a time.
     private var isRefreshing = false
+
+    /// A refresh asked for while one was already running, kept so it can be run the moment that one is over.
+    ///
+    /// **This used to be dropped, on the reasoning that the next trigger was a tick away.** That holds for the timer
+    /// and not for the six other callers, every one of which is a state change that has just happened: the cube was
+    /// turned, locked, unlocked, paused, reset, or a link came up. Those ask *because* the table is now out of date,
+    /// and the tick they would wait for is up to ten seconds away -- during which the menu bar and the Faces tab go
+    /// on drawing their play/pause glyph from `device_event`, which still says the opposite of what the app has just
+    /// done and confirmed.
+    ///
+    /// Measured on a device run, 2026-08-22: the timer's fetch went out one row before a pause command, the pause was
+    /// confirmed, and the refresh it asked for was dropped into a fetch that had already read the cube's answer. That
+    /// run got away with it, the cube having applied the pause before answering; the ordering that does not is the
+    /// same race a moment earlier.
+    ///
+    /// **Only the latest reason is kept**, so however many arrive during one fetch they collapse into a single
+    /// re-run. They all want the same thing, which is the table brought up to date once this conversation is over.
+    private var pendingReason: String?
 
     /// Told after every refresh that changed anything, so both surfaces can redraw.
     var onChanged: (() -> Void)?
@@ -75,7 +92,11 @@ final class HistoryIngestor {
             // Said rather than returned silently. A refresh that folded into one already running otherwise leaves no
             // trace at all, and the archive records a real run where exactly that made a startup fetch look as though
             // it had never happened.
-            debugLog?.record(.history, "Already fetching history (\(reason)): this request is dropped")
+            debugLog?.record(.history, "Already fetching history (\(reason)): asking again when this one is done")
+            pendingReason = reason
+            // **Still `.nothingToAsk` to this caller.** Its request has not been answered, and answering it later with
+            // the re-run's outcome would report an answer to a question somebody else asked. No production caller
+            // passes a handler; the tests that do are asserting exactly this.
             finished?(.nothingToAsk)
             return
         }
@@ -203,5 +224,12 @@ final class HistoryIngestor {
         debugLog?.record(.history, "History fetch done (\(reason)): \(outcome)")
         if changed { onChanged?() }
         finished?(outcome)
+
+        // **Last, after this fetch has been reported.** The re-run is a fresh conversation with the cube and reads the
+        // table again from the top, so it must not start until this one has told everybody what it found -- otherwise
+        // `onChanged` fires for the second fetch before the first has been accounted for.
+        guard let pending = pendingReason else { return }
+        pendingReason = nil
+        refresh(because: pending)
     }
 }
