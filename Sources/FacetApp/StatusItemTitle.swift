@@ -112,6 +112,20 @@ struct StatusItemTitle: Equatable {
                 rounding: .truncate,
                 showingSeconds: showingSeconds
             )
+            // **The spoken line is assembled a piece at a time rather than as one `+` chain of arrays**, and that is a
+            // compiler constraint rather than a style. Six array terms with an optional map and three ternaries in
+            // them, all inside a call argument, is more than Swift's type checker will do in reasonable time: this
+            // compiled here and failed the CI build outright on 2026-08-22 ("unable to type-check this expression in
+            // reasonable time"). A local build passing is not evidence about this, since the limit is a time budget
+            // and a slower machine has less of it. Appending in order also puts the reading order in the code.
+            var spokenParts: [String] = [category.name]
+            if let isDevicePaused = reading.deviceIsPaused {
+                spokenParts.append(isDevicePaused ? "device paused" : "device running")
+            }
+            spokenParts.append(onTheFace)
+            if isCubeLocked { spokenParts.append("device locked") }
+            if lowBattery.isLow { spokenParts.append("low battery") }
+            spokenParts.append(appLabel)
             return StatusItemTitle(
                 text: category.name,
                 iconName: category.iconName,
@@ -124,21 +138,17 @@ struct StatusItemTitle: Equatable {
                 nameColour: flash ?? .labelColor,
                 // The figure is said as well as drawn, for the reason the limit and the lock are: what is on the line
                 // has to reach somebody reading it aloud, and a duration is the one part of it that is never a colour.
-                spoken: spoken(
-                    [category.name]
-                        + (reading.deviceIsPaused.map { [$0 ? "device paused" : "device running"] } ?? [])
-                        + [onTheFace]
-                        + (isCubeLocked ? ["device locked"] : [])
-                        + (lowBattery.isLow ? ["low battery"] : [])
-                        + [appLabel],
-                    badgeDescription: badgeDescription
-                )
+                spoken: spoken(spokenParts, badgeDescription: badgeDescription)
             )
         }
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
         // starts. `guard` on both, though the readout only ever pairs them: a category with no state to draw, or a
         // state with no category to name, is half a session either way.
         guard let category = reading.category, let glyphName = ManualTimerRules.symbolName(for: reading.state) else {
+            // Built up rather than chained, for the reason given at the first of these.
+            var idleParts: [String] = [appLabel]
+            if isCubeLocked { idleParts.append("device locked") }
+            if lowBattery.isLow { idleParts.append("low battery") }
             return StatusItemTitle(
                 text: appLabel,
                 iconName: nil,
@@ -152,12 +162,7 @@ struct StatusItemTitle: Equatable {
                 // fact about the device rather than about the session, and the moment somebody is most likely to
                 // miss it is the moment nothing is running.
                 nameColour: flash ?? .labelColor,
-                spoken: spoken(
-                    [appLabel]
-                        + (isCubeLocked ? ["device locked"] : [])
-                        + (lowBattery.isLow ? ["low battery"] : []),
-                    badgeDescription: badgeDescription
-                )
+                spoken: spoken(idleParts, badgeDescription: badgeDescription)
             )
         }
         let duration = DurationFormat.hoursMinutesSeconds(
@@ -167,6 +172,24 @@ struct StatusItemTitle: Equatable {
             rounding: .truncate,
             showingSeconds: showingSeconds
         )
+        // The name first, then what the glyph means, then the figure, then whose menu bar item this is. Reading order,
+        // so the answer comes before the qualifications -- and built up rather than chained, for the reason given at
+        // the first of these.
+        //
+        // **The limit is said, not just coloured.** A colour is the whole of the signal on screen, so without this the
+        // one state the item exists to warn about would be the one state it did not mention to anybody reading it
+        // aloud.
+        // **The warning is said, not just flashed**, for the same reason the limit is: a colour is the whole of the
+        // signal on screen, so without this the one state worth interrupting somebody for would be invisible to
+        // anybody reading the item aloud.
+        // **The lock is said, not just drawn**, for the same reason the limit and the warning are: a badge is the
+        // whole of the signal on screen, so without this the state that explains why a cube is not changing face
+        // would be invisible to anybody reading the item aloud.
+        var sessionParts: [String] = [category.name, reading.state == .running ? "running" : "paused", duration]
+        if isCubeLocked { sessionParts.append("device locked") }
+        if isLimitReached { sessionParts.append("daily limit reached") }
+        if lowBattery.isLow { sessionParts.append("low battery") }
+        sessionParts.append(appLabel)
         return StatusItemTitle(
             text: category.name,
             iconName: category.iconName,
@@ -180,26 +203,7 @@ struct StatusItemTitle: Equatable {
             // (`DailyLimitEnforcement.isReached`) rather than from two comparisons that could disagree by a second.
             colour: isLimitReached ? .systemRed : .systemGreen,
             nameColour: flash ?? (isLimitReached ? .systemRed : .systemGreen),
-            spoken: spoken(
-                // The name first, then what the glyph means, then the figure, then whose menu bar item this is.
-                // Reading order, so the answer comes before the qualifications.
-                //
-                // **The limit is said, not just coloured.** A colour is the whole of the signal on screen, so
-                // without this the one state the item exists to warn about would be the one state it did not
-                // mention to anybody reading it aloud.
-                // **The warning is said, not just flashed**, for the same reason the limit is: a colour is the whole
-                // of the signal on screen, so without this the one state worth interrupting somebody for would be
-                // invisible to anybody reading the item aloud.
-                // **The lock is said, not just drawn**, for the same reason the limit and the warning are: a badge
-                // is the whole of the signal on screen, so without this the state that explains why a cube is not
-                // changing face would be invisible to anybody reading the item aloud.
-                [category.name, reading.state == .running ? "running" : "paused", duration]
-                    + (isCubeLocked ? ["device locked"] : [])
-                    + (isLimitReached ? ["daily limit reached"] : [])
-                    + (lowBattery.isLow ? ["low battery"] : [])
-                    + [appLabel],
-                badgeDescription: badgeDescription
-            )
+            spoken: spoken(sessionParts, badgeDescription: badgeDescription)
         )
     }
 

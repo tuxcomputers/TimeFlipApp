@@ -448,6 +448,26 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   stated intent: `CategoryRenameRules` documented that Return dismissed its dialogues, and for months
   Return in fact agreed to the rename. Press it at the sheet and read the table.
 
+## The type checker's budget is a time budget, so a local build proves nothing
+
+`error: the compiler is unable to type-check this expression in reasonable time` is not a portable
+verdict: it is a timeout, so the same expression can compile here and fail on a slower CI runner. On
+2026-08-22 `StatusItemTitle` did exactly that and the branch's CI build failed outright while
+`swift build` was clean locally.
+
+The shape that causes it is a chain of `+` on array literals with ternaries and optional maps inside
+it, passed as a call argument. Six terms was over the line; five was near it. Build the array with
+statements instead -- `var parts: [String] = [...]` then `if ... { parts.append(...) }` -- which also
+puts the reading order in the code.
+
+To find them before CI does, with the threshold in milliseconds:
+
+```sh
+swift build -Xswiftc -warn-long-expression-type-checking=200
+```
+
+Nothing in this codebase exceeds 200ms as of 2026-08-22, so any output at all is new.
+
 ## Notes for the hermetic suite (`swift test`)
 
 - **A window built in code is released when it is closed**, so a test that closes one over-releases it and the whole
