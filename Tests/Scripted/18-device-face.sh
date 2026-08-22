@@ -89,11 +89,11 @@ expect_log "and the cube answers, so the app knows which way the lock is" "$link
 # getting it there is the app's own Unlock item doing the thing it exists for -- so the badge is checked in both
 # directions on the way past rather than in a script of its own.
 #
-# **Which of the two directions gets exercised depends on how the cube is found**, and that is worth saying plainly
-# rather than claiming both. A cube found unlocked is locked here and then unlocked by the block below it, so a run
-# that starts from one covers the pair. A cube found locked is only unlocked: locking it again would leave the cube
-# locked for everything underneath, and a locked cube silently refuses to change face. `16`'s quit locks it whenever
-# `pause_on_lock` is on, which the DDL seeds, so the second case is the ordinary one on a full run.
+# **Both directions, on every run, by normalising first rather than by branching.** Whichever state the cube is found
+# in it is unlocked, and only then locked and unlocked again -- so the two presses below are the same two presses on
+# every run, in the same order, whatever `16`'s quit happened to leave. Branching on the state found instead meant the
+# lock direction went untested on exactly the runs where it mattered most: `16` quits the app, quitting locks the cube
+# whenever `pause_on_lock` is on, and the DDL seeds it on, so the full-run case was the one that skipped the lock.
 
 # What the cube last said about itself, from this connection onwards. Written by `BluetoothRadio` and only when the
 # answer is news, which is enough: the ask made when a link comes up always writes one, since the held status is
@@ -120,30 +120,46 @@ press_cube_lock() {
 
 grey "  the cube says: $(status_row)"
 
-if [[ "$(status_row)" != *"is locked"* ]]; then
-    # Locked deliberately, so the badge is checked even on a run where nothing else left it locked.
-    #
-    # **Gated on the same setting the app gates it on.** `pause_on_lock` decides whether locking from the app means
-    # anything at all, and with it off `CubeLock.lock` sends nothing -- so this would sit waiting for a state the app
-    # is deliberately refusing to reach.
-    if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'pause_on_lock';")" = "1" ]; then
-        locking=$(mark)
-        press_cube_lock
-        # **The pause goes first and is confirmed first, and that order is load-bearing**: a locked cube reports
-        # itself paused whatever its pause byte says, so a pause confirmed after the lock would be confirming nothing.
-        expect_log "the dropdown's Lock item pauses the cube first" "$locking" "The cube is paused" 20
-        expect_log "and then locks it" "$locking" "The cube is locked" 20
-    else
-        skip "pause_on_lock is off, so the app will not lock from here and the badge cannot be raised"
-    fi
+# ---------------------------------------------------------------------------- 1. unlocked, whatever it was
+#
+# A cube found unlocked needs nothing here; one found locked is unlocked with the item that exists for it. Either way
+# the block below starts from the same place. This is not the unlock *check* -- that is step 3, on a lock this script
+# applied itself, so it is testing the pair rather than clearing up after another script.
+
+if [[ "$(status_row)" == *"is locked"* ]]; then
+    clearing=$(mark)
+    press_cube_lock
+    expect_log "a cube found locked is unlocked first, so both directions run from one place" \
+        "$clearing" "The cube is unlocked" 20
 fi
 
 if [[ "$(status_row)" == *"is locked"* ]]; then
+    fail "the cube would not come out of its lock, so neither direction can be checked"
+    close_settings
+    finish
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------- 2. locked, and the badge raised
+#
+# **Gated on the same setting the app gates it on.** `pause_on_lock` decides whether locking from the app means
+# anything at all, and with it off `CubeLock.lock` sends nothing -- so this would sit waiting for a state the app is
+# deliberately refusing to reach. With it off there is no lock to undo either, so step 3 is skipped with it.
+
+if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'pause_on_lock';")" = "1" ]; then
+    locking=$(mark)
+    press_cube_lock
+    # **The pause goes first and is confirmed first, and that order is load-bearing**: a locked cube reports itself
+    # paused whatever its pause byte says, so a pause confirmed after the lock would be confirming nothing.
+    expect_log "the dropdown's Lock item pauses the cube first" "$locking" "The cube is paused" 20
+    expect_log "and then locks it" "$locking" "The cube is locked" 20
+
     # **Repainted the moment the answer moved, not on the item's next tick.** The tick only runs while the app itself
     # is timing, and locking pauses the cube -- so the state the badge exists for is exactly the state nothing else
     # would redraw. This passing is what says `radio.onCubeStatus` is wired to the menu bar.
     check_contains "the menu bar says the cube is locked" "$(status_item)" "device locked"
 
+    # ------------------------------------------------------------------------ 3. and unlocked again
     unlocking=$(mark)
     python3 scripts/status-item-click.py >/dev/null 2>&1
     sleep 0.8
@@ -164,10 +180,10 @@ if [[ "$(status_row)" == *"is locked"* ]]; then
         *) pass "and the badge goes with it" ;;
     esac
 else
-    skip "the cube could not be got into a locked state, so the badge was not checked"
+    skip "pause_on_lock is off, so the app will not lock from here and neither direction can be checked"
 fi
 
-# Whatever the two blocks above did, the cube has to be turnable from here or nothing below can happen at all.
+# Whatever the three steps above did, the cube has to be turnable from here or nothing below can happen at all.
 if [[ "$(status_row)" == *"is locked"* ]]; then
     fail "the cube is still locked, and a locked cube silently refuses to change face"
     close_settings
