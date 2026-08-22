@@ -320,6 +320,13 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **The suite's own polling can make the app's writes fail.** The database is `journal_mode=delete`, so a reader
+  locks the file against writers, and `wait_for` polls `debug_log` every 100ms for the whole of a run. Any app
+  connection without `sqlite3_busy_timeout` drops its write instantly rather than waiting. On 2026-08-22 that lost a
+  confirmed pairing: the app was connected and logged in, one of `recordPairing`'s six writes came back busy, and
+  `18-device-face` waited a minute for a `Paired with` row nothing would write. Both handles now wait. If a run shows
+  the app failing to record something it plainly did, suspect contention before logic.
+
 - **An apostrophe in a `wait_for` pattern breaks the query, not the match.** The pattern is interpolated into a SQL
   string literal, so `The cube's clock is set` closes the quote at `cube` and sqlite3 refuses the whole statement.
   Nothing reaches stdout, the poll sees empty, and the wait times out saying the app never wrote a row it wrote
