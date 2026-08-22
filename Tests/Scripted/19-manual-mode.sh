@@ -50,9 +50,22 @@ setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE 
 #
 # A trap rather than a call at each exit, because the exits that matter are the ones nobody thought of.
 BLUETOOTH_IS_OFF=0
+# Whether the radio is on, asked of the system rather than remembered. `BLUETOOTH_IS_OFF` only says this script
+# turned it off, which stops being true the moment somebody turns it back on -- and the flag is cleared in one place,
+# right at the end, so any failure before that reaches the trap with it still set. Asking on the way out is what
+# stops a prompt appearing in front of somebody who has already done the thing it is asking for (2026-08-22: a check
+# further down failed, and this asked for a radio that had been back on for a minute).
+bluetooth_is_on() {
+    system_profiler SPBluetoothDataType 2>/dev/null | grep -qE "State: *On"
+}
+
 restore_bluetooth() {
     [ "$BLUETOOTH_IS_OFF" = "1" ] || return 0
     BLUETOOTH_IS_OFF=0
+    if bluetooth_is_on; then
+        grey "  Bluetooth is back on already, so there is nothing to ask for"
+        return 0
+    fi
     echo ""
     yellow "##############################################################################"
     yellow "##"
@@ -265,7 +278,18 @@ press device-forget
 sleep 1.5
 
 check "forgetting the device gives the pairing up" "0" "$(setting paired paired)"
-expect_log "and manual mode stays on, now for its own reason" "$since" "Manual mode: on, no device is paired" 10
+# **Nothing is logged here, and that is the app being right rather than this being a weak check.** `ManualMode.start`
+# returns silently when the mode is already on, exactly as `stop` does when it is already off, so a forget that finds
+# manual mode already chosen announces nothing at all. This asserted that announcement until 2026-08-22 and could
+# never have passed: the mode was turned on by the offer forty lines above, so `start` returns before it reaches the
+# log. The row it wanted belongs to a different path -- a launch that starts with no pairing at all.
+#
+# What is genuinely at risk here is the opposite of what was being checked. Forgetting the device is exactly the kind
+# of tidying-up that could reset the mode along with the pairing, and a launch that dropped out of manual mode at this
+# point would go back to timing nothing, with no cube to time instead.
+check "and manual mode is not turned off along with the pairing" "0" \
+    "$(sql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'mode' AND message LIKE 'Manual mode: off%';")"
+check_contains "so the menu bar is still timing by hand" "$(status_item)" "Break"
 # The Scan button is hidden while a cube is paired, so its coming back is the whole of what "and reconnect" means.
 if [ -n "$(element device-scan)" ]; then
     pass "the Scan button is back, which is the way to a cube again"
