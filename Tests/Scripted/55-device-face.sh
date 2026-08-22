@@ -25,10 +25,10 @@
 # tidiness.** A locked cube silently refuses to change face, so asking for a turn while it is locked would wait for
 # ever with nothing to detect (`01i` Scenario A, Step 3, which found exactly that and had to unlock before it could
 # carry on). A paused cube fails differently and later: it still reports the turn, so the prompt is satisfied, but it
-# files no history for it. Neither is a precaution: `16-device-reconnect` quits the app, and quitting pauses and locks
+# files no history for it. Neither is a precaution: `53-device-reconnect` quits the app, and quitting pauses and locks
 # the cube whenever `pause_on_lock` is on, which is what the DDL seeds.
 #
-# **Runs after `17`, and before the wipe in `99`.** It needs a live link and it needs a person, so it sits with the
+# **Runs after `54`, and before the wipe in `99`.** It needs a live link and it needs a person, so it sits with the
 # other device scripts rather than out on its own.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -37,9 +37,9 @@ ensure_app_running
 start "the face the cube is on, and both places drawing the same one"
 
 if ! device_required; then
-    skip "no TimeFlip was made available, so there is no face to read"
+    fail "no TimeFlip was made available, so there is no face to read"
     finish
-    exit 0
+    exit $?
 fi
 
 open_settings
@@ -47,8 +47,8 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to turn
 #
-# Paired from scratch, for the reason `15`, `16` and `17` all give: a script that inherited an earlier one's pairing
-# would silently test nothing whenever that one skipped. `17` ends by forgetting the device anyway, so there is
+# Paired from scratch, for the reason `52`, `53` and `54` all give: a script that inherited an earlier one's pairing
+# would silently test nothing whenever that one skipped. `54` ends by forgetting the device anyway, so there is
 # nothing here to inherit.
 
 link=$(mark)
@@ -92,8 +92,8 @@ expect_log "and the cube answers, so the app knows which way the lock is" "$link
 #
 # **Both directions, on every run, by normalising first rather than by branching.** Whichever state the cube is found
 # in it is unlocked, and only then locked and unlocked again -- so the two presses below are the same two presses on
-# every run, in the same order, whatever `16`'s quit happened to leave. Branching on the state found instead meant the
-# lock direction went untested on exactly the runs where it mattered most: `16` quits the app, quitting locks the cube
+# every run, in the same order, whatever `53`'s quit happened to leave. Branching on the state found instead meant the
+# lock direction went untested on exactly the runs where it mattered most: `53` quits the app, quitting locks the cube
 # whenever `pause_on_lock` is on, and the DDL seeds it on, so the full-run case was the one that skipped the lock.
 
 # What the cube last said about itself, from this connection onwards. Written by `BluetoothRadio` and only when the
@@ -194,7 +194,7 @@ if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE
         *) pass "and the badge goes with it" ;;
     esac
 else
-    skip "pause_on_lock is off, so the app will not lock from here and neither direction can be checked"
+    fail "pause_on_lock is off, so the app will not lock from here and neither direction can be checked"
 fi
 
 # ---------------------------------------------------------------------------- unlocked AND running, or stop here
@@ -371,7 +371,7 @@ if ask_and_detect \
 then
     check_turn "$first_face" "$first_name" "$base"
 else
-    skip "nobody was there to turn the cube, so the first turn was not checked"
+    fail "nobody was there to turn the cube, so the first turn was not checked"
 fi
 
 # ---------------------------------------------------------------------------- and back again
@@ -388,7 +388,7 @@ if ask_and_detect \
 then
     check_turn "$second_face" "$second_name" "$base"
 else
-    skip "nobody was there to turn the cube back, so the second turn was not checked"
+    fail "nobody was there to turn the cube back, so the second turn was not checked"
 fi
 
 # ---------------------------------------------------------------------------- and it goes with the link

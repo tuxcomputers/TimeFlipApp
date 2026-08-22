@@ -43,9 +43,9 @@ start "quitting closes the open segment"
 # segment's length is within a minute of what it timed. Wiping the cube in between would push it past that and fail a
 # check about something else entirely.
 #
-# **It also leaves the cube on the vendor PIN**, which is what the next run's `14-device-connect` needs in order to
+# **It also leaves the cube on the vendor PIN**, which is what the next run's `51-device-connect` needs in order to
 # exercise the PIN rotation at all: five of its checks only run when there is a PIN to change. Run 38 came in three
-# checks short for exactly that reason, `16-device-reconnect` having paired the cube after `15-device-reset` wiped it
+# checks short for exactly that reason, `53-device-reconnect` having paired the cube after `52-device-reset` wiped it
 # and rotated it back. So this is now what guarantees it, and no ordering of the device scripts depends on it.
 #
 # **A skip here is not a failure of the app**, and it is said loudly rather than passed over: the cube keeps this run's
@@ -55,7 +55,7 @@ open_settings
 select_tab Device
 
 if ! device_required; then
-    skip "no cube was offered up, so there is nothing on a device to clear"
+    fail "no cube was offered up, so there is nothing on a device to clear"
 elif pair_a_cube; then
     since=$(mark)
     press device-reset
@@ -74,7 +74,7 @@ elif pair_a_cube; then
         "$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")"
 else
     yellow "  the cube could not be reached to wipe it: $PAIR_REASON"
-    skip "the cube was not wiped, so it may still hold this run's timings"
+    fail "the cube was not wiped, so it may still hold this run's timings"
 fi
 
 select_tab Faces

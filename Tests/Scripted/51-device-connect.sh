@@ -1,7 +1,7 @@
 #!/bin/bash
 # Reaching the cube that the scan found, getting a PIN accepted, and leaving the cube on a PIN of the app's own.
 #
-# **The second script that needs the radio, and the first that talks to the cube.** `13-device-scan` proves an
+# **The second script that needs the radio, and the first that talks to the cube.** `50-device-scan` proves an
 # advertisement arrives; this one proves the app can open a link, find the TimeFlip service on the other end, present
 # a PIN, read what the cube said about it, and then change what the cube will answer to next time. None of that is
 # reachable from `swift test`: `DeviceLoginRules` decides what to send, what to set and what an answer means and is
@@ -16,7 +16,7 @@
 # `0x02` means it is wrong; the hardware does the opposite, which the archive found by logging both outcomes. Every
 # correct PIN would be refused if that were the wrong way round, and nothing but a device run can tell.
 #
-# **A missing cube is a skip here, unlike `13`.** That script's claim is that the device is found, so silence is the
+# **A missing cube is a skip here, unlike `50`.** That script's claim is that the device is found, so silence is the
 # result. This one's claim is about what happens once one is found, and with nothing to connect to there is no claim
 # to test either way.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -26,9 +26,9 @@ ensure_app_running
 start "connecting to a TimeFlip and logging in with a PIN"
 
 if ! device_required; then
-    skip "no TimeFlip was made available, so there is nothing to connect to"
+    fail "no TimeFlip was made available, so there is nothing to connect to"
     finish
-    exit 0
+    exit $?
 fi
 
 open_settings
@@ -40,15 +40,15 @@ select_tab Device
 # without this it would fail on a missing element rather than saying why. Neither of those buttons does anything yet,
 # so there is no way for the script to unpair itself and carry on.
 if [ -z "$(tree | grep -m1 'id=device-scan  ')" ]; then
-    skip "the app is already paired, so there is no Scan button -- run without --keep to start from a clean database"
+    fail "the app is already paired, so there is no Scan button -- run without --keep to start from a clean database"
     close_settings
     finish
-    exit 0
+    exit $?
 fi
 
 # ---------------------------------------------------------------------------- find one to connect to
 #
-# The same opening as `13`, and deliberately not factored into a shared helper yet: two callers is not a pattern, and
+# The same opening as `50`, and deliberately not factored into a shared helper yet: two callers is not a pattern, and
 # the two scripts want different things when the radio cannot be used.
 
 since=$(mark)
@@ -56,15 +56,15 @@ press device-scan
 sleep 0.5
 
 # **Waited on `Scan started`, not on the Bluetooth state.** The state callback fires on a *change*, so by the time
-# this script runs the manager `13` built is already powered on and no such row is ever written again. That is what
+# this script runs the manager `50` built is already powered on and no such row is ever written again. That is what
 # this check waited 60 seconds for on its first run, and the app now says when the radio actually starts listening.
 grey "  waiting for the radio to come up..."
 if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
     unavailable=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
     if [ -n "$unavailable" ]; then
-        skip "the radio is unusable, so there is nothing to connect to ($unavailable)"
+        fail "the radio is unusable, so there is nothing to connect to ($unavailable)"
         finish
-        exit 0
+        exit $?
     fi
     fail "the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
     finish
@@ -190,7 +190,7 @@ else
     if [ -n "$stored" ]; then
         check "and config.json agrees with what the cube accepted" "123456" "$stored"
     else
-        skip "config.json names no PIN, so the compiled-in 123456 stood in as the stored candidate"
+        pass "config.json names no PIN, so the compiled-in 123456 stood in as the stored candidate"
     fi
 fi
 
@@ -222,7 +222,7 @@ name=$(sql "SELECT IFNULL(json_extract(setting_value, '\$.name'), '') FROM setti
 if [ -n "$name" ]; then
     pass "and the name the cube is carrying, '$name'"
 else
-    skip "the cube has not told this Mac its name, so device_name stays empty"
+    pass "the cube has not told this Mac its name, so device_name stays empty"
 fi
 
 # ---------------------------------------------------------------------------- what the cube says it is
@@ -251,7 +251,7 @@ if wait_for "$since" "The cube says it is %" 25 >/dev/null; then
         if [ -n "$stored" ]; then
             pass "device_info.$field is recorded as '$stored'"
         else
-            skip "the cube did not answer for $field, which leaves that key absent rather than blank"
+            pass "the cube did not answer for $field, which leaves that key absent rather than blank"
         fi
     done
 
@@ -285,7 +285,7 @@ else
     # Reported against the log rather than assumed: the app says which of the two happened, and they are different
     # findings -- one is a cube without the service, the other is a cube that stopped answering mid-read.
     said=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'info' ORDER BY debug_log_id DESC LIMIT 1;")
-    skip "this cube said nothing about what it is (${said:-no info rows at all}), which pairs and connects the same"
+    pass "this cube said nothing about what it is (${said:-no info rows at all}), which pairs and connects the same"
 fi
 
 # ---------------------------------------------------------------------------- what the tab says

@@ -324,7 +324,7 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   locks the file against writers, and `wait_for` polls `debug_log` every 100ms for the whole of a run. Any app
   connection without `sqlite3_busy_timeout` drops its write instantly rather than waiting. On 2026-08-22 that lost a
   confirmed pairing: the app was connected and logged in, one of `recordPairing`'s six writes came back busy, and
-  `18-device-face` waited a minute for a `Paired with` row nothing would write. Both handles now wait. If a run shows
+  `55-device-face` waited a minute for a `Paired with` row nothing would write. Both handles now wait. If a run shows
   the app failing to record something it plainly did, suspect contention before logic.
 
 - **An apostrophe in a `wait_for` pattern breaks the query, not the match.** The pattern is interpolated into a SQL
@@ -347,7 +347,7 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 - **A log row saying a question went out is not the answer being in.** The two are separate rows and the gap is real
   work: on 2026-08-22 `0x10` was written at 11:30:34.074 and `The cube is locked and paused` landed at 11:30:34.192,
-  118ms later. `18-device-face` waited for the ask and then read the answer, found nothing, took a locked cube for an
+  118ms later. `55-device-face` waited for the ask and then read the answer, found nothing, took a locked cube for an
   unlocked one, pressed a dropdown item that said *Unlock*, and spent twenty seconds waiting for a pause that was never
   going to be sent. Wait on the row that carries the answer, not the row that carries the request -- the same rule
   `wait_sql` states for table writes, applied to a second log row.

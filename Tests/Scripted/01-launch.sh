@@ -28,7 +28,7 @@ check "the app is running" "yes" "$(is_running && echo yes || echo no)"
 expect_log "the launch records which mode it is in" "$since" "Manual mode:%" 20
 
 # **Checked against the table rather than assumed**, because both answers are now legitimate: a rebuilt database has
-# nothing paired and manual mode is the expected answer, while a `--keep` run after `14-device-connect` starts with a
+# nothing paired and manual mode is the expected answer, while a `--keep` run after `51-device-connect` starts with a
 # real pairing in it and manual mode off. What is worth saying out loud either way is that the launch agrees with the
 # row it read -- a paired cube changes what every later script means, since segments would come from the device
 # instead of from the app.

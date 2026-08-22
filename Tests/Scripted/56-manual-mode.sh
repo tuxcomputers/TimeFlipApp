@@ -34,9 +34,9 @@ ensure_app_running
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 if ! device_required; then
-    skip "no TimeFlip was made available, so there is no pairing to lose"
+    fail "no TimeFlip was made available, so there is no pairing to lose"
     finish
-    exit 0
+    exit $?
 fi
 
 setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
@@ -119,10 +119,10 @@ if ! action_required \
     "This is the only way to put a paired cube out of reach without carrying it away." \
     "Leave it off until this script asks for it back -- it will."
 then
-    skip "Bluetooth was not turned off, so the cube never went out of reach"
+    fail "Bluetooth was not turned off, so the cube never went out of reach"
     close_settings
     finish
-    exit 0
+    exit $?
 fi
 # From here the trap above owns getting it back on, however this script ends.
 BLUETOOTH_IS_OFF=1
@@ -196,9 +196,9 @@ if ! wait_for "$chosen" "Manual mode chosen;%" 5 >/dev/null; then
         "The app could not find your TimeFlip, and is asking what to do about it." \
         "Do not click Retry: this script is about what happens after manual mode is taken."
     then
-        skip "the offer was not answered, so nothing below it could be checked"
+        fail "the offer was not answered, so nothing below it could be checked"
         finish
-        exit 0
+        exit $?
     fi
 fi
 
@@ -240,9 +240,9 @@ if ! action_required \
     "The cube is in range again, and the app should carry on ignoring it." \
     "Nothing will appear to happen. That is the check."
 then
-    skip "Bluetooth was left off, so what the app does when the cube comes back was not checked"
+    fail "Bluetooth was left off, so what the app does when the cube comes back was not checked"
     finish
-    exit 0
+    exit $?
 fi
 # Said to be back on. The scan at the end of this script is what actually proves it, and until that passes the trap
 # stays armed -- a person answering a prompt is not evidence, which is this suite's whole first principle.

@@ -131,7 +131,7 @@ done
 
 # **A run that skipped anything did not pass, and says so.** `passed` is a word somebody reads at the top of the
 # stamp and stops reading, so it has to mean every check answered. On 2026-08-22 a run wrote `outcome: passed` with
-# `1 skipped` under it, and the script that skipped was `18-device-face`, which had tested nothing whatsoever.
+# `1 skipped` under it, and the script that skipped was `55-device-face`, which had tested nothing whatsoever.
 #
 # `incomplete` rather than `failed`, because the two are genuinely different and the difference is what somebody does
 # next: a failure is the app being wrong and wants a fix, while a skip is a check that could not answer and wants the

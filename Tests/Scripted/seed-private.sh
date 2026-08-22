@@ -76,8 +76,8 @@ path.chmod(0o600)
 # Writes them into the fresh database.
 apply_private_seeds() {
     if [ ! -f "$SEED" ]; then
-        skip "no private seeds at $SEED"
-        skip "connect a Google account once -- it is captured before the next rebuild and put back after"
+        grey "  no private seeds at $SEED"
+        grey "  connect a Google account once -- it is captured before the next rebuild and put back after"
         return 0
     fi
 
@@ -92,7 +92,7 @@ with open('$SEED') as f:
     print(json.load(f).get('google_account', ''))" 2>/dev/null || true)
 
     if [ -z "$account" ]; then
-        skip "the private seed file holds no Google account"
+        grey "  the private seed file holds no Google account"
         return 0
     fi
 
@@ -112,6 +112,6 @@ with open('$SEED') as f:
     if [ -n "$calendar" ]; then
         pass "naming last run's calendar, which 10 deletes before making its own ($calendar)"
     else
-        skip "the seed names no calendar, so 10 makes the first one"
+        grey "  the seed names no calendar, so 10 makes the first one"
     fi
 }

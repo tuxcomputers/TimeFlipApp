@@ -200,7 +200,7 @@ ask_and_detect() {
 # Asked once a run: is the TimeFlip here? Answers 0 for yes, 1 for anything else, and every script after
 # the first gets that answer back without asking again.
 #
-#     device_required || { skip "no TimeFlip was made available"; finish; exit 0; }
+#     device_required || { fail "no TimeFlip was made available"; finish; exit $?; }
 #
 # **Several scripts need the cube and one person is answering for all of them.** Asking each time treats
 # them as separate questions when they are one, and the repetition is what makes it worse than useless: a
@@ -250,7 +250,7 @@ device_required() {
     # about again later, so this prompt has to be worth reading -- it is the whole of the consent.
     if action_required \
         "May this run use your TimeFlip? It will be RESET to factory settings." \
-        "THIS WIPES THE CUBE. 15-device-reset erases everything stored on the device --" \
+        "THIS WIPES THE CUBE. 52-device-reset erases everything stored on the device --" \
         "face colours, task settings, its name and its PIN -- back to factory defaults," \
         "and that cannot be undone. The cube comes back on the vendor PIN 000000, which is" \
         "the first one Facet presents, so pairing it again afterwards is one press of Scan," \
@@ -284,10 +284,10 @@ device_required() {
 
 # Pairs a cube from scratch, with the Device tab already on show. Answers 0 once the app says `Paired with`.
 #
-#     pair_a_cube || { skip "..."; finish; exit 0; }
+#     pair_a_cube || { pair_verdict "..."; finish; exit $?; }
 #
 # **Three scripts needed this and had two copies of it**, which is the point at which it stops being repetition and
-# starts being a place for them to drift apart. `14-device-connect` keeps its own, deliberately: that one is the
+# starts being a place for them to drift apart. `51-device-connect` keeps its own, deliberately: that one is the
 # script whose subject *is* connecting, and every step of it is a check rather than a means to an end.
 #
 # **From scratch, forgetting first.** A paired app has no Scan button (`DevicePairingRules.showsScanControls`), so a
@@ -308,7 +308,7 @@ pair_a_cube() {
     # **The Scan button has to be on screen, and this is checked rather than assumed.** `press` swallows everything --
     # its output, its exit code, and the case where the element is not in the tree at all -- so pressing a button that
     # is not there does nothing and says nothing. The wait below then times out after a full minute and reports the
-    # radio as the culprit, which is a diagnosis pointing away from the fault: on 2026-08-22 `20-cube-pause` reached
+    # radio as the culprit, which is a diagnosis pointing away from the fault: on 2026-08-22 `57-cube-pause` reached
     # here without ever having opened the Settings window, sat for 60 seconds, and skipped itself blaming a
     # permission prompt that was not there.
     if [ -z "$(element device-scan)" ] && [ -z "$(element device-forget)" ]; then
@@ -371,14 +371,14 @@ pair_a_cube() {
 # **A cube that was promised and then would not pair is a failure, not a skip**, and that distinction is the whole of
 # this. `device_required` has already confirmed a TimeFlip is here for this run, so from that point on "no cube could
 # be paired" is the app failing to do the thing the script exists to check -- not the environment being unable to
-# answer. Reported as a skip it read as green: on 2026-08-22 `18-device-face` tested nothing at all because a busy
+# answer. Reported as a skip it read as green: on 2026-08-22 `55-device-face` tested nothing at all because a busy
 # database dropped one write of `recordPairing`, and the run finished `outcome: passed`.
 #
 # Status 2 stays a skip, and that is the case worth keeping: the radio itself is off or refused, which says nothing
 # about this app and is exactly the state an outside contributor without a device is in. See `CONTRIBUTING.md`.
 pair_verdict() {
     if [ "${PAIR_STATUS:-1}" = "2" ]; then
-        skip "no cube could be paired, so $1 ($PAIR_REASON)"
+        fail "the radio could not be used, so $1 ($PAIR_REASON)"
     else
         fail "a cube was confirmed for this run and then would not pair, so $1 ($PAIR_REASON)"
     fi
@@ -484,7 +484,15 @@ check_contains() {
 # tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
 # but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
 SKIPPED=0
-skip() { SKIPPED=$((SKIPPED + 1)); announce "$*"; printf '\033[0;33m    SKIP\033[0m\n'; testlog_check skip; }
+# **There is no `skip`, deliberately, and calling one is meant to be an error.** A skip is a check reporting that it
+# could not answer, and a run full of them reads green while proving nothing: on 2026-08-22 `55-device-face` skipped
+# its entire self and the run still stamped `outcome: passed`. So a missing cube, an unusable radio, an unconnected
+# Google account and a prompt nobody answered are failures -- they say what is needed, and the run stays red until it
+# is there. See `README.md`, under the order.
+#
+# The counter and its plumbing stay, in `finish`, the stamp and `scripts/check_interactive_checklists.sh`. They are
+# now a guard rather than a feature: if anything ever manages to record a skip again, every one of them still refuses
+# the run, and the number is where it will show.
 
 # Ends the script and decides its exit status. Non-zero on any failure, which is what lets run.sh stop
 # rather than carry on into scripts whose starting state the failure just invalidated.
@@ -581,7 +589,7 @@ wait_for() {
     # nothing to stdout, and this polls an empty answer for its whole timeout before reporting that the app never
     # wrote a row it wrote immediately. Doubling is SQL's own escape and is what sqlite3 expects.
     #
-    # Measured 2026-08-22: `20-cube-pause` failed on "no debug_log row matching 'Setting the cube's clock to %' within
+    # Measured 2026-08-22: `57-cube-pause` failed on "no debug_log row matching 'Setting the cube's clock to %' within
     # 30s" with that exact row sitting in the table, 170ms after the mark. Three of its checks carried an apostrophe
     # and none of them could ever have matched. Escaped here rather than in each script, so the next pattern with one
     # in it simply works.

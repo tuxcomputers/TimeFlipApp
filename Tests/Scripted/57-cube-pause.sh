@@ -23,7 +23,7 @@
 # on 2026-08-12, and recorded in `DailyLimitEnforcement`), so the only way the app can know is by reading the cube's
 # own history back. That is the claim this whole script exists to make, tested where the app cannot have cheated.
 #
-# **Runs after `19`, and before the wipe in `99`.** It needs a live link, and `19` leaves the radio on and the device
+# **Runs after `56`, and before the wipe in `99`.** It needs a live link, and `56` leaves the radio on and the device
 # forgotten, so there is nothing here to inherit.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -32,9 +32,9 @@ ensure_app_running
 start "pausing and locking the cube from the status item"
 
 if ! device_required; then
-    skip "no TimeFlip was made available, so there is nothing to pause"
+    fail "no TimeFlip was made available, so there is nothing to pause"
     finish
-    exit 0
+    exit $?
 fi
 
 # ---------------------------------------------------------------------------- a cube to click at
@@ -59,7 +59,7 @@ close_settings
 
 # **The clock, before anything else the connection does.** The cube stamps every history frame with its own clock, so
 # one that has never been told the time has nothing to date an interval with -- and a factory reset clears it, which
-# `15-device-reset` does. This app sent `0x08` nowhere at all until 2026-08-21.
+# `52-device-reset` does. This app sent `0x08` nowhere at all until 2026-08-21.
 expect_log "the cube's clock is set as the first thing after the link is confirmed" "$link" "Setting the cube's clock to %" 30
 expect_log "and the cube's own answer confirms it" "$link" "The cube's clock is set" 30
 
@@ -70,7 +70,7 @@ expect_log "the cube is asked how it is, and says" "$link" "The cube says%" 30
 
 # **The lock, waited for by its answer rather than by its question.** `0x10` is the last thing the connection does, so
 # at this point in the script it is the row most likely still in flight -- and `status_row` below decides from it which
-# way the Lock item is currently pointing. `18-device-face` read that answer 118ms too early on 2026-08-22 and spent
+# way the Lock item is currently pointing. `55-device-face` read that answer 118ms too early on 2026-08-22 and spent
 # twenty seconds waiting for a pause that was never going to be sent. See `Tests/Methods.md`, under the notes.
 expect_log "and says whether it is locked, which is what the clicks below are aimed at" "$link" \
     "The cube is %ocked and %" 30
@@ -95,8 +95,8 @@ else
     fail "no cube segment ever reached device_event, so there is nothing for the glyph to draw"
 fi
 
-# **`19` leaves manual mode on**, and pairing is what ends it (`SettingsWindowController`). Reported rather than
-# asserted, because it is only on at all when `19` actually ran -- but it is the first thing to look at if the
+# **`56` leaves manual mode on**, and pairing is what ends it (`SettingsWindowController`). Reported rather than
+# asserted, because it is only on at all when `56` actually ran -- but it is the first thing to look at if the
 # routing check below fails, since a click in manual mode is routed to the app's own clock instead of the cube.
 grey "  $(sql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Manual mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
@@ -216,9 +216,9 @@ close_settings
 # deliberately refusing to reach.
 
 if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'pause_on_lock';")" != "1" ]; then
-    skip "pause_on_lock is off, so the app will not lock from here and the double click has nothing to do"
+    fail "pause_on_lock is off, so the app will not lock from here and the double click has nothing to do"
     finish
-    exit 0
+    exit $?
 fi
 
 since=$(mark)
@@ -301,9 +301,9 @@ if [ "$(open_paused)" != "1" ]; then
     expect_log "the cube is stopped, ready to be turned while it is stopped" "$since" "The cube is paused" 20
 fi
 if ! wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;" "1" 25; then
-    skip "the cube could not be got into a paused state, so the turn has nothing to lift"
+    fail "the cube could not be got into a paused state, so the turn has nothing to lift"
     finish
-    exit 0
+    exit $?
 fi
 pass "the cube is paused, and the app's record says so"
 
@@ -346,7 +346,7 @@ then
     check_contains "on the face it was turned to" "$(element timing-category-name)" "$target_name"
     close_settings
 else
-    skip "nobody was there to turn the cube, so the firmware's own resume was not checked"
+    fail "nobody was there to turn the cube, so the firmware's own resume was not checked"
 fi
 
 finish

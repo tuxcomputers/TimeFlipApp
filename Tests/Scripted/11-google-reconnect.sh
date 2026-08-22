@@ -34,14 +34,14 @@ before_id=$(sql "SELECT json_extract(setting_value, '\$.calendar_id') FROM setti
 before_name=$(sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';")
 
 if [ -z "$email" ]; then
-    skip "no Google account is connected, so there is nothing to disconnect"
+    fail "no Google account is connected, so there is nothing to disconnect"
     finish
-    exit 0
+    exit $?
 fi
 if [ -z "$before_id" ]; then
-    skip "connected, but no calendar was made, so nothing can survive the disconnect"
+    fail "connected, but no calendar was made, so nothing can survive the disconnect"
     finish
-    exit 0
+    exit $?
 fi
 
 pass "connected as $email, with a calendar to keep ($before_name)"
@@ -83,7 +83,7 @@ if ! action_required \
     "The run waits for you and carries on by itself once you are done." \
     "Answering anything else leaves Facet SIGNED OUT, and every later run's" \
     "Google checks will skip until you sign in on the App tab by hand."; then
-    skip "the sign-in was declined, so reconnecting is untested"
+    fail "the sign-in was declined, so reconnecting is untested"
     echo ""
     red   "  #########################################################################"
     red   "  ##  Facet is left signed out of Google."

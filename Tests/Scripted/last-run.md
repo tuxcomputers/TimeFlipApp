@@ -32,14 +32,14 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 10-google-calendar | 10 | 0 | 0 |
 | 11-google-reconnect | 17 | 0 | 0 |
 | 12-daily-limit | 32 | 0 | 0 |
-| 13-device-scan | 14 | 0 | 0 |
-| 14-device-connect | 41 | 0 | 0 |
-| 15-device-reset | 33 | 0 | 0 |
-| 16-device-reconnect | 22 | 0 | 0 |
-| 17-device-battery | 10 | 0 | 0 |
-| 18-device-face | 0 | 0 | 1 |
-| 19-manual-mode | 28 | 0 | 0 |
-| 20-cube-pause | 39 | 0 | 0 |
+| 50-device-scan | 14 | 0 | 0 |
+| 51-device-connect | 41 | 0 | 0 |
+| 52-device-reset | 33 | 0 | 0 |
+| 53-device-reconnect | 22 | 0 | 0 |
+| 54-device-battery | 10 | 0 | 0 |
+| 55-device-face | 0 | 0 | 1 |
+| 56-manual-mode | 28 | 0 | 0 |
+| 57-cube-pause | 39 | 0 | 0 |
 | 99-quit | 13 | 0 | 0 |
 | **total** | **480** | **0** | **1** |
 

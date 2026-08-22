@@ -13,7 +13,7 @@
 # exactly this reason; here it is `LowBatteryWatchTests`, which drives the latch, the recovery margin, the flash and a
 # threshold changed underneath it.
 #
-# **Runs late, and after `16`.** It needs a live link, and it reads what the connection has logged since it came up.
+# **Runs late, and after `53`.** It needs a live link, and it reads what the connection has logged since it came up.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
@@ -21,9 +21,9 @@ ensure_app_running
 start "the charge: pulled on connecting, pushed after that, and shown without flapping"
 
 if ! device_required; then
-    skip "no TimeFlip was made available, so there is no charge to read"
+    fail "no TimeFlip was made available, so there is no charge to read"
     finish
-    exit 0
+    exit $?
 fi
 
 open_settings
@@ -31,7 +31,7 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a live link to ask
 #
-# Paired from scratch, for the reason `15` and `16` give: a script that inherited an earlier one's pairing would
+# Paired from scratch, for the reason `52` and `53` give: a script that inherited an earlier one's pairing would
 # silently test nothing whenever that one skipped. The pairing is also what this script times from -- every row it
 # looks at is one this connection wrote, baselined here.
 

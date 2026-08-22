@@ -43,8 +43,8 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to reset
 #
-# **Paired from scratch by `pair_a_cube`**, not inherited. `14-device-connect` leaves a pairing behind on a passing run,
-# but a script that depended on it would skip whenever `14` skipped and would silently test nothing after a reordering.
+# **Paired from scratch by `pair_a_cube`**, not inherited. `51-device-connect` leaves a pairing behind on a passing run,
+# but a script that depended on it would skip whenever `51` skipped and would silently test nothing after a reordering.
 # The cost is one scan.
 #
 # An unusable radio is a skip, since it says nothing about the app. Anything else is a failure: this script's subject is
@@ -54,9 +54,9 @@ pair_a_cube
 case $? in
     0) pass "paired a cube to reset" ;;
     2)
-        skip "the radio is unusable, so there is nothing to reset ($PAIR_REASON)"
+        fail "the radio is unusable, so there is nothing to reset ($PAIR_REASON)"
         finish
-        exit 0
+        exit $?
         ;;
     *)
         fail "could not pair a cube, so there is nothing to reset: $PAIR_REASON"
@@ -201,7 +201,7 @@ check "the cube's name is no longer presented as its name" "" "$(sql "SELECT IFN
 if [ -n "$name_before" ]; then
     check "but it is kept where a scan can still match it" "$name_before" "$(sql "SELECT IFNULL(json_extract(setting_value, '\$.previous_name'), '') FROM setting WHERE setting_name = 'device_name';")"
 else
-    skip "the cube never told this Mac its name, so there was none to keep"
+    pass "the cube never told this Mac its name, so there was none to keep"
 fi
 
 # ---------------------------------------------------------------------------- what the tab says
