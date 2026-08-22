@@ -56,8 +56,8 @@ final class CollapsibleSectionTests: XCTestCase {
     // MARK: - a section with a panel of its own
 
     func testASectionGoesBackToWhatItWasBuiltAs() {
-        let active = CategorySection(title: "Active", identifier: "active", isExpanded: true, content: content())
-        let inactive = CategorySection(title: "Inactive", identifier: "inactive", isExpanded: false, content: content())
+        let active = PanelSection(title: "Active", identifier: "active", isExpanded: true, content: content())
+        let inactive = PanelSection(title: "Inactive", identifier: "inactive", isExpanded: false, content: content())
 
         active.setExpanded(false)
         inactive.setExpanded(true)

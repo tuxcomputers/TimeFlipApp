@@ -254,7 +254,7 @@ Confirm on the triangle's `value` rather than by sleeping: `value=1` is the sect
 driving the Device tab's **More** rows -- the first press went to `device-more`, returned success, and changed
 nothing, which read as the four rows being missing rather than hidden.
 
-The naming follows `CategorySection`'s pattern (the borderless button spanning the row, per the root `CLAUDE.md`),
+The naming follows `PanelSection`'s pattern (the borderless button spanning the row, per the root `CLAUDE.md`),
 so `<section-id>-heading-button` and `<section-id>-toggle` hold for every folding group the app has.
 
 ## Method 12: Answer a confirmation sheet
@@ -378,7 +378,7 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 - **A button behind a label is never pressed.** A click on an `NSTextField` label goes up the responder chain to
   the label's own *superview*, so a borderless button sitting behind it as a **sibling** gets nothing. The row or
   heading has to **be** the button, with the label and any swatch as its own subviews (`CategoryRowView`,
-  `ColourListRow`, `CategorySection`). This is invisible from a screenshot and from the accessibility tree, and
+  `ColourListRow`, `PanelSection`). This is invisible from a screenshot and from the accessibility tree, and
   `swift test` cannot see it either -- `performClick` presses the button directly, so a test passes on a control
   no mouse can reach. It shipped once: the Categories headings drew correctly and folded when the space *after*
   the words was clicked, while a click on "Inactive" itself did nothing at all. **Check a click target by
@@ -404,9 +404,35 @@ not even the "waiting to sync, but ..." line, because the token read never retur
   edge and let the content decide the other. **`ax-dump.py --frames` is how this was found** -- a box 564pt tall where
   327pt was expected is obvious in the frames and invisible in the tree.
 
+- **Asserting which of two rows is higher inverts silently.** AppKit's y grows *upward* unless a view is flipped, so
+  in an ordinary pane the row nearer the top has the **larger** `minY` -- the reverse of the obvious reading. A test
+  written the natural way round fails against a perfectly correct tab, which reads as a layout bug and is not one.
+  Ask the view (`isFlipped`) rather than hard-coding the direction, so flipping a pane later cannot turn the test into
+  its own opposite. `ReportTotalsList` puts its rows in a `FlippedView` for the same underlying reason.
+
+- **One identifier is often the prefix of another, so `grep -c "id=X"` over the tree overcounts.** A stepper names
+  its field `device-auto-pause` and its two buttons `-up` and `-down`, so the loose grep answers 3 where the check
+  wanted 1; `device-scan` sits in front of `-all`, `-status` and every `-result-<uuid>`, and grows again once a scan
+  has found something. The failure is quiet in both directions: a check expecting 1 fails against a perfectly correct
+  tab, and a check expecting 0 passes because the element it meant was never there under that exact name. Use
+  `on_tab <identifier>` in `lib.sh`, which anchors on a word boundary. Measured on a running app, 2026-08-22.
+
+- **A section's heading is only proven clickable by a real mouse.** `ax-press.py` sends `AXPress`, which presses the
+  button directly and so passes on a heading no click can reach -- the same blind spot `performClick` has in
+  `swift test`. Click it twice by position ([Method 9](#method-9)), once on the words and once on the empty space
+  after them, and read the `debug_log` row each produces. Both were confirmed on the App tab's headings on
+  2026-08-22; the fault they are guarding against shipped once already, on the Categories headings.
+
+- **A `PanelSection`'s tint sits *behind* its contents, not around them**, so the heading and the rows are siblings
+  of the `NSBox` rather than descendants of it. A test that scopes a search to the box to mean "this section's rows"
+  finds nothing at all -- scope to the section instead, which is the view carrying the group's identifier. The box is
+  still the right thing to *measure* (it is what draws the panel's edges); it is not the right thing to search inside.
+  The reason it is behind rather than around is a click: AppKit hit-tests later subviews first, so a box added around
+  the heading button would swallow the press that folds the section.
+
 - **A hidden view keeps its height.** Auto Layout ignores `isHidden`; only an `NSStackView` collapses a hidden
   *arranged* subview. So folding a section by hiding its list leaves the list's full height behind, which shows up
-  as blank space rather than as a fault. `CategorySection` swaps the constraint pinning its bottom edge instead.
+  as blank space rather than as a fault. `PanelSection` swaps the constraint pinning its bottom edge instead.
   Measure a fold by the section's own `frame.height`, open against shut, not by `isHidden`.
 
 - **Never post Escape (key code 53) while driving this app.** It reaches whatever has focus, and if that

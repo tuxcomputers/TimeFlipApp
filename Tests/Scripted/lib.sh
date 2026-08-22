@@ -823,6 +823,15 @@ set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
 set_field_focused() { python3 scripts/ax-set.py --focus "$1" "$2" >/dev/null 2>&1; }
 tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
 
+# `on_tab <identifier>` -- how many elements carry exactly this identifier, 0 or 1 for anything named once.
+#
+# **Use this rather than `grep -c "id=X"` wherever one identifier is a prefix of another**, which is more places
+# than it looks. A stepper names its field `device-auto-pause` and its two buttons `-up` and `-down`, so the loose
+# grep answers 3; `device-scan` sits in front of `-all`, `-status` and every `-result-<uuid>`, so it answers 3 as
+# well and more once a scan has found something. A check expecting 1 then fails while the tab is perfectly correct,
+# and a check expecting 0 passes for the wrong reason. Measured on a running app, 2026-08-22.
+on_tab() { tree | grep -cE "id=$1(\$|[[:space:]])" || true; }
+
 # The buttons of the alert that is up, in the order they are drawn, joined with `|` so one check can
 # assert the whole set rather than probing for each.
 #

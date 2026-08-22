@@ -1,18 +1,21 @@
 import AppKit
 
-/// The Device tab: what the app knows about a cube, the settings that live on one, and the way to go and find one.
+/// The Device tab: what the app knows about a cube, the way to go and find one, and the settings that live on one.
 ///
-/// **Only the bottom section reaches anything.** Every value in the two above it is read from the database and shown,
-/// and no control in them writes; what each of those will do arrives with the feature that can honestly do it.
+/// Two sections:
 ///
-/// So read this as three sections, two of which describe a device and one of which goes and gets one:
-///
-/// - **Info**, which is a report. Its rows say what the app knows, and say plainly when the answer is that it knows
-///   nothing (`DeviceInfoRules`, where the wording and the three different kinds of "no device" live).
+/// - **TimeFlip**, which is the cube itself: what the app knows about it, and what to press to get one. Its rows say
+///   plainly when the answer is that it knows nothing (`DeviceInfoRules`, where the wording and the three different
+///   kinds of "no device" live), and under them sit the controls that change with the state -- Scan while there is
+///   nothing paired, Forget and Reset once there is (`DevicePairingRules.showsScanControls`).
 /// - **Settings**, which are the cube's own: they are stored here and sent to it on connect, so they are readable and
-///   meaningful with no cube present, which is why they are drawn rather than hidden.
-/// - **TimeFlip**, which finds a cube and reaches it. Pressing Scan lists what answers; pressing a listed device
-///   connects to it and presents a PIN.
+///   meaningful with no cube present, which is why they are drawn rather than hidden. Nothing in it writes yet; what
+///   each control does arrives with the feature that can honestly do it.
+///
+/// **These were three sections until 2026-08-22**, with the readings under "Info" and the scan under a "TimeFlip" of
+/// its own. One section, because the split asked somebody to know that what a cube *is* and how to *get* one are
+/// different subjects: the name of the paired device and the button that pairs it were a panel apart, and the status
+/// answering "Scan for Devices" sat nowhere near the Connection row saying the same thing in other words.
 ///
 /// **The layout is the previous app's**, measured off `image/preferences-device.png` and its final source rather than
 /// recalled: a heading above a rounded panel, labels down the left, values and controls pinned to the right-hand
@@ -21,8 +24,8 @@ import AppKit
 @MainActor
 final class DevicePane: NSView {
     enum Identifier {
-        static let infoSection = "device-info-section"
-        static let infoPanel = "device-info-panel"
+        static let timeflipSection = "device-timeflip-section"
+        static let timeflipPanel = "device-timeflip-section-panel"
         static let name = "device-name"
         static let connection = "device-connection"
         static let battery = "device-battery"
@@ -33,7 +36,7 @@ final class DevicePane: NSView {
         static let firmware = "device-firmware"
 
         static let settingsSection = "device-settings-section"
-        static let settingsPanel = "device-settings-panel"
+        static let settingsPanel = "device-settings-section-panel"
         static let autoPause = "device-auto-pause"
         static let led = "device-led"
         static let ledBrightness = "device-led-brightness"
@@ -45,8 +48,6 @@ final class DevicePane: NSView {
         static let doubleTapLatency = "device-double-tap-latency"
         static let doubleTapWindow = "device-double-tap-window"
 
-        static let pairingSection = "device-pairing-section"
-        static let pairingPanel = "device-pairing-panel"
         static let scan = "device-scan"
         static let scanAll = "device-scan-all"
         static let scanStatus = "device-scan-status"
@@ -61,7 +62,6 @@ final class DevicePane: NSView {
         static let padding: CGFloat = 20
         static let headingSpacing: CGFloat = 12
         static let sectionSpacing: CGFloat = 24
-        static let cornerRadius: CGFloat = 8
         static let rowInset: CGFloat = 20
         static let rowPadding: CGFloat = 11
         static let minimumRowHeight: CGFloat = 38
@@ -171,7 +171,18 @@ final class DevicePane: NSView {
     private(set) var ledRow: DisclosureRow!
     private(set) var doubleTapRow: DisclosureRow!
 
-    /// Called when one of the folding rows opens or closes, so the window can record it.
+    /// The tab's two sections, each folding away behind its own triangle. Exposed so a test can measure one without
+    /// a window on screen.
+    ///
+    /// **The folds nest**, which is the thing this tab has and the others do not: *More* sits inside TimeFlip, and
+    /// *LED* and *Double tap* inside Settings. A `DisclosureRow` inside a folded `PanelSection` keeps whatever it was
+    /// left as, and the window's walk goes on into a section it has just folded rather than stopping at it
+    /// (`SettingsWindowController.restoreDefaultSectionStates`), so both levels come back to their own defaults.
+    private(set) var timeflipSection: PanelSection!
+    private(set) var settingsSection: PanelSection!
+
+    /// Called when one of the folding rows or sections opens or closes, so the window can record it. The identifier
+    /// is what says which, and it is the only thing that does: nothing stores a fold.
     var onToggle: ((String, Bool) -> Void)?
 
     init() {
@@ -271,66 +282,66 @@ final class DevicePane: NSView {
 
     // MARK: - the sections
 
+    /// Two sections, each folding away behind its own triangle.
+    ///
+    /// **Both open**, for the App tab's reason rather than the Categories tab's: these are the whole of the tab, so
+    /// opening it folded would show two headings and nothing to read. TimeFlip in particular stays open because the
+    /// scan results appear inside it, and a folded section would hide the answer to the thing somebody just pressed.
+    ///
+    /// **The pairing controls are the last rows of the TimeFlip section**, under *More*, which is where the button
+    /// sat relative to its own section before the two were merged. What is above them is what the app knows about
+    /// the cube and what is below is how to get one, which is the order somebody reads the section in: the question
+    /// first, then the thing to press about it.
     private func addSections() {
-        let infoHeading = heading("Info", identifier: Identifier.infoSection)
-        let infoPanel = panel(identifier: Identifier.infoPanel)
-        let infoRows = stack()
-        add(infoRowViews(), to: infoRows)
-
-        let settingsHeading = heading("Settings", identifier: Identifier.settingsSection)
-        let settingsPanel = panel(identifier: Identifier.settingsPanel)
+        let timeflipRows = stack()
+        add(infoRowViews() + pairingRowViews(), to: timeflipRows)
         let settingsRows = stack()
         add(settingsRowViews(), to: settingsRows)
 
-        let pairingHeading = heading("TimeFlip", identifier: Identifier.pairingSection)
-        let pairingPanel = panel(identifier: Identifier.pairingPanel)
-        let pairingRows = stack()
-        add(pairingRowViews(), to: pairingRows)
+        timeflipSection = section(title: "TimeFlip", identifier: Identifier.timeflipSection, content: timeflipRows)
+        settingsSection = section(title: "Settings", identifier: Identifier.settingsSection, content: settingsRows)
+        guard let timeflip = timeflipSection, let settings = settingsSection else { return }
 
-        infoPanel.contentView?.addSubview(infoRows)
-        settingsPanel.contentView?.addSubview(settingsRows)
-        pairingPanel.contentView?.addSubview(pairingRows)
-        for view in [infoHeading, infoPanel, settingsHeading, settingsPanel, pairingHeading, pairingPanel] as [NSView] {
+        for view in [timeflip, settings] as [NSView] {
             addSubview(view)
         }
 
         NSLayoutConstraint.activate([
-            infoHeading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
-            infoPanel.topAnchor.constraint(equalTo: infoHeading.bottomAnchor, constant: Layout.headingSpacing),
-            settingsHeading.topAnchor.constraint(equalTo: infoPanel.bottomAnchor, constant: Layout.sectionSpacing),
-            settingsPanel.topAnchor.constraint(equalTo: settingsHeading.bottomAnchor, constant: Layout.headingSpacing),
-            pairingHeading.topAnchor.constraint(equalTo: settingsPanel.bottomAnchor, constant: Layout.sectionSpacing),
-            pairingPanel.topAnchor.constraint(equalTo: pairingHeading.bottomAnchor, constant: Layout.headingSpacing),
+            timeflip.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            settings.topAnchor.constraint(equalTo: timeflip.bottomAnchor, constant: Layout.sectionSpacing),
             // Only as tall as its content: the sections grow down from the top of the tab rather than being stretched
             // to a height they have nothing to put in.
-            pairingPanel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.padding),
+            settings.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.padding),
         ])
 
-        // A heading may be shorter than the pane; a panel always spans it (`CLAUDE.md`: a tab's content spans the
-        // width of the window, inset by the tab's own padding and nothing more).
-        for view in [infoHeading, settingsHeading, pairingHeading] as [NSView] {
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-                view.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.padding),
-            ])
-        }
-        for view in [infoPanel, settingsPanel, pairingPanel] as [NSView] {
+        // Each section spans the tab (`CLAUDE.md`: a tab's content spans the width of the window, inset by the tab's
+        // own padding and nothing more).
+        for view in [timeflip, settings] as [NSView] {
             NSLayoutConstraint.activate([
                 view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
                 view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
             ])
         }
-        // Flush to the panel on all four sides: a row runs the whole width, and its own inset is what holds the label
-        // and the value off the edges. That is what puts a separator's ends where the archive's are.
-        for (rows, panel) in [(infoRows, infoPanel), (settingsRows, settingsPanel), (pairingRows, pairingPanel)] {
-            guard let content = panel.contentView else { continue }
-            NSLayoutConstraint.activate([
-                rows.topAnchor.constraint(equalTo: content.topAnchor),
-                rows.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                rows.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                rows.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            ])
-        }
+    }
+
+    /// One of the tab's two sections.
+    ///
+    /// **One number differs from the Categories tab's, and only one**, exactly as on the App tab: a row here runs the
+    /// panel's full width and holds its own label and value off the edge with `rowInset`, which is what puts a
+    /// separator's ends where the archive's are. Inset the content as well and every row would be indented twice
+    /// over, with the hairlines stopping short at both ends.
+    ///
+    /// **No label is passed**: "TimeFlip" and "Settings" say what they are on their own.
+    private func section(title: String, identifier: String, content: NSView) -> PanelSection {
+        let section = PanelSection(
+            title: title,
+            identifier: identifier,
+            isExpanded: true,
+            content: content,
+            metrics: PanelSection.Metrics(contentInset: 0)
+        )
+        section.onToggle = { [weak self] expanded in self?.onToggle?(identifier, expanded) }
+        return section
     }
 
     /// Name, Connection, Battery, and the four the cube only reports once it is connected.
@@ -356,8 +367,11 @@ final class DevicePane: NSView {
 
         // **Closed.** Four rows of strings a cube reports about itself are the tab's least urgent fact, which is why
         // the archive folded them away too.
+        // **Separated now that the pairing controls follow it.** It was the last row of its own section and so had no
+        // hairline; with the scan under it, a divider is what keeps the readings above and the controls below reading
+        // as two halves of one section rather than as one undifferentiated list.
         moreRow = DisclosureRow(
-            title: "More", identifier: Identifier.more, isExpanded: false, content: details
+            title: "More", identifier: Identifier.more, isExpanded: false, content: details, separated: true
         )
         moreRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.more, expanded) }
 
@@ -663,28 +677,6 @@ final class DevicePane: NSView {
     }
 
     // MARK: - the pieces a row is made of
-
-    private func heading(_ title: String, identifier: String) -> NSTextField {
-        let heading = NSTextField(labelWithString: title)
-        heading.font = .preferredFont(forTextStyle: .headline)
-        heading.translatesAutoresizingMaskIntoConstraints = false
-        heading.setAccessibilityIdentifier(identifier)
-        return heading
-    }
-
-    /// The same tinted panel the Categories tab's lists and the App tab's settings sit on.
-    private func panel(identifier: String) -> NSBox {
-        let panel = NSBox()
-        panel.boxType = .custom
-        panel.fillColor = .quaternarySystemFill
-        panel.borderWidth = 0
-        panel.cornerRadius = Layout.cornerRadius
-        panel.contentViewMargins = .zero
-        panel.titlePosition = .noTitle
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.setAccessibilityIdentifier(identifier)
-        return panel
-    }
 
     private func stack() -> NSStackView {
         let stack = NSStackView()

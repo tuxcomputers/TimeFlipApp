@@ -280,7 +280,26 @@ final class AppSettingsPaneTests: XCTestCase {
         return content
     }
 
+    /// The App settings section's tinted box. **The box rather than the section around it**: since the heading moved
+    /// onto the panel the two are different views, even though they measure the same, and a test about where a panel
+    /// reaches should be asking the panel.
     private func panel(of pane: AppSettingsPane) throws -> NSView {
+        try XCTUnwrap(
+            descendants(of: pane).first { $0.accessibilityIdentifier() == AppSettingsPane.Identifier.panel }
+        )
+    }
+
+    private func view(_ identifier: String, in pane: AppSettingsPane) throws -> NSView {
+        try XCTUnwrap(descendants(of: pane).first { $0.accessibilityIdentifier() == identifier })
+    }
+
+    /// The App settings section itself, for scoping a search to one of the tab's two groups.
+    ///
+    /// **Not the panel, and that is a real distinction rather than a pedantic one.** `PanelSection` puts its box
+    /// *behind* the heading and the content rather than around them, so a click lands on the heading button in front
+    /// instead of on a box that would swallow it -- which means the rows are siblings of the box, not descendants of
+    /// it. Searching inside the box for them finds nothing at all.
+    private func section(of pane: AppSettingsPane) throws -> NSView {
         try XCTUnwrap(
             descendants(of: pane).first { $0.accessibilityIdentifier() == AppSettingsPane.Identifier.section }
         )
@@ -360,7 +379,7 @@ final class AppSettingsPaneTests: XCTestCase {
         // Every row is as wide as the panel, which is what puts the hairlines where the archive's are. The rows are
         // the stack's own arranged views, rather than anything that happens to hold a label -- a number field holds
         // one too.
-        let stack = try XCTUnwrap(descendants(of: panel).compactMap { $0 as? NSStackView }.first)
+        let stack = try XCTUnwrap(descendants(of: try section(of: pane)).compactMap { $0 as? NSStackView }.first)
         XCTAssertEqual(stack.views.count, 6)
         let rowWidths = Set(stack.views.map(\.frame.width))
         XCTAssertEqual(rowWidths, [panelFrame.width], "one width: \(rowWidths)")
@@ -372,10 +391,12 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         let content = hosted(pane, width: 640)
 
-        // Counted inside this panel rather than across the pane: the Google section above it has hairlines of its
+        // Counted inside this section rather than across the pane: the Google section under it has hairlines of its
         // own, and counting both would make this test about the sum of two unrelated lists.
         let panel = try panel(of: pane)
-        let separators = descendants(of: panel).compactMap { $0 as? NSBox }.filter { $0.boxType == .separator }
+        let separators = descendants(of: try section(of: pane))
+            .compactMap { $0 as? NSBox }
+            .filter { $0.boxType == .separator }
         XCTAssertEqual(separators.count, 5, "six rows, five hairlines")
 
         let panelFrame = content.convert(panel.bounds, from: panel)
@@ -384,5 +405,135 @@ final class AppSettingsPaneTests: XCTestCase {
             XCTAssertEqual(frame.minX, panelFrame.minX + 20, accuracy: 0.5)
             XCTAssertEqual(frame.maxX, panelFrame.maxX - 20, accuracy: 0.5, "not the full width, which would cut the panel in two")
         }
+    }
+
+    // MARK: - the sections fold
+
+    func testBothSectionsStartOpen() {
+        // **Not the Categories tab's answer, deliberately.** There, Inactive is an archive and starts shut; here the
+        // two sections are the whole tab, so opening it folded would show two headings and nothing to change.
+        let pane = AppSettingsPane()
+
+        XCTAssertTrue(pane.appSection.isExpanded)
+        XCTAssertTrue(pane.googleSection.isExpanded)
+    }
+
+    func testFoldingASectionTakesTheSpaceBack() throws {
+        // The trap this is really about: Auto Layout does not care that a view is hidden, so hiding the rows alone
+        // leaves their full height behind and a folded section measures exactly as tall as an open one.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+        let open = pane.appSection.frame.height
+
+        pane.appSection.setExpanded(false)
+        content.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(pane.appSection.frame.height, open, "folded, it is shorter than it was open")
+        // Down to the heading line and its padding, rather than to nothing: the panel closes around the heading.
+        let heading = try view(AppSettingsPane.Identifier.heading, in: pane)
+        XCTAssertGreaterThan(pane.appSection.frame.height, heading.frame.height)
+    }
+
+    func testTheHeadingSitsOnItsOwnPanel() throws {
+        // `CLAUDE.md`: a collapsible group's heading is the first row of the panel it folds, not a caption floating
+        // above it. This is the measurement that tells the two apart.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        let panel = try panel(of: pane)
+        let panelFrame = content.convert(panel.bounds, from: panel)
+        let heading = try view(AppSettingsPane.Identifier.heading, in: pane)
+        let headingFrame = content.convert(heading.bounds, from: heading)
+
+        XCTAssertTrue(panelFrame.contains(headingFrame), "\(headingFrame) is not on \(panelFrame)")
+    }
+
+    func testTheWholeHeadingLineFolds() throws {
+        // `CLAUDE.md` again: the triangle, the words, and the space after them to the end of the row. A triangle
+        // alone is a small target for a gesture the heading beside it is obviously about.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        let button = try view("\(AppSettingsPane.Identifier.section)-heading-button", in: pane)
+        let panel = try panel(of: pane)
+        XCTAssertEqual(
+            content.convert(button.bounds, from: button).width,
+            content.convert(panel.bounds, from: panel).width,
+            accuracy: 0.5
+        )
+    }
+
+    func testAFoldIsReportedWithTheSectionItWasMadeOn() {
+        // Nothing stores a fold, so the row the window writes is the only record it happened -- and the identifier is
+        // what tells a scripted check which of the two it was.
+        let pane = AppSettingsPane()
+        var reported: [(String, Bool)] = []
+        pane.onSectionToggle = { reported.append(($0, $1)) }
+
+        pane.appSection.setExpanded(false)
+        pane.googleSection.setExpanded(false)
+
+        // `setExpanded` is the state changing, not somebody pressing the heading, so it reports nothing at all.
+        XCTAssertTrue(reported.isEmpty, "a fold nobody made is not a fold: \(reported)")
+    }
+
+    // MARK: - the footnote goes with the section it explains
+
+    func testTheGoogleNoteIsTakenAwayWithItsSection() throws {
+        // It says why the button above it cannot be pressed. Folded, that button is not on screen, so a sentence
+        // explaining it is an answer to a question nobody can see being asked.
+        let pane = AppSettingsPane()
+        let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
+        XCTAssertFalse(note.isHidden, "precondition: this build has no credentials, so there is a note")
+
+        pane.googleSection.setExpanded(false)
+        XCTAssertTrue(note.isHidden)
+
+        pane.googleSection.setExpanded(true)
+        XCTAssertFalse(note.isHidden, "and it comes back with the section")
+    }
+
+    func testRedrawingTheAccountWhileFoldedLeavesTheNoteAway() throws {
+        // The reason the two questions are asked in one place. `showGoogle` rebuilds the rows whenever the account
+        // changes, and setting the note's visibility from there alone would put it back under a folded section.
+        let pane = AppSettingsPane()
+        let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
+        pane.googleSection.setExpanded(false)
+
+        pane.show(stored)
+
+        XCTAssertTrue(note.isHidden)
+    }
+
+    func testTheNoteComesBackWhenTheWindowResetsTheFold() throws {
+        // **The regression this pair of hooks exists for.** Opening Settings puts every section back to what it was
+        // built as, and that path is deliberately silent -- no gesture callback, no `debug_log` row. Hanging the note
+        // off the gesture left it hidden under a section the reset had just opened, which is a footnote that
+        // disappears for the rest of the launch because of a fold made in a previous window.
+        let pane = AppSettingsPane()
+        let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
+        pane.googleSection.setExpanded(false)
+        XCTAssertTrue(note.isHidden, "precondition: folded away with its section")
+
+        pane.googleSection.restoreDefaultState()
+
+        XCTAssertTrue(pane.googleSection.isExpanded)
+        XCTAssertFalse(note.isHidden)
+    }
+
+    func testAConnectedAccountHasNoNoteToPutBack() throws {
+        // The other half: the note is hidden because there is nothing to say, and opening the section does not
+        // invent one.
+        let pane = AppSettingsPane()
+        var values = stored
+        values.googleAccount = GoogleAccountRules.Account(name: "Harry", email: "harry@example.com")
+        pane.show(values)
+        let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
+        XCTAssertTrue(note.isHidden, "precondition: a connected account is explained by the rows themselves")
+
+        pane.googleSection.setExpanded(false)
+        pane.googleSection.setExpanded(true)
+
+        XCTAssertTrue(note.isHidden)
     }
 }

@@ -12,7 +12,7 @@ import AppKit
 /// up the responder chain to the label's own superview -- a button merely sitting behind them is never reached, which
 /// has shipped twice in this app already.
 ///
-/// Its own type rather than `CategorySection`, which folds the Categories tab's two lists: that one draws a bold
+/// Its own type rather than `PanelSection`, which folds the Categories tab's two lists: that one draws a bold
 /// heading on a tinted panel and this is a row of a list, carrying a swatch and a figure. What they share is the
 /// pattern, not the drawing.
 @MainActor

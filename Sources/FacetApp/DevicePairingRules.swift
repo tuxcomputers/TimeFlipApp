@@ -14,7 +14,7 @@ enum DevicePairingRules {
     /// `docs/timeflip2-firmware-observations.md` is precisely that the advertised name never moves.
     ///
     /// `nil` when the cube has not told this Mac its name, which is a real state and not a fault: the row stays empty
-    /// and the Info panel says `Unknown`, exactly as it does for a pairing that has not connected since.
+    /// and the TimeFlip section says `Unknown`, exactly as it does for a pairing that has not connected since.
     static func gapName(of device: ScannedDevice) -> String? {
         let name = (device.peripheralName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
@@ -46,7 +46,7 @@ enum DevicePairingRules {
     /// device invites somebody to go looking for a cube they already have, and connecting to a second one silently
     /// drops the first (`BluetoothRadio.connect`).
     ///
-    /// **Gated on the pairing and not on the connection**, which is the same distinction the Info panel draws: a cube
+    /// **Gated on the pairing and not on the connection**, which is the same distinction the TimeFlip section draws: a cube
     /// out of range is still this app's cube, and putting the Scan button back the moment it went quiet would offer to
     /// replace a device that is merely in another room.
     static func showsScanControls(isPaired: Bool) -> Bool { !isPaired }

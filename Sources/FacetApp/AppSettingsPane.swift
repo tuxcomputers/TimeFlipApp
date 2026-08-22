@@ -3,7 +3,13 @@ import AppKit
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///
 /// **Two sections: "App settings" first, with all six of the archive's rows in its order and its wording
-/// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google underneath.**
+/// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google underneath.** Each folds away behind its own
+/// triangle, on the same `PanelSection` the Categories tab's two lists sit on.
+///
+/// **The archive did not fold these**, and that is worth saying rather than leaving as a silent departure: its App
+/// tab was two plain `Section`s of a grouped form, and it reserved `DisclosureGroup` for the Device tab's *More*,
+/// *LED* and *Double tap*. The intent it had is the one kept here -- a fold is for a group somebody is not working
+/// in -- and what changed is only that this tab now has two groups big enough for that to be worth offering.
 ///
 /// The archive put Google at the top. It is at the bottom here, which is the better place for it on merit: the six
 /// settings above are what somebody opens this tab to change, and the Google section is a connection you make once
@@ -27,6 +33,9 @@ final class AppSettingsPane: NSView {
     enum Identifier {
         static let section = "app-settings-section"
         static let heading = "app-settings-section-heading"
+        /// The tinted box inside the section, which is `PanelSection`'s to name. Spelled out here because a test
+        /// measures it, and because deriving it at the call site would be a second copy of that type's convention.
+        static let panel = "app-settings-section-panel"
         static let showSeconds = "app-show-seconds"
         static let pauseOnLock = "app-pause-on-lock"
         static let dailyReset = "app-daily-reset"
@@ -35,6 +44,7 @@ final class AppSettingsPane: NSView {
         static let blipTime = "app-blip-time"
         static let googleSection = "app-google-section"
         static let googleHeading = "app-google-section-heading"
+        static let googlePanel = "app-google-section-panel"
         static let googleStatus = "app-google-status"
         static let googleAccount = "app-google-account"
         static let googleEmail = "app-google-email"
@@ -49,7 +59,6 @@ final class AppSettingsPane: NSView {
         /// The Categories tab's numbers, so the two tabs sit at the same rhythm.
         static let padding: CGFloat = 20
         static let headingSpacing: CGFloat = 12
-        static let cornerRadius: CGFloat = 8
         /// Inside the panel, to the left of a label and to the right of a control. The rows themselves run the whole
         /// width, which is what puts a separator's ends where the archive's are.
         static let rowInset: CGFloat = 20
@@ -147,6 +156,20 @@ final class AppSettingsPane: NSView {
     private let rows = NSStackView()
     private let googleRows = NSStackView()
     private let googleNote = NSTextField(labelWithString: "")
+
+    /// The two sections, each folding away behind its own triangle. Exposed so a test can measure one without a
+    /// window on screen.
+    private(set) var appSection: PanelSection!
+    private(set) var googleSection: PanelSection!
+
+    /// Called when either section opens or closes, so the window can record it. The Device tab hands its folds out
+    /// the same way, identifier and all.
+    ///
+    /// **The pane keeps each section's own `onToggle` for itself**, and calls this from inside it. The Google section
+    /// has work of its own to do on a fold (its footnote goes with it), so letting the window take that callback
+    /// would silently replace the pane's handler with one that does not do it -- a fold that worked until the day
+    /// somebody wired the window to it.
+    var onSectionToggle: ((String, Bool) -> Void)?
     /// Transient, and deliberately not in `Values`: it is what the app is doing, not what the table says.
     private var isSigningIn = false
     private var showSecondsBox: NSButton!
@@ -274,12 +297,22 @@ final class AppSettingsPane: NSView {
             googleRows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: googleRows.widthAnchor).isActive = true
         }
-        let note = GoogleAccountRules.note(for: account, hasCredentials: hasCredentials)
-        googleNote.stringValue = note ?? ""
-        // **Nothing is anchored below this**, which is what makes hiding it enough. A hidden view keeps its height
-        // in Auto Layout (`Tests/Methods.md`), so while the Google section sat above App settings this had to swap
-        // two constraints to stop the empty note pushing the heading under it down. Being last removed that.
-        googleNote.isHidden = note == nil
+        googleNote.stringValue = GoogleAccountRules.note(for: account, hasCredentials: hasCredentials) ?? ""
+        showGoogleNote()
+    }
+
+    /// Whether the footnote under the Google panel is on show.
+    ///
+    /// **Two things can take it away and both have to be asked**, which is why this is one place rather than a line
+    /// in each. There may be nothing to say (`GoogleAccountRules.note` answering `nil`), or the section may be folded,
+    /// in which case the button the sentence is about is not on screen to explain. Setting it from `showGoogle`
+    /// alone would put the note back every time the account was redrawn, folded section or not.
+    ///
+    /// **Nothing is anchored below it**, which is what makes hiding it enough. A hidden view keeps its height in Auto
+    /// Layout (`Tests/Methods.md`), so while the Google section sat above App settings this had to swap two
+    /// constraints to stop the empty note pushing the heading under it down. Being last removed that.
+    private func showGoogleNote() {
+        googleNote.isHidden = googleNote.stringValue.isEmpty || googleSection?.isExpanded == false
     }
 
     /// The Calendar row: the name, editable, or a button to make one when there is none.
@@ -371,18 +404,23 @@ final class AppSettingsPane: NSView {
         onChange?(values.googleAccount.isConnected ? .googleDisconnected : .googleSignInRequested)
     }
 
-    /// Two sections, App settings above Google.
+    /// Two sections, App settings above Google, each folding away behind its own triangle.
     ///
-    /// **The pane keeps its autoresizing frame**, so it is as wide as the window and both panels span that width (see
-    /// `CLAUDE.md`). The tab view hands each pane the content rect and resizes it from there;
+    /// **The pane keeps its autoresizing frame**, so it is as wide as the window and both sections span that width
+    /// (see `CLAUDE.md`). The tab view hands each pane the content rect and resizes it from there;
     /// `translatesAutoresizingMaskIntoConstraints = false` here would throw that away and leave the pane sized to its
     /// own contents, which is a panel stopping short of the right-hand edge. It did, until this.
     ///
-    /// **Neither section folds**, so each heading sits above its panel and names it rather than operating it, which is
-    /// what `CLAUDE.md` reserves the heading-inside-the-panel shape for.
+    /// **Both open**, which is not the Categories tab's answer and is the right one here. There, Inactive is an
+    /// archive to go looking in occasionally, so it starts shut; here the two sections are the whole of the tab, and
+    /// a tab that opened folded would show two headings and nothing to change. The fold is a gesture for getting one
+    /// section out of the way while working in the other, and a gesture does not outlive the window that made it
+    /// (`CollapsibleSection`).
+    ///
+    /// **The heading is now on the panel rather than above it**, which is what `CLAUDE.md` requires the moment a
+    /// group folds: a heading that operates its panel belongs to it, and one floating above a panel it folds reads as
+    /// a caption instead of a control.
     private func addSections() {
-        let googleHeading = heading("Google", identifier: Identifier.googleHeading)
-        let googlePanel = panel(identifier: Identifier.googleSection)
         stack(googleRows)
         showGoogle()
 
@@ -393,82 +431,72 @@ final class AppSettingsPane: NSView {
         googleNote.maximumNumberOfLines = 0
         googleNote.setAccessibilityIdentifier(Identifier.googleNote)
 
-        let appHeading = heading("App settings", identifier: Identifier.heading)
-        let appPanel = panel(identifier: Identifier.section)
         stack(rows)
         addRows()
+
+        let app = section(title: "App settings", identifier: Identifier.section, content: rows)
+        let google = section(title: "Google", identifier: Identifier.googleSection, content: googleRows)
+        appSection = app
+        googleSection = google
+
+        app.onToggle = { [weak self] expanded in
+            self?.onSectionToggle?(Identifier.section, expanded)
+        }
+        google.onToggle = { [weak self] expanded in
+            self?.onSectionToggle?(Identifier.googleSection, expanded)
+        }
+        // **The note goes with the section it explains.** It says why the button above it cannot be pressed, so a
+        // folded Google section that left the sentence behind would be an explanation of something no longer on
+        // screen. Nothing is anchored below it, so hiding it is the whole of taking it away.
+        //
+        // **Hung off the state and not off the gesture**, which is the difference between the two hooks: the window
+        // folds these back to open every time Settings is shown, and that path is silent.
+        google.onExpandedChanged = { [weak self] _ in self?.showGoogleNote() }
 
         // **App settings first, because that is the order they are drawn in.** Subview order is what
         // accessibility reads, and it is not the constraints: the Google section moved to the bottom of the
         // tab, and adding it first left VoiceOver announcing it before the six settings sitting above it on
         // screen. Nothing looks wrong, which is exactly why it stayed wrong -- it was found by a script
         // dumping the tree, not by looking at the tab.
-        for view in [appHeading, appPanel, googleHeading, googlePanel, googleNote] {
+        for view in [app as NSView, google, googleNote] {
             addSubview(view)
         }
-        googlePanel.contentView?.addSubview(googleRows)
-        appPanel.contentView?.addSubview(rows)
-        guard let googleContent = googlePanel.contentView, let appContent = appPanel.contentView else { return }
 
-        // Written out rather than composed with `+` and `flatMap`: the composed version was one expression the type
-        // checker gave up on ("unable to type-check in reasonable time"), and a build error is a worse price than
-        // repetition.
         NSLayoutConstraint.activate([
-            appHeading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
-            appPanel.topAnchor.constraint(equalTo: appHeading.bottomAnchor, constant: Layout.headingSpacing),
-            googleHeading.topAnchor.constraint(equalTo: appPanel.bottomAnchor, constant: Layout.sectionSpacing),
-            googlePanel.topAnchor.constraint(equalTo: googleHeading.bottomAnchor, constant: Layout.headingSpacing),
-            googleNote.topAnchor.constraint(equalTo: googlePanel.bottomAnchor, constant: Layout.headingSpacing / 2),
+            app.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            google.topAnchor.constraint(equalTo: app.bottomAnchor, constant: Layout.sectionSpacing),
+            googleNote.topAnchor.constraint(equalTo: google.bottomAnchor, constant: Layout.headingSpacing / 2),
         ])
 
-        // A heading may be shorter than the pane; a panel and the note always span it.
-        for view in [googleHeading, appHeading] {
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-                view.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.padding),
-            ])
-        }
-        for view in [googlePanel as NSView, googleNote, appPanel] {
+        for view in [app as NSView, google, googleNote] {
             NSLayoutConstraint.activate([
                 view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
                 view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
             ])
         }
-
-        // Flush to the panel on all four sides: a row runs the whole width, and its own inset is what holds the
-        // label and the control off the edges. That is what puts a separator's ends where the archive's are.
-        for (stack, content) in [(googleRows, googleContent), (rows, appContent)] {
-            NSLayoutConstraint.activate([
-                stack.topAnchor.constraint(equalTo: content.topAnchor),
-                stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            ])
-        }
-
     }
 
-    private func heading(_ title: String, identifier: String) -> NSTextField {
-        let heading = NSTextField(labelWithString: title)
-        heading.font = .preferredFont(forTextStyle: .headline)
-        heading.translatesAutoresizingMaskIntoConstraints = false
-        heading.setAccessibilityIdentifier(identifier)
-        return heading
-    }
-
-    /// The same tinted panel the Categories tab's lists sit on, which is what the previous app drew every group of
-    /// settings on (`image/preferences-device.png`).
-    private func panel(identifier: String) -> NSBox {
-        let panel = NSBox()
-        panel.boxType = .custom
-        panel.fillColor = .quaternarySystemFill
-        panel.borderWidth = 0
-        panel.cornerRadius = Layout.cornerRadius
-        panel.contentViewMargins = .zero
-        panel.titlePosition = .noTitle
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.setAccessibilityIdentifier(identifier)
-        return panel
+    /// One of the tab's two sections.
+    ///
+    /// **One number differs from the Categories tab's, and only one.** A row here runs the panel's full width and
+    /// holds its own label off the edge with `rowInset`, which is what puts a separator's ends where the archive's
+    /// are, so the section must not inset the content as well: doing so would indent every row twice over and stop
+    /// the hairlines short at both ends. Everything else -- where the triangle sits, the gap under the heading, the
+    /// corner -- is deliberately the same, so the two tabs' sections read as one control drawn twice rather than as
+    /// two that happen to look similar. That was measured on screen, not assumed: an inset of this tab's own 20
+    /// pushed the heading right of the labels under it and left a folded panel half again as tall as the Categories
+    /// tab's.
+    ///
+    /// **No label is passed**, because "App settings" and "Google" already say what they are. The Categories tab
+    /// passes one; "Active" announced on its own does not mean anything.
+    private func section(title: String, identifier: String, content: NSView) -> PanelSection {
+        PanelSection(
+            title: title,
+            identifier: identifier,
+            isExpanded: true,
+            content: content,
+            metrics: PanelSection.Metrics(contentInset: 0)
+        )
     }
 
     private func stack(_ view: NSStackView) {

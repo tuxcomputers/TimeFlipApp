@@ -2,7 +2,7 @@
 import AppKit
 import XCTest
 
-/// Covers the Device tab: that it draws the archive's three sections, that every value on it comes from what it was
+/// Covers the Device tab: that it draws its two sections, that every value on it comes from what it was
 /// shown, and that the three folding rows fold.
 ///
 /// **Nothing above the TimeFlip section writes**, which is the tab's shape at this point rather than an omission. So
@@ -260,12 +260,17 @@ final class DevicePaneTests: XCTestCase {
 
     // MARK: - the sections
 
-    func testTheThreeSectionsTheArchiveHadAreThere() {
+    func testTheTabHasTwoSections() {
+        // **The archive had three -- Info, Settings and TimeFlip -- and this is a deliberate departure from it.**
+        // What a cube *is* and how to *get* one were a panel apart, so the name of the paired device sat in one
+        // section and the button that pairs it in another, and the status answering "Scan for Devices" was nowhere
+        // near the Connection row saying the same thing in other words. One section, named for the cube.
         let pane = DevicePane()
 
-        for title in ["Info", "Settings", "TimeFlip"] {
+        for title in ["TimeFlip", "Settings"] {
             XCTAssertTrue(labels(of: pane).contains(title), "missing section: \(title)")
         }
+        XCTAssertFalse(labels(of: pane).contains("Info"), "Info was merged into TimeFlip, not kept alongside it")
     }
 
     func testEveryRowIsNamedForWhatItSays() {
@@ -717,9 +722,8 @@ final class DevicePaneTests: XCTestCase {
         pane.layoutSubtreeIfNeeded()
 
         for identifier in [
-            DevicePane.Identifier.infoPanel,
+            DevicePane.Identifier.timeflipPanel,
             DevicePane.Identifier.settingsPanel,
-            DevicePane.Identifier.pairingPanel,
         ] {
             let panel = try XCTUnwrap(view(identifier, in: pane))
             XCTAssertEqual(pane.convert(panel.bounds, from: panel).maxX, 620, accuracy: 0.5, identifier)
@@ -745,5 +749,206 @@ final class DevicePaneTests: XCTestCase {
             )
             XCTAssertEqual(aligned.maxX, 600, accuracy: 0.5, identifier)
         }
+    }
+
+    // MARK: - the readings and the way to get a cube are one section
+
+    /// Every identifier under one section, for asking which section something ended up in.
+    private func identifiers(under section: NSView) -> [String] {
+        descendants(of: section).map { $0.accessibilityIdentifier() }.filter { !$0.isEmpty }
+    }
+
+    func testTheReadingsAndTheScanControlsAreOneSection() {
+        // **This is the merge, asserted rather than assumed.** Info and TimeFlip were separate sections until
+        // 2026-08-22, which put `Name: Not paired` a panel away from the button that pairs it and left the scan
+        // status nowhere near the Connection row saying the same thing in other words.
+        let pane = DevicePane()
+
+        let inside = identifiers(under: pane.timeflipSection)
+        for identifier in [
+            DevicePane.Identifier.name,
+            DevicePane.Identifier.connection,
+            DevicePane.Identifier.battery,
+            DevicePane.Identifier.more,
+            DevicePane.Identifier.scan,
+            DevicePane.Identifier.scanAll,
+            DevicePane.Identifier.scanStatus,
+        ] {
+            XCTAssertTrue(inside.contains(identifier), "\(identifier) is not in the TimeFlip section")
+        }
+    }
+
+    func testNoneOfThatLandedInSettings() {
+        // The other half, because "is in TimeFlip" would also be true of a view that had been added to both or to
+        // neither and was simply found by a search that reached the whole pane.
+        let pane = DevicePane()
+
+        let inside = identifiers(under: pane.settingsSection)
+        for identifier in [DevicePane.Identifier.name, DevicePane.Identifier.scan] {
+            XCTAssertFalse(inside.contains(identifier), "\(identifier) should not be in Settings")
+        }
+        XCTAssertTrue(inside.contains(DevicePane.Identifier.autoPause), "precondition: this is the Settings section")
+    }
+
+    func testTheScanControlsComeAfterMore() {
+        // **The order somebody reads the section in**: what the app knows about the cube, then the thing to press
+        // about it. Measured down the screen rather than by subview order, since the two can disagree and it is the
+        // screen that somebody reads.
+        let pane = DevicePane()
+        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        pane.layoutSubtreeIfNeeded()
+
+        guard let name = view(DevicePane.Identifier.name, in: pane),
+              let more = view(DevicePane.Identifier.more, in: pane),
+              let scan = view(DevicePane.Identifier.scan, in: pane) else {
+            return XCTFail("the three rows this is about are not all on the tab")
+        }
+        // **AppKit's y grows upward unless a view is flipped, so "further down the screen" is not one comparison.**
+        // This pane is unflipped, where the row nearer the top has the *larger* minY -- the reverse of the obvious
+        // reading, and it inverts silently: written the other way round this test failed against a tab that was
+        // perfectly correct. Asked of the view rather than hard-coded, so flipping the pane later cannot quietly
+        // turn this into its own opposite.
+        func isAbove(_ upper: NSView, _ lower: NSView) -> Bool {
+            let upperY = pane.convert(upper.bounds, from: upper).minY
+            let lowerY = pane.convert(lower.bounds, from: lower).minY
+            return pane.isFlipped ? upperY < lowerY : upperY > lowerY
+        }
+        XCTAssertTrue(isAbove(name, more), "the readings come first")
+        XCTAssertTrue(isAbove(more, scan), "and the controls come last")
+    }
+
+    func testFoldingTheSectionTakesTheScanControlsWithTheReadings() {
+        // They are rows of one section now rather than of two, so one fold takes both. Before the merge this was two
+        // separate folds, and a check that only looked at the readings would still have passed.
+        let pane = DevicePane()
+        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        pane.layoutSubtreeIfNeeded()
+
+        pane.timeflipSection.setExpanded(false)
+        pane.layoutSubtreeIfNeeded()
+
+        for identifier in [DevicePane.Identifier.name, DevicePane.Identifier.scan] {
+            let view = view(identifier, in: pane)
+            XCTAssertTrue(view?.isHiddenOrHasHiddenAncestor ?? false, "\(identifier) is still on show")
+        }
+    }
+
+    // MARK: - the two sections fold
+
+    private func sections(of pane: DevicePane) -> [PanelSection] {
+        [pane.timeflipSection, pane.settingsSection]
+    }
+
+    func testBothSectionsStartOpen() {
+        // **The App tab's answer, not the Categories tab's.** These three are the whole of the tab, so opening it
+        // folded would show three headings and nothing to read. TimeFlip stays open in particular because the scan
+        // results appear inside it, and a folded section would hide the answer to the thing somebody just pressed.
+        let pane = DevicePane()
+
+        for section in sections(of: pane) {
+            XCTAssertTrue(section.isExpanded, section.title)
+        }
+    }
+
+    func testFoldingASectionTakesTheSpaceBack() {
+        // Auto Layout does not care that a view is hidden, so hiding the rows alone leaves their full height behind
+        // and a folded section measures exactly as tall as an open one.
+        let pane = DevicePane()
+        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        pane.layoutSubtreeIfNeeded()
+        let open = pane.settingsSection.frame.height
+
+        pane.settingsSection.setExpanded(false)
+        pane.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(pane.settingsSection.frame.height, open)
+    }
+
+    func testEachHeadingSitsOnItsOwnPanel() throws {
+        // `CLAUDE.md`: a collapsible group's heading is the first row of the panel it folds, not a caption floating
+        // above it. This is the measurement that tells the two apart.
+        let pane = DevicePane()
+        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        pane.layoutSubtreeIfNeeded()
+
+        for identifier in [
+            DevicePane.Identifier.timeflipSection,
+            DevicePane.Identifier.settingsSection,
+        ] {
+            let panel = try XCTUnwrap(view("\(identifier)-panel", in: pane), identifier)
+            let heading = try XCTUnwrap(view("\(identifier)-heading", in: pane), identifier)
+            XCTAssertTrue(
+                pane.convert(panel.bounds, from: panel).contains(pane.convert(heading.bounds, from: heading)),
+                identifier
+            )
+        }
+    }
+
+    func testTheWholeHeadingLineFolds() throws {
+        // The triangle, the words, and the space after them to the end of the row. A triangle alone is a small
+        // target for a gesture the heading beside it is obviously about.
+        let pane = DevicePane()
+        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        pane.layoutSubtreeIfNeeded()
+
+        let button = try XCTUnwrap(
+            view("\(DevicePane.Identifier.timeflipSection)-heading-button", in: pane)
+        )
+        let panel = try XCTUnwrap(view("\(DevicePane.Identifier.timeflipSection)-panel", in: pane))
+        XCTAssertEqual(button.frame.width, panel.frame.width, accuracy: 0.5)
+    }
+
+    func testPressingASectionHeadingIsReportedByName() throws {
+        // Nothing stores a fold, so the row the window writes is the only record it happened -- and the identifier
+        // is what tells a scripted check which of the three it was.
+        let pane = DevicePane()
+        var reported: [(String, Bool)] = []
+        pane.onToggle = { reported.append(($0, $1)) }
+
+        pane.settingsSection.setExpanded(false)
+        XCTAssertTrue(reported.isEmpty, "setting it directly is the window drawing, not somebody clicking")
+
+        let window = OffscreenWindow.host(pane)
+        defer { window.close() }
+        pane.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(
+            view("\(DevicePane.Identifier.settingsSection)-heading-button", in: pane) as? NSButton
+        )
+        button.performClick(nil)
+
+        XCTAssertEqual(reported.count, 1)
+        XCTAssertEqual(reported.first?.0, DevicePane.Identifier.settingsSection)
+        XCTAssertEqual(reported.first?.1, true, "it was shut, so the click opened it")
+    }
+
+    // MARK: - a fold inside a fold
+
+    func testFoldingASectionLeavesTheRowInsideItAlone() {
+        // **The case this tab has and the others do not.** `More` is built folded inside an `Info` built open, so
+        // the two levels disagree by design. A section that rebuilt its contents on a fold would lose whatever the
+        // inner row was left as, and the loss would only show on the second look.
+        let pane = DevicePane()
+        pane.moreRow.setExpanded(true)
+
+        pane.timeflipSection.setExpanded(false)
+        pane.timeflipSection.setExpanded(true)
+
+        XCTAssertTrue(pane.moreRow.isExpanded, "opened by hand, so it is still open")
+    }
+
+    func testResettingPutsBothLevelsBackToTheirOwnDefaults() {
+        // The two defaults are opposite, which is the whole point of each holding its own rather than the reset
+        // naming one: a reset that put everything open would be exactly as wrong as one that folded everything.
+        let pane = DevicePane()
+        pane.timeflipSection.setExpanded(false)
+        pane.moreRow.setExpanded(true)
+
+        let folding: [CollapsibleSection] = [pane.timeflipSection, pane.moreRow]
+        for section in folding {
+            section.restoreDefaultState()
+        }
+
+        XCTAssertTrue(pane.timeflipSection.isExpanded, "a section is built open")
+        XCTAssertFalse(pane.moreRow.isExpanded, "and More is built folded")
     }
 }

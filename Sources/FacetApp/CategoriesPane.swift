@@ -39,8 +39,8 @@ final class CategoriesPane: NSView {
     /// in, one implementation.
     let createControl = CategoryCreateControl()
 
-    private(set) var activeSection: CategorySection!
-    private(set) var inactiveSection: CategorySection!
+    private(set) var activeSection: PanelSection!
+    private(set) var inactiveSection: PanelSection!
 
     init() {
         super.init(frame: .zero)
@@ -64,17 +64,22 @@ final class CategoriesPane: NSView {
     }
 
     private func addSections() {
-        activeSection = CategorySection(
+        // **"Active categories" rather than "Active" is what accessibility says**, and the archive measured why the
+        // label has to be on the section at all. The word on its own means nothing announced out of context, which is
+        // the case `PanelSection`'s `label` exists for; the App tab's headings say what they are and pass none.
+        activeSection = PanelSection(
             title: "Active",
             identifier: Identifier.activeSection,
             isExpanded: true,
-            content: activeTable
+            content: activeTable,
+            label: "Active categories"
         )
-        inactiveSection = CategorySection(
+        inactiveSection = PanelSection(
             title: "Inactive",
             identifier: Identifier.inactiveSection,
             isExpanded: false,
-            content: retiredTable
+            content: retiredTable,
+            label: "Inactive categories"
         )
 
         let stack = NSStackView(views: [activeSection, createControl, inactiveSection])

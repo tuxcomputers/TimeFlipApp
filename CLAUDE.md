@@ -149,7 +149,7 @@ words beside it, and the space after them to the end of the row. Not the triangl
 
 A triangle is a small target for a gesture the heading is obviously about, and every other list on this
 platform opens on its title too, so a heading that ignores a click is a control that looks broken rather than
-one being precise. `CategorySection` is the pattern: a borderless button spanning the row sits *behind* the
+one being precise. `PanelSection` is the pattern: a borderless button spanning the row sits *behind* the
 triangle and the label, so the triangle still draws itself and a click lands in one place wherever in the line
 it falls.
 
@@ -163,8 +163,33 @@ its own (`quaternarySystemFill` is translucent, so two of them stack and the con
 heading), and hiding the contents is not folding them (Auto Layout ignores `isHidden`, so the hidden height stays
 behind unless the section's bottom edge moves with it).
 
-This is about *collapsible* groups. A plain section heading, like the App tab's "App settings", stays above its
-panel: it names the panel, it does not operate it.
+This is about *collapsible* groups. A plain section heading, like the Faces tab's "Timing" and "Categories", stays
+above its panel: it names the panel, it does not operate it. That tab is the only one left with any, the Categories,
+App and Device tabs all having sections that fold.
+
+**A section that gains a fold moves its heading onto the panel**, rather than keeping the caption it had and putting a
+triangle on it. The App tab's two sections and the Device tab's three were plain headings above panels until they
+folded, and the whole of making each of them fold was handing it to `PanelSection`: the heading became the panel's
+first row and the panel closes around it. A folding heading left floating above its panel is the caption case wearing
+a triangle, which is the shape this rule exists to rule out.
+
+**Folds nest, and each level keeps its own default.** The Device tab has both kinds at once: *More* is a `DisclosureRow`
+inside a `TimeFlip` section that is a `PanelSection`, and their defaults are opposite -- the section opens, *More* does not. The
+window's walk goes on into a section it has just folded, so both come back to their own answer; a reset that put
+everything one way would be exactly as wrong as one that put nothing back.
+
+**A second tab overrides as little as it can, and proves the rest on screen.** `PanelSection.Metrics` exists because
+the App tab's rows run the panel's full width and hold their own labels off the edge, so their content inset must be
+nothing where the Categories tab's is 8; inheriting that number would indent every row twice over and stop the
+hairlines short at both ends. That is the only number it changes. Giving it the tab's own 20pt inset for the heading
+as well looked reasonable in the source and was wrong on screen: it pushed the heading right of the labels under it
+and left a folded panel half again as tall as the Categories tab's. **Sections on two tabs should read as one control
+drawn twice**, so take a screenshot of both before overriding anything beyond what genuinely differs.
+
+**Anything drawn from a fold follows the state, not the gesture.** `onToggle` fires only when somebody presses a
+heading, because `restoreDefaultState` is deliberately silent; `onExpandedChanged` fires on every path. A view that
+sits outside the panel and so cannot fold with it -- the App tab's Google footnote is the one -- has to hang off the
+second, or it ends up showing under a folded section the moment the window resets the folds.
 
 **Where a group has no panel of its own, its heading is a row of the list it belongs to** and there is nothing to sit
 on top of. The Report tab's categories are that case: each one is a line of the totals list, carrying a swatch, a name

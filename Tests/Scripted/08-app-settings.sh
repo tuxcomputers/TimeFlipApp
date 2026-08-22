@@ -135,4 +135,65 @@ order=$(tree | grep -n "section-heading" | head -2)
 first=$(printf '%s' "$order" | head -1)
 check_contains "the tab reads in the order it is drawn: App settings first" "$first" "app-settings-section-heading"
 
+# ---------------------------------------------------------------------------- the sections fold
+#
+# **Both start open**, which is not the Categories tab's answer and is the right one here: these two
+# sections are the whole of the tab, so opening it folded would show two headings and nothing to change.
+#
+# **Pressed on the heading button rather than the triangle**, because the whole line is the target and
+# that is the half `swift test` cannot check: `performClick` presses a button directly, so a hermetic
+# test passes on a control no mouse can reach. This has already shipped broken once, on the Categories
+# headings (`Tests/Methods.md`).
+
+check_contains "the App settings section is on the tab" "$(tree)" "id=app-settings-section"
+check_contains "and the Google section is too" "$(tree)" "id=app-google-section"
+
+# Read off the contents rather than off the heading: a section with its rows showing is what open means.
+check "the App settings section starts open" "1" "$(on_tab app-show-seconds)"
+check "the Google section starts open" "1" "$(on_tab app-google-status)"
+
+for pair in "app-settings-section app-show-seconds" "app-google-section app-google-status"; do
+    set -- $pair
+    section="$1" inside="$2"
+
+    since=$(mark)
+    press "$section-heading-button"
+    sleep 1
+    expect_log "pressing the $section heading folds it" "$since" "App section $section folded"
+    check "and its contents go with it" "0" "$(on_tab "$inside")"
+
+    since=$(mark)
+    press "$section-heading-button"
+    sleep 1
+    expect_log "pressing it again opens it" "$since" "App section $section opened"
+    check "and its contents come back" "1" "$(on_tab "$inside")"
+done
+
+# **The footnote goes with the section it explains.** It says why the Google button cannot be pressed, so
+# leaving it under a folded section would be an explanation of something no longer on screen. It sits
+# outside the panel and so cannot fold with it, which is why it hangs off the fold's state rather than
+# off the press (`PanelSection.onExpandedChanged`).
+#
+# **What the note says is read off the tab rather than assumed, because whether there is one at all
+# depends on the account.** `GoogleAccountRules.note` answers nothing for a connected account, and this
+# suite connects one in `10-google-calendar` -- so a check hard-coding "there is a note" passes or fails
+# on which scripts have run before it rather than on anything about folding. Captured here, the check is
+# the same either way: whatever the account state puts there, folding takes away and opening puts back.
+note_before=$(on_tab app-google-note)
+
+press app-google-section-heading-button
+sleep 1
+check "folding Google takes its note with it, whether or not there is one" "0" \
+    "$(on_tab app-google-note)"
+
+press app-google-section-heading-button
+sleep 1
+check "and opening it puts back exactly what the account state says" "$note_before" \
+    "$(on_tab app-google-note)"
+
+# **Left as they were found.** Both sections open, which is what the next script expects and what the
+# window would put them back to anyway on the next open.
+check "the App settings section is open again" "1" "$(on_tab app-show-seconds)"
+check "and the Google section is too" "1" "$(on_tab app-google-status)"
+
 finish

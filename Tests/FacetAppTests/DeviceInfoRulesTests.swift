@@ -2,7 +2,7 @@
 import Foundation
 import XCTest
 
-/// Covers `DeviceInfoRules`: the words the Device tab's Info panel puts against each row.
+/// Covers `DeviceInfoRules`: the words the Device tab's TimeFlip section puts against each row.
 ///
 /// The point of these is the distinctions. Every row here is a sentence about a thing that is not there, and "no
 /// device" has three meanings that must not collapse into one: nothing is paired, something is paired and cannot be
