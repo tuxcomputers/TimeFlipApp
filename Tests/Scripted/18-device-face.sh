@@ -73,6 +73,15 @@ events_before=$(sql "SELECT IFNULL(MAX(device_event_id), 0) FROM device_event;")
 expect_log "the app asks which face is up as soon as the link is open" "$link" "Asking the cube which face is up" 30
 expect_log "and the cube answers, so there is a face before anybody touches it" "$link" "Face % is up" 30
 expect_log "it asks what state the cube is in as well" "$link" "Asking the cube what state it is in" 30
+# **And the answer is waited for separately, which is the whole point of this line.** The row above says the question
+# went out, not that it came back, and everything below reads the answer: `status_row` decides which way the Lock item
+# is currently pointing. On 2026-08-22 those two were one check, and the 118ms between the `0x10` write and the
+# `commandResult` read was enough to lose -- the script read an empty status, took a locked cube for an unlocked one,
+# pressed an item that said *Unlock*, and then waited twenty seconds for a pause that nothing was ever going to send.
+#
+# It is the last thing the connection does, so there is no later row to hide behind: `0x10` now goes out after the
+# clock, the history, the face and the double-tap registers, which is what turned a latent race into a failing run.
+expect_log "and the cube answers, so the app knows which way the lock is" "$link" "The cube is %ocked and %" 30
 
 # ---------------------------------------------------------------------------- unlocked, or it will not turn
 #
@@ -80,8 +89,11 @@ expect_log "it asks what state the cube is in as well" "$link" "Asking the cube 
 # getting it there is the app's own Unlock item doing the thing it exists for -- so the badge is checked in both
 # directions on the way past rather than in a script of its own.
 #
-# Whichever state the cube is found in, it is locked and then unlocked from here, so both directions are covered on
-# every run instead of depending on whatever `16`'s quit happened to leave.
+# **Which of the two directions gets exercised depends on how the cube is found**, and that is worth saying plainly
+# rather than claiming both. A cube found unlocked is locked here and then unlocked by the block below it, so a run
+# that starts from one covers the pair. A cube found locked is only unlocked: locking it again would leave the cube
+# locked for everything underneath, and a locked cube silently refuses to change face. `16`'s quit locks it whenever
+# `pause_on_lock` is on, which the DDL seeds, so the second case is the ordinary one on a full run.
 
 # What the cube last said about itself, from this connection onwards. Written by `BluetoothRadio` and only when the
 # answer is news, which is enough: the ask made when a link comes up always writes one, since the held status is

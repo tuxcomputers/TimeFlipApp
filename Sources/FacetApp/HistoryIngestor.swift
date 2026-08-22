@@ -75,7 +75,7 @@ final class HistoryIngestor {
             // Said rather than returned silently. A refresh that folded into one already running otherwise leaves no
             // trace at all, and the archive records a real run where exactly that made a startup fetch look as though
             // it had never happened.
-            debugLog?.record(.history, "Already fetching history; the \(reason) request is dropped")
+            debugLog?.record(.history, "Already fetching history (\(reason)): this request is dropped")
             finished?(.nothingToAsk)
             return
         }

@@ -52,6 +52,13 @@ expect_log "and the cube's own answer confirms it" "$link" "The cube's clock is 
 # at all, which from the outside looks exactly the same.
 expect_log "the cube is asked how it is, and says" "$link" "The cube says%" 30
 
+# **The lock, waited for by its answer rather than by its question.** `0x10` is the last thing the connection does, so
+# at this point in the script it is the row most likely still in flight -- and `status_row` below decides from it which
+# way the Lock item is currently pointing. `18-device-face` read that answer 118ms too early on 2026-08-22 and spent
+# twenty seconds waiting for a pause that was never going to be sent. See `Tests/Methods.md`, under the notes.
+expect_log "and says whether it is locked, which is what the clicks below are aimed at" "$link" \
+    "The cube is %ocked and %" 30
+
 # **The characteristic the whole feature stands on**, checked first because everything below reads as a different
 # fault without it. The login discovery asks for the three characteristics a login needs, so `F1196F58` is not in its
 # answer and only the listening phase can find it -- and when it was picked up in the wrong one, every fetch reported

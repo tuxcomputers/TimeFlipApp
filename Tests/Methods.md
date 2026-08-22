@@ -320,6 +320,13 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **A log row saying a question went out is not the answer being in.** The two are separate rows and the gap is real
+  work: on 2026-08-22 `0x10` was written at 11:30:34.074 and `The cube is locked and paused` landed at 11:30:34.192,
+  118ms later. `18-device-face` waited for the ask and then read the answer, found nothing, took a locked cube for an
+  unlocked one, pressed a dropdown item that said *Unlock*, and spent twenty seconds waiting for a pause that was never
+  going to be sent. Wait on the row that carries the answer, not the row that carries the request -- the same rule
+  `wait_sql` states for table writes, applied to a second log row.
+
 - **A single-event history read (`0x01`) is answered by a read, not a notification.** `0x02`'s reply is documented
   as "data flow with notification"; `0x01`'s is not described as a notification at all, and waiting for one times out
   every time. Write the command, then read the characteristic's value. Measured by the archive
