@@ -304,6 +304,17 @@ device_required() {
 pair_a_cube() {
     PAIR_REASON=""
 
+    # **The Scan button has to be on screen, and this is checked rather than assumed.** `press` swallows everything --
+    # its output, its exit code, and the case where the element is not in the tree at all -- so pressing a button that
+    # is not there does nothing and says nothing. The wait below then times out after a full minute and reports the
+    # radio as the culprit, which is a diagnosis pointing away from the fault: on 2026-08-22 `20-cube-pause` reached
+    # here without ever having opened the Settings window, sat for 60 seconds, and skipped itself blaming a
+    # permission prompt that was not there.
+    if [ -z "$(element device-scan)" ] && [ -z "$(element device-forget)" ]; then
+        PAIR_REASON="neither Scan nor Forget is on screen -- open the Settings window on the Device tab first"
+        return 1
+    fi
+
     if [ -n "$(element device-forget)" ]; then
         grey "  already paired; forgetting first so this pairs its own cube"
         press device-forget

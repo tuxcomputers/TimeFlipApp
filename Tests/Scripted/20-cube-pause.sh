@@ -38,14 +38,24 @@ if ! device_required; then
 fi
 
 # ---------------------------------------------------------------------------- a cube to click at
+#
+# **The window is opened for the pairing and shut again straight after.** Scan and Forget live on the Device tab, so
+# there is no way to pair without it -- and everything after this is about the status item, which is read with the
+# window shut. It was missing altogether until 2026-08-22 and cost this script a whole run: `press` says nothing when
+# the element is not there, so the scan simply never happened and `pair_a_cube` blamed the radio sixty seconds later.
+
+open_settings
+select_tab Device
 
 link=$(mark)
 if ! pair_a_cube; then
     skip "no cube could be paired, so there is nothing to pause ($PAIR_REASON)"
+    close_settings
     finish
     exit 0
 fi
 pass "paired a cube to click at"
+close_settings
 
 # **The clock, before anything else the connection does.** The cube stamps every history frame with its own clock, so
 # one that has never been told the time has nothing to date an interval with -- and a factory reset clears it, which
