@@ -234,7 +234,15 @@ check "and nothing was put on the wire for it" "0" \
 
 since=$(mark)
 double_click_right
-expect_log "a second double click unlocks the cube" "$since" "The cube is unlocked" 20
+# **Routed, and its pause cancelled, checked again rather than assumed from the lock's pair.** The router knows
+# nothing about the lock -- `StatusItemClickRouter` sends every second click to `.toggleCubeLock` whichever way the
+# cube is -- so the deferral has exactly the same work to do on the way out of a lock as on the way in, and a
+# cancellation that only worked in one direction would leave a stray pause behind an unlock.
+expect_log "a second double click is routed as a lock as well, not as a pause" "$since" \
+    "Status item clicked: side=right clicks=2%toggleCubeLock" 10
+expect_log "and its own first click's pause is dropped too" "$since" \
+    "The waiting cube pause was dropped: a second click made it a lock" 10
+expect_log "and the cube is unlocked" "$since" "The cube is unlocked" 20
 # Unlocking lifts the pause the lock applied, which the archive's Unlock deliberately did not: there, the Pause item
 # commanded the device and could resume it separately; here it is the app's own clock, so an unlock that left the cube
 # paused would leave it paused for good.
