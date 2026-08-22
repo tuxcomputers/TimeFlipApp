@@ -21,11 +21,12 @@
 # **The turn is detected, not confirmed.** Nobody is asked "did you do that?": the app writes a row when the cube
 # reports the face, and that row is the evidence. `ask_and_detect` says more about why, and about why it never gives up.
 #
-# **The cube is unlocked first, and that is the archive's finding rather than tidiness.** A locked cube silently
-# refuses to change face, so asking for a turn while it is locked would wait for ever with nothing to detect (`01i`
-# Scenario A, Step 3, which found exactly that and had to unlock before it could carry on). It is a live possibility
-# here rather than a precaution: `16-device-reconnect` quits the app, and quitting pauses and locks the cube whenever
-# `pause_on_lock` is on, which is what the DDL seeds.
+# **The cube is put into a known state first -- unlocked and running -- and that is the archive's finding rather than
+# tidiness.** A locked cube silently refuses to change face, so asking for a turn while it is locked would wait for
+# ever with nothing to detect (`01i` Scenario A, Step 3, which found exactly that and had to unlock before it could
+# carry on). A paused cube fails differently and later: it still reports the turn, so the prompt is satisfied, but it
+# files no history for it. Neither is a precaution: `16-device-reconnect` quits the app, and quitting pauses and locks
+# the cube whenever `pause_on_lock` is on, which is what the DDL seeds.
 #
 # **Runs after `17`, and before the wipe in `99`.** It needs a live link and it needs a person, so it sits with the
 # other device scripts rather than out on its own.
@@ -118,6 +119,19 @@ press_cube_lock() {
     sleep 1.5
 }
 
+# Whether the cube is stopped, as the app's own record has it -- which is the source `CubeLock.togglePause` decides
+# its direction from, so it is the one to ask before sending a click meant to go a particular way.
+open_paused() {
+    sql "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
+}
+
+# The right half, single, which is the only control the app offers for a plain resume: the dropdown's Unlock resumes
+# too, but only appears on a locked cube. Deferred by the double-click interval at the far end, hence the wait.
+click_right() {
+    python3 scripts/status-item-click.py --right >/dev/null 2>&1
+    sleep 1.5
+}
+
 grey "  the cube says: $(status_row)"
 
 # ---------------------------------------------------------------------------- 1. unlocked, whatever it was
@@ -183,9 +197,38 @@ else
     skip "pause_on_lock is off, so the app will not lock from here and neither direction can be checked"
 fi
 
-# Whatever the three steps above did, the cube has to be turnable from here or nothing below can happen at all.
+# ---------------------------------------------------------------------------- unlocked AND running, or stop here
+#
+# **Two device states can strand a flip, and they strand it in different places.** A locked cube silently refuses to
+# change face, so `ask_and_detect` would sit for ever with nothing to detect (`01i` Scenario A, Step 3 found exactly
+# that). A cube that is merely *paused* is worse to debug: it still reports the turn on the faces characteristic, so
+# the prompt is satisfied and the face check passes, but it files no history for the interval -- and `check_turn` now
+# waits for the turn to reach `device_event`, so the failure lands twenty seconds later on a line about ingestion.
+#
+# The lock is settled by the three steps above. The pause is not: steps 2 and 3 leave the cube running as a side
+# effect of the lock cycle, but both are gated on `pause_on_lock`, so a cube found unlocked-and-paused on a run with
+# that setting off reaches here still paused. So it is asked here, and cleared here, rather than assumed.
+
 if [[ "$(status_row)" == *"is locked"* ]]; then
     fail "the cube is still locked, and a locked cube silently refuses to change face"
+    close_settings
+    finish
+    exit 1
+fi
+
+# **Asked of the app's record rather than of `status_row`, and that is deliberate.** `CubeLock.togglePause` takes its
+# direction from the open segment, so a click aimed at resuming only resumes if that is what the table says. Reading
+# `0x10` here and clicking on the strength of it could send a pause into a cube the app believed was already running.
+if [ "$(open_paused)" = "1" ]; then
+    grey "  the cube is paused, so its turns would file no history; starting it again first"
+    resuming=$(mark)
+    click_right
+    expect_log "a cube found paused is started again, so the turns below are recorded" \
+        "$resuming" "The cube is running" 20
+fi
+
+if [ "$(open_paused)" = "1" ]; then
+    fail "the cube is still paused, so a turn would be reported but never recorded ($(status_row))"
     close_settings
     finish
     exit 1
