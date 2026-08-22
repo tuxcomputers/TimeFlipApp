@@ -320,6 +320,13 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **An apostrophe in a `wait_for` pattern breaks the query, not the match.** The pattern is interpolated into a SQL
+  string literal, so `The cube's clock is set` closes the quote at `cube` and sqlite3 refuses the whole statement.
+  Nothing reaches stdout, the poll sees empty, and the wait times out saying the app never wrote a row it wrote
+  170ms earlier. `wait_for` now doubles apostrophes itself, which is SQL's own escape. The error text was in
+  `logs/screen.txt` three hundred times while the FAIL line blamed the app -- when a check fails on a row you can see
+  in the table, grep the run log for `Error:` before believing the verdict.
+
 - **Turning a paused cube resumes it, in firmware.** No command, no acknowledgement: the next history frame simply
   reports the new face running. Measured by the archive on 2026-08-12 and relied on by `DailyLimitEnforcement`, which
   is why it never needs to send `.resume` after a flip. The one exception is a *locked* cube, which refuses the turn

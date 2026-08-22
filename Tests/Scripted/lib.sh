@@ -552,6 +552,21 @@ mark() { sql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;"; }
 # happened, so this is as fast as the app is and still correct on a slow machine.
 wait_for() {
     local since="$1" pattern="$2" timeout="${3:-15}"
+    # **An apostrophe in the pattern is doubled, because the pattern goes inside a SQL string literal.** `The cube's
+    # clock is set` closes the quote at `cube` and the rest becomes syntax, so sqlite3 refuses the query, prints
+    # nothing to stdout, and this polls an empty answer for its whole timeout before reporting that the app never
+    # wrote a row it wrote immediately. Doubling is SQL's own escape and is what sqlite3 expects.
+    #
+    # Measured 2026-08-22: `20-cube-pause` failed on "no debug_log row matching 'Setting the cube's clock to %' within
+    # 30s" with that exact row sitting in the table, 170ms after the mark. Three of its checks carried an apostrophe
+    # and none of them could ever have matched. Escaped here rather than in each script, so the next pattern with one
+    # in it simply works.
+    #
+    # **The error was never hidden, and that is the part worth remembering.** `sql` does not redirect stderr, so
+    # `Error: in prepare, near "s": syntax error` went to the terminal and into `logs/screen.txt` -- three hundred
+    # times, once per poll. What failed was not the diagnosis being unavailable but the verdict pointing away from it:
+    # the FAIL line said the app had written no row. A loud signal beside a confident wrong summary is read as noise.
+    pattern=${pattern//\'/\'\'}
     local waited=0 found=""
     while [ "$waited" -lt "$((timeout * 10))" ]; do
         found=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '$pattern' ORDER BY debug_log_id LIMIT 1;")

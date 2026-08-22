@@ -5,17 +5,17 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   feature/assignFace
-    commit:   2c411ff3e310470b666a5f45f58b564fc4e05bea
+    commit:   8509821be3298c103fa9826283c280cef6057465
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-22 12:56:45
-    finished: 2026-08-22 13:12:19
-    outcome:  passed
-    scripts:  22 run, 0 with failures
-    checks:   482 in total
-              481 passed
-              0 failed
-              1 skipped
+    started:  2026-08-22 13:38:11
+    finished: 2026-08-22 13:53:08
+    outcome:  failed
+    scripts:  21 run, 1 with failures
+    checks:   473 in total
+              472 passed
+              1 failed
+              0 skipped
 
 | script | passed | failed | skipped |
 |---|---|---|---|
@@ -33,15 +33,14 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 11-google-reconnect | 17 | 0 | 0 |
 | 12-daily-limit | 32 | 0 | 0 |
 | 13-device-scan | 14 | 0 | 0 |
-| 14-device-connect | 38 | 0 | 0 |
+| 14-device-connect | 41 | 0 | 0 |
 | 15-device-reset | 33 | 0 | 0 |
 | 16-device-reconnect | 22 | 0 | 0 |
 | 17-device-battery | 10 | 0 | 0 |
 | 18-device-face | 43 | 0 | 0 |
 | 19-manual-mode | 28 | 0 | 0 |
-| 20-cube-pause | 0 | 0 | 1 |
-| 99-quit | 13 | 0 | 0 |
-| **total** | **481** | **0** | **1** |
+| 20-cube-pause | 1 | 1 | 0 |
+| **total** | **472** | **1** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
