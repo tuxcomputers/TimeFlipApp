@@ -63,7 +63,7 @@ struct DevicePairingRecorder {
                 replacing: settings.string("device_name", field: "name"), with: name
             ) {
                 put("device_name", "previous_name", previous)
-                debugLog?.record(.pair, "The cube was called \"\(previous)\", which the scan filter keeps")
+                debugLog?.record(.pair, "The cube was called \(previous), which the scan filter keeps")
             }
             put("device_name", "name", name)
         }
@@ -214,7 +214,7 @@ struct DevicePairingRecorder {
         if let name = settings.string("device_name", field: "name"), !name.isEmpty {
             wrote = settings.write("device_name", field: "previous_name", name) && wrote
             wrote = settings.write("device_name", field: "name", "") && wrote
-            debugLog?.record(.pair, "The cube was called \"\(name)\"; keeping it in the scan filter in case the wipe did not take")
+            debugLog?.record(.pair, "The cube was called \(name); keeping it in the scan filter in case the wipe did not take")
         }
         debugLog?.record(
             .pair,

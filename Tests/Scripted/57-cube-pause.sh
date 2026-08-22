@@ -60,8 +60,8 @@ close_settings
 # **The clock, before anything else the connection does.** The cube stamps every history frame with its own clock, so
 # one that has never been told the time has nothing to date an interval with -- and a factory reset clears it, which
 # `52-device-reset` does. This app sent `0x08` nowhere at all until 2026-08-21.
-expect_log "the cube's clock is set as the first thing after the link is confirmed" "$link" "Setting the cube's clock to %" 30
-expect_log "and the cube's own answer confirms it" "$link" "The cube's clock is set" 30
+expect_log "the cube's clock is set as the first thing after the link is confirmed" "$link" "Setting the clock on the cube to %" 30
+expect_log "and the cube's own answer confirms it" "$link" "The clock on the cube is set" 30
 
 # **What the cube says about its own condition**, which the app subscribed to and dropped until 2026-08-21. The row is
 # what tells a reset cube apart from one whose flash memory has failed -- and a flash fault means it records no history
@@ -82,7 +82,7 @@ expect_log "and says whether it is locked, which is what the clicks below are ai
 # sent a pause it could never reverse. Nothing in `swift test` can see this: a `CBPeripheral` cannot be built outside
 # CoreBluetooth, so discovery has no seam a hermetic test can reach.
 expect_log "the cube's history characteristic is found when the link comes up" "$link" \
-    "The cube's history characteristic is there%" 30
+    "The history characteristic is there%" 30
 
 # **And it is asked at once, because the link came up.** Not because of anything else that happens to follow a login:
 # the fetch used to ride on the face read, so the log claimed the cube had been turned when it had been sitting still,

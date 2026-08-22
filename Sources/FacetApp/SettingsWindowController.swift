@@ -992,7 +992,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         alert.buttons[1].keyEquivalent = ""
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertSecondButtonReturn else {
-                self?.debugLog?.record(.field, "Button clicked: Cancel, \"\(name)\" calendar not deleted")
+                self?.debugLog?.record(.field, "Button clicked: Cancel, calendar \(name) not deleted")
                 return
             }
             self?.carryOutGoogleCalendarDelete(id: id, named: name, from: pane, using: settings)
@@ -1284,7 +1284,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         else {
             // `.ignore`: nothing typed, or the name already reads that way. The field has closed itself, and a
             // dialogue saying nothing happened would be worse than nothing happening.
-            debugLog?.record(.field, "Category \"\(category.name)\" rename ignored, nothing changed")
+            debugLog?.record(.field, "Category \(category.name) rename ignored, nothing changed")
             return
         }
         // `nil` for the dead end, which raises the same dialogue with nothing but Cancel in it: an active category
@@ -1314,7 +1314,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let name else {
-                self?.debugLog?.record(.click, "Button clicked: Cancel, \"\(category.name)\" rename refused, name taken")
+                self?.debugLog?.record(.click, "Button clicked: Cancel, \(category.name) rename refused, name taken")
                 return
             }
             let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
@@ -1347,7 +1347,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means the
         // same as Cancel: a name was typed and nothing came of it.
         guard choice?.isRename == true else {
-            debugLog?.record(.click, "Button clicked: Cancel, \"\(category.name)\" not renamed")
+            debugLog?.record(.click, "Button clicked: Cancel, \(category.name) not renamed")
             return
         }
         let stored = categories.setName(id: category.id, name: name)
@@ -1400,7 +1400,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func retire(_ category: CategoryRecord) {
         guard let categories else { return }
         guard categories.setActive(id: category.id, false) else {
-            debugLog?.record(.click, "Category \"\(category.name)\" retire REFUSED")
+            debugLog?.record(.click, "Category \(category.name) retire REFUSED")
             return
         }
         let cleared = (faces?.facesHolding(categoryID: category.id) ?? []).filter { faces?.clear(face: $0.face) == true }
@@ -1594,7 +1594,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // landed look identical afterwards unless one of them leaves a row, and telling those apart is the
         // difference between this working and the list having stopped responding.
         if timing?.read().isTiming(category.id) == true {
-            debugLog?.record(.mode, "Timing: already timing \"\(category.name)\", so the click changes nothing")
+            debugLog?.record(.mode, "Timing: already timing \(category.name), so the click changes nothing")
             return
         }
         let moment = Date()
@@ -1607,11 +1607,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // stretch did end when the click arrived), and the only way to reach this is the database refusing an
         // update -- the app's own faces are never locked, being reassigned is the whole point of them.
         guard faces.assign(categoryID: category.id, toFace: face) else {
-            debugLog?.record(.mode, "Timing: face \(face) refused category \"\(category.name)\"")
+            debugLog?.record(.mode, "Timing: face \(face) refused category \(category.name)")
             return
         }
         deviceEvents?.startSegment(face: face, at: moment)
-        debugLog?.record(.mode, "Timing: started \"\(category.name)\" (category_id \(category.id)) on face \(face)")
+        debugLog?.record(.mode, "Timing: started \(category.name) (category_id \(category.id)) on face \(face)")
         redrawTiming()
         redrawTotals()
         onTimingChanged?()
@@ -1646,14 +1646,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // The click asked for no change, and saying so is what tells a deliberate no-op apart from a list that has
         // stopped responding -- the same reason the manual path records its own.
         guard faces.categoryID(forFace: face) != category.id else {
-            debugLog?.record(.mode, "Face \(face) already holds \"\(category.name)\", so the click changes nothing")
+            debugLog?.record(.mode, "Face \(face) already holds \(category.name), so the click changes nothing")
             return
         }
         guard faces.assign(categoryID: category.id, toFace: face) else {
-            debugLog?.record(.mode, "Face \(face) refused category \"\(category.name)\"")
+            debugLog?.record(.mode, "Face \(face) refused category \(category.name)")
             return
         }
-        debugLog?.record(.mode, "Face \(face) now holds \"\(category.name)\" (category_id \(category.id))")
+        debugLog?.record(.mode, "Face \(face) now holds \(category.name) (category_id \(category.id))")
         redrawTiming()
         redrawTotals()
         // **Through the same funnel, though no clock started.** What this actually means here is "the reading
@@ -2345,7 +2345,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case .cancel, nil:
             // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means
             // the same as Cancel: the name was typed and nothing came of it.
-            debugLog?.record(.click, "Button clicked: Cancel, \"\(name)\" not created")
+            debugLog?.record(.click, "Button clicked: Cancel, \(name) not created")
             return
         }
         // Only the two that wrote get here: either changes which rows belong in which list.

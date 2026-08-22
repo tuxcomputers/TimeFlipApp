@@ -610,7 +610,16 @@ next_name() {
 }
 
 # The newest debug_log id right now. Every wait is measured from one of these -- see rule 3 above.
-mark() { dsql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;"; }
+# **Answers 0 rather than nothing when the query cannot run at all**, which is not the same as the `IFNULL` above.
+# That handles an empty table; this handles no table, no file, or a locked one -- sqlite3 prints its error to stderr
+# and nothing to stdout, and an empty mark then goes straight into the next query as `debug_log_id > AND ...`. On
+# 2026-08-22 that turned one missing table into forty "near AND: syntax error" lines and a run that measured every
+# check from a baseline it never had.
+mark() {
+    local id
+    id=$(dsql "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;")
+    printf '%s' "${id:-0}"
+}
 
 # Waits for a debug_log row after `since` whose message matches `pattern` (a SQL LIKE, so % is the
 # wildcard). Prints the message it found, empty on timeout.
