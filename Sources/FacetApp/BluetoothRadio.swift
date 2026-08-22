@@ -335,7 +335,7 @@ final class BluetoothRadio: NSObject {
         debugLog?.record(
             .scan,
             "Scan requested, \(filterToTimeFlip ? "TimeFlip only" : "all devices")"
-                + ", remembered \"\(remembered ?? "")\", previously \"\(previouslyKnown ?? "")\""
+                + ", remembered \(remembered ?? ""), previously \(previouslyKnown ?? "")"
         )
 
         if central == nil {
@@ -962,8 +962,8 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         if found[device.id] == nil {
             debugLog?.record(
                 .scan,
-                "Found \(device.id.uuidString): peripheral \"\(device.peripheralName ?? "")\", "
-                    + "advertised \"\(device.advertisedName ?? "")\""
+                "Found \(device.id.uuidString): peripheral \(device.peripheralName ?? ""), "
+                    + "advertised \(device.advertisedName ?? "")"
                     + (device.advertisesTimeFlipService ? ", TimeFlip service" : "")
             )
         }

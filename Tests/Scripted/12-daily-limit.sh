@@ -135,7 +135,7 @@ for remaining in "${REMAINING_CASES[@]}"; do
     since=$(mark)
     press "category-row-$ID"
     sleep 1.5
-    expect_log "picking it starts the clock" "$since" "%\"$NAME\"%"
+    expect_log "picking it starts the clock" "$since" "%$NAME%"
 
     # Waited on rather than read once: the log row above and the segment behind it are two statements, and the
     # row is written first. See `wait_sql`.

@@ -223,7 +223,7 @@ case "$(element "category-row-$BREAK")" in
     *) pass "the category rows are live again once manual mode is chosen" ;;
 esac
 
-expect_log "the same click now starts the clock" "$since" "Timing: started \"Break\"%"
+expect_log "the same click now starts the clock" "$since" "Timing: started Break%"
 check "and a segment is open" "1" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
 check_contains "the menu bar is timing it" "$(status_item)" "Break"
 

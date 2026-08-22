@@ -117,14 +117,19 @@ enum BLETrace {
         uuids.isEmpty ? "none" : uuids.map { TimeFlipUUIDs.name(for: $0) }.joined(separator: ", ")
     }
 
-    /// `30 30 30 30 30 30 "000000"`, with the quoted half present only when the bytes are readable.
+    /// `30 30 30 30 30 30 (000000)`, with the bracketed half present only when the bytes are readable.
     ///
-    /// **Hex first and always.** The text is a convenience for the cube's ASCII narration; the hex is the record, and
-    /// a rendering that replaced it would lose exactly the bytes a surprise is made of.
+    /// **Hex first and always.** The text is a convenience for the ASCII the cube narrates with; the hex is the
+    /// record, and a rendering that replaced it would lose exactly the bytes a surprise is made of.
+    ///
+    /// **Brackets rather than quotation marks**, which is not decoration: the two halves need separating or the ASCII
+    /// runs straight on from the hex, and every debug message is plain text now -- no apostrophes, no quotation marks
+    /// -- because they are read back out with SQL `LIKE` patterns and both need escaping on the way (see `CLAUDE.md`).
+    /// Brackets need escaping nowhere and the app already writes `(category_id 4)` in the same breath.
     static func describe(_ data: Data) -> String {
         let hex = data.map { String(format: "%02X", $0) }.joined(separator: " ")
         guard let text = printable(data) else { return hex }
-        return "\(hex) \"\(text)\""
+        return "\(hex) (\(text))"
     }
 
     /// The bytes as text, when every one of them is printable ASCII. All of them, not most: a frame that is half

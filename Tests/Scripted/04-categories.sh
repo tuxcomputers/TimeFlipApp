@@ -98,7 +98,7 @@ set_field category-name-field "$NAME"
 press save-category
 sleep 1
 
-expect_log "a typed name is saved as a new category" "$since" "%Save new category \"$NAME\"%"
+expect_log "a typed name is saved as a new category" "$since" "%Save new category $NAME%"
 
 # The id it was given, from the app's own line, so everything below addresses the row that was just made
 # rather than guessing which one it is.
@@ -128,13 +128,13 @@ set_field_focused "category-name-$ID-field" "$RENAMED"
 press_return
 sleep 1
 
-expect_log "committing a new name asks first" "$since" "%rename -> \"$RENAMED\", asking%"
+expect_log "committing a new name asks first" "$since" "%rename -> $RENAMED, asking%"
 check "nothing is renamed until the question is answered" "$NAME" "$(sql "SELECT category_name FROM category WHERE category_id = $ID;")"
 
 since=$(mark)
 press_title Rename
 sleep 1
-expect_log "answering Rename does it" "$since" "%Rename \"$NAME\" -> \"$RENAMED\"%"
+expect_log "answering Rename does it" "$since" "%Rename $NAME -> $RENAMED%"
 check "the table holds the new name" "$RENAMED" "$(sql "SELECT category_name FROM category WHERE category_id = $ID;")"
 
 # The id is what history hangs off, and a rename that made a new row would strand every entry recorded
@@ -146,7 +146,7 @@ check "and it is the same row, not a new one" "1" "$(sql "SELECT COUNT(*) FROM c
 since=$(mark)
 press "category-active-$ID"
 sleep 1
-expect_log "unticking Active retires it" "$since" "%\"$RENAMED\" retired%"
+expect_log "unticking Active retires it" "$since" "%$RENAMED retired%"
 check "the table says inactive" "0" "$(sql "SELECT active FROM category WHERE category_id = $ID;")"
 
 # It leaves the active list rather than sitting in it greyed out, and appears under Inactive.
@@ -244,7 +244,7 @@ check "one deactivated category holds the name ($REACTIVATE)" "1 rows, 0 active"
 
 since=$(mark)
 ask_about "$REACTIVATE"
-expect_log "typing it again asks instead of inserting" "$since" "%Save new category \"$REACTIVATE\" -> asking, 1 retired%"
+expect_log "typing it again asks instead of inserting" "$since" "%Save new category $REACTIVATE -> asking, 1 retired%"
 check "and nothing is created while the question is open" "1 rows, 0 active" "$(tally "$REACTIVATE")"
 
 # The order is the order they are drawn, and on this platform the first is the default and sits
@@ -256,7 +256,7 @@ check "the alert offers three buttons" "Reactivate|Create new one|Cancel" "$(ale
 since=$(mark)
 press_title Reactivate
 sleep 1
-expect_log "Reactivate brings that one back" "$since" "%Reactivate \"$REACTIVATE\" -> category_id $reactivate_id%"
+expect_log "Reactivate brings that one back" "$since" "%Reactivate $REACTIVATE -> category_id $reactivate_id%"
 check "the same row is active again" "1" "$(sql "SELECT active FROM category WHERE category_id = $reactivate_id;")"
 
 # **The whole point of this answer.** A new row under the same name would leave every time entry filed
@@ -273,7 +273,7 @@ since=$(mark)
 ask_about "$CREATE_NEW"
 press_title "Create new one"
 sleep 1
-expect_log "Create new one inserts alongside it" "$since" "%Create new one \"$CREATE_NEW\" -> category_id%leaving category_id $create_new_id retired%"
+expect_log "Create new one inserts alongside it" "$since" "%Create new one $CREATE_NEW -> category_id%leaving category_id $create_new_id retired%"
 
 # Two rows sharing a name, one active. Legal because `UN1_category` bars duplicates only among active
 # categories, and it is the shape the second half of this section needs.
@@ -289,7 +289,7 @@ since=$(mark)
 ask_about "$CANCELLED"
 press_title Cancel
 sleep 1
-expect_log "Cancel creates nothing" "$since" "%Cancel, \"$CANCELLED\" not created%"
+expect_log "Cancel creates nothing" "$since" "%Cancel, $CANCELLED not created%"
 check "the name is still held by one retired row" "1 rows, 0 active" "$(tally "$CANCELLED")"
 
 # A modal sheet nobody dismissed makes every press below land on nothing, and the failures then arrive
@@ -308,7 +308,7 @@ check "retiring the newer one leaves two deactivated under the name" "2 rows, 0 
 
 since=$(mark)
 ask_about "$CREATE_NEW"
-expect_log "the alert says how many there are" "$since" "%Save new category \"$CREATE_NEW\" -> asking, 2 retired%"
+expect_log "the alert says how many there are" "$since" "%Save new category $CREATE_NEW -> asking, 2 retired%"
 
 # **The absent button is the assertion.** Offering Reactivate here would mean the app picking one of two
 # identically named rows on the user's behalf, which is the thing it cannot know. Creating is still
@@ -320,7 +320,7 @@ check "the alert offers two buttons, and no Reactivate" "Create new one|Cancel" 
 since=$(mark)
 press_title Cancel
 sleep 1
-expect_log "Cancel still creates nothing" "$since" "%Cancel, \"$CREATE_NEW\" not created%"
+expect_log "Cancel still creates nothing" "$since" "%Cancel, $CREATE_NEW not created%"
 check "both retired rows are untouched" "2 rows, 0 active" "$(tally "$CREATE_NEW")"
 
 # ---- Create new one
@@ -329,7 +329,7 @@ since=$(mark)
 ask_about "$CREATE_NEW"
 press_title "Create new one"
 sleep 1
-expect_log "Create new one still inserts" "$since" "%Create new one \"$CREATE_NEW\" -> category_id%"
+expect_log "Create new one still inserts" "$since" "%Create new one $CREATE_NEW -> category_id%"
 check "a third row under the name, and only it is active" "3 rows, 1 active" "$(tally "$CREATE_NEW")"
 check "the two retired ones are still retired" "2" "$(sql "SELECT COUNT(*) FROM category WHERE category_name = '$CREATE_NEW' AND active = 0;")"
 check "and the alert is gone" "no" "$(alert_is_open && echo yes || echo no)"
@@ -341,7 +341,7 @@ check "and the alert is gone" "no" "$(alert_is_open && echo yes || echo no)"
 
 since=$(mark)
 ask_about "$RENAMED"
-expect_log "a name an active category holds is refused outright" "$since" "%Save new category \"$RENAMED\" -> already active as category_id $ID%"
+expect_log "a name an active category holds is refused outright" "$since" "%Save new category $RENAMED -> already active as category_id $ID%"
 check "the alert offers one button, which only dismisses" "Ok" "$(alert_buttons)"
 press_title Ok
 sleep 0.8
@@ -368,7 +368,7 @@ since=$(mark)
 press "retired-category-active-$blocked"
 sleep 1
 expect_log "reinstating onto an active name is refused, naming what is in the way" "$since" \
-    "%\"$CREATE_NEW\" reinstate REFUSED: category_id $holder is active under that name%"
+    "%$CREATE_NEW reinstate REFUSED: category_id $holder is active under that name%"
 check "the row is still retired" "0" "$(sql "SELECT active FROM category WHERE category_id = $blocked;")"
 check_contains "and the alert says which name" "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "already in use"
 press_title OK
@@ -414,7 +414,7 @@ set_field_focused "retired-category-name-$blocked-field" "$DISTINCT"
 press_return
 sleep 1
 expect_log "a retired name commits and asks first, as any other rename does" "$since" \
-    "%rename -> \"$DISTINCT\", asking%"
+    "%rename -> $DISTINCT, asking%"
 press_title Rename
 sleep 1
 check "the retired row takes the new name" "$DISTINCT" \
@@ -484,7 +484,7 @@ since=$(mark)
 press "retired-category-active-$blocked"
 sleep 1
 expect_log "reinstating it is now refused, as the alert warned" "$since" \
-    "%\"$CREATE_NEW\" reinstate REFUSED: category_id $holder is active under that name%"
+    "%$CREATE_NEW reinstate REFUSED: category_id $holder is active under that name%"
 press_title OK
 sleep 0.5
 check "so it is still retired" "0" "$(sql "SELECT active FROM category WHERE category_id = $blocked;")"
@@ -714,7 +714,7 @@ begin_rename "$reactivate_id"
 set_field_focused "category-name-$reactivate_id-field" "$CAPITALISED"
 press_return
 sleep 1
-expect_log "changing only the capitalisation is offered, not refused" "$since" "%rename -> \"$CAPITALISED\", asking%"
+expect_log "changing only the capitalisation is offered, not refused" "$since" "%rename -> $CAPITALISED, asking%"
 press_title Rename
 sleep 1
 check "and it lands" "$CAPITALISED" "$(sql "SELECT category_name FROM category WHERE category_id = $reactivate_id;")"

@@ -1224,7 +1224,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let stored = categories.setIcon(id: category.id, iconID: iconID)
         debugLog?.record(
             .click,
-            "Category \"\(category.name)\" icon -> icon_id \(iconID)\(stored ? "" : " REFUSED")"
+            "Category \(category.name) icon -> icon_id \(iconID)\(stored ? "" : " REFUSED")"
         )
         // Read back, which is what redraws the row's icon: this changes what a row says about itself rather than a
         // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
@@ -1255,7 +1255,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let stored = categories.setColour(id: category.id, colourID: colourID)
         debugLog?.record(
             .click,
-            "Category \"\(category.name)\" colour -> colour_id \(colourID)\(stored ? "" : " REFUSED")"
+            "Category \(category.name) colour -> colour_id \(colourID)\(stored ? "" : " REFUSED")"
         )
         // Read back, which is what redraws the row's swatch: this changes what a row says about itself rather than a
         // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
@@ -1292,7 +1292,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let name = renamedName(from: decision)
         debugLog?.record(
             .field,
-            "Category \"\(category.name)\" rename -> \"\(CategoryCreateRules.normalise(typed))\", asking: \(title)"
+            "Category \(category.name) rename -> \(CategoryCreateRules.normalise(typed)), asking: \(title)"
         )
 
         let alert = NSAlert()
@@ -1353,7 +1353,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let stored = categories.setName(id: category.id, name: name)
         debugLog?.record(
             .click,
-            "Button clicked: \(choice?.buttonTitle ?? "") \"\(category.name)\" -> \"\(name)\""
+            "Button clicked: \(choice?.buttonTitle ?? "") \(category.name) -> \(name)"
                 + "\(stored ? "" : " REFUSED by the index")"
         )
         // Read back either way. A rename re-sorts the list, and a refused one leaves a row showing a name the table
@@ -1374,7 +1374,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let stored = categories.setDailyLimit(id: category.id, minutes: allowed)
         debugLog?.record(
             .field,
-            "Category \"\(category.name)\" daily limit -> \(allowed)min\(stored ? "" : " REFUSED")"
+            "Category \(category.name) daily limit -> \(allowed)min\(stored ? "" : " REFUSED")"
         )
         guard stored else {
             reloadSelectedPane()
@@ -1406,7 +1406,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let cleared = (faces?.facesHolding(categoryID: category.id) ?? []).filter { faces?.clear(face: $0.face) == true }
         debugLog?.record(
             .click,
-            "Category \"\(category.name)\" retired, cleared from face(s) \(cleared.map(\.face))"
+            "Category \(category.name) retired, cleared from face(s) \(cleared.map(\.face))"
         )
         // The list is read again because retiring changes which rows belong in it, not merely what one of them says.
         reloadSelectedPane()
@@ -1435,7 +1435,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case let .refuse(namesake):
             debugLog?.record(
                 .click,
-                "Category \"\(category.name)\" reinstate REFUSED: category_id \(namesake.id) is active under that name"
+                "Category \(category.name) reinstate REFUSED: category_id \(namesake.id) is active under that name"
             )
             // Redrawn before the alert, so the box the click ticked goes back to unticked: it claimed something the
             // table never agreed to.
@@ -1446,7 +1446,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             let stored = categories.setActive(id: category.id, true)
             debugLog?.record(
                 .click,
-                "Category \"\(category.name)\" reinstated\(stored ? "" : " REFUSED by the index")"
+                "Category \(category.name) reinstated\(stored ? "" : " REFUSED by the index")"
             )
             // Read again either way: reinstating changes which list the row belongs in, and a refusal has to put the
             // box back.
@@ -1574,13 +1574,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case let .faceIsLocked(face):
             debugLog?.record(
                 .mode,
-                "Face \(face) is locked, so it keeps what it has rather than taking \"\(category.name)\""
+                "Face \(face) is locked, so it keeps what it has rather than taking \(category.name)"
             )
             return
         case .waitingForTheDevice:
             debugLog?.record(
                 .mode,
-                "Timing: \"\(category.name)\" was not started -- a device is paired, and manual mode has not been chosen"
+                "Timing: \(category.name) was not started -- a device is paired, and manual mode has not been chosen"
             )
             return
         case .startTiming:
@@ -1692,7 +1692,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         guard ManualTimerRules.isClickable(before.state, isLimitReached: isLimitReached()) else {
             debugLog?.record(
                 .limit,
-                "Resume refused, \"\(before.category?.name ?? "nothing")\" has spent its daily limit"
+                "Resume refused, \(before.category?.name ?? "nothing") has spent its daily limit"
             )
             return
         }
@@ -1713,7 +1713,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         debugLog?.record(
             .mode,
             "Timing: \(after.state == .running ? "running" : "stopped") "
-                + "\"\(after.category?.name ?? "nothing")\", \(Int(after.seconds))s today"
+                + "\(after.category?.name ?? "nothing"), \(Int(after.seconds))s today"
         )
         draw(after)
         redrawTotals()
@@ -2113,7 +2113,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         report.totalsList.onToggle = { [weak self] total, isExpanded in
             self?.debugLog?.record(
                 .report,
-                "Report category \"\(total.name)\" \(isExpanded ? "opened" : "closed")"
+                "Report category \(total.name) \(isExpanded ? "opened" : "closed")"
             )
         }
         report.totalsList.onSort = { [weak self] order in
@@ -2247,7 +2247,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             let created = categories.insert(name: name)
             debugLog?.record(
                 .click,
-                "Button clicked: Save new category \"\(name)\" -> \(created.map { "category_id \($0)" } ?? "refused")"
+                "Button clicked: Save new category \(name) -> \(created.map { "category_id \($0)" } ?? "refused")"
             )
             control.collapse()
             // Re-read rather than adding the new row to the list by hand: the database is what the list
@@ -2258,7 +2258,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case let .retiredNamesakes(existing):
             debugLog?.record(
                 .click,
-                "Button clicked: Save new category \"\(existing[0].name)\" -> asking, \(existing.count) retired "
+                "Button clicked: Save new category \(existing[0].name) -> asking, \(existing.count) retired "
                     + "under that name: \(existing.map(\.id))"
             )
             control.collapse()
@@ -2267,7 +2267,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         case let .alreadyActive(existing):
             debugLog?.record(
                 .click,
-                "Button clicked: Save new category \"\(existing.name)\" -> already active as category_id \(existing.id)"
+                "Button clicked: Save new category \(existing.name) -> already active as category_id \(existing.id)"
             )
             control.collapse()
             showAlreadyActive(existing)
@@ -2328,7 +2328,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             let succeeded = categories.setActive(id: existing.id, true)
             debugLog?.record(
                 .click,
-                "Button clicked: Reactivate \"\(existing.name)\" -> category_id \(existing.id)"
+                "Button clicked: Reactivate \(existing.name) -> category_id \(existing.id)"
                     + "\(succeeded ? "" : " REFUSED")"
             )
             if succeeded { started = existing.id }
@@ -2337,7 +2337,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             let created = categories.insert(name: name)
             debugLog?.record(
                 .click,
-                "Button clicked: Create new one \"\(name)\" -> \(created.map { "category_id \($0)" } ?? "refused")"
+                "Button clicked: Create new one \(name) -> \(created.map { "category_id \($0)" } ?? "refused")"
                     + ", leaving category_id \(existing.id) retired"
             )
             started = created
