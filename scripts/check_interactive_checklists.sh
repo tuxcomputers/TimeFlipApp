@@ -127,8 +127,12 @@ check_the_suite_was_run() {
   # **Every check has to have run, not merely not failed.**
   #
   # A skip is a check saying it could not answer -- no cube on the desk, no Google account connected, a prompt
-  # nobody was there to answer -- and the count is the only place that shows. The run still reports `passed`, the
-  # totals still add up, and a branch merges on the strength of coverage that was never taken.
+  # nobody was there to answer -- and until 2026-08-22 the count was the only place that showed. The run reported
+  # `passed`, the totals added up, and a branch could merge on the strength of coverage that was never taken.
+  #
+  # `run.sh` now writes `incomplete` for such a run, so the outcome check above catches it too and the reader of the
+  # stamp is told before the reader of this file is. Both checks stay: they are answering different questions, and a
+  # stamp is a file somebody can edit.
   #
   # It is a real answer while somebody is watching a run, which is why the scripts still have it. What it is not is
   # evidence, and that is the one thing this file is for.

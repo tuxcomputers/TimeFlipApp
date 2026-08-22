@@ -256,6 +256,16 @@ testlog_run_start() {
     tlog "SELECT MAX(run_id) FROM run;"
 }
 
+# How many checks this run skipped, for the outcome `run.sh` writes. Answers 0 when there is no run to ask about, so
+# a caller can compare it without guarding first.
+testlog_skipped_total() {
+    local run="${1:-}"
+    [ -z "$run" ] && { echo 0; return 0; }
+    local total
+    total=$(tlog "SELECT IFNULL(SUM(skipped), 0) FROM script WHERE run_id = $run;")
+    echo "${total:-0}"
+}
+
 testlog_run_finish() {
     local run="${1:-}" outcome="${2:-}" ran="${3:-0}"
     [ -z "$run" ] && return 0

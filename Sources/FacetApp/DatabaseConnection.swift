@@ -39,6 +39,23 @@ final class DatabaseConnection {
         // icon or colour that does not exist should fail here rather than sit in the table pointing at
         // nothing.
         sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nil, nil, nil)
+        // **Wait for the file rather than dropping the write**, which this connection did not do until 2026-08-22 and
+        // `DebugLog` always has. Per connection like the pragma above, so setting it on one handle sets it on one
+        // handle: the debug log had its two seconds of patience while every pairing, setting, segment and time entry
+        // in the app had none, which is precisely backwards -- a dropped log row costs a line of a trace, a dropped
+        // pairing costs the next launch its cube.
+        //
+        // **It is not a hypothetical race.** The database is `journal_mode=delete`, so a reader locks the file against
+        // writers outright, and this app is read from outside constantly: the scripted suite polls `debug_log` every
+        // 100ms for the whole of a run. On 2026-08-22 that collided with `DevicePairingRecorder.recordPairing`, one of
+        // its six writes came back `SQLITE_BUSY`, and the app logged "PAIRING NOT FULLY RECORDED" against a cube it
+        // was at that moment connected to and logged in on. `18-device-face` then waited its full minute for a
+        // `Paired with` row that was never going to be written.
+        //
+        // Five seconds rather than the log's two, because what is being protected is worth more and the wait costs
+        // nothing when there is no contention. `Tests/Scripted/lib.sh` settled on ten from the reader's side, calling
+        // it "far longer than any burst the app produces"; this is the same judgement made from the writer's.
+        sqlite3_busy_timeout(db, 5_000)
     }
 
     /// One row of a result set. Valid only for the duration of the call it is handed to.

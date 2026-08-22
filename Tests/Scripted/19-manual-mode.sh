@@ -96,10 +96,10 @@ select_tab Device
 
 link=$(mark)
 if ! pair_a_cube; then
-    skip "no cube could be paired, so there is nothing to lose ($PAIR_REASON)"
+    pair_verdict "there is nothing to lose"
     close_settings
     finish
-    exit 0
+    exit $?
 fi
 pass "paired a cube to lose"
 check "and the app can reach it" "1" "$(setting connection connected)"

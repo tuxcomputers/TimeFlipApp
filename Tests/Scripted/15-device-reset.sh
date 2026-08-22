@@ -33,9 +33,9 @@ start "resetting a TimeFlip to factory settings"
 # the wipe is given there or not at all, and a no there skips this script rather than reaching a prompt of its
 # own. See `device_required` in `lib.sh` for the wording that carries it.
 if ! device_required; then
-    skip "the cube was not offered up, so nothing is reset"
+    pair_verdict "nothing is reset"
     finish
-    exit 0
+    exit $?
 fi
 
 open_settings

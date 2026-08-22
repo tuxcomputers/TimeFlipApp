@@ -44,10 +44,10 @@ select_tab Device
 # happens to a pairing across a quit, and with no pairing there is no claim to test either way.
 
 if ! pair_a_cube; then
-    skip "no cube could be paired, so there is nothing to come back to ($PAIR_REASON)"
+    pair_verdict "there is nothing to come back to"
     close_settings
     finish
-    exit 0
+    exit $?
 fi
 pass "paired a cube to come back to"
 

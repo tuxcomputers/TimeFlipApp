@@ -42,30 +42,43 @@ struct DevicePairingRecorder {
     /// Records a confirmed pairing and marks the connection up. Answers whether every row took it.
     @discardableResult
     func recordPairing(with device: ScannedDevice, at moment: Date = Date()) -> Bool {
-        var wrote = settings.write("paired", field: "paired", true)
-        wrote = settings.write("device_uuid", field: "uuid", device.id.uuidString) && wrote
+        // **Which write was refused is collected, not just whether one was.** "the table refused a write" names the
+        // problem and nothing else, and on 2026-08-22 that cost half an hour of reading a log backwards to find out
+        // that a busy database had dropped one of these six. A refusal is rare enough that the failure message is the
+        // only evidence anybody will have of it, so it has to say which row did not take.
+        var refused: [String] = []
+        func put(_ name: String, _ field: String, _ value: Bool) {
+            if !settings.write(name, field: field, value) { refused.append("\(name).\(field)") }
+        }
+        func put(_ name: String, _ field: String, _ value: String) {
+            if !settings.write(name, field: field, value) { refused.append("\(name).\(field)") }
+        }
+
+        put("paired", "paired", true)
+        put("device_uuid", "uuid", device.id.uuidString)
 
         if let name = DevicePairingRules.gapName(of: device) {
             // Before the name itself, because the rule reads what the row currently holds.
             if let previous = DevicePairingRules.previousName(
                 replacing: settings.string("device_name", field: "name"), with: name
             ) {
-                wrote = settings.write("device_name", field: "previous_name", previous) && wrote
+                put("device_name", "previous_name", previous)
                 debugLog?.record(.pair, "The cube was called \"\(previous)\", which the scan filter keeps")
             }
-            wrote = settings.write("device_name", field: "name", name) && wrote
+            put("device_name", "name", name)
         }
 
-        wrote = settings.write("connection", field: "connected", true) && wrote
-        wrote = settings.write("connection", field: "last_connection", Self.stamp(moment)) && wrote
+        put("connection", "connected", true)
+        put("connection", "last_connection", Self.stamp(moment))
 
         debugLog?.record(
             .pair,
-            wrote
+            refused.isEmpty
                 ? "Paired with \(DeviceScanRules.label(for: device)) (\(device.id.uuidString))"
-                : "PAIRING NOT FULLY RECORDED for \(device.id.uuidString) -- the table refused a write"
+                : "PAIRING NOT FULLY RECORDED for \(device.id.uuidString) -- "
+                    + "the table refused \(refused.joined(separator: ", "))"
         )
-        return wrote
+        return refused.isEmpty
     }
 
     /// Records that the app has got back to the cube it was already paired to. Answers whether both rows took it.

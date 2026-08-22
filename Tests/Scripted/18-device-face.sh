@@ -53,10 +53,10 @@ select_tab Device
 
 link=$(mark)
 if ! pair_a_cube; then
-    skip "no cube could be paired, so there is no face to read ($PAIR_REASON)"
+    pair_verdict "there is no face to read"
     close_settings
     finish
-    exit 0
+    exit $?
 fi
 pass "paired a cube to turn"
 

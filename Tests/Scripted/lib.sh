@@ -303,6 +303,7 @@ device_required() {
 #   1  everything else: nothing answered the scan, no row to press, or the PIN was refused
 pair_a_cube() {
     PAIR_REASON=""
+    PAIR_STATUS=0
 
     # **The Scan button has to be on screen, and this is checked rather than assumed.** `press` swallows everything --
     # its output, its exit code, and the case where the element is not in the tree at all -- so pressing a button that
@@ -312,6 +313,7 @@ pair_a_cube() {
     # permission prompt that was not there.
     if [ -z "$(element device-scan)" ] && [ -z "$(element device-forget)" ]; then
         PAIR_REASON="neither Scan nor Forget is on screen -- open the Settings window on the Device tab first"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -329,8 +331,9 @@ pair_a_cube() {
     grey "  waiting for the radio to come up..."
     if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
         PAIR_REASON=$(sql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
-        [ -n "$PAIR_REASON" ] && return 2
+        [ -n "$PAIR_REASON" ] && { PAIR_STATUS=2; return 2; }
         PAIR_REASON="the radio never answered in 60s -- is the macOS Bluetooth permission prompt waiting?"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -340,6 +343,7 @@ pair_a_cube() {
         # the timeout exists to prevent, and this path is reached before it fires.
         press device-scan
         PAIR_REASON="the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -347,6 +351,7 @@ pair_a_cube() {
     if [ -z "$row" ]; then
         press device-scan
         PAIR_REASON="the app logged a device but drew no row to press"
+        PAIR_STATUS=1
         return 1
     fi
 
@@ -355,9 +360,28 @@ pair_a_cube() {
     grey "  pairing..."
     if ! wait_for "$since" "Paired with %" 60 >/dev/null; then
         PAIR_REASON="the cube was found but would not pair -- it may be on a PIN this app cannot present"
+        PAIR_STATUS=1
         return 1
     fi
     return 0
+}
+
+# Records what a failed `pair_a_cube` means, so the eight scripts that pair do not each decide it.
+#
+# **A cube that was promised and then would not pair is a failure, not a skip**, and that distinction is the whole of
+# this. `device_required` has already confirmed a TimeFlip is here for this run, so from that point on "no cube could
+# be paired" is the app failing to do the thing the script exists to check -- not the environment being unable to
+# answer. Reported as a skip it read as green: on 2026-08-22 `18-device-face` tested nothing at all because a busy
+# database dropped one write of `recordPairing`, and the run finished `outcome: passed`.
+#
+# Status 2 stays a skip, and that is the case worth keeping: the radio itself is off or refused, which says nothing
+# about this app and is exactly the state an outside contributor without a device is in. See `CONTRIBUTING.md`.
+pair_verdict() {
+    if [ "${PAIR_STATUS:-1}" = "2" ]; then
+        skip "no cube could be paired, so $1 ($PAIR_REASON)"
+    else
+        fail "a cube was confirmed for this run and then would not pair, so $1 ($PAIR_REASON)"
+    fi
 }
 
 start() {
