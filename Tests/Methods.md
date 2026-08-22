@@ -320,6 +320,12 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 
 ## Notes that have cost time
 
+- **A locked cube and a paused cube strand a flip in different places.** Locked, it refuses to change face at all, so
+  a step waiting on `Face N is up` waits for ever. Paused, it still reports the turn -- the prompt is satisfied and the
+  face check passes -- but it files no history for the interval, so anything waiting on `device_event` fails twenty
+  seconds later, on a line about ingestion. Put the cube into both states deliberately before asking a person to turn
+  it: unlocked *and* running.
+
 - **A log row saying a question went out is not the answer being in.** The two are separate rows and the gap is real
   work: on 2026-08-22 `0x10` was written at 11:30:34.074 and `The cube is locked and paused` landed at 11:30:34.192,
   118ms later. `18-device-face` waited for the ask and then read the answer, found nothing, took a locked cube for an
