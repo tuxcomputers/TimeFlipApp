@@ -13,13 +13,15 @@ for arg in "$@"; do
             rm -rf .build
             ;;
         --clean)
-            printf "This will delete the local database -- the appdata.sqlite symlink and both\n"
-            printf "production.sqlite and test.sqlite (%s). Continue? [y/N] " "$DB_DIR"
+            printf "This will delete the local databases -- the appdata.sqlite symlink,\n"
+            printf "production.sqlite, test.sqlite and the debug.sqlite trace (%s). Continue? [y/N] " "$DB_DIR"
             read -r confirm < /dev/tty
             case "$confirm" in
                 [yY]|[yY][eE][sS])
                     echo "Deleting local database..."
-                    for db in appdata production test; do
+                    # `debug` among them since 2026-08-22: the trace is its own file now, and a "clean" that
+                    # left it behind would carry every row from before the wipe into whatever came next.
+                    for db in appdata production test debug; do
                         rm -f "$DB_DIR/$db.sqlite" "$DB_DIR/$db.sqlite-wal" "$DB_DIR/$db.sqlite-shm"
                     done
                     ;;
