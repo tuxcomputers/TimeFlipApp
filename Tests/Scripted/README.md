@@ -242,6 +242,26 @@ None of it is enforced on a push to main, where the stamp goes on naming the fea
 **So: run the suite, then commit the stamp along with your change.** If you did not run it, CI will say so
 rather than let a green build imply otherwise.
 
+**Commit the stamp before running the suite again**, which is the part that is easy to miss and cost a real
+afternoon on 2026-08-22. `run.sh` writes the file at the *end* of a run, so from that moment the tree has an
+uncommitted change in it: the stamp itself. Start another run without committing and it dutifully records
+`tree: dirty`, and CI then refuses the whole thing as not being evidence about the commit it names -- even
+though the run passed and the only uncommitted file was the previous run's own stamp. It does not settle by
+itself either. Every subsequent run sees the same uncommitted file and reports dirty again, so the way out
+is to commit it, not to run once more.
+
+If you find yourself there with a passing run already recorded, the stamp can be rewritten from any run in
+`logs/testlog.sqlite` rather than by hand or by spending another twenty minutes with the cube:
+
+```sh
+sqlite3 logs/testlog.sqlite "SELECT run_id, started_at, dirty, outcome FROM run ORDER BY run_id DESC LIMIT 5;"
+bash -c 'source Tests/Scripted/testlog.sh; testlog_stamp <run_id>'
+```
+
+It is generated from what the database recorded, so it stays a true account of a run that happened -- which
+is the whole reason the file says not to edit it by hand. Check the run you pick was `dirty` 0, `outcome`
+passed, and unfiltered.
+
 **A contributor with no TimeFlip cannot clear this, and is not meant to.** The suite needs a cube in range
 and a person to turn it, so a fork's pull request lands here red however good the change is -- which is the
 honest state of it: the change has not been tried against hardware. What clears it is somebody who *has* a
