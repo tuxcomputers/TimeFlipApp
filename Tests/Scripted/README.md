@@ -170,6 +170,7 @@ correctly, so it passes and the line says which case it met.
 | `10-google-calendar` | the account, and recorded time reaching the calendar `03` made |
 | `11-google-reconnect` | disconnect keeps the calendar, and signing back in still reaches it (**asks you to sign in**) |
 | `12-daily-limit` | a category spending its `daily_limit` stops the clock, and every way of starting it again refuses |
+| `13-device-tab` | the Device tab's two sections folding, including a fold inside a fold, with no cube |
 | `50-device-scan` | the radio comes up, the scan lists what answers it, and stops on its own |
 | `51-device-connect` | pairing, the PIN the cube is on, and what the Device tab says afterwards |
 | `52-device-reset` | the factory reset, and the cube coming back on the vendor PIN |

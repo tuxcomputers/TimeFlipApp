@@ -45,7 +45,7 @@ final class CategoryTable: NSView {
         /// Between the columns of a row, and between the rows.
         static let columnSpacing: CGFloat = 12
         static let rowSpacing: CGFloat = 8
-        /// Inside the panel, around the heading and the list on it. Applied by [CategorySection], which owns the
+        /// Inside the panel, around the heading and the list on it. Applied by [PanelSection], which owns the
         /// panel, and named here because both lists on this tab take their measurements from this one place.
         static let padding: CGFloat = 8
         static let cornerRadius: CGFloat = 8
@@ -127,7 +127,7 @@ final class CategoryTable: NSView {
         shownCategories = categories
     }
 
-    /// **The tint is the section's, not this list's** ([CategorySection]). The heading sits on the same panel as the
+    /// **The tint is the section's, not this list's** ([PanelSection]). The heading sits on the same panel as the
     /// rows -- which is what the archive's grouped form did -- and a list drawing its own tinted box inside that one
     /// would stack two translucent fills, leaving the rows visibly darker than the heading above them.
     ///

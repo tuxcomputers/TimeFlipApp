@@ -139,6 +139,17 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 
   Starting at that number rather than past it is deliberate: the newest row is normally the device's still-open segment, and asking for it again is how its finished duration comes back. All but the last returned frame are then written as closed, the last as the new open segment.
 
+  **One fetch at a time, and a request that arrives during one is run afterwards rather than dropped.** Two fetches at
+  once would be two conversations on one characteristic with nothing in the answers to say which is which. A request
+  arriving mid-fetch used to be dropped outright, on the reasoning that the next timer tick was only seconds away, and
+  that turned out to be wrong for six of the seven callers: only the timer can afford to wait, while the others ask
+  *because* something has just changed -- the cube was turned, locked, unlocked, paused, reset, or a link came up. The
+  tick they would have waited for is up to `fetch_history_interval_seconds` away, during which the menu bar and the
+  Faces tab go on drawing their play/pause glyph from a `device_event` row saying the opposite of what the app has just
+  done and confirmed. However many arrive during one fetch, they collapse into a single re-run. Measured on a device
+  run, 2026-08-22: the timer's fetch went out one row before a pause command, and the refresh that the confirmed pause
+  asked for was folded into a fetch that had already read the cube's answer.
+
   **The table is the position, and it is re-read every time.** There is no stored cursor and nothing held in memory between refreshes: a saved high-water mark cannot follow the device's counter back down through a factory reset, and a mirror of it is one more thing to keep in step. `HistoryIngestor` holds no event numbers at all.
 
   **The newest row, not the highest number.** Those are different questions and only the first is useful. Event numbers restart at 1 after a factory reset, so `MAX(event_number)` returns a stranded value from a counter generation the cube has abandoned: on the production database it returns 38, from a dead generation, while the newest segment is event 10.

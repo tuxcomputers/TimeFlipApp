@@ -84,7 +84,7 @@ final class RetiredCategoryTable: NSView {
     }
 
     /// The rows and nothing else: the tint and the padding around them belong to the section this sits in
-    /// ([CategorySection]), which draws one panel for the heading and the list together.
+    /// ([PanelSection]), which draws one panel for the heading and the list together.
     private func addRows() {
         translatesAutoresizingMaskIntoConstraints = false
         // An element, or the identifier is never asked for. The box used to carry it.

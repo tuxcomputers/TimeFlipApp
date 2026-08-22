@@ -63,6 +63,15 @@ final class BluetoothRadio: NSObject {
     /// its batteries out. Not called for a disconnect this app asked for.
     var onConnectionDropped: ((UUID) -> Void)?
 
+    /// Called whenever a link ends, **however it ended**: the cube going away, the window closing, another device
+    /// being chosen, a reset, a forget.
+    ///
+    /// **Not the same as `onConnectionDropped`**, which reports only the involuntary kind and is what the Device tab
+    /// listens to. This one fires for every ending, because whoever is holding something perishable needs to let go
+    /// of it whether the parting was the cube's decision or the app's. It is fired from `connectedDevice`'s `didSet`,
+    /// beside the charge, the face and the cube's status being let go of for exactly the same reason.
+    var onLinkEnded: ((UUID) -> Void)?
+
     /// Called with a cube's new PIN, once the cube has proved it took it by logging in with it again.
     ///
     /// **Whoever handles this is the only thing standing between the app and a cube it cannot open**, so it fires
@@ -264,6 +273,11 @@ final class BluetoothRadio: NSObject {
             // something on a device that is not there.
             cubeStatus = nil
             onCubeStatus?(gone, nil)
+            // And the same for a conversation half finished. A history fetch waits on closures this radio holds, so a
+            // link ending between the question and the answer leaves it in flight for ever -- and because only one
+            // fetch runs at a time, that is the app quietly ingesting no history again until it is relaunched.
+            // Measured on a device run, 2026-08-22.
+            onLinkEnded?(gone)
         }
     }
 

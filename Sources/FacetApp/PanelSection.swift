@@ -1,27 +1,36 @@
 import AppKit
 
-/// A titled section of the Categories tab: a disclosure triangle and a heading, with a list under it that folds
-/// away, all on one tinted panel.
+/// A section of a Settings tab that folds away on its own tinted panel: a disclosure triangle and a heading, with
+/// whatever the section holds under them.
 ///
-/// **The fold is the archive's, and it only means anything now there are two sections.** Active is the one somebody
-/// works in, so it starts open; Inactive is an archive to go looking in occasionally, so it starts closed. A single
-/// section had nothing to fold away *from*, which is why the triangles waited for this list rather than arriving
-/// with the first one.
+/// **This is `CLAUDE.md`'s first case for a collapsible group**, and `DisclosureRow` is the second. The difference is
+/// whether the group has a panel of its own to close. This one does, so its heading sits *on* that panel as the first
+/// row of it and folding shuts the panel around the heading; a `DisclosureRow` is a line of a list that already has a
+/// panel, so there is nothing of its own to close.
 ///
-/// **The heading is on the panel with its list, not above it**, which is what the archive drew: each section was a
-/// `Section` of a `.formStyle(.grouped)` form, and a grouped form's box holds the disclosure label as its first row
+/// **The heading is on the panel, not above it**, which is what the archive drew: each section was a `Section` of a
+/// `.formStyle(.grouped)` form, and a grouped form's box holds the disclosure label as its first row
 /// (`Archive/TimeFlipApp/CategoriesSettingsView.swift`). SwiftUI drew that box; here the box is this section's, which
-/// is also why the tint moved off `CategoryTable` -- a list inside a panel cannot draw the panel, or the two tints
-/// stack and the list reads darker than the heading over it.
+/// is also why the tint moved off `CategoryTable` -- content inside a panel cannot draw the panel, or the two tints
+/// stack and the content reads darker than the heading over it.
+///
+/// **Two tabs draw it, at two different rhythms, which is what `Metrics` is for.** The Categories tab's lists are
+/// inset from the panel by the same 8pt the heading is; the App tab's rows run the panel's full width and hold their
+/// own labels off the edge, so their content inset is nothing and their heading is inset by the tab's own 20. A
+/// section that hard-coded either would put one tab's spacing on the other, and the numbers are the tabs' to state.
 ///
 /// Named for accessibility on the section itself rather than on its label. The archive measured why: a disclosure
 /// group exposes only its triangle, which carries no name of its own, and labelling the group overwrote the label of
 /// every descendant -- nine static texts all reading "Inactive" instead of the category names and dates.
+///
+/// **What that label says is the caller's**, because the title alone is not always enough to hear. "Active" and
+/// "Inactive" mean nothing announced on their own, so the Categories tab says "Active categories"; "App settings" and
+/// "Google" already say what they are, and appending a noun to them would only pad what VoiceOver reads.
 @MainActor
-final class CategorySection: NSView {
+final class PanelSection: NSView {
     let title: String
 
-    /// Whether the list under the heading is on show.
+    /// Whether what sits under the heading is on show.
     private(set) var isExpanded: Bool
 
     /// What the section was built folded or open as, kept so opening Settings can put it back there
@@ -33,21 +42,40 @@ final class CategorySection: NSView {
     private let headingButton = NSButton()
     private let content: NSView
     /// The tint, behind all of it. Exposed so a test can measure what the window sees rather than inferring it from
-    /// the list inside.
+    /// the content inside.
     private(set) var panel = NSBox()
 
-    /// The two ways the section ends: under its list, or under its heading. Swapped rather than relying on the
-    /// hidden list to take no room -- Auto Layout does not care that a view is hidden, so **hiding the list alone
-    /// left its full height behind**: a folded section measured 150pt open and 150pt shut, which on a plain
-    /// background looked like a gap and on a tint would be an empty box.
+    /// The two ways the section ends: under its content, or under its heading. Swapped rather than relying on the
+    /// hidden content to take no room -- Auto Layout does not care that a view is hidden, so **hiding it alone left
+    /// its full height behind**: a folded section measured 150pt open and 150pt shut, which on a plain background
+    /// looked like a gap and on a tint would be an empty box.
     private var expandedConstraints: [NSLayoutConstraint] = []
     private var collapsedConstraint: NSLayoutConstraint!
 
-    init(title: String, identifier: String, isExpanded: Bool, content: NSView) {
+    /// The spacing this section draws at, handed in by the tab.
+    private let metrics: Metrics
+
+    /// What accessibility announces for the section and every control on its heading line.
+    private let label: String
+
+    /// - Parameters:
+    ///   - label: what accessibility announces for the section, its triangle and its heading line, when the title on
+    ///     its own would not be enough to hear. Defaults to the title, which is what a self-describing heading wants.
+    ///   - metrics: the spacing this tab draws sections at. Defaults to the Categories tab's.
+    init(
+        title: String,
+        identifier: String,
+        isExpanded: Bool,
+        content: NSView,
+        label: String? = nil,
+        metrics: Metrics = Metrics()
+    ) {
         self.title = title
         self.isExpanded = isExpanded
         self.defaultExpanded = isExpanded
         self.content = content
+        self.metrics = metrics
+        self.label = label ?? title
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         // Named and made an element, or it is absent from the tree entirely: an ordinary `NSView` is not an
@@ -55,7 +83,7 @@ final class CategorySection: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier(identifier)
-        setAccessibilityLabel("\(title) categories")
+        setAccessibilityLabel(self.label)
         addContent(identifier: identifier)
     }
 
@@ -64,13 +92,14 @@ final class CategorySection: NSView {
         fatalError("init(coder:) is not used")
     }
 
-    /// Shows or hides the list. Hidden rather than removed, so the list keeps what it is showing and the fold costs
-    /// no rebuild, with the section's own bottom moved up to the heading so the panel closes around it.
+    /// Shows or hides the content. Hidden rather than removed, so it keeps what it is showing and the fold costs no
+    /// rebuild, with the section's own bottom moved up to the heading so the panel closes around it.
     func setExpanded(_ expanded: Bool) {
         isExpanded = expanded
         toggle.state = expanded ? .on : .off
         content.isHidden = !expanded
         applyFold()
+        onExpandedChanged?(expanded)
     }
 
     /// Deactivates before activating, always: both sets pin the same bottom edge, so the moment they overlap is an
@@ -95,7 +124,7 @@ final class CategorySection: NSView {
         panel.boxType = .custom
         panel.fillColor = .quaternarySystemFill
         panel.borderWidth = 0
-        panel.cornerRadius = Layout.cornerRadius
+        panel.cornerRadius = metrics.cornerRadius
         panel.contentViewMargins = .zero
         panel.titlePosition = .noTitle
         panel.translatesAutoresizingMaskIntoConstraints = false
@@ -111,7 +140,7 @@ final class CategorySection: NSView {
         toggle.action = #selector(toggled)
         toggle.translatesAutoresizingMaskIntoConstraints = false
         toggle.setAccessibilityIdentifier("\(identifier)-toggle")
-        toggle.setAccessibilityLabel("\(title) categories")
+        toggle.setAccessibilityLabel(label)
 
         let heading = NSTextField(labelWithString: title)
         heading.font = .preferredFont(forTextStyle: .headline)
@@ -136,7 +165,7 @@ final class CategorySection: NSView {
         headingButton.action = #selector(headingClicked)
         headingButton.translatesAutoresizingMaskIntoConstraints = false
         headingButton.setAccessibilityIdentifier("\(identifier)-heading-button")
-        headingButton.setAccessibilityLabel("\(title) categories")
+        headingButton.setAccessibilityLabel(label)
 
         addSubview(panel)
         addSubview(headingButton)
@@ -149,29 +178,29 @@ final class CategorySection: NSView {
             panel.trailingAnchor.constraint(equalTo: trailingAnchor),
             panel.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            toggle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
+            toggle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: metrics.headingInset),
 
             heading.centerYAnchor.constraint(equalTo: toggle.centerYAnchor),
-            heading.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: Layout.titleSpacing),
-            heading.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.padding),
-            heading.topAnchor.constraint(equalTo: topAnchor, constant: Layout.padding),
+            heading.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: metrics.titleSpacing),
+            heading.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -metrics.headingInset),
+            heading.topAnchor.constraint(equalTo: topAnchor, constant: metrics.headingInset),
 
             // Spanning the row: the words, the triangle, and the space after them -- and out to the panel's own
             // edges rather than stopping at the padding, so the corner of the tinted row folds it too.
             headingButton.topAnchor.constraint(equalTo: topAnchor),
             headingButton.leadingAnchor.constraint(equalTo: leadingAnchor),
             headingButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            headingButton.bottomAnchor.constraint(equalTo: heading.bottomAnchor, constant: Layout.padding),
+            headingButton.bottomAnchor.constraint(equalTo: heading.bottomAnchor, constant: metrics.headingInset),
 
             // The list is inset by the panel's padding; the heading line is not, being the thing that presses. Its
             // top stays pinned either way -- only where the *section* ends changes, so a folded list has a position
             // rather than an ambiguous one.
-            content.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: Layout.headingSpacing),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
+            content.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: metrics.headingSpacing),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: metrics.contentInset),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -metrics.contentInset),
         ])
 
-        expandedConstraints = [content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.padding)]
+        expandedConstraints = [content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -metrics.contentInset)]
         // Shut, the panel ends where the heading line does: the list is still there, hidden, and pinned by nothing
         // that reaches the bottom.
         collapsedConstraint = headingButton.bottomAnchor.constraint(equalTo: bottomAnchor)
@@ -186,14 +215,23 @@ final class CategorySection: NSView {
         onToggle?(isExpanded)
     }
 
-    private enum Layout {
-        /// Between the triangle and the word beside it, and between the heading and the list under it.
-        static let titleSpacing: CGFloat = 4
-        static let headingSpacing: CGFloat = 12
-        /// Inside the panel, around the heading and around the list. The list's own former inset, taken over whole:
-        /// the tint moved out here and the spacing it produced has not.
-        static let padding = CategoryTable.Layout.padding
-        static let cornerRadius = CategoryTable.Layout.cornerRadius
+    /// The spacing a tab draws its sections at.
+    ///
+    /// **Defaulted to the Categories tab's numbers**, which are `CategoryTable`'s: that tab is where this shape was
+    /// built and its lists are inset from the panel by the same amount the heading is. The App tab overrides two of
+    /// them, because its rows run the panel's full width so that a separator's ends land where the archive's do, and
+    /// hold their own labels off the edge with an inset of their own.
+    struct Metrics {
+        /// Between the triangle and the word beside it.
+        var titleSpacing: CGFloat = 4
+        /// Between the heading line and what folds away under it.
+        var headingSpacing: CGFloat = 12
+        /// Inside the panel, around the heading line.
+        var headingInset = CategoryTable.Layout.padding
+        /// Inside the panel, to the left of the content, to the right of it, and under it. Nothing where the content
+        /// already runs the full width and insets itself.
+        var contentInset = CategoryTable.Layout.padding
+        var cornerRadius = CategoryTable.Layout.cornerRadius
     }
 
     @objc
@@ -202,10 +240,22 @@ final class CategorySection: NSView {
         onToggle?(isExpanded)
     }
 
-    /// Called when the section is folded or unfolded, so the window can record it.
+    /// Called when somebody folds or unfolds the section, so the window can record it. **A gesture, not a state**:
+    /// `restoreDefaultState` deliberately never reaches this, because a reset is not a fold anybody made and a
+    /// `debug_log` full of folds nobody made is worse than no record at all.
     var onToggle: ((Bool) -> Void)?
+
+    /// Called whenever the fold changes, **however it changed** -- a heading pressed, or the window putting the
+    /// section back to what it was built as.
+    ///
+    /// **This is the hook for anything drawn from the fold**, and it is a different question from `onToggle`. The App
+    /// tab's Google footnote sits outside the panel and so cannot fold with it; hanging it off `onToggle` left it
+    /// showing under a section the window had folded, because a reset is silent by design. Anything derived from
+    /// `isExpanded` has to follow every path that sets it, or it is a second copy of the fold that can disagree with
+    /// the fold -- the fault the first rule in `CLAUDE.md` is about.
+    var onExpandedChanged: ((Bool) -> Void)?
 }
 
-extension CategorySection: CollapsibleSection {
+extension PanelSection: CollapsibleSection {
     func restoreDefaultState() { setExpanded(defaultExpanded) }
 }

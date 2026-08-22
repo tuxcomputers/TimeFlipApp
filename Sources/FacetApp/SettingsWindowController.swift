@@ -270,6 +270,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         )
     }
 
+    /// The App tab: two sections that fold, with the folds recorded.
+    ///
+    /// The rows themselves are wired where the window reads the settings, not here. What this adds is the same thing
+    /// `makeDevicePane` adds, for the same reason: a fold is a gesture nothing stores, so the `debug_log` row is the
+    /// only record that it happened and the only way a scripted check can see one.
+    private func makeAppPane() -> AppSettingsPane {
+        let pane = AppSettingsPane()
+        pane.onSectionToggle = { [weak self] identifier, isExpanded in
+            self?.debugLog?.record(.tab, "App section \(identifier) \(isExpanded ? "opened" : "folded")")
+        }
+        return pane
+    }
+
     /// The Device tab: drawn from the tables, with its TimeFlip section wired to the radio.
     ///
     /// **No control above that section writes anything**, and what each of them does arrives with the feature that can
@@ -2381,7 +2394,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         switch tab {
         case .faces: pane = makeFacesPane()
         case .categories: pane = CategoriesPane()
-        case .app: pane = AppSettingsPane()
+        case .app: pane = makeAppPane()
         case .report: pane = makeReportPane()
         case .device: pane = makeDevicePane()
         }

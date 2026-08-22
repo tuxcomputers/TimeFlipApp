@@ -3,7 +3,7 @@ import AppKit
 /// A row that folds open to more rows underneath it, drawn as a row of the panel it sits in rather than as a panel of
 /// its own.
 ///
-/// **This is `CLAUDE.md`'s second case for a collapsible group.** `CategorySection` is the first: a group with its own
+/// **This is `CLAUDE.md`'s second case for a collapsible group.** `PanelSection` is the first: a group with its own
 /// tinted panel, where the heading is the panel's first row and folding closes the panel around it. The Device tab's
 /// *More*, *LED* and *Double tap* are the other kind -- they are lines of a list that already has a panel, so there is
 /// nothing of their own to close. What carries over is the part that is really the rule: **the whole heading line is

@@ -100,7 +100,7 @@ enum DeviceInfoRules {
         return value.isEmpty ? nil : value
     }
 
-    /// Whether the Info values are describing something the app can currently hear.
+    /// Whether the TimeFlip section's readings are describing something the app can currently hear.
     ///
     /// What it drives is the colour: live values read in the ordinary label colour, and everything else greys, so
     /// "Not paired" and "Unknown" sit back as the placeholders they are rather than presenting as readings. The

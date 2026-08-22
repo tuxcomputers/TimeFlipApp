@@ -74,7 +74,7 @@ final class DevicePairingRecorderTests: XCTestCase {
 
         XCTAssertTrue(recorder.recordPairing(with: unnamed))
 
-        // Paired and unnamed is a real state: the Info panel says `Unknown` rather than `TimeFlip v2.0`, which is a
+        // Paired and unnamed is a real state: the TimeFlip section says `Unknown` rather than `TimeFlip v2.0`, which is a
         // name no rename could ever change.
         XCTAssertEqual(settings.flag("paired", field: "paired"), true)
         XCTAssertNil(settings.string("device_name", field: "name"))

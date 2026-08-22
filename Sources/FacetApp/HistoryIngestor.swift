@@ -48,11 +48,41 @@ final class HistoryIngestor {
 
     /// Whether a refresh is already running.
     ///
-    /// **The only state this object keeps, and it is about the radio rather than about the cube.** Two fetches at once
-    /// would be two conversations on one characteristic with nothing in the answers to say which is which -- the same
-    /// reason `DeviceLogin` allows one at a time. A refresh that arrives while one is running is dropped rather than
-    /// queued: the next trigger is a tick away, and it will read the table again and pick up whatever is still due.
+    /// **About the radio rather than about the cube.** Two fetches at once would be two conversations on one
+    /// characteristic with nothing in the answers to say which is which -- the same reason `DeviceLogin` allows one
+    /// at a time.
     private var isRefreshing = false
+
+    /// A refresh asked for while one was already running, kept so it can be run the moment that one is over.
+    ///
+    /// **This used to be dropped, on the reasoning that the next trigger was a tick away.** That holds for the timer
+    /// and not for the six other callers, every one of which is a state change that has just happened: the cube was
+    /// turned, locked, unlocked, paused, reset, or a link came up. Those ask *because* the table is now out of date,
+    /// and the tick they would wait for is up to ten seconds away -- during which the menu bar and the Faces tab go
+    /// on drawing their play/pause glyph from `device_event`, which still says the opposite of what the app has just
+    /// done and confirmed.
+    ///
+    /// Measured on a device run, 2026-08-22: the timer's fetch went out one row before a pause command, the pause was
+    /// confirmed, and the refresh it asked for was dropped into a fetch that had already read the cube's answer. That
+    /// run got away with it, the cube having applied the pause before answering; the ordering that does not is the
+    /// same race a moment earlier.
+    ///
+    /// **Only the latest reason is kept**, so however many arrive during one fetch they collapse into a single
+    /// re-run. They all want the same thing, which is the table brought up to date once this conversation is over.
+    private var pendingReason: String?
+
+    /// Which conversation is the current one.
+    ///
+    /// **A fetch talks to the cube in three steps and any of them can be the last.** The app asks which event the
+    /// cube is on, then asks for the stream from a point, and the answers come back through closures the radio holds.
+    /// If the link ends in between -- the window closed, the device forgotten, the cube walked away -- those closures
+    /// are simply never called, and without this the fetch is in flight for ever.
+    ///
+    /// Bumped when a fetch starts and when the link ends, and read by every step, so an answer from a conversation
+    /// that has been abandoned is ignored instead of finishing a fetch that is no longer anybody's. Without the check
+    /// a late answer would call `done` on whatever fetch is running by then, clearing its `isRefreshing` and letting
+    /// a second conversation start on top of it.
+    private var generation = 0
 
     /// Told after every refresh that changed anything, so both surfaces can redraw.
     var onChanged: (() -> Void)?
@@ -75,11 +105,17 @@ final class HistoryIngestor {
             // Said rather than returned silently. A refresh that folded into one already running otherwise leaves no
             // trace at all, and the archive records a real run where exactly that made a startup fetch look as though
             // it had never happened.
-            debugLog?.record(.history, "Already fetching history (\(reason)): this request is dropped")
+            debugLog?.record(.history, "Already fetching history (\(reason)): asking again when this one is done")
+            pendingReason = reason
+            // **Still `.nothingToAsk` to this caller.** Its request has not been answered, and answering it later with
+            // the re-run's outcome would report an answer to a question somebody else asked. No production caller
+            // passes a handler; the tests that do are asserting exactly this.
             finished?(.nothingToAsk)
             return
         }
         isRefreshing = true
+        generation += 1
+        let mine = generation
 
         // Step 1. The position, read from the table, every time.
         //
@@ -95,15 +131,48 @@ final class HistoryIngestor {
 
         // Step 2. The cheap check: one frame, which is the whole segment rather than just a number.
         readLastEvent { [weak self] deviceLast in
-            guard let self else { return }
-            self.received(deviceLast, recorded: recorded, reason: reason, finished: finished)
+            guard let self, self.isMine(mine, at: "which event the cube is on", reason: reason) else { return }
+            self.received(deviceLast, recorded: recorded, reason: reason, mine: mine, finished: finished)
         }
+    }
+
+    /// Whether an answer belongs to the fetch that is still running, or to one the link took with it.
+    private func isMine(_ mine: Int, at step: String, reason: String) -> Bool {
+        guard mine != generation else { return true }
+        debugLog?.record(
+            .history,
+            "An answer about \(step) arrived for a history fetch that was abandoned (\(reason)), so it is ignored"
+        )
+        return false
+    }
+
+    /// Abandons a fetch in flight, because the link it was talking over has gone.
+    ///
+    /// **Called from the one place that knows every way a link ends** (`BluetoothRadio.connectedDevice`'s `didSet`),
+    /// which is where the charge, the face and the cube's status are already dropped for the same reason. A fetch is
+    /// as perishable as those: it is a half-finished conversation with a device nobody can hear any more.
+    ///
+    /// **Measured on a device run, 2026-08-22, and it cost the rest of the session.** A stream request went out, the
+    /// suite pressed Forget Device before the answer came back, and the fetch stayed in flight for the life of the
+    /// process -- so every later refresh was refused and the app ingested no history again until it was relaunched.
+    /// Nothing said so: the log showed six refusals that each looked like an ordinary bit of coalescing.
+    ///
+    /// The pending re-run goes too. It named a reason to talk to a cube that is gone, and a reconnection asks for the
+    /// history itself as the first thing it does (`the link came up`).
+    func linkEnded() {
+        guard isRefreshing || pendingReason != nil else { return }
+        debugLog?.record(.history, "The history fetch goes with the link")
+        // Bumped so the abandoned conversation's own answers, if any still arrive, are recognised as somebody else's.
+        generation += 1
+        isRefreshing = false
+        pendingReason = nil
     }
 
     private func received(
         _ deviceLast: DeviceEventSegment?,
         recorded: DeviceEventMark,
         reason: String,
+        mine: Int,
         finished: ((Outcome) -> Void)?
     ) {
         if let deviceLast {
@@ -131,7 +200,7 @@ final class HistoryIngestor {
             debugLog?.record(.history, "Event \(recorded.eventNumber) is not one this cube can reach, so from the start")
         }
         fetchHistory(from) { [weak self] frames in
-            guard let self else { return }
+            guard let self, self.isMine(mine, at: "the history stream", reason: reason) else { return }
             self.fetched(frames, deviceLast: deviceLast, reason: reason, finished: finished)
         }
     }
@@ -203,5 +272,12 @@ final class HistoryIngestor {
         debugLog?.record(.history, "History fetch done (\(reason)): \(outcome)")
         if changed { onChanged?() }
         finished?(outcome)
+
+        // **Last, after this fetch has been reported.** The re-run is a fresh conversation with the cube and reads the
+        // table again from the top, so it must not start until this one has told everybody what it found -- otherwise
+        // `onChanged` fires for the second fetch before the first has been accounted for.
+        guard let pending = pendingReason else { return }
+        pendingReason = nil
+        refresh(because: pending)
     }
 }
