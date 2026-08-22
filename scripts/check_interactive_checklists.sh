@@ -159,12 +159,18 @@ check_the_suite_was_run() {
       git merge-base --is-ancestor "$ran_commit" HEAD 2>/dev/null || problems="$problems
   - ${ran_commit:0:12} is not in this branch's history, so that run was of different code"
 
-      # The stamp itself lives under Tests/Scripted and changes on every run, so it cannot count as a
-      # change needing another run.
-      if ! git diff --quiet "$ran_commit" HEAD -- Sources Tests/Scripted database ":!$STAMP" 2>/dev/null; then
+      # **Prose under Tests/Scripted does not count as a change needing another run**, and two files there are
+      # prose. The stamp is one, and it changes on every run by definition. `README.md` is the other: no check
+      # reads a Markdown file -- every `.md` in the scripts is a citation inside a comment -- so a paragraph
+      # cannot alter what a check does, and demanding twenty minutes with a cube to correct a sentence is how a
+      # gate teaches people to work around it. This is what the section above means by "editing a README does
+      # not force a re-run"; that was true of every README except the one describing this suite, until now.
+      # `$STAMP` stays named separately because `SCRIPTED_STAMP` can point it somewhere else for testing.
+      watched=(Sources Tests/Scripted database ":!$STAMP" ":!Tests/Scripted/*.md")
+      if ! git diff --quiet "$ran_commit" HEAD -- "${watched[@]}" 2>/dev/null; then
         problems="$problems
   - the app or the checks have changed since that run:
-$(git diff --name-only "$ran_commit" HEAD -- Sources Tests/Scripted database ":!$STAMP" 2>/dev/null | sed 's/^/      /' | head -20)"
+$(git diff --name-only "$ran_commit" HEAD -- "${watched[@]}" 2>/dev/null | sed 's/^/      /' | head -20)"
       fi
     fi
   fi

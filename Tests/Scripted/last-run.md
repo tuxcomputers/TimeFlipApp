@@ -4,12 +4,12 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   feature/groupings
-    commit:   5619360109f230c447a7501fbed4d08c3db8d8e4
+    branch:   chore/stampTrap
+    commit:   4673b4cb427ff91f095d1f501d01c0aed0c809e0
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-22 22:28:45
-    finished: 2026-08-22 22:55:05
+    started:  2026-08-23 00:01:47
+    finished: 2026-08-23 00:18:34
     outcome:  passed
     scripts:  23 run, 0 with failures
     checks:   562 in total
