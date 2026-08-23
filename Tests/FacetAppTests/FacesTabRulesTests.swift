@@ -83,4 +83,43 @@ final class FacesTabRulesTests: XCTestCase {
         // way of the one gesture the tab has. Hidden rather than shown open, which is the archive's choice too.
         XCTAssertFalse(FacesTabRules.showsLock(deviceFace: nil))
     }
+
+    // MARK: - a cube that cannot be reached
+
+    func testAFaceStillDrawnForAQuietCubeRefusesTheClick() {
+        // **The regression this exists for.** Letting a paired cube keep its face after the link dropped -- so the
+        // tab has the cube's own last word to draw instead of tearing down -- turned a refused click into an
+        // assignment to a device nobody can hear. The face is worth showing; sending to it is not something the app
+        // can carry out.
+        XCTAssertEqual(
+            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: false, isDeviceReachable: false),
+            .waitingForTheDevice
+        )
+    }
+
+    func testAQuietCubeIsRefusedEvenWhereALockWouldHaveBeenReported() {
+        // The lock is a fact about a face on a cube the app cannot ask, so it is not the reason to give: not being
+        // able to reach it comes first, and answering `faceIsLocked` would explain the refusal with the wrong cause.
+        XCTAssertEqual(
+            FacesTabRules.click(deviceFace: 5, isFaceLocked: true, isTimingByHand: false, isDeviceReachable: false),
+            .waitingForTheDevice
+        )
+    }
+
+    func testAQuietCubeDoesNotStartTheAppsClockUnlessTimingByHand() {
+        // Manual mode is still what decides that, and it is unchanged: a cube that has gone quiet is not somebody
+        // having said to get on without it.
+        XCTAssertEqual(
+            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: true, isDeviceReachable: false),
+            .startTiming
+        )
+    }
+
+    func testAReachableCubeIsUnaffected() {
+        // The ordinary case, spelled out so the new parameter's default cannot quietly change it.
+        XCTAssertEqual(
+            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: false),
+            .assignToFace(5)
+        )
+    }
 }

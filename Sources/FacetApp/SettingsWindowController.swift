@@ -1521,7 +1521,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             FacesTabRules.click(
                 deviceFace: reading.deviceFace,
                 isFaceLocked: isLocked,
-                isTimingByHand: manualMode?.isOn == true
+                isTimingByHand: manualMode?.isOn == true,
+                isDeviceReachable: reading.isDeviceReachable
             ).doesAnything
         )
         if let face = reading.deviceFace {
@@ -1579,7 +1580,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         switch FacesTabRules.click(
             deviceFace: reading?.deviceFace,
             isFaceLocked: reading?.deviceFace.map { faces.isLocked(face: $0) == true } ?? false,
-            isTimingByHand: manualMode?.isOn == true
+            isTimingByHand: manualMode?.isOn == true,
+            isDeviceReachable: reading?.isDeviceReachable ?? false
         ) {
         case let .assignToFace(face):
             assignToCube(face: face, category)

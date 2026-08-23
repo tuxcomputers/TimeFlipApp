@@ -491,6 +491,37 @@ final class DeviceEventRecorder {
     ///
     /// By `device_event_id`, not by `start_epoch`: this asks which segment was recorded last, and two segments
     /// inside one second are exactly the case the epoch cannot separate.
+    /// The newest row on any of `faces`, **open or closed**.
+    ///
+    /// **What the play/pause glyph is drawn from, connected or not.** `paused` is the cube's own account of what it
+    /// was doing -- every history frame carries it in the face byte -- so reading it is reading the database rather
+    /// than claiming anything about hardware, which is why a link being down does not change the answer.
+    ///
+    /// **Asked by face, not by which row is open**, and that is the whole point of it. A manual segment carries the
+    /// epoch as its event number and is very often the newest open row, so `openSegment()` answers about the app's
+    /// clock rather than the cube's whenever both have been used -- the same trap `newestFromTheCube` exists for.
+    /// Naming the cube's faces cannot be answered by a manual row at all.
+    ///
+    /// The shape is `OpenSegment` because it is the same five columns; the row it describes may be finished.
+    func latestSegment(in faces: [Int]) -> OpenSegment? {
+        guard !faces.isEmpty else { return nil }
+        let list = faces.map(String.init).joined(separator: ",")
+        var found: OpenSegment?
+        connection.forEachRow(
+            "SELECT device_event_id, event_number, device_face, start_epoch, paused FROM device_event "
+                + "WHERE device_face IN (\(list)) ORDER BY device_event_id DESC LIMIT 1;"
+        ) { row in
+            found = OpenSegment(
+                deviceEventID: Int(row.int(0)),
+                eventNumber: Int(row.int(1)),
+                face: Int(row.int(2)),
+                startEpoch: Int(row.int(3)),
+                isPaused: row.int(4) == 1
+            )
+        }
+        return found
+    }
+
     func latestFace(in faces: [Int]) -> Int? {
         guard !faces.isEmpty else { return nil }
         let list = faces.map(String.init).joined(separator: ",")

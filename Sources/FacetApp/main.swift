@@ -143,6 +143,13 @@ timingReadout.deviceFace = { radio.currentFace }
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
 // `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
 timingReadout.isTimingByHand = { manualMode.isOn }
+// **Read from the table at the moment a reading is taken**, like every other answer here. It is what tells a cube
+// that has gone quiet from no cube at all: without it a dropped link fell through to the app's own faces and drew a
+// manual session nobody had started.
+timingReadout.isCubePaired = { settings.flag("paired", field: "paired") == true }
+// What the cube said when the app asked it how it was, which is what draws the glyph until the first history frame
+// arrives and `device_event` takes over. Asked per reading, and `nil` the moment the link goes.
+timingReadout.cubeSaysPaused = { radio.cubeStatus?.isPaused }
 
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
