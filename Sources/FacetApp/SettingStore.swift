@@ -89,9 +89,57 @@ final class SettingStore {
         write(name, field: field, any: value) && string(name, field: field) == value
     }
 
+    /// Several fields of one setting, written in **one** update and read back together.
+    ///
+    /// **For fields that are only true as a set.** The four double-tap registers go to the cube as a single command
+    /// and describe nothing on their own, so a row left holding three new numbers and one old one would describe a
+    /// cube that has never existed. Calling the single-field write above four times can stop half way and leave
+    /// exactly that; this cannot, the whole object being replaced once.
+    ///
+    /// The archive merged the same four in one go (`AppDataStore.saveDoubleTapParameters`), for the same reason.
+    ///
+    /// `false` if any one of them did not take, and the read-back is per field rather than on the object: what makes
+    /// the answer worth having is that it asked the table, and asking it about the object it was just handed would
+    /// only prove `JSONSerialization` is deterministic.
+    func write(_ name: String, fields: [String: Value]) -> Bool {
+        guard var object = json(name) else { return false }
+        for (field, value) in fields { object[field] = value.stored }
+        guard store(object, as: name) else { return false }
+        return fields.allSatisfy { field, value in
+            switch value {
+            case .number(let number): return integer(name, field: field) == number
+            case .flag(let flag): return self.flag(name, field: field) == flag
+            case .text(let text): return string(name, field: field) == text
+            }
+        }
+    }
+
+    /// One field's value, for `write(_:fields:)`.
+    ///
+    /// **A case per type rather than `Any`**, so the read-back compares like with like. Through `Any` it could not:
+    /// `JSONSerialization` hands both `true` and `1` back as an `NSNumber`, and those two compare equal -- so a row
+    /// that came back holding `1` where a flag was asked for would read as confirmed.
+    enum Value: Equatable {
+        case number(Int)
+        case flag(Bool)
+        case text(String)
+
+        fileprivate var stored: Any {
+            switch self {
+            case .number(let number): return number
+            case .flag(let flag): return flag
+            case .text(let text): return text
+            }
+        }
+    }
+
     private func write(_ name: String, field: String, any value: Any) -> Bool {
         guard var object = json(name) else { return false }
         object[field] = value
+        return store(object, as: name)
+    }
+
+    private func store(_ object: [String: Any], as name: String) -> Bool {
         guard
             let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
             let text = String(data: data, encoding: .utf8)

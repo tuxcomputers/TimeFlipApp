@@ -429,6 +429,222 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(stepper(DevicePane.Identifier.autoPause, in: pane)?.value, 12)
     }
 
+    func testEveryRowOnTheTabIsTheSameHeight() throws {
+        // **The rhythm of the list, and it is the Categories tab's 24.** Worth pinning because it broke silently once
+        // and in a way no test noticed: the four double-tap registers were plain labels at 16, so `minimumRowHeight`
+        // decided their rows; making them `SteppedNumberField`s at 24 put them over it, the padding added itself
+        // twice on top, and those four rows alone came out at 46 while everything around them stayed at 38.
+        //
+        // A control taller than a row is still allowed to push it -- the padding constraints are inequalities -- so
+        // this is not a cap. It is that nothing on this tab should be reaching for one.
+        let pane = DevicePane()
+        pane.show(paired)
+        pane.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
+        pane.layoutSubtreeIfNeeded()
+
+        for identifier in [
+            DevicePane.Identifier.connection,
+            DevicePane.Identifier.battery,
+            DevicePane.Identifier.autoPause,
+            DevicePane.Identifier.doubleTapDisable,
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ] {
+            let control = try XCTUnwrap(view(identifier, in: pane), identifier)
+            // The row is the ancestor that `settled` sized, which is the first plain `NSView` above the control.
+            var node: NSView? = control
+            while let current = node, !(current.superview is NSStackView) { node = current.superview }
+            let row = try XCTUnwrap(node, identifier)
+
+            XCTAssertEqual(
+                row.frame.height, DevicePane.Layout.minimumRowHeight, accuracy: 0.5,
+                "\(identifier) is \(row.frame.height) where every other row is \(DevicePane.Layout.minimumRowHeight)"
+            )
+        }
+    }
+
+    func testAFoldedGroupsRowsSitAtTheCategoriesTabsPitch() throws {
+        // **Height was only half of it.** The rows were made 24 to match the Categories tab and still did not look
+        // like it, because that tab puts 8 between its rows and this one put nothing: same height, two thirds of the
+        // rhythm. Measured on screen at 64px against Categories' 64px on a 2x display (2026-08-23).
+        //
+        // Only the folded groups. The lists above them are divided by hairlines and are meant to run together -- a
+        // gap there would leave each hairline floating above the row it divides rather than between the two.
+        let pane = DevicePane()
+        pane.show(paired)
+        pane.frame = NSRect(x: 0, y: 0, width: 520, height: 1200)
+        pane.layoutSubtreeIfNeeded()
+
+        let centres = try [
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ].map { identifier -> CGFloat in
+            let control = try XCTUnwrap(view(identifier, in: pane), identifier)
+            return control.convert(control.bounds, to: pane).midY
+        }
+
+        let expected = DevicePane.Layout.minimumRowHeight + DevicePane.Layout.rowSpacing
+        for (above, below) in zip(centres, centres.dropFirst()) {
+            XCTAssertEqual(abs(below - above), expected, accuracy: 0.5)
+        }
+        XCTAssertEqual(expected, 32, "the Categories tab's row plus its gap")
+    }
+
+    func testTheGapIsTheCategoriesTabsOwnNumber() {
+        // Read from there rather than repeated, so moving that tab's rhythm moves this one with it.
+        XCTAssertEqual(DevicePane.Layout.rowSpacing, CategoryTable.Layout.rowSpacing)
+    }
+
+    func testTheTabSitsAtTheCategoriesTabsRowHeight() {
+        // The number itself, stated once so that moving it is a decision rather than a drift. The two tabs separate
+        // their rows differently -- Categories with stack spacing, this one with hairlines and none -- so the height
+        // is the part they share.
+        XCTAssertEqual(DevicePane.Layout.minimumRowHeight, 24)
+    }
+
+    func testTheFourRegistersAreSteppedFields() throws {
+        // The same control the rest of the app uses, so an arrow steps them and a script can drive them by name.
+        // They were read-only labels until the registers could actually be sent.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.doubleTapThreshold = 90
+        values.doubleTapWindow = 50
+        pane.show(values)
+
+        let threshold = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane))
+        let window = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapWindow, in: pane))
+
+        XCTAssertEqual(threshold.value, 90)
+        XCTAssertEqual(window.value, 50)
+    }
+
+    func testTheRegistersRunTheWholeByte() throws {
+        // 0 to 255 is the register, not a judgement about useful values -- and 0 in particular has to be reachable on
+        // Window, that being how the gesture is turned off.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        let window = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapWindow, in: pane))
+
+        window.value = 0
+        XCTAssertEqual(window.value, 0)
+        window.value = 255
+        XCTAssertEqual(window.value, 255)
+    }
+
+    func testTheParametersComeOffTheFieldsRatherThanTheLastShownValues() throws {
+        // A held arrow moves the field several times a second and nothing writes those back to `values`, so a command
+        // built from `values` would carry the number the row opened with.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.doubleTapLatency = 50
+        pane.show(values)
+        let latency = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapLatency, in: pane))
+
+        latency.value = 77
+
+        XCTAssertEqual(pane.doubleTapParameters.latency, 77)
+    }
+
+    func testMovingARegisterSaysSo() throws {
+        // The pane reports that a value moved and nothing else: when to act on it is the window's, which debounces.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onDoubleTapValueChanged = { changes += 1 }
+        let limit = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapLimit, in: pane))
+
+        limit.onChange?(21)
+
+        XCTAssertEqual(changes, 1)
+    }
+
+    func testTheBoxReportsWhichWayRoundItIs() throws {
+        // It says "Disable", so ticked is the gesture being unwanted. Reported the right way round once, here, rather
+        // than at every reader of it.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var reported: [Bool] = []
+        pane.onDoubleTapEnabledChanged = { reported.append($0) }
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        // `performClick` toggles the box and then fires the action, so the state is not set here: doing both would
+        // report the value it had on the way past rather than the one it landed on.
+        box.performClick(nil)
+        box.performClick(nil)
+
+        XCTAssertEqual(box.state, .off, "back where it started after two clicks")
+        XCTAssertEqual(reported, [false, true], "ticked means off, unticked means on")
+    }
+
+    func testARefusedWriteCanPutTheBoxBackWithoutSayingSo() throws {
+        // The correction path. `state` is assigned rather than the action fired, so putting the box back cannot be
+        // mistaken for somebody ticking it and start a second write.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var reported = 0
+        pane.onDoubleTapEnabledChanged = { _ in reported += 1 }
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        pane.showDoubleTapEnabled(false)
+
+        XCTAssertEqual(box.state, .on, "ticked, the gesture being off")
+        XCTAssertEqual(reported, 0, "and nobody was told, because nobody did it")
+    }
+
+    func testARefusedWriteCanPutTheFourFieldsBackWithoutSayingSo() throws {
+        // The mirror of the box's correction path. `SteppedNumberField.value` is assigned rather than the arrow
+        // pressed, so putting a field back cannot be mistaken for somebody moving it and start a second write.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onDoubleTapValueChanged = { changes += 1 }
+
+        pane.showDoubleTapValues(DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0))
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.value, 200)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLimit, in: pane)?.value, 45)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLatency, in: pane)?.value, 34)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.value, 0)
+        XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
+    }
+
+    func testTheCorrectedFieldsAreWhatTheNextReadOfThePaneGives() {
+        // `values` is what `doubleTapParameters` falls back to and what the next write carries, so a correction that
+        // moved the fields and left it behind would send the refused numbers again on the following change.
+        let pane = DevicePane()
+        pane.show(.seeded)
+
+        pane.showDoubleTapValues(DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0))
+
+        XCTAssertEqual(pane.values.doubleTapThreshold, 200)
+        XCTAssertEqual(pane.values.doubleTapLimit, 45)
+        XCTAssertEqual(pane.values.doubleTapLatency, 34)
+        XCTAssertEqual(pane.values.doubleTapWindow, 0)
+        XCTAssertEqual(
+            pane.doubleTapParameters,
+            DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
+        )
+    }
+
+    func testAFieldAlreadyOnTheValueIsLeftAlone() throws {
+        // This runs on the way out of a write that took, as well as one that did not, so it lands on fields already
+        // holding these numbers. Assigning `value` replaces the text in the field, which would take it out from under
+        // whoever is typing -- so a field already on the value is not touched.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        let field = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane))
+        let text = try XCTUnwrap(descendants(of: field).compactMap { $0 as? NSTextField }.first)
+        text.stringValue = "9"
+
+        pane.showDoubleTapValues(DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50))
+
+        XCTAssertEqual(text.stringValue, "9", "the field is already on 90, so it was not rebuilt")
+    }
+
     func testTheDoubleTapBoxIsTickedWhenTheGestureIsOff() throws {
         // "Disable", not "Enable", which is the archive's wording and the right way round: the setting is on by
         // default, so the box somebody ticks is the one that turns the gesture off. Ticked means disabled, and

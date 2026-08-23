@@ -140,6 +140,24 @@ enum DeviceCommandRules {
         let request: Data
         /// Whether the answer says the command took.
         let took: (Data?) -> Bool
+        /// What the answer says, in words, or `nil` for an answer this cannot interpret.
+        ///
+        /// **So a refusal names what the cube is actually on**, rather than only that it is not on what was asked
+        /// for. `took` collapses the answer to yes or no, which is all a caller needs and much less than somebody
+        /// reading the log afterwards does: "the cube says it did NOT take" leaves them to guess at the disagreement,
+        /// where the numbers beside it are the whole of it.
+        ///
+        /// **`nil` for bytes that were not an answer at all**, which is a real case rather than a defensive one: the
+        /// command result frequently holds the previous command's reply (finding 2,
+        /// `docs/timeflip2-firmware-observations.md`), and printing numbers out of somebody else's reply would be
+        /// worse than printing none.
+        let described: (Data?) -> String?
+
+        init(request: Data, took: @escaping (Data?) -> Bool, described: @escaping (Data?) -> String? = { _ in nil }) {
+            self.request = request
+            self.took = took
+            self.described = described
+        }
     }
 
     /// What confirms `command`, or `nil` for one the vendor spec gives no way to read back.
@@ -155,6 +173,23 @@ enum DeviceCommandRules {
             return ReadBack(request: status) { status(from: $0)?.isPaused == wanted }
         case lockCommand:
             return ReadBack(request: status) { status(from: $0)?.isLocked == wanted }
+        case DoubleTapRules.write:
+            // **Confirmed register by register, against the command's own bytes.** `0x17` answers in the same
+            // nine-byte shape `0x16` was written in, so what went out and what came back are compared as parsed
+            // values rather than as two descriptions of them.
+            //
+            // **This one identifies itself**, unlike `0x10`: the answer echoes `0x17` and all four register
+            // addresses, which is what `DoubleTapRules.parameters(from:)` checks every byte of. A leftover reply
+            // sitting in the characteristic (finding 2, `docs/timeflip2-firmware-observations.md`) fails that shape
+            // rather than being mistaken for this command's answer.
+            guard let asked = DoubleTapRules.parameters(sentIn: command) else { return nil }
+            return ReadBack(
+                request: Data([DoubleTapRules.read]),
+                took: { DoubleTapRules.parameters(from: $0) == asked },
+                // The registers the cube reports, named. On a mismatch this is the only place they appear: what was
+                // asked for is logged by whoever asked, and what arrived would otherwise be a verdict with no figures.
+                described: { DoubleTapRules.parameters(from: $0)?.described }
+            )
         case timeCommand:
             // The clock this command asked for, read back out of the command's own bytes rather than passed in
             // alongside them: there is one place that knows the layout and it is `setTime`.

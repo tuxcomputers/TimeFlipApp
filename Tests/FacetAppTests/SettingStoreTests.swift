@@ -139,4 +139,59 @@ final class SettingStoreTests: XCTestCase {
             #"{"percent":15}"#
         )
     }
+
+    // MARK: - writing several fields at once
+
+    func testSeveralFieldsLandTogether() {
+        // The four double-tap registers are the case this exists for: they go to the cube as one command and describe
+        // nothing apart, so a row holding three new numbers and one old one would describe a cube that has never
+        // existed.
+        XCTAssertTrue(settings.write("double_tap_settings", fields: [
+            "clickThreshold": .number(200),
+            "limit": .number(45),
+            "latency": .number(34),
+            "window": .number(0),
+        ]))
+
+        XCTAssertEqual(settings.integer("double_tap_settings", field: "clickThreshold"), 200)
+        XCTAssertEqual(settings.integer("double_tap_settings", field: "limit"), 45)
+        XCTAssertEqual(settings.integer("double_tap_settings", field: "latency"), 34)
+        XCTAssertEqual(settings.integer("double_tap_settings", field: "window"), 0)
+    }
+
+    func testTheFieldsNotNamedSurviveIt() {
+        // `enabled` shares the row with the four registers and is set by a different control, so a write that
+        // replaced the object would turn the gesture on behind whoever had just turned it off.
+        XCTAssertTrue(settings.write("double_tap_settings", field: "enabled", false))
+
+        XCTAssertTrue(settings.write("double_tap_settings", fields: ["window": .number(0)]))
+
+        XCTAssertEqual(settings.flag("double_tap_settings", field: "enabled"), false)
+    }
+
+    func testAFlagAndANumberKeepTheirTypesThroughIt() {
+        // Why `Value` is an enum rather than `Any`: `JSONSerialization` hands `true` and `1` back as the same
+        // `NSNumber`, so a read-back through `Any` would confirm a row that came back holding the wrong one.
+        XCTAssertTrue(settings.write("double_tap_settings", fields: [
+            "enabled": .flag(false),
+            "window": .number(1),
+        ]))
+
+        XCTAssertEqual(
+            database.string("SELECT setting_value FROM setting WHERE setting_name = 'double_tap_settings';"),
+            #"{"clickThreshold":90,"enabled":false,"latency":50,"limit":20,"window":1}"#
+        )
+    }
+
+    func testWritingSeveralFieldsIntoASettingThatIsNotThereIsRefused() {
+        XCTAssertFalse(settings.write("no_such_setting", fields: ["window": .number(0)]))
+    }
+
+    func testWritingSeveralFieldsIntoARowThatIsNotJSONIsRefused() {
+        XCTAssertTrue(database.execute(
+            "UPDATE setting SET setting_value = 'not json at all' WHERE setting_name = 'double_tap_settings';"
+        ))
+
+        XCTAssertFalse(settings.write("double_tap_settings", fields: ["window": .number(0)]))
+    }
 }

@@ -20,7 +20,9 @@ final class DoubleTapRulesTests: XCTestCase {
             parameters,
             DoubleTapParameters(threshold: 0x5A, limit: 0x14, latency: 0x32, window: 0x32)
         )
-        XCTAssertEqual(parameters?.described, "threshold 90, limit 20, latency 50, window 50")
+        // The register names as the Device tab labels them, so a row out of `debug_log` and the fields it came from
+        // can be read side by side without translating either.
+        XCTAssertEqual(parameters?.described, "Threshold: 90, Limit: 20, Latency: 50, Window: 50")
     }
 
     func testTrailingBytesDoNotSpoilIt() {
@@ -39,6 +41,59 @@ final class DoubleTapRulesTests: XCTestCase {
 
     func testAnAnswerCutShortIsRefused() {
         XCTAssertNil(DoubleTapRules.parameters(from: real.prefix(8)))
+    }
+
+    // MARK: - setting them
+
+    func testTheCommandIsTheAnswersShapeWithTheWriteByte() throws {
+        // The vendor spec defines `0x16` and `0x17` as one nine-byte layout with the command byte swapped, which is
+        // what lets one parser read both. Asserted against the recorded answer rather than a hand-built expectation:
+        // send back what the cube said and the bytes should differ in exactly one place.
+        let command = DoubleTapRules.command(for: try XCTUnwrap(DoubleTapRules.parameters(from: real)))
+
+        XCTAssertEqual(Array(command), [0x16, 0x3A, 0x5A, 0x3B, 0x14, 0x3C, 0x32, 0x3D, 0x32])
+        XCTAssertEqual(Array(command.dropFirst()), Array(real.dropFirst()), "only the command byte differs")
+    }
+
+    func testWhatWasAskedForIsReadBackOutOfTheCommand() {
+        // So a confirmation compares against the bytes that actually went out, rather than a copy worked out
+        // alongside them at some other moment.
+        let wanted = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50)
+
+        XCTAssertEqual(DoubleTapRules.parameters(sentIn: DoubleTapRules.command(for: wanted)), wanted)
+    }
+
+    func testAnAnswerIsNotMistakenForACommand() {
+        // The two shapes differ only in the leading byte, so each parser has to insist on its own -- otherwise a
+        // `0x17` sitting in the characteristic reads as a command this app sent.
+        XCTAssertNil(DoubleTapRules.parameters(sentIn: real), "an answer is not a command")
+        XCTAssertNil(
+            DoubleTapRules.parameters(from: DoubleTapRules.command(for: DoubleTapParameters(
+                threshold: 90, limit: 20, latency: 50, window: 50
+            ))),
+            "a command is not an answer"
+        )
+    }
+
+    func testTurningTheGestureOffClosesTheWindowAndNothingElse() {
+        // **The other three are what somebody dialled in**, and turning it back on has to put those back rather than
+        // a guess at them -- so only `window` moves, and only in what is sent.
+        let real = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50)
+
+        let off = DoubleTapRules.asSent(real, isEnabled: false)
+
+        XCTAssertEqual(off, DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 0))
+        XCTAssertEqual(DoubleTapRules.asSent(real, isEnabled: true), real, "on sends exactly what is held")
+    }
+
+    func testTheStoredWindowIsNotTheOneThatWasZeroed() {
+        // The trick is in what is *sent*. A caller that zeroed what it holds would have nothing to turn back on with,
+        // and the next enable would send window 0 and appear to do nothing.
+        let held = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50)
+
+        _ = DoubleTapRules.asSent(held, isEnabled: false)
+
+        XCTAssertEqual(held.window, 50)
     }
 
     func testTheEchoedRegisterAddressesAreChecked() {

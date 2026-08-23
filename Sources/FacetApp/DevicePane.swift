@@ -63,8 +63,31 @@ final class DevicePane: NSView {
         static let headingSpacing: CGFloat = 12
         static let sectionSpacing: CGFloat = 24
         static let rowInset: CGFloat = 20
-        static let rowPadding: CGFloat = 11
-        static let minimumRowHeight: CGFloat = 38
+
+        /// **Nothing, so a row is exactly `minimumRowHeight` unless its own content is taller.** It was 11, which is
+        /// what made a row holding a `SteppedNumberField` come out at 46: the field is 24 and the padding added
+        /// itself twice on top. That was invisible while these rows held plain labels at 16 and the minimum decided
+        /// them, and became visible the moment the double-tap registers became fields somebody could step.
+        ///
+        /// **Still an inequality wherever it is used**, so this being zero does not stop content taller than the row
+        /// pushing the row taller. What it stops is padding deciding a height the list has already decided.
+        static let rowPadding: CGFloat = 0
+
+        /// The one row that keeps breathing space, and it is not a list row: the scan controls are buttons, taller
+        /// than any row here, and flush against the edges they read as a toolbar rather than as part of the panel.
+        static let controlRowPadding: CGFloat = 11
+
+        /// The gap between rows that have no hairline to divide them, which is `CategoryTable.Layout.rowSpacing`
+        /// read from there rather than repeated: the Categories tab's rhythm is what this tab is being measured
+        /// against, so its number moving should move this one.
+        static let rowSpacing: CGFloat = CategoryTable.Layout.rowSpacing
+
+        /// **The Categories tab's row height**, which is what the rows on this tab are measured against: that tab
+        /// hugs its controls at 24 and separates them with stack spacing, while this one runs them together with
+        /// hairlines between (see `stack()`), so the height is the part the two have in common and the part worth
+        /// sharing. Shared with `DisclosureRow`, which only this tab builds, so a folding heading sits at the same
+        /// rhythm as the plain rows around it.
+        static let minimumRowHeight: CGFloat = 24
         static let separatorHeight: CGFloat = 1
     }
 
@@ -134,7 +157,7 @@ final class DevicePane: NSView {
     private var ledBrightnessValue: NSTextField!
     private var ledBlinkValue: NSTextField!
     private var doubleTapDisableBox: NSButton!
-    private var doubleTapValues: [String: NSTextField] = [:]
+    private var doubleTapValues: [String: SteppedNumberField] = [:]
 
     /// The scan's own controls and its results, held because they are redrawn as the radio answers rather than
     /// built once. **The list itself is not held here**: what has been found is the scanner's, and this draws
@@ -184,6 +207,19 @@ final class DevicePane: NSView {
     /// Called when one of the folding rows or sections opens or closes, so the window can record it. The identifier
     /// is what says which, and it is the only thing that does: nothing stores a fold.
     var onToggle: ((String, Bool) -> Void)?
+
+    /// One of the four register fields moved. What it moved to is on the pane; this only says that it did.
+    ///
+    /// **Every tick of a held arrow fires this**, which is the whole reason the window debounces rather than sending
+    /// from here: a hold repeats every 0.1s (`StepperHoldRules`) and each of those would be a command on the wire.
+    var onDoubleTapValueChanged: (() -> Void)?
+
+    /// Somebody ticked or unticked **Disable** under Double tap. `true` means the gesture is wanted.
+    ///
+    /// **The box reports what it now shows, and does not decide anything.** Whether the cube accepts it is the
+    /// window's to find out and the cube's to answer, and a refusal puts the box back (`showDoubleTapEnabled`) --
+    /// which is `CLAUDE.md`'s rule about a control never being left showing something the table does not hold.
+    var onDoubleTapEnabledChanged: ((Bool) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -253,10 +289,80 @@ final class DevicePane: NSView {
         ledBrightnessValue.stringValue = "\(values.ledBrightnessPercent) %"
         ledBlinkValue.stringValue = "\(values.ledBlinkSeconds) sec"
         doubleTapDisableBox.state = values.isDoubleTapEnabled ? .off : .on
-        doubleTapValues[Identifier.doubleTapThreshold]?.stringValue = "\(values.doubleTapThreshold)"
-        doubleTapValues[Identifier.doubleTapLimit]?.stringValue = "\(values.doubleTapLimit)"
-        doubleTapValues[Identifier.doubleTapLatency]?.stringValue = "\(values.doubleTapLatency)"
-        doubleTapValues[Identifier.doubleTapWindow]?.stringValue = "\(values.doubleTapWindow)"
+        doubleTapValues[Identifier.doubleTapThreshold]?.value = values.doubleTapThreshold
+        doubleTapValues[Identifier.doubleTapLimit]?.value = values.doubleTapLimit
+        doubleTapValues[Identifier.doubleTapLatency]?.value = values.doubleTapLatency
+        doubleTapValues[Identifier.doubleTapWindow]?.value = values.doubleTapWindow
+    }
+
+    /// The four registers as this window currently holds them.
+    ///
+    /// **From the window rather than from the table**, which is the licence `CLAUDE.md` grants an open Settings
+    /// window and the reason it grants it: these are what somebody is looking at, so they are what a command built
+    /// now should carry. The `enabled` flag is deliberately not folded in -- what is sent when the gesture is off is
+    /// `DoubleTapRules.asSent`'s to decide, and it is one decision in one place.
+    /// **Read off the fields, not off `values`**, which is the difference between what is on screen and what was
+    /// last shown. A held arrow moves the field several times a second and nothing writes those back to `values`
+    /// until one lands, so a command built from `values` would carry the number the row opened with.
+    var doubleTapParameters: DoubleTapParameters {
+        func register(_ identifier: String, or fallback: Int) -> UInt8 {
+            UInt8(clamping: doubleTapValues[identifier]?.value ?? fallback)
+        }
+        return DoubleTapParameters(
+            threshold: register(Identifier.doubleTapThreshold, or: values.doubleTapThreshold),
+            limit: register(Identifier.doubleTapLimit, or: values.doubleTapLimit),
+            latency: register(Identifier.doubleTapLatency, or: values.doubleTapLatency),
+            window: register(Identifier.doubleTapWindow, or: values.doubleTapWindow)
+        )
+    }
+
+    /// Puts the Disable box where the answer says it should be, without telling anybody it moved.
+    ///
+    /// **Set directly rather than through `show`**, because this is the one path that must not re-read the whole tab:
+    /// a refused write has to put this one control back while every other row goes on showing what it was showing.
+    /// `state` is assigned rather than the action fired, so a correction cannot be mistaken for somebody ticking it.
+    func showDoubleTapEnabled(_ isEnabled: Bool) {
+        values.isDoubleTapEnabled = isEnabled
+        doubleTapDisableBox.state = isEnabled ? .off : .on
+    }
+
+    /// Puts the four registers where the table says they should be, without telling anybody they moved.
+    ///
+    /// **The mirror of `showDoubleTapEnabled`, and for the same reason**: a refused write has to correct these four
+    /// rows while every other row on the tab goes on showing what it was showing, so this is the one path that must
+    /// not re-read the whole tab.
+    ///
+    /// **Called on the way out of a write that took, as well as one that did not**, so `values` never drifts from
+    /// what the fields hold -- and the guard below is what makes that safe. `SteppedNumberField.value` does not fire
+    /// `onChange`, so no correction can be mistaken for somebody moving an arrow, but assigning it does replace the
+    /// text in the field: doing that to a field already showing the number would take it out from under whoever is
+    /// typing, which `CLAUDE.md` names as its own fault. A field already on the value is left alone.
+    func showDoubleTapValues(_ parameters: DoubleTapParameters) {
+        values.doubleTapThreshold = Int(parameters.threshold)
+        values.doubleTapLimit = Int(parameters.limit)
+        values.doubleTapLatency = Int(parameters.latency)
+        values.doubleTapWindow = Int(parameters.window)
+        put(Int(parameters.threshold), in: Identifier.doubleTapThreshold)
+        put(Int(parameters.limit), in: Identifier.doubleTapLimit)
+        put(Int(parameters.latency), in: Identifier.doubleTapLatency)
+        put(Int(parameters.window), in: Identifier.doubleTapWindow)
+    }
+
+    private func put(_ value: Int, in identifier: String) {
+        guard let field = doubleTapValues[identifier], field.value != value else { return }
+        field.value = value
+    }
+
+    private func doubleTapValueChanged() {
+        onDoubleTapValueChanged?()
+    }
+
+    @objc private func doubleTapDisableChanged() {
+        // The box says "Disable", so ticked is the gesture being unwanted. Reported the right way round here, once,
+        // rather than at every reader of it.
+        let isEnabled = doubleTapDisableBox.state == .off
+        values.isDoubleTapEnabled = isEnabled
+        onDoubleTapEnabledChanged?(isEnabled)
     }
 
     /// Flashes the Battery row while the cube is flat, in step with the menu bar.
@@ -354,7 +460,7 @@ final class DevicePane: NSView {
         hardwareValue = value(identifier: Identifier.hardware)
         firmwareValue = value(identifier: Identifier.firmware)
 
-        let details = stack()
+        let details = stack(spacing: Layout.rowSpacing)
         add(
             [
                 row("Manufacturer", manufacturerValue, identifier: Identifier.manufacturer, separated: false),
@@ -400,7 +506,7 @@ final class DevicePane: NSView {
 
         ledBrightnessValue = value(identifier: Identifier.ledBrightness)
         ledBlinkValue = value(identifier: Identifier.ledBlink)
-        let led = stack()
+        let led = stack(spacing: Layout.rowSpacing)
         add(
             [
                 row("Brightness", ledBrightnessValue, identifier: Identifier.ledBrightness, separated: false),
@@ -413,19 +519,28 @@ final class DevicePane: NSView {
 
         // **"Disable", not "Enable".** The archive's wording, and the right way round: the setting is on by default,
         // so the box somebody ticks is the one that turns the gesture off.
-        doubleTapDisableBox = NSButton(checkboxWithTitle: "Disable", target: nil, action: nil)
+        doubleTapDisableBox = NSButton(
+            checkboxWithTitle: "Disable", target: self, action: #selector(doubleTapDisableChanged)
+        )
         doubleTapDisableBox.translatesAutoresizingMaskIntoConstraints = false
         doubleTapDisableBox.setAccessibilityIdentifier(Identifier.doubleTapDisable)
 
-        let doubleTap = stack()
+        let doubleTap = stack(spacing: Layout.rowSpacing)
         var doubleTapRows: [NSView] = [leading(doubleTapDisableBox)]
-        for (title, identifier) in [
-            ("Threshold", Identifier.doubleTapThreshold),
-            ("Limit", Identifier.doubleTapLimit),
-            ("Latency", Identifier.doubleTapLatency),
-            ("Window", Identifier.doubleTapWindow),
+        // **0 to 255, because that is the register.** Each of the four is one `UInt8` written straight to the
+        // accelerometer (`0x16`), so the range is the hardware's and not a judgement about useful values. `Window` at
+        // 0 is the one meaningful edge, being how the gesture is turned off (`DoubleTapRules.asSent`) -- somebody can
+        // reach it here as well as through the box above, and it means the same thing either way.
+        //
+        // **No suffix**, unlike Auto-pause's "min": these are register values and there is no unit to name.
+        for (title, identifier, current) in [
+            ("Threshold", Identifier.doubleTapThreshold, values.doubleTapThreshold),
+            ("Limit", Identifier.doubleTapLimit, values.doubleTapLimit),
+            ("Latency", Identifier.doubleTapLatency, values.doubleTapLatency),
+            ("Window", Identifier.doubleTapWindow, values.doubleTapWindow),
         ] {
-            let field = value(identifier: identifier)
+            let field = SteppedNumberField(value: current, range: 0...255, suffix: "", identifier: identifier)
+            field.onChange = { [weak self] _ in self?.doubleTapValueChanged() }
             doubleTapValues[identifier] = field
             doubleTapRows.append(row(title, field, identifier: identifier, separated: false))
         }
@@ -513,8 +628,10 @@ final class DevicePane: NSView {
         NSLayoutConstraint.activate([
             pair.leadingAnchor.constraint(equalTo: controls.leadingAnchor, constant: Layout.rowInset),
             pair.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
-            pair.topAnchor.constraint(greaterThanOrEqualTo: controls.topAnchor, constant: Layout.rowPadding),
-            pair.bottomAnchor.constraint(lessThanOrEqualTo: controls.bottomAnchor, constant: -Layout.rowPadding),
+            pair.topAnchor.constraint(greaterThanOrEqualTo: controls.topAnchor, constant: Layout.controlRowPadding),
+            pair.bottomAnchor.constraint(
+                lessThanOrEqualTo: controls.bottomAnchor, constant: -Layout.controlRowPadding
+            ),
 
             // The words give way before the controls do: a window too narrow for both should shorten the message,
             // not clip the button that starts the scan.
@@ -678,13 +795,18 @@ final class DevicePane: NSView {
 
     // MARK: - the pieces a row is made of
 
-    private func stack() -> NSStackView {
+    /// - Parameter spacing: the gap between rows. **Nothing for a list with hairlines**, which is what the two
+    ///   outer lists are: a divider between rows is what separates them, and a gap would leave each hairline
+    ///   floating above the row it divides rather than between the two.
+    ///
+    ///   **`Layout.rowSpacing` for a list without them**, which is the folded groups: nothing divides those rows, so
+    ///   with no gap they run together into a block. That is the Categories tab's arrangement, and this is its
+    ///   number -- the two tabs then share both halves of the rhythm rather than only the row height.
+    private func stack(spacing: CGFloat = 0) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        // No gap: these are a list with hairlines between them, not separate controls, and the padding inside each
-        // row is what keeps them apart.
-        stack.spacing = 0
+        stack.spacing = spacing
         stack.distribution = .fill
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack

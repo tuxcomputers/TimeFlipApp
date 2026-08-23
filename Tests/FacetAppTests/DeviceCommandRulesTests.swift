@@ -75,6 +75,71 @@ final class DeviceCommandRulesTests: XCTestCase {
         XCTAssertFalse(readBack.took(status(locked: 0x02, paused: 0x02)), "still running, so it did not take")
     }
 
+    func testDoubleTapIsConfirmedRegisterByRegister() throws {
+        // `0x16` has a read-back, so it is one of the commands `CLAUDE.md` says must be read before it is believed.
+        // The answer echoes `0x17` and all four register addresses, so unlike `0x10` it identifies itself.
+        let wanted = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertEqual(readBack.request, Data([DoubleTapRules.read]))
+        XCTAssertTrue(readBack.took(Data([0x17, 0x3A, 90, 0x3B, 20, 0x3C, 50, 0x3D, 0])))
+    }
+
+    func testADoubleTapAnswerThatDiffersInOneRegisterDidNotTake() throws {
+        // The whole point of confirming this one: the cube taking three of the four registers and not the fourth is a
+        // gesture still firing while the app believes it is off. Window is the register that matters most, being the
+        // one the disable trick moves.
+        let wanted = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertFalse(
+            readBack.took(Data([0x17, 0x3A, 90, 0x3B, 20, 0x3C, 50, 0x3D, 50])),
+            "the window came back at 50, so the gesture is still on"
+        )
+    }
+
+    func testAStaleReplyIsNotADoubleTapConfirmation() throws {
+        // The command result characteristic frequently holds the previous command's reply (finding 2,
+        // `docs/timeflip2-firmware-observations.md`). A `0x10` sitting there must not read as this command's answer.
+        let wanted = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertFalse(readBack.took(status(locked: 0x02, paused: 0x02)))
+        XCTAssertFalse(readBack.took(nil))
+    }
+
+    func testTheDoubleTapAnswerIsPutIntoWords() throws {
+        // So a refused write names the registers the cube is actually on. `took` collapses the answer to yes or no,
+        // which is all the caller needs and much less than whoever reads the row afterwards: the numbers beside the
+        // verdict are the disagreement itself.
+        let wanted = DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertEqual(
+            readBack.described(Data([0x17, 0x3A, 200, 0x3B, 45, 0x3C, 34, 0x3D, 0])),
+            "Threshold: 200, Limit: 45, Latency: 34, Window: 0"
+        )
+    }
+
+    func testWhatWasNotAnAnswerIsPutIntoNoWordsAtAll() throws {
+        // `nil` rather than a guess, and for the same reason the parse is strict: the characteristic frequently holds
+        // the previous command's reply, and printing numbers out of somebody else's would be worse than printing
+        // none.
+        let wanted = DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertNil(readBack.described(status(locked: 0x02, paused: 0x02)))
+        XCTAssertNil(readBack.described(nil))
+    }
+
+    func testACommandWithNoInterpretationSaysNothing() throws {
+        // Only `0x16` puts its answer into words today. A pause is confirmed by a status whose four bytes carry no
+        // echoed command byte, so there is nothing there worth naming that the verdict does not already say.
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DeviceCommandRules.pause(true)))
+
+        XCTAssertNil(readBack.described(status(locked: 0x02, paused: 0x01)))
+    }
+
     func testAResumeIsConfirmedTheOtherWayRound() throws {
         // The command asked for pause *off*, so an answer saying paused is a failure. Reading "took" as "the cube
         // answered" rather than "the cube is in the state asked for" would call this a success.
