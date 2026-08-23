@@ -484,7 +484,7 @@ final class BluetoothRadio: NSObject {
     ///
     /// **"None of them was ours" is not "nothing was there".** Both leave the app without its cube and they are
     /// different problems: one is a cube out of range, the other is cubes in range that this app cannot open. The
-    /// dialog put to the user is the same either way (`ManualModeAlert`), and the log line is not.
+    /// dialog put to the user is the same either way (`CubeNotFoundAlert`), and the log line is not.
     private func endReach(because reason: String) {
         guard let target = reaching else { return }
         reaching = nil

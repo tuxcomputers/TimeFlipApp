@@ -51,9 +51,26 @@ enum DeviceInfoRules {
     /// **Manual mode is asked about first**, ahead of whether anything is paired, because it is the answer to a
     /// different question: the other two describe a cube, and this one describes what the app is doing instead of
     /// using one.
+    ///
+    /// **Two of the six lines exist because the mode no longer follows the pairing** (`LaunchMode`), so the two can
+    /// differ and this row is where the app admits it rather than resolving it quietly:
+    ///
+    /// - A **manual launch that has since paired a cube**. The cube is real, the app can even be connected to it, and
+    ///   this launch is still not going to use it. Saying "Connected" alone would be a row describing a cube the app
+    ///   is ignoring, which is the more misleading half of the truth.
+    /// - A **device launch whose cube has since gone**, forgotten or reset from this very tab. There is nothing left
+    ///   to follow and the app will not start timing by hand on its own, so the row has to say that a restart is what
+    ///   changes it -- otherwise the honest state reads exactly like the app being broken.
+    ///
+    /// Both name the restart, because in both the restart is the entire remedy and nothing on any tab is.
     static func connection(isPaired: Bool, isConnected: Bool, isManualMode: Bool) -> String {
-        if isManualMode { return "Manual mode, no device" }
-        guard isPaired else { return "Not paired" }
+        if isManualMode {
+            guard isPaired else { return "Manual mode, no device" }
+            return isConnected
+                ? "Connected, not used until restart"
+                : "Paired, not used until restart"
+        }
+        guard isPaired else { return "Device gone, restart to time by hand" }
         return isConnected ? "Connected" : "Disconnected"
     }
 

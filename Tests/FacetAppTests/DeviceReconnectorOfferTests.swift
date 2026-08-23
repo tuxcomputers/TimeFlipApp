@@ -53,7 +53,7 @@ final class DeviceReconnectorOfferTests: XCTestCase {
     /// and is still waiting, which is the state the app spends the dialog in.
     private func reconnector(
         isTimingByHand: @escaping () -> Bool = { false },
-        answering: ManualModeAnswer? = nil,
+        answering: CubeNotFoundAnswer? = nil,
         asked: @escaping (String) -> Void = { _ in }
     ) -> DeviceReconnector {
         let loop = DeviceReconnector(
@@ -85,18 +85,18 @@ final class DeviceReconnectorOfferTests: XCTestCase {
         // there, and this line is the only place the two can be told apart.
         setPaired(true)
         var reasons: [String] = []
-        let loop = reconnector(answering: .switchToManualMode, asked: { reasons.append($0) })
+        let loop = reconnector(answering: .stopLooking, asked: { reasons.append($0) })
 
         loop.noteOutcome(.wrongPIN)
 
         XCTAssertEqual(reasons.count, 1)
-        XCTAssertEqual(reasons.first, ManualModeOffer.reason(for: .wrongPIN))
-        XCTAssertNotEqual(reasons.first, ManualModeOffer.reason(for: .unreachable))
+        XCTAssertEqual(reasons.first, CubeNotFoundOffer.reason(for: .wrongPIN))
+        XCTAssertNotEqual(reasons.first, CubeNotFoundOffer.reason(for: .unreachable))
     }
 
     func testAnUnpairedAppIsNeverAsked() {
         // There is no cube on record, so there is nothing to have failed to find and nothing to offer an alternative
-        // to. That launch is already timing by hand (`ManualMode.startIfNoDeviceIsPaired`).
+        // to. That launch is already timing by hand (`LaunchMode.decided` answers `.manual` with nothing paired).
         setPaired(false)
         var asked = 0
         let loop = reconnector(asked: { _ in asked += 1 })
@@ -139,7 +139,7 @@ final class DeviceReconnectorOfferTests: XCTestCase {
         var asked = 0
         let loop = reconnector(
             isTimingByHand: { timingByHand },
-            answering: .switchToManualMode,
+            answering: .stopLooking,
             asked: { _ in
                 asked += 1
                 timingByHand = true
@@ -193,10 +193,11 @@ final class DeviceReconnectorOfferTests: XCTestCase {
         XCTAssertTrue(logged("Timing by hand, so the offer is not put up again%"))
     }
 
-    func testForgettingTheDeviceIsStillAWayBackOut() {
-        // One of the two ways out. Forgetting turns manual mode on for its own reason -- nothing is paired -- and
-        // pairing again turns it off, at which point this is a loop again. Modelled here as the table changing under a
-        // loop that reads it per attempt, which is exactly what happens.
+    func testTheLoopReadsTheModePerAttemptRatherThanRemembering() {
+        // **What this pins is the reading, not a way out of the mode.** There is only one way out now -- a restart --
+        // and this loop does not live across one (`LaunchMode`). What still matters is that the gate is asked at the
+        // moment it is about to act rather than captured when the loop was built, which is what lets a launch that is
+        // its own clock stop reaching without anything having to tell this object so.
         var timingByHand = true
         setPaired(true)
         let loop = reconnector(isTimingByHand: { timingByHand })

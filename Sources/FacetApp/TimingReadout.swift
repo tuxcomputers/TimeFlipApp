@@ -114,11 +114,13 @@ final class TimingReadout {
     /// the Faces tab an hour later, and take the click with it, since a click follows the reading. That is the app
     /// changing its mind on somebody's behalf.
     ///
-    /// **The same answer the reconnect loop stands down on**, asked of `ManualMode` per reading rather than copied
+    /// **The same answer the reconnect loop stands down on**, asked of `LaunchMode` per reading rather than copied
     /// here, so the two halves cannot come to disagree about whether this launch follows a cube.
     ///
-    /// The way back out is a restart or forgetting the device, and neither needs telling: the mode is per-launch, so a
-    /// relaunch works it out again from `paired`, and pairing turns it off before a face is ever asked for.
+    /// **The way back out is a restart, and only a restart.** Forgetting the device used to be a second way, and
+    /// pairing one used to end the mode without being asked; neither does now. The mode is decided once from `paired`
+    /// and is what this launch is until it closes -- see `LaunchMode`, which is the whole of why this closure's answer
+    /// no longer moves under the things that read it.
     var isTimingByHand: () -> Bool = { false }
 
     /// Whether a cube is this app's cube, read from `paired` at the moment a reading is taken.
@@ -127,7 +129,7 @@ final class TimingReadout {
     /// tell apart. A link drops -- out of range, asleep, batteries out -- and `deviceFace` goes with it, because a
     /// face left behind is a claim about hardware nobody can hear. Without this the reading then fell through to the
     /// app's own faces and built a manual session out of them: the menu bar drew a category on face 13 that nobody
-    /// had picked, ticking, while the Device tab said the cube was unreachable and `ManualMode.isOn` was false
+    /// had picked, ticking, while the Device tab said the cube was unreachable and the launch was not a manual one
     /// throughout. Two pictures of one question, which is the fault the first rule in `CLAUDE.md` is about.
     ///
     /// The archive kept these apart with a `reconnecting` case, "distinct from `.failed`/`.disconnected` so the menu

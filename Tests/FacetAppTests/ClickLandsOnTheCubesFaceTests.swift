@@ -19,7 +19,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
     private var events: DeviceEventRecorder!
     private var readout: TimingReadout!
     private var settings: SettingStore!
-    private var manualMode: ManualMode!
+    private var launchMode: LaunchMode = .manual
     private var controller: SettingsWindowController!
 
     /// Face 5, which `008_face.sql` seeds *Unassigned* and unlocked. A cube face that will take a category, unlike
@@ -49,10 +49,12 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
             events: events,
             dayTotal: DayTotal(settings: settings, entries: entries, events: events, faces: faces)
         )
-        // Turned on from a table with nothing paired, which is what a launch does. The tests that pair a device turn
-        // it off again through `pairADevice`, so every state below is one a launch actually reaches.
-        manualMode = ManualMode(debugLog: nil)
-        manualMode.startIfNoDeviceIsPaired(settings)
+        // Decided from a table with nothing paired, which is what a launch does. The tests that want the other mode
+        // rebuild the controller through `pairADevice`, because a launch's mode is settled before it has a window and
+        // cannot be moved afterwards -- see `LaunchMode`.
+        // Built here rather than through `buildController`, which `setUpWithError` cannot reach: it overrides a
+        // nonisolated method, so calling a `@MainActor` one on `self` from it is sending `self` across actors.
+        launchMode = .manual
         controller = SettingsWindowController(
             debugLog: nil,
             categories: categories,
@@ -61,13 +63,30 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
             timing: readout,
             entries: entries,
             settings: settings,
-            manualMode: manualMode
+            launchMode: launchMode
+        )
+    }
+
+    /// Builds the window's controller in the mode a launch would have decided on.
+    ///
+    /// **Rebuilt rather than reconfigured**, which is the whole shape of the rule: there is no way to hand a running
+    /// controller a different mode, so a test that wants the other one is describing a different launch.
+    private func buildController(mode: LaunchMode) {
+        launchMode = mode
+        controller = SettingsWindowController(
+            debugLog: nil,
+            categories: categories,
+            faces: faces,
+            deviceEvents: events,
+            timing: readout,
+            entries: entries,
+            settings: settings,
+            launchMode: mode
         )
     }
 
     override func tearDown() {
         controller = nil
-        manualMode = nil
         settings = nil
         readout = nil
         events = nil
@@ -220,15 +239,19 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
 
     // MARK: - a paired app does not start timing by hand
 
-    /// A device on record, as pairing leaves things: the table says so, and manual mode goes off.
+    /// A launch that found a device on record: the table says so, and the mode it decided on is `.device`.
     ///
-    /// Both, because the app reads both -- `paired` is what a launch works out the mode from, and the mode is what a
-    /// click asks. Setting one and not the other would be testing a state the app cannot be in.
+    /// **Both, and set together at the start rather than flipped part way**, because the app reads both -- `paired`
+    /// is what a launch decides the mode from, and the mode is what a click asks. Setting one without the other would
+    /// be testing a state no launch reaches.
+    ///
+    /// The controller is rebuilt rather than told, since pairing a cube in front of a running window no longer
+    /// changes what that window is (`LaunchMode`). What that case does instead is the test below it.
     private func pairADevice() {
         XCTAssertTrue(
             database.execute("UPDATE setting SET setting_value = '{\"paired\":true}' WHERE setting_name = 'paired';")
         )
-        manualMode.stop(because: "a device is paired")
+        buildController(mode: .device)
     }
 
     func testAPairedAppDoesNotStartTimingByHand() {
@@ -245,17 +268,35 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
         }
     }
 
-    func testChoosingManualModeLetsTheSameClickThrough() {
-        // The button on the offer, which is the only thing that turns it on with a device paired. Same click, same
-        // state of the table, and the answer changes because the user answered.
+    func testADeviceLaunchThatGaveUpLookingStillDoesNotTimeByHand() {
+        // **What the offer used to change, and no longer does.** Answering "Stop Looking" settles the reconnect loop
+        // and nothing else: this is still a launch with a cube on record, so the click is still refused and the way
+        // to the other answer is to forget the device and start the app again.
+        //
+        // The old version of this test pressed the offer's second button and expected the same click to go through.
+        // That was the switching -- one launch being two things in turn -- and it is what `LaunchMode` removes.
         pairADevice()
-        click("Break")
-        XCTAssertEqual(openSegments, 0, "precondition: refused while paired")
 
-        manualMode.start(because: "the cube could not be found and manual mode was chosen")
         click("Break")
 
-        XCTAssertEqual(openSegments, 1)
+        XCTAssertEqual(openSegments, 0)
+        for face in ManualFace.all {
+            XCTAssertNil(faces.categoryID(forFace: face), "manual face \(face) was written to")
+        }
+    }
+
+    func testPairingADeviceDoesNotStopAManualLaunchTimingByHand() {
+        // The other direction, and the case the rule was stated for: a launch that started as its own clock goes on
+        // being one, whatever appears on the Device tab while it runs. The Connection row is where that is admitted
+        // to -- "Connected, not used until restart" (`DeviceInfoRules.connection`) -- rather than the app quietly
+        // handing the clock over half way through a day.
+        XCTAssertTrue(
+            database.execute("UPDATE setting SET setting_value = '{\"paired\":true}' WHERE setting_name = 'paired';")
+        )
+
+        click("Break")
+
+        XCTAssertEqual(openSegments, 1, "the launch is still its own clock")
         XCTAssertTrue(ManualFace.all.contains { faces.categoryID(forFace: $0) == id("Break") })
     }
 

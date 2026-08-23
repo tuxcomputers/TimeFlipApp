@@ -156,7 +156,7 @@ if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
     if ! action_required \
         "Click **Retry** on the dialog" \
         "The app could not open your TimeFlip, and is asking what to do about it." \
-        "Do not click Switch to Manual Mode yet: this script needs the retry first."
+        "Do not click Stop Looking yet: this script needs the retry first."
     then
         fail "the offer was not answered, so the retry could not be checked"
         finish
@@ -174,31 +174,35 @@ expect_log "and it is a real scan rather than the last answer again" "$retried" 
 expect_log "the cube refuses it a second time" "$retried" "%: wrongPIN" 60
 expect_log "so the offer comes back" "$retried" "Offering manual mode:%" 60
 
-# ---------------------------------------------------------------------------- taking manual mode
+# ---------------------------------------------------------------------------- giving up on it
 #
-# The same dialog, answered the other way. What it settles is the rest of the launch: no attempt of the app's own,
-# from any path, until somebody quits or forgets the device.
+# The same dialog, answered the other way. What it settles is the reconnect loop and only that: no attempt of the app's
+# own, from any path, for the rest of the launch. It does **not** turn this launch into its own clock -- a launch that
+# started with a cube on record stays one until it closes (`LaunchMode`).
 
 chosen=$(mark)
-press_title "Switch to Manual Mode"
+press_title "Stop Looking"
 sleep 2
 
-if ! wait_for "$chosen" "Manual mode chosen;%" 5 >/dev/null; then
+if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
     grey "  the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Switch to Manual Mode** on the dialog" \
+        "Click **Stop Looking** on the dialog" \
         "The app still could not open your TimeFlip, and is asking again." \
         "This is the last thing this script needs from you."
     then
-        fail "the second offer was not answered, so manual mode was never reached"
+        fail "the second offer was not answered, so the app was never told to stand down"
         finish
         exit $?
     fi
 fi
 
-expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Manual mode chosen;%" 60
-expect_log "and the mode is recorded as on" "$chosen" "Manual mode: on,%" 10
+expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Stop looking chosen;%" 60
 check "the cube is still this app's cube, refused PIN and all" "1" "$(setting paired paired)"
+# **And the launch is not turned into its own clock**, which this answer used to do as well. Any `mode` row after the
+# startup one would be the switching coming back.
+check "and the launch is still the one that started" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $chosen AND tag = 'mode' AND message LIKE 'Launch mode:%';")"
 
 # **Nothing is looked for again**, which is the whole of what taking it means. Checked against the log rather than by
 # waiting: an attempt would announce itself, so the absence of one over a stretch is the evidence.

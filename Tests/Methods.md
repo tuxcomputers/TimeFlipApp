@@ -286,11 +286,11 @@ tools only walk sheets. The whole-tree search is what finds it:
 ```sh
 python3 scripts/ax-dump.py | head -8
 #   AXWindow  id=_NS:87  desc=alert
-#     AXStaticText  value=Unable to find your device, retry or switch to manual mode
+#     AXStaticText  value=Unable to find your device
 #     AXButton  id=action-button-1  title=Retry
-#     AXButton  id=action-button-2  title=Switch to Manual Mode
+#     AXButton  id=action-button-2  title=Stop Looking
 
-python3 scripts/ax-press.py --title "Switch to Manual Mode"
+python3 scripts/ax-press.py --title "Stop Looking"
 ```
 
 **An `AXPress` does actuate it, from inside the modal run loop.** That was the open question: `runModal` blocks the

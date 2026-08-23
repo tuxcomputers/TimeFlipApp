@@ -5,14 +5,20 @@
 # Bluetooth off is the one way to make a paired cube unreachable without carrying it out of the building, and nothing
 # on this machine may turn a radio off on somebody's behalf.
 #
-# **Two states, and they are opposites, which is the whole point.**
+# **Two states, and what separates them is narrower than it used to be.**
 #
-#   1. **Paired, the link gone, and manual mode not chosen.** The app has a cube and is looking for it. A click on a
-#      category is refused: an app that quietly started its own clock would record against one category while the cube
-#      records against whatever face it is sitting on, and whichever was read later would look like the answer.
-#   2. **Paired, and manual mode chosen.** Somebody has said to get on without the device. Now the click starts the
-#      clock, and the app stops reaching for the cube for the rest of the launch -- it does not go back to looking when
-#      the radio comes back, and it does not put the question up again.
+#   1. **Paired, the link gone, and the app still looking.** A click on a category is refused: an app that quietly
+#      started its own clock would record against one category while the cube records against whatever face it is
+#      sitting on, and whichever was read later would look like the answer.
+#   2. **Paired, and Stop Looking chosen.** Somebody has said to give up on the device. The app stops reaching for the
+#      cube for the rest of the launch -- it does not go back to looking when the radio comes back, and it does not
+#      put the question up again. **The click is still refused**, and that is the change this script now pins: the
+#      answer settles the reconnect loop and does not turn the launch into its own clock.
+#
+# **Why the second state no longer starts the clock.** A launch decides once whether it follows a cube or is its own
+# clock, and nothing moves it after that (`LaunchMode`). This script used to press the offer's second button and watch
+# the same click go from refused to allowed; that was one launch being two things in turn, and the switching it needed
+# is what was removed. The way to timing by hand is a forget and a restart, which is what the dialog now says.
 #
 # **Why a restart sits between them.** The offer only ever appears to a launch that has *never* reached its cube
 # (`ManualModeOffer`), so losing the link mid-session retries quietly for ever and never asks. Getting the question on
@@ -21,8 +27,8 @@
 #
 # **The offer is an app-modal `NSAlert`, not a sheet**, so `ax-alert.py` cannot see it -- that tool addresses `AXSheet`
 # and this is a window of its own. It is pressed by title instead, which is unambiguous here because no other control
-# in the app is called "Switch to Manual Mode" (the trap Method 12 records applies to sheets naming their button after
-# the control that opened them). Whether an `AXPress` actuates a button inside a modal run loop is not something this
+# in the app is called "Stop Looking" (the trap Method 12 records applies to sheets naming their button after the
+# control that opened them). Whether an `AXPress` actuates a button inside a modal run loop is not something this
 # suite has measured before, so the press is followed by a poll and a person is asked only if it did not take.
 #
 # **It leaves Bluetooth back on and the device forgotten**, both deliberately: `99-quit` wipes the cube so this run's
@@ -32,7 +38,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=30
+EXPECTED_CHECKS=29
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -227,15 +233,15 @@ expect_log "and, finding nothing, offers manual mode rather than retrying behind
 # have worked.
 
 chosen=$(mark)
-press_title "Switch to Manual Mode"
+press_title "Stop Looking"
 sleep 2
 
-if ! wait_for "$chosen" "Manual mode chosen;%" 5 >/dev/null; then
+if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
     grey "  the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Switch to Manual Mode** on the dialog" \
+        "Click **Stop Looking** on the dialog" \
         "The app could not find your TimeFlip, and is asking what to do about it." \
-        "Do not click Retry: this script is about what happens after manual mode is taken."
+        "Do not click Retry: this script is about what happens after the app gives up."
     then
         fail "the offer was not answered, so nothing below it could be checked"
         finish
@@ -243,30 +249,38 @@ if ! wait_for "$chosen" "Manual mode chosen;%" 5 >/dev/null; then
     fi
 fi
 
-expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Manual mode chosen;%" 60
-expect_log "and the mode is recorded as on, with the pairing untouched" "$chosen" "Manual mode: on,%" 10
+expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Stop looking chosen;%" 60
 check "the device is still this app's device" "1" "$(setting paired paired)"
+# **The launch is not turned into its own clock**, which is the half of the old behaviour that was removed. A `mode`
+# row saying otherwise would be the switching coming back.
+check "and the launch is not turned into its own clock" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $chosen AND tag = 'mode' AND message LIKE 'Launch mode:%';")"
 
-# ---------------------------------------------------------------------------- now the click is allowed
+# ---------------------------------------------------------------------------- and the click is still refused
 #
-# The same click as before, in the same state of the table, answered differently because somebody answered.
+# The same click as before, in the same state of the table, answered the same way -- which is the point. Giving up on
+# the cube settles the reconnect loop and nothing else: this is still a launch with a cube on record, so there is still
+# nothing for a click to start.
 
 open_settings
 select_tab Faces
 since=$(mark)
+open_before=$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")
 press "category-row-$BREAK"
 sleep 1.5
 
-# The other half of the drawing: the rows come back live the moment the click has something to do again.
+# The drawing has to agree with the refusal. A live-looking row that does nothing is the worse of the two failures:
+# it invites the click rather than explaining why there is nothing to click.
 case "$(element "category-row-$BREAK")" in
     "") fail "there is no category row to check" ;;
-    *disabled*) fail "the category rows are still dead after choosing manual mode" ;;
-    *) pass "the category rows are live again once manual mode is chosen" ;;
+    *disabled*) pass "the category rows stay dead, the launch still having a cube on record" ;;
+    *) fail "the category rows went live after Stop Looking, which is the switching coming back" ;;
 esac
 
-expect_log "the same click now starts the clock" "$since" "Timing: started Break%"
-check "and a segment is open" "1" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
-check_contains "the menu bar is timing it" "$(status_item)" "Break"
+check "no clock starts" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Timing: started%';")"
+check "and no segment is opened" "$open_before" \
+    "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
 
 # ---------------------------------------------------------------------------- and the radio is left alone
 #
@@ -302,15 +316,18 @@ check "and reaches for nothing" "0" \
 check "the question is not put again" "0" \
     "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $quiet AND message LIKE 'Offering manual mode:%';")"
 check "so nothing is connected" "0" "$(setting connection connected)"
-# The menu bar is still drawing what the app is timing by hand. A cube that had crept back in would be drawn instead,
-# with no clock, so the figure is what says the reading is still the manual one.
-check_contains "and the menu bar is still timing by hand" "$(status_item)" "Break"
+# **The menu bar says the app's own name and nothing else**, which is what this state actually looks like: a launch
+# that follows a cube, with no cube to follow and no licence to start its own clock. A category appearing here would
+# mean either the cube crept back in or the app started timing by hand, and both are the failure.
+check_contains "and the menu bar shows the app rather than a category" "$(status_item)" "Facet"
 
 # ---------------------------------------------------------------------------- the way back out
 #
-# Two ways out and this is the one a script can take: forgetting the device. (The other is quitting and starting the
-# app, which every later run does anyway -- the mode is per-launch and in memory, so a relaunch works it out again from
-# `paired`.) It is also what `99-quit` needs, since it cannot wipe a cube this script left unreachable.
+# **Forgetting the device is half of the way out, and the script can only take that half.** The other half is the
+# restart, which is what actually changes the mode: a launch that decided `.device` stays one until it closes, so the
+# app is still not going to time anything after this. Every later run supplies the restart anyway.
+#
+# It is also what `99-quit` needs, since it cannot wipe a cube this script left unreachable.
 
 open_settings
 select_tab Device
@@ -319,18 +336,16 @@ press device-forget
 sleep 1.5
 
 check "forgetting the device gives the pairing up" "0" "$(setting paired paired)"
-# **Nothing is logged here, and that is the app being right rather than this being a weak check.** `ManualMode.start`
-# returns silently when the mode is already on, exactly as `stop` does when it is already off, so a forget that finds
-# manual mode already chosen announces nothing at all. This asserted that announcement until 2026-08-22 and could
-# never have passed: the mode was turned on by the offer forty lines above, so `start` returns before it reaches the
-# log. The row it wanted belongs to a different path -- a launch that starts with no pairing at all.
+# **Nothing about the mode is logged here, and that is the app being right.** Forgetting a cube is exactly the kind of
+# tidying-up that used to reset the mode along with the pairing -- it was one of three callers that did -- and a launch
+# that changed what it was at this point would be the switching coming back through the back door.
 #
-# What is genuinely at risk here is the opposite of what was being checked. Forgetting the device is exactly the kind
-# of tidying-up that could reset the mode along with the pairing, and a launch that dropped out of manual mode at this
-# point would go back to timing nothing, with no cube to time instead.
-check "and manual mode is not turned off along with the pairing" "0" \
-    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'mode' AND message LIKE 'Manual mode: off%';")"
-check_contains "so the menu bar is still timing by hand" "$(status_item)" "Break"
+# The whole `mode` tag is asserted rather than one message, because what must not happen is any mode row at all: the
+# only one a launch writes is the line `LaunchMode.decided` writes at startup.
+check "and the launch is still what it was, no mode row of any kind" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'mode';")"
+# Still the app's own name: a forget does not hand the clock over any more than the offer did.
+check_contains "so the menu bar still shows the app rather than a category" "$(status_item)" "Facet"
 # The Scan button is hidden while a cube is paired, so its coming back is the whole of what "and reconnect" means.
 if [ -n "$(element device-scan)" ]; then
     pass "the Scan button is back, which is the way to a cube again"
