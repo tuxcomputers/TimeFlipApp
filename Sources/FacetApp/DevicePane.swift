@@ -185,6 +185,13 @@ final class DevicePane: NSView {
     /// is what says which, and it is the only thing that does: nothing stores a fold.
     var onToggle: ((String, Bool) -> Void)?
 
+    /// Somebody ticked or unticked **Disable** under Double tap. `true` means the gesture is wanted.
+    ///
+    /// **The box reports what it now shows, and does not decide anything.** Whether the cube accepts it is the
+    /// window's to find out and the cube's to answer, and a refusal puts the box back (`showDoubleTapEnabled`) --
+    /// which is `CLAUDE.md`'s rule about a control never being left showing something the table does not hold.
+    var onDoubleTapEnabledChanged: ((Bool) -> Void)?
+
     init() {
         super.init(frame: .zero)
         addSections()
@@ -257,6 +264,39 @@ final class DevicePane: NSView {
         doubleTapValues[Identifier.doubleTapLimit]?.stringValue = "\(values.doubleTapLimit)"
         doubleTapValues[Identifier.doubleTapLatency]?.stringValue = "\(values.doubleTapLatency)"
         doubleTapValues[Identifier.doubleTapWindow]?.stringValue = "\(values.doubleTapWindow)"
+    }
+
+    /// The four registers as this window currently holds them.
+    ///
+    /// **From the window rather than from the table**, which is the licence `CLAUDE.md` grants an open Settings
+    /// window and the reason it grants it: these are what somebody is looking at, so they are what a command built
+    /// now should carry. The `enabled` flag is deliberately not folded in -- what is sent when the gesture is off is
+    /// `DoubleTapRules.asSent`'s to decide, and it is one decision in one place.
+    var doubleTapParameters: DoubleTapParameters {
+        DoubleTapParameters(
+            threshold: UInt8(clamping: values.doubleTapThreshold),
+            limit: UInt8(clamping: values.doubleTapLimit),
+            latency: UInt8(clamping: values.doubleTapLatency),
+            window: UInt8(clamping: values.doubleTapWindow)
+        )
+    }
+
+    /// Puts the Disable box where the answer says it should be, without telling anybody it moved.
+    ///
+    /// **Set directly rather than through `show`**, because this is the one path that must not re-read the whole tab:
+    /// a refused write has to put this one control back while every other row goes on showing what it was showing.
+    /// `state` is assigned rather than the action fired, so a correction cannot be mistaken for somebody ticking it.
+    func showDoubleTapEnabled(_ isEnabled: Bool) {
+        values.isDoubleTapEnabled = isEnabled
+        doubleTapDisableBox.state = isEnabled ? .off : .on
+    }
+
+    @objc private func doubleTapDisableChanged() {
+        // The box says "Disable", so ticked is the gesture being unwanted. Reported the right way round here, once,
+        // rather than at every reader of it.
+        let isEnabled = doubleTapDisableBox.state == .off
+        values.isDoubleTapEnabled = isEnabled
+        onDoubleTapEnabledChanged?(isEnabled)
     }
 
     /// Flashes the Battery row while the cube is flat, in step with the menu bar.
@@ -413,7 +453,9 @@ final class DevicePane: NSView {
 
         // **"Disable", not "Enable".** The archive's wording, and the right way round: the setting is on by default,
         // so the box somebody ticks is the one that turns the gesture off.
-        doubleTapDisableBox = NSButton(checkboxWithTitle: "Disable", target: nil, action: nil)
+        doubleTapDisableBox = NSButton(
+            checkboxWithTitle: "Disable", target: self, action: #selector(doubleTapDisableChanged)
+        )
         doubleTapDisableBox.translatesAutoresizingMaskIntoConstraints = false
         doubleTapDisableBox.setAccessibilityIdentifier(Identifier.doubleTapDisable)
 

@@ -295,9 +295,100 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.onToggle = { [weak self] identifier, isExpanded in
             self?.debugLog?.record(.tab, "Device section \(identifier) \(isExpanded ? "opened" : "folded")")
         }
+        pane.onDoubleTapEnabledChanged = { [weak self, weak pane] isEnabled in
+            guard let self, let pane else { return }
+            self.applyDoubleTapEnabled(isEnabled, on: pane)
+        }
         pane.show(deviceSettings())
         wireScan(on: pane)
         return pane
+    }
+
+    /// Turns the cube's double tap off or back on, from the **Disable** box.
+    ///
+    /// **Off is `window` zero, because the hardware has no switch.** The vendor spec defines no command that disables
+    /// double tap, and the archive measured the same on a real cube (`Archive/Tests/Methods.md` Method 22): the only
+    /// lever is sensitivity. So this is suppression rather than an off switch, and `DoubleTapRules.asSent` is where
+    /// that one decision lives. Turning it back on sends the four values the window holds, which is why the stored
+    /// `window` keeps its real value throughout -- zeroing what is stored would lose the number to come back to.
+    ///
+    /// **Sent before it is recorded, and recorded only if the cube confirmed it.** `0x16` has a read-back, so
+    /// `BluetoothRadio.send` compares `0x17`'s answer against the bytes that went out before reporting success
+    /// (`DeviceCommandRules.readBack`). A `double_tap_settings` row written on the strength of a command the cube
+    /// refused would be the app's wish recorded as the cube's state, which is the disagreement the first rule in
+    /// `CLAUDE.md` exists to prevent.
+    ///
+    /// **Both ways of failing put the box back and say so.** A cube that would not take it, and a table that would
+    /// not hold it: a box still showing what was clicked while neither the cube nor the table agrees is the
+    /// two-answers problem with a tick in it.
+    private func applyDoubleTapEnabled(_ isEnabled: Bool, on pane: DevicePane) {
+        let wanted = DoubleTapRules.asSent(pane.doubleTapParameters, isEnabled: isEnabled)
+        debugLog?.record(
+            .field,
+            "Double tap: \(isEnabled ? "on" : "off") wanted, sending \(wanted.described)"
+        )
+        // **No radio at all refuses, rather than silently doing nothing.** That is a controller built without one --
+        // a layout test rather than a launch -- and a box that moved with no command behind it would be the surface
+        // claiming something about hardware that was never asked.
+        guard let radio else {
+            debugLog?.record(.field, "Double tap: there is no radio to send to, so the box goes back")
+            pane.showDoubleTapEnabled(!isEnabled)
+            return
+        }
+        radio.send(DoubleTapRules.command(for: wanted)) { [weak self, weak pane] confirmed in
+            guard let self, let pane else { return }
+            guard confirmed else {
+                self.debugLog?.record(.field, "Double tap: the cube did not take it, so the box goes back")
+                pane.showDoubleTapEnabled(!isEnabled)
+                self.showDoubleTapRefusedByTheCube()
+                return
+            }
+            guard let settings = self.settings else { return }
+            let stored = settings.write("double_tap_settings", field: "enabled", isEnabled)
+            self.debugLog?.record(
+                .field,
+                "Double tap: the cube is \(isEnabled ? "listening for taps" : "not listening for taps")"
+                    + "\(stored ? "" : ", but the table REFUSED the row")"
+            )
+            guard stored else {
+                // **The cube took it and the table did not**, which is the one case where putting the box back is a
+                // lie about the hardware and leaving it is a lie about the tables. The box follows the table, that
+                // being what the next open of this window will read, and the alert says the cube is out of step.
+                pane.showDoubleTapEnabled(!isEnabled)
+                self.showDoubleTapNotRecorded(isEnabled: isEnabled)
+                return
+            }
+            pane.showDoubleTapEnabled(isEnabled)
+        }
+    }
+
+    /// What a cube that would not take the command says.
+    private func showDoubleTapRefusedByTheCube() {
+        let alert = NSAlert()
+        alert.messageText = "The TimeFlip did not accept that"
+        alert.informativeText = """
+        The double-tap setting was sent to the device and the device did not confirm it, so nothing has changed and \
+        the box has gone back to what is stored.
+
+        This usually means the device is out of range or busy. Trying again is safe.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    /// What a cube that took it and a table that would not says. Rarer than the above and worse, so it says plainly
+    /// that the two now disagree and which one the app will believe next time.
+    private func showDoubleTapNotRecorded(isEnabled: Bool) {
+        let alert = NSAlert()
+        alert.messageText = "That setting was not saved"
+        alert.informativeText = """
+        The TimeFlip accepted double tap being turned \(isEnabled ? "on" : "off"), but the database would not record \
+        it, so the box has gone back to what is stored.
+
+        The device and the app now disagree until the next time this is set. Trying again is safe.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     /// Connects the TimeFlip section's button to the radio.

@@ -155,6 +155,17 @@ enum DeviceCommandRules {
             return ReadBack(request: status) { status(from: $0)?.isPaused == wanted }
         case lockCommand:
             return ReadBack(request: status) { status(from: $0)?.isLocked == wanted }
+        case DoubleTapRules.write:
+            // **Confirmed register by register, against the command's own bytes.** `0x17` answers in the same
+            // nine-byte shape `0x16` was written in, so what went out and what came back are compared as parsed
+            // values rather than as two descriptions of them.
+            //
+            // **This one identifies itself**, unlike `0x10`: the answer echoes `0x17` and all four register
+            // addresses, which is what `DoubleTapRules.parameters(from:)` checks every byte of. A leftover reply
+            // sitting in the characteristic (finding 2, `docs/timeflip2-firmware-observations.md`) fails that shape
+            // rather than being mistaken for this command's answer.
+            guard let asked = DoubleTapRules.parameters(sentIn: command) else { return nil }
+            return ReadBack(request: Data([DoubleTapRules.read])) { DoubleTapRules.parameters(from: $0) == asked }
         case timeCommand:
             // The clock this command asked for, read back out of the command's own bytes rather than passed in
             // alongside them: there is one place that knows the layout and it is `setTime`.

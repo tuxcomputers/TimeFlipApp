@@ -15,7 +15,7 @@ SELECT 'db_type', '{"type":"production"}', 'type: "production" or "test" -- whic
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'db_type');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
-SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}', 'Double-tap detection settings. enabled controls whether double-tap gesture detection is on; if false, double-tap notifications from the device are ignored. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Archive/TimeFlipApp/TimeFlipDoubleTapParameters.swift -- captured from a real device''s actual registers via Tests/Bench (see Tests/Bench/device_register_snapshot.json), not an arbitrary guess.'
+SELECT 'double_tap_settings', '{"enabled":true,"clickThreshold":90,"limit":20,"latency":50,"window":50}', 'Double-tap detection settings. enabled is what the app wants the gesture to be, and turning it off is faked: no BLE command disables double tap, so false means command 0x16 is sent with window forced to 0, which makes the gesture unrecognisable (Archive/Tests/Methods.md Method 22). The stored window keeps its real value throughout, since that is what turning the gesture back on sends. clickThreshold/limit/latency/window are the accelerometer parameters, seeded from DoubleTapParameters.default in Archive/TimeFlipApp/TimeFlipDoubleTapParameters.swift -- captured from a real device''s actual registers via Tests/Bench (see Tests/Bench/device_register_snapshot.json), not an arbitrary guess.'
 WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting_name = 'double_tap_settings');
 
 INSERT INTO setting (setting_name, setting_value, setting_description)
