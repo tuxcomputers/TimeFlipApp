@@ -465,6 +465,40 @@ final class DevicePaneTests: XCTestCase {
         }
     }
 
+    func testAFoldedGroupsRowsSitAtTheCategoriesTabsPitch() throws {
+        // **Height was only half of it.** The rows were made 24 to match the Categories tab and still did not look
+        // like it, because that tab puts 8 between its rows and this one put nothing: same height, two thirds of the
+        // rhythm. Measured on screen at 64px against Categories' 64px on a 2x display (2026-08-23).
+        //
+        // Only the folded groups. The lists above them are divided by hairlines and are meant to run together -- a
+        // gap there would leave each hairline floating above the row it divides rather than between the two.
+        let pane = DevicePane()
+        pane.show(paired)
+        pane.frame = NSRect(x: 0, y: 0, width: 520, height: 1200)
+        pane.layoutSubtreeIfNeeded()
+
+        let centres = try [
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ].map { identifier -> CGFloat in
+            let control = try XCTUnwrap(view(identifier, in: pane), identifier)
+            return control.convert(control.bounds, to: pane).midY
+        }
+
+        let expected = DevicePane.Layout.minimumRowHeight + DevicePane.Layout.rowSpacing
+        for (above, below) in zip(centres, centres.dropFirst()) {
+            XCTAssertEqual(abs(below - above), expected, accuracy: 0.5)
+        }
+        XCTAssertEqual(expected, 32, "the Categories tab's row plus its gap")
+    }
+
+    func testTheGapIsTheCategoriesTabsOwnNumber() {
+        // Read from there rather than repeated, so moving that tab's rhythm moves this one with it.
+        XCTAssertEqual(DevicePane.Layout.rowSpacing, CategoryTable.Layout.rowSpacing)
+    }
+
     func testTheTabSitsAtTheCategoriesTabsRowHeight() {
         // The number itself, stated once so that moving it is a decision rather than a drift. The two tabs separate
         // their rows differently -- Categories with stack spacing, this one with hairlines and none -- so the height

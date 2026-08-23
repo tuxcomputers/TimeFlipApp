@@ -77,6 +77,11 @@ final class DevicePane: NSView {
         /// than any row here, and flush against the edges they read as a toolbar rather than as part of the panel.
         static let controlRowPadding: CGFloat = 11
 
+        /// The gap between rows that have no hairline to divide them, which is `CategoryTable.Layout.rowSpacing`
+        /// read from there rather than repeated: the Categories tab's rhythm is what this tab is being measured
+        /// against, so its number moving should move this one.
+        static let rowSpacing: CGFloat = CategoryTable.Layout.rowSpacing
+
         /// **The Categories tab's row height**, which is what the rows on this tab are measured against: that tab
         /// hugs its controls at 24 and separates them with stack spacing, while this one runs them together with
         /// hairlines between (see `stack()`), so the height is the part the two have in common and the part worth
@@ -428,7 +433,7 @@ final class DevicePane: NSView {
         hardwareValue = value(identifier: Identifier.hardware)
         firmwareValue = value(identifier: Identifier.firmware)
 
-        let details = stack()
+        let details = stack(spacing: Layout.rowSpacing)
         add(
             [
                 row("Manufacturer", manufacturerValue, identifier: Identifier.manufacturer, separated: false),
@@ -474,7 +479,7 @@ final class DevicePane: NSView {
 
         ledBrightnessValue = value(identifier: Identifier.ledBrightness)
         ledBlinkValue = value(identifier: Identifier.ledBlink)
-        let led = stack()
+        let led = stack(spacing: Layout.rowSpacing)
         add(
             [
                 row("Brightness", ledBrightnessValue, identifier: Identifier.ledBrightness, separated: false),
@@ -493,7 +498,7 @@ final class DevicePane: NSView {
         doubleTapDisableBox.translatesAutoresizingMaskIntoConstraints = false
         doubleTapDisableBox.setAccessibilityIdentifier(Identifier.doubleTapDisable)
 
-        let doubleTap = stack()
+        let doubleTap = stack(spacing: Layout.rowSpacing)
         var doubleTapRows: [NSView] = [leading(doubleTapDisableBox)]
         // **0 to 255, because that is the register.** Each of the four is one `UInt8` written straight to the
         // accelerometer (`0x16`), so the range is the hardware's and not a judgement about useful values. `Window` at
@@ -763,13 +768,18 @@ final class DevicePane: NSView {
 
     // MARK: - the pieces a row is made of
 
-    private func stack() -> NSStackView {
+    /// - Parameter spacing: the gap between rows. **Nothing for a list with hairlines**, which is what the two
+    ///   outer lists are: a divider between rows is what separates them, and a gap would leave each hairline
+    ///   floating above the row it divides rather than between the two.
+    ///
+    ///   **`Layout.rowSpacing` for a list without them**, which is the folded groups: nothing divides those rows, so
+    ///   with no gap they run together into a block. That is the Categories tab's arrangement, and this is its
+    ///   number -- the two tabs then share both halves of the rhythm rather than only the row height.
+    private func stack(spacing: CGFloat = 0) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        // No gap: these are a list with hairlines between them, not separate controls, and the padding inside each
-        // row is what keeps them apart.
-        stack.spacing = 0
+        stack.spacing = spacing
         stack.distribution = .fill
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
