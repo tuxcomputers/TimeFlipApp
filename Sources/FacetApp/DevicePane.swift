@@ -63,8 +63,26 @@ final class DevicePane: NSView {
         static let headingSpacing: CGFloat = 12
         static let sectionSpacing: CGFloat = 24
         static let rowInset: CGFloat = 20
-        static let rowPadding: CGFloat = 11
-        static let minimumRowHeight: CGFloat = 38
+
+        /// **Nothing, so a row is exactly `minimumRowHeight` unless its own content is taller.** It was 11, which is
+        /// what made a row holding a `SteppedNumberField` come out at 46: the field is 24 and the padding added
+        /// itself twice on top. That was invisible while these rows held plain labels at 16 and the minimum decided
+        /// them, and became visible the moment the double-tap registers became fields somebody could step.
+        ///
+        /// **Still an inequality wherever it is used**, so this being zero does not stop content taller than the row
+        /// pushing the row taller. What it stops is padding deciding a height the list has already decided.
+        static let rowPadding: CGFloat = 0
+
+        /// The one row that keeps breathing space, and it is not a list row: the scan controls are buttons, taller
+        /// than any row here, and flush against the edges they read as a toolbar rather than as part of the panel.
+        static let controlRowPadding: CGFloat = 11
+
+        /// **The Categories tab's row height**, which is what the rows on this tab are measured against: that tab
+        /// hugs its controls at 24 and separates them with stack spacing, while this one runs them together with
+        /// hairlines between (see `stack()`), so the height is the part the two have in common and the part worth
+        /// sharing. Shared with `DisclosureRow`, which only this tab builds, so a folding heading sits at the same
+        /// rhythm as the plain rows around it.
+        static let minimumRowHeight: CGFloat = 24
         static let separatorHeight: CGFloat = 1
     }
 
@@ -578,8 +596,10 @@ final class DevicePane: NSView {
         NSLayoutConstraint.activate([
             pair.leadingAnchor.constraint(equalTo: controls.leadingAnchor, constant: Layout.rowInset),
             pair.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
-            pair.topAnchor.constraint(greaterThanOrEqualTo: controls.topAnchor, constant: Layout.rowPadding),
-            pair.bottomAnchor.constraint(lessThanOrEqualTo: controls.bottomAnchor, constant: -Layout.rowPadding),
+            pair.topAnchor.constraint(greaterThanOrEqualTo: controls.topAnchor, constant: Layout.controlRowPadding),
+            pair.bottomAnchor.constraint(
+                lessThanOrEqualTo: controls.bottomAnchor, constant: -Layout.controlRowPadding
+            ),
 
             // The words give way before the controls do: a window too narrow for both should shorten the message,
             // not clip the button that starts the scan.

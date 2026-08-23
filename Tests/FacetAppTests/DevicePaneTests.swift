@@ -429,6 +429,49 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(stepper(DevicePane.Identifier.autoPause, in: pane)?.value, 12)
     }
 
+    func testEveryRowOnTheTabIsTheSameHeight() throws {
+        // **The rhythm of the list, and it is the Categories tab's 24.** Worth pinning because it broke silently once
+        // and in a way no test noticed: the four double-tap registers were plain labels at 16, so `minimumRowHeight`
+        // decided their rows; making them `SteppedNumberField`s at 24 put them over it, the padding added itself
+        // twice on top, and those four rows alone came out at 46 while everything around them stayed at 38.
+        //
+        // A control taller than a row is still allowed to push it -- the padding constraints are inequalities -- so
+        // this is not a cap. It is that nothing on this tab should be reaching for one.
+        let pane = DevicePane()
+        pane.show(paired)
+        pane.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
+        pane.layoutSubtreeIfNeeded()
+
+        for identifier in [
+            DevicePane.Identifier.connection,
+            DevicePane.Identifier.battery,
+            DevicePane.Identifier.autoPause,
+            DevicePane.Identifier.doubleTapDisable,
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ] {
+            let control = try XCTUnwrap(view(identifier, in: pane), identifier)
+            // The row is the ancestor that `settled` sized, which is the first plain `NSView` above the control.
+            var node: NSView? = control
+            while let current = node, !(current.superview is NSStackView) { node = current.superview }
+            let row = try XCTUnwrap(node, identifier)
+
+            XCTAssertEqual(
+                row.frame.height, DevicePane.Layout.minimumRowHeight, accuracy: 0.5,
+                "\(identifier) is \(row.frame.height) where every other row is \(DevicePane.Layout.minimumRowHeight)"
+            )
+        }
+    }
+
+    func testTheTabSitsAtTheCategoriesTabsRowHeight() {
+        // The number itself, stated once so that moving it is a decision rather than a drift. The two tabs separate
+        // their rows differently -- Categories with stack spacing, this one with hairlines and none -- so the height
+        // is the part they share.
+        XCTAssertEqual(DevicePane.Layout.minimumRowHeight, 24)
+    }
+
     func testTheFourRegistersAreSteppedFields() throws {
         // The same control the rest of the app uses, so an arrow steps them and a script can drive them by name.
         // They were read-only labels until the registers could actually be sent.
