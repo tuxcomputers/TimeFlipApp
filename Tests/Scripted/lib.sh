@@ -414,6 +414,11 @@ pair_a_cube() {
     # this and carries on using it afterwards.
     open_settings
     select_tab Device
+    # **What the quit above leaves behind: a locked, paused cube.** The app pauses and locks the cube as it goes
+    # ("Quit: the cube is paused and locked"), so from here on a script that pairs inherits one, where before this
+    # restart existed it inherited whatever the last script left running. Six of the callers do not care. `57` does,
+    # a locked cube refusing the pause it is about, and unlocks it first -- as a repair rather than as a check, so
+    # its declared total does not depend on the hardware.
     return 0
 }
 
