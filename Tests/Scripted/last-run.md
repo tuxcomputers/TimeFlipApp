@@ -5,16 +5,16 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   bugfix/lostConnection
-    commit:   5d156e7083159fef756a39c7d8fa7a7ae524804e
+    commit:   357301011f7feda164eba97852028bf5d2d49600
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-23 15:46:43
-    finished: 2026-08-23 16:02:53
-    outcome:  failed
-    scripts:  23 of 24 run, 0 with failures
-    short:    1 ran fewer checks than they declare
-    checks:   572 in total
-              572 passed
+    started:  2026-08-23 16:04:50
+    finished: 2026-08-23 16:23:27
+    outcome:  passed
+    scripts:  24 of 24 run, 0 with failures
+    short:    0 ran fewer checks than they declare
+    checks:   585 in total
+              585 passed
               0 failed
 
 | script | expected | passed | failed |
@@ -41,9 +41,9 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 55-device-face | 43 | 43 | 0 |
 | 56-manual-mode | 30 | 30 | 0 |
 | 57-cube-pause | 38 | 38 | 0 |
-| 58-wrong-pin | 20 | 21 | 0 |
-| 99-quit | 13 | 0 | 0 |
-| **total** | **584** | **572** | **0** |
+| 58-wrong-pin | 21 | 21 | 0 |
+| 99-quit | 13 | 13 | 0 |
+| **total** | **585** | **585** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
