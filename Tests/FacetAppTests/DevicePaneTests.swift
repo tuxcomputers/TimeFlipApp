@@ -595,6 +595,56 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(reported, 0, "and nobody was told, because nobody did it")
     }
 
+    func testARefusedWriteCanPutTheFourFieldsBackWithoutSayingSo() throws {
+        // The mirror of the box's correction path. `SteppedNumberField.value` is assigned rather than the arrow
+        // pressed, so putting a field back cannot be mistaken for somebody moving it and start a second write.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onDoubleTapValueChanged = { changes += 1 }
+
+        pane.showDoubleTapValues(DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0))
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.value, 200)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLimit, in: pane)?.value, 45)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLatency, in: pane)?.value, 34)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.value, 0)
+        XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
+    }
+
+    func testTheCorrectedFieldsAreWhatTheNextReadOfThePaneGives() {
+        // `values` is what `doubleTapParameters` falls back to and what the next write carries, so a correction that
+        // moved the fields and left it behind would send the refused numbers again on the following change.
+        let pane = DevicePane()
+        pane.show(.seeded)
+
+        pane.showDoubleTapValues(DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0))
+
+        XCTAssertEqual(pane.values.doubleTapThreshold, 200)
+        XCTAssertEqual(pane.values.doubleTapLimit, 45)
+        XCTAssertEqual(pane.values.doubleTapLatency, 34)
+        XCTAssertEqual(pane.values.doubleTapWindow, 0)
+        XCTAssertEqual(
+            pane.doubleTapParameters,
+            DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
+        )
+    }
+
+    func testAFieldAlreadyOnTheValueIsLeftAlone() throws {
+        // This runs on the way out of a write that took, as well as one that did not, so it lands on fields already
+        // holding these numbers. Assigning `value` replaces the text in the field, which would take it out from under
+        // whoever is typing -- so a field already on the value is not touched.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        let field = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane))
+        let text = try XCTUnwrap(descendants(of: field).compactMap { $0 as? NSTextField }.first)
+        text.stringValue = "9"
+
+        pane.showDoubleTapValues(DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50))
+
+        XCTAssertEqual(text.stringValue, "9", "the field is already on 90, so it was not rebuilt")
+    }
+
     func testTheDoubleTapBoxIsTickedWhenTheGestureIsOff() throws {
         // "Disable", not "Enable", which is the archive's wording and the right way round: the setting is on by
         // default, so the box somebody ticks is the one that turns the gesture off. Ticked means disabled, and

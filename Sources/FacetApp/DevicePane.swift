@@ -326,6 +326,33 @@ final class DevicePane: NSView {
         doubleTapDisableBox.state = isEnabled ? .off : .on
     }
 
+    /// Puts the four registers where the table says they should be, without telling anybody they moved.
+    ///
+    /// **The mirror of `showDoubleTapEnabled`, and for the same reason**: a refused write has to correct these four
+    /// rows while every other row on the tab goes on showing what it was showing, so this is the one path that must
+    /// not re-read the whole tab.
+    ///
+    /// **Called on the way out of a write that took, as well as one that did not**, so `values` never drifts from
+    /// what the fields hold -- and the guard below is what makes that safe. `SteppedNumberField.value` does not fire
+    /// `onChange`, so no correction can be mistaken for somebody moving an arrow, but assigning it does replace the
+    /// text in the field: doing that to a field already showing the number would take it out from under whoever is
+    /// typing, which `CLAUDE.md` names as its own fault. A field already on the value is left alone.
+    func showDoubleTapValues(_ parameters: DoubleTapParameters) {
+        values.doubleTapThreshold = Int(parameters.threshold)
+        values.doubleTapLimit = Int(parameters.limit)
+        values.doubleTapLatency = Int(parameters.latency)
+        values.doubleTapWindow = Int(parameters.window)
+        put(Int(parameters.threshold), in: Identifier.doubleTapThreshold)
+        put(Int(parameters.limit), in: Identifier.doubleTapLimit)
+        put(Int(parameters.latency), in: Identifier.doubleTapLatency)
+        put(Int(parameters.window), in: Identifier.doubleTapWindow)
+    }
+
+    private func put(_ value: Int, in identifier: String) {
+        guard let field = doubleTapValues[identifier], field.value != value else { return }
+        field.value = value
+    }
+
     private func doubleTapValueChanged() {
         onDoubleTapValueChanged?()
     }

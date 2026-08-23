@@ -72,9 +72,10 @@ final class DebugLog {
         /// here is never part of the story of why a device could or could not be reached.
         case info
         /// The cube's double-tap registers as the cube itself reports them (`DoubleTapRules`), which is a different
-        /// thing from the `double_tap_settings` row: that is what the app would like them to be, and nothing has ever
-        /// sent it. Its own tag because the answer explains a physical behaviour -- why a knock through a desk pauses
-        /// the cube and a finger tap does not -- rather than anything about a connection.
+        /// thing from the `double_tap_settings` row: that is what the app would like them to be, and the two have no
+        /// reason to agree until the Device tab sends a `0x16`. Its own tag because the answer explains a physical
+        /// behaviour -- why a knock through a desk pauses the cube and a finger tap does not -- rather than anything
+        /// about a connection. What the Device tab does about it is `field`, that being a control being used.
         case tap
         /// The cube's charge: the figure being shown as it changes, and the warning arming and clearing
         /// (`BluetoothRadio`, `LowBatteryWatch`). **A row per change, not per reading** -- the cube pushes a value

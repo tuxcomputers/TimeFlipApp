@@ -20,7 +20,9 @@ final class DoubleTapRulesTests: XCTestCase {
             parameters,
             DoubleTapParameters(threshold: 0x5A, limit: 0x14, latency: 0x32, window: 0x32)
         )
-        XCTAssertEqual(parameters?.described, "threshold 90, limit 20, latency 50, window 50")
+        // The register names as the Device tab labels them, so a row out of `debug_log` and the fields it came from
+        // can be read side by side without translating either.
+        XCTAssertEqual(parameters?.described, "Threshold: 90, Limit: 20, Latency: 50, Window: 50")
     }
 
     func testTrailingBytesDoNotSpoilIt() {

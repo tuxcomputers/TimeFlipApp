@@ -29,8 +29,17 @@ struct DoubleTapParameters: Equatable {
         DoubleTapParameters(threshold: threshold, limit: limit, latency: latency, window: 0)
     }
 
+    /// The four registers named and listed, which is how every row about them reads.
+    ///
+    /// **The register names rather than the bytes**, so a row says what a number is for without anybody holding the
+    /// spec open. The archive logged the same four as `ths=90 lim=20 lat=50 win=50`; the intent survives and the
+    /// abbreviations do not, these rows being read out of `debug_log` by somebody diagnosing a cube rather than by
+    /// whoever wrote them.
+    ///
+    /// The names match the labels on the Device tab exactly, so a row and the window it came from can be compared
+    /// without translating either.
     var described: String {
-        "threshold \(threshold), limit \(limit), latency \(latency), window \(window)"
+        "Threshold: \(threshold), Limit: \(limit), Latency: \(latency), Window: \(window)"
     }
 }
 

@@ -108,6 +108,38 @@ final class DeviceCommandRulesTests: XCTestCase {
         XCTAssertFalse(readBack.took(nil))
     }
 
+    func testTheDoubleTapAnswerIsPutIntoWords() throws {
+        // So a refused write names the registers the cube is actually on. `took` collapses the answer to yes or no,
+        // which is all the caller needs and much less than whoever reads the row afterwards: the numbers beside the
+        // verdict are the disagreement itself.
+        let wanted = DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertEqual(
+            readBack.described(Data([0x17, 0x3A, 200, 0x3B, 45, 0x3C, 34, 0x3D, 0])),
+            "Threshold: 200, Limit: 45, Latency: 34, Window: 0"
+        )
+    }
+
+    func testWhatWasNotAnAnswerIsPutIntoNoWordsAtAll() throws {
+        // `nil` rather than a guess, and for the same reason the parse is strict: the characteristic frequently holds
+        // the previous command's reply, and printing numbers out of somebody else's would be worse than printing
+        // none.
+        let wanted = DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DoubleTapRules.command(for: wanted)))
+
+        XCTAssertNil(readBack.described(status(locked: 0x02, paused: 0x02)))
+        XCTAssertNil(readBack.described(nil))
+    }
+
+    func testACommandWithNoInterpretationSaysNothing() throws {
+        // Only `0x16` puts its answer into words today. A pause is confirmed by a status whose four bytes carry no
+        // echoed command byte, so there is nothing there worth naming that the verdict does not already say.
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DeviceCommandRules.pause(true)))
+
+        XCTAssertNil(readBack.described(status(locked: 0x02, paused: 0x01)))
+    }
+
     func testAResumeIsConfirmedTheOtherWayRound() throws {
         // The command asked for pause *off*, so an answer saying paused is a failure. Reading "took" as "the cube
         // answered" rather than "the cube is in the state asked for" would call this a success.
