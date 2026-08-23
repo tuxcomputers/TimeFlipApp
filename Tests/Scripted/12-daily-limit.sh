@@ -53,6 +53,13 @@ open_settings
 stage_category() {
     local remaining="$1" name seeded created id zone started ended event
 
+    # **Cleared first, so an early return cannot hand the caller the last staging's category.** These are globals and
+    # the returns below leave them alone, so without this a failed staging looks exactly like a successful one that
+    # produced the previous id.
+    STAGED_ID=""
+    STAGED_NAME=""
+    STAGED_SEEDED=""
+
     name=$(next_name Limit)
     # **Created on the Categories tab, not the Faces tab**, which is the one place in this suite that distinction
     # matters. The Faces tab's create starts the clock on what it makes, and this script has to choose the moment
@@ -88,6 +95,13 @@ stage_category() {
     zone=$(sql "SELECT timezone_id FROM timezone ORDER BY timezone_id LIMIT 1;")
     zone=${zone:-0}
     started=$(( $(date +%s) - seeded - 60 ))
+    # **Shifted back until the identity is free.** `(event_number, start_epoch)` is unique and here both are this one
+    # number, so two stagings collide whenever the seconds between them happen to equal the difference in their
+    # seeded totals -- a collision the wall clock decides rather than the script. It duly happened on run 88
+    # (2026-08-23), after a change elsewhere in the suite moved every script about a minute later.
+    while [ -n "$(sql "SELECT 1 FROM device_event WHERE event_number = $started AND start_epoch = $started;")" ]; do
+        started=$(( started - 1 ))
+    done
     ended=$(( started + seeded ))
 
     sql "INSERT INTO device_event (
@@ -98,6 +112,13 @@ stage_category() {
              $started, $seeded, 0, 1, 1
          );"
     event=$(sql "SELECT device_event_id FROM device_event WHERE start_epoch = $started AND event_number = $started;")
+    # **The insert is read back before anything is built on it**, because `sql` reports a refused write on stderr and
+    # answers nothing on stdout -- so the failure reaches the screen and the script carries on regardless. Run 88
+    # spent twelve more lines before reporting the consequence (a category zero seconds into its limit) rather than
+    # the cause, which is the shape `CLAUDE.md`'s rule about silent failure exists to stop.
+    if [ -z "$event" ]; then
+        return 1
+    fi
 
     sql "INSERT INTO time_entry (
              category_id, device_event_id, started_at, start_timezone_id,
