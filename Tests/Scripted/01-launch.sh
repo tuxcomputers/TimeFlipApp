@@ -93,11 +93,18 @@ else
 fi
 rm -f "$refusal"
 
-# The point of the lock: a duplicate must not open the database. `Manual mode` is logged after the lock
-# is claimed and the database is open, so a second one of those is the failure this exists to prevent --
+# The point of the lock: a duplicate must not open the database. `Launch mode` is logged after the lock
+# is claimed and the database is open (`main.swift` exits a duplicate at the lock, well before
+# `LaunchMode.decided` records the row), so a second one of those is the failure this exists to prevent --
 # and it is a sharper test than counting processes, which cannot tell "refused" from "never started".
+#
+# **It was `Manual mode%` until 2026-08-24, and had stopped matching anything.** The row was renamed to
+# `Launch mode:` when the mode began being decided once at launch, and nothing emits the old wording any
+# more -- so this counted zero whatever the second instance did, and passed on every run while proving
+# nothing about the lock. Nothing else can catch that: the check still runs, so the declared count is
+# still right. The only signal was reading it.
 check "and it never opened the database" "0" \
-    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Manual mode%';")"
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Launch mode%';")"
 
 check "the original is still the only one running" "1" "$(pgrep -x Facet | wc -l | tr -d ' ')"
 
