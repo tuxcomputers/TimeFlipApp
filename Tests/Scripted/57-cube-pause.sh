@@ -100,7 +100,9 @@ fi
 # rather than asserted, because which one it is depends on whether the database came in paired -- but it is the first
 # thing to look at if the routing check below fails, since a manual launch routes a click to the app's own clock
 # instead of to the cube. `56` no longer leaves anything behind here: giving up on a cube does not change the mode.
-grey "  $(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
+# Not bounded to this script's window, deliberately: the decision is made once per launch and the launch this runs
+# in began back in `56`, so a row after `$link` is exactly what there will not be.
+grey "  $(dsql "SELECT message FROM debug_log WHERE tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
 # What the cube last said about itself. Written by `BluetoothRadio` and only when the answer is news, which is enough:
 # the ask made when a link comes up always writes one, since the held status is cleared with the connection.
