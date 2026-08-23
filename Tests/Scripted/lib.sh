@@ -382,6 +382,38 @@ pair_a_cube() {
         PAIR_STATUS=1
         return 1
     fi
+
+    # **A pairing is not enough on its own: the launch has to be one that follows a cube.**
+    #
+    # `LaunchMode` decides that once, at startup, from `paired`, and nothing moves it afterwards -- so every launch in
+    # a run that began with a rebuilt database decided `manual`, there being nothing paired at the time, and goes on
+    # being its own clock with a freshly paired cube sitting beside it. This used to come free: forgetting turned
+    # manual mode on and pairing turned it off, so the forget-then-pair above landed in device mode without anybody
+    # asking for it. That switching is gone deliberately.
+    #
+    # **What it looks like when this is missing** is not a pairing failure, which is why it is worth the words: the
+    # cube pairs, connects, and answers, and the Faces tab draws the *manual* session instead of the cube's face. Run
+    # 84 (2026-08-23) failed on `55-device-face` reading `Limit 3` off manual face 14 where it wanted `Meeting` off
+    # cube face 2, with every device script before it green.
+    #
+    # Restarting is exactly what the app tells a user to do, and doing it here rather than in eight callers keeps the
+    # meaning of "pair a cube" whole: pair it, and be a launch that uses it.
+    quit_app
+    sleep 1
+    local relaunched
+    relaunched=$(mark)
+    ensure_app_running
+    # The new launch reaches for the cube on its own, this one being a launch with a cube on record. Waited for rather
+    # than assumed: every caller goes straight on to something that needs the link up.
+    if ! wait_for "$relaunched" "%: loggedIn" 90 >/dev/null; then
+        PAIR_REASON="paired, but the launch restarted to use it did not reach the cube again within 90s"
+        PAIR_STATUS=1
+        return 1
+    fi
+    # Put the window back where the caller left it. Every one of them opens Settings on the Device tab before calling
+    # this and carries on using it afterwards.
+    open_settings
+    select_tab Device
     return 0
 }
 
