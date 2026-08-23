@@ -5,17 +5,17 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   chore/singleMode
-    commit:   ed20f0cb62867d46e3bad7088d3f4ebec8fd510e
+    commit:   84eceb72f4bdf09254fb505eace97a2e71608fe2
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-23 22:06:13
-    finished: 2026-08-23 22:15:32
-    outcome:  failed
-    scripts:  13 of 24 run, 1 with failures
-    short:    12 ran fewer checks than they declare
-    checks:   268 in total
-              267 passed
-              1 failed
+    started:  2026-08-23 22:21:26
+    finished: 2026-08-23 22:41:39
+    outcome:  passed
+    scripts:  24 of 24 run, 0 with failures
+    short:    0 ran fewer checks than they declare
+    checks:   585 in total
+              585 passed
+              0 failed
 
 | script | expected | passed | failed |
 |---|---|---|---|
@@ -31,19 +31,19 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 09-report | 22 | 22 | 0 |
 | 10-google-calendar | 10 | 10 | 0 |
 | 11-google-reconnect | 17 | 17 | 0 |
-| 12-daily-limit | 32 | 8 | 1 |
-| 13-device-tab | 27 | 0 | 0 |
-| 50-device-scan | 15 | 0 | 0 |
-| 51-device-connect | 41 | 0 | 0 |
-| 52-device-reset | 33 | 0 | 0 |
-| 53-device-reconnect | 23 | 0 | 0 |
-| 54-device-battery | 10 | 0 | 0 |
-| 55-device-face | 43 | 0 | 0 |
-| 56-manual-mode | 29 | 0 | 0 |
-| 57-cube-pause | 38 | 0 | 0 |
-| 58-wrong-pin | 21 | 0 | 0 |
-| 99-quit | 14 | 0 | 0 |
-| **total** | **585** | **267** | **1** |
+| 12-daily-limit | 32 | 32 | 0 |
+| 13-device-tab | 27 | 27 | 0 |
+| 50-device-scan | 15 | 15 | 0 |
+| 51-device-connect | 41 | 41 | 0 |
+| 52-device-reset | 33 | 33 | 0 |
+| 53-device-reconnect | 23 | 23 | 0 |
+| 54-device-battery | 10 | 10 | 0 |
+| 55-device-face | 43 | 43 | 0 |
+| 56-manual-mode | 29 | 29 | 0 |
+| 57-cube-pause | 38 | 38 | 0 |
+| 58-wrong-pin | 21 | 21 | 0 |
+| 99-quit | 14 | 14 | 0 |
+| **total** | **585** | **585** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
