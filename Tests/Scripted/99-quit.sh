@@ -24,7 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=13
+EXPECTED_CHECKS=14
 start "quitting closes the open segment"
 
 # ---------------------------------------------------------------------------- the cube goes back to factory
@@ -78,6 +78,29 @@ else
     fail "the cube was not wiped, so it may still hold this run's timings"
 fi
 
+# ---------------------------------------------------------------------------- and then a launch that can time
+#
+# **The wipe above forgot the device, and this launch still follows one.** A launch decides once whether it follows a
+# cube or is its own clock, and forgetting the cube does not move it (`LaunchMode`) -- so what is running now is an
+# app with nothing to follow and no licence to start a clock of its own. Creating a category below would open no
+# segment at all, and the quit would have nothing to close.
+#
+# **It failed by passing, which is why this is a restart and not a smaller fix.** On run 87 the open-segment check
+# below found a *stale cube* segment left over from before the wipe -- paused, on face 2, belonging to Meeting -- and
+# said a segment was open. It was; it was simply not this script's. The conversion check then failed twelve lines
+# later, on the honest ground that a paused segment never becomes a `time_entry`.
+#
+# Restarting with nothing paired is what makes this an app that times by hand, and it is exactly what the app tells a
+# user to do ("Device gone, restart to time by hand").
+
+close_settings
+quit_app
+sleep 1
+relaunched=$(mark)
+ensure_app_running
+expect_log "a launch that starts with nothing paired is its own clock" "$relaunched" \
+    "Launch mode: manual, no device is paired" 20
+open_settings
 select_tab Faces
 
 # Something to leave running, so the quit has work to do.
