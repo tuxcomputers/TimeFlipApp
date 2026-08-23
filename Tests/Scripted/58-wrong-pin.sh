@@ -23,7 +23,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=20
+#
+# **21, measured on run 80 (2026-08-23), which is the first time this script ever ran to the end.** It was
+# seeded at 20 from reading the source, and that was one short: 25 verdict sites less the four that only fire
+# on a failure arm. The miscount was mine and the count is what caught it, on the first run that got here.
+EXPECTED_CHECKS=21
 start "a cube that refuses this app's PIN: the offer, Retry, and manual mode"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
