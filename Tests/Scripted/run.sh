@@ -145,22 +145,24 @@ for script in "${scripts[@]}"; do
     fi
 done
 
-# **A run that skipped anything did not pass, and says so.** `passed` is a word somebody reads at the top of the
-# stamp and stops reading, so it has to mean every check answered. On 2026-08-22 a run wrote `outcome: passed` with
-# `1 skipped` under it, and the script that skipped was `55-device-face`, which had tested nothing whatsoever.
+# **One question decides it: did every script run every check it declares?**
 #
-# `incomplete` rather than `failed`, because the two are genuinely different and the difference is what somebody does
-# next: a failure is the app being wrong and wants a fix, while a skip is a check that could not answer and wants the
-# thing it needed -- a cube on the desk, a Google account, somebody at the keyboard. CI refuses both
-# (`scripts/check_interactive_checklists.sh`, which has counted skips since f00cfd3), so this changes what the record
-# says rather than what it permits.
-if [ -n "$failed" ]; then
+# `passed` is a word somebody reads at the top of the stamp and stops reading, so it has to mean the whole run
+# answered. `00-setup` wrote a row for every script before any of them started, each carrying the count it declares,
+# so a script that failed and a script that was never reached are the same shape in the table: `passed` short of
+# `expected`. Counting those covers both, and covers the case neither an outcome nor a failure count can show --
+# a script that ran, went green, and quietly did less than it says it does.
+#
+# This replaced a skip count that could no longer be anything but zero. On 2026-08-22 a run wrote `outcome: passed`
+# with `1 skipped` under it and the script that skipped was `55-device-face`, which had tested nothing whatsoever;
+# the shape of that fault is now caught by arithmetic rather than by a verdict the scripts have to remember to use.
+short=$(testlog_short_scripts "$TESTLOG_RUN_ID")
+if [ -n "$failed" ] || [ "${short:-0}" -gt 0 ]; then
     outcome=failed
-elif [ "$(testlog_skipped_total "$TESTLOG_RUN_ID")" -gt 0 ] 2>/dev/null; then
-    outcome=incomplete
 else
     outcome=passed
 fi
+[ "${short:-0}" -gt 0 ] && echo "$short script(s) ran fewer checks than they declare."
 testlog_run_finish "$TESTLOG_RUN_ID" "$outcome" "$ran"
 
 # The committed half of the record. Written either way, because a stamp that only appeared on success

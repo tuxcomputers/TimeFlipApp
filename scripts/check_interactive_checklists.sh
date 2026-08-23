@@ -80,7 +80,7 @@ check_the_suite_was_run() {
     return 1
   fi
 
-  local ran_branch ran_commit tree outcome failed_checks scripts_ran ran_filter count_trouble problems=""
+  local ran_branch ran_commit tree outcome failed_checks scripts_ran short_scripts ran_filter count_trouble problems=""
   ran_branch=$(stamp_field branch)
   ran_commit=$(stamp_field commit)
   tree=$(stamp_field tree)
@@ -100,12 +100,16 @@ check_the_suite_was_run() {
                        inblock && /^ *[0-9]+ failed *$/ { print $1; exit }' "$STAMP")
 
 
-  # `scripts:  15 run, 0 with failures`
-  scripts_ran=$(sed -n 's/^ *scripts: *\([0-9]*\) run.*/\1/p' "$STAMP" | head -1)
+  # `scripts:  15 of 24 run, 0 with failures`. The second figure is how many the run listed, which since
+  # `00-setup` began writing a row per script up front is every script there is; the first is how far it got.
+  scripts_ran=$(sed -n 's/^ *scripts: *\([0-9]*\) of .*/\1/p' "$STAMP" | head -1)
+  # `short:    0 ran fewer checks than they declare`. The figure the run decided its own outcome on, checked
+  # here as well because a stamp is a file somebody can edit and the two have to agree.
+  short_scripts=$(sed -n 's/^ *short: *\([0-9]*\) .*/\1/p' "$STAMP" | head -1)
   # `filter:   12-daily`, present only when the run was a partial one.
   ran_filter=$(stamp_field filter)
 
-  echo "  ran on '$ran_branch' at ${ran_commit:0:12} -- $outcome, ${failed_checks:-?} failed"
+  echo "  ran on '$ran_branch' at ${ran_commit:0:12} -- $outcome, ${failed_checks:-?} failed, ${short_scripts:-?} short"
   echo "  it ran ${scripts_ran:-?} of the $on_disk scripted check(s) here"
 
   # **Every script, not merely a passing run.** Nothing compared these until 2026-08-16, and the gap was real:
@@ -144,6 +148,23 @@ check_the_suite_was_run() {
       }' "$STAMP")
   [ -z "$count_trouble" ] || problems="$problems
   - a script did not run the number of checks it declares, so some never ran at all:$count_trouble"
+
+  # **The run's own count of the same thing, and it has to agree with the table.** `run.sh` decides `outcome`
+  # from this figure, so a stamp claiming `passed` with a non-zero `short` is one where the two halves disagree
+  # -- which means it was edited, since nothing writes that combination.
+  [ "${short_scripts:-1}" = "0" ] || problems="$problems
+  - the run recorded ${short_scripts:-an unknown number of} script(s) short of their declared checks"
+
+  # **Zero declared is refused here too**, not only on disk above. The two look at different things: that loop
+  # reads the scripts in this checkout, and this reads what the run actually recorded, which may name a script
+  # that has since been renamed or deleted. A row of `0 | 0` passes the comparison above by arithmetic while
+  # meaning the script tested nothing at all, so it is called out rather than left to add up.
+  zero_declared=$(awk -F' *[|] *' '
+      /^\| / && $2 !~ /\*\*/ && $2 != "script" && $3 + 0 == 0 {
+          printf "\n      %s", $2
+      }' "$STAMP")
+  [ -z "$zero_declared" ] || problems="$problems
+  - a script declares no checks at all, so nothing it did was measured against anything:$zero_declared"
   # A run against a dirty tree is not evidence about the commit it names.
   [ "$tree" = "clean" ] || problems="$problems
   - the working tree was $tree when it ran, so it is not evidence about that commit"
@@ -224,6 +245,11 @@ for f in Tests/Scripted/lib.sh Tests/Scripted/run.sh "${scripts[@]}"; do
       # Without this it would happily write to whichever database the app is pointed at, and these
       # scripts create categories and time entries that nothing undoes.
       grep -q 'require_test_database' "$f" || problems="$problems no-database-guard"
+      # **A number, and not zero.** The stamp gate below compares what a script declares against what it ran,
+      # and both being zero compares equal -- so a script with no declaration that runs nothing is the one
+      # shape that satisfies every other check here while testing absolutely nothing. Requiring the
+      # declaration on disk closes that at the source, before a stamp is read at all.
+      grep -qE '^EXPECTED_CHECKS=[1-9][0-9]*$' "$f" || problems="$problems no-expected-checks"
       ;;
   esac
 

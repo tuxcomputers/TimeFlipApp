@@ -48,6 +48,12 @@ fi
 EXPECTED_CHECKS=1
 start "putting the app, the database and the cube into a known state"
 
+# **Every script gets its row now, before any of them runs.** Each one is written with the count it declares and
+# nothing against it, so a run that stops half way still lists the scripts it never reached instead of leaving
+# them out. `passed < expected` is then the whole question: it is true of a script that failed, and equally true
+# of one that was never given the chance.
+testlog_prepare_scripts
+
 # **One verdict, at the bottom, and everything above it reports into `TROUBLE`.** `step` and `trouble` are in
 # lib.sh, because `seed-private.sh` reports through them too.
 

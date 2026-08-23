@@ -533,7 +533,6 @@ check_contains() {
 # Neither passed nor failed: the thing could not be checked here, and saying so is more honest than a
 # tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
 # but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
-SKIPPED=0
 # **There is no `skip`, deliberately, and calling one is meant to be an error.** A skip is a check reporting that it
 # could not answer, and a run full of them reads green while proving nothing: on 2026-08-22 `55-device-face` skipped
 # its entire self and the run still stamped `outcome: passed`. So a missing cube, an unusable radio, an unconnected
@@ -558,14 +557,12 @@ finish() {
 
     # Before anything is printed, because this is where the app's own debug_log rows are copied out of
     # test.sqlite -- and a script that exits straight after `finish` would otherwise take them with it.
-    testlog_script_finish "$PASSED" "$FAILED" "${SKIPPED:-0}"
+    testlog_script_finish "$PASSED" "$FAILED"
     echo ""
-    local skipped=""
-    [ "${SKIPPED:-0}" -gt 0 ] && skipped=", $SKIPPED skipped"
     if [ "$FAILED" -eq 0 ]; then
-        green "$SCRIPT_NAME: $PASSED passed, 0 failed$skipped"
+        green "$SCRIPT_NAME: $PASSED passed, 0 failed"
     else
-        red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$skipped$FAILURES"
+        red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$FAILURES"
     fi
 
     # **A script that ran the wrong number of checks has not passed, however green every one of them was.**
