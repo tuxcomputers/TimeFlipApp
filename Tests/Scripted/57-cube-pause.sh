@@ -120,8 +120,6 @@ open_paused() {
     sql "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
 }
 
-click_right()        { python3 scripts/status-item-click.py --right >/dev/null 2>&1; }
-double_click_right() { python3 scripts/status-item-click.py --right --double >/dev/null 2>&1; }
 
 # ---------------------------------------------------------------------------- a known starting state
 #
@@ -130,7 +128,7 @@ double_click_right() { python3 scripts/status-item-click.py --right --double >/d
 
 if [[ "$(status_row)" == *"is locked"* ]]; then
     unlocking=$(mark)
-    python3 scripts/status-item-click.py >/dev/null 2>&1
+    click_left
     sleep 0.8
     press toggle-cube-lock
     sleep 1.5

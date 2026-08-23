@@ -80,9 +80,13 @@ rm -f logs/device-gate
 # running app would leave it writing to a file nothing points at any more.
 if pgrep -x Facet >/dev/null; then
     echo "Quitting the running app first."
-    python3 scripts/status-item-click.py >/dev/null 2>&1
+    # **Said out loud when it does not work.** run.sh does not source lib.sh, so it has no `click_left`; what it
+    # must not do is what every call site used to and throw the error away. A click that fails here is why the
+    # `pkill` below is reached, and knowing that is the difference between a tidy quit and a killed app whose
+    # quit sequence never ran.
+    python3 scripts/status-item-click.py 2>&1 || echo "  the status item would not click; falling back to a kill"
     sleep 0.5
-    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+    python3 scripts/ax-press.py quit-app 2>&1 || echo "  quit-app would not press; falling back to a kill"
     sleep 1.5
     pgrep -x Facet >/dev/null && pkill -x Facet
     sleep 0.5
@@ -184,9 +188,9 @@ if [ "$KEEP_RUNNING" -eq 0 ]; then
     # Left running only when asked, so a failed run can be looked at. Otherwise the app goes away:
     # a status item left behind is a second instance's worth of confusion next time.
     pgrep -x Facet >/dev/null && {
-        python3 scripts/status-item-click.py >/dev/null 2>&1
+        python3 scripts/status-item-click.py 2>&1 || echo "  the status item would not click; falling back to a kill"
         sleep 0.5
-        python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+        python3 scripts/ax-press.py quit-app 2>&1 || echo "  quit-app would not press; falling back to a kill"
         sleep 1
         pgrep -x Facet >/dev/null && pkill -x Facet
     }

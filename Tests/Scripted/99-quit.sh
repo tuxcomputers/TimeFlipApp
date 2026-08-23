@@ -113,7 +113,7 @@ fi
 
 since=$(mark)
 close_settings
-python3 scripts/status-item-click.py >/dev/null 2>&1
+click_left
 sleep 0.5
 press quit-app
 

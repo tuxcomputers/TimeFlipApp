@@ -377,6 +377,40 @@ sqlite3 docs/timeflip2-firmware-evidence.sqlite \
   "SELECT DISTINCT message FROM debug_log WHERE message LIKE 'history ->%';"
 ```
 
+## Nothing fails silently
+
+**A command that can fail must say so.** Not `>/dev/null 2>&1`, not a discarded exit code, not a helper that
+returns nothing whichever way it went. The point is not tidiness: a swallowed failure does not disappear, it gets
+reported later, somewhere else, as something it is not.
+
+Discarding *output* is fine where the output is noise. Discarding the *failure* is not. So capture, check the
+status, print what went wrong, and return non-zero:
+
+```sh
+output=$(python3 scripts/status-item-click.py "$@" 2>&1)
+status=$?
+[ "$status" -ne 0 ] && { red "  the status item click failed (exit $status)${output:+: $output}"; return 1; }
+```
+
+**What it costs when it is not done, twice measured.** On 2026-08-23 `57-cube-pause` failed on "the cube is
+stopped, ready to be turned while it is stopped", reported as `no debug_log row matching 'The cube is paused'
+within 20s`. The cube was fine. `click_right` was `python3 scripts/status-item-click.py --right >/dev/null 2>&1`,
+the click never happened, and the run spent twenty seconds waiting before blaming the device for a click nobody
+had made. The same shape is already written up in `pair_a_cube`: `press` swallows everything, so pressing a button
+that is not on screen does nothing and says nothing, and the wait after it timed out and reported the radio.
+
+**The rule applies to the app too, and it already has one instance worth copying.** `DebugLog.reportWriteFailure`
+exists because a run reconstructed from an empty table looks exactly like a run where nothing happened -- so a
+failed write is announced once rather than never.
+
+The two honest exceptions, and both have to earn it in a comment at the call site:
+
+- **The record of the tests must never fail the tests.** Every write in `Tests/Scripted/testlog.sh` ends
+  `2>/dev/null || true`, because a locked log database turning a passing run red would make the record a
+  participant in what it is recording.
+- **A probe whose failure is the answer.** `sqlite3 "$TESTLOG" "SELECT skipped FROM run LIMIT 1;" >/dev/null 2>&1`
+  is asking whether a column exists; the error is the negative result, not a fault.
+
 ## Debug print messages
 
 - **A message is plain text: no apostrophes, and no quotation marks around a value.** They are read back out of

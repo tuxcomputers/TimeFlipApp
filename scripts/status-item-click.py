@@ -65,6 +65,13 @@ def click(x, y, double):
         Quartz.CGEventSetIntegerValueField(event, Quartz.kCGMouseEventClickState, state)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
+    # **The cursor is moved onto the item first, as a real click does.** A bare down-up at a coordinate the
+    # pointer is nowhere near is not the sequence AppKit sees from a person, and a status item tracks the
+    # mouse: it takes the highlight from the move and the press from what follows. Posting the move and
+    # giving the window server a moment to deliver it is what makes the press land on a highlighted item
+    # rather than on one that has not noticed the pointer yet.
+    post(Quartz.kCGEventMouseMoved, 0)
+    time.sleep(0.05)
     post(Quartz.kCGEventLeftMouseDown, 1)
     post(Quartz.kCGEventLeftMouseUp, 1)
     if double:
@@ -97,7 +104,21 @@ def main():
     if measured is None:
         sys.exit("the status item reported no position or size")
 
+    # **Measured twice, because the item moves while this is running.** Its width follows its title, which is a
+    # live duration once something is being timed, and the menu bar is right-aligned -- so a second of ticking
+    # between the read and the post shifts the left edge and can put a right-half click past the right edge
+    # entirely. Reading again and refusing to click on a frame that has changed costs a millisecond and removes
+    # a whole class of click that goes nowhere and reports nothing.
+    again = frame(item)
+    if again is None:
+        sys.exit("the status item stopped reporting a position between the two reads")
+    if again != measured:
+        measured = again
+
     x, y, width, height = measured
+    if width <= 0 or height <= 0:
+        sys.exit(f"the status item has no area to click ({width:.0f}x{height:.0f})")
+
     # A quarter in from the chosen edge: far enough from the midpoint that a rounding difference cannot put
     # the click on the wrong side of it.
     offset = width * 0.75 if arguments.right else width * 0.25

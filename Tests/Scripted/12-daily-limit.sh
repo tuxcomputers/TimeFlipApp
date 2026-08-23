@@ -199,7 +199,7 @@ check_contains "and it still names the category" "$item" "$NAME"
 # **The item is greyed, and it still reads Resume.** It says what clicking would do, and it will not do it: a dead
 # item claiming something else is on offer would be worse than a dead one telling the truth. The status item is not
 # in `AXMenuBar` until its menu is open, so this opens it first (`02` for why).
-python3 scripts/status-item-click.py >/dev/null 2>&1
+click_left
 sleep 1
 menu=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null)
 check_contains "the dropdown's pause control is still there" "$menu" "id=toggle-pause"
@@ -225,7 +225,7 @@ sleep 1.5
 # The row says `state=paused` because the limit already stopped the clock, so what is being refused is precisely a
 # resume, which is the whole claim.
 since=$(mark)
-python3 scripts/status-item-click.py --right >/dev/null 2>&1
+click_right
 sleep 1.5
 expect_log "the status item's right half is a no-op" "$since" "%side=right%state=paused -> ignore%"
 check "and nothing started" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
@@ -263,13 +263,13 @@ else
 fi
 
 since=$(mark)
-python3 scripts/status-item-click.py --right >/dev/null 2>&1
+click_right
 sleep 1.5
 check "the clock can be started again" "1" \
     "$(wait_sql "1" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
 
 # Left as it was found: stopped, so nothing after this is timing against a category this script made.
-python3 scripts/status-item-click.py --right >/dev/null 2>&1
+click_right
 sleep 1
 
 finish

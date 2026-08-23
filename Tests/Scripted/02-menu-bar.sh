@@ -33,7 +33,7 @@ check_contains "the title names the test database" "$title" "TEST"
 # ---------------------------------------------------------------------------- the left half
 
 since=$(mark)
-python3 scripts/status-item-click.py >/dev/null 2>&1
+click_left || fail "the status item would not click, so nothing below could be checked"
 sleep 0.8
 expect_log "a left click opens the menu" "$since" "%side=left%showMenu%"
 

@@ -125,7 +125,7 @@ status_item() {
 # the two steps failed. `02-menu-bar` asserts this same row, so it is the app's established way of saying so.
 press_cube_lock() {
     local since; since=$(mark)
-    if ! python3 scripts/status-item-click.py >/dev/null 2>&1; then
+    if ! click_left; then
         fail "the status item could not be clicked at all, so the dropdown was never asked to open"
         return 1
     fi
@@ -149,7 +149,7 @@ open_paused() {
 # The right half, single, which is the only control the app offers for a plain resume: the dropdown's Unlock resumes
 # too, but only appears on a locked cube. Deferred by the double-click interval at the far end, hence the wait.
 click_right() {
-    python3 scripts/status-item-click.py --right >/dev/null 2>&1
+    click_right
     sleep 1.5
 }
 
@@ -196,7 +196,7 @@ if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE
 
     # ------------------------------------------------------------------------ 3. and unlocked again
     unlocking=$(mark)
-    python3 scripts/status-item-click.py >/dev/null 2>&1
+    click_left
     sleep 0.8
     # One item saying two things rather than two items, so what it currently offers is worth reading before pressing it.
     check_contains "and the dropdown offers to unlock it" "$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null)" "Unlock"
