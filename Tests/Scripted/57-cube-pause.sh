@@ -96,10 +96,11 @@ else
     fail "no cube segment ever reached device_event, so there is nothing for the glyph to draw"
 fi
 
-# **`56` leaves manual mode on**, and pairing is what ends it (`SettingsWindowController`). Reported rather than
-# asserted, because it is only on at all when `56` actually ran -- but it is the first thing to look at if the
-# routing check below fails, since a click in manual mode is routed to the app's own clock instead of the cube.
-grey "  $(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Manual mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
+# **The mode this launch decided on**, which `LaunchMode` settles at startup and nothing changes afterwards. Reported
+# rather than asserted, because which one it is depends on whether the database came in paired -- but it is the first
+# thing to look at if the routing check below fails, since a manual launch routes a click to the app's own clock
+# instead of to the cube. `56` no longer leaves anything behind here: giving up on a cube does not change the mode.
+grey "  $(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
 # What the cube last said about itself. Written by `BluetoothRadio` and only when the answer is news, which is enough:
 # the ask made when a link comes up always writes one, since the held status is cleared with the connection.
