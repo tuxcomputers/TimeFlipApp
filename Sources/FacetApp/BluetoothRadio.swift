@@ -336,6 +336,22 @@ final class BluetoothRadio: NSObject {
     ///   - filterToTimeFlip: what the **All Devices** box turns off.
     ///   - remembered: `device_name.name`, read from the table by the caller at this moment.
     ///   - previouslyKnown: `device_name.previous_name`, likewise.
+    /// Forgets every device the last scan turned up, so the next reach has to go and look again.
+    ///
+    /// **What Retry means.** Somebody pressing it is saying the app's answer was wrong and to try properly, so
+    /// reusing what the failed attempt already had would be answering the same question with the same stale material.
+    /// Clearing the list is what turns the next `reach` down the scanning path, since the shortcut there is gated on
+    /// having a peripheral in hand.
+    ///
+    /// **The connected cube is kept**, exactly as `start` keeps it: a live link is not something a scan found, and
+    /// dropping its handle would be letting go of a connection nobody asked to end.
+    func forgetWhatWasFound() {
+        found = [:]
+        peripherals = peripherals.filter { $0.key == connectedDevice }
+        onDevicesChanged?([])
+        debugLog?.record(.scan, "Forgot what the last scan found, so the next reach has to look again")
+    }
+
     func start(filterToTimeFlip: Bool, remembered: String?, previouslyKnown: String?) {
         wantsToScan = true
         self.isFiltering = filterToTimeFlip
@@ -384,15 +400,104 @@ final class BluetoothRadio: NSObject {
         isScanning = false
         debugLog?.record(.scan, "Scan \(reason), \(found.count) device(s) listed")
         onScanningChanged?(false)
-        // **A scan that was looking for one cube and ended without it is that cube being unreachable**, which is the
-        // only answer a scan can give about a device that never advertised: a cube that is asleep, flat or elsewhere
-        // does not answer slowly, it does not answer at all. Reported after `onScanningChanged`, so whoever draws the
-        // list has already been told the scan is over before it is told the cube was not in it.
-        if let target = reaching {
-            reaching = nil
-            debugLog?.record(.login, "\(target.id.uuidString) did not answer the scan")
-            end(target.id, .unreachable)
+        // **The scan ending is where a reach starts asking, not where it gives up.** Every device with the name is
+        // in hand at this moment and at no moment before it, so this is the first point at which they can be put in
+        // the order they will be tried in. Running out of them is what ends a reach, and `tryNextCandidate` is where
+        // that is noticed.
+        //
+        // **Only when nothing is being tried**, so the stop inside `connect` does not re-enter this. In practice that
+        // guard never fires during a reach, because a reach connects to nothing until its scan is over: see
+        // `beginTryingWhatWasFound` for why that ordering is the whole design rather than a detail of it.
+        if reaching != nil, attempt == nil {
+            beginTryingWhatWasFound()
         }
+    }
+
+    /// Puts every device the scan found into the order a reach will ask them in, and starts asking.
+    ///
+    /// **Collect, then try. This is the archive's shape, taken whole, and the reason is the bug it prevents.**
+    /// `ApplicationDelegate.connectToPairedDevice` scanned its window out, built the list, and only then worked
+    /// through it -- one sequence, one outcome at the end of it. The rebuild first tried each device as it was
+    /// discovered instead, which reads as the faster answer and puts three things inside one another: a `connect`
+    /// stops the scan, stopping the scan ends the reach, and ending the reach runs a modal dialog from inside the
+    /// half-finished `connect`. Measured on 2026-08-23: the offer came up two seconds into a launch saying nothing
+    /// answered, and the Retry made from inside that dialog was overwritten by the tail of the connect it had
+    /// interrupted, leaving the app scanning for ten seconds and then silent for the rest of the launch.
+    ///
+    /// **Arriving first is not a reason to be tried first**, either, which is the other half of what the archive
+    /// knew. Devices advertise in whatever order they happen to, so acting on the first one is how a colleague's
+    /// cube gets asked and this app's own is never reached at all.
+    private func beginTryingWhatWasFound() {
+        guard reaching != nil else { return }
+        let order = DeviceScanRules.reachOrder(
+            Array(found.values),
+            preferring: reaching!.preferred,
+            remembered: remembered,
+            previouslyKnown: previouslyKnown
+        )
+        reaching!.queue = order.filter { !reaching!.tried.contains($0) }
+        debugLog?.record(.login, "\(reaching!.queue.count) device(s) to ask, in the order they will be asked")
+        tryNextCandidate()
+    }
+
+    /// Starts the next queued candidate, if there is one and nothing else is in flight.
+    ///
+    /// **A short wait before each, which is measured rather than cautious.** Connecting to a peripheral while the
+    /// previous attempt's teardown is still running fails in milliseconds and says nothing about the cube -- the
+    /// archive measured it in 2026 and this rebuild measured it again at eight milliseconds (finding 8,
+    /// `docs/timeflip2-firmware-observations.md`). Without the pause a queue of five cubes would refuse all five in
+    /// under a tenth of a second and none of it would mean anything.
+    private func tryNextCandidate() {
+        guard reaching != nil, attempt == nil, resetConfirmation == nil else { return }
+        guard !reaching!.queue.isEmpty else {
+            // **The shortcut was wrong, so the shortcut is paid for.** The window was cut short because the
+            // remembered identifier turned up, and that device has now refused this app's PIN -- so it was not this
+            // app's cube, and the rest of the room has never been looked at. Saying nothing is here would be saying
+            // it about a scan that stopped after one answer.
+            if reaching!.windowWasCutShort {
+                reaching!.windowWasCutShort = false
+                debugLog?.record(.login, "The remembered device did not take the PIN, so looking at what else is there")
+                start(filterToTimeFlip: true, remembered: remembered, previouslyKnown: previouslyKnown)
+                return
+            }
+            endReach(because: "every device with the name has been tried")
+            return
+        }
+        let id = reaching!.queue.removeFirst()
+        reaching!.tried.insert(id)
+        let candidates = reaching!.candidates
+        let rotatingTo = reaching!.rotatingTo
+        settleThenConnect = Timer(timeInterval: Self.settleSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.reaching != nil, self.attempt == nil else { return }
+                self.debugLog?.record(
+                    .login,
+                    "Trying \(id.uuidString), \(self.reaching!.queue.count) more with the name behind it"
+                )
+                self.connect(to: id, presenting: candidates, rotatingTo: rotatingTo)
+            }
+        }
+        if let settleThenConnect { RunLoop.main.add(settleThenConnect, forMode: .common) }
+    }
+
+    /// Ends a reach that has run out of devices to ask, and says which of the two answers it is.
+    ///
+    /// **"None of them was ours" is not "nothing was there".** Both leave the app without its cube and they are
+    /// different problems: one is a cube out of range, the other is cubes in range that this app cannot open. The
+    /// dialog put to the user is the same either way (`ManualModeAlert`), and the log line is not.
+    private func endReach(because reason: String) {
+        guard let target = reaching else { return }
+        reaching = nil
+        settleThenConnect?.invalidate()
+        settleThenConnect = nil
+        let outcome: DeviceLoginOutcome = target.anyRefused ? .wrongPIN : .unreachable
+        debugLog?.record(
+            .login,
+            target.anyRefused
+                ? "\(reason): \(target.tried.count) device(s) with the name, none took the PIN"
+                : "\(reason): nothing with the name answered"
+        )
+        end(target.preferred ?? UUID(), outcome)
     }
 
     private func beginScanIfReady() {
@@ -463,15 +568,13 @@ final class BluetoothRadio: NSObject {
         // no retry, no offer of manual mode, and nothing on screen saying the app had stopped. The three reasons that
         // get here are all settled states (off, unauthorised, unsupported) rather than "ask again shortly", which is
         // why ending on them does not race the radio coming up.
-        if let target = reaching {
-            reaching = nil
+        if reaching != nil {
             // **The reach is over, so its scan is not wanted either.** This is the one that was missing: the request
             // outlived the thing that made it, and the radio coming back hours later ran it. A scan somebody pressed
             // Scan for is deliberately *not* withdrawn here -- it has no `reaching` target, and picking it up when the
             // radio returns is what they asked for.
             wantsToScan = false
-            debugLog?.record(.login, "Cannot reach \(target.id.uuidString): \(reason)")
-            end(target.id, .unreachable)
+            endReach(because: "cannot use the radio: \(reason)")
         }
         onUnavailable?(reason)
     }
@@ -529,14 +632,20 @@ final class BluetoothRadio: NSObject {
     /// shipped with every test passing and left the cube unreachable on the next launch, because nothing in `swift test`
     /// scans (2026-08-01, the Device rename section of `docs/TODO-features-under-development.md`).
     ///
-    /// **The target is admitted whatever it is called.** The filter is for the list a person reads, and a cube renamed
-    /// out of band matches neither name in the table -- but an identifier is not a name, and this is looking for exactly
-    /// one. So the filter still keeps the list clean while `id` gets in regardless, which is the difference between a
-    /// renamed cube being reachable and being lost.
+    /// **It scans the window out, then asks every device it found, in turn.** Not the first one to advertise, and not
+    /// the one carrying `id`: neither identifier this app can see is unique to a cube (finding 8,
+    /// `docs/timeflip2-firmware-observations.md`), so `id` orders the list rather than choosing from it, and what
+    /// actually identifies this app's cube is the PIN it set on it. `beginTryingWhatWasFound` is where the order is
+    /// made and what it cost to learn that the two steps must not overlap.
     ///
-    /// **It ends by itself.** The scan's own timeout is what says the cube is not there, reported as `.unreachable`
-    /// through `onLoginEnded` like any other way of not getting in: whoever is retrying does not need a second kind of
-    /// failure to understand, and the tab already has words for that one.
+    /// **The target is admitted whatever it is called.** The filter is for the list a person reads, and a cube renamed
+    /// out of band matches neither name in the table -- but an identifier is not a name, so `id` gets in regardless,
+    /// which is the difference between a renamed cube being reachable and being lost.
+    ///
+    /// **It ends by itself, and reports once.** Running out of devices to ask is what says the cube is not there,
+    /// reported through `onLoginEnded` as `.unreachable` when nothing answered and `.wrongPIN` when something did and
+    /// would not open. A refusal along the way is reported to nobody: it is the answer to "is this one mine?", and
+    /// telling the reconnect loop about it would have the app offer manual mode on the first stranger's cube in range.
     ///
     /// - Parameters:
     ///   - id: `device_uuid.uuid`, read from the table by the caller at this moment.
@@ -553,28 +662,60 @@ final class BluetoothRadio: NSObject {
             return
         }
         guard connectedDevice != id else { return }
-        // Already in the room and already known: no scan needed, which is the case where a drop is followed straight
-        // away by the cube coming back.
-        if peripherals[id] != nil, !isScanning {
-            debugLog?.record(.login, "Reaching \(id.uuidString), already known to this session")
-            reaching = nil
-            connect(to: id, presenting: candidates, rotatingTo: rotatingTo)
-            return
-        }
-        debugLog?.record(.login, "Reaching for \(id.uuidString): scanning, since a peripheral comes from a scan")
-        reaching = ReachTarget(id: id, candidates: candidates, rotatingTo: rotatingTo)
+        // **Always a scan, and the identifier is only a preference within it.** This used to shortcut straight to a
+        // known peripheral, which was right for a link that dropped and came back and wrong for everything else: after
+        // a failed attempt the handle is one the teardown is still letting go of, and connecting to it fails in
+        // milliseconds rather than saying anything about the cube (finding 8,
+        // `docs/timeflip2-firmware-observations.md`). More importantly there may be several cubes in the room and
+        // only one of them ours, and a shortcut to a remembered handle cannot find that out.
+        debugLog?.record(
+            .login,
+            "Reaching for the paired cube: scanning, and every device with the name will be tried"
+        )
+        reaching = ReachTarget(preferred: id, candidates: candidates, rotatingTo: rotatingTo)
         start(filterToTimeFlip: true, remembered: remembered, previouslyKnown: previouslyKnown)
     }
 
-    /// The cube a `reach` is looking for, and what to do when it turns up. Cleared the moment it does, or when the scan
-    /// gives up on it.
+    /// A run at getting back to this app's cube: which PINs to present, and every device still worth presenting them
+    /// to. Cleared when one accepts, or when the scan ends with nothing left to try.
+    ///
+    /// **There is no "the" device here, and that is the point.** Neither identifier available to this app is unique to
+    /// a cube: the one the device carries is the same on every TimeFlip, and the one CoreBluetooth hands out belongs
+    /// to the Mac and can change (finding 8, `docs/timeflip2-firmware-observations.md`). So a reach cannot ask "is
+    /// this the right identifier"; it asks "does this one take our PIN", which is the only question with a reliable
+    /// answer -- the app set that PIN on the cube it paired with.
+    ///
+    /// It follows that **a refusal is not a failure**. It is the answer to "is this one mine?", and the queue moves
+    /// on. Only running out of devices ends the reach. The archive reached the same conclusion and recorded what the
+    /// alternative cost: connecting to whichever answered first meant "a colleague's cube advertising a moment sooner
+    /// was enough to lock this user out of their own device".
     private struct ReachTarget {
-        let id: UUID
+        /// `device_uuid`, which is a **hint and never a gate**: worth trying first when it turns up, worth nothing
+        /// when it does not.
+        let preferred: UUID?
         let candidates: [String]
         let rotatingTo: String?
+        /// Eligible devices seen this scan and not yet tried, in the order they will be tried.
+        var queue: [UUID] = []
+        /// Tried this reach, so a device advertising repeatedly is not tried twice in one pass. **Not remembered
+        /// beyond it**: the next scan starts over, so a cube that refused for a passing reason is picked up again
+        /// rather than needing a restart.
+        var tried: Set<UUID> = []
+        /// Whether anything refused, which is what tells "nothing was in range" from "none of them was ours".
+        var anyRefused = false
+        /// Whether the remembered identifier turning up may still cut the scan window short. False once it has, so
+        /// the second look runs its full window: two scans is the most a reach ever does.
+        var mayEndEarly = true
+        /// Whether the window that just ended was cut short by that. If the shortcut turns out to have been wrong,
+        /// this is what says there is a proper look still owed before the answer is "nothing is here".
+        var windowWasCutShort = false
     }
 
     private var reaching: ReachTarget?
+
+    /// The wait between one candidate and the next, on `settleSeconds` -- the same constant, and for the same reason
+    /// it already existed: letting a refused link finish coming down before anything touches the radio again.
+    private var settleThenConnect: Timer?
 
     /// Whether the radio is looking for a cube of its own accord, as opposed to for somebody watching the list.
     var isReaching: Bool { reaching != nil || attempt != nil }
@@ -758,7 +899,11 @@ final class BluetoothRadio: NSObject {
         settle = nil
         // A cube being looked for is abandoned along with one being connected to: both are this app going after a
         // device, and the two moments that call this -- the window closing, another device being chosen -- end either.
+        // The wait before the next candidate goes with it: it guards on `reaching` when it fires, but a timer left
+        // running for a reach nobody is having is a second thing to reason about for no gain.
         reaching = nil
+        settleThenConnect?.invalidate()
+        settleThenConnect = nil
         guard let attempt else { return }
         self.attempt = nil
         login = nil
@@ -769,7 +914,18 @@ final class BluetoothRadio: NSObject {
     }
 
     private func beginConnect() {
-        guard let attempt, let peripheral = peripherals[attempt.id], let central else { return }
+        guard let attempt else { return }
+        guard let peripheral = peripherals[attempt.id], let central else {
+            // **Ended out loud, never dropped.** A handle can go between an attempt being made and this running: the
+            // settle between two PINs is a whole second, and anything that starts a scan in that second clears the
+            // list. Returning quietly leaves `attempt` set for the life of the process, and every later reach then
+            // refuses to begin with "already busy with a device" -- an app that has silently stopped looking for its
+            // cube and will not start again until it is restarted. That is what 2026-08-23 cost: a Retry that scanned
+            // for ten seconds, found the cube, and said nothing at all.
+            debugLog?.record(.login, "Nothing left to connect to for \(attempt.id.uuidString)")
+            end(attempt.id, .unreachable)
+            return
+        }
         debugLog?.record(
             .login,
             "Connecting to \(DeviceScanRules.label(for: found[attempt.id] ?? placeholder(attempt.id)))"
@@ -811,6 +967,16 @@ final class BluetoothRadio: NSObject {
     }
 
     /// Ends the attempt, one way or the other, and says so once.
+    ///
+    /// **Every piece of state this radio holds is settled before `onLoginEnded` is called, and every caller returns
+    /// the moment it comes back.** That is not tidiness, it is what makes the report safe to act on: the offer of
+    /// manual mode is an `NSAlert.runModal`, so a listener can answer it, start a whole new reach and get a scan
+    /// running -- all from inside this call. Anything left to do afterwards would be done to the new reach.
+    ///
+    /// Measured on 2026-08-23, when it was not so: a candidate was tried mid-scan, stopping the scan ended the reach,
+    /// the reach reported from inside the half-finished `connect`, and the tail of that `connect` then overwrote the
+    /// retry the dialog had just started. The app scanned for ten seconds, found the cube, and said nothing at all
+    /// for the rest of the launch.
     private func end(_ id: UUID, _ outcome: DeviceLoginOutcome) {
         connectTimeout?.invalidate()
         connectTimeout = nil
@@ -831,9 +997,42 @@ final class BluetoothRadio: NSObject {
             return
         }
         debugLog?.record(.login, "\(id.uuidString): \(outcome)")
+        // **A reach is not over because one candidate refused.** The PIN is what identifies this app's cube, so a
+        // refusal answers "is this one mine?" with no, and the next device with the name gets asked. Only running out
+        // of them ends it (`endReach`). Reported to nobody until then: telling the reconnect loop about each refusal
+        // would have it offer manual mode on the first colleague's cube that answered.
+        if reaching != nil, outcome != .loggedIn {
+            if let peripheral = peripherals[id], connectedDevice != id {
+                isDisconnectingDeliberately = true
+                central?.cancelPeripheralConnection(peripheral)
+                peripherals[id] = nil
+            }
+            if outcome == .wrongPIN { reaching!.anyRefused = true }
+            tryNextCandidate()
+            return
+        }
+        if outcome == .loggedIn, reaching != nil {
+            debugLog?.record(.login, "That one took the PIN, so it is the cube this app is paired to")
+            reaching = nil
+            settleThenConnect?.invalidate()
+            settleThenConnect = nil
+        }
         if outcome != .loggedIn, let peripheral = peripherals[id], connectedDevice != id {
             isDisconnectingDeliberately = true
             central?.cancelPeripheralConnection(peripheral)
+            // **And the handle goes with it, so the next reach scans rather than taking the shortcut in `reach`.**
+            //
+            // That shortcut exists for a link that dropped and a cube that came straight back, where the peripheral
+            // is still good. It is not good here: the line above has just asked CoreBluetooth to tear this
+            // connection down, and connecting to a handle mid-teardown fails instantly.
+            //
+            // Measured on hardware, 2026-08-23. A cube refused the PIN, somebody pressed Retry two seconds later,
+            // and the whole attempt took **eight milliseconds**: "already known to this session", "Connecting",
+            // "Disconnected unexpectedly", `unreachable`. So Retry never scanned, never waited the ten seconds it
+            // looks like it is waiting, and the offer came back saying "nothing answered" about a cube sitting on
+            // the desk that had answered a moment earlier. Forgetting the handle is what makes Retry mean what it
+            // says: go and look again.
+            peripherals[id] = nil
         }
         onLoginEnded?(id, outcome)
     }
@@ -965,7 +1164,6 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         // The cube a `reach` is looking for gets in whatever it is called: see there for why an identifier outranks the
         // name filter.
         guard !isFiltering
-            || device.id == reaching?.id
             || DeviceScanRules.isEligible(device, remembered: remembered, previouslyKnown: previouslyKnown)
         else {
             return
@@ -988,13 +1186,23 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             found[device.id] = device
             publish()
         }
-        // **Acted on the moment it arrives, rather than when the scan ends.** The cube answers in about a second and the
-        // window is ten, so waiting the scan out would spend nine seconds not connecting to a device already in the
-        // list. Cleared first, so a second advertisement cannot start a second attempt.
-        if let target = reaching, target.id == device.id {
-            reaching = nil
-            debugLog?.record(.login, "The cube turned up, so the scan is done")
-            connect(to: target.id, presenting: target.candidates, rotatingTo: target.rotatingTo)
+        // **A reach collects here and connects nowhere.** Which device to ask first cannot be known until the scan
+        // is over -- they advertise in whatever order they happen to -- so the queue is built once, from all of them,
+        // in `beginTryingWhatWasFound`.
+        //
+        // **The one thing worth acting on immediately is the remembered identifier**, because nothing a later
+        // advertisement could add would go ahead of it, and holding the window open past that point costs the rest of
+        // the window for nothing. That is the archive's `mayEndEarly`, and its measurement: on 2026-08-09 a cube was
+        // in the scan results at 23:54:43.5 and not acted on until 23:55:14.2, thirty-one seconds spent waiting for a
+        // window that had already found its answer.
+        //
+        // **It is a shortcut and it is treated as one.** This identifier is not unique to a cube (finding 8,
+        // `docs/timeflip2-firmware-observations.md`), so the device it names can turn out not to be this app's at
+        // all -- and `tryNextCandidate` then owes the room a proper look before it may say nothing is here.
+        if reaching != nil, reaching!.mayEndEarly, device.id == reaching!.preferred {
+            reaching!.mayEndEarly = false
+            reaching!.windowWasCutShort = true
+            stop(because: "stopped: the remembered device turned up")
         }
     }
 

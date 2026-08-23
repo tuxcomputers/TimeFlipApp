@@ -271,6 +271,41 @@ Always the same two adjacent values, always about two seconds apart, in bursts w
 
 ---
 
+## 8. A device identifier cannot tell one cube from another
+
+**Neither identifier available to this app is unique to a cube, so nothing may reconnect by one.**
+
+- **The identifier the device itself carries is the same on every TimeFlip.** It is a property of the model, not of
+  the unit, so two cubes on one desk are indistinguishable by it.
+- **The identifier CoreBluetooth hands out is the Mac's, not the cube's, and it can change.** It is a per-host mapping
+  rather than anything the device advertises, so it is not stable across the events that matter: a reset, a re-pair,
+  or the system regenerating it.
+
+`device_uuid` in `setting` is therefore a hint and never a gate. It may be used to *prefer* one candidate over another
+within a scan, and it must not be used to decide that a candidate is or is not this app's cube.
+
+### What identifies a cube is the PIN
+
+The app sets a PIN of its own on the cube it pairs with (`0x30`), so **the cube that accepts this app's PIN is this
+app's cube**, and that is the only answer available. It follows that a reconnect scans by name, collects every
+eligible device, and tries each in turn: a refusal is not a failure, it is the answer to "is this one mine?" and the
+loop moves on. Only running out of candidates is a failure.
+
+The archive drew exactly this conclusion and wrote down what the alternative cost: connecting to whichever device
+answered first "so a colleague's cube advertising a moment sooner was enough to lock this user out of their own
+device with a `wrong password` that named nothing" (`Archive/TimeFlipApp/ApplicationDelegate.swift`).
+
+### A second attempt on the same peripheral must let the first one go
+
+Measured twice, a fortnight apart, by two different codebases against the same cube. The archive, 2026-08-09: "a second attempt that
+fails instantly is not an answer about the password -- it is the radio still holding the last one." The rebuild,
+2026-08-23: a cube refused the PIN, Retry was pressed two seconds later, and the whole attempt took **eight
+milliseconds** -- `already known to this session`, `Connecting`, `Disconnected unexpectedly`, `unreachable` -- so the
+offer came back saying "nothing answered" about a cube on the desk that had answered moments before.
+
+So a failed attempt forgets its peripheral handle, and Retry clears the whole found list, which is what makes the
+next attempt a real scan rather than another go at a connection already being torn down.
+
 ## Raised with the vendor
 
 Findings 1 to 3 are the subject of an issue against `DI-GROUP/TimeFlip.Docs`. The request is that the spec describe them, not that the behaviour change: a guaranteed-stable advertised name is genuinely useful for scan filtering once documented, rather than merely observed.
