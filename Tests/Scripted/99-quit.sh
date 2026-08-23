@@ -23,6 +23,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=13
 start "quitting closes the open segment"
 
 # ---------------------------------------------------------------------------- the cube goes back to factory
@@ -54,9 +56,8 @@ start "quitting closes the open segment"
 open_settings
 select_tab Device
 
-if ! device_required; then
-    fail "no cube was offered up, so there is nothing on a device to clear"
-elif pair_a_cube; then
+# No cube check: 50-device-scan stopped the run if there was none, so anything reaching here has one.
+if pair_a_cube; then
     since=$(mark)
     press device-reset
     sleep 1

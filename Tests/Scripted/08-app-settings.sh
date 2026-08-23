@@ -13,12 +13,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=31
 start "every row on the App tab, written and read back"
 
 open_settings
 select_tab App
 
-setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
 
 # ---------------------------------------------------------------------------- the two switches
 #

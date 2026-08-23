@@ -19,11 +19,15 @@
 # `run.sh` writes it from the recorded run, and it names the branch, the commit, and whether anything
 # failed.
 #
-# **Nothing may be skipped.** A skip is a check saying it could not answer -- no cube on the desk, no Google
-# account connected, a prompt nobody was there to answer -- and the run still reports `passed` with the totals
-# adding up. So a branch could merge on the strength of coverage that was never taken, and the only trace was a
-# number in a block nobody reads. A skip stays a useful answer while somebody is watching a run; it is not
-# evidence, and evidence is what this file is for.
+# **Every check a script says it has must have run.** This replaced the skip gate, which guarded the same thing
+# by a route the suite no longer takes: nothing has produced a skip since the helpers stopped offering one, so
+# `0 skipped` appeared on every run of every branch and the stamp no longer carries the line.
+#
+# What took its place catches the silent version. Each script declares `EXPECTED_CHECKS`, the number of checks it
+# runs when everything passes, and the stamp records that beside what actually ran. A script that takes a branch
+# nobody meant it to take -- an early exit, a conditional that skips a section, a helper that returns before its
+# checks -- runs fewer, and reports nothing at all about the ones that never happened: every check that did run
+# passed, the run says `passed`, and the totals add up. The two columns disagreeing is the only trace of it.
 #
 # **It is stronger than the ticks were.** The old heading carried a date and a branch, so a run from
 # before the last five commits looked exactly like one from after them. A commit hash makes that
@@ -76,7 +80,7 @@ check_the_suite_was_run() {
     return 1
   fi
 
-  local ran_branch ran_commit tree outcome failed_checks skipped_checks scripts_ran ran_filter problems=""
+  local ran_branch ran_commit tree outcome failed_checks scripts_ran ran_filter count_trouble problems=""
   ran_branch=$(stamp_field branch)
   ran_commit=$(stamp_field commit)
   tree=$(stamp_field tree)
@@ -86,7 +90,6 @@ check_the_suite_was_run() {
   #     checks:   264 in total
   #               263 passed
   #                 0 failed
-  #                 1 skipped
   #
   # **It was one line until 2026-08-16** (`checks: 248 passed, 0 failed, 3 skipped`) and this parser
   # was not changed with it, so it silently matched nothing: `failed_checks` came back empty, which
@@ -95,16 +98,14 @@ check_the_suite_was_run() {
   # Anchored to the `checks:` line so a stray `N failed` anywhere else in the file cannot answer for it.
   failed_checks=$(awk '/^ *checks:/ { inblock = 1 }
                        inblock && /^ *[0-9]+ failed *$/ { print $1; exit }' "$STAMP")
-  # **A skip is not a pass**, and it is read out of the same block for the same reason.
-  skipped_checks=$(awk '/^ *checks:/ { inblock = 1 }
-                        inblock && /^ *[0-9]+ skipped *$/ { print $1; exit }' "$STAMP")
+
 
   # `scripts:  15 run, 0 with failures`
   scripts_ran=$(sed -n 's/^ *scripts: *\([0-9]*\) run.*/\1/p' "$STAMP" | head -1)
   # `filter:   12-daily`, present only when the run was a partial one.
   ran_filter=$(stamp_field filter)
 
-  echo "  ran on '$ran_branch' at ${ran_commit:0:12} -- $outcome, ${failed_checks:-?} failed, ${skipped_checks:-?} skipped"
+  echo "  ran on '$ran_branch' at ${ran_commit:0:12} -- $outcome, ${failed_checks:-?} failed"
   echo "  it ran ${scripts_ran:-?} of the $on_disk scripted check(s) here"
 
   # **Every script, not merely a passing run.** Nothing compared these until 2026-08-16, and the gap was real:
@@ -124,22 +125,25 @@ check_the_suite_was_run() {
   - the recorded run did not pass (outcome: ${outcome:-unknown})"
   [ "${failed_checks:-1}" = "0" ] || problems="$problems
   - the recorded run had ${failed_checks:-an unknown number of} failing check(s)"
-  # **Every check has to have run, not merely not failed.**
+  # **Every check a script says it has must have run**, read off the per-script table.
   #
-  # A skip is a check saying it could not answer -- no cube on the desk, no Google account connected, a prompt
-  # nobody was there to answer -- and until 2026-08-22 the count was the only place that showed. The run reported
-  # `passed`, the totals added up, and a branch could merge on the strength of coverage that was never taken.
+  # The table is `| script | expected | passed | failed |`, so the fields are $2, $3, $4, $5 -- the leading pipe
+  # makes $1 empty. The `**` test drops the bold totals row, and the header is skipped by name.
   #
-  # `run.sh` now writes `incomplete` for such a run, so the outcome check above catches it too and the reader of the
-  # stamp is told before the reader of this file is. Both checks stay: they are answering different questions, and a
-  # stamp is a file somebody can edit.
+  # **`[|]` rather than `\|`, and it is not a style choice.** macOS awk does not split on an escaped pipe in `FS`:
+  # it splits on the runs of spaces around it instead and hands back the bar itself as a field, so `$3` comes out
+  # as `|` and every row compares equal. The gate then passes everything, silently. A bracket expression is what
+  # both awks agree on. The skip gate this replaced had the same bug and nobody saw it, because it only ran when
+  # a skip existed and none ever did.
   #
-  # It is a real answer while somebody is watching a run, which is why the scripts still have it. What it is not is
-  # evidence, and that is the one thing this file is for.
-  [ "${skipped_checks:-1}" = "0" ] || problems="$problems
-  - the recorded run skipped ${skipped_checks:-an unknown number of} check(s), so that much was never actually checked$(
-      awk -F' *\\| *' '/^\| / && $2 !~ /\*\*/ && $5 + 0 > 0 { printf "\n      %s: %s skipped", $2, $5 }' "$STAMP"
-  )"
+  # Per script rather than as one number: "the run is 3 checks short" sends somebody to the table anyway, and the
+  # table is what says which script and by how much.
+  count_trouble=$(awk -F' *[|] *' '
+      /^\| / && $2 !~ /\*\*/ && $2 != "script" && $3 + 0 != $4 + 0 {
+          printf "\n      %s: declares %s check(s), ran %s", $2, $3, $4
+      }' "$STAMP")
+  [ -z "$count_trouble" ] || problems="$problems
+  - a script did not run the number of checks it declares, so some never ran at all:$count_trouble"
   # A run against a dirty tree is not evidence about the commit it names.
   [ "$tree" = "clean" ] || problems="$problems
   - the working tree was $tree when it ran, so it is not evidence about that commit"

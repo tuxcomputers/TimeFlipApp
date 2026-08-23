@@ -71,9 +71,9 @@ fi
 echo "Facet scripted checks -- $(date '+%Y-%m-%d %H:%M:%S')"
 echo "$(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD)"
 
-# A run starts with the cube's whereabouts unknown. `device_required` asks once and writes the answer here
-# against this run's id, so the file already invalidates itself; this makes that unconditional, for the case
-# where the run ids start again because somebody deleted logs/testlog.sqlite.
+# A run starts with the cube's whereabouts unknown. `00-setup` asks once and writes the answer here against this
+# run's id, so the file already invalidates itself; this makes that unconditional, for the case where the run ids
+# start again because somebody deleted logs/testlog.sqlite.
 rm -f logs/device-gate
 
 # The app holds the database open, so it goes first whichever way this run is going: rebuilding under a
@@ -189,6 +189,11 @@ if [ "$KEEP_RUNNING" -eq 0 ]; then
         pgrep -x Facet >/dev/null && pkill -x Facet
     }
 fi
+
+# **After the quit, not before it.** Each script copies its own window as it ends, so nothing covers what the app
+# logs once the checks stop: the cube reconnecting, and the shutdown just above. Copying here is what puts the end
+# of a run into the record, and the end is what a run that died on its way out is read for.
+testlog_copy_run_tail "$TESTLOG_RUN_ID"
 
 # The plain-text copy is written by a process of its own, so give it a moment to drain before this shell
 # exits and the pipe goes with it. Without this the last few lines can be missing from the file -- and

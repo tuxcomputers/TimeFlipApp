@@ -233,6 +233,13 @@ ask_and_detect() {
 # set-once-per-run with nothing to tidy up: the next run reads an id that is not its own and asks.
 DEVICE_GATE="logs/device-gate"
 
+# **The gate is read here and asked for in `00-setup`.** One prompt, at the top of the run, before anything has
+# been driven -- rather than at whichever device script happened to run first. Two things follow. Somebody who says
+# no is told straight away instead of twenty minutes in, and every script below this can simply read the answer:
+# there is no path here that stops to ask, so no script can accidentally become the one that prompts.
+#
+# `50-device-scan` is the only caller that acts on a no, and it stops the run. Everything after it needs a cube, so
+# there is nothing left to run and no reason for each script to re-check.
 device_required() {
     local run="${TESTLOG_RUN_ID:-}" answered="" remembered=""
 
@@ -242,13 +249,14 @@ device_required() {
     if [ -n "$run" ] && [ -r "$DEVICE_GATE" ]; then
         read -r answered remembered < "$DEVICE_GATE" || true
     fi
-    if [ -n "$run" ] && [ "$answered" = "$run" ]; then
-        case "$remembered" in
-            yes) grey "  the TimeFlip was confirmed to be here earlier in this run"; return 0 ;;
-            *)   grey "  no TimeFlip was made available earlier in this run"; return 1 ;;
-        esac
-    fi
+    [ -n "$run" ] && [ "$answered" = "$run" ] && [ "$remembered" = "yes" ]
+}
 
+# Asks, once, and writes the answer against this run's id. **Only `00-setup` calls this.** It is separate from
+# `device_required` so that reading the answer cannot turn into asking for it: a script that reaches a prompt
+# nobody is watching hangs the run, and the whole point of asking at the top is that somebody is still there.
+ask_about_the_device() {
+    local run="${TESTLOG_RUN_ID:-}"
     mkdir -p "$(dirname "$DEVICE_GATE")" 2>/dev/null || true
 
     # **Everything the run does to the cube, said once, because this is the only time it is asked.** That
@@ -257,11 +265,15 @@ device_required() {
     # about again later, so this prompt has to be worth reading -- it is the whole of the consent.
     if action_required \
         "May this run use your TimeFlip? It will be RESET to factory settings." \
-        "THIS WIPES THE CUBE. 52-device-reset erases everything stored on the device --" \
+        "THIS WIPES THE CUBE. The setup below erases everything stored on the device --" \
         "face colours, task settings, its name and its PIN -- back to factory defaults," \
         "and that cannot be undone. The cube comes back on the vendor PIN 000000, which is" \
         "the first one Facet presents, so pairing it again afterwards is one press of Scan," \
         "but anything you had set on the device itself is gone." \
+        "" \
+        "**It is wiped now, at the start, and again by 52-device-reset.** This run begins by" \
+        "pairing the cube and resetting it, so every script after this one starts from a" \
+        "factory cube the app has never seen." \
         "" \
         "The runs also change its PIN. They present 000000 and then the PIN this developer" \
         "build sets, 123456; a cube answering to the default is put on 123456, which is" \
@@ -272,15 +284,15 @@ device_required() {
         "2. Check Bluetooth is on." \
         "3. Press y and leave everything alone; the rest runs by itself." \
         "" \
-        "Asked once for the whole run. Every script that needs the cube from here on takes" \
+        "Asked once for the whole run, here at the top. Every script that needs the cube takes" \
         "this answer, so leave it where it is until the run finishes." \
         "" \
         "The FIRST time Facet ever scans, macOS asks whether it may use Bluetooth. That" \
         "is once, not once per run or per build: after it is allowed the app just scans." \
         "If the prompt does appear, allow it -- until you do the radio never answers." \
         "" \
-        "Answer anything else to skip every script that needs the cube, the reset included." \
-        "The rest of the run is unaffected."; then
+        "Answer anything else and the run stops at 50-device-scan. The scripts before it" \
+        "still run, and CI will refuse the branch until somebody with a cube runs it."; then
         [ -n "$run" ] && printf '%s yes\n' "$run" > "$DEVICE_GATE"
         return 0
     fi
@@ -396,7 +408,7 @@ start() {
     blue "=============================================================================="
     blue "$SCRIPT_NAME: $*"
     blue "=============================================================================="
-    testlog_script_start "$SCRIPT_NAME" "$*"
+    testlog_script_start "$SCRIPT_NAME" "$*" "${EXPECTED_CHECKS:-0}"
 }
 
 # **What is being checked is printed before the verdict, on its own line.**
@@ -458,6 +470,37 @@ verdict_fail() {
 # `pass "what was checked"` and `fail "what was checked"` for the cases a script decides for itself.
 pass() { [ $# -gt 0 ] && announce "$*"; verdict_pass; }
 fail() { [ $# -gt 0 ] && announce "$*"; verdict_fail; }
+
+# One setting's value, by row name and JSON key: `setting paired paired`, `setting connection connected`.
+#
+# **Here rather than in each script that wants it.** Three scripts each defined this privately -- 08, 53 and 56,
+# byte for byte identical -- and `58-wrong-pin` was written against it without carrying a fourth copy. Every script
+# is its own `bash` process, so 58 had no such function: its first check read an empty string, failed, and stopped
+# the whole run on runs 71 and 77. A helper that several scripts each redefine is a helper the next script will be
+# missing, and the failure looks like the app being wrong rather than the harness.
+setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
+
+# ---------------------------------------------------------------------------- arranging, as opposed to checking
+#
+# **For a script that sets things up rather than testing them, where the whole script is one verdict.** `00-setup`
+# is the only one, and it answers once at the bottom: `step` narrates what it did, `trouble` records what it could
+# not do, and neither writes a `check_result` row.
+#
+# **Defined here rather than in the script**, because `seed-private.sh` needs them too and a second copy is how
+# `58-wrong-pin` came to call a `setting` helper that three other scripts each defined privately -- it ran zero
+# checks and stopped run 71. One definition, both callers.
+#
+# Why not just use `check` for each seed: a setup step that passes says nothing about the app, so counting twenty
+# of them puts twenty green lines at the top of a run and inflates the total into coverage that does not exist.
+# And a seed that fails must not stop at the first one -- somebody about to leave the room for twenty minutes
+# needs every reason the ground is wrong, not the earliest.
+TROUBLE=""
+trouble() {
+    TROUBLE="$TROUBLE
+      - $*"
+    red "  could not: $*"
+}
+step() { grey "  $*"; }
 
 # `check "name" "expected" "actual"` -- the common shape, so a failure prints both sides without every
 # script formatting its own message.
@@ -523,6 +566,30 @@ finish() {
         green "$SCRIPT_NAME: $PASSED passed, 0 failed$skipped"
     else
         red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$skipped$FAILURES"
+    fi
+
+    # **A script that ran the wrong number of checks has not passed, however green every one of them was.**
+    # `EXPECTED_CHECKS` is what the script says it does; `PASSED` is what it did. They part company when a
+    # branch nobody meant to take was taken -- a conditional that silently skipped a section, an early exit,
+    # a helper that returned before its checks -- and every check that never ran reports nothing at all. That
+    # is the failure this exists to catch, because it is the one that looks exactly like success.
+    #
+    # Reported here and enforced in CI off the stamp, rather than turned into a failed check: a check would
+    # need a description of its own and would itself be counted, which is a number that changes the number
+    # it is checking.
+    if [ "${EXPECTED_CHECKS:-0}" -gt 0 ] && [ "$PASSED" != "$EXPECTED_CHECKS" ]; then
+        red "$SCRIPT_NAME: expected $EXPECTED_CHECKS passing check(s), got $PASSED"
+        # **The two directions mean opposite things**, so the line says which happened rather than leaving it to
+        # be worked out from two numbers. Fewer is the case this exists to catch: a branch nobody meant to take,
+        # and every check on the other side of it silently not running. More is the count being out of date, or a
+        # helper quietly adding verdicts of its own -- which is what `apply_private_seeds` was doing to 00-setup
+        # on run 73, two checks that belonged to the seeding rather than to the app.
+        if [ "$PASSED" -lt "$EXPECTED_CHECKS" ]; then
+            red "    $(( EXPECTED_CHECKS - PASSED )) check(s) never ran -- a branch was taken that skips them"
+        else
+            red "    $(( PASSED - EXPECTED_CHECKS )) more check(s) ran than this script says it has"
+        fi
+        return 1
     fi
     [ "$FAILED" -eq 0 ]
 }

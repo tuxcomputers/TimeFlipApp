@@ -29,13 +29,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=38
 start "pausing and locking the cube from the status item"
 
-if ! device_required; then
-    fail "no TimeFlip was made available, so there is nothing to pause"
-    finish
-    exit $?
-fi
+# **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
+# anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
+# has failed. A second gate here would be a branch that can never be taken, and an untaken branch is checks
+# that silently do not run.
 
 # ---------------------------------------------------------------------------- a cube to click at
 #

@@ -23,13 +23,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+#
+# **41 rather than 38, and the difference is 00-setup.** The cube arrives here factory reset, so it is on the
+# vendor PIN and the app sets its own: five checks about taking a new PIN, proving it, and writing it down.
+# Before 00 wiped the cube the answer depended on what the last run left -- a cube already on 123456 took the
+# other arm and ran two checks instead, which is why this script has been seen at both 38 and 41 across runs.
+EXPECTED_CHECKS=41
 start "connecting to a TimeFlip and logging in with a PIN"
 
-if ! device_required; then
-    fail "no TimeFlip was made available, so there is nothing to connect to"
-    finish
-    exit $?
-fi
+# **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
+# anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
+# has failed. A second gate here would be a branch that can never be taken, and an untaken branch is checks
+# that silently do not run.
 
 open_settings
 select_tab Device

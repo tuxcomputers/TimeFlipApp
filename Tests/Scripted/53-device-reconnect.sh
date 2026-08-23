@@ -24,13 +24,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=23
 start "reconnecting to a paired TimeFlip at launch"
 
-if ! device_required; then
-    fail "no TimeFlip was made available, so there is nothing to reconnect to"
-    finish
-    exit $?
-fi
+# **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
+# anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
+# has failed. A second gate here would be a branch that can never be taken, and an untaken branch is checks
+# that silently do not run.
 
 open_settings
 select_tab Device
@@ -52,7 +53,6 @@ fi
 pass "paired a cube to come back to"
 
 # One row per setting, the value being JSON, which is what `08-app-settings` reads them with too.
-setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
 
 paired_uuid=$(setting device_uuid uuid)
 grey "  paired to ${paired_uuid:-unknown}"
