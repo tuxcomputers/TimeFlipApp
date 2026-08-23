@@ -92,6 +92,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// with them would drop the manager mid-scan and start the system's Bluetooth prompt again.
     private var radio: BluetoothRadio?
 
+    /// Holds the double-tap register writes back until the arrows stop moving, and gets out of the Disable box's way
+    /// when it needs to go first. See `WriteDebounce`, which carries the why for both halves.
+    private let doubleTapWrite = WriteDebounce()
+
     /// What keeps the paired cube reachable. Told what each login came to and when a link goes, since the radio's
     /// callbacks are set here.
     ///
@@ -299,6 +303,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             guard let self, let pane else { return }
             self.applyDoubleTapEnabled(isEnabled, on: pane)
         }
+        pane.onDoubleTapValueChanged = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            // **Rescheduled, not queued.** Each tick of a held arrow displaces the last, so a hold of any length is
+            // one command carrying the number the arrow was let go on.
+            self.doubleTapWrite.schedule { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                self.applyDoubleTapValues(on: pane)
+            }
+        }
         pane.show(deviceSettings())
         wireScan(on: pane)
         return pane
@@ -322,6 +335,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// not hold it: a box still showing what was clicked while neither the cube nor the table agrees is the
     /// two-answers problem with a tick in it.
     private func applyDoubleTapEnabled(_ isEnabled: Bool, on pane: DevicePane) {
+        // **The pending register write is dropped before this one goes**, and it is the archive's measured trap
+        // rather than tidying up: that write carries values worked out before the box was ticked, so landing after
+        // this one it would put `window` back and quietly undo the toggle (`docs/timeflip.md`, on debouncing). The
+        // values are not lost -- they are on the fields, and this command carries them.
+        doubleTapWrite.cancel()
         let wanted = DoubleTapRules.asSent(pane.doubleTapParameters, isEnabled: isEnabled)
         debugLog?.record(
             .field,
@@ -359,6 +377,34 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 return
             }
             pane.showDoubleTapEnabled(isEnabled)
+        }
+    }
+
+    /// Sends the four registers after somebody has stopped moving them.
+    ///
+    /// **What is sent still runs through `asSent`**, so a value changed while the gesture is off does not turn it
+    /// back on behind the box: `window` stays at zero until the box says otherwise, and the number typed into the
+    /// Window field is kept for when it does.
+    ///
+    /// **The registers are not written to the table here.** What is stored is what the app wants the cube on, and the
+    /// fields are the window's own answer until it closes (`CLAUDE.md`'s licence for an open Settings window). The
+    /// row that does get written is `enabled`, by the box, because that one is a decision rather than a value being
+    /// dialled in.
+    private func applyDoubleTapValues(on pane: DevicePane) {
+        guard let radio else { return }
+        let held = pane.doubleTapParameters
+        let wanted = DoubleTapRules.asSent(held, isEnabled: pane.values.isDoubleTapEnabled)
+        debugLog?.record(.field, "Double tap: settled on \(held.described), sending \(wanted.described)")
+        radio.send(DoubleTapRules.command(for: wanted)) { [weak self] confirmed in
+            guard let self else { return }
+            self.debugLog?.record(
+                .field,
+                confirmed
+                    ? "Double tap: the cube is on \(wanted.described)"
+                    : "Double tap: the cube did not take \(wanted.described)"
+            )
+            guard !confirmed else { return }
+            self.showDoubleTapRefusedByTheCube()
         }
     }
 

@@ -134,7 +134,7 @@ final class DevicePane: NSView {
     private var ledBrightnessValue: NSTextField!
     private var ledBlinkValue: NSTextField!
     private var doubleTapDisableBox: NSButton!
-    private var doubleTapValues: [String: NSTextField] = [:]
+    private var doubleTapValues: [String: SteppedNumberField] = [:]
 
     /// The scan's own controls and its results, held because they are redrawn as the radio answers rather than
     /// built once. **The list itself is not held here**: what has been found is the scanner's, and this draws
@@ -184,6 +184,12 @@ final class DevicePane: NSView {
     /// Called when one of the folding rows or sections opens or closes, so the window can record it. The identifier
     /// is what says which, and it is the only thing that does: nothing stores a fold.
     var onToggle: ((String, Bool) -> Void)?
+
+    /// One of the four register fields moved. What it moved to is on the pane; this only says that it did.
+    ///
+    /// **Every tick of a held arrow fires this**, which is the whole reason the window debounces rather than sending
+    /// from here: a hold repeats every 0.1s (`StepperHoldRules`) and each of those would be a command on the wire.
+    var onDoubleTapValueChanged: (() -> Void)?
 
     /// Somebody ticked or unticked **Disable** under Double tap. `true` means the gesture is wanted.
     ///
@@ -260,10 +266,10 @@ final class DevicePane: NSView {
         ledBrightnessValue.stringValue = "\(values.ledBrightnessPercent) %"
         ledBlinkValue.stringValue = "\(values.ledBlinkSeconds) sec"
         doubleTapDisableBox.state = values.isDoubleTapEnabled ? .off : .on
-        doubleTapValues[Identifier.doubleTapThreshold]?.stringValue = "\(values.doubleTapThreshold)"
-        doubleTapValues[Identifier.doubleTapLimit]?.stringValue = "\(values.doubleTapLimit)"
-        doubleTapValues[Identifier.doubleTapLatency]?.stringValue = "\(values.doubleTapLatency)"
-        doubleTapValues[Identifier.doubleTapWindow]?.stringValue = "\(values.doubleTapWindow)"
+        doubleTapValues[Identifier.doubleTapThreshold]?.value = values.doubleTapThreshold
+        doubleTapValues[Identifier.doubleTapLimit]?.value = values.doubleTapLimit
+        doubleTapValues[Identifier.doubleTapLatency]?.value = values.doubleTapLatency
+        doubleTapValues[Identifier.doubleTapWindow]?.value = values.doubleTapWindow
     }
 
     /// The four registers as this window currently holds them.
@@ -272,12 +278,18 @@ final class DevicePane: NSView {
     /// window and the reason it grants it: these are what somebody is looking at, so they are what a command built
     /// now should carry. The `enabled` flag is deliberately not folded in -- what is sent when the gesture is off is
     /// `DoubleTapRules.asSent`'s to decide, and it is one decision in one place.
+    /// **Read off the fields, not off `values`**, which is the difference between what is on screen and what was
+    /// last shown. A held arrow moves the field several times a second and nothing writes those back to `values`
+    /// until one lands, so a command built from `values` would carry the number the row opened with.
     var doubleTapParameters: DoubleTapParameters {
-        DoubleTapParameters(
-            threshold: UInt8(clamping: values.doubleTapThreshold),
-            limit: UInt8(clamping: values.doubleTapLimit),
-            latency: UInt8(clamping: values.doubleTapLatency),
-            window: UInt8(clamping: values.doubleTapWindow)
+        func register(_ identifier: String, or fallback: Int) -> UInt8 {
+            UInt8(clamping: doubleTapValues[identifier]?.value ?? fallback)
+        }
+        return DoubleTapParameters(
+            threshold: register(Identifier.doubleTapThreshold, or: values.doubleTapThreshold),
+            limit: register(Identifier.doubleTapLimit, or: values.doubleTapLimit),
+            latency: register(Identifier.doubleTapLatency, or: values.doubleTapLatency),
+            window: register(Identifier.doubleTapWindow, or: values.doubleTapWindow)
         )
     }
 
@@ -289,6 +301,10 @@ final class DevicePane: NSView {
     func showDoubleTapEnabled(_ isEnabled: Bool) {
         values.isDoubleTapEnabled = isEnabled
         doubleTapDisableBox.state = isEnabled ? .off : .on
+    }
+
+    private func doubleTapValueChanged() {
+        onDoubleTapValueChanged?()
     }
 
     @objc private func doubleTapDisableChanged() {
@@ -461,13 +477,20 @@ final class DevicePane: NSView {
 
         let doubleTap = stack()
         var doubleTapRows: [NSView] = [leading(doubleTapDisableBox)]
-        for (title, identifier) in [
-            ("Threshold", Identifier.doubleTapThreshold),
-            ("Limit", Identifier.doubleTapLimit),
-            ("Latency", Identifier.doubleTapLatency),
-            ("Window", Identifier.doubleTapWindow),
+        // **0 to 255, because that is the register.** Each of the four is one `UInt8` written straight to the
+        // accelerometer (`0x16`), so the range is the hardware's and not a judgement about useful values. `Window` at
+        // 0 is the one meaningful edge, being how the gesture is turned off (`DoubleTapRules.asSent`) -- somebody can
+        // reach it here as well as through the box above, and it means the same thing either way.
+        //
+        // **No suffix**, unlike Auto-pause's "min": these are register values and there is no unit to name.
+        for (title, identifier, current) in [
+            ("Threshold", Identifier.doubleTapThreshold, values.doubleTapThreshold),
+            ("Limit", Identifier.doubleTapLimit, values.doubleTapLimit),
+            ("Latency", Identifier.doubleTapLatency, values.doubleTapLatency),
+            ("Window", Identifier.doubleTapWindow, values.doubleTapWindow),
         ] {
-            let field = value(identifier: identifier)
+            let field = SteppedNumberField(value: current, range: 0...255, suffix: "", identifier: identifier)
+            field.onChange = { [weak self] _ in self?.doubleTapValueChanged() }
             doubleTapValues[identifier] = field
             doubleTapRows.append(row(title, field, identifier: identifier, separated: false))
         }

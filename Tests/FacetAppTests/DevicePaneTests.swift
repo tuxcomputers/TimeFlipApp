@@ -429,6 +429,95 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(stepper(DevicePane.Identifier.autoPause, in: pane)?.value, 12)
     }
 
+    func testTheFourRegistersAreSteppedFields() throws {
+        // The same control the rest of the app uses, so an arrow steps them and a script can drive them by name.
+        // They were read-only labels until the registers could actually be sent.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.doubleTapThreshold = 90
+        values.doubleTapWindow = 50
+        pane.show(values)
+
+        let threshold = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane))
+        let window = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapWindow, in: pane))
+
+        XCTAssertEqual(threshold.value, 90)
+        XCTAssertEqual(window.value, 50)
+    }
+
+    func testTheRegistersRunTheWholeByte() throws {
+        // 0 to 255 is the register, not a judgement about useful values -- and 0 in particular has to be reachable on
+        // Window, that being how the gesture is turned off.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        let window = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapWindow, in: pane))
+
+        window.value = 0
+        XCTAssertEqual(window.value, 0)
+        window.value = 255
+        XCTAssertEqual(window.value, 255)
+    }
+
+    func testTheParametersComeOffTheFieldsRatherThanTheLastShownValues() throws {
+        // A held arrow moves the field several times a second and nothing writes those back to `values`, so a command
+        // built from `values` would carry the number the row opened with.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.doubleTapLatency = 50
+        pane.show(values)
+        let latency = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapLatency, in: pane))
+
+        latency.value = 77
+
+        XCTAssertEqual(pane.doubleTapParameters.latency, 77)
+    }
+
+    func testMovingARegisterSaysSo() throws {
+        // The pane reports that a value moved and nothing else: when to act on it is the window's, which debounces.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onDoubleTapValueChanged = { changes += 1 }
+        let limit = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapLimit, in: pane))
+
+        limit.onChange?(21)
+
+        XCTAssertEqual(changes, 1)
+    }
+
+    func testTheBoxReportsWhichWayRoundItIs() throws {
+        // It says "Disable", so ticked is the gesture being unwanted. Reported the right way round once, here, rather
+        // than at every reader of it.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var reported: [Bool] = []
+        pane.onDoubleTapEnabledChanged = { reported.append($0) }
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        // `performClick` toggles the box and then fires the action, so the state is not set here: doing both would
+        // report the value it had on the way past rather than the one it landed on.
+        box.performClick(nil)
+        box.performClick(nil)
+
+        XCTAssertEqual(box.state, .off, "back where it started after two clicks")
+        XCTAssertEqual(reported, [false, true], "ticked means off, unticked means on")
+    }
+
+    func testARefusedWriteCanPutTheBoxBackWithoutSayingSo() throws {
+        // The correction path. `state` is assigned rather than the action fired, so putting the box back cannot be
+        // mistaken for somebody ticking it and start a second write.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var reported = 0
+        pane.onDoubleTapEnabledChanged = { _ in reported += 1 }
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        pane.showDoubleTapEnabled(false)
+
+        XCTAssertEqual(box.state, .on, "ticked, the gesture being off")
+        XCTAssertEqual(reported, 0, "and nobody was told, because nobody did it")
+    }
+
     func testTheDoubleTapBoxIsTickedWhenTheGestureIsOff() throws {
         // "Disable", not "Enable", which is the archive's wording and the right way round: the setting is on by
         // default, so the box somebody ticks is the one that turns the gesture off. Ticked means disabled, and
