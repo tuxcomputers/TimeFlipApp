@@ -4,17 +4,17 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   chore/singleMode
-    commit:   84eceb72f4bdf09254fb505eace97a2e71608fe2
+    branch:   feature/doubleTap
+    commit:   80f5f72b05e6e2bcf7dc6bfce1cf5f0ffa7209b9
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-23 22:21:26
-    finished: 2026-08-23 22:41:39
+    started:  2026-08-24 07:53:42
+    finished: 2026-08-24 08:12:26
     outcome:  passed
-    scripts:  24 of 24 run, 0 with failures
+    scripts:  25 of 25 run, 0 with failures
     short:    0 ran fewer checks than they declare
-    checks:   585 in total
-              585 passed
+    checks:   604 in total
+              604 passed
               0 failed
 
 | script | expected | passed | failed |
@@ -42,8 +42,9 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 56-manual-mode | 29 | 29 | 0 |
 | 57-cube-pause | 38 | 38 | 0 |
 | 58-wrong-pin | 21 | 21 | 0 |
+| 59-double-tap | 19 | 19 | 0 |
 | 99-quit | 14 | 14 | 0 |
-| **total** | **585** | **585** | **0** |
+| **total** | **604** | **604** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.
