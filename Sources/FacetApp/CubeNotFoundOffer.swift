@@ -1,12 +1,17 @@
 import Foundation
 
 /// What somebody picked when told the cube could not be found.
-enum ManualModeAnswer: Equatable {
-    /// Look again: one more attempt, and the offer again if that finds nothing too. There is no limit on how many
+enum CubeNotFoundAnswer: Equatable {
+    /// Look again: one more attempt, and the question again if that finds nothing too. There is no limit on how many
     /// times this can be chosen.
     case retry
-    /// Time by hand instead. The app makes no further attempt **of its own** for the rest of the launch.
-    case switchToManualMode
+    /// Stop. The app makes no further attempt **of its own** for the rest of the launch.
+    ///
+    /// **It settles the loop and nothing else.** This used to be `switchToManualMode` and used to change what the
+    /// launch was, which is the switching `LaunchMode` exists to have removed: the app is still a launch with a cube
+    /// on record, now one that has given up looking for it. What that state says on screen is
+    /// `DeviceInfoRules.connection`'s to answer.
+    case stopLooking
 }
 
 /// Whether a failed attempt on the paired cube should be put to the user, or retried quietly.
@@ -23,9 +28,9 @@ enum ManualModeAnswer: Equatable {
 ///   offer -- losing a cube mid-session is a different situation from never having had it, and somebody who walked
 ///   away from a working app should not come back to a dialog.
 ///
-/// What it deliberately does not model is whether the offer is on screen or whether manual mode was chosen. Both are
+/// What it deliberately does not model is whether the question is on screen or whether it has been given up on. Both are
 /// about whether an attempt may run at all, which is `DeviceReconnectRules.shouldAttempt`'s question.
-struct ManualModeOffer {
+struct CubeNotFoundOffer {
     enum Decision: Equatable {
         /// Go round again on the usual backoff.
         case keepTrying

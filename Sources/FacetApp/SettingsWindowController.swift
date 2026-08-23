@@ -101,11 +101,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
-    /// **Asked of the app rather than of a table, and that is right rather than an exception.** `ManualMode` is in
+    /// **Asked of the app rather than of a table, and that is right rather than an exception.** `LaunchMode` is in
     /// memory on purpose: it describes what this launch is doing, not durable configuration, and a stored copy would
-    /// be a second answer to "is a device paired". Held weakly for the ordinary reason a controller holds a
-    /// collaborator it does not own.
-    private weak var manualMode: ManualMode?
+    /// be a second answer to "is a device paired".
+    ///
+    /// **A value now rather than a reference, which is the change worth noticing.** It was held weakly because it was
+    /// an object this window could turn on and off; it can no longer be turned anywhere, so there is nothing to hold
+    /// weakly and no lifetime for the mode to depend on. What this window does with it is read it.
+    private let launchMode: LaunchMode?
 
     /// The low-battery warning, which this window feeds and one of whose two surfaces it draws.
     ///
@@ -152,7 +155,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         icons: IconStore? = nil,
         colours: ColourStore? = nil,
         settings: SettingStore? = nil,
-        manualMode: ManualMode? = nil,
+        launchMode: LaunchMode? = nil,
         radio: BluetoothRadio? = nil,
         lowBattery: LowBatteryWatch? = nil
     ) {
@@ -165,7 +168,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.icons = icons
         self.colours = colours
         self.settings = settings
-        self.manualMode = manualMode
+        self.launchMode = launchMode
         self.lowBattery = lowBattery
         super.init()
         // After `super.init()`, because installing the radio's callbacks captures `self`.
@@ -546,7 +549,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func recordPairing(on pane: DevicePane?, with device: ScannedDevice) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordPairing(with: device)
-        manualMode?.stop(because: "a device is paired")
+        // **The mode is not touched.** Pairing changes what the app has, not what this launch is doing: a manual
+        // launch that pairs a cube goes on timing by hand until it is restarted, and the Connection row says exactly
+        // that (`DeviceInfoRules.connection`). See `LaunchMode` for why the app no longer adopts a cube mid-launch.
         pane?.show(deviceSettings())
     }
 
@@ -556,13 +561,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// re-reads every row, so the Scan button comes back because `paired` is actually false rather than because this
     /// asked for it -- and a write the table refused shows as the row it really holds.
     ///
-    /// **Manual mode is asked the same question it is asked at launch**, at the moment the answer changes. With
-    /// nothing paired there is no cube to follow, so the app times by hand again; `startIfNoDeviceIsPaired` reads
-    /// `paired` from the table itself, which is why it is called rather than told.
+    /// **The mode is not touched**, which is the one thing this no longer does. Forgetting a cube leaves a device
+    /// launch a device launch, with nothing to follow: the Connection row says the device is gone and that the app
+    /// has to be started again (`DeviceInfoRules.connection`), rather than the app quietly becoming its own clock
+    /// half way through. See `LaunchMode`.
     private func forgetDevice(on pane: DevicePane) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordForget()
-        manualMode?.startIfNoDeviceIsPaired(settings)
         // The status line described a device the app no longer has.
         pane.showScanMessage("")
         pane.show(deviceSettings())
@@ -596,7 +601,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func forgetResetDevice(on pane: DevicePane) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordFactoryReset()
-        manualMode?.startIfNoDeviceIsPaired(settings)
         pane.show(deviceSettings())
     }
 
@@ -648,16 +652,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// than hidden while nothing is connected, which is the same distinction drawn in colour instead of in words.
     /// `DeviceInfoRules` is what turns an absence into words rather than blanks either way.
     ///
-    /// **Manual mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
-    /// rule's own reasoning: `ManualMode` is in memory on purpose, describing what this launch is doing rather than
-    /// durable configuration, and storing it would create a second answer to "is a device paired". See its own note.
+    /// **The mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
+    /// rule's own reasoning: `LaunchMode` is in memory on purpose, describing what this launch is doing rather than
+    /// durable configuration, and storing it would create a second answer to "is a device paired". See its own note,
+    /// which also covers why the mode and `paired` are now allowed to differ and where the tab says so.
     private func deviceSettings() -> DevicePane.Values {
         let seeded = DevicePane.Values.seeded
         guard let settings else { return seeded }
         return DevicePane.Values(
             isPaired: settings.flag("paired", field: "paired") ?? seeded.isPaired,
             isConnected: settings.flag("connection", field: "connected") ?? seeded.isConnected,
-            isManualMode: manualMode?.isOn ?? seeded.isManualMode,
+            isManualMode: launchMode?.isManual ?? seeded.isManualMode,
             deviceName: settings.string("device_name", field: "name"),
             batteryPercent: radio?.batteryPercent,
             manufacturer: settings.string("device_info", field: "manufacturer"),
@@ -1521,7 +1526,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             FacesTabRules.click(
                 deviceFace: reading.deviceFace,
                 isFaceLocked: isLocked,
-                isTimingByHand: manualMode?.isOn == true,
+                isTimingByHand: launchMode?.isManual == true,
                 isDeviceReachable: reading.isDeviceReachable
             ).doesAnything
         )
@@ -1573,14 +1578,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // live is one that does something. Everything the branches used to say inline is said there instead -- why a
         // cube's face wins, why a paired app refuses, and why a locked face keeps what it has.
         //
-        // **No `ManualMode` at all refuses too**, which falls out of asking rather than being a case of its own: that
+        // **No `LaunchMode` at all refuses too**, which falls out of asking rather than being a case of its own: that
         // is a controller built without one, so a layout test rather than a launch, and of the two ways to be wrong,
         // refusing a click is visible and recoverable while starting a clock nobody asked for writes rows.
         let reading = timing?.read()
         switch FacesTabRules.click(
             deviceFace: reading?.deviceFace,
             isFaceLocked: reading?.deviceFace.map { faces.isLocked(face: $0) == true } ?? false,
-            isTimingByHand: manualMode?.isOn == true,
+            isTimingByHand: launchMode?.isManual == true,
             isDeviceReachable: reading?.isDeviceReachable ?? false
         ) {
         case let .assignToFace(face):

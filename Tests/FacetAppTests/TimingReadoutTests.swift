@@ -291,7 +291,7 @@ final class TimingReadoutTests: XCTestCase {
     func testAPairedCubeGoingAwayDoesNotBecomeAManualSession() {
         // **The bug this exists for.** A link drops, `deviceFace` goes with it, and the reading fell through to the
         // app's own faces -- so the menu bar drew a category on face 13 that nobody had picked, ticking, while the
-        // Device tab said the cube was unreachable and `ManualMode.isOn` was false throughout. Two pictures of one
+        // Device tab said the cube was unreachable and the launch was not a manual one throughout. Two pictures of one
         // question. The archive kept them apart with a `reconnecting` case, "so the menu bar keeps showing the last
         // known activity/icon instead of tearing down to an unpaired look".
         startTiming(1, at: noon)

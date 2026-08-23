@@ -4,12 +4,12 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   bugfix/lostConnection
-    commit:   357301011f7feda164eba97852028bf5d2d49600
+    branch:   chore/singleMode
+    commit:   84eceb72f4bdf09254fb505eace97a2e71608fe2
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-23 16:04:50
-    finished: 2026-08-23 16:23:27
+    started:  2026-08-23 22:21:26
+    finished: 2026-08-23 22:41:39
     outcome:  passed
     scripts:  24 of 24 run, 0 with failures
     short:    0 ran fewer checks than they declare
@@ -39,10 +39,10 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 53-device-reconnect | 23 | 23 | 0 |
 | 54-device-battery | 10 | 10 | 0 |
 | 55-device-face | 43 | 43 | 0 |
-| 56-manual-mode | 30 | 30 | 0 |
+| 56-manual-mode | 29 | 29 | 0 |
 | 57-cube-pause | 38 | 38 | 0 |
 | 58-wrong-pin | 21 | 21 | 0 |
-| 99-quit | 13 | 13 | 0 |
+| 99-quit | 14 | 14 | 0 |
 | **total** | **585** | **585** | **0** |
 
 The full record, including the app's own log rows and the accessibility tree at each failure,

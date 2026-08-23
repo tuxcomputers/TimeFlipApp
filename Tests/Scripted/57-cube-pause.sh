@@ -96,10 +96,13 @@ else
     fail "no cube segment ever reached device_event, so there is nothing for the glyph to draw"
 fi
 
-# **`56` leaves manual mode on**, and pairing is what ends it (`SettingsWindowController`). Reported rather than
-# asserted, because it is only on at all when `56` actually ran -- but it is the first thing to look at if the
-# routing check below fails, since a click in manual mode is routed to the app's own clock instead of the cube.
-grey "  $(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'mode' AND message LIKE 'Manual mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
+# **The mode this launch decided on**, which `LaunchMode` settles at startup and nothing changes afterwards. Reported
+# rather than asserted, because which one it is depends on whether the database came in paired -- but it is the first
+# thing to look at if the routing check below fails, since a manual launch routes a click to the app's own clock
+# instead of to the cube. `56` no longer leaves anything behind here: giving up on a cube does not change the mode.
+# Not bounded to this script's window, deliberately: the decision is made once per launch and the launch this runs
+# in began back in `56`, so a row after `$link` is exactly what there will not be.
+grey "  $(dsql "SELECT message FROM debug_log WHERE tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
 # What the cube last said about itself. Written by `BluetoothRadio` and only when the answer is news, which is enough:
 # the ask made when a link comes up always writes one, since the held status is cleared with the connection.
@@ -132,7 +135,19 @@ if [[ "$(status_row)" == *"is locked"* ]]; then
     sleep 0.8
     press toggle-cube-lock
     sleep 1.5
-    expect_log "the cube starts the run unlocked" "$unlocking" "The cube is unlocked" 20
+    # **Repair, and deliberately not a check.** Whether the cube arrived locked is not this script's subject, and
+    # counting it made `EXPECTED_CHECKS` a property of the state the hardware was left in rather than of the script:
+    # run 86 ran 39 against a declared 38, with all 39 passing, and was refused for it (2026-08-23).
+    #
+    # **It arrives locked as a matter of course now.** The app pauses and locks the cube as it quits ("Quit: the cube
+    # is paused and locked"), and `pair_a_cube` restarts the app so the launch is one that follows a cube -- so every
+    # script that pairs now inherits a locked cube where it used to inherit a live one.
+    #
+    # Nothing is lost by not counting it: the guard immediately below re-reads the cube's own answer and fails the
+    # script outright if the unlock did not take, which is the check that was ever worth having.
+    if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
+        grey "  the cube arrived locked, and was unlocked to start from a known state"
+    fi
 fi
 
 if [[ "$(status_row)" == *"is locked"* ]]; then

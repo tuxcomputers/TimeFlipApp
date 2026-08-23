@@ -21,7 +21,7 @@ enum FacesTabRules {
         /// Nothing. The face keeps what it has until somebody unlocks it, which is what the lock is for.
         case faceIsLocked(Int)
         /// Nothing. There is a device on record and nobody has said to get on without it, so the app is neither
-        /// following a cube nor timing by hand -- it is looking. See `ManualMode`.
+        /// following a cube nor timing by hand -- it is looking. See `LaunchMode`.
         case waitingForTheDevice
 
         /// Whether the click would do anything, which is what decides if the row is drawn live.

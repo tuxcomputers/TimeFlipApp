@@ -40,17 +40,31 @@ final class DeviceInfoRulesTests: XCTestCase {
 
     func testManualModeOutranksPairing() {
         // It answers a different question from the other two: they describe a cube, this describes what the app is
-        // doing instead of using one. A paired cube the app has stopped reaching for is still manual mode.
+        // doing instead of using one. A paired cube the app is not going to use is still manual mode -- and the row
+        // names the restart, because the restart is the whole of what changes it (`LaunchMode`).
         XCTAssertEqual(
             DeviceInfoRules.connection(isPaired: true, isConnected: false, isManualMode: true),
-            "Manual mode, no device"
+            "Paired, not used until restart"
         )
     }
 
-    func testNothingPairedSaysNotPaired() {
+    func testAManualLaunchThatPairedACubeSaysItIsNotUsingIt() {
+        // **Connected and ignored at the same time**, which is a state the app can now sit in for hours: pairing a
+        // cube no longer hands it the clock. "Connected" on its own would be the more misleading half of the truth,
+        // describing a link the app has and a job it is not doing with it.
+        XCTAssertEqual(
+            DeviceInfoRules.connection(isPaired: true, isConnected: true, isManualMode: true),
+            "Connected, not used until restart"
+        )
+    }
+
+    func testADeviceLaunchWhoseCubeHasGoneSaysToRestart() {
+        // Only reachable by forgetting or resetting the cube from this very tab, a launch that decided `.device`
+        // having had one on record. There is nothing left to follow and the app will not start timing by hand on its
+        // own, so saying "Not paired" and stopping would read exactly like the app being broken.
         XCTAssertEqual(
             DeviceInfoRules.connection(isPaired: false, isConnected: false, isManualMode: false),
-            "Not paired"
+            "Device gone, restart to time by hand"
         )
     }
 

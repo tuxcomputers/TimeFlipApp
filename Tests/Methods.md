@@ -286,11 +286,11 @@ tools only walk sheets. The whole-tree search is what finds it:
 ```sh
 python3 scripts/ax-dump.py | head -8
 #   AXWindow  id=_NS:87  desc=alert
-#     AXStaticText  value=Unable to find your device, retry or switch to manual mode
+#     AXStaticText  value=Unable to find your device
 #     AXButton  id=action-button-1  title=Retry
-#     AXButton  id=action-button-2  title=Switch to Manual Mode
+#     AXButton  id=action-button-2  title=Stop Looking
 
-python3 scripts/ax-press.py --title "Switch to Manual Mode"
+python3 scripts/ax-press.py --title "Stop Looking"
 ```
 
 **An `AXPress` does actuate it, from inside the modal run loop.** That was the open question: `runModal` blocks the
@@ -324,6 +324,15 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 `scripts/codesign-identity.sh`. A bare `swift-bundler bundle` is the trap.
 
 ## Notes that have cost time
+
+- **Renaming a `debug_log` message is an interface change, and the suite is the caller.** Grep
+  `Tests/Scripted/` for the **message text**, not the symbol that writes it. On 2026-08-23 `LaunchMode` replaced
+  `ManualMode` and the startup row went from `Manual mode: on, ...` to `Launch mode: manual, ...`. The rename was
+  swept for identifiers (`ManualMode`) and for the button title it changed (`Switch to Manual Mode`), both of which
+  came back clean -- and `01-launch` waits on the literal `Manual mode:%`, which nothing in that sweep looked at. The
+  run died on its second script, twenty checks in, having cost a full device session to reach a one-word mismatch.
+  `git show HEAD -- Sources/ | grep -E '^-.*record\(\.'` lists exactly the strings a commit removed; every one of
+  them is a pattern to hunt.
 
 - **The suite's own polling can make the app's writes fail.** The database is `journal_mode=delete`, so a reader
   locks the file against writers, and `wait_for` polls `debug_log` every 100ms for the whole of a run. Any app

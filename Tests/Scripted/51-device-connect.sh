@@ -305,10 +305,16 @@ check_contains "the tab says it is connected" "$status" "Connected to"
 connection=$(tree | grep -m1 "id=device-connection" || true)
 check_contains "the Connection row says Connected" "$connection" "Connected"
 
-# Manual mode outranks everything else in that row, so this is also the check that pairing took the app out of it.
+# **What must never appear with a cube on the other end is a row claiming there is none.**
+#
+# This used to be the check that pairing took the app out of manual mode, and pairing no longer does: a manual launch
+# that pairs a cube goes on timing by hand and says so *alongside* the link -- "Connected, not used until restart" --
+# rather than instead of it (`LaunchMode`). So the thing worth pinning is not which mode the row reports, which
+# depends on how this launch started, but that it never denies a device that is plainly connected. The bare
+# "Manual mode, no device" is the line that would be a lie here.
 case "$connection" in
-    *"Manual mode"*) fail "the Connection row still says manual mode, with a cube connected" ;;
-    *) pass "and no longer says manual mode, a device being paired" ;;
+    *"no device"*) fail "the Connection row says there is no device, with one connected" ;;
+    *) pass "and does not deny the device, one being connected" ;;
 esac
 
 if [ -n "$name" ]; then

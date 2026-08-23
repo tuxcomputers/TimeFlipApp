@@ -66,10 +66,10 @@ let debugLog: DebugLog? = {
     return DebugLog(databaseURL: url)
 }()
 
-// With no device paired there is nothing to follow, so the app times by hand. Startup is the first
-// place that needs the answer, which is why the read happens here and not sooner.
-let manualMode = ManualMode(debugLog: debugLog)
-manualMode.startIfNoDeviceIsPaired(settings)
+// With no device paired there is nothing to follow, so the app times by hand. Startup is the first place that needs
+// the answer, which is why the read happens here and not sooner -- and the only place, this being the one moment the
+// mode is decided at all. Nothing after this line may change it; see `LaunchMode`.
+let launchMode = LaunchMode.decided(from: settings, debugLog: debugLog)
 
 let app = NSApplication.shared
 // `.accessory`: a menu bar app, so no Dock icon and no app menu. It is also why the dropdown's Quit
@@ -142,7 +142,7 @@ timingReadout.deviceFace = { radio.currentFace }
 // **Timing by hand means the cube is not asked about at all**, which is the other half of the reconnect loop standing
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
 // `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
-timingReadout.isTimingByHand = { manualMode.isOn }
+timingReadout.isTimingByHand = { launchMode.isManual }
 // **Read from the table at the moment a reading is taken**, like every other answer here. It is what tells a cube
 // that has gone quiet from no cube at all: without it a dropped link fell through to the app's own faces and drew a
 // manual session nobody had started.
@@ -180,7 +180,7 @@ let settingsWindow = SettingsWindowController(
     icons: IconStore(connection: database),
     colours: ColourStore(connection: database),
     settings: settings,
-    manualMode: manualMode,
+    launchMode: launchMode,
     radio: radio,
     lowBattery: lowBattery
 )
@@ -217,24 +217,23 @@ let reconnector = DeviceReconnector(
     debugLog: debugLog,
     storedPIN: { DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN },
     rotatingTo: DeveloperMode.devicePIN,
-    // Asked rather than told, so there is one answer to "is this launch timing by hand" and the loop reads it at the
-    // moment it is about to act on it -- which matters because pairing a cube turns the mode off underneath it.
-    isTimingByHand: { manualMode.isOn }
+    // Asked rather than told, so there is one answer to "is this launch timing by hand" rather than a copy beside it.
+    // It cannot move under the loop any more (`LaunchMode`), which makes asking safe as well as right.
+    isTimingByHand: { launchMode.isManual }
 )
 // What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
 // menu bar that says nothing.
 //
-// **Turning the mode on lives here and not in the loop**, which is the one thing this closure decides. The reconnector
-// stops either way; what the answer changes is whether this launch is an app that times by hand, and that is
-// `ManualMode`'s to record. Choosing manual mode leaves the pairing exactly as it was -- the cube is still this app's
-// cube, and pairing one from the Device tab is what ends the mode (`ManualMode.stop`).
+// **The answer decides whether to keep looking, and nothing else.** It used to decide the launch's mode as well,
+// switching a device launch to timing by hand -- which is the switching `LaunchMode` exists to have removed. A launch
+// that started with a cube on record stays a launch with a cube on record even when the cube cannot be found; what
+// the Device tab says about that is `DeviceInfoRules.connection`'s to answer, and the way to the other mode is to
+// forget the device and start the app again.
+//
+// So this closure now only presents the question: the reconnector stops on either answer, and the gate in `attempt`
+// is what keeps it stopped.
 reconnector.onCubeNotFound = { _, answer in
-    ManualModeAlert.ask { picked in
-        if picked == .switchToManualMode {
-            manualMode.start(because: "the cube could not be found and manual mode was chosen")
-        }
-        answer(picked)
-    }
+    CubeNotFoundAlert.ask(answer)
 }
 settingsWindow.reconnect = reconnector
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired

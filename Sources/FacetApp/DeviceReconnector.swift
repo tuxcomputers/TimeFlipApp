@@ -40,17 +40,17 @@ final class DeviceReconnector {
 
     /// Whether the app is timing by hand, asked of whatever owns that rather than copied here.
     ///
-    /// **A closure, so there is one answer and not two.** Manual mode is `ManualMode`'s to say; a `Bool` set on this
-    /// object at the moment the offer was answered would be a second copy of it, free to disagree the moment anything
-    /// else turns the mode off -- which pairing a cube does. That is the exact fault `CLAUDE.md`'s first rule is about.
+    /// **A closure, so there is one answer and not two.** The mode is `LaunchMode`'s to say and this reads it rather
+    /// than keeping a copy. The copy used to be the dangerous one because the mode moved underneath it -- pairing a
+    /// cube turned it off -- and now nothing moves it at all; asking is still right, and now it also cannot be wrong.
     private let isTimingByHand: () -> Bool
 
     /// How many attempts have failed in a row. The backoff is a function of it.
     private var failures = 0
 
     /// Whether this launch has ever reached the cube, which is the whole of what decides between retrying quietly and
-    /// asking. See `ManualModeOffer`.
-    private var offer = ManualModeOffer()
+    /// asking. See `CubeNotFoundOffer`.
+    private var offer = CubeNotFoundOffer()
 
     /// Whether the question is on screen right now. Nothing may attempt a connection until it is answered.
     private var isAwaitingAnswer = false
@@ -63,7 +63,7 @@ final class DeviceReconnector {
     /// **`nil` means no offer**, and the loop then behaves exactly as it did before there was one -- retrying on the
     /// backoff for ever. That is what a test gets by default, and it is the honest fallback for a build with nowhere
     /// to put a dialog: an app that stopped trying and had no way to say so would simply look broken.
-    var onCubeNotFound: ((String, @escaping (ManualModeAnswer) -> Void) -> Void)?
+    var onCubeNotFound: ((String, @escaping (CubeNotFoundAnswer) -> Void) -> Void)?
 
     init(
         radio: BluetoothRadio,
@@ -153,7 +153,7 @@ final class DeviceReconnector {
         guard settings.flag("paired", field: "paired") == true else { return }
         switch offer.recordFailedAttempt() {
         case .keepTrying: scheduleAttempt()
-        case .ask: ask(because: ManualModeOffer.reason(for: outcome))
+        case .ask: ask(because: CubeNotFoundOffer.reason(for: outcome))
         }
     }
 
@@ -183,6 +183,9 @@ final class DeviceReconnector {
             return
         }
         isAwaitingAnswer = true
+        // **The wording is the log's own and does not track the dialog's.** What is being offered is a choice about
+        // whether to keep looking; the scripted suite matches this string, and it names the moment rather than the
+        // button. See `CubeNotFoundAlert` for what the buttons now say.
         debugLog?.record(.mode, "Offering manual mode: \(reason)")
         onCubeNotFound(reason) { [weak self] answer in
             guard let self else { return }
@@ -202,12 +205,11 @@ final class DeviceReconnector {
                 self.radio.forgetWhatWasFound()
                 self.debugLog?.record(.mode, "Retry chosen; looking for the cube again")
                 self.attempt()
-            case .switchToManualMode:
-                // **Nothing is scheduled and nothing is set here.** Manual mode is turned on by whoever owns it, in
-                // the presenter's own answer handler; what this object does is stop, and the gate in `attempt` is what
-                // keeps it stopped -- so the mode and the loop cannot come to disagree about whether the app is
-                // looking for a cube.
-                self.debugLog?.record(.mode, "Manual mode chosen; this launch reaches for no cube on its own again")
+            case .stopLooking:
+                // **Nothing is scheduled and nothing is set here**, and now there is nothing anywhere else either:
+                // the answer settles this loop and no longer changes the launch's mode (`LaunchMode`). What stops the
+                // app looking again is the gate in `attempt`, which reads the same answer this does.
+                self.debugLog?.record(.mode, "Stop looking chosen; this launch reaches for no cube on its own again")
             }
         }
     }
@@ -230,10 +232,10 @@ final class DeviceReconnector {
         // been told to stop hunting for. Two callers reach this -- a link that went away and an attempt that failed --
         // and neither is a reason to start again once somebody has said to get on without the device.
         //
-        // **The way back out is a restart or forgetting the device**, deliberately, and neither needs anything here:
-        // the mode is per-launch and in memory, so a relaunch works it out again from `paired`, and forgetting turns
-        // it on for the honest reason that nothing is paired -- after which pairing turns it off and this loop is a
-        // loop again.
+        // **The way back out is a restart, and only a restart**, deliberately, and it needs nothing here: the mode is
+        // per-launch and in memory, so a relaunch works it out again from `paired` and this loop comes back with it.
+        // Forgetting the device used to be a second way out and is not one now -- see `LaunchMode`, which is why this
+        // closure's answer no longer moves underneath the loop that reads it.
         guard !isTimingByHand() else {
             debugLog?.record(.pair, "Timing by hand, so the cube is not being looked for again this launch")
             return
