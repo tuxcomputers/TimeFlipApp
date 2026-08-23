@@ -62,7 +62,7 @@ struct ManualModeOffer {
     static func reason(for outcome: DeviceLoginOutcome) -> String {
         switch outcome {
         case .unreachable: return "nothing answered"
-        case .wrongPIN: return "the cube was found and refused this app's PIN"
+        case .wrongPIN: return "the cube was found and refused the PIN this app has"
         case .newPINRefused: return "the cube was found and would not take a new PIN"
         case .notATimeFlip: return "what answered is not a TimeFlip"
         case .timedOut: return "the cube answered and then stopped part way through"
