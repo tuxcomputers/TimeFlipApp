@@ -15,6 +15,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=26
 start "the Settings window, its tabs, and the calendar this run will fill"
 
 open_settings

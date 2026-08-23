@@ -44,11 +44,23 @@ enum FacesTabRules {
     ///   - isFaceLocked: whether that face keeps what it has. Ignored when there is no face.
     ///   - isTimingByHand: whether this launch is timing by hand, which is the only thing that lets a click start the
     ///     app's own clock while a device is on record.
-    static func click(deviceFace: Int?, isFaceLocked: Bool, isTimingByHand: Bool) -> Click {
+    static func click(
+        deviceFace: Int?,
+        isFaceLocked: Bool,
+        isTimingByHand: Bool,
+        isDeviceReachable: Bool = true
+    ) -> Click {
         // **The cube first, because it is what is on screen.** A reading that names a face is what both surfaces are
         // drawing, so a click has somewhere to land whatever the mode says -- and landing it anywhere else would be a
         // control doing something other than what the window shows.
-        if let deviceFace {
+        //
+        // **Unless the cube cannot be reached**, which is a face still being drawn from the cube's own last word
+        // after the link dropped (`TimingReadout.Reading.isDeviceReachable`). The face is worth showing and the
+        // assignment is not something the app can carry out, so this answers `waitingForTheDevice` exactly as it did
+        // when the face went with the link -- the difference being that now the tab has something to draw while it
+        // waits. Without this, letting a quiet cube keep its face turned a refused click into an assignment to a
+        // device nobody can hear.
+        if let deviceFace, isDeviceReachable {
             return isFaceLocked ? .faceIsLocked(deviceFace) : .assignToFace(deviceFace)
         }
         return isTimingByHand ? .startTiming : .waitingForTheDevice

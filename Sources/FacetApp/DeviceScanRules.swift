@@ -95,6 +95,55 @@ enum DeviceScanRules {
         return "Unnamed device"
     }
 
+    /// The order a reach asks devices in: the remembered identifier, then everything called what the cube is called
+    /// now, then what it was called before, then anything else the filter let through.
+    ///
+    /// **Ordering, never filtering, and every rank exists because the one above it can be wrong.** The identifier
+    /// leads because it is the surest thing available when it is right, and it is only a hint: neither identifier
+    /// this app can see is unique to a cube (finding 8, `docs/timeflip2-firmware-observations.md`), so a device
+    /// carrying it can be somebody else's and a cube that has been re-paired or moved between Macs can be this
+    /// app's and not carry it. The name is next for the same reason and with the same limit: a renamed cube is
+    /// almost certainly the one that was renamed, and a room of factory-named cubes tells them apart not at all.
+    ///
+    /// So the order is a ranking of guesses, and **the answer is the PIN** -- which is why the caller works through
+    /// the whole list rather than trusting any position in it (`BluetoothRadio.ReachTarget`).
+    ///
+    /// The previous name is behind the current one rather than beside it: both are this app's own writing, and the
+    /// one it wrote last is the one the cube should be answering to.
+    static func reachOrder(
+        _ devices: [ScannedDevice],
+        preferring preferred: UUID?,
+        remembered: String?,
+        previouslyKnown: String?
+    ) -> [UUID] {
+        func rank(_ device: ScannedDevice) -> Int {
+            if let preferred, device.id == preferred { return 0 }
+            if isCalled(device, remembered) { return 1 }
+            if isCalled(device, previouslyKnown) { return 2 }
+            return 3
+        }
+        return devices
+            .sorted { first, second in
+                if rank(first) != rank(second) { return rank(first) < rank(second) }
+                // Broken the same way the list is, so a room scanned twice is asked in the same order twice: a
+                // dictionary hands its values over in whatever order it likes.
+                let comparison = label(for: first).localizedCaseInsensitiveCompare(label(for: second))
+                if comparison != .orderedSame { return comparison == .orderedAscending }
+                return first.id.uuidString < second.id.uuidString
+            }
+            .map(\.id)
+    }
+
+    /// Whether either name a device offers is exactly this one. **Exact**, matching `matches` above and for its
+    /// reason: a remembered name is one string this app wrote to one cube, so a chosen name like "Cube" used as a
+    /// substring would start claiming other people's hardware.
+    private static func isCalled(_ device: ScannedDevice, _ name: String?) -> Bool {
+        guard let name = name?.lowercased(), !name.isEmpty else { return false }
+        return [device.peripheralName, device.advertisedName]
+            .compactMap { $0?.lowercased() }
+            .contains(name)
+    }
+
     /// The order the list is drawn in: anything eligible first, then by name, then by identifier.
     ///
     /// **Ordering, not filtering**, which matters once **All Devices** is ticked: the point of that box is to show a

@@ -233,6 +233,13 @@ ask_and_detect() {
 # set-once-per-run with nothing to tidy up: the next run reads an id that is not its own and asks.
 DEVICE_GATE="logs/device-gate"
 
+# **The gate is read here and asked for in `00-setup`.** One prompt, at the top of the run, before anything has
+# been driven -- rather than at whichever device script happened to run first. Two things follow. Somebody who says
+# no is told straight away instead of twenty minutes in, and every script below this can simply read the answer:
+# there is no path here that stops to ask, so no script can accidentally become the one that prompts.
+#
+# `50-device-scan` is the only caller that acts on a no, and it stops the run. Everything after it needs a cube, so
+# there is nothing left to run and no reason for each script to re-check.
 device_required() {
     local run="${TESTLOG_RUN_ID:-}" answered="" remembered=""
 
@@ -242,13 +249,14 @@ device_required() {
     if [ -n "$run" ] && [ -r "$DEVICE_GATE" ]; then
         read -r answered remembered < "$DEVICE_GATE" || true
     fi
-    if [ -n "$run" ] && [ "$answered" = "$run" ]; then
-        case "$remembered" in
-            yes) grey "  the TimeFlip was confirmed to be here earlier in this run"; return 0 ;;
-            *)   grey "  no TimeFlip was made available earlier in this run"; return 1 ;;
-        esac
-    fi
+    [ -n "$run" ] && [ "$answered" = "$run" ] && [ "$remembered" = "yes" ]
+}
 
+# Asks, once, and writes the answer against this run's id. **Only `00-setup` calls this.** It is separate from
+# `device_required` so that reading the answer cannot turn into asking for it: a script that reaches a prompt
+# nobody is watching hangs the run, and the whole point of asking at the top is that somebody is still there.
+ask_about_the_device() {
+    local run="${TESTLOG_RUN_ID:-}"
     mkdir -p "$(dirname "$DEVICE_GATE")" 2>/dev/null || true
 
     # **Everything the run does to the cube, said once, because this is the only time it is asked.** That
@@ -257,11 +265,15 @@ device_required() {
     # about again later, so this prompt has to be worth reading -- it is the whole of the consent.
     if action_required \
         "May this run use your TimeFlip? It will be RESET to factory settings." \
-        "THIS WIPES THE CUBE. 52-device-reset erases everything stored on the device --" \
+        "THIS WIPES THE CUBE. The setup below erases everything stored on the device --" \
         "face colours, task settings, its name and its PIN -- back to factory defaults," \
         "and that cannot be undone. The cube comes back on the vendor PIN 000000, which is" \
         "the first one Facet presents, so pairing it again afterwards is one press of Scan," \
         "but anything you had set on the device itself is gone." \
+        "" \
+        "**It is wiped now, at the start, and again by 52-device-reset.** This run begins by" \
+        "pairing the cube and resetting it, so every script after this one starts from a" \
+        "factory cube the app has never seen." \
         "" \
         "The runs also change its PIN. They present 000000 and then the PIN this developer" \
         "build sets, 123456; a cube answering to the default is put on 123456, which is" \
@@ -272,15 +284,15 @@ device_required() {
         "2. Check Bluetooth is on." \
         "3. Press y and leave everything alone; the rest runs by itself." \
         "" \
-        "Asked once for the whole run. Every script that needs the cube from here on takes" \
+        "Asked once for the whole run, here at the top. Every script that needs the cube takes" \
         "this answer, so leave it where it is until the run finishes." \
         "" \
         "The FIRST time Facet ever scans, macOS asks whether it may use Bluetooth. That" \
         "is once, not once per run or per build: after it is allowed the app just scans." \
         "If the prompt does appear, allow it -- until you do the radio never answers." \
         "" \
-        "Answer anything else to skip every script that needs the cube, the reset included." \
-        "The rest of the run is unaffected."; then
+        "Answer anything else and the run stops at 50-device-scan. The scripts before it" \
+        "still run, and CI will refuse the branch until somebody with a cube runs it."; then
         [ -n "$run" ] && printf '%s yes\n' "$run" > "$DEVICE_GATE"
         return 0
     fi
@@ -396,7 +408,7 @@ start() {
     blue "=============================================================================="
     blue "$SCRIPT_NAME: $*"
     blue "=============================================================================="
-    testlog_script_start "$SCRIPT_NAME" "$*"
+    testlog_script_start "$SCRIPT_NAME" "$*" "${EXPECTED_CHECKS:-0}"
 }
 
 # **What is being checked is printed before the verdict, on its own line.**
@@ -459,6 +471,37 @@ verdict_fail() {
 pass() { [ $# -gt 0 ] && announce "$*"; verdict_pass; }
 fail() { [ $# -gt 0 ] && announce "$*"; verdict_fail; }
 
+# One setting's value, by row name and JSON key: `setting paired paired`, `setting connection connected`.
+#
+# **Here rather than in each script that wants it.** Three scripts each defined this privately -- 08, 53 and 56,
+# byte for byte identical -- and `58-wrong-pin` was written against it without carrying a fourth copy. Every script
+# is its own `bash` process, so 58 had no such function: its first check read an empty string, failed, and stopped
+# the whole run on runs 71 and 77. A helper that several scripts each redefine is a helper the next script will be
+# missing, and the failure looks like the app being wrong rather than the harness.
+setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
+
+# ---------------------------------------------------------------------------- arranging, as opposed to checking
+#
+# **For a script that sets things up rather than testing them, where the whole script is one verdict.** `00-setup`
+# is the only one, and it answers once at the bottom: `step` narrates what it did, `trouble` records what it could
+# not do, and neither writes a `check_result` row.
+#
+# **Defined here rather than in the script**, because `seed-private.sh` needs them too and a second copy is how
+# `58-wrong-pin` came to call a `setting` helper that three other scripts each defined privately -- it ran zero
+# checks and stopped run 71. One definition, both callers.
+#
+# Why not just use `check` for each seed: a setup step that passes says nothing about the app, so counting twenty
+# of them puts twenty green lines at the top of a run and inflates the total into coverage that does not exist.
+# And a seed that fails must not stop at the first one -- somebody about to leave the room for twenty minutes
+# needs every reason the ground is wrong, not the earliest.
+TROUBLE=""
+trouble() {
+    TROUBLE="$TROUBLE
+      - $*"
+    red "  could not: $*"
+}
+step() { grey "  $*"; }
+
 # `check "name" "expected" "actual"` -- the common shape, so a failure prints both sides without every
 # script formatting its own message.
 check() {
@@ -490,7 +533,6 @@ check_contains() {
 # Neither passed nor failed: the thing could not be checked here, and saying so is more honest than a
 # tick. A skipped check does not fail the script -- an account nobody has connected is not a defect --
 # but it is printed loudly enough that nobody reads the run as fuller coverage than it was.
-SKIPPED=0
 # **There is no `skip`, deliberately, and calling one is meant to be an error.** A skip is a check reporting that it
 # could not answer, and a run full of them reads green while proving nothing: on 2026-08-22 `55-device-face` skipped
 # its entire self and the run still stamped `outcome: passed`. So a missing cube, an unusable radio, an unconnected
@@ -515,14 +557,36 @@ finish() {
 
     # Before anything is printed, because this is where the app's own debug_log rows are copied out of
     # test.sqlite -- and a script that exits straight after `finish` would otherwise take them with it.
-    testlog_script_finish "$PASSED" "$FAILED" "${SKIPPED:-0}"
+    testlog_script_finish "$PASSED" "$FAILED"
     echo ""
-    local skipped=""
-    [ "${SKIPPED:-0}" -gt 0 ] && skipped=", $SKIPPED skipped"
     if [ "$FAILED" -eq 0 ]; then
-        green "$SCRIPT_NAME: $PASSED passed, 0 failed$skipped"
+        green "$SCRIPT_NAME: $PASSED passed, 0 failed"
     else
-        red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$skipped$FAILURES"
+        red "$SCRIPT_NAME: $PASSED passed, $FAILED FAILED$FAILURES"
+    fi
+
+    # **A script that ran the wrong number of checks has not passed, however green every one of them was.**
+    # `EXPECTED_CHECKS` is what the script says it does; `PASSED` is what it did. They part company when a
+    # branch nobody meant to take was taken -- a conditional that silently skipped a section, an early exit,
+    # a helper that returned before its checks -- and every check that never ran reports nothing at all. That
+    # is the failure this exists to catch, because it is the one that looks exactly like success.
+    #
+    # Reported here and enforced in CI off the stamp, rather than turned into a failed check: a check would
+    # need a description of its own and would itself be counted, which is a number that changes the number
+    # it is checking.
+    if [ "${EXPECTED_CHECKS:-0}" -gt 0 ] && [ "$PASSED" != "$EXPECTED_CHECKS" ]; then
+        red "$SCRIPT_NAME: expected $EXPECTED_CHECKS passing check(s), got $PASSED"
+        # **The two directions mean opposite things**, so the line says which happened rather than leaving it to
+        # be worked out from two numbers. Fewer is the case this exists to catch: a branch nobody meant to take,
+        # and every check on the other side of it silently not running. More is the count being out of date, or a
+        # helper quietly adding verdicts of its own -- which is what `apply_private_seeds` was doing to 00-setup
+        # on run 73, two checks that belonged to the seeding rather than to the app.
+        if [ "$PASSED" -lt "$EXPECTED_CHECKS" ]; then
+            red "    $(( EXPECTED_CHECKS - PASSED )) check(s) never ran -- a branch was taken that skips them"
+        else
+            red "    $(( PASSED - EXPECTED_CHECKS )) more check(s) ran than this script says it has"
+        fi
+        return 1
     fi
     [ "$FAILED" -eq 0 ]
 }
@@ -765,11 +829,89 @@ ensure_app_running() {
     exit 2
 }
 
+# ---------------------------------------------------------------------------- clicking the status item
+#
+# **A real mouse event at a screen point**, because the status item is not in `AXMenuBar` and cannot be
+# pressed by name (Tests/Methods.md). `scripts/status-item-click.py` is the whole of that layer; these wrap
+# it so two things stop going wrong, both measured on run 78 (2026-08-23).
+#
+# **The wait, because macOS merges clicks and the app reads the same interval.** Two clicks inside the
+# double-click interval arrive as one double, and `MenuBarController` waits out `NSEvent.doubleClickInterval`
+# before deciding a right-click was a pause rather than a lock. `57-cube-pause` fired five clicks in 1.7
+# seconds and the system swallowed two pairs into doubles -- "The waiting cube pause was dropped: a second
+# click made it a lock", twice -- and the click after them produced no event at all. So every click here
+# waits the system's own threshold plus a margin first. A deliberate double is unaffected: the pair inside it
+# is generated by the python in one go, not by two calls to this.
+#
+# **And no silence.** Every call site used to end `>/dev/null 2>&1`, discarding the output, the error and the
+# exit code alike, so a click that never happened was indistinguishable from one the app ignored. On run 78
+# that cost a 20-second timeout reported against the cube when nothing had clicked at all. A failure here is
+# printed and returned.
+STATUS_CLICK_GAP=""
+status_click_gap() {
+    if [ -z "$STATUS_CLICK_GAP" ]; then
+        # The system setting the app itself reads. Unset is the common case and means the 0.5s default.
+        local threshold
+        threshold=$(defaults read -g com.apple.mouse.doubleClickThreshold 2>/dev/null || true)
+        STATUS_CLICK_GAP=$(python3 -c "print(round(float('${threshold:-0.5}') + 0.35, 2))" 2>/dev/null || echo 0.85)
+    fi
+    printf '%s' "$STATUS_CLICK_GAP"
+}
+
+# **Posted is not received, and the difference is the whole of run 78's failure.** `CGEventPost` hands an event
+# to the window server and returns; nothing in its exit status says an app took it. A click can be posted
+# perfectly and reach nobody -- the item moved between the accessibility read and the post, a menu was already
+# open and swallowed it, the app was busy. All of those exit 0.
+#
+# So the app's own record is what counts as proof. Every click `MenuBarController` handles writes a
+# `Status item clicked:` row, so this waits for one and retries once if none arrives. That turns "an event was
+# posted" into "the app handled a click", which is exactly what was assumed and untrue on run 78.
+#
+# **Retrying can double a gesture, so it is bounded and it is loud.** The row is written synchronously in the
+# handler, so three seconds is generous; but if the first click did land and its row merely arrived late, the
+# retry is a second real click -- and on the right half two singles are a pause and then a resume. One retry
+# only, and the total number of clicks the app recorded is reported whenever a retry was needed, so a doubled
+# gesture is visible in the log rather than left to be deduced from behaviour further down.
+click_status_item() {
+    local opening output status landed attempt=0 rows
+    opening=$(mark)
+    while [ "$attempt" -lt 2 ]; do
+        attempt=$((attempt + 1))
+        local before
+        before=$(mark)
+        sleep "$(status_click_gap)"
+        output=$(python3 scripts/status-item-click.py "$@" 2>&1)
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            red "  the status item click failed (exit $status)${output:+: $output}"
+            return 1
+        fi
+
+        landed=$(wait_for "$before" "Status item clicked:%" 3)
+        if [ -n "$landed" ]; then
+            if [ "$attempt" -gt 1 ]; then
+                rows=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $opening AND message LIKE 'Status item clicked:%';")
+                yellow "  the click landed on attempt $attempt, and the app recorded ${rows:-?} click(s) in all"
+            fi
+            return 0
+        fi
+        red "  the click was posted but the app recorded no click (attempt $attempt): ${output:-no output}"
+    done
+
+    red "  the status item never received a click, so whatever it was meant to do has not happened"
+    return 1
+}
+
+click_left()         { click_status_item; }
+click_right()        { click_status_item --right; }
+double_click_left()  { click_status_item --double; }
+double_click_right() { click_status_item --right --double; }
+
 # Quits through the menu, which is the app's own way out and the only one that runs the quit sequence.
 quit_app() {
     is_running || return 0
     close_settings
-    python3 scripts/status-item-click.py >/dev/null 2>&1
+    click_left || red "  could not click the status item to quit; falling back to a kill below"
     sleep 0.5
     python3 scripts/ax-press.py quit-app >/dev/null 2>&1
     local waited=0
@@ -882,7 +1024,7 @@ wait_for_element() {
 
 open_settings() {
     settings_is_open && return 0
-    python3 scripts/status-item-click.py >/dev/null 2>&1
+    click_left || return 1
     sleep 0.5
     press open-settings
     sleep 1

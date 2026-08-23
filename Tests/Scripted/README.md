@@ -179,6 +179,7 @@ correctly, so it passes and the line says which case it met.
 | `55-device-face` | the face the cube is on, in the menu bar and on the Faces tab (**asks you to turn the cube**) |
 | `56-manual-mode` | a paired app that cannot find its cube: what a click refuses, and what taking manual mode stops (**asks you to switch Bluetooth off and on**) |
 | `57-cube-pause` | the status item's right half: one click stops and starts the cube, two lock and unlock it (**ends by asking you to turn a paused cube**) |
+| `58-wrong-pin` | a cube that refuses this app's PIN: the offer, Retry, and taking manual mode (**asks you to answer a dialog twice**) |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written

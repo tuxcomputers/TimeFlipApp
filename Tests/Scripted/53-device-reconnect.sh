@@ -24,13 +24,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=23
 start "reconnecting to a paired TimeFlip at launch"
 
-if ! device_required; then
-    fail "no TimeFlip was made available, so there is nothing to reconnect to"
-    finish
-    exit $?
-fi
+# **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
+# anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
+# has failed. A second gate here would be a branch that can never be taken, and an untaken branch is checks
+# that silently do not run.
 
 open_settings
 select_tab Device
@@ -52,7 +53,6 @@ fi
 pass "paired a cube to come back to"
 
 # One row per setting, the value being JSON, which is what `08-app-settings` reads them with too.
-setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
 
 paired_uuid=$(setting device_uuid uuid)
 grey "  paired to ${paired_uuid:-unknown}"
@@ -88,7 +88,18 @@ expect_log "and goes looking by scanning, since that is the only way to a periph
 expect_log "the radio actually starts listening" "$since" "%Scan started%" 20
 
 grey "  waiting for the cube to answer the launch scan..."
-expect_log "the cube turns up and the scan is done with it" "$since" "%The cube turned up%" 20
+# **The remembered identifier is what may cut the window short, and nothing else is.** Any other cube is collected and
+# the scan runs its ten seconds out, because a device that is not the one this app remembers cannot be known to be its
+# own until it has taken the PIN. So this row is the ordinary case going fast, and its absence would be a reconnect
+# that still arrives, several seconds later.
+expect_log "the cube turns up and the scan is done with it" "$since" "%the remembered device turned up%" 20
+# **An order, worked out before anything is connected to.** Trying each device as it advertised put a connect, a scan
+# being stopped and a modal dialog inside one another: the reach was ended by the very step about to try its first
+# candidate, and the tail of that connect then overwrote the retry made from the dialog, wedging the app for the rest
+# of the launch (measured 2026-08-23, `BluetoothRadio.beginTryingWhatWasFound`). Collect, then try, is the archive
+# shape that fixed it, and this row is the seam between the two halves.
+expect_log "and an order is worked out before anything is connected to" "$since" \
+    "% device(s) to ask, in the order they will be asked" 20
 expect_log "the app opens a link to it" "$since" "Connecting to %" 20
 expect_log "and the cube lets it in" "$since" "%PIN accepted%" 60
 

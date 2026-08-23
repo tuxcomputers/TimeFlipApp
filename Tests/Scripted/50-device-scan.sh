@@ -21,18 +21,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=15
 start "scanning for a TimeFlip, and finding one"
 
-# The cube has to be there, and only a person can put it there. Declining skips the whole script rather than
-# failing it, so the suite stays runnable on a machine with no hardware near it.
+# ---------------------------------------------------------------------------- the gate for the whole device half
 #
-# **Asked by `device_required`, which asks once a run.** In script order this is normally the one that does
-# the asking and the later device scripts inherit the answer; run on its own, it asks for itself.
-if ! device_required; then
-    fail "no TimeFlip was made available, so the scan has nothing to find"
-    finish
-    exit $?
-fi
+# **The first check in the script, and the run stops here if it fails.** `00-setup` asked once, at the top, and
+# wrote the answer down; this reads it. Nothing below asks again, and neither does any script after this one --
+# every one of them needs a cube, so a no means there is nothing left to run and no reason for each of them to
+# find that out separately.
+#
+# **A failure, not a skip.** A run with no cube has not checked the device half, and saying so as a failure is
+# what makes the stamp refuse to stand as evidence: a skip reported the same run as green with a number in a
+# block nobody reads. Somebody without a TimeFlip cannot clear this and is not meant to -- see CONTRIBUTING.md.
+check "a TimeFlip was offered for this run, back in 00-setup" "yes" \
+    "$(device_required && echo yes || echo no)"
 
 open_settings
 select_tab Device

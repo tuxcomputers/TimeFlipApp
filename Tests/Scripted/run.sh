@@ -71,18 +71,22 @@ fi
 echo "Facet scripted checks -- $(date '+%Y-%m-%d %H:%M:%S')"
 echo "$(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD)"
 
-# A run starts with the cube's whereabouts unknown. `device_required` asks once and writes the answer here
-# against this run's id, so the file already invalidates itself; this makes that unconditional, for the case
-# where the run ids start again because somebody deleted logs/testlog.sqlite.
+# A run starts with the cube's whereabouts unknown. `00-setup` asks once and writes the answer here against this
+# run's id, so the file already invalidates itself; this makes that unconditional, for the case where the run ids
+# start again because somebody deleted logs/testlog.sqlite.
 rm -f logs/device-gate
 
 # The app holds the database open, so it goes first whichever way this run is going: rebuilding under a
 # running app would leave it writing to a file nothing points at any more.
 if pgrep -x Facet >/dev/null; then
     echo "Quitting the running app first."
-    python3 scripts/status-item-click.py >/dev/null 2>&1
+    # **Said out loud when it does not work.** run.sh does not source lib.sh, so it has no `click_left`; what it
+    # must not do is what every call site used to and throw the error away. A click that fails here is why the
+    # `pkill` below is reached, and knowing that is the difference between a tidy quit and a killed app whose
+    # quit sequence never ran.
+    python3 scripts/status-item-click.py 2>&1 || echo "  the status item would not click; falling back to a kill"
     sleep 0.5
-    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+    python3 scripts/ax-press.py quit-app 2>&1 || echo "  quit-app would not press; falling back to a kill"
     sleep 1.5
     pgrep -x Facet >/dev/null && pkill -x Facet
     sleep 0.5
@@ -145,22 +149,24 @@ for script in "${scripts[@]}"; do
     fi
 done
 
-# **A run that skipped anything did not pass, and says so.** `passed` is a word somebody reads at the top of the
-# stamp and stops reading, so it has to mean every check answered. On 2026-08-22 a run wrote `outcome: passed` with
-# `1 skipped` under it, and the script that skipped was `55-device-face`, which had tested nothing whatsoever.
+# **One question decides it: did every script run every check it declares?**
 #
-# `incomplete` rather than `failed`, because the two are genuinely different and the difference is what somebody does
-# next: a failure is the app being wrong and wants a fix, while a skip is a check that could not answer and wants the
-# thing it needed -- a cube on the desk, a Google account, somebody at the keyboard. CI refuses both
-# (`scripts/check_interactive_checklists.sh`, which has counted skips since f00cfd3), so this changes what the record
-# says rather than what it permits.
-if [ -n "$failed" ]; then
+# `passed` is a word somebody reads at the top of the stamp and stops reading, so it has to mean the whole run
+# answered. `00-setup` wrote a row for every script before any of them started, each carrying the count it declares,
+# so a script that failed and a script that was never reached are the same shape in the table: `passed` short of
+# `expected`. Counting those covers both, and covers the case neither an outcome nor a failure count can show --
+# a script that ran, went green, and quietly did less than it says it does.
+#
+# This replaced a skip count that could no longer be anything but zero. On 2026-08-22 a run wrote `outcome: passed`
+# with `1 skipped` under it and the script that skipped was `55-device-face`, which had tested nothing whatsoever;
+# the shape of that fault is now caught by arithmetic rather than by a verdict the scripts have to remember to use.
+short=$(testlog_short_scripts "$TESTLOG_RUN_ID")
+if [ -n "$failed" ] || [ "${short:-0}" -gt 0 ]; then
     outcome=failed
-elif [ "$(testlog_skipped_total "$TESTLOG_RUN_ID")" -gt 0 ] 2>/dev/null; then
-    outcome=incomplete
 else
     outcome=passed
 fi
+[ "${short:-0}" -gt 0 ] && echo "$short script(s) ran fewer checks than they declare."
 testlog_run_finish "$TESTLOG_RUN_ID" "$outcome" "$ran"
 
 # The committed half of the record. Written either way, because a stamp that only appeared on success
@@ -182,13 +188,18 @@ if [ "$KEEP_RUNNING" -eq 0 ]; then
     # Left running only when asked, so a failed run can be looked at. Otherwise the app goes away:
     # a status item left behind is a second instance's worth of confusion next time.
     pgrep -x Facet >/dev/null && {
-        python3 scripts/status-item-click.py >/dev/null 2>&1
+        python3 scripts/status-item-click.py 2>&1 || echo "  the status item would not click; falling back to a kill"
         sleep 0.5
-        python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+        python3 scripts/ax-press.py quit-app 2>&1 || echo "  quit-app would not press; falling back to a kill"
         sleep 1
         pgrep -x Facet >/dev/null && pkill -x Facet
     }
 fi
+
+# **After the quit, not before it.** Each script copies its own window as it ends, so nothing covers what the app
+# logs once the checks stop: the cube reconnecting, and the shutdown just above. Copying here is what puts the end
+# of a run into the record, and the end is what a run that died on its way out is read for.
+testlog_copy_run_tail "$TESTLOG_RUN_ID"
 
 # The plain-text copy is written by a process of its own, so give it a moment to drain before this shell
 # exits and the pipe goes with it. Without this the last few lines can be missing from the file -- and

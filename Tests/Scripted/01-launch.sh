@@ -6,6 +6,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=9
 start "the app launches, opens the test database and records what it does"
 
 # **A cold start, always.** This script is about launching, so an app left running by an earlier run has

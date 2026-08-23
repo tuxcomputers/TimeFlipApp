@@ -36,6 +36,29 @@ tlog() { sqlite3 "$TESTLOG" "$1" 2>/dev/null || true; }
 
 testlog_open() {
     mkdir -p "$(dirname "$TESTLOG")" 2>/dev/null || true
+
+    # ---------------------------------------------------------------- migrations, before the schema below
+    #
+    # **`CREATE TABLE IF NOT EXISTS` adds tables, never columns, and `CREATE VIEW IF NOT EXISTS` never replaces
+    # a view.** So a log database made before a column existed keeps its old shape for ever, and every write
+    # naming the new column fails silently, which is the quiet nothing this file promises not to do.
+    #
+    # **Before the schema, not after it.** Dropping `v_run` afterwards deletes the view the heredoc had just
+    # decided not to rebuild, and leaves the database with no `v_run` at all -- which is what happened the
+    # first time this was written the other way round. Dropping it here means the `CREATE VIEW` below finds
+    # nothing and makes the current one.
+    #
+    # Each is offered unconditionally and allowed to fail: sqlite refuses a duplicate column and refuses to
+    # drop a column that is not there, which is the normal case once a database has been through this once.
+    sqlite3 "$TESTLOG" "ALTER TABLE script ADD COLUMN expected INTEGER NOT NULL DEFAULT 0;" >/dev/null 2>&1 || true
+    sqlite3 "$TESTLOG" "CREATE UNIQUE INDEX IF NOT EXISTS UN1_script ON script (run_id, name);" >/dev/null 2>&1 || true
+    # A skip has been unreachable since the helpers stopped offering the verdict, and a column that can only
+    # ever be 0 is one people read as meaning something.
+    if sqlite3 "$TESTLOG" "SELECT skipped FROM run LIMIT 1;" >/dev/null 2>&1; then
+        sqlite3 "$TESTLOG" "DROP VIEW IF EXISTS v_run;" >/dev/null 2>&1 || true
+        sqlite3 "$TESTLOG" "ALTER TABLE run DROP COLUMN skipped;" >/dev/null 2>&1 || true
+    fi
+
     # **Output discarded, not just errors.** `PRAGMA journal_mode` answers `wal` on stdout, and this runs
     # inside `testlog_run_start`, whose stdout *is* the new run's id. Letting it through put the word `wal`
     # in front of every id and broke every write after it.
@@ -65,8 +88,7 @@ CREATE TABLE IF NOT EXISTS run (
     outcome         TEXT,
     scripts_run     INTEGER,
     passed          INTEGER DEFAULT 0,
-    failed          INTEGER DEFAULT 0,
-    skipped         INTEGER DEFAULT 0
+    failed          INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS script (
@@ -77,10 +99,17 @@ CREATE TABLE IF NOT EXISTS script (
     sequence        INTEGER NOT NULL,
     started_epoch   INTEGER,
     finished_epoch  INTEGER,
+    -- How many passing checks the script says it runs, declared as `EXPECTED_CHECKS` at the top of it.
+    -- `passed` is what it actually did. The two parting company is a check that never ran at all, which
+    -- every other column here reports as success.
+    expected        INTEGER NOT NULL DEFAULT 0,
     passed          INTEGER DEFAULT 0,
     failed          INTEGER DEFAULT 0,
-    skipped         INTEGER DEFAULT 0,
-    -- The app's debug_log high-water mark when this script started, so its rows can be sliced out.
+    -- **No `skipped` here, deliberately.** Nothing in `Tests/Scripted` has incremented `SKIPPED` since the
+    -- helpers stopped offering a skip verdict: every path now answers pass or fail, and a column that is 0 in
+    -- every row of every run is a column somebody reads as meaning something. `run` keeps its own, because the
+    -- stamp's `checks:` block and CI's gate are both written against it and a missing line there fails closed.
+    -- If a skip is ever wanted again, it comes back here first.
     log_from        INTEGER
 );
 
@@ -125,6 +154,11 @@ CREATE TABLE IF NOT EXISTS app_log (
 -- Lets the copy run twice over the same window without duplicating: once when a check fails (in case the
 -- script dies before it ends) and once when it ends.
 CREATE UNIQUE INDEX IF NOT EXISTS UN1_app_log ON app_log (run_id, debug_log_id);
+-- **What makes a row claimable rather than only creatable.** `00-setup` writes a row for every script in the
+-- run before any of them starts, so a script that is never reached is still in the record with its declared
+-- count and nothing against it. `testlog_script_start` then updates the row it finds instead of adding a
+-- second, and this is the key it finds it by.
+CREATE UNIQUE INDEX IF NOT EXISTS UN1_script ON script (run_id, name);
 CREATE INDEX IF NOT EXISTS IX1_check_key ON check_result (check_key);
 CREATE INDEX IF NOT EXISTS IX2_check_script ON check_result (script_id);
 
@@ -176,11 +210,16 @@ SELECT c.check_key, COUNT(*) AS runs, MAX(c.seconds) AS worst, AVG(c.seconds) AS
 
 CREATE VIEW IF NOT EXISTS v_run AS
 SELECT run_id, started_at, branch, commit_sha, dirty, rebuilt, signing, binary_built_at,
-       database_file, os_version, outcome, scripts_run, passed, failed, skipped,
+       database_file, os_version, outcome, scripts_run, passed, failed,
        finished_epoch - started_epoch AS seconds
   FROM run
  ORDER BY run_id DESC;
 SQL
+
+    # **`CREATE TABLE IF NOT EXISTS` adds tables, never columns**, so a log database made before a column
+    # existed keeps its old shape for ever and every write naming the new column fails silently -- which is
+    # exactly the kind of quiet nothing this file promises not to do. Offered unconditionally and allowed to
+    # fail: sqlite refuses a duplicate column, which is the normal case and means the migration is done.
 }
 
 # ---------------------------------------------------------------------------- writing
@@ -221,8 +260,7 @@ testlog_run_start() {
                      outcome     = 'abandoned',
                      scripts_run = (SELECT COUNT(*)               FROM script s WHERE s.run_id = run.run_id),
                      passed      = (SELECT IFNULL(SUM(s.passed), 0)  FROM script s WHERE s.run_id = run.run_id),
-                     failed      = (SELECT IFNULL(SUM(s.failed), 0)  FROM script s WHERE s.run_id = run.run_id),
-                     skipped     = (SELECT IFNULL(SUM(s.skipped), 0) FROM script s WHERE s.run_id = run.run_id)
+                     failed      = (SELECT IFNULL(SUM(s.failed), 0)  FROM script s WHERE s.run_id = run.run_id)
                WHERE finished_epoch IS NULL;"
         # **To stderr, and this is not a style choice.** This function returns the new run id by *printing* it --
         # `run.sh` does `TESTLOG_RUN_ID=$(testlog_run_start ...)` -- so anything else written to stdout is captured
@@ -256,15 +294,6 @@ testlog_run_start() {
     tlog "SELECT MAX(run_id) FROM run;"
 }
 
-# How many checks this run skipped, for the outcome `run.sh` writes. Answers 0 when there is no run to ask about, so
-# a caller can compare it without guarding first.
-testlog_skipped_total() {
-    local run="${1:-}"
-    [ -z "$run" ] && { echo 0; return 0; }
-    local total
-    total=$(tlog "SELECT IFNULL(SUM(skipped), 0) FROM script WHERE run_id = $run;")
-    echo "${total:-0}"
-}
 
 testlog_run_finish() {
     local run="${1:-}" outcome="${2:-}" ran="${3:-0}"
@@ -273,14 +302,13 @@ testlog_run_finish() {
              SET finished_at = datetime('now','localtime'), finished_epoch = strftime('%s','now'),
                  outcome = '$(sq "$outcome")', scripts_run = $ran,
                  passed  = (SELECT IFNULL(SUM(passed), 0)  FROM script WHERE run_id = $run),
-                 failed  = (SELECT IFNULL(SUM(failed), 0)  FROM script WHERE run_id = $run),
-                 skipped = (SELECT IFNULL(SUM(skipped), 0) FROM script WHERE run_id = $run)
+                 failed  = (SELECT IFNULL(SUM(failed), 0)  FROM script WHERE run_id = $run)
            WHERE run_id = $run;"
 }
 
 # Opens a script row. `lib.sh` calls this from `start`.
 testlog_script_start() {
-    local name="$1" subject="${2:-}" run="${TESTLOG_RUN_ID:-}"
+    local name="$1" subject="${2:-}" expected="${3:-0}" run="${TESTLOG_RUN_ID:-}"
 
     # Run on its own rather than through run.sh: it still gets a run row, marked as such, so a check
     # recorded outside a full run is never mistaken for one inside it.
@@ -291,11 +319,20 @@ testlog_script_start() {
     fi
     [ -z "$run" ] && return 0
 
+    # **Claims the row `00-setup` made, or makes one.** A full run has every row already, in file order with its
+    # declared count; a single script run on its own has none and this is its insert. The upsert keeps `sequence`
+    # as it was placed, so the table reads in file order rather than in the order things happened to start.
     local sequence
     sequence=$(tlog "SELECT IFNULL(MAX(sequence), 0) + 1 FROM script WHERE run_id = $run;")
-    tlog "INSERT INTO script (run_id, name, subject, sequence, started_epoch, log_from)
-          VALUES ($run, '$(sq "$name")', '$(sq "$subject")', ${sequence:-1}, strftime('%s','now'), $(app_log_mark));"
-    TESTLOG_SCRIPT_ID=$(tlog "SELECT MAX(script_id) FROM script WHERE run_id = $run;")
+    tlog "INSERT INTO script (run_id, name, subject, sequence, expected, started_epoch, log_from)
+          VALUES ($run, '$(sq "$name")', '$(sq "$subject")', ${sequence:-1}, ${expected:-0},
+                  strftime('%s','now'), $(app_log_mark))
+          ON CONFLICT (run_id, name) DO UPDATE SET
+              subject       = excluded.subject,
+              expected      = excluded.expected,
+              started_epoch = excluded.started_epoch,
+              log_from      = excluded.log_from;"
+    TESTLOG_SCRIPT_ID=$(tlog "SELECT script_id FROM script WHERE run_id = $run AND name = '$(sq "$name")';")
     TESTLOG_CHECK_SEQ=0
 }
 
@@ -309,6 +346,41 @@ app_log_mark() {
     # into the record instead of this script's own rows.
     id=$(sqlite3 -cmd ".timeout 10000" "$DEBUG_DB" "SELECT IFNULL(MAX(debug_log_id), 0) FROM debug_log;" 2>/dev/null || echo 0)
     printf '%s' "${id:-0}"
+}
+
+# Writes a row for every script this run will attempt, before any of them runs.
+#
+# **So that a script which is never reached is still in the record.** A failing script stops the run, and until
+# this every script below it simply had no row: the stamp listed what happened to run and said nothing about the
+# fifteen that did not, so a run that died at 07 and a run that ended at 07 looked the same in the table. Now
+# each one is there with the count it declares and nothing against it, which is what `passed < expected` means.
+#
+# Called by `00-setup`, which is the only script that runs before the others. A filtered run does not reach it,
+# and gets the old behaviour of a row per script as it starts -- which is right, because the scripts a filter
+# excluded were never going to run and should not be listed as though they were.
+testlog_prepare_scripts() {
+    local run="${TESTLOG_RUN_ID:-}" sequence=0 script name declared
+    [ -z "$run" ] && return 0
+    for script in Tests/Scripted/[0-9][0-9]-*.sh; do
+        [ -e "$script" ] || continue
+        sequence=$((sequence + 1))
+        name=$(basename "$script" .sh)
+        declared=$(sed -n 's/^EXPECTED_CHECKS=\([0-9][0-9]*\)$/\1/p' "$script" | head -1)
+        tlog "INSERT OR IGNORE INTO script (run_id, name, sequence, expected, passed, failed)
+              VALUES ($run, '$(sq "$name")', $sequence, ${declared:-0}, 0, 0);"
+        # Its own row already exists, made by `start`; the insert above ignored it, so the placement is set here.
+        tlog "UPDATE script SET sequence = $sequence, expected = CASE WHEN expected = 0 THEN ${declared:-0} ELSE expected END
+               WHERE run_id = $run AND name = '$(sq "$name")';"
+    done
+}
+
+# How many scripts ran fewer checks than they declare. **This is what decides the outcome**: a script that failed
+# stops the run and leaves every script below it at nothing against a real expectation, so one question answers
+# both "did anything fail" and "did everything run".
+testlog_short_scripts() {
+    local run="${1:-}"
+    [ -z "$run" ] && { printf 0; return 0; }
+    printf '%s' "$(tlog "SELECT COUNT(*) FROM script WHERE run_id = $run AND passed < expected;" || echo 0)"
 }
 
 # Copies the app's own log rows for this script's window. Safe to call twice: the unique index drops
@@ -326,13 +398,39 @@ testlog_copy_app_log() {
         DETACH DATABASE app;" 2>/dev/null || true
 }
 
+# Everything the app logged that no script's window covered, attributed to the run and to no script.
+#
+# **The end of a run is not the end of the last script.** Each script copies its own window as it finishes, so the
+# rows the app writes after that belong to nobody: the cube reconnecting once the checks stop driving it, and the
+# quit `run.sh` does on its way out. Measured on run 72 (2026-08-23), that tail was 94 of 2,379 rows -- and it is
+# the part covering the shutdown, which is exactly what somebody reads this table for when a run dies at the end.
+#
+# **From the run's own first mark, not from the last row copied.** `--keep` leaves `debug.sqlite` standing, so its
+# ids carry on climbing from the previous run and copying everything would file that run's rows under this one. The
+# smallest `log_from` this run recorded is where its own rows start. Everything above it is offered and the unique
+# index drops the rest, so this also picks up anything a window happened to miss between two scripts.
+testlog_copy_run_tail() {
+    local run="${1:-${TESTLOG_RUN_ID:-}}"
+    [ -z "$run" ] && return 0
+    local from
+    # NULL when the run has no scripts at all, which is a run that copied nothing and has no tail either.
+    from=$(tlog "SELECT MIN(IFNULL(log_from, 0)) FROM script WHERE run_id = $run;")
+    [ -z "$from" ] && return 0
+    sqlite3 "$TESTLOG" "
+        ATTACH DATABASE '$(sq "$DEBUG_DB")' AS app;
+        INSERT OR IGNORE INTO app_log (run_id, script_id, debug_log_id, logged_at, tag, message)
+        SELECT $run, NULL, debug_log_id, logged_at, tag, message
+          FROM app.debug_log WHERE debug_log_id > $from;
+        DETACH DATABASE app;" 2>/dev/null || true
+}
+
 testlog_script_finish() {
-    local passed="${1:-0}" failed="${2:-0}" skipped="${3:-0}"
+    local passed="${1:-0}" failed="${2:-0}"
     [ -z "${TESTLOG_SCRIPT_ID:-}" ] && return 0
     testlog_copy_app_log
     tlog "UPDATE script
              SET finished_epoch = strftime('%s','now'),
-                 passed = $passed, failed = $failed, skipped = $skipped
+                 passed = $passed, failed = $failed
            WHERE script_id = $TESTLOG_SCRIPT_ID;"
 
     # A script run on its own owns its run row, so it closes it too.
@@ -437,19 +535,24 @@ testlog_stamp() {
     local run="${1:-}" path="${2:-Tests/Scripted/last-run.md}"
     [ -z "$run" ] && return 0
 
-    local row branch commit dirty rebuilt started finished outcome passed failed skipped filter
+    local row branch commit dirty rebuilt started finished outcome passed failed filter
     row=$(tlog "SELECT branch, commit_sha, dirty, rebuilt, started_at, IFNULL(finished_at, ''),
-                       IFNULL(outcome, ''), IFNULL(passed, 0), IFNULL(failed, 0), IFNULL(skipped, 0),
+                       IFNULL(outcome, ''), IFNULL(passed, 0), IFNULL(failed, 0),
                        IFNULL(filter, '')
                   FROM run WHERE run_id = $run;")
     [ -z "$row" ] && return 0
-    IFS='|' read -r branch commit dirty rebuilt started finished outcome passed failed skipped filter <<EOF
+    IFS='|' read -r branch commit dirty rebuilt started finished outcome passed failed filter <<EOF
 $row
 EOF
 
-    local scripts_run scripts_failed
-    scripts_run=$(tlog "SELECT COUNT(*) FROM script WHERE run_id = $run;")
+    # **Ran, not listed.** Every script has a row from the moment `00-setup` made them, so counting rows would
+    # answer "how many scripts are there" on every run alike. What somebody wants from this line is how far the
+    # run got, which is the ones that reached their own finish.
+    local scripts_run scripts_listed scripts_failed scripts_short
+    scripts_run=$(tlog "SELECT COUNT(*) FROM script WHERE run_id = $run AND finished_epoch IS NOT NULL;")
+    scripts_listed=$(tlog "SELECT COUNT(*) FROM script WHERE run_id = $run;")
     scripts_failed=$(tlog "SELECT COUNT(*) FROM script WHERE run_id = $run AND failed > 0;")
+    scripts_short=$(tlog "SELECT COUNT(*) FROM script WHERE run_id = $run AND passed < expected;")
 
     {
         echo "# Scripted suite: last run"
@@ -465,7 +568,9 @@ EOF
         echo "    started:  ${started}"
         echo "    finished: ${finished}"
         echo "    outcome:  ${outcome}"
-        echo "    scripts:  ${scripts_run:-0} run, ${scripts_failed:-0} with failures"
+        echo "    scripts:  ${scripts_run:-0} of ${scripts_listed:-0} run, ${scripts_failed:-0} with failures"
+        # The figure the outcome is decided on, written down rather than left to be counted off the table.
+        echo "    short:    ${scripts_short:-0} ran fewer checks than they declare"
         # **A filtered run says so, in the stamp rather than only in the database.**
         #
         # `run.sh --filter` runs a subset, and until this line the result was a stamp indistinguishable from a full
@@ -478,24 +583,31 @@ EOF
         # teaches people to skip the block.
         [ -n "${filter}" ] && echo "    filter:   ${filter}"
         # The total first, because it is the figure somebody scans for: "how much did this run actually check?"
-        # A stamp that only gave the breakdown made that an addition somebody had to do in their head, and a run
-        # that skipped half its checks looked much like one that did not.
-        echo "    checks:   $(( passed + failed + skipped )) in total"
+        # A stamp that only gave the breakdown made that an addition somebody had to do in their head.
+        #
+        # **No skipped line.** Nothing in `Tests/Scripted` has produced a skip since the helpers stopped offering
+        # one -- every path answers pass or fail -- so the line read `0 skipped` on every run of every branch, and
+        # a number that cannot be anything but zero is one people learn to scroll past. `check_the_suite_was_run`
+        # stopped reading it in the same change; if a skip ever comes back, both come back together.
+        echo "    checks:   $(( passed + failed )) in total"
         echo "              ${passed} passed"
         echo "              ${failed} failed"
-        echo "              ${skipped} skipped"
         echo ""
-        echo "| script | passed | failed | skipped |"
+        # **`expected` sits first, before what happened**, because it is the only column in the table that was
+        # decided before the run: it is what the script says it does, written down in the script. Everything to
+        # the right of it is the answer. A row whose `expected` and `passed` disagree is the case no other column
+        # can show -- checks that never ran at all, each of them reporting nothing rather than failing.
+        echo "| script | expected | passed | failed |"
         echo "|---|---|---|---|"
         sqlite3 -noheader -separator '|' "$TESTLOG" \
-            "SELECT name, passed, failed, skipped FROM script WHERE run_id = $run ORDER BY sequence;" \
+            "SELECT name, expected, passed, failed FROM script WHERE run_id = $run ORDER BY sequence;" \
             2>/dev/null |
-            while IFS='|' read -r name p f s; do
-                echo "| $name | $p | $f | $s |"
+            while IFS='|' read -r name e p f; do
+                echo "| $name | $e | $p | $f |"
             done
         # The totals on the bottom row, so the table adds up to the summary above it rather than asking to be
         # trusted that it does.
-        echo "| **total** | **${passed}** | **${failed}** | **${skipped}** |"
+        echo "| **total** | **$(tlog "SELECT IFNULL(SUM(expected), 0) FROM script WHERE run_id = $run;")** | **${passed}** | **${failed}** |"
         echo ""
         if [ "${dirty:-0}" = "1" ]; then
             echo "> The working tree had uncommitted changes when this ran, so it is not evidence about the"
@@ -517,7 +629,7 @@ testlog_report() {
     fi
     echo "== the last $limit run(s) =="
     sqlite3 -header -column "$TESTLOG" \
-        "SELECT run_id, started_at, branch, dirty, rebuilt, outcome, passed, failed, skipped, seconds
+        "SELECT run_id, started_at, branch, dirty, rebuilt, outcome, passed, failed, seconds
            FROM v_run LIMIT $limit;"
 
     echo ""

@@ -158,4 +158,95 @@ final class DeviceScanRulesTests: XCTestCase {
             [first.id, second.id]
         )
     }
+
+    // MARK: - the order a reach asks in
+
+    func testTheRememberedIdentifierIsAskedFirst() {
+        // It is the surest thing available when it is right, so it costs one login attempt in the ordinary case.
+        let other = device(peripheral: "TimeFlip v2.0")
+        let paired = device(peripheral: "TimeFlip v2.0")
+
+        XCTAssertEqual(
+            DeviceScanRules.reachOrder(
+                [other, paired], preferring: paired.id, remembered: nil, previouslyKnown: nil
+            ).first,
+            paired.id
+        )
+    }
+
+    func testEveryDeviceIsAskedAndNotJustThePreferredOne() {
+        // **The whole point of an order rather than a choice.** Five cubes on the default name are five devices this
+        // app might be paired to, and only the PIN can say which. Stopping at the first is the bug the archive
+        // recorded: a colleague advertising a moment sooner locked the user out of their own cube.
+        let devices = (0..<5).map { _ in device(peripheral: "TimeFlip v2.0") }
+
+        XCTAssertEqual(
+            Set(DeviceScanRules.reachOrder(devices, preferring: nil, remembered: nil, previouslyKnown: nil)),
+            Set(devices.map(\.id))
+        )
+    }
+
+    func testTheNameTheCubeWasGivenIsAskedBeforeFactoryNamedOnes() {
+        // A renamed cube is almost certainly the one this app renamed, and a room of factory-named cubes tells them
+        // apart not at all. So the name earns a place ahead of them, and nothing more than a place.
+        let factory = device(peripheral: "TimeFlip v2.0")
+        let renamed = device(peripheral: "Hazza cuber", advertised: "TimeFlip v2.0")
+
+        XCTAssertEqual(
+            DeviceScanRules.reachOrder(
+                [factory, renamed], preferring: nil, remembered: "Hazza cuber", previouslyKnown: nil
+            ),
+            [renamed.id, factory.id]
+        )
+    }
+
+    func testTheNameItHasNowComesBeforeTheNameItHad() {
+        // Both are this app's own writing, and the one it wrote last is the one the cube should be answering to.
+        let previous = device(peripheral: "Old name")
+        let current = device(peripheral: "New name")
+
+        XCTAssertEqual(
+            DeviceScanRules.reachOrder(
+                [previous, current], preferring: nil, remembered: "New name", previouslyKnown: "Old name"
+            ),
+            [current.id, previous.id]
+        )
+    }
+
+    func testAMatchOnTheNameIsExact() {
+        // Matching `isEligible`, and for its reason: a chosen name used as a substring would start ranking other
+        // people's hardware as this app's own.
+        let nearly = device(peripheral: "Cube of Harrys")
+
+        XCTAssertEqual(
+            DeviceScanRules.reachOrder(
+                [nearly], preferring: nil, remembered: "Cube", previouslyKnown: nil
+            ),
+            [nearly.id],
+            "still asked, because ranking never removes anybody"
+        )
+        XCTAssertFalse(
+            DeviceScanRules.reachOrder(
+                [nearly, device(peripheral: "Cube")], preferring: nil, remembered: "Cube", previouslyKnown: nil
+            ).first == nearly.id
+        )
+    }
+
+    func testARoomAskedTwiceIsAskedInTheSameOrder() {
+        // Drawn from a dictionary, whose iteration order is not stable. Without the tiebreak a reach would ask a
+        // room of identical cubes in a different order each time, which makes a failure impossible to reproduce.
+        let first = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            peripheralName: "TimeFlip v2.0", advertisedName: nil, advertisesTimeFlipService: false
+        )
+        let second = ScannedDevice(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            peripheralName: "TimeFlip v2.0", advertisedName: nil, advertisesTimeFlipService: false
+        )
+
+        XCTAssertEqual(
+            DeviceScanRules.reachOrder([second, first], preferring: nil, remembered: nil, previouslyKnown: nil),
+            [first.id, second.id]
+        )
+    }
 }

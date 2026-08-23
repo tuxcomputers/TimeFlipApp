@@ -231,6 +231,21 @@ final class TimingReadoutTests: XCTestCase {
 
     // MARK: - following a cube
 
+    func testAFollowedCubeIsReachable() {
+        // The other side of the pair, so the flag cannot quietly default the wrong way and refuse every click.
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        readout.deviceFace = { 5 }
+
+        XCTAssertTrue(readout.read(at: noon).isDeviceReachable)
+    }
+
+    func testAManualReadingHasNothingToReach() {
+        // No face, so nothing to reach and nothing for the flag to be about.
+        startTiming(1, at: noon)
+
+        XCTAssertFalse(readout.read(at: noon).isDeviceReachable)
+    }
+
     func testACubesFaceIsWhatTheReadingIsAbout() {
         // **The single answer the menu bar and the Faces tab both draw from.** They asked separately once, and a
         // launch with a cube connected then drew the face's category on the tab and the app's name in the menu bar.
@@ -255,9 +270,10 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertEqual(readout.read(at: noon).category?.id, 2)
     }
 
-    func testTheLinkDroppingPutsTheManualSessionBack() {
-        // Nothing has to be told: the face is asked for per reading, so a cube going away simply stops being the
-        // answer and what the app is timing by hand is what is left.
+    func testTheLinkDroppingPutsTheManualSessionBackWhenNothingIsPaired() {
+        // **With no cube on record**, which is the case this describes and the only one it is true of. The face is
+        // asked for per reading, so a cube going away simply stops being the answer and what the app is timing by
+        // hand is what is left. A *paired* cube going away is the test below, and is a different situation.
         startTiming(1, at: noon)
         var face: Int? = 5
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
@@ -265,6 +281,64 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition: following the cube")
 
         face = nil
+
+        XCTAssertEqual(readout.read(at: noon).category?.id, 1)
+        XCTAssertNil(readout.read(at: noon).deviceFace)
+    }
+
+    // MARK: - a paired cube that has gone quiet
+
+    func testAPairedCubeGoingAwayDoesNotBecomeAManualSession() {
+        // **The bug this exists for.** A link drops, `deviceFace` goes with it, and the reading fell through to the
+        // app's own faces -- so the menu bar drew a category on face 13 that nobody had picked, ticking, while the
+        // Device tab said the cube was unreachable and `ManualMode.isOn` was false throughout. Two pictures of one
+        // question. The archive kept them apart with a `reconnecting` case, "so the menu bar keeps showing the last
+        // known activity/icon instead of tearing down to an unpaired look".
+        startTiming(1, at: noon)
+        var face: Int? = 5
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        // The cube's own record of what it is on, which is what `HistoryIngestor` puts here on every fetch. It is
+        // what the reading falls back to once the link cannot be asked any more.
+        _ = events.record(
+            DeviceEventSegment(eventNumber: 7, face: 5, startedAt: noon, durationSeconds: 30, isPaused: false)
+        )
+        readout.deviceFace = { face }
+        readout.isCubePaired = { true }
+        XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition: following the cube")
+
+        face = nil
+
+        // Still the cube's face and the cube's category, out of its own record, rather than the manual one.
+        let reading = readout.read(at: noon)
+        XCTAssertEqual(reading.deviceFace, 5)
+        XCTAssertEqual(reading.category?.id, 2)
+        XCTAssertNotEqual(reading.category?.id, 1, "the app's own session must not take the picture over")
+        // **Drawn is not reachable.** The face is worth showing and the cube is not there to be sent anything, which
+        // is what keeps a click refused rather than assigning a category to a device nobody can hear.
+        XCTAssertFalse(reading.isDeviceReachable)
+    }
+
+    func testAPairedCubeThatHasReportedNothingShowsNothing() {
+        // A cube on record that has never reported a face this launch. There is nothing of its to show, and the app's
+        // own faces are not its stand-in: the item falls back to the app's name rather than to a session.
+        readout.isCubePaired = { true }
+        readout.deviceFace = { nil }
+
+        let reading = readout.read(at: noon)
+
+        XCTAssertNil(reading.deviceFace)
+        XCTAssertNil(reading.category)
+        XCTAssertEqual(reading.state, .idle)
+    }
+
+    func testTakingManualModeStillWinsOverAPairedCube() {
+        // Somebody answered the offer, so the cube is not consulted at all for the rest of the launch -- pairing on
+        // record or not. Without this the fix above would strand them: the cube they said to get on without would go
+        // on owning the picture.
+        startTiming(1, at: noon)
+        XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
+        readout.isCubePaired = { true }
+        readout.isTimingByHand = { true }
 
         XCTAssertEqual(readout.read(at: noon).category?.id, 1)
         XCTAssertNil(readout.read(at: noon).deviceFace)
@@ -398,13 +472,37 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
     }
 
-    func testACubeWithNoHistoryYetSaysNothingEitherWay() {
-        // Nothing has been fetched, so there is no interval to read a pause off. Drawn as no glyph rather than as
-        // running, which would be a claim about hardware on no evidence.
+    func testACubeWithNoHistoryAndNothingAskedSaysNothingEitherWay() {
+        // Nothing fetched and the cube not asked, so there is nothing to read a pause off at all. Drawn as no glyph
+        // rather than as running, which would be a claim about hardware on no evidence.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.deviceFace = { 5 }
 
         XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+    }
+
+    func testBeforeAnyHistoryTheCubesOwnAnswerDrawsTheGlyph() {
+        // **The first seconds of a launch.** The app asks the cube how it is well before the first history fetch
+        // lands, so without this the glyph is missing for exactly the moment somebody is watching the app start.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        readout.cubeSaysPaused = { true }
+
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
+    }
+
+    func testOnceThereIsHistoryTheRowWinsOverWhatTheCubeSaid() {
+        // The row is an interval the cube recorded; the answer to `0x10` is a snapshot of the moment it was asked,
+        // and a locked cube reports itself paused whatever its pause byte says. So the row takes over the moment
+        // there is one, and goes on winning.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        readout.cubeSaysPaused = { true }
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true, "precondition: nothing but the cube's answer yet")
+
+        cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
+
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, false)
     }
 
     func testAnOpenSegmentOnAnotherFaceIsNotThisCubesPause() {
@@ -415,6 +513,37 @@ final class TimingReadoutTests: XCTestCase {
         readout.deviceFace = { 5 }
 
         XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+    }
+
+    func testAManualSegmentOpenOnTopDoesNotHideTheCubesPause() {
+        // **The hole this closes.** The pause was read off `openSegment()`, and a manual segment carries the epoch as
+        // its event number, so it is very often the newest open row -- which meant the glyph vanished under a
+        // perfectly connected cube as soon as both clocks had been used in one launch. Asking by face cannot be
+        // answered by a manual row at all.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-120))
+        startTiming(breakID, at: noon.addingTimeInterval(-60))
+        readout.deviceFace = { 5 }
+
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
+    }
+
+    func testAQuietCubeGoesOnSayingWhatTheColumnSays() {
+        // **Connected or not, the glyph is the `paused` column.** It is the cube's own account of what it was doing,
+        // out of its own history, so a link going down does not change the answer -- it only stops it being
+        // refreshed. Drawing no glyph instead would tear down exactly the "last known activity" the archive kept.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-120))
+        readout.isCubePaired = { true }
+        readout.deviceFace = { 5 }
+        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true, "precondition: paused while connected")
+
+        readout.deviceFace = { nil }
+
+        let reading = readout.read(at: noon)
+        XCTAssertEqual(reading.deviceFace, 5, "still the cube's face")
+        XCTAssertEqual(reading.deviceIsPaused, true, "and still the cube's pause")
+        XCTAssertFalse(reading.isDeviceReachable, "but not a cube anything may be sent to")
     }
 
     func testAManualReadingCarriesNoDeviceState() {

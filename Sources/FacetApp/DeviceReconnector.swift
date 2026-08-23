@@ -20,10 +20,11 @@ import Foundation
 ///
 /// **Massaged from `ApplicationDelegate`'s reconnect path.** What is kept is the shape and the reasons: retry while
 /// paired, back off, never touch the pairing on a failure, and treat a drop as the beginning of the next attempt rather
-/// than as an ending. What is not kept is the archive's candidate loop -- it scanned, built a list of every cube in the
-/// room eligible by name, and tried each in turn to find out which one was its own. This app reconnects by identifier, so
-/// there is nothing to work out: `device_uuid` names the cube, and a reach gets that one or nothing. See
-/// `DeviceLoginRules.reconnectCandidates` for what that also means about which PINs may be presented.
+/// than as an ending. The archive's candidate loop is kept too, and it took a hardware run to find out it had to be:
+/// it scanned, built a list of every cube in the room eligible by name, and tried each in turn to find out which one
+/// was its own. Reaching by identifier alone looked like a simplification this app could afford and is not one --
+/// neither identifier available is unique to a cube -- so the loop lives in `BluetoothRadio.reach` now, and what
+/// arrives here is its single answer. See `DeviceLoginRules.reconnectCandidates` for which PINs may be presented.
 @MainActor
 final class DeviceReconnector {
     private let radio: BluetoothRadio
@@ -191,6 +192,14 @@ final class DeviceReconnector {
                 // The backoff goes back to the start, so the next attempt begins two seconds out rather than at
                 // whatever the count had climbed to. Retry is somebody standing there having just asked for it.
                 self.failures = 0
+                // **And the last scan's results go, now rather than when the next scan clears them.** `reach` does
+                // start a scan and a scan does empty the list, so this is not what makes Retry look again -- what it
+                // does is make the moment visible: the list a Settings window is showing goes empty as the button is
+                // pressed, and the log says where the retry began rather than leaving it to be inferred from the
+                // scan row after it. Retry was once a shortcut to a peripheral the failed attempt had already torn
+                // down, which failed in eight milliseconds on hardware (2026-08-23) and reported "nothing answered"
+                // about a cube on the desk. That shortcut is gone from `reach` entirely.
+                self.radio.forgetWhatWasFound()
                 self.debugLog?.record(.mode, "Retry chosen; looking for the cube again")
                 self.attempt()
             case .switchToManualMode:

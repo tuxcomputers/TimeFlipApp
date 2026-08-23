@@ -31,15 +31,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=30
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
-if ! device_required; then
-    fail "no TimeFlip was made available, so there is no pairing to lose"
-    finish
-    exit $?
-fi
+# **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
+# anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
+# has failed. A second gate here would be a branch that can never be taken, and an untaken branch is checks
+# that silently do not run.
 
-setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE setting_name = '$1';"; }
 
 # **Whatever happens from here, the radio has to be back on when this script ends.**
 #
@@ -134,11 +134,52 @@ check "and records that it can no longer reach it" \
 # change which device this app is paired to, so what follows is a *paired* app with no cube.
 check "the pairing survives it" "1" "$(setting paired paired)"
 
+# ---------------------------------------------------------------------------- it is still the cube being shown
+#
+# **A cube that has gone quiet is not the app timing by hand**, and telling those apart on screen is the whole of the
+# bug fixed on 2026-08-23. `deviceFace` goes with the link, and the reading then fell through to the app's own faces
+# and built a session out of them: the menu bar drew a category on face 13 that nobody had picked, ticking, while the
+# Device tab said the cube was unreachable and manual mode was off throughout. Two pictures of one question.
+#
+# What it draws now is the cube's own last word, out of `device_event`. The archive kept a `reconnecting` state for
+# exactly this, "so the menu bar keeps showing the last known activity/icon instead of tearing down to an unpaired
+# look" -- and it is asserted here rather than in `swift test` because the fall-through was invisible to a unit test
+# that never had a real link to lose.
+
+cube_face=$(sql "SELECT device_face FROM device_event WHERE device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")
+cube_category=$(sql "SELECT c.category_name FROM face f JOIN category c ON c.category_id = f.category_id WHERE f.face_id = ${cube_face:-0};")
+if [ -n "$cube_category" ]; then
+    check_contains "the menu bar still names the cube's category, not one of the app's faces" \
+        "$(status_item)" "$cube_category"
+else
+    # A cube whose face holds no category is a real state and not a failure: what matters is that the item is not
+    # showing a manual session instead, which the check below covers either way.
+    pass "the cube's face holds no category, so there is no name to keep showing (face ${cube_face:-none})"
+fi
+
+# **The app's own clock is what must not appear.** `05-faces-timing` times Break by hand earlier in the run, so a
+# fall-through would put exactly that on the item -- which is why this names the manual faces' categories rather than
+# a fixed word.
+manual_category=$(sql "SELECT c.category_name FROM face f JOIN category c ON c.category_id = f.category_id WHERE f.face_id IN (13, 14) ORDER BY f.face_id DESC LIMIT 1;")
+if [ -n "$manual_category" ] && [ "$manual_category" != "$cube_category" ]; then
+    if [[ "$(status_item)" == *"$manual_category"* ]]; then
+        fail "the menu bar fell through to the app's own face and is showing $manual_category"
+    else
+        pass "and it has not fallen through to the app's own face ($manual_category)"
+    fi
+else
+    pass "no manual face holds a different category, so there is nothing to have fallen through to"
+fi
+
 # ---------------------------------------------------------------------------- and a click is refused
 #
 # **No offer is on screen here**, and that is `ManualModeOffer`'s rule rather than a timing accident: this launch has
 # reached its cube, so a drop is retried quietly for ever and the question is never put. So the window is usable, which
 # is the only reason this state can be driven at all.
+#
+# **The face being drawn does not make it clickable**, which is the other half of the fix above: the tab shows the
+# cube's last known face and refuses a click on it, because nothing can be sent to a cube nobody can hear. Letting the
+# face survive the drop turned this refusal into an assignment until `isDeviceReachable` was split out from it.
 
 BREAK=$(sql "SELECT category_id FROM category WHERE category_name = 'Break';")
 open_before=$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")

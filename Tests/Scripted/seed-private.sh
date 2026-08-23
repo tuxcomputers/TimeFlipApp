@@ -104,14 +104,22 @@ with open('$SEED') as f:
     sql "UPDATE setting SET setting_value = '$(printf '%s' "$account" | sed "s/'/''/g")' WHERE setting_name = 'google_account';"
 
     stored=$(sql "SELECT json_extract(setting_value, '\$.email') FROM setting WHERE setting_name = 'google_account';")
-    check "the Google account is seeded ($email)" "$email" "$stored"
+    # **Narrated, not checked.** This is arrangement rather than a claim about the app, and it used to be two
+    # `check` calls -- one of them conditional, so 00-setup ran two verdicts on some runs and three on others.
+    # That is the moving count the `expected` column exists to forbid, and on run 73 it was the first thing it
+    # caught. The seeding now reports through `trouble`, and 00-setup answers for all of it once.
+    if [ "$stored" != "$email" ]; then
+        trouble "the Google account would not seed (wanted $email, the table holds ${stored:-nothing})"
+        return 0
+    fi
+    step "the Google account is seeded ($email)"
 
     # Reported because it is what the next step needs in order to delete the right calendar, not because
     # the run wants to keep it. Either way 10 makes a fresh one.
     calendar=$(sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';")
     if [ -n "$calendar" ]; then
-        pass "naming last run's calendar, which 10 deletes before making its own ($calendar)"
+        step "naming last run's calendar, which 10 deletes before making its own ($calendar)"
     else
-        grey "  the seed names no calendar, so 10 makes the first one"
+        step "the seed names no calendar, so 10 makes the first one"
     fi
 }

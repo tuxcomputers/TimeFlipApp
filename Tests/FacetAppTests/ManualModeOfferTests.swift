@@ -79,4 +79,39 @@ final class ManualModeOfferTests: XCTestCase {
             XCTAssertFalse(ManualModeOffer.reason(for: outcome).isEmpty)
         }
     }
+
+    // MARK: - one dialog, whatever the reason
+
+    @MainActor
+    func testTheOfferSaysTheSameThingWhateverTheReason() {
+        // **The situation a person is in is the same in every case**: their cube is not usable, and they have to
+        // decide whether to keep waiting for it. The distinctions the app can draw are about the radio.
+        //
+        // The guarantee is structural rather than a matter of keeping strings in step: `ManualModeAlert.ask` takes no
+        // reason at all, so there is nothing for a reason to vary. This pins the text it does use.
+        XCTAssertEqual(ManualModeAlert.messageText, "Unable to find your device, retry or switch to manual mode")
+        XCTAssertTrue(ManualModeAlert.informativeText.hasPrefix("No TimeFlip answered:"))
+    }
+
+    @MainActor
+    func testTheOfferDoesNotClaimTheCubeItFoundWasYours() {
+        // **A cube that answers and refuses this app's PIN is very often not the user's at all** -- a colleague's on
+        // the next desk, found because it is a TimeFlip in range, on the morning theirs was left at home. "Your
+        // TimeFlip would not accept this app's PIN" asserts both that it was theirs and that theirs refused them, and
+        // sends somebody hunting a PIN problem they do not have.
+        let text = ManualModeAlert.informativeText
+        XCTAssertFalse(text.contains("Your TimeFlip"), text)
+        XCTAssertFalse(text.contains("it would not accept"), text)
+        XCTAssertTrue(text.contains("none of the ones found"), "the archive's wording names no device")
+    }
+
+    func testTheReasonIsStillDerivedForTheLog() {
+        // Kept apart rather than dropped: it is a diagnosis, and "nothing was in range" and "it was right there and
+        // refused" are different problems with different fixes. It reaches `debug_log` and nothing else.
+        XCTAssertEqual(ManualModeOffer.reason(for: .unreachable), "nothing answered")
+        XCTAssertEqual(
+            ManualModeOffer.reason(for: .wrongPIN),
+            "the cube was found and refused the PIN this app has"
+        )
+    }
 }

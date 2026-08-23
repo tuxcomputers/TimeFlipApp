@@ -16,9 +16,9 @@
 #
 # **It wipes the cube, every run.** Face colours, task settings, the name and the PIN all go back to factory. That is
 # recoverable in seconds -- the cube comes back on 000000, which is the first PIN a connect presents -- but it is a real
-# change to somebody's device, so it is asked about before anything happens: by `device_required`, once, at the point the
-# run first wants the cube, in a prompt that names this script and says what it erases. Answer anything but yes there and
-# this script never runs.
+# change to somebody's device, so it is asked about before anything happens: by `ask_about_the_device`, once, in
+# `00-setup` at the very top of the run, in a prompt that says in full what is erased. Answer anything but yes there
+# and the run stops at `50-device-scan`, long before this.
 #
 # **It needs the cube twice**: connected first, because a reset is a command that has to arrive somewhere, and then
 # again as it comes back. So it pairs from scratch rather than assuming an earlier script left a pairing behind.
@@ -26,17 +26,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
+# What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
+EXPECTED_CHECKS=33
 start "resetting a TimeFlip to factory settings"
 
-# **One gate, and it is `device_required`'s** -- which names this script and says in full that the cube will be
-# erased, because it is the only thing asked all run. There is deliberately no second question here: consent to
-# the wipe is given there or not at all, and a no there skips this script rather than reaching a prompt of its
-# own. See `device_required` in `lib.sh` for the wording that carries it.
-if ! device_required; then
-    pair_verdict "nothing is reset"
-    finish
-    exit $?
-fi
+# **The cube is already factory reset when this starts**, because `00-setup` pairs one and wipes it. That is not a
+# rehearsal of this script: setup only drives the sequence and reads the end state, while everything below asserts
+# each step of it. What it does mean is that this reset is the second of the run, on a cube 51 re-paired.
+#
+# **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
+# anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
+# has failed. A second gate here would be a branch that can never be taken, and an untaken branch is checks
+# that silently do not run.
 
 open_settings
 select_tab Device
