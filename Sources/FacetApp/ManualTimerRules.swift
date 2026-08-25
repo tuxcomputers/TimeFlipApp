@@ -24,6 +24,18 @@ enum ManualFace {
     /// without a column saying which it is.
     static let highestDeviceFace = 12
 
+    /// Whether a face is one of the app's own, which is the same question as whether a segment on it was measured
+    /// here rather than by a cube.
+    ///
+    /// **What decides whose clock may write that segment's duration.** The app measures its own stretches with the
+    /// wall clock, because nothing else can; a cube measures its own and reports them in its history, and a
+    /// wall-clock figure written over that is this app overwriting a measurement with a guess. Asked in the two
+    /// places that would do it -- `DeviceEventRecorder.closeOpenSegment` and `refreshOpenSegment` -- rather than
+    /// left to each caller to remember.
+    static func isTheApps(_ face: Int) -> Bool {
+        face > highestDeviceFace
+    }
+
     /// In rotation order. `device_face`'s `CHECK` in `003_device_event.sql` bounds what the table will hold,
     /// so growing this list means changing that too.
     static let all = [13, 14]

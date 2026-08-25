@@ -51,6 +51,67 @@ final class MenuBarControllerTests: XCTestCase {
         return controller
     }
 
+    // MARK: - the once-a-second repaint
+
+    /// A category to be timed, which every reading below needs one of.
+    private static let meeting = CategoryRecord(
+        id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil,
+        usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+    )
+
+    func testTheItemTicksWhileACubeIsTiming() {
+        // **The fix this exists for.** A followed cube leaves `state` idle for the whole session, and the tick was
+        // started on `state` -- so the item stood still while a cube timed and jumped a whole history interval
+        // whenever a fetch redrew it. The figure was growing on every read the entire time.
+        reading = TimingReadout.Reading(
+            category: Self.meeting,
+            state: .idle,
+            seconds: 30,
+            isCounting: true,
+            deviceFace: 5,
+            deviceIsPaused: false
+        )
+        let controller = controller()
+
+        controller.redraw()
+
+        XCTAssertTrue(controller.isTicking)
+        // Put down rather than left on the run loop for the rest of the suite.
+        controller.stopTicking()
+    }
+
+    func testAStandingFigureDoesNotTick() {
+        // A paused cube, which is a figure that cannot change until something happens -- and something happening is
+        // what redraws the item. A timer repainting an unchanging number is a wake-up a second for nothing.
+        reading = TimingReadout.Reading(
+            category: Self.meeting,
+            state: .idle,
+            seconds: 30,
+            isCounting: false,
+            deviceFace: 5,
+            deviceIsPaused: true
+        )
+        let controller = controller()
+
+        controller.redraw()
+
+        XCTAssertFalse(controller.isTicking)
+    }
+
+    func testTheTickStopsWhenTheFigureStops() {
+        reading = TimingReadout.Reading(
+            category: Self.meeting, state: .running, seconds: 30, isCounting: true
+        )
+        let controller = controller()
+        controller.redraw()
+        XCTAssertTrue(controller.isTicking, "precondition")
+
+        reading = TimingReadout.Reading(category: Self.meeting, state: .paused, seconds: 30)
+        controller.redraw()
+
+        XCTAssertFalse(controller.isTicking)
+    }
+
     // MARK: - how wide the item has to be
 
     func testALongerTitleNeedsAWiderItem() {

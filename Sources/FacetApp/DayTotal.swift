@@ -49,6 +49,24 @@ final class DayTotal {
         return total
     }
 
+    /// Whether that total is going up as the clock ticks: there is an open segment, it is not paused, and the face
+    /// it is on holds this category.
+    ///
+    /// **The same three questions `seconds` asks before adding its live part**, deliberately, and asked of the same
+    /// rows. What a figure is and whether it is moving are one fact, and answering them from two places is how a
+    /// menu bar comes to sit frozen on a number that is quietly growing underneath it -- which is what it did while
+    /// the app followed a cube: the tick only ran for the app's own clock, so the cube's face was repainted once
+    /// every history fetch and showed a figure up to a whole interval behind.
+    ///
+    /// **It says nothing about who is measuring.** A cube's open segment counts here exactly as a manual one does,
+    /// because the elapsed part of the figure is worked out the same way for both -- from `start_epoch` and this
+    /// machine's clock. What the cube itself has measured lands in `duration_seconds` on the next history fetch and
+    /// is not what either surface draws between them.
+    func isCounting(categoryID: Int) -> Bool {
+        guard let open = events.openSegment(), !open.isPaused else { return false }
+        return category(of: open) == categoryID
+    }
+
     /// The start of the day `now` falls in, from the setting as it reads at this moment. Change the reset time
     /// and the next answer is against the new window, with nothing needing to be told.
     func windowStart(at now: Date) -> Date {

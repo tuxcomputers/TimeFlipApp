@@ -819,10 +819,16 @@ is_running() { pgrep -x Facet >/dev/null 2>&1; }
 ensure_app_running() {
     if is_running; then
         grey "  app: already running"
-        if ! codesign -dvvv "$APP" 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]"; then
-            grey "  note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
-            grey "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
-        fi
+        # Captured and matched rather than piped into `grep -q`: see `tree_has` for why a pipeline cannot answer
+        # this under pipefail. This note is where that was found -- it said ad-hoc about a properly signed app on
+        # 18 runs out of 20, which is exactly the wrong way round for a warning nobody can act on.
+        case "$(codesign -dvvv "$APP" 2>&1)" in
+            *TeamIdentifier=[A-Z0-9]*) ;;
+            *)
+                grey "  note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
+                grey "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
+                ;;
+        esac
         return 0
     fi
     if [ ! -x "$BINARY" ] || [ -n "$(find Sources -newer "$BINARY" -name '*.swift' -print -quit 2>/dev/null)" ]; then
@@ -1040,7 +1046,27 @@ press_sheet() { python3 scripts/ax-press.py --sheet --title "$1" >/dev/null 2>&1
 # whole window -- and a failure prints that line rather than several hundred.
 element() { tree | grep -m1 "id=$1 " || true; }
 
-settings_is_open() { tree | grep -q "close-settings"; }
+# Whether the tree holds a string, **asked without a pipeline**, which is the whole point of it existing.
+#
+# **`something | grep -q ...` is not a reliable test under `set -o pipefail`, and this file sets it.** `grep -q`
+# exits the moment it matches, the command on the left is then killed by SIGPIPE while it is still writing, and
+# pipefail reports the pipeline as that signal -- 141, not 0 -- so a match reads as a miss. It is a race, so it
+# fails intermittently, which is worse than failing always: measured 2026-08-25 against a signed app bundle,
+# `codesign -dvvv ... | grep -q TeamIdentifier` answered "not found" on 18 runs out of 20.
+#
+# That one was visible, printing a note saying the app was ad-hoc signed when it was not, and writing `ad-hoc`
+# into every run in `logs/testlog.sqlite`. The ones here were not: `settings_is_open` answering false on an open
+# window opens a second one, and `wait_for_element` answering false polls until it times out and blames the app.
+#
+# A `case` on a captured string cannot do any of that. Every status test on the tree goes through this.
+tree_has() {
+    case "$(tree)" in
+        *"$1"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+settings_is_open() { tree_has "close-settings"; }
 
 # Waits for an element to appear, rather than sleeping a guessed amount and hoping.
 #
@@ -1052,7 +1078,7 @@ settings_is_open() { tree | grep -q "close-settings"; }
 wait_for_element() {
     local identifier="$1" timeout="${2:-5}" waited=0
     while [ "$waited" -lt "$((timeout * 5))" ]; do
-        tree | grep -q "id=$identifier " && return 0
+        tree_has "id=$identifier " && return 0
         sleep 0.2
         waited=$((waited + 1))
     done

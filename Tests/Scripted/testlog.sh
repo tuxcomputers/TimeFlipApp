@@ -279,11 +279,15 @@ testlog_run_start() {
     built=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' ".build/bundler/apps/Facet/Facet.app/Contents/MacOS/Facet" 2>/dev/null || echo "")
     # Ad-hoc matters: it silently breaks anything that reads the Keychain, which is how a Google failure
     # once looked like a Google failure and was actually a build flag.
-    if codesign -dvvv ".build/bundler/apps/Facet/Facet.app" 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]"; then
-        signing="signed"
-    else
-        signing="ad-hoc"
-    fi
+    #
+    # **Captured and matched, never piped into `grep -q`.** This is sourced by `run.sh` and `lib.sh`, both of which
+    # set `pipefail`, and a pipeline whose reader exits early reports the writer's SIGPIPE rather than the match --
+    # so this wrote `ad-hoc` for every run from 89 to 94 against an app signed with a real Apple Development
+    # certificate. See `tree_has` in lib.sh for the measurement.
+    case "$(codesign -dvvv ".build/bundler/apps/Facet/Facet.app" 2>&1)" in
+        *TeamIdentifier=[A-Z0-9]*) signing="signed" ;;
+        *) signing="ad-hoc" ;;
+    esac
     os=$(sw_vers -productVersion 2>/dev/null || echo "")
 
     tlog "INSERT INTO run (started_at, started_epoch, branch, commit_sha, dirty, database_file, rebuilt,
@@ -597,17 +601,43 @@ EOF
         # decided before the run: it is what the script says it does, written down in the script. Everything to
         # the right of it is the answer. A row whose `expected` and `passed` disagree is the case no other column
         # can show -- checks that never ran at all, each of them reporting nothing rather than failing.
-        echo "| script | expected | passed | failed |"
-        echo "|---|---|---|---|"
+        #
+        # **`time` is last because it is the only column that judges nothing.** The three before it decide whether
+        # the run counts; this one says what it cost, which is the question asked while waiting for the next one --
+        # a device script that usually takes two minutes and took nine is worth knowing about long before it starts
+        # failing. Minutes and seconds with their units on, rather than `1:47`, which reads as a clock and leaves
+        # somebody deciding whether the left-hand number is minutes or hours.
+        #
+        # It comes off the script row itself, so it measures the script rather than the run: the gaps between them
+        # belong to `run.sh`, not to any script, which is why the total below is short of the wall clock in the
+        # header.
+        #
+        # Empty means the script never reached its own finish, which is what a run stopped part way leaves behind.
+        # A dash rather than `0m 00s`, since no time at all and no answer are different things.
+        echo "| script | expected | passed | failed | time |"
+        echo "|---|---|---|---|---|"
         sqlite3 -noheader -separator '|' "$TESTLOG" \
-            "SELECT name, expected, passed, failed FROM script WHERE run_id = $run ORDER BY sequence;" \
+            "SELECT name, expected, passed, failed,
+                    CASE
+                        WHEN started_epoch IS NULL OR finished_epoch IS NULL THEN ''
+                        ELSE printf('%dm %02ds', (finished_epoch - started_epoch) / 60,
+                                                 (finished_epoch - started_epoch) % 60)
+                    END
+               FROM script WHERE run_id = $run ORDER BY sequence;" \
             2>/dev/null |
-            while IFS='|' read -r name e p f; do
-                echo "| $name | $e | $p | $f |"
+            while IFS='|' read -r name e p f t; do
+                echo "| $name | $e | $p | $f | ${t:--} |"
             done
         # The totals on the bottom row, so the table adds up to the summary above it rather than asking to be
         # trusted that it does.
-        echo "| **total** | **$(tlog "SELECT IFNULL(SUM(expected), 0) FROM script WHERE run_id = $run;")** | **${passed}** | **${failed}** |"
+        #
+        # **The time total adds up the column, and so is less than `finished` minus `started` above.** What is
+        # missing is `run.sh`'s own work between scripts -- rebuilding the database, capturing the seeds -- which
+        # no script did and none of them should be charged for.
+        local script_seconds
+        script_seconds=$(tlog "SELECT IFNULL(SUM(finished_epoch - started_epoch), 0) FROM script
+                                WHERE run_id = $run AND started_epoch IS NOT NULL AND finished_epoch IS NOT NULL;")
+        echo "| **total** | **$(tlog "SELECT IFNULL(SUM(expected), 0) FROM script WHERE run_id = $run;")** | **${passed}** | **${failed}** | **$(printf '%dm %02ds' "$(( ${script_seconds:-0} / 60 ))" "$(( ${script_seconds:-0} % 60 ))")** |"
         echo ""
         if [ "${dirty:-0}" = "1" ]; then
             echo "> The working tree had uncommitted changes when this ran, so it is not evidence about the"

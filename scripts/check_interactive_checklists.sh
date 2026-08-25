@@ -131,8 +131,10 @@ check_the_suite_was_run() {
   - the recorded run had ${failed_checks:-an unknown number of} failing check(s)"
   # **Every check a script says it has must have run**, read off the per-script table.
   #
-  # The table is `| script | expected | passed | failed |`, so the fields are $2, $3, $4, $5 -- the leading pipe
-  # makes $1 empty. The `**` test drops the bold totals row, and the header is skipped by name.
+  # The table is `| script | expected | passed | failed | time |`, so the fields are $2, $3, $4, $5, $6 -- the
+  # leading pipe makes $1 empty. Only the first three are read here, and `time` was added on the end for that
+  # reason: a column appended to the right cannot move the ones this counts on. The `**` test drops the bold
+  # totals row, and the header is skipped by name.
   #
   # **`[|]` rather than `\|`, and it is not a style choice.** macOS awk does not split on an escaped pipe in `FS`:
   # it splits on the runs of spaces around it instead and hands back the bar itself as a field, so `$3` comes out

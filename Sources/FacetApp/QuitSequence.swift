@@ -161,10 +161,15 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// table behind, and telling those apart later is the difference between "there was nothing to do" and
     /// "this never fired".
     func run(at moment: Date) {
+        // **The app's own segments, and only those.** A cube's open row is refused by the recorder and left as it
+        // is, because the cube keeps timing after this process has gone and its own history is what will say how
+        // long that stretch ran -- see `DeviceEventRecorder.closeOpenSegment`. So the second line covers both
+        // "nothing was running" and "what is running is the cube's", which are the same thing from here: neither is
+        // this app's to close.
         if let closed = deviceEvents.closeOpenSegment(at: moment) {
             debugLog?.record(.quit, "Quit: closed the open segment, device_event \(closed.deviceEventID)")
         } else {
-            debugLog?.record(.quit, "Quit: nothing was being timed")
+            debugLog?.record(.quit, "Quit: there was no segment of this app to close")
         }
         // **After the segment, not before.** Closing it is what turns the session into an entry, and it is done from
         // the app's own rows rather than from anything the cube says -- so a link dropped first cannot cost anything,

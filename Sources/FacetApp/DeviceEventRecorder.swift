@@ -157,9 +157,27 @@ final class DeviceEventRecorder {
     /// Reads the open row rather than being told which one it is. The table is what is true about what is
     /// running, so a session interrupted by a crash or a quit leaves its row here and the next click still
     /// finds it.
+    ///
+    /// **A cube's row is refused, and that is the paragraph above being enforced rather than merely stated.** The
+    /// quit sequence closes whatever is open on its way out, which is right for a segment this app is measuring and
+    /// wrong for one the cube is: it wrote a wall-clock duration over what the device had reported, finalised the
+    /// row, and handed the stretch to `TimeEntryRecorder` as tracked time -- while the cube went on timing that same
+    /// face, and the next launch fetched the very same event back. Left open, it is closed by the history that
+    /// carries the cube's own measurement of it, which is the same reasoning `closeSegmentsStrandedOnAppFaces` gives
+    /// for leaving these alone at startup.
     @discardableResult
     func closeOpenSegment(at moment: Date) -> Outcome? {
         guard let open = openSegment() else { return nil }
+        guard ManualFace.isTheApps(open.face) else {
+            // Said rather than returned in silence: a quit that closed nothing and a quit that found nothing open
+            // leave the same table behind, and only a row here tells them apart.
+            debugLog?.record(
+                .event,
+                "device_event id=\(open.deviceEventID) was reported by the cube on face \(open.face), "
+                    + "so it is left open for the cube to report the length of"
+            )
+            return nil
+        }
         // The difference between two whole-second stamps, which is how the device arrives at its own durations
         // and so what this table holds. Not a rounding of the interval: the row's `start_epoch` is already
         // truncated to a second, and the segment that replaces this one starts from the same truncation, so
@@ -200,6 +218,15 @@ final class DeviceEventRecorder {
     @discardableResult
     func refreshOpenSegment(at moment: Date) -> Outcome? {
         guard let open = openSegment() else { return nil }
+        // **Only a segment this app is measuring.** With a cube followed the same tick asks the cube for its history,
+        // and what comes back is the device's own measurement of this stretch; growing the row from the wall clock
+        // first would overwrite that with a guess, and the two disagree the moment the cube has been paused, locked,
+        // or timing while the app was shut. `duration_seconds` on a cube's row is the history's to write and
+        // nobody else's.
+        //
+        // Quiet, like the refresh itself: this is the ordinary state of every tick while a cube is connected, and a
+        // row apiece at one every ten seconds would bury the log. The tick that asked already says it fired.
+        guard ManualFace.isTheApps(open.face) else { return nil }
         return record(
             DeviceEventSegment(
                 eventNumber: open.eventNumber,
