@@ -178,13 +178,23 @@ inside a `TimeFlip` section that is a `PanelSection`, and their defaults are opp
 window's walk goes on into a section it has just folded, so both come back to their own answer; a reset that put
 everything one way would be exactly as wrong as one that put nothing back.
 
-**A second tab overrides as little as it can, and proves the rest on screen.** `PanelSection.Metrics` exists because
-the App tab's rows run the panel's full width and hold their own labels off the edge, so their content inset must be
-nothing where the Categories tab's is 8; inheriting that number would indent every row twice over and stop the
-hairlines short at both ends. That is the only number it changes. Giving it the tab's own 20pt inset for the heading
-as well looked reasonable in the source and was wrong on screen: it pushed the heading right of the labels under it
-and left a folded panel half again as tall as the Categories tab's. **Sections on two tabs should read as one control
-drawn twice**, so take a screenshot of both before overriding anything beyond what genuinely differs.
+**A second tab overrides nothing, and proves it on screen.** Every number a Settings tab is drawn from lives in
+`SettingsMetrics`, and `rowHeight` is the point of reference: change it and all three tabs move together, which is
+what it is for. The Categories tab is where those numbers came from, being the one that was right.
+
+`PanelSection.Metrics` used to be overridden by the App and Device tabs, to a content inset of nothing, because their
+rows ran the panel's full width and held their own labels off the edge so that the hairlines between rows ended where
+the archive's did. **There are no hairlines anywhere now**: a gap of `rowSpacing` is what divides one row from the
+next, which is what the Categories tab has always done, so that exception buys nothing and one inset puts a row at the
+same x on all three tabs.
+
+The reason this is a rule at all is what happened without it. Both tabs were measured against the Categories tab by
+eye, at different times, and both landed somewhere else: the App tab at a 46pt row pitch against that tab's 32, its
+`rowPadding` of 11 adding itself twice on top of a 24pt field; the Device tab at exactly the right row height with no
+gap at all under it, which reads as a tighter list rather than the same one. Neither was visible in the source, where
+both files looked like they had been careful. **So take a screenshot of all three before changing any of it**, and
+measure the pitch rather than trusting the numbers -- `SettingsMetricsTests` does exactly that, and it fails if any
+tab grows a number of its own again.
 
 **Anything drawn from a fold follows the state, not the gesture.** `onToggle` fires only when somebody presses a
 heading, because `restoreDefaultState` is deliberately silent; `onExpandedChanged` fires on every path. A view that

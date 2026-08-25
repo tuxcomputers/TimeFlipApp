@@ -25,9 +25,9 @@ final class CategoriesPane: NSView {
     private enum Layout {
         /// Room between the pane's edge and its content, on all four sides. The Faces tab's number, so the two tabs
         /// sit at the same rhythm.
-        static let padding: CGFloat = 20
+        static let padding = SettingsMetrics.tabPadding
         /// Between one section and the next, and around the create control between them.
-        static let sectionSpacing: CGFloat = 16
+        static let sectionSpacing = SettingsMetrics.sectionSpacing
     }
 
     /// Exposed so what they hold can be asserted without a window on screen, and so the window can wire what their

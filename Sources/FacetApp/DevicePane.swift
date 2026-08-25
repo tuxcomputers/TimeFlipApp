@@ -59,10 +59,17 @@ final class DevicePane: NSView {
 
     /// Shared with `DisclosureRow`, so a folding row sits at the same rhythm as the plain rows around it.
     enum Layout {
-        static let padding: CGFloat = 20
-        static let headingSpacing: CGFloat = 12
-        static let sectionSpacing: CGFloat = 24
-        static let rowInset: CGFloat = 20
+        /// **Every number here comes from `SettingsMetrics`**, which is where the look of a tab is decided. This tab
+        /// used to carry its own copies and had drifted the other way from the App tab: rows at the right height
+        /// with no gap at all between them, which reads as a tighter list than the Categories tab rather than the
+        /// same one.
+        static let padding = SettingsMetrics.tabPadding
+        static let headingSpacing = SettingsMetrics.headingSpacing
+        static let sectionSpacing = SettingsMetrics.sectionSpacing
+        /// Inside a row, to the left of a label and to the right of a value. **Nothing**: the panel insets the list
+        /// now, exactly as it does on the Categories tab, so a row inset of its own would indent every row twice
+        /// over. It was 20 while this tab drew its own hairlines and had to place their ends.
+        static let rowInset: CGFloat = 0
 
         /// **Nothing, so a row is exactly `minimumRowHeight` unless its own content is taller.** It was 11, which is
         /// what made a row holding a `SteppedNumberField` come out at 46: the field is 24 and the padding added
@@ -77,18 +84,14 @@ final class DevicePane: NSView {
         /// than any row here, and flush against the edges they read as a toolbar rather than as part of the panel.
         static let controlRowPadding: CGFloat = 11
 
-        /// The gap between rows that have no hairline to divide them, which is `CategoryTable.Layout.rowSpacing`
-        /// read from there rather than repeated: the Categories tab's rhythm is what this tab is being measured
-        /// against, so its number moving should move this one.
-        static let rowSpacing: CGFloat = CategoryTable.Layout.rowSpacing
+        /// The gap between one row and the next, which is what divides them now that nothing is drawn between them.
+        /// **Every list on this tab takes it**, where before only the folded ones did and the top-level rows ran
+        /// together.
+        static let rowSpacing = SettingsMetrics.rowSpacing
 
-        /// **The Categories tab's row height**, which is what the rows on this tab are measured against: that tab
-        /// hugs its controls at 24 and separates them with stack spacing, while this one runs them together with
-        /// hairlines between (see `stack()`), so the height is the part the two have in common and the part worth
-        /// sharing. Shared with `DisclosureRow`, which only this tab builds, so a folding heading sits at the same
-        /// rhythm as the plain rows around it.
-        static let minimumRowHeight: CGFloat = 24
-        static let separatorHeight: CGFloat = 1
+        /// The least a row can be. Shared with `DisclosureRow`, which only this tab builds, so a folding heading
+        /// sits at the same rhythm as the plain rows around it.
+        static let minimumRowHeight = SettingsMetrics.rowHeight
     }
 
     /// What the tables say, at the moment the tab was shown.
@@ -455,10 +458,9 @@ final class DevicePane: NSView {
 
     /// One of the tab's two sections.
     ///
-    /// **One number differs from the Categories tab's, and only one**, exactly as on the App tab: a row here runs the
-    /// panel's full width and holds its own label and value off the edge with `rowInset`, which is what puts a
-    /// separator's ends where the archive's are. Inset the content as well and every row would be indented twice
-    /// over, with the hairlines stopping short at both ends.
+    /// **Nothing is overridden any more**, exactly as on the App tab. The `contentInset: 0` this used to pass was
+    /// there so the hairlines between rows ended where the archive's did; with no hairlines it buys nothing, and one
+    /// inset for all three tabs is what puts a row at the same x on each of them. See `SettingsMetrics`.
     ///
     /// **No label is passed**: "TimeFlip" and "Settings" say what they are on their own.
     private func section(title: String, identifier: String, content: NSView) -> PanelSection {
@@ -466,8 +468,7 @@ final class DevicePane: NSView {
             title: title,
             identifier: identifier,
             isExpanded: true,
-            content: content,
-            metrics: PanelSection.Metrics(contentInset: 0)
+            content: content
         )
         section.onToggle = { [weak self] expanded in self?.onToggle?(identifier, expanded) }
         return section
@@ -483,13 +484,13 @@ final class DevicePane: NSView {
         hardwareValue = value(identifier: Identifier.hardware)
         firmwareValue = value(identifier: Identifier.firmware)
 
-        let details = stack(spacing: Layout.rowSpacing)
+        let details = stack()
         add(
             [
-                row("Manufacturer", manufacturerValue, identifier: Identifier.manufacturer, separated: false),
-                row("Model", modelValue, identifier: Identifier.model, separated: false),
-                row("Hardware", hardwareValue, identifier: Identifier.hardware, separated: false),
-                row("Firmware", firmwareValue, identifier: Identifier.firmware, separated: false),
+                row("Manufacturer", manufacturerValue, identifier: Identifier.manufacturer),
+                row("Model", modelValue, identifier: Identifier.model),
+                row("Hardware", hardwareValue, identifier: Identifier.hardware),
+                row("Firmware", firmwareValue, identifier: Identifier.firmware),
             ],
             to: details
         )
@@ -500,14 +501,14 @@ final class DevicePane: NSView {
         // hairline; with the scan under it, a divider is what keeps the readings above and the controls below reading
         // as two halves of one section rather than as one undifferentiated list.
         moreRow = DisclosureRow(
-            title: "More", identifier: Identifier.more, isExpanded: false, content: details, separated: true
+            title: "More", identifier: Identifier.more, isExpanded: false, content: details
         )
         moreRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.more, expanded) }
 
         return [
-            row("Name", nameValue, identifier: Identifier.name, separated: true),
-            row("Connection", connectionValue, identifier: Identifier.connection, separated: true),
-            row("Battery", batteryValue, identifier: Identifier.battery, separated: true),
+            row("Name", nameValue, identifier: Identifier.name),
+            row("Connection", connectionValue, identifier: Identifier.connection),
+            row("Battery", batteryValue, identifier: Identifier.battery),
             moreRow,
         ]
     }
@@ -529,15 +530,15 @@ final class DevicePane: NSView {
 
         ledBrightnessValue = value(identifier: Identifier.ledBrightness)
         ledBlinkValue = value(identifier: Identifier.ledBlink)
-        let led = stack(spacing: Layout.rowSpacing)
+        let led = stack()
         add(
             [
-                row("Brightness", ledBrightnessValue, identifier: Identifier.ledBrightness, separated: false),
-                row("Blink Interval", ledBlinkValue, identifier: Identifier.ledBlink, separated: false),
+                row("Brightness", ledBrightnessValue, identifier: Identifier.ledBrightness),
+                row("Blink Interval", ledBlinkValue, identifier: Identifier.ledBlink),
             ],
             to: led
         )
-        ledRow = DisclosureRow(title: "LED", identifier: Identifier.led, isExpanded: false, content: led, separated: true)
+        ledRow = DisclosureRow(title: "LED", identifier: Identifier.led, isExpanded: false, content: led)
         ledRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.led, expanded) }
 
         // **"Disable", not "Enable".** The archive's wording, and the right way round: the setting is on by default,
@@ -548,7 +549,7 @@ final class DevicePane: NSView {
         doubleTapDisableBox.translatesAutoresizingMaskIntoConstraints = false
         doubleTapDisableBox.setAccessibilityIdentifier(Identifier.doubleTapDisable)
 
-        let doubleTap = stack(spacing: Layout.rowSpacing)
+        let doubleTap = stack()
         var doubleTapRows: [NSView] = [leading(doubleTapDisableBox)]
         // **0 to 255, because that is the register.** Each of the four is one `UInt8` written straight to the
         // accelerometer (`0x16`), so the range is the hardware's and not a judgement about useful values. `Window` at
@@ -565,7 +566,7 @@ final class DevicePane: NSView {
             let field = SteppedNumberField(value: current, range: 0...255, suffix: "", identifier: identifier)
             field.onChange = { [weak self] _ in self?.doubleTapValueChanged() }
             doubleTapValues[identifier] = field
-            doubleTapRows.append(row(title, field, identifier: identifier, separated: false))
+            doubleTapRows.append(row(title, field, identifier: identifier))
         }
         add(doubleTapRows, to: doubleTap)
         doubleTapRow = DisclosureRow(
@@ -574,7 +575,7 @@ final class DevicePane: NSView {
         doubleTapRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.doubleTap, expanded) }
 
         return [
-            row("Auto-pause (0 disable, max 240m)", autoPauseField, identifier: Identifier.autoPause, separated: true),
+            row("Auto-pause (0 disable, max 240m)", autoPauseField, identifier: Identifier.autoPause),
             ledRow,
             doubleTapRow,
         ]
@@ -671,6 +672,12 @@ final class DevicePane: NSView {
         pair.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         scanResults = stack()
+        // **Born hidden, because it is born empty.** A stack view skips a hidden arranged subview and the spacing
+        // that would have gone before it, so this is what stops an empty scan list leaving a row's worth of gap
+        // under the Scan button. `showFound` keeps it in step from then on -- and it is set here as well as there
+        // because that only runs once something has been scanned for or a pairing has landed, so a launch with no
+        // cube would otherwise never reach it.
+        scanResults.isHidden = true
         return [controls, scanResults]
     }
 
@@ -698,18 +705,8 @@ final class DevicePane: NSView {
         name.identifier = NSUserInterfaceItemIdentifier(device.id.uuidString)
         deviceButtons.append(name)
 
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
         row.addSubview(name)
-        row.addSubview(separator)
         NSLayoutConstraint.activate([
-            separator.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
-            separator.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
-            separator.topAnchor.constraint(equalTo: row.topAnchor),
-            separator.heightAnchor.constraint(equalToConstant: Layout.separatorHeight),
-
             name.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
             name.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor, constant: -Layout.rowInset),
             name.centerYAnchor.constraint(equalTo: row.centerYAnchor),
@@ -789,6 +786,11 @@ final class DevicePane: NSView {
         }
         deviceButtons = []
         add(devices.map { deviceRow($0) }, to: scanResults)
+        // **An empty list takes no room, gap included.** A stack view skips a hidden arranged subview *and* the
+        // spacing that would have gone before it, so hiding this is what stops an empty scan list leaving a row's
+        // worth of gap under the Scan button. It cost nothing while the lists here had no spacing at all; giving
+        // every list the shared gap is what made an empty one visible.
+        scanResults.isHidden = devices.isEmpty
         // A list redrawn mid-attempt must not come back live. The rows are rebuilt on every advertisement, so
         // whatever the tab last decided about them has to be applied again here rather than assumed to have
         // survived -- and a scan carrying on behind a connect is exactly when this happens.
@@ -825,7 +827,11 @@ final class DevicePane: NSView {
     ///   **`Layout.rowSpacing` for a list without them**, which is the folded groups: nothing divides those rows, so
     ///   with no gap they run together into a block. That is the Categories tab's arrangement, and this is its
     ///   number -- the two tabs then share both halves of the rhythm rather than only the row height.
-    private func stack(spacing: CGFloat = 0) -> NSStackView {
+    /// A list of rows, held apart by the one gap every tab uses.
+    ///
+    /// **The default is the gap, not nothing.** It was 0, which is what made this tab's top-level rows run together
+    /// while its folded lists breathed: two rhythms on one tab, and neither of them the Categories tab's.
+    private func stack(spacing: CGFloat = Layout.rowSpacing) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -883,7 +889,7 @@ final class DevicePane: NSView {
     /// **The control is pinned to the trailing edge rather than following the label**, which is what the archive's
     /// form did and what makes the column line up down the right whatever the words in front of it. A fixed label
     /// column would line them up too, and park them in the middle with dead space beyond.
-    private func row(_ title: String, _ control: NSView?, identifier: String, separated: Bool) -> NSView {
+    private func row(_ title: String, _ control: NSView?, identifier: String) -> NSView {
         let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
         guard let control else { return row }
@@ -913,22 +919,7 @@ final class DevicePane: NSView {
         // with it. `settled` decides the row; this stops the control arguing with it.
         control.setContentHuggingPriority(.required, for: .vertical)
         control.setContentCompressionResistancePriority(.required, for: .vertical)
-        _ = settled(row)
-        guard separated else { return row }
-
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(separator)
-        NSLayoutConstraint.activate([
-            // From the label's left edge to the value's right one, which is where the archive drew it: a hairline
-            // running the full width would cut the panel in two rather than divide a list.
-            separator.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
-            separator.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
-            separator.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: Layout.separatorHeight),
-        ])
-        return row
+        return settled(row)
     }
 
     /// A row whose content sits at the left rather than being split across it, for the two controls that are not a

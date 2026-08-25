@@ -225,13 +225,17 @@ final class PanelSection: NSView {
         /// Between the triangle and the word beside it.
         var titleSpacing: CGFloat = 4
         /// Between the heading line and what folds away under it.
-        var headingSpacing: CGFloat = 12
+        var headingSpacing = SettingsMetrics.headingSpacing
         /// Inside the panel, around the heading line.
-        var headingInset = CategoryTable.Layout.padding
-        /// Inside the panel, to the left of the content, to the right of it, and under it. Nothing where the content
-        /// already runs the full width and insets itself.
-        var contentInset = CategoryTable.Layout.padding
-        var cornerRadius = CategoryTable.Layout.cornerRadius
+        var headingInset = SettingsMetrics.panelPadding
+        /// Inside the panel, to the left of the content, to the right of it, and under it.
+        ///
+        /// **Every tab takes this one now.** The App tab used to pass 0 here and inset each row itself instead, so
+        /// that the hairlines it drew between rows ended where the archive's did. With no hairlines to place there
+        /// is nothing left for that exception to buy, and one inset for all three tabs is what makes a row start at
+        /// the same x on each of them.
+        var contentInset = SettingsMetrics.panelPadding
+        var cornerRadius = SettingsMetrics.cornerRadius
     }
 
     @objc

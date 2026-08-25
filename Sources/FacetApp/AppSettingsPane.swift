@@ -56,21 +56,21 @@ final class AppSettingsPane: NSView {
     }
 
     private enum Layout {
-        /// The Categories tab's numbers, so the two tabs sit at the same rhythm.
-        static let padding: CGFloat = 20
-        static let headingSpacing: CGFloat = 12
-        /// Inside the panel, to the left of a label and to the right of a control. The rows themselves run the whole
-        /// width, which is what puts a separator's ends where the archive's are.
-        static let rowInset: CGFloat = 20
-        /// Above and below a row's content. What makes the number rows taller than the switch rows is the fields
-        /// inside them, not a second measurement -- the archive's rows sized to their contents the same way.
-        static let rowPadding: CGFloat = 11
-        /// The least a row can be, so two switches in a row do not read as a tighter list than the fields under them.
-        static let minimumRowHeight: CGFloat = 38
-        static let separatorHeight: CGFloat = 1
-        /// Between one section's panel and the next section's heading. Wider than `headingSpacing`, so a heading
-        /// reads as belonging to the panel under it rather than to the one it follows.
-        static let sectionSpacing: CGFloat = 24
+        /// **Every number here comes from `SettingsMetrics`**, which is where the look of a tab is decided. This tab
+        /// used to carry its own copies, measured against the Categories tab by eye, and they had drifted: a 46pt
+        /// row against that tab's 32, with hairlines it never had.
+        static let padding = SettingsMetrics.tabPadding
+        static let headingSpacing = SettingsMetrics.headingSpacing
+        /// Inside a row, to the left of a label and to the right of a control. **Nothing**: the panel insets the
+        /// list now, exactly as it does on the Categories tab, so a row inset of its own would indent every row
+        /// twice over. It was 20 while this tab drew its own hairlines and had to place their ends.
+        static let rowInset: CGFloat = 0
+        /// The least a row can be. A row holding something taller is as tall as its contents, which is what makes
+        /// the field rows and the switch rows read as one list rather than two.
+        static let minimumRowHeight = SettingsMetrics.rowHeight
+        /// Between one row and the next, which is what divides them now that nothing is drawn between them.
+        static let rowSpacing = SettingsMetrics.rowSpacing
+        static let sectionSpacing = SettingsMetrics.sectionSpacing
         /// How much of the Calendar row the name may take. Wide enough for a name somebody chose, and fixed so the
         /// row does not change width when the name does.
         static let calendarNameWidth: CGFloat = 240
@@ -266,13 +266,13 @@ final class AppSettingsPane: NSView {
         let account = values.googleAccount
         var built: [NSView] = [
             row("Status", label(GoogleAccountRules.status(for: account), identifier: Identifier.googleStatus),
-                separated: true),
+                ),
         ]
         if let name = account.name {
-            built.append(row("Account", label(name, identifier: Identifier.googleAccount), separated: true))
+            built.append(row("Account", label(name, identifier: Identifier.googleAccount)))
         }
         if let email = account.email {
-            built.append(row("Email", label(email, identifier: Identifier.googleEmail), separated: true))
+            built.append(row("Email", label(email, identifier: Identifier.googleEmail)))
         }
 
         if account.isConnected {
@@ -291,7 +291,7 @@ final class AppSettingsPane: NSView {
             for: account, hasCredentials: hasCredentials, isSigningIn: isSigningIn
         )
         button.setAccessibilityIdentifier(Identifier.googleButton)
-        built.append(row(account.isConnected ? "Account" : "Google", button, separated: false))
+        built.append(row(account.isConnected ? "Account" : "Google", button))
 
         for view in built {
             googleRows.addView(view, in: .top)
@@ -329,7 +329,7 @@ final class AppSettingsPane: NSView {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.isEnabled = !isSigningIn
             button.setAccessibilityIdentifier(Identifier.googleCalendarCreate)
-            return row("Calendar", button, separated: true)
+            return row("Calendar", button)
         }
 
         // **The same cell a category name uses**, so renaming the calendar is the same act as renaming a category:
@@ -364,7 +364,7 @@ final class AppSettingsPane: NSView {
         pair.orientation = .horizontal
         pair.spacing = Layout.headingSpacing
         pair.translatesAutoresizingMaskIntoConstraints = false
-        return row("Calendar", pair, separated: true)
+        return row("Calendar", pair)
     }
 
     @objc
@@ -478,14 +478,11 @@ final class AppSettingsPane: NSView {
 
     /// One of the tab's two sections.
     ///
-    /// **One number differs from the Categories tab's, and only one.** A row here runs the panel's full width and
-    /// holds its own label off the edge with `rowInset`, which is what puts a separator's ends where the archive's
-    /// are, so the section must not inset the content as well: doing so would indent every row twice over and stop
-    /// the hairlines short at both ends. Everything else -- where the triangle sits, the gap under the heading, the
-    /// corner -- is deliberately the same, so the two tabs' sections read as one control drawn twice rather than as
-    /// two that happen to look similar. That was measured on screen, not assumed: an inset of this tab's own 20
-    /// pushed the heading right of the labels under it and left a folded panel half again as tall as the Categories
-    /// tab's.
+    /// **Nothing is overridden any more, which is the whole of what makes this tab match the Categories tab.** It
+    /// used to pass `contentInset: 0` and inset each row itself with `rowInset`, so that the hairlines between rows
+    /// ended where the archive's did. There are no hairlines now, so that exception buys nothing and costs the one
+    /// thing worth having: a row starting at the same x on both tabs. Everything a section is -- where the triangle
+    /// sits, the gap under the heading, the corner, the inset -- now comes from `SettingsMetrics` for all three.
     ///
     /// **No label is passed**, because "App settings" and "Google" already say what they are. The Categories tab
     /// passes one; "Active" announced on its own does not mean anything.
@@ -494,17 +491,17 @@ final class AppSettingsPane: NSView {
             title: title,
             identifier: identifier,
             isExpanded: true,
-            content: content,
-            metrics: PanelSection.Metrics(contentInset: 0)
+            content: content
         )
     }
 
     private func stack(_ view: NSStackView) {
         view.orientation = .vertical
         view.alignment = .leading
-        // No gap: the rows are a list with hairlines between them, not separate controls, and the padding inside each
-        // row is what keeps them apart. The archive's grouped form again.
-        view.spacing = 0
+        // **The gap is what divides the rows**, which is how the Categories tab has always done it. This was 0 while
+        // hairlines did the dividing and the padding inside each row held them apart -- which is what made the rows
+        // here half again as tall as that tab's.
+        view.spacing = Layout.rowSpacing
         view.translatesAutoresizingMaskIntoConstraints = false
     }
 
@@ -553,23 +550,26 @@ final class AppSettingsPane: NSView {
             // time spent.
             ("Ignore flips under", blipTimeField),
         ]
-        for (index, (title, control)) in built.enumerated() {
-            // No hairline under the last one: it would draw against the panel's own bottom edge and read as a row
-            // that failed to load rather than as a divider.
-            let view = row(title, control, separated: index < built.count - 1)
+        for (title, control) in built {
+            let view = row(title, control)
             rows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
         }
     }
 
-    /// One row of the grouped form: the label against the left inset, the control against the right one, and a
-    /// hairline under it.
+    /// One row of the list: the label against the left edge, the control against the right one.
     ///
     /// **The control is pinned to the trailing edge rather than following the label**, which is what the archive's
     /// form did and what makes the column of controls line up down the right-hand side however long the words in
     /// front of them are. A fixed label column would line them up too, and put them in the middle of the panel with
     /// dead space beyond -- which is not what that tab looked like.
-    private func row(_ title: String, _ control: NSView, separated: Bool) -> NSView {
+    ///
+    /// **Held at the row height rather than padded to it**, which is the Device tab's shape and the one that
+    /// survives a control of any size. The control is pinned inside the row by inequalities and the row is then
+    /// settled at `minimumRowHeight`, so a checkbox shorter than the row does not fight the floor and a field taller
+    /// than it simply makes the row taller. Padding above and below, which is what this did, added itself twice on
+    /// top of a 24pt field and is what made every row here 46pt against the Categories tab's 32.
+    private func row(_ title: String, _ control: NSView) -> NSView {
         let label = NSTextField(labelWithString: title)
         label.translatesAutoresizingMaskIntoConstraints = false
         control.setAccessibilityLabel(title)
@@ -583,29 +583,31 @@ final class AppSettingsPane: NSView {
             label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             // The label gives way before the control does: a window narrow enough to squeeze one of these should
             // truncate the words, not shrink the field somebody types into.
-            label.trailingAnchor.constraint(lessThanOrEqualTo: control.leadingAnchor, constant: -Layout.rowInset),
+            label.trailingAnchor.constraint(
+                lessThanOrEqualTo: control.leadingAnchor, constant: -SettingsMetrics.columnSpacing
+            ),
 
             control.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
             control.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            control.topAnchor.constraint(equalTo: row.topAnchor, constant: Layout.rowPadding),
-            control.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -Layout.rowPadding),
-
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
+            control.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor),
+            control.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor),
         ])
-        guard separated else { return row }
+        // A control with a width constraint and no height -- `SteppedNumberField` is exactly that -- has nothing of
+        // its own to stop it stretching and taking the row with it.
+        control.setContentHuggingPriority(.required, for: .vertical)
+        control.setContentCompressionResistancePriority(.required, for: .vertical)
+        return settled(row)
+    }
 
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(separator)
-        NSLayoutConstraint.activate([
-            // From the label's left edge to the control's right one, which is where the archive drew it: a hairline
-            // running the full width would cut the panel in two rather than dividing a list.
-            separator.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
-            separator.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
-            separator.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: Layout.separatorHeight),
-        ])
+    /// The row height, as a floor and as a preference: taller content wins, and nothing else does.
+    ///
+    /// The Device tab's `settled`, which this tab now needs for the same reason: a row whose height is pinned to its
+    /// content cannot also be held at a floor, and every row on both tabs wants both.
+    private func settled(_ row: NSView) -> NSView {
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight).isActive = true
+        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
+        preferred.priority = .defaultLow
+        preferred.isActive = true
         return row
     }
 

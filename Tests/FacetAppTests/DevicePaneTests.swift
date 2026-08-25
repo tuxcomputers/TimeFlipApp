@@ -1046,7 +1046,11 @@ final class DevicePaneTests: XCTestCase {
             let aligned = try XCTUnwrap(field.superview).convert(
                 field.alignmentRect(forFrame: field.frame), to: pane
             )
-            XCTAssertEqual(aligned.maxX, 600, accuracy: 0.5, identifier)
+            // 640 wide, less the tab's own padding at each side and the panel's inset inside that. Derived rather
+            // than the 600 it used to be written as: the numbers moved when the three tabs were put on one set, and
+            // a literal here would have had to be found by running the test rather than by reading it.
+            let expected = 640 - SettingsMetrics.tabPadding - SettingsMetrics.panelPadding
+            XCTAssertEqual(aligned.maxX, expected, accuracy: 0.5, identifier)
         }
     }
 
