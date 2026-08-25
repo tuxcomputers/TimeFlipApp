@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=46
+EXPECTED_CHECKS=47
 start "the face the cube is on, and both places drawing the same one"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -146,13 +146,6 @@ open_paused() {
     sql "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
 }
 
-# The right half, single, which is the only control the app offers for a plain resume: the dropdown's Unlock resumes
-# too, but only appears on a locked cube. Deferred by the double-click interval at the far end, hence the wait.
-click_right() {
-    click_right
-    sleep 1.5
-}
-
 grey "  the cube says: $(status_row)"
 
 # ---------------------------------------------------------------------------- 1. unlocked, whatever it was
@@ -243,7 +236,14 @@ fi
 if [ "$(open_paused)" = "1" ]; then
     grey "  the cube is paused, so its turns would file no history; starting it again first"
     resuming=$(mark)
+    # The right half, single, which is the only control the app offers for a plain resume: the dropdown's Unlock
+    # resumes too, but only appears on a locked cube. Deferred by the double-click interval at the far end, hence the
+    # wait -- written here rather than wrapped in a local `click_right`, which is what this was and which called
+    # itself: bash resolves the inner name to the redefinition, so it recursed instead of clicking. Never seen, this
+    # branch being taken only when the cube happens to arrive paused, which is exactly the kind of failure a device
+    # run pays for.
     click_right
+    sleep 1.5
     expect_log "a cube found paused is started again, so the turns below are recorded" \
         "$resuming" "The cube is running" 20
 fi
@@ -471,6 +471,12 @@ if [ "$(open_paused)" = "1" ]; then
     finish
     exit 1
 fi
+
+# **Green, and it is a different claim from cyan.** The cube is unlocked, running, and resting on a face that holds
+# a category -- all three settled above -- so what the item is showing is a live reading taken from hardware. Cyan
+# there would mean this app had started a clock of its own, which is the fall-through `56` exists to catch, and the
+# ordinary text colour would mean it had stopped believing the reading at all.
+expect_colours "the menu bar line is green, a cube being what is behind the figure" "name green, glyph label, figure green"
 
 figure_now() { element timing-face-elapsed | sed -n 's/.*value=\(.*\)$/\1/p'; }
 open_cube_row() {

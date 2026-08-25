@@ -305,6 +305,37 @@ in, which is a detail of the code rather than of the screen, and AppKit relocate
 `--sheet` would find nothing here, so the ambiguity [Method 12](#method-12) warns about does not arise -- but check
 that no control *behind* the alert shares the title before matching on it.
 
+<a id="method-14"></a>
+## Method 14: Read a colour the accessibility tree cannot show
+
+**No accessibility attribute carries colour.** `ax-dump.py` gives an element its identifier, its title, its value and
+whether it is disabled, and nothing anywhere in the tree says what any of it was drawn in. So the menu bar's whole
+colour scheme -- cyan while the app times by hand, green while a cube does, yellow once the cube cannot be heard, red
+on a spent limit -- is invisible to every tool in `scripts/`.
+
+The app writes down what it drew instead, and the row is the evidence:
+
+```sh
+sqlite3 ~/Library/Application\ Support/Facet/debug.sqlite \
+  "SELECT message FROM debug_log WHERE tag = 'status' ORDER BY debug_log_id DESC LIMIT 1;"
+# Menu bar: name yellow, glyph label, figure yellow
+```
+
+In the scripted suite that is `expect_colours "what this checks" "name yellow, glyph label, figure yellow"`.
+
+**A state read, not a baselined wait**, which is the one thing to get right about it. The row is written when the
+colours *change* rather than per draw -- the figure moves every second, so a row per drawn title would be a row per
+second for the life of the launch. That makes the newest row the answer to "what is on screen now", and it also means
+a colour that was already right was never written again: a `wait_for` measured from a `mark` would find nothing and
+report a failure the app never had. That is the one place this departs from "every wait is baselined"
+(`Tests/Scripted/README.md`), and it departs because the question is about a *state* rather than about something
+happening -- the same reason `setting` and `wait_sql` read a table rather than the log.
+
+**Why not [Method 6](#method-6), which measures pixels.** It would answer a different question. The status item has no
+fixed position, the menu bar tints from the wallpaper rather than from the appearance setting, and every colour here is
+a dynamic one resolved against that strip as it draws -- so a sampled pixel is a fact about somebody's desktop picture
+as much as about the app. Method 6 is still right for a window, where the background is the app's own.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token

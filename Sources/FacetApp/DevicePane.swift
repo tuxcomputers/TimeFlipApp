@@ -288,7 +288,7 @@ final class DevicePane: NSView {
         autoPauseField.value = values.autoPauseMinutes
         ledBrightnessValue.stringValue = "\(values.ledBrightnessPercent) %"
         ledBlinkValue.stringValue = "\(values.ledBlinkSeconds) sec"
-        doubleTapDisableBox.state = values.isDoubleTapEnabled ? .off : .on
+        drawDoubleTap(isEnabled: values.isDoubleTapEnabled)
         doubleTapValues[Identifier.doubleTapThreshold]?.value = values.doubleTapThreshold
         doubleTapValues[Identifier.doubleTapLimit]?.value = values.doubleTapLimit
         doubleTapValues[Identifier.doubleTapLatency]?.value = values.doubleTapLatency
@@ -323,7 +323,26 @@ final class DevicePane: NSView {
     /// `state` is assigned rather than the action fired, so a correction cannot be mistaken for somebody ticking it.
     func showDoubleTapEnabled(_ isEnabled: Bool) {
         values.isDoubleTapEnabled = isEnabled
+        drawDoubleTap(isEnabled: isEnabled)
+    }
+
+    /// The Disable box and the four registers under it, drawn together.
+    ///
+    /// **Ticking Disable puts the four fields out of use**, because with the gesture off there is nothing for them to
+    /// describe: `DoubleTapRules.asSent` sends `Window` as 0 whatever the field holds, so a live-looking field is a
+    /// control that would take a number and then not send it. A dead one says why nothing happens, which is the same
+    /// reasoning the Faces tab greys its category rows with while a click would be refused.
+    ///
+    /// **The values stay in the fields rather than being cleared.** They are what the gesture goes back to when
+    /// somebody unticks the box, and they are still what the table holds -- emptying them would lose a setting to a
+    /// display decision.
+    ///
+    /// **One method for both, called from all three paths** -- the tab being drawn, a refused write being put back,
+    /// and somebody ticking the box -- so the fields cannot come to disagree with the box beside them. That is the
+    /// same fault in miniature that the first rule in `CLAUDE.md` is about: two controls answering one question.
+    private func drawDoubleTap(isEnabled: Bool) {
         doubleTapDisableBox.state = isEnabled ? .off : .on
+        for field in doubleTapValues.values { field.isEnabled = isEnabled }
     }
 
     /// Puts the four registers where the table says they should be, without telling anybody they moved.
@@ -362,6 +381,10 @@ final class DevicePane: NSView {
         // rather than at every reader of it.
         let isEnabled = doubleTapDisableBox.state == .off
         values.isDoubleTapEnabled = isEnabled
+        // The four registers go dead with the box, at the moment it is ticked rather than when the write comes back:
+        // the fields are the thing somebody is looking at, and a field that stays live until a round trip finishes is
+        // a field that accepts a number nobody will send. A refused write puts both back through `showDoubleTapEnabled`.
+        drawDoubleTap(isEnabled: isEnabled)
         onDoubleTapEnabledChanged?(isEnabled)
     }
 

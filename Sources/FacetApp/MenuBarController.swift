@@ -260,6 +260,17 @@ final class MenuBarController: NSObject {
             // and a button whose only name is its title reads as its title -- which is now a duration, and "0:07"
             // is not a description of anything.
             button.setAccessibilityLabel(title.spoken)
+            // **A row when the colour changes, and only then.** `DebugLog.record` notes that a tag logging on a
+            // timer would need a queue first, and this is drawn from one: the figure moves every second, so a row
+            // per drawn title is a row per second for the life of the launch. A colour moves when the app changes
+            // what it is doing, which is the rate the rest of the log is written at.
+            //
+            // **It is the only way this is visible.** The accessibility tree carries no colour, so without the row
+            // a scripted check has nothing to read and the whole scheme can only be confirmed by somebody looking
+            // at the menu bar and saying it seemed right.
+            if title.colourDescription != lastDrawn?.colourDescription {
+                debugLog?.record(.status, "Menu bar: \(title.colourDescription)")
+            }
             lastDrawn = title
         }
     }
@@ -279,8 +290,11 @@ final class MenuBarController: NSObject {
     /// Internal so the order can be asserted without putting a real item in the menu bar.
     func makeTitle(_ parts: StatusItemTitle) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        // One colour for the line and one for the category's name and icon, both `StatusItemTitle`'s to choose. The
-        // two differ only while the cube is flat, which is when the name flashes and the figure beside it does not.
+        // Three colours, all of them `StatusItemTitle`'s to choose: one for the line's own text, one for the
+        // category's name and icon, and one for the play/pause glyph. They come apart in the states worth telling
+        // apart -- the name flashes while the cube is flat and the figure beside it does not, the figure turns red
+        // on a spent limit and the name does not, and the glyph stays the menu bar's own text colour throughout,
+        // being a report on the clock rather than on either.
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour]
         let named: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.nameColour]
         let title = NSMutableAttributedString()
@@ -312,9 +326,12 @@ final class MenuBarController: NSObject {
             title.append(NSAttributedString(string: " ", attributes: plain))
             title.append(attachment(of: lock, colour: .systemRed, size: size, font: font))
         }
+        // In its own colour rather than the line's, which is the archive's arrangement reached from the other side:
+        // its indicator was an untinted template image, so the menu bar drew it in the strip's own text colour while
+        // the words beside it were green. See `StatusItemTitle.glyphColour`.
         if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
             title.append(NSAttributedString(string: " ", attributes: plain))
-            title.append(attachment(of: glyph, colour: parts.colour, size: size, font: font))
+            title.append(attachment(of: glyph, colour: parts.glyphColour, size: size, font: font))
         }
         if let duration = parts.duration {
             title.append(NSAttributedString(string: " \(duration)", attributes: plain))

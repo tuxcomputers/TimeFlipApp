@@ -40,22 +40,33 @@ struct StatusItemTitle: Equatable {
     /// a session that has started and got nowhere.
     let duration: String?
 
-    /// What the whole line is drawn in, images included. The database badge keeps its own colour: it names which
-    /// file this launch writes to, which is a different question from what the app is doing.
+    /// What the line's own text is drawn in: the figure, and the spaces between the pieces. The database badge keeps
+    /// its own colour, it being a tag naming which file this launch writes to rather than part of the sentence; the
+    /// name and its icon take `nameColour`, and the play/pause glyph takes `glyphColour`.
     ///
-    /// **Green means there is a live reading behind the figure**, which is the previous app's rule
-    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`) and the reason its menu bar could be believed at a glance. Every
-    /// reading here is live, the app itself being the source while no cube is paired, so the other two answers it
-    /// had are absent rather than reinterpreted: yellow for a reading gone stale when the device dropped, red for a
-    /// category over its `daily_limit`. Both come back as further answers *here* when there is a device and a limit
-    /// to report, which is why this is a field on the title rather than a constant at the drawing.
+    /// **Green while a cube is doing the timing, cyan while this app is.** Green is the previous app's
+    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`, `overLimit ? .systemRed : .systemGreen`) and it said one thing
+    /// there: this reading is live. It is still what green says here. What is new is a second kind of live reading
+    /// the archive never had, one this app takes itself with no cube on the other end, and cyan is that -- so the
+    /// pair of them answer between them which of the app's two pictures is on show.
+    ///
+    /// **Yellow once the cube cannot be heard**, which is the archive's third answer, copied with its reasoning. A
+    /// paired cube that has dropped goes on showing its last face out of `device_event` and the figure is still
+    /// worth drawing, but nothing about it can be confirmed any more. It takes the whole line rather than sharing
+    /// it: "a flat unknown yellow -- not a stale over-limit/low-battery color left over from before the drop", so a
+    /// spent limit does not draw its red over the top of a figure nobody can stand behind.
+    ///
+    /// **Red once the category has spent its `daily_limit`**, which is the archive's colour and the archive's
+    /// meaning: the limit stops the clock, so the figure and the pause are two faces of one fact. It lands on the
+    /// figure alone, the name keeping the session's own colour -- see `nameColour`.
     ///
     /// A dynamic colour, resolved as it draws: the menu bar tints from the wallpaper rather than from the
     /// appearance setting, so anything resolved earlier than the draw is one of the two answers frozen (see
     /// `MenuBarController.attachment(of:colour:size:font:)`).
     let colour: NSColor
 
-    /// What the category's name and its icon are drawn in, which is `colour` except while the cube is flat.
+    /// What the category's name and its icon are drawn in, which is `colour` except while the cube is flat and
+    /// except while a limit is spent.
     ///
     /// **Only this much of the line flashes, which is the archive's choice and worth keeping**
     /// (`Archive/TimeFlipApp/MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
@@ -65,7 +76,37 @@ struct StatusItemTitle: Equatable {
     /// is a correction rather than a preference: the menu bar tints from the wallpaper rather than from the appearance
     /// setting (see `MenuBarController.attachment(of:colour:size:font:)`), so white against a light strip is a name
     /// that disappears for half of every second instead of one that flashes.
+    ///
+    /// **A spent limit leaves this alone**, where the archive turned its whole line red. The two say different
+    /// things and only one of them has changed: the name is which category is on show, and reaching a limit does not
+    /// make it a different category, while the figure is the thing that has hit the number. Red on the figure alone
+    /// also leaves the flash something to alternate against, which a wholly red line does not.
+    ///
+    /// **A cube that cannot be heard takes this too, flash and all**, which is the archive's rule rather than an
+    /// oversight: yellow is the statement that nothing here can be confirmed, and a name still alternating about a
+    /// charge last read before the link went is the stale colour that rule exists to rule out. `LowBatteryWatch`
+    /// stops the flash itself when the link goes ("the flash stops with the link, the warning does not"), so this
+    /// is that decision drawn rather than a second one: without it a latched warning would leave the name in a
+    /// steady `.labelColor` off phase, against a yellow figure, flashing at nobody. The warning is still *said*.
     let nameColour: NSColor
+
+    /// What the play/pause glyph is drawn in, which is the one piece of the line that is neither the name nor the
+    /// figure -- and which says something about neither: it reports whether a clock is going.
+    ///
+    /// **The menu bar's own text colour, which is what the archive drew it in.** Its indicator was a template image
+    /// handed to AppKit untinted (`Archive/TimeFlipApp/MenuBarController.statusIndicatorImage`), so it came out in
+    /// whatever the strip draws text in -- white on a dark menu bar, black on a light one -- rather than in the
+    /// line's green. Naming `.labelColor` here is that behaviour spelled out rather than inherited, since this app
+    /// tints its own attachments and would otherwise have to pick something.
+    ///
+    /// **Not literal white**, for the reason the flash's off phase is not: the menu bar tints from the wallpaper
+    /// rather than from the appearance setting, so a white glyph on a light strip is not a pale glyph, it is no
+    /// glyph at all.
+    ///
+    /// **The one colour on the line that is the same in every state**, which is the point of it rather than a
+    /// simplification: cyan, green and yellow are each a claim about the reading, and whether a clock is going is
+    /// not a claim about the reading. A glyph that changed with them would be saying something it does not know.
+    let glyphColour: NSColor
 
     /// What VoiceOver reads. Spelled out, because a glyph says nothing to a screen reader and neither does the
     /// badge's colour -- and the item's own title would otherwise read as "0:07", which is not a description of
@@ -122,20 +163,49 @@ struct StatusItemTitle: Equatable {
             if let isDevicePaused = reading.deviceIsPaused {
                 spokenParts.append(isDevicePaused ? "device paused" : "device running")
             }
+            // **Said where it is drawn, which is right after what it qualifies.** The yellow below is the whole of
+            // this on screen, and what it says is that the paused-or-running just spoken is the cube's last word
+            // rather than its current one.
+            if !reading.isDeviceReachable { spokenParts.append("device unreachable") }
             spokenParts.append(onTheFace)
             if isCubeLocked { spokenParts.append("device locked") }
+            // **Said even where the yellow has taken the red off the figure.** The limit is a fact about
+            // `time_entry` and this machine's clock, so it does not stop being true when a cube goes out of range;
+            // what the yellow withdraws is the claim that the *cube's* reading is current, and that is said in its
+            // own words just above.
+            if isLimitReached { spokenParts.append("daily limit reached") }
             if lowBattery.isLow { spokenParts.append("low battery") }
             spokenParts.append(appLabel)
+            // **Green while the cube can be heard, yellow once it cannot**, and the second one takes the name as
+            // well as the figure. See `colour` and `nameColour`: a reading nobody can confirm is not the place for
+            // a limit's red or a battery's flash, both of which would be colours left over from before the drop.
+            //
+            // Worked out here rather than in the call below because the two of them are one decision made twice,
+            // and because a `guard`-shaped ternary inside a call argument is what the note on the spoken parts
+            // above is about: this file has already failed CI once for asking Swift to type-check too much at once.
+            let lineColour: NSColor
+            let cubeNameColour: NSColor
+            if reading.isDeviceReachable {
+                lineColour = isLimitReached ? .systemRed : .systemGreen
+                cubeNameColour = flash ?? .systemGreen
+            } else {
+                lineColour = .systemYellow
+                cubeNameColour = .systemYellow
+            }
             return StatusItemTitle(
                 text: category.name,
                 iconName: category.iconName,
                 glyphName: reading.deviceIsPaused.map { $0 ? "pause.fill" : "play.fill" },
                 lockGlyphName: lockGlyphName,
                 duration: onTheFace,
-                // Not green: green is a claim that time is being recorded, and here it is the cube recording it
-                // rather than this app. The ordinary label colour says what is true -- this is the face it is on.
-                colour: .labelColor,
-                nameColour: flash ?? .labelColor,
+                // Not the by-hand cyan: that colour is a claim that this app is doing the timing, and here it is
+                // the cube doing it.
+                colour: lineColour,
+                nameColour: cubeNameColour,
+                // The menu bar's own text colour, exactly as in a session this app is timing. What the glyph
+                // reports -- whether a clock is going -- is the one thing on this line that means the same in both
+                // pictures, so it is the one thing that does not change colour between them.
+                glyphColour: .labelColor,
                 // The figure is said as well as drawn, for the reason the limit and the lock are: what is on the line
                 // has to reach somebody reading it aloud, and a duration is the one part of it that is never a colour.
                 spoken: spoken(spokenParts, badgeDescription: badgeDescription)
@@ -155,13 +225,16 @@ struct StatusItemTitle: Equatable {
                 glyphName: nil,
                 lockGlyphName: lockGlyphName,
                 duration: nil,
-                // The ordinary text colour, as the previous app's own no-device placeholder drew it: green is a
-                // claim about a reading, and there is no reading here to make it about.
+                // The ordinary text colour, as the previous app's own no-device placeholder drew it: a session
+                // colour is a claim about a reading, and there is no reading here to make it about.
                 colour: .labelColor,
                 // **The warning still flashes with nothing being timed**, on the app's own name. A flat cube is a
                 // fact about the device rather than about the session, and the moment somebody is most likely to
                 // miss it is the moment nothing is running.
                 nameColour: flash ?? .labelColor,
+                // Nothing is drawn in it, `glyphName` being `nil` here, and it is still answered rather than
+                // defaulted: a field with no answer is a field somebody later picks one for by accident.
+                glyphColour: .labelColor,
                 spoken: spoken(idleParts, badgeDescription: badgeDescription)
             )
         }
@@ -197,15 +270,55 @@ struct StatusItemTitle: Equatable {
             lockGlyphName: lockGlyphName,
             duration: duration,
             // **Red once the category has spent its `daily_limit`**, which is the archive's colour and its meaning:
-            // `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen` on the same line. Green is a claim
-            // that time is being recorded normally, and once a limit has stopped the clock that claim is no longer
-            // true -- so the colour and the pause are two faces of one fact, drawn from the same answer
+            // `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen` on the same line. The session colour
+            // is a claim that time is being recorded normally, and once a limit has stopped the clock that claim is
+            // no longer true -- so the colour and the pause are two faces of one fact, drawn from the same answer
             // (`DailyLimitEnforcement.isReached`) rather than from two comparisons that could disagree by a second.
-            colour: isLimitReached ? .systemRed : .systemGreen,
-            nameColour: flash ?? (isLimitReached ? .systemRed : .systemGreen),
+            //
+            // **On the figure and not on the whole line**, which is where this parts from the archive: the figure is
+            // what has reached the number, and the name is only which category it belongs to.
+            colour: isLimitReached ? .systemRed : Self.byHand,
+            nameColour: flash ?? Self.byHand,
+            glyphColour: .labelColor,
             spoken: spoken(sessionParts, badgeDescription: badgeDescription)
         )
     }
+
+    /// What the three colours are called, for the one place they can be read back from: `debug_log`.
+    ///
+    /// **The accessibility tree carries no colour at all**, so a scripted check driving the real app has no way to
+    /// see any of this. `12-daily-limit` says as much where it checks the spoken label instead of the red. So the app
+    /// writes down what it drew, and the row is the evidence -- which is this suite's first principle rather than a
+    /// convenience: a person watching the menu bar and saying it looked yellow is not evidence.
+    ///
+    /// **Named here rather than at the log**, because this is where the colours are decided. A second place turning
+    /// an `NSColor` into a word is a second answer to what the line is, and it would be the one the tests read.
+    var colourDescription: String {
+        "name \(Self.name(of: nameColour)), glyph \(Self.name(of: glyphColour)), figure \(Self.name(of: colour))"
+    }
+
+    /// One colour as a word. Every colour this type can choose has one, and anything else says so rather than
+    /// picking the nearest: a line described as green because the naming ran out is worse than one described as
+    /// unnamed, since only the second sends somebody to look.
+    private static func name(of colour: NSColor) -> String {
+        switch colour {
+        case .systemCyan: return "cyan"
+        case .systemGreen: return "green"
+        case .systemYellow: return "yellow"
+        case .systemRed: return "red"
+        case .labelColor: return "label"
+        default: return "unnamed"
+        }
+    }
+
+    /// What a session this app is measuring itself is drawn in.
+    ///
+    /// **`.systemCyan` rather than the `Cyan` in `database/005_colour.sql`**, which is `#00ffff` and belongs to a
+    /// different question: that table holds what a category can be given and what a cube can be told to light its
+    /// face, both of which are fixed hexes because a cube has no idea what appearance a Mac is in. This is a colour
+    /// for text on a strip that tints from the wallpaper, so it has to be a dynamic one -- see `colour` for why
+    /// anything resolved before the draw is a frozen answer.
+    private static let byHand: NSColor = .systemCyan
 
     private static func spoken(_ parts: [String], badgeDescription: String?) -> String {
         (parts + [badgeDescription].compactMap { $0 }).joined(separator: ", ")

@@ -62,7 +62,9 @@ Creating a category stays here as well as arriving on the Categories tab: this i
 - [x] **Pause and Resume in the dropdown**, named and enabled from the state at the moment the menu opens.
 - [x] **The menu stopped depending on a delegate**, which AppKit holds weakly: the item refreshes its own menu as it presents it.
 - [x] **The category and its time**: badge, icon, name, play/pause glyph, and the category's time today, with the app's name alone in place of all of it while nothing is being timed. `display_seconds` decides whether the figure carries seconds, read per draw.
-- [x] **The live green** ([StatusItemTitle.swift](../Sources/FacetApp/StatusItemTitle.swift)): the whole line, images included, while a session is on show.
+- [x] **The colour of the line** ([StatusItemTitle.swift](../Sources/FacetApp/StatusItemTitle.swift)): the name, its icon and the figure carry it. **Green** while a cube is doing the timing, which is the previous app's colour and its meaning, a live reading. **Cyan** while this app is doing it instead, whatever is or is not paired: a second kind of live reading the archive never had, so the pair say between them which of the two pictures is on show. The play/pause glyph takes neither and stays the menu bar's own text colour, as the archive's untinted indicator did, because whether a clock is going means the same in both pictures.
+- [x] **Yellow for a reading gone stale** ([TimingReadout.swift](../Sources/FacetApp/TimingReadout.swift)'s `isDeviceReachable`): a paired cube that has dropped goes on showing its last face, and the figure is still worth drawing, but nothing about it can be confirmed. The archive's rule copied whole, including that yellow takes the line rather than sharing it: no limit red and no battery flash over the top, both being colours left over from before the drop. Said as "device unreachable", the warning and the limit still being spoken.
+- [x] **Red for a category over its `daily_limit`**, on the figure alone. The archive turned its whole line red; the name is only which category this is, and reaching a limit does not make it a different one -- which also leaves the low-battery flash something to alternate against.
 - [x] **The right side pauses and resumes.** The left half stays the menu in every state, being the only route to Quit, and both halves ask the same question the dropdown item asks about whether there is a clock to stop.
 - [x] **The low-battery flash** ([LowBatteryWatch.swift](../Sources/FacetApp/LowBatteryWatch.swift), [BatteryRules.swift](../Sources/FacetApp/BatteryRules.swift)): the category's name alternates red and the ordinary text colour twice a second once the charge is at or below `low_battery_level`, read from the table at the moment it is judged, and only lets go once the charge is five points clear of it. The figure beside it does not flash, being a clock somebody reads. The archive's off phase was `.white`, which against a light menu bar is a name that vanishes rather than one that flashes. One object owns the flash, so the Device tab's Battery row blinks in step rather than on a timer of its own.
 
@@ -70,8 +72,6 @@ Three gestures now pause: the glyph on the Faces tab, the dropdown item, and the
 
 ### Still to do
 
-- [ ] **Yellow for a reading gone stale**, once there is a connection to lose.
-- [ ] **Red for a category over its `daily_limit`**. The pause that goes with it is built (`DailyLimitWatch`); this is the colour, which is the half still missing.
 - [ ] **The lock badge**, to the left of the play/pause glyph rather than in place of it.
 - [ ] **The double-click gesture that locks the cube**, which is also what makes the right side's pause wait out the  double-click interval instead of firing at once.
 - [ ] **Tooltips that tell the two dead states apart**: no device paired, versus a paired one out of reach.
