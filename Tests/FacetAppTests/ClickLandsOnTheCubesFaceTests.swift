@@ -86,6 +86,9 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
     }
 
     override func tearDown() {
+        // Put down rather than left on the run loop for the rest of the suite: the timer outlives the controller,
+        // whose deallocation it does not notice.
+        controller?.stopTicking()
         controller = nil
         settings = nil
         readout = nil
@@ -119,6 +122,69 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
 
     private var openSegments: Int {
         Int(database.string("SELECT COUNT(*) FROM device_event WHERE finalised = 0;") ?? "0") ?? 0
+    }
+
+    /// A cube's own segment on `face`, which is what `HistoryIngestor` writes on every fetch: open, and as long as
+    /// the cube has said it is.
+    private func cubeHasBeenTiming(on face: Int, forSeconds seconds: Double, since: Date, paused: Bool = false) {
+        events.record(
+            DeviceEventSegment(
+                eventNumber: 40,
+                face: face,
+                startedAt: since,
+                durationSeconds: seconds,
+                isPaused: paused
+            )
+        )
+    }
+
+    // MARK: - the Faces tab keeps up with a cube's clock
+
+    func testTheTabTicksWhileACubeIsTiming() {
+        // **The fix this exists for.** A followed cube leaves `state` idle for the whole session, and the tick was
+        // started on `state` -- so the Timing column stood still while a cube timed and jumped a whole history
+        // interval whenever a fetch redrew it. The figure was growing on every read the entire time.
+        controller.isOnScreen = { true }
+        controller.select(.faces)
+        cubeIsOn(freeFace)
+        XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
+
+        controller.redrawTiming()
+
+        XCTAssertTrue(controller.isTicking)
+    }
+
+    func testAPausedCubeStopsTheTick() {
+        // A double tap on the cube arrives as a paused interval in the next fetch, and that fetch redraws this --
+        // which is the moment the clock has to stop, not the next time somebody opens the window.
+        controller.isOnScreen = { true }
+        controller.select(.faces)
+        cubeIsOn(freeFace)
+        XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
+        controller.redrawTiming()
+        XCTAssertTrue(controller.isTicking, "precondition")
+
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60), paused: true)
+        controller.redrawTiming()
+
+        XCTAssertFalse(controller.isTicking)
+    }
+
+    func testAWindowThatIsNotOnScreenDoesNotTick() {
+        // A cube being turned redraws this whether or not anybody has the window open, and the figure is worked out
+        // when it is drawn rather than counted up in here -- so a closed window misses nothing by standing still, and
+        // a tick for it would be a wake-up a second for a view nobody can see.
+        controller.isOnScreen = { false }
+        controller.select(.faces)
+        cubeIsOn(freeFace)
+        XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
+
+        controller.redrawTiming()
+
+        XCTAssertFalse(controller.isTicking)
     }
 
     // MARK: - the face takes it

@@ -33,6 +33,21 @@ final class TimingReadout {
         /// The category's total for the day so far, in seconds. Zero when there is no category to total.
         let seconds: TimeInterval
 
+        /// Whether that figure is going up as the clock ticks, whoever is doing the measuring.
+        ///
+        /// **What the two surfaces start and stop their tick on**, and it is a different question from `state`. That
+        /// one is about this app's own clock, which is idle for the whole time a cube is followed; this one is about
+        /// the number on screen, which moves whenever there is an open unpaused segment behind it -- the cube's as
+        /// readily as the app's. Ticking on `state` was the bug: with a cube connected the menu bar and the Faces tab
+        /// never started their timer at all, so a figure that was growing on every read was repainted only when a
+        /// history fetch happened to redraw them, and sat up to a whole interval behind the truth in between.
+        ///
+        /// **Answered by `DayTotal`, which is what works the figure out**, rather than inferred here from the pause
+        /// glyph. A cube that has flipped but whose history has not been fetched yet still names its new face on the
+        /// reading, and the newest row for that face may be a stretch that finished an hour ago -- so "is this cube
+        /// paused" and "is this total moving" are not the same answer, and only the second one is about the number.
+        let isCounting: Bool
+
         /// The face the cube is resting on, or `nil` when there is no cube to follow and the app is timing by hand.
         ///
         /// **What tells the two pictures apart**, and it is on the reading rather than asked separately by each thing
@@ -71,6 +86,7 @@ final class TimingReadout {
             category: CategoryRecord?,
             state: TimingState,
             seconds: TimeInterval,
+            isCounting: Bool = false,
             deviceFace: Int? = nil,
             deviceIsPaused: Bool? = nil,
             isDeviceReachable: Bool = true
@@ -78,6 +94,10 @@ final class TimingReadout {
             self.category = category
             self.state = state
             self.seconds = seconds
+            // Defaulted to a standing figure rather than a moving one: a reading built without saying is one nothing
+            // is being measured for, and a tick started on a number that never changes is a wake-up a second for no
+            // repaint at all.
+            self.isCounting = isCounting
             self.deviceFace = deviceFace
             self.deviceIsPaused = deviceIsPaused
             // A reading with no face has nothing to reach, whatever the caller passed.
@@ -173,20 +193,27 @@ final class TimingReadout {
             return Reading(
                 category: category,
                 // **Idle, and not because nothing is happening.** The cube is timing -- it always is -- but this app
-                // does not yet read its history, so there is no open segment of its own to call running. What the app
-                // *has* recorded against this category today is a different question, and it is answered below.
+                // is running no clock of its own while it follows one, so there is no session here to call running or
+                // to offer anybody a pause on. Whether the *figure* is moving is `isCounting` just below, and they are
+                // deliberately two answers: one is about this app's clock, the other about the number on screen.
                 state: .idle,
                 // **The category's total for the day, the same figure a manual session shows and read the same way.**
                 //
-                // It is a real total rather than an invented one: `time_entry` is what the app has recorded against
-                // this category today, and this reads it. What it is not yet is a *complete* total, because the cube's
-                // own history is not ingested -- so on a launch that has only followed a cube it will read zero, and
-                // it will start filling in the moment ingestion lands, with nothing here needing to change.
+                // The recorded part is `time_entry`, filled in by the cube's own history as each stretch finishes, and
+                // the part still running is worked out from the open row's `start_epoch` and this machine's clock --
+                // so it moves second by second rather than in the steps a history fetch would leave.
                 //
-                // **It does not tick, and should not.** A day total moves when time is recorded, and nothing is being
-                // recorded here; a figure counting up beside a cube the app is not reading would be the app inventing
-                // the very thing this comment says it does not have.
+                // **Which is the whole of what "the internal clock draws it" means.** The cube's own measurement of
+                // the stretch lands in `duration_seconds` on the next fetch and is what the day is finally totalled
+                // from; between fetches this machine counts, because it is the only thing here counting at all. The
+                // archive did the same, differently held: it kept an `activityStartDate` and re-anchored it to
+                // `Date() - elapsed` on every frame (`MenuBarController.applyElapsed`). The anchor here is the row's
+                // own start, so there is nothing to keep in step and nothing to re-anchor.
                 seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
+                // **And it moves**, which is the other half of that figure and comes from the same place. The cube is
+                // timing, so the app's own clock is what carries the number between one history fetch and the next --
+                // see `DayTotal.isCounting`, and `refreshOpenSegment` for why the *row* is left alone meanwhile.
+                isCounting: category.map { dayTotal.isCounting(categoryID: $0.id) } ?? false,
                 deviceFace: deviceFace,
                 // **Out of the cube's own history, not out of a status read.** Every history frame carries the pause
                 // in its face byte -- the vendor adds a paused interval "for the facet with Side + 128" -- so the open
@@ -230,6 +257,13 @@ final class TimingReadout {
                 category: category,
                 state: .idle,
                 seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
+                // **Still moving, and it should be.** The cube goes on timing whether this app can hear it or not, and
+                // the figure here is worked out from the open row and this machine's clock rather than from anything
+                // the link would have carried -- so freezing it while the cube is out of range would be showing a
+                // number that the very next read disagrees with. The archive kept its clock running through a
+                // reconnect for the same reason (`AppState`'s `reconnecting`, "keeps showing the last known
+                // activity/icon instead of tearing down").
+                isCounting: category.map { dayTotal.isCounting(categoryID: $0.id) } ?? false,
                 deviceFace: lastSeen.face,
                 // **The same column the connected branch draws from, and it does not stop being the answer because
                 // the link went.** `paused` is the cube's own account of what it was doing, out of its own history,
@@ -250,6 +284,9 @@ final class TimingReadout {
             // beside the clock.
             state: ManualTimerRules.state(categoryID: category?.id, isRunning: isRunning(on: face)),
             seconds: category.map { dayTotal.seconds(categoryID: $0.id, at: now) } ?? 0,
+            // The same question as `state == .running` here, and asked of the same open row -- but asked of the
+            // figure, so that whoever draws it has one thing to tick on whichever picture the reading turns out to be.
+            isCounting: category.map { dayTotal.isCounting(categoryID: $0.id) } ?? false,
             deviceFace: nil
         )
     }

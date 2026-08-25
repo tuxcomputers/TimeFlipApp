@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=43
+EXPECTED_CHECKS=46
 start "the face the cube is on, and both places drawing the same one"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -326,32 +326,52 @@ check_turn() {
         *) fail "the face is locked but the category rows are still live" ;;
     esac
 
+    # **The two surfaces read together, and tried again if they straddle a second.** The figure counts up while the
+    # cube times, so the tab and the menu bar are dumped one after another and can legitimately land either side of a
+    # tick -- an equality check that did not allow for that would fail on the app being right. They disagree only for
+    # as long as one dump takes, so reading the pair again is enough; three tries and no agreement is the two of them
+    # genuinely saying different things, which is the fault this whole script exists for.
+    local figure attempt=0 agreed=""
+    while [ "$attempt" -lt 3 ]; do
+        figure=$(element timing-face-elapsed | sed -n 's/.*value=\(.*\)$/\1/p')
+        item=$(status_item)
+        # **The empty figure is excluded rather than matched.** `*""*` matches any line at all, so a tab drawing no
+        # figure would agree with a menu bar drawing none either -- passing the second check on the strength of the
+        # first one failing.
+        if [ -n "$figure" ]; then
+            case "$item" in
+                *"$figure"*) agreed=1; break ;;
+            esac
+        fi
+        attempt=$((attempt + 1))
+    done
+    grey "  $item"
+
     # The menu bar, which is the half that was wrong. Read as the whole line: the name is in the drawn title and again
     # in the spoken description, and either one carrying it is the item saying it.
-    item=$(status_item)
-    grey "  $item"
     check_contains "the menu bar names the same category" "$item" "$name"
 
     # **The two compared against each other, not each against a literal.** Both being wrong in the same way is the only
     # failure this cannot see, and both being wrong in *different* ways is exactly the fault that shipped.
     check_contains "so both surfaces agree about what the cube is on" "$item" "$tab_name"
 
-    # **The figure, on both, and it is the same one.** It is the category's total for the day out of `time_entry`,
-    # which is the archive's own menu-bar figure. What it reads depends on what the cube has done today and on how
-    # much of its history has been ingested and closed out into entries, so what is checked is that the two surfaces
-    # carry the *same* string, not any particular value.
+    # **The figure, on both, and it is the same one.** It is the category's total for the day out of `time_entry` plus
+    # the stretch still running, which is the archive's own menu-bar figure. What it reads depends on what the cube has
+    # done today, so what is checked is that the two surfaces carry the *same* string, not any particular value.
     #
     # The glyph beside it is checked on the tab rather than in the menu bar line, where every image is the same
     # character in text and one cannot be told from another. It says what the *cube* is doing, which is a fact the app
     # has only because it asked -- so a cube that has not answered draws none, and that is a pass too.
-    local figure
-    figure=$(element timing-face-elapsed | sed -n 's/.*value=\(.*\)$/\1/p')
     if [ -n "$figure" ]; then
         pass "the Faces tab shows the category's total under its name ($figure)"
     else
         fail "no figure under the name on the Faces tab"
     fi
-    check_contains "and the menu bar shows the same one" "$item" "$figure"
+    if [ -n "$agreed" ]; then
+        pass "and the menu bar shows the same one"
+    else
+        fail "the menu bar is not showing $figure: $item"
+    fi
 
     # **The history is fetched on every flip**, which is how the app finds out what the cube has been doing -- and it
     # replaces the `0x10` this script used to expect here. A flip is a moment the cube may have been handled, and the
@@ -410,6 +430,86 @@ then
     check_turn "$second_face" "$second_name" "$base"
 else
     fail "nobody was there to turn the cube back, so the second turn was not checked"
+fi
+
+# ---------------------------------------------------------------------------- the figure keeps its own time
+#
+# **The cube measures, this machine counts, and the row holds only what the cube said.** Between one history fetch
+# and the next nothing on the wire says how long the current stretch has run, so the figure both surfaces draw is
+# `time_entry` plus the open segment measured from its own `start_epoch` against this machine's clock -- which is why
+# it moves second by second rather than in ten-second steps. `device_event.duration_seconds` does not move with it:
+# that column is written from the cube's own frames and from nothing else, so an app that grew it from the wall clock
+# would be overwriting a measurement with a guess (`DeviceEventRecorder.refreshOpenSegment`).
+#
+# **Both halves in one window, which is what makes this worth a device run.** `swift test` pins each of them
+# separately -- `TimingReadout.Reading.isCounting`, `DayTotal.isCounting`, the two recorder refusals -- and none of it
+# can see a real cube timing while a real menu bar repaints. What is checked here is the pair: the number on screen
+# moved, and the row behind it did not.
+#
+# **Sampled just after a fetch has landed**, so both samples fall inside one gap between fetches. A sample taken
+# across a fetch would find the row legitimately changed and report the feature broken.
+
+INTERVAL=$(sql "SELECT json_extract(setting_value, '\$.seconds') FROM setting WHERE setting_name = 'fetch_history_interval_seconds';")
+INTERVAL=${INTERVAL:-10}
+if [ "$INTERVAL" -lt 8 ]; then
+    fail "the history interval is ${INTERVAL}s, too short to read the row twice between two fetches"
+    close_settings
+    finish
+    exit 1
+fi
+
+if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'display_seconds';")" != "1" ]; then
+    fail "display_seconds is off, so the figure moves once a minute and a few seconds cannot show it moving"
+    close_settings
+    finish
+    exit 1
+fi
+
+if [ "$(open_paused)" = "1" ]; then
+    fail "the cube is paused, so its figure is standing still and there is nothing here to measure"
+    close_settings
+    finish
+    exit 1
+fi
+
+figure_now() { element timing-face-elapsed | sed -n 's/.*value=\(.*\)$/\1/p'; }
+open_cube_row() {
+    sql "SELECT duration_seconds FROM device_event WHERE finalised = 0 AND device_face <= 12 ORDER BY device_event_id DESC LIMIT 1;"
+}
+
+sampling=$(mark)
+if wait_for "$sampling" "Fetching history (the timer asked)%" $((INTERVAL + 15)) >/dev/null; then
+    # Landed, not merely asked for: the row is written when the frames come back, and sampling between the two would
+    # put the write inside the window this is about to call quiet.
+    #
+    # **Short waits, because the whole sample has to fit inside one gap between fetches.** Four accessibility dumps
+    # go in here too and each takes a moment, so a second and then two leaves the last read a comfortable way short
+    # of the next fetch on the shortest interval this section will run on.
+    sleep 1
+    figure_before=$(figure_now)
+    menu_before=$(status_item)
+    row_before=$(open_cube_row)
+    sleep 2
+    figure_after=$(figure_now)
+    menu_after=$(status_item)
+    row_after=$(open_cube_row)
+    grey "  the tab read $figure_before then $figure_after, the row held $row_before then $row_after"
+
+    if [ -n "$figure_before" ] && [ "$figure_before" != "$figure_after" ]; then
+        pass "the figure on the Faces tab counts up between fetches ($figure_before -> $figure_after)"
+    else
+        fail "the figure did not move ($figure_before -> $figure_after), so it is not following the clock on this machine"
+    fi
+
+    if [ "$menu_before" != "$menu_after" ]; then
+        pass "and the menu bar counts up with it"
+    else
+        fail "the menu bar line did not change, so the status item is not repainting: $menu_after"
+    fi
+
+    check "while the row the cube reported stands still" "$row_before" "$row_after"
+else
+    fail "no history fetch arrived in $((INTERVAL + 15))s, so there was no gap between two of them to sample"
 fi
 
 # ---------------------------------------------------------------------------- and it goes with the link

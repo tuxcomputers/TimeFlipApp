@@ -149,6 +149,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// by not ticking.
     private var tick: Timer?
 
+    /// Whether the window is on screen, which is the other half of whether the figure is worth repainting.
+    ///
+    /// **Asked of AppKit rather than kept as a flag of our own.** `show()` and `windowWillClose` are the two edges,
+    /// and a bool set at each would be a second copy of something the window itself already answers -- the first rule
+    /// in `CLAUDE.md`, applied to a fact that is not in the database.
+    ///
+    /// **A closure so it can be answered without a window**, in the style of every other dependency here: a test that
+    /// checks the clock starts for a timing cube must not have to put a real Settings window on somebody's screen to
+    /// do it.
+    lazy var isOnScreen: @MainActor () -> Bool = { [unowned self] in self.window.isVisible }
+
     init(
         debugLog: DebugLog?,
         categories: CategoryStore?,
@@ -1712,8 +1723,31 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// `BluetoothRadio.onFace` and calls this and the menu bar from it. It lived here and was assigned here until the
     /// menu bar needed it too, at which point a second assignment would have silently replaced the first.
     func redrawTiming() {
-        draw(timing?.read() ?? .idle)
+        let reading = timing?.read() ?? .idle
+        draw(reading)
+        // **The repaint follows the reading, not the gesture that caused it.** A cube being turned, double-tapped or
+        // reached again all arrive here and nowhere else, and each of them can be the moment the figure starts or
+        // stops moving -- so this is where the tick is decided, exactly as the menu bar decides it in `redraw()`.
+        // Deciding it only in `show()` was what left a cube resumed by a double tap drawing a frozen number until
+        // somebody closed the window and opened it again.
+        //
+        // **Only while the window is on screen.** The figure is worked out when it is drawn rather than counted up in
+        // here, so a closed window misses nothing by not ticking -- and a tick that kept repainting an offscreen pane
+        // would be a wake-up a second for a view nobody can see.
+        keepTicking(reading.isCounting && isOnScreen())
     }
+
+    /// Starts or stops the once-a-second repaint, from one answer, so no caller has to remember both halves.
+    private func keepTicking(_ shouldTick: Bool) {
+        if shouldTick {
+            startTicking()
+        } else {
+            stopTicking()
+        }
+    }
+
+    /// Whether that repaint is running. Internal so it can be asserted without waiting a second for a real one.
+    var isTicking: Bool { tick != nil }
 
     /// Re-reads the Report tab's totals, for the two moments that turn a stretch into an entry: a pause, and a switch
     /// to another category. Both can happen while the Report tab is the one on show -- the status item pauses from
@@ -1849,10 +1883,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         deviceEvents?.startSegment(face: face, at: moment)
         debugLog?.record(.mode, "Timing: started \(category.name) (category_id \(category.id)) on face \(face)")
+        // The tick is not started here: `redrawTiming` reads what is now open and decides it from that, so a click
+        // that started nothing cannot leave a clock running behind it.
         redrawTiming()
         redrawTotals()
         onTimingChanged?()
-        startTicking()
     }
 
     /// A category was clicked while a cube is connected: the face the cube is resting on takes it, and that is all.
@@ -1955,13 +1990,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         draw(after)
         redrawTotals()
         onTimingChanged?()
-        if after.state == .running {
-            startTicking()
-        } else {
-            // Nothing left to repaint once it is stopped: the figure cannot change again until it is started, and
-            // the redraw above has already shown its final value.
-            stopTicking()
-        }
+        // Nothing left to repaint once it is stopped: the figure cannot change again until it is started, and the
+        // redraw above has already shown its final value.
+        //
+        // **The window is asked about here too**, because this is reachable from the status item and its dropdown with
+        // the window shut -- and a resume from up there has nothing on screen for a tick to repaint.
+        keepTicking(after.isCounting && isOnScreen())
     }
 
     private func startTicking() {
@@ -1970,10 +2004,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let reading = self.timing?.read() ?? .idle
-                // Stopped behind our back -- there is no such path today, every pause going through `togglePause`
-                // above, and a clock that kept repainting a frozen figure would be the sort of thing nobody
-                // notices. So the tick asks rather than trusting it was stopped.
-                guard reading.state == .running else {
+                // Stopped behind our back -- a cube double-tapped, a limit reached, a pause from the menu bar -- and
+                // a clock that kept repainting a frozen figure would be the sort of thing nobody notices. So the tick
+                // asks rather than trusting it was stopped.
+                guard reading.isCounting else {
                     self.stopTicking()
                     return
                 }
@@ -1982,7 +2016,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
-    private func stopTicking() {
+    /// Internal for the same reason `isTicking` is: a test that starts the clock has to be able to put it down
+    /// again, rather than leaving a timer on the run loop for the rest of the suite.
+    func stopTicking() {
         tick?.invalidate()
         tick = nil
     }
@@ -2009,9 +2045,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // Every tab's settings, read here and held until this window closes. See `readSettingsIntoPanes`.
         readSettingsIntoPanes()
         reloadSelectedPane()
-        if timing?.read().state == .running {
-            startTicking()
-        }
+        // The window is on screen by now, so this is simply "is the figure moving": a cube timing behind a window
+        // that was shut starts the tick on the open, exactly as an app of its own clock does.
+        keepTicking(timing?.read().isCounting ?? false)
     }
 
     /// Folds every collapsible section on every tab back to the state it is built in.

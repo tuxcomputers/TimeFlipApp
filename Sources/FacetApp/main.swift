@@ -280,6 +280,11 @@ let historyTimer = HistoryTimer(
     // **Two sources, one tick.** With a cube connected the cube is what knows what has happened, so the tick fetches
     // its history; with none, the app is its own source and the tick is what grows the open segment it is measuring.
     // Both, not either: a manual segment left open when a cube arrives still needs its duration kept honest.
+    //
+    // **Which of the two a row belongs to is the recorder's to decide, not this line's.** `refreshOpenSegment` writes
+    // only to the app's own faces, so a cube's row is never grown from this machine's clock: its `duration_seconds` is
+    // whatever the fetch below brings back, and nothing else. What the menu bar and the Faces tab draw in between is a
+    // separate question and a separate number -- see `TimingReadout.Reading.isCounting`.
     deviceEvents.refreshOpenSegment(at: Date())
     if radio.connectedDevice != nil {
         historyIngestor.refresh(because: "the timer asked")

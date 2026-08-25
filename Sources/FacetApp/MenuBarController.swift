@@ -212,8 +212,21 @@ final class MenuBarController: NSObject {
     /// Called on every tick, and by hand the moment the app changes what is being timed -- a category picked, a
     /// pause. Waiting for the next tick instead would leave a click's own feedback up to a second behind it.
     func redraw() {
-        guard let button = statusItem?.button else { return }
         let reading = timing()
+        // **Decided from the reading, before there is anything to paint into.** The tick is about whether the figure
+        // moves, which is a question about the session and not about the item -- and taking it first is what lets it
+        // be asserted without putting a real status item in the menu bar of whoever is running the tests, the same
+        // reason `makeTitle` and `width(of:)` are reachable.
+        //
+        // **On whether the figure moves, not on whether this app is the one measuring.** A followed cube leaves
+        // `state` idle for the whole session, so ticking on that meant the item stood still while a cube timed and
+        // jumped a whole history interval whenever a fetch redrew it. See `TimingReadout.Reading.isCounting`.
+        if reading.isCounting {
+            startTicking()
+        } else {
+            stopTicking()
+        }
+        guard let button = statusItem?.button else { return }
         let title = StatusItemTitle.make(
             appLabel: Self.appLabel,
             badgeDescription: databaseBadge?.spokenDescription,
@@ -249,12 +262,11 @@ final class MenuBarController: NSObject {
             button.setAccessibilityLabel(title.spoken)
             lastDrawn = title
         }
-        if reading.state == .running {
-            startTicking()
-        } else {
-            stopTicking()
-        }
     }
+
+    /// Whether the once-a-second repaint is running. Internal so it can be asserted without waiting a second for a
+    /// real one, which is the same reason `makeTitle` and `width(of:)` are.
+    var isTicking: Bool { tick != nil }
 
     /// The status item's line: the database badge, the category's icon, its name, the play/pause glyph, and the
     /// time that category has today. The app's name alone while nothing is being timed.
@@ -364,7 +376,9 @@ final class MenuBarController: NSObject {
         tick = timer
     }
 
-    private func stopTicking() {
+    /// Internal for the same reason `isTicking` is: a test that starts the clock has to be able to put it down
+    /// again, rather than leaving a timer on the run loop for the rest of the suite.
+    func stopTicking() {
         tick?.invalidate()
         tick = nil
     }

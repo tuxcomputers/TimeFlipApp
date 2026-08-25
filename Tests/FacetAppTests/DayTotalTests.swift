@@ -184,6 +184,48 @@ final class DayTotalTests: XCTestCase {
         XCTAssertEqual(total.seconds(categoryID: breakID, at: noon), 0)
     }
 
+    // MARK: - whether the figure is moving
+
+    func testACubesOpenSegmentIsCounting() {
+        // **The question the menu bar and the Faces tab tick on.** A cube's stretch counts here exactly as the app's
+        // own does: the elapsed part of the figure is worked out from `start_epoch` and this machine's clock either
+        // way, so the number moves and the surfaces drawing it have to keep up.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        record(category: meetingID, face: 5, from: -120, seconds: 120, open: true)
+
+        XCTAssertTrue(total.isCounting(categoryID: meetingID))
+        XCTAssertEqual(total.seconds(categoryID: meetingID, at: noon), 120, "and this is the figure that is moving")
+        XCTAssertEqual(
+            total.seconds(categoryID: meetingID, at: noon.addingTimeInterval(30)), 150,
+            "thirty seconds later, without a row being written"
+        )
+    }
+
+    func testAPausedCubeIsNotCounting() {
+        // Time not spent never counts, so there is nothing for a tick to keep up with either.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        record(category: meetingID, face: 5, from: -120, seconds: 120, open: true)
+        XCTAssertTrue(database.execute("UPDATE device_event SET paused = 1 WHERE finalised = 0;"))
+
+        XCTAssertFalse(total.isCounting(categoryID: meetingID))
+    }
+
+    func testNothingOpenIsNotCounting() {
+        record(category: breakID, face: 8, from: -3_600, seconds: 600)
+
+        XCTAssertFalse(total.isCounting(categoryID: breakID), "600 recorded, and none of it still running")
+    }
+
+    func testAnotherCategorysOpenSegmentIsNotThisOnesToCount() {
+        // The same rule the figure follows: what is open counts towards whichever category its face holds, and
+        // towards no other.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 13))
+        events.startSegment(face: 13, at: noon.addingTimeInterval(-60))
+
+        XCTAssertTrue(total.isCounting(categoryID: meetingID))
+        XCTAssertFalse(total.isCounting(categoryID: breakID))
+    }
+
     func testAnOpenSegmentRunningSinceBeforeTheWindowCountsFromTheBoundary() {
         XCTAssertTrue(faces.assign(categoryID: breakID, toFace: 13))
         let start = windowStart()

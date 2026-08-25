@@ -318,6 +318,34 @@ final class TimingReadoutTests: XCTestCase {
         XCTAssertFalse(reading.isDeviceReachable)
     }
 
+    func testACubeOutOfRangeGoesOnCounting() {
+        // **The cube keeps timing whether this app can hear it or not**, and the figure here is worked out from its
+        // open row and this machine's clock rather than from anything the link would have carried -- so freezing it
+        // while the cube is out of range would show a number the very next read disagrees with. The archive kept its
+        // clock running through a reconnect for the same reason ("keeps showing the last known activity/icon instead
+        // of tearing down").
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
+        readout.isCubePaired = { true }
+        readout.deviceFace = { nil }
+
+        let reading = readout.read(at: noon)
+
+        XCTAssertTrue(reading.isCounting)
+        XCTAssertFalse(reading.isDeviceReachable, "counting, and still nothing anybody may send a command to")
+        XCTAssertEqual(reading.seconds, 60)
+    }
+
+    func testACubeOutOfRangeAndPausedIsNotCounting() {
+        // Its last word was that it had stopped, and that is as true out of range as in it.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-60))
+        readout.isCubePaired = { true }
+        readout.deviceFace = { nil }
+
+        XCTAssertFalse(readout.read(at: noon).isCounting)
+    }
+
     func testAPairedCubeThatHasReportedNothingShowsNothing() {
         // A cube on record that has never reported a face this launch. There is nothing of its to show, and the app's
         // own faces are not its stand-in: the item falls back to the app's name rather than to a session.
@@ -351,6 +379,63 @@ final class TimingReadoutTests: XCTestCase {
         readout.deviceFace = { 5 }
 
         XCTAssertEqual(readout.read(at: noon).state, .idle)
+    }
+
+    func testAConnectedCubeTimingIsCounting() {
+        // **The fix this exists for.** A followed cube leaves `state` idle for the whole session, and both surfaces
+        // started their tick on `state` -- so with a cube connected the menu bar and the Faces tab never ticked at
+        // all, and the figure they drew was repainted only when a history fetch happened to redraw them. It was
+        // growing on every read the whole time.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
+
+        let reading = readout.read(at: noon)
+
+        XCTAssertTrue(reading.isCounting)
+        XCTAssertEqual(reading.state, .idle, "and still no clock of this app's own")
+    }
+
+    func testTheFigureFollowsThisMachinesClockBetweenFetches() {
+        // The elapsed part comes from the open row's `start_epoch` and the clock, so it moves second by second
+        // rather than in the steps a history fetch would leave. What the cube itself measured lands in
+        // `duration_seconds` on the next fetch and is not what either surface draws in between.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
+
+        XCTAssertEqual(readout.read(at: noon).seconds, 60)
+        XCTAssertEqual(readout.read(at: noon.addingTimeInterval(45)).seconds, 105, "no row written in between")
+    }
+
+    func testAPausedCubeIsNotCounting() {
+        // Nothing is being recorded, so there is nothing for a tick to keep up with -- and a figure counting up
+        // beside a paused cube would be the app inventing time the cube says was not spent.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+        cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-60))
+
+        XCTAssertFalse(readout.read(at: noon).isCounting)
+    }
+
+    func testACubeThatHasNotBeenHeardFromYetIsNotCounting() {
+        // Connected, on a face, and no history fetched: there is no open row behind the figure, so the figure is
+        // standing still and saying otherwise would start a tick over nothing.
+        XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
+        readout.deviceFace = { 5 }
+
+        XCTAssertFalse(readout.read(at: noon).isCounting)
+    }
+
+    func testAManualSessionIsCountingWhileItRuns() {
+        // The same field, for the app's own clock, so whoever draws has one thing to tick on whichever picture the
+        // reading turns out to be.
+        startTiming(meetingID, at: noon.addingTimeInterval(-60))
+        XCTAssertTrue(readout.read(at: noon).isCounting)
+
+        events.closeOpenSegment(at: noon)
+
+        XCTAssertFalse(readout.read(at: noon).isCounting)
     }
 
     func testACubesReadingCarriesTheCategorysTotalForTheDay() {
