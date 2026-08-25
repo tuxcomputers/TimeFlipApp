@@ -14,13 +14,17 @@
 # that number being what turning it back on has to put back. The two therefore disagree on purpose, which is exactly
 # the shape a bug would take, so both are read: what went on the wire, and what the row holds afterwards.
 #
+# **The four fields go dead while the box is ticked**, so the way to change a register is to untick, move it, and tick
+# again. This script used to move one *while* the gesture was off and check that the change still went as Window 0;
+# that is now unreachable through the window, and what stands in its place is the refusal itself.
+#
 # **Runs after `58`, which leaves a launched app logged in to the cube, and before the wipe in `99`.**
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=19
+EXPECTED_CHECKS=18
 start "the double-tap registers: sent, read back off the cube, then written down"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -125,24 +129,37 @@ check "the table says the gesture is off" "0" "$(setting double_tap_settings ena
 check "and it keeps the real Window, which is what turning it back on sends" "50" \
     "$(setting double_tap_settings window)"
 
-# ---------------------------------------------------------------------------- a register moved while it is off
+# ---------------------------------------------------------------------------- and the registers go dead with it
 #
-# The trap this covers: a value changed while the gesture is off must not turn it back on behind the box. Everything
-# still goes as Window 0, and the stored 50 is untouched.
+# **The four fields are out of use while the box is ticked**, because with the gesture off there is nothing for them
+# to describe: whatever they held would go to the cube as Window 0 anyway. A live field that takes a number and then
+# does not send it is the worse of the two shapes -- it invites the edit rather than explaining why there is nothing
+# to edit.
+#
+# **The drawing is checked and then pressed anyway**, which is the shape `56-manual-mode` uses on the category rows
+# it expects to be dead: `ax-dump.py` prints `disabled` only for a control that is off, so the word on the row is the
+# whole of what tells somebody why nothing happens, and pressing afterwards is what proves the drawing and the
+# behaviour agree rather than merely looking like they do.
+
+# The field and both its arrows, counted rather than checked one at a time: a stepper with a dead box and live arrows
+# is still a control somebody can move, so "one of them is disabled" is not the question being asked.
+dead=0
+for id in device-double-tap-threshold device-double-tap-threshold-up device-double-tap-threshold-down; do
+    case "$(element "$id")" in
+        *disabled*) dead=$((dead + 1)) ;;
+    esac
+done
+check "the register and both its arrows are drawn dead while the gesture is off" "3" "$dead"
 
 since=$(mark)
 press device-double-tap-threshold-up
-expect_log "a register moved while the gesture is off still goes with Window 0" "$since" \
-    "Double tap: sending Threshold: 91, Limit: 20, Latency: 50, Window: 0"
-expect_log "and the log says which Window is being kept" "$since" \
-    "Double tap: the gesture is off, so Window goes as 0 and 50 is what gets stored"
-wait_for_value "SELECT json_extract(setting_value, '\$.clickThreshold') FROM setting WHERE setting_name = 'double_tap_settings';" "91" 30
-check "the table took the moved register and kept the real Window" "91/50" \
+sleep 1.5
+# Nothing to wait for: a dead arrow does not actuate, so what is checked is that nothing moved. The whole tag would
+# be too wide -- the box being ticked is itself a `field` row -- so this asks only about a send.
+check "so pressing one sends nothing to the cube" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Double tap: sending%';")"
+check "and the table is left exactly as it was" "90/50" \
     "$(setting double_tap_settings clickThreshold)/$(setting double_tap_settings window)"
-
-press device-double-tap-threshold-down
-wait_for_value "SELECT json_extract(setting_value, '\$.clickThreshold') FROM setting WHERE setting_name = 'double_tap_settings';" "90" 30
-check "and it goes back down again" "90" "$(setting double_tap_settings clickThreshold)"
 
 # ---------------------------------------------------------------------------- turning it back on
 #

@@ -580,6 +580,89 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(reported, [false, true], "ticked means off, unticked means on")
     }
 
+    func testTickingDisableTakesTheFourRegistersOutOfUse() throws {
+        // With the gesture off there is nothing for the four to describe: `DoubleTapRules.asSent` sends Window as 0
+        // whatever they hold, so a live field would take a number and then not send it.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        box.performClick(nil)
+
+        for identifier in [
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ] {
+            XCTAssertEqual(stepper(identifier, in: pane)?.isEnabled, false, identifier)
+        }
+    }
+
+    func testUntickingItGivesThemBack() throws {
+        let pane = DevicePane()
+        pane.show(.seeded)
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        box.performClick(nil)
+        box.performClick(nil)
+
+        for identifier in [
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ] {
+            XCTAssertEqual(stepper(identifier, in: pane)?.isEnabled, true, identifier)
+        }
+    }
+
+    func testTheDeadFieldsKeepTheirNumbers() throws {
+        // The values are what the gesture goes back to when somebody unticks the box, and they are still what the
+        // table holds -- so emptying them would lose a setting to a display decision.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.doubleTapThreshold = 90
+        values.doubleTapWindow = 50
+        pane.show(values)
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+
+        box.performClick(nil)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.value, 90)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.value, 50)
+        XCTAssertEqual(pane.doubleTapParameters, DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50))
+    }
+
+    func testATabDrawnWithTheGestureOffOpensWithTheFieldsDead() throws {
+        // The other way into the same state: the box is not clicked here, the table simply says the gesture is off.
+        // Both paths go through one method, so the fields cannot come to disagree with the box beside them.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.isDoubleTapEnabled = false
+
+        pane.show(values)
+
+        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
+        XCTAssertEqual(box.state, .on)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.isEnabled, false)
+    }
+
+    func testARefusedWriteTakesTheFieldsBackWithTheBox() throws {
+        // The correction path moves both, for the same reason the click does: a box put back to ticked with four live
+        // fields under it is the two controls answering one question differently.
+        let pane = DevicePane()
+        pane.show(.seeded)
+
+        pane.showDoubleTapEnabled(false)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.isEnabled, false)
+
+        pane.showDoubleTapEnabled(true)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.isEnabled, true)
+    }
+
     func testARefusedWriteCanPutTheBoxBackWithoutSayingSo() throws {
         // The correction path. `state` is assigned rather than the action fired, so putting the box back cannot be
         // mistaken for somebody ticking it and start a second write.
