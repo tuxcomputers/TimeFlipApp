@@ -23,7 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=32
+EXPECTED_CHECKS=34
 start "a category spending its daily limit, and the refusal that follows"
 
 LIMIT_MINUTES=5
@@ -202,14 +202,18 @@ done
 # ---------------------------------------------------------------------------- the menu bar says so
 #
 # **Red, which is the archive's colour for this** (`MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen`).
-# The accessibility tree carries no colour, so what is checked is the other half of the same change: the item's spoken
-# label names the limit. That is worth having on its own terms rather than as a proxy -- a colour is the whole of the
-# signal on screen, so the one state the item exists to warn about would otherwise be the one state it never mentions
-# to somebody who cannot see it.
+# Both halves of it are checked. The spoken label names the limit, which is worth having on its own terms rather than
+# as a proxy -- a colour is the whole of the signal on screen, so the one state the item exists to warn about would
+# otherwise be the one state it never mentions to somebody who cannot see it -- and the colour itself comes out of
+# `debug_log`, the accessibility tree carrying none (see `expect_colours` in lib.sh).
 
 item=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
 check_contains "the status item says the limit is reached" "$item" "daily limit reached"
 check_contains "and it still names the category" "$item" "$NAME"
+# **The red lands on the figure and the name stays cyan**, which is where this parts from the archive's whole-line
+# red: the figure is what reached the number, and the name is only which category it belongs to. Checked as one
+# string so a red that spread to the name fails here rather than passing a check that only looked at the figure.
+expect_colours "the figure is drawn red, and only the figure" "name cyan, glyph label, figure red"
 
 # ---------------------------------------------------------------------------- the refusal
 #
@@ -284,6 +288,10 @@ case "$item" in
     *"daily limit reached"*) fail "the status item still says the limit is reached after it was raised" ;;
     *) pass "the status item stops saying the limit is reached" ;;
 esac
+# **And the red goes with it.** The colour is worked out per draw from the same answer the refusal is, so a red that
+# stayed would mean the item had latched a colour rather than following the state -- which is the fault the whole
+# section above is about, seen from the other side.
+expect_colours "and the figure goes back to cyan" "name cyan, glyph label, figure cyan"
 
 since=$(mark)
 click_right

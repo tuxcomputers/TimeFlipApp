@@ -260,6 +260,17 @@ final class MenuBarController: NSObject {
             // and a button whose only name is its title reads as its title -- which is now a duration, and "0:07"
             // is not a description of anything.
             button.setAccessibilityLabel(title.spoken)
+            // **A row when the colour changes, and only then.** `DebugLog.record` notes that a tag logging on a
+            // timer would need a queue first, and this is drawn from one: the figure moves every second, so a row
+            // per drawn title is a row per second for the life of the launch. A colour moves when the app changes
+            // what it is doing, which is the rate the rest of the log is written at.
+            //
+            // **It is the only way this is visible.** The accessibility tree carries no colour, so without the row
+            // a scripted check has nothing to read and the whole scheme can only be confirmed by somebody looking
+            // at the menu bar and saying it seemed right.
+            if title.colourDescription != lastDrawn?.colourDescription {
+                debugLog?.record(.status, "Menu bar: \(title.colourDescription)")
+            }
             lastDrawn = title
         }
     }

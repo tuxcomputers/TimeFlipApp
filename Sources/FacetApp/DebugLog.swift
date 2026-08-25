@@ -29,6 +29,12 @@ final class DebugLog {
     enum Tag: String, CaseIterable {
         /// Clicks on the status item, and which half they landed on.
         case click
+        /// What the status item is drawn in: the colour of its name, its glyph and its figure
+        /// (`StatusItemTitle.colourDescription`). **A row per change, not per draw**, as `battery` and `face` are:
+        /// the figure moves every second, so a row per drawn title would be a row per second for the life of the
+        /// launch. Its own tag because it is the only evidence there is -- the accessibility tree carries no colour
+        /// at all, so a scripted check has no other way to see what the line said.
+        case status
         /// Selections from the dropdown.
         case menu
         /// Moving between the Settings window's tabs.

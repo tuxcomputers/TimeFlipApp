@@ -38,7 +38,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=29
+EXPECTED_CHECKS=30
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -47,58 +47,11 @@ start "manual mode with a device paired: what it refuses, and what it stops doin
 # that silently do not run.
 
 
-# **Whatever happens from here, the radio has to be back on when this script ends.**
-#
-# This is the only script that turns a system service off, and every way out of it -- a check failing, a prompt
-# declined, somebody pressing Ctrl-C -- is a way out that would otherwise leave it off. `99-quit` wipes the cube so
-# this run's timings cannot reach production, and it can do neither without Bluetooth: an unwiped cube puts them in
-# front of the next launch against the **real** database.
-#
-# A trap rather than a call at each exit, because the exits that matter are the ones nobody thought of.
-BLUETOOTH_IS_OFF=0
-# Whether the radio is on, asked of the system rather than remembered. `BLUETOOTH_IS_OFF` only says this script
-# turned it off, which stops being true the moment somebody turns it back on -- and the flag is cleared in one place,
-# right at the end, so any failure before that reaches the trap with it still set. Asking on the way out is what
-# stops a prompt appearing in front of somebody who has already done the thing it is asking for (2026-08-22: a check
-# further down failed, and this asked for a radio that had been back on for a minute).
-bluetooth_is_on() {
-    # Captured and matched rather than piped into `grep -q`, for the reason `tree_has` in lib.sh sets out: this
-    # file sets pipefail, `system_profiler` writes a great deal after the line that matches, and a pipeline killed
-    # by SIGPIPE reports the signal rather than the match. Answering "off" for a radio that is on would ask
-    # somebody to turn on Bluetooth they had already turned on.
-    #
-    # The literal is what the tool prints, `          State: On`, one space after the colon. If that ever changes
-    # this answers "off", which asks for a radio that is already on rather than proceeding on a wrong answer.
-    case "$(system_profiler SPBluetoothDataType 2>/dev/null)" in
-        *"State: On"*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-restore_bluetooth() {
-    [ "$BLUETOOTH_IS_OFF" = "1" ] || return 0
-    BLUETOOTH_IS_OFF=0
-    if bluetooth_is_on; then
-        grey "  Bluetooth is back on already, so there is nothing to ask for"
-        return 0
-    fi
-    echo ""
-    yellow "##############################################################################"
-    yellow "##"
-    yellow "##  TURN BLUETOOTH BACK ON"
-    yellow "##"
-    yellow "##  This script turned it off and is ending with it still off."
-    yellow "##  99-quit wipes the cube so this run's timings cannot reach production,"
-    yellow "##  and it cannot do that with the radio off."
-    yellow "##"
-    yellow "##############################################################################"
-    echo ""
-    [ -r /dev/tty ] || return 0
-    printf '  Press Return once Bluetooth is back on: '
-    read -r _ < /dev/tty || true
-    echo ""
-}
-trap restore_bluetooth EXIT INT TERM
+# **Whatever happens from here, the radio has to be back on when this script ends**, which `watch_bluetooth` in
+# lib.sh is what arranges: `99-quit` wipes the cube so this run's timings cannot reach production, and it can do
+# neither with the radio off. `BLUETOOTH_IS_OFF` is set below, once the radio is actually off, and cleared at the end
+# once a scan has proved it back on -- so every failure between the two reaches the trap with it still set.
+watch_bluetooth
 
 # The status item's line, which is where a reading that followed a cube would show up.
 status_item() {
@@ -167,10 +120,24 @@ cube_category=$(sql "SELECT c.category_name FROM face f JOIN category c ON c.cat
 if [ -n "$cube_category" ]; then
     check_contains "the menu bar still names the cube's category, not one of the app's faces" \
         "$(status_item)" "$cube_category"
+    # **Yellow is the whole of what "showing it without standing behind it" looks like**, and this is the only place
+    # in the suite that can produce the state: the line is still drawing the cube's last face, and the colour is what
+    # says nobody can confirm it any more. The two failures it rules out are the two that look identical on a
+    # screenshot -- green, which would be the app claiming a live reading from a radio that is off, and cyan, which
+    # would be the fall-through to the app's own faces this section exists to catch.
+    #
+    # It also pins that yellow takes the line whole rather than sharing it: a limit's red or a battery flash showing
+    # through here would be a colour left over from before the drop.
+    expect_colours "and the line turns yellow, nothing about it being confirmable any more" \
+        "name yellow, glyph label, figure yellow" 30
 else
     # A cube whose face holds no category is a real state and not a failure: what matters is that the item is not
     # showing a manual session instead, which the check below covers either way.
     pass "the cube's face holds no category, so there is no name to keep showing (face ${cube_face:-none})"
+    # The same claim in the state that has nothing to draw: with no category there is no reading to colour, so the
+    # line is the ordinary text colour rather than a yellow one. Cyan here would still be the fall-through.
+    expect_colours "and the line is the ordinary text colour, there being no reading to colour" \
+        "name label, glyph label, figure label" 30
 fi
 
 # **The app's own clock is what must not appear.** `05-faces-timing` times Break by hand earlier in the run, so a

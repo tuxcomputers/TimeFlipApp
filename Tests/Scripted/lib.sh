@@ -796,6 +796,92 @@ expect_log() {
     fi
 }
 
+# ---------------------------------------------------------------------------- the radio, and putting it back
+#
+# **Turning Bluetooth off is the only way to put a paired cube out of reach without carrying it out of the building**,
+# and nothing on this machine may turn a radio off on somebody's behalf. Two scripts need it -- `56-manual-mode` and
+# `60-device-backlog` -- so the machinery lives here rather than in whichever of them was written first.
+#
+# **Whatever happens, the radio has to be back on when the script ends.** Every way out -- a check failing, a prompt
+# declined, somebody pressing Ctrl-C -- is a way out that would otherwise leave it off, and `99-quit` wipes the cube
+# so this run's timings cannot reach production: an unwiped cube puts them in front of the next launch against the
+# **real** database. Hence a trap rather than a call at each exit, the exits that matter being the ones nobody thought
+# of.
+BLUETOOTH_IS_OFF=0
+
+# Whether the radio is on, asked of the system rather than remembered. `BLUETOOTH_IS_OFF` only says a script turned it
+# off, which stops being true the moment somebody turns it back on -- so the way out asks, which is what stops a prompt
+# appearing in front of somebody who has already done the thing it is asking for (2026-08-22: a check failed, and this
+# asked for a radio that had been back on for a minute).
+bluetooth_is_on() {
+    # Captured and matched rather than piped into `grep -q`, for the reason `tree_has` sets out: this file sets
+    # pipefail, `system_profiler` writes a great deal after the line that matches, and a pipeline killed by SIGPIPE
+    # reports the signal rather than the match. Answering "off" for a radio that is on would ask somebody to turn on
+    # Bluetooth they had already turned on.
+    #
+    # The literal is what the tool prints, `          State: On`, one space after the colon. If that ever changes this
+    # answers "off", which asks for a radio that is already on rather than proceeding on a wrong answer.
+    case "$(system_profiler SPBluetoothDataType 2>/dev/null)" in
+        *"State: On"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+restore_bluetooth() {
+    [ "$BLUETOOTH_IS_OFF" = "1" ] || return 0
+    BLUETOOTH_IS_OFF=0
+    if bluetooth_is_on; then
+        grey "  Bluetooth is back on already, so there is nothing to ask for"
+        return 0
+    fi
+    echo ""
+    yellow "##############################################################################"
+    yellow "##"
+    yellow "##  TURN BLUETOOTH BACK ON"
+    yellow "##"
+    yellow "##  This script turned it off and is ending with it still off."
+    yellow "##  99-quit wipes the cube so this run's timings cannot reach production,"
+    yellow "##  and it cannot do that with the radio off."
+    yellow "##"
+    yellow "##############################################################################"
+    echo ""
+    [ -r /dev/tty ] || return 0
+    printf '  Press Return once Bluetooth is back on: '
+    read -r _ < /dev/tty || true
+    echo ""
+}
+
+# Arms the trap. Called by a script before it asks for the radio to be turned off, not by `lib.sh` itself: a trap set
+# for every script would be one set for the twenty-odd that never touch the radio.
+watch_bluetooth() {
+    trap restore_bluetooth EXIT INT TERM
+}
+
+# `expect_colours "name" "name cyan, glyph label, figure red"` -- one check on what the status item is drawn in.
+#
+# **The only way a script can see any of this.** The accessibility tree carries no colour at all, so the whole of the
+# menu bar colour scheme -- cyan while the app times by hand, green while a cube does, yellow once it cannot be heard,
+# red on a spent limit -- is invisible to `ax-dump.py`. `MenuBarController` writes what it drew into `debug_log`
+# instead, and the row is the evidence. `12-daily-limit` used to say plainly that it could only check the spoken half.
+#
+# **A state read, not a wait, and deliberately not baselined.** The row is written when the colours *change* rather
+# than per draw, so the newest one is what is on screen now -- which is the question a check here is asking. A
+# baselined wait would be the wrong shape twice over: it would fail where the colour is already right and was
+# therefore never written again, and it would pass on a row that has since been replaced.
+#
+# Polled, because the redraw follows the app noticing rather than the script asking.
+expect_colours() {
+    local name="$1" want="Menu bar: $2" timeout="${3:-15}" seen
+    announce "$name"
+    seen=$(wait_sql "$want" "SELECT message FROM debug_log WHERE tag = 'status' ORDER BY debug_log_id DESC LIMIT 1;" "$timeout")
+    if [ "$seen" = "$want" ]; then
+        verdict_pass
+        grey "          $seen"
+    else
+        verdict_fail "expected '$2', got '${seen:-no status row at all}'"
+    fi
+}
+
 # Waits for a query to return `want`, for a side effect that lands in a table rather than the log.
 wait_for_value() {
     local query="$1" want="$2" timeout="${3:-15}"

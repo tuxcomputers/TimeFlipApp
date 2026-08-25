@@ -186,6 +186,47 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title(.idle).colour, .labelColor)
     }
 
+    // MARK: - what the log says the colours were
+
+    func testEachStateDescribesItsOwnColours() {
+        // The words a scripted check matches on. They are pinned here because the accessibility tree carries no
+        // colour, so a `debug_log` row is the only evidence there is that any of this reached the screen -- and a
+        // rename here with no matching edit in `Tests/Scripted` is a check that goes on passing while matching
+        // nothing.
+        let byHand = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+        let onACube = onCube(category: category(), isDevicePaused: true)
+        let gone = onCube(category: category(), isDevicePaused: true, isReachable: false)
+
+        XCTAssertEqual(title(byHand).colourDescription, "name cyan, glyph label, figure cyan")
+        XCTAssertEqual(title(byHand, isLimitReached: true).colourDescription, "name cyan, glyph label, figure red")
+        XCTAssertEqual(title(onACube).colourDescription, "name green, glyph label, figure green")
+        XCTAssertEqual(title(onACube, isLimitReached: true).colourDescription, "name green, glyph label, figure red")
+        XCTAssertEqual(title(gone).colourDescription, "name yellow, glyph label, figure yellow")
+        XCTAssertEqual(title(.idle).colourDescription, "name label, glyph label, figure label")
+    }
+
+    func testTheFigureMovingIsNotAColourChange() {
+        // What makes the row affordable. `MenuBarController` writes one when this description changes, and the
+        // title itself changes every second the clock is going -- so a row per title would be a row per second for
+        // the life of the launch, out of a redraw that `DebugLog` says would need a queue first.
+        let at30 = title(TimingReadout.Reading(category: category(), state: .running, seconds: 30))
+        let at31 = title(TimingReadout.Reading(category: category(), state: .running, seconds: 31))
+
+        XCTAssertNotEqual(at30, at31, "the titles differ, so the item repaints")
+        XCTAssertEqual(at30.colourDescription, at31.colourDescription, "and the colours do not, so nothing is logged")
+    }
+
+    func testTheFlashIsAColourChange() {
+        // The one thing that does write a row twice a second, and it is meant to: a flat cube is the state the app
+        // is trying hardest to be noticed in, and the log is where somebody reconstructs what was on screen.
+        let reading = TimingReadout.Reading(category: category(), state: .running, seconds: 60)
+
+        XCTAssertNotEqual(
+            title(reading, lowBattery: flashOn).colourDescription,
+            title(reading, lowBattery: flashOff).colourDescription
+        )
+    }
+
     // MARK: - what VoiceOver reads
 
     func testTheSpokenLabelSaysWhatTheGlyphAndTheBadgeCannot() {

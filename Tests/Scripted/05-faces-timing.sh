@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=17
+EXPECTED_CHECKS=19
 start "starting, pausing and resuming the clock"
 
 open_settings
@@ -71,6 +71,14 @@ press "category-row-$ID"
 sleep 1.5
 expect_log "and picking another moves the clock to it" "$since" "Timing: started $NAME%"
 
+# **Cyan says this app is the one measuring**, which is exactly what is true here: there is no cube in this half of
+# the run, so the reading behind the figure is the app's own. Green would be the claim that a cube is behind it, and
+# the whole point of having two colours is that the menu bar answers which without anybody opening a window.
+#
+# The glyph stays the menu bar's own text colour in every state, so it is checked here along with the rest rather
+# than only where it might have been expected to change.
+expect_colours "and the line says the app is doing the timing" "name cyan, glyph label, figure cyan"
+
 # A row in `device_event`, open, on one of the app's own faces. This is the fact behind the clock: the
 # readout is drawn from it every time rather than from anything the click remembered.
 open_row=$(sql "SELECT device_event_id FROM device_event WHERE finalised != 1 ORDER BY device_event_id DESC LIMIT 1;")
@@ -118,6 +126,11 @@ expect_log "the play/pause control stops it" "$since" "Timing: stopped $NAME%"
 # **Pausing closes the segment rather than flagging it.** There is no "paused" state held anywhere: an
 # open row is what running means, so stopping means there is no open row.
 check "nothing is left open" "0" "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
+
+# **A stopped clock is not a stale one.** The figure is still this category's time today and this app is still what
+# measured it, so the colour does not move: what changed is the glyph. Yellow is for a reading that cannot be
+# confirmed any more, which needs a device to be possible at all.
+expect_colours "and stopping it does not change the colour of the line" "name cyan, glyph label, figure cyan"
 check "the segment that was running is finalised" "1" "$(sql "SELECT finalised FROM device_event WHERE device_event_id = $open_row;")"
 
 # ---------------------------------------------------------------------------- resuming

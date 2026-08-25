@@ -284,6 +284,33 @@ struct StatusItemTitle: Equatable {
         )
     }
 
+    /// What the three colours are called, for the one place they can be read back from: `debug_log`.
+    ///
+    /// **The accessibility tree carries no colour at all**, so a scripted check driving the real app has no way to
+    /// see any of this. `12-daily-limit` says as much where it checks the spoken label instead of the red. So the app
+    /// writes down what it drew, and the row is the evidence -- which is this suite's first principle rather than a
+    /// convenience: a person watching the menu bar and saying it looked yellow is not evidence.
+    ///
+    /// **Named here rather than at the log**, because this is where the colours are decided. A second place turning
+    /// an `NSColor` into a word is a second answer to what the line is, and it would be the one the tests read.
+    var colourDescription: String {
+        "name \(Self.name(of: nameColour)), glyph \(Self.name(of: glyphColour)), figure \(Self.name(of: colour))"
+    }
+
+    /// One colour as a word. Every colour this type can choose has one, and anything else says so rather than
+    /// picking the nearest: a line described as green because the naming ran out is worse than one described as
+    /// unnamed, since only the second sends somebody to look.
+    private static func name(of colour: NSColor) -> String {
+        switch colour {
+        case .systemCyan: return "cyan"
+        case .systemGreen: return "green"
+        case .systemYellow: return "yellow"
+        case .systemRed: return "red"
+        case .labelColor: return "label"
+        default: return "unnamed"
+        }
+    }
+
     /// What a session this app is measuring itself is drawn in.
     ///
     /// **`.systemCyan` rather than the `Cyan` in `database/005_colour.sql`**, which is `#00ffff` and belongs to a
