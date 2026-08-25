@@ -21,8 +21,10 @@ final class QuitSequenceTests: XCTestCase {
         database = TemporaryDatabase()
         try database.bootstrap()
         let connection = database.connection()
-        // Segments here run on face 8, which the DDL seeds with Break and locked, so they have a category to be
-        // filed under without this test assigning one.
+        // Segments here run on `ManualFace.first`, because that is the only kind of segment a quit closes: a face
+        // of the app's own, timed by the app's own clock. A cube's face is left alone -- see
+        // `testACubesOwnSegmentIsLeftForItsHistoryToClose` -- so a test that started one on face 8 would be asserting
+        // the very thing that must not happen.
         events = DeviceEventRecorder(
             connection: connection,
             timezones: TimezoneStore(connection: connection),
@@ -59,7 +61,7 @@ final class QuitSequenceTests: XCTestCase {
     }
 
     func testQuittingClosesTheSegmentStillRunning() throws {
-        let open = try XCTUnwrap(events.startSegment(face: 8, at: moment))
+        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
 
         quit.run(at: moment.addingTimeInterval(300))
 
@@ -69,7 +71,7 @@ final class QuitSequenceTests: XCTestCase {
 
     func testTheClosedSegmentBecomesTrackedTime() throws {
         // Closing is what raises the entry question, so quitting is the last chance a session has to be counted.
-        let open = try XCTUnwrap(events.startSegment(face: 8, at: moment))
+        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
 
         quit.run(at: moment.addingTimeInterval(900))
 
@@ -77,6 +79,33 @@ final class QuitSequenceTests: XCTestCase {
             database.string("SELECT duration_seconds FROM time_entry WHERE device_event_id = \(open.deviceEventID);"),
             "900.0"
         )
+    }
+
+    func testACubesOwnSegmentIsLeftForItsHistoryToClose() throws {
+        // **The cube keeps timing after this process has gone**, so the stretch it is on has not ended and its length
+        // is not this app's to write. Closing it here measured from its start to the quit, filed that guess as
+        // tracked time, and left the next launch to fetch the very same event back from the cube.
+        let open = try XCTUnwrap(
+            events.record(
+                DeviceEventSegment(
+                    eventNumber: 40,
+                    face: 5,
+                    startedAt: moment,
+                    durationSeconds: 60,
+                    isPaused: false
+                )
+            )
+        )
+        XCTAssertTrue(open.isOpen, "precondition: the cube is timing")
+
+        quit.run(at: moment.addingTimeInterval(300))
+
+        XCTAssertEqual(column("finalised", ofRow: open.deviceEventID), "0", "still open")
+        XCTAssertEqual(
+            column("duration_seconds", ofRow: open.deviceEventID), "60.0",
+            "and still the length the cube reported, not the length the quit would have measured"
+        )
+        XCTAssertEqual(database.string("SELECT COUNT(*) FROM time_entry;"), "0", "nothing has finished, so nothing counts")
     }
 
     func testQuittingWithNothingBeingTimedChangesNothing() {
@@ -102,7 +131,7 @@ final class QuitSequenceTests: XCTestCase {
     func testTheSegmentIsClosedBeforeTheDeviceIsLetGo() throws {
         // The entry is made from the app's own rows rather than from anything the cube says, so this is about order
         // being decided rather than the second step depending on the first.
-        let open = try XCTUnwrap(events.startSegment(face: 8, at: moment))
+        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
         var finalisedWhenLetGo: String?
         let database = self.database!
         quit.letGoOfTheDevice = {
@@ -120,7 +149,7 @@ final class QuitSequenceTests: XCTestCase {
     func testAQuitWithNoDeviceStillRunsTheRestOfTheSequence() throws {
         // A build that has never scanned has no radio at all, which is the ordinary case and must not stop the
         // segment being closed.
-        let open = try XCTUnwrap(events.startSegment(face: 8, at: moment))
+        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
         quit.letGoOfTheDevice = nil
 
         quit.run(at: moment.addingTimeInterval(60))
@@ -132,7 +161,7 @@ final class QuitSequenceTests: XCTestCase {
         // The defect this exists for. A row left open is closed by the next launch's first click, measuring every
         // second since -- including the hours the app was not running -- and that is an entry, not just a
         // duration: a session of a few minutes came back as 39.
-        events.startSegment(face: 8, at: moment)
+        events.startSegment(face: ManualFace.first, at: moment)
 
         quit.run(at: moment.addingTimeInterval(120))
 

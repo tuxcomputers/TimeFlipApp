@@ -379,6 +379,40 @@ final class DeviceEventRecorderTests: XCTestCase {
         XCTAssertEqual(column("duration_seconds", ofRow: finished.deviceEventID), "60.0", "untouched")
     }
 
+    func testRefreshingLeavesACubesOwnSegmentAlone() throws {
+        // **`duration_seconds` on a cube's row is the history's to write and nobody else's.** The same tick that
+        // fires this asks the cube for its history, and what comes back is the device's own measurement of the
+        // stretch; growing the row from this machine's clock first would overwrite that with a guess, and the two
+        // part company the moment the cube has been paused, locked, or timing while the app was shut.
+        let live = try XCTUnwrap(
+            recorder.record(
+                DeviceEventSegment(eventNumber: 9, face: 3, startedAt: moment, durationSeconds: 40, isPaused: false)
+            )
+        )
+        XCTAssertTrue(live.isOpen, "precondition: the cube is timing")
+
+        XCTAssertNil(recorder.refreshOpenSegment(at: moment.addingTimeInterval(600)))
+
+        XCTAssertEqual(column("duration_seconds", ofRow: live.deviceEventID), "40.0", "what the cube last reported")
+        XCTAssertEqual(column("finalised", ofRow: live.deviceEventID), "0", "and still open")
+    }
+
+    func testClosingLeavesACubesOwnSegmentAlone() throws {
+        // The quit sequence closes whatever is open on its way out, which is right for a segment this app is
+        // measuring and wrong for one the cube is: it wrote a wall-clock duration over the device's own figure,
+        // finalised the row, and handed the stretch on as tracked time -- while the cube went on timing that face.
+        let live = try XCTUnwrap(
+            recorder.record(
+                DeviceEventSegment(eventNumber: 9, face: 3, startedAt: moment, durationSeconds: 40, isPaused: false)
+            )
+        )
+
+        XCTAssertNil(recorder.closeOpenSegment(at: moment.addingTimeInterval(600)))
+
+        XCTAssertEqual(column("duration_seconds", ofRow: live.deviceEventID), "40.0")
+        XCTAssertEqual(column("finalised", ofRow: live.deviceEventID), "0")
+    }
+
     func testClosingWithNothingOpenIsNotAFailure() {
         XCTAssertNil(recorder.closeOpenSegment(at: moment), "the ordinary state of a first click")
         XCTAssertEqual(rowCount, "0")
