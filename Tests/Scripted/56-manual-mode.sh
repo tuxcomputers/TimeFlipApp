@@ -62,7 +62,17 @@ BLUETOOTH_IS_OFF=0
 # stops a prompt appearing in front of somebody who has already done the thing it is asking for (2026-08-22: a check
 # further down failed, and this asked for a radio that had been back on for a minute).
 bluetooth_is_on() {
-    system_profiler SPBluetoothDataType 2>/dev/null | grep -qE "State: *On"
+    # Captured and matched rather than piped into `grep -q`, for the reason `tree_has` in lib.sh sets out: this
+    # file sets pipefail, `system_profiler` writes a great deal after the line that matches, and a pipeline killed
+    # by SIGPIPE reports the signal rather than the match. Answering "off" for a radio that is on would ask
+    # somebody to turn on Bluetooth they had already turned on.
+    #
+    # The literal is what the tool prints, `          State: On`, one space after the colon. If that ever changes
+    # this answers "off", which asks for a radio that is already on rather than proceeding on a wrong answer.
+    case "$(system_profiler SPBluetoothDataType 2>/dev/null)" in
+        *"State: On"*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 restore_bluetooth() {

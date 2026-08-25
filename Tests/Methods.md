@@ -323,6 +323,44 @@ not even the "waiting to sync, but ..." line, because the token read never retur
 **Always build through `scripts/run.sh` or `Tests/Scripted/lib.sh`**, both of which take the identity from
 `scripts/codesign-identity.sh`. A bare `swift-bundler bundle` is the trap.
 
+**And read that check's answer with care, because the obvious way of writing it is wrong.** See the next method:
+the suite spent six runs reporting a properly signed app as ad-hoc, and the app was never the thing at fault.
+
+## Never test a status through a pipe: `pipefail` reports SIGPIPE, not the match
+
+`something | grep -q "..."` looks like a question and is not a reliable one. `grep -q` exits the instant it
+matches, the command on the left is killed by SIGPIPE while it is still writing, and `set -o pipefail` -- which
+`Tests/Scripted/run.sh` and `lib.sh` both set -- reports the pipeline as **141** rather than 0. A match then
+reads as a miss.
+
+It is a race, so it fails *intermittently*, which is worse than failing every time: the check passes often
+enough to look sound.
+
+```sh
+# Measured 2026-08-25, against an app signed with a real Apple Development certificate:
+codesign -dvvv .build/bundler/apps/Facet/Facet.app 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]"
+# answered "not found" on 18 runs out of 20, and every run from 89 to 94 recorded signing = ad-hoc
+
+# A stub tree whose match is near the start, with a great deal written after it:
+tree | grep -q "close-settings"
+# found the open Settings window 0 times out of 10
+```
+
+**Capture and match instead.** No pipeline, so nothing to be killed:
+
+```sh
+case "$(codesign -dvvv "$APP" 2>&1)" in
+    *TeamIdentifier=[A-Z0-9]*) signing="signed" ;;
+    *) signing="ad-hoc" ;;
+esac
+```
+
+`tree_has` in `lib.sh` is that shape for the accessibility tree, and every status test on the tree goes through
+it. Capturing into a variable first is also what makes a failure printable, which a `grep -q` never is.
+
+The exception is a value, not a status: `$(... | grep -m1 ...)` is fine, since what is wanted is the matching
+line and the pipeline's exit code is never read.
+
 ## Notes that have cost time
 
 - **Renaming a `debug_log` message is an interface change, and the suite is the caller.** Grep

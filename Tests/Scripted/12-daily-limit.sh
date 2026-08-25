@@ -277,11 +277,13 @@ check "and raising it did not start the clock by itself" "0" \
 # The menu bar stops saying it, which is the half a user actually sees. Nothing was clicked between the edit and this,
 # so what redrew the item is the edit -- there is no tick running to have done it.
 item=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
-if printf '%s' "$item" | grep -q "daily limit reached"; then
-    fail "the status item still says the limit is reached after it was raised"
-else
-    pass "the status item stops saying the limit is reached"
-fi
+# Matched with `case` rather than piped into `grep -q`: a status test through a pipe is not reliable under the
+# `pipefail` this suite sets, and the shape is kept out of the suite entirely rather than allowed where the
+# left-hand side happens to be short enough to get away with it. See `tree_has` in lib.sh.
+case "$item" in
+    *"daily limit reached"*) fail "the status item still says the limit is reached after it was raised" ;;
+    *) pass "the status item stops saying the limit is reached" ;;
+esac
 
 since=$(mark)
 click_right

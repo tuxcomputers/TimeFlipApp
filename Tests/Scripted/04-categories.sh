@@ -46,7 +46,7 @@ begin_retired_rename() { open_name_field "retired-category-name-$1"; }
 # The Inactive section folds by default and a reload redraws it, so anything working on a retired row
 # opens it first rather than assuming the last press left it open.
 show_inactive() {
-    if ! tree | grep -q "id=retired-category-name-"; then
+    if ! tree_has "id=retired-category-name-"; then
         press categories-inactive-section-heading-button
         sleep 1
     fi
@@ -160,7 +160,7 @@ check "it is gone from the active table" "0" "$(tree | grep -c "id=category-name
 
 # The Inactive section folds away, so it has to be opened before its rows are anywhere to be found. The
 # whole heading is the target, not just the triangle.
-if ! tree | grep -q "retired-category-name-$ID"; then
+if ! tree_has "retired-category-name-$ID"; then
     press categories-inactive-section-heading-button
     sleep 1
 fi
@@ -361,7 +361,7 @@ check "nothing was created" "1" "$(sql "SELECT COUNT(*) FROM category WHERE cate
 blocked=$(sql "SELECT category_id FROM category WHERE category_name = '$CREATE_NEW' AND active = 0 ORDER BY category_id LIMIT 1;")
 holder=$(sql "SELECT category_id FROM category WHERE category_name = '$CREATE_NEW' AND active = 1;")
 
-if ! tree | grep -q "retired-category-name-$blocked"; then
+if ! tree_has "retired-category-name-$blocked"; then
     press categories-inactive-section-heading-button
     sleep 1
 fi

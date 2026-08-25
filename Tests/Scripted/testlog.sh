@@ -279,11 +279,15 @@ testlog_run_start() {
     built=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' ".build/bundler/apps/Facet/Facet.app/Contents/MacOS/Facet" 2>/dev/null || echo "")
     # Ad-hoc matters: it silently breaks anything that reads the Keychain, which is how a Google failure
     # once looked like a Google failure and was actually a build flag.
-    if codesign -dvvv ".build/bundler/apps/Facet/Facet.app" 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]"; then
-        signing="signed"
-    else
-        signing="ad-hoc"
-    fi
+    #
+    # **Captured and matched, never piped into `grep -q`.** This is sourced by `run.sh` and `lib.sh`, both of which
+    # set `pipefail`, and a pipeline whose reader exits early reports the writer's SIGPIPE rather than the match --
+    # so this wrote `ad-hoc` for every run from 89 to 94 against an app signed with a real Apple Development
+    # certificate. See `tree_has` in lib.sh for the measurement.
+    case "$(codesign -dvvv ".build/bundler/apps/Facet/Facet.app" 2>&1)" in
+        *TeamIdentifier=[A-Z0-9]*) signing="signed" ;;
+        *) signing="ad-hoc" ;;
+    esac
     os=$(sw_vers -productVersion 2>/dev/null || echo "")
 
     tlog "INSERT INTO run (started_at, started_epoch, branch, commit_sha, dirty, database_file, rebuilt,
