@@ -279,8 +279,11 @@ final class MenuBarController: NSObject {
     /// Internal so the order can be asserted without putting a real item in the menu bar.
     func makeTitle(_ parts: StatusItemTitle) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        // One colour for the line and one for the category's name and icon, both `StatusItemTitle`'s to choose. The
-        // two differ only while the cube is flat, which is when the name flashes and the figure beside it does not.
+        // Three colours, all of them `StatusItemTitle`'s to choose: one for the line's own text, one for the
+        // category's name and icon, and one for the play/pause glyph. They come apart in the states worth telling
+        // apart -- the name flashes while the cube is flat and the figure beside it does not, the figure turns red
+        // on a spent limit and the name does not, and the glyph stays the menu bar's own text colour throughout,
+        // being a report on the clock rather than on either.
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour]
         let named: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.nameColour]
         let title = NSMutableAttributedString()
@@ -312,9 +315,12 @@ final class MenuBarController: NSObject {
             title.append(NSAttributedString(string: " ", attributes: plain))
             title.append(attachment(of: lock, colour: .systemRed, size: size, font: font))
         }
+        // In its own colour rather than the line's, which is the archive's arrangement reached from the other side:
+        // its indicator was an untinted template image, so the menu bar drew it in the strip's own text colour while
+        // the words beside it were green. See `StatusItemTitle.glyphColour`.
         if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
             title.append(NSAttributedString(string: " ", attributes: plain))
-            title.append(attachment(of: glyph, colour: parts.colour, size: size, font: font))
+            title.append(attachment(of: glyph, colour: parts.glyphColour, size: size, font: font))
         }
         if let duration = parts.duration {
             title.append(NSAttributedString(string: " \(duration)", attributes: plain))

@@ -316,6 +316,7 @@ final class MenuBarControllerTests: XCTestCase {
 
     private func title(
         _ controller: MenuBarController,
+        isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none
     ) -> NSAttributedString {
         controller.makeTitle(
@@ -324,6 +325,7 @@ final class MenuBarControllerTests: XCTestCase {
                 badgeDescription: nil,
                 reading: reading,
                 showingSeconds: true,
+                isLimitReached: isLimitReached,
                 lowBattery: lowBattery,
                 // From the same reading the dropdown's Lock item is drawn from, so a test setting one gets the other.
                 isCubeLocked: cube.isLocked == true
@@ -419,7 +421,7 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(line(controller()), "Facet")
     }
 
-    func testTheBadgeKeepsItsOwnColourWhileTheSessionIsGreen() {
+    func testTheBadgeKeepsItsOwnColourWhileTheSessionIsCyan() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
                 id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
@@ -430,14 +432,34 @@ final class MenuBarControllerTests: XCTestCase {
 
         let title = title(controller(badge: .forEnvironment(.test)))
 
-        // Two separate things being said: which database this launch writes to, and what the app is doing. A green
+        // Two separate things being said: which database this launch writes to, and what the app is doing. A cyan
         // "TEST" would lose the warning the red is there to carry.
         XCTAssertEqual(colour(of: "TEST", in: title), .systemRed)
-        XCTAssertEqual(colour(of: "Meeting", in: title), .systemGreen)
-        XCTAssertEqual(colour(of: "0:00:30", in: title), .systemGreen)
+        XCTAssertEqual(colour(of: "Meeting", in: title), .systemCyan)
+        XCTAssertEqual(colour(of: "0:00:30", in: title), .systemCyan)
     }
 
-    func testWithNothingBeingTimedTheAppsNameIsNotGreen() {
+    func testASpentLimitReddensTheFigureAndNotTheName() {
+        // Where the limit actually reaches the screen, and it is the half of the line that has reached the number.
+        // `StatusItemTitleTests` pins which colours are chosen; this pins that the drawing puts them on the right
+        // stretch, the name going on saying only which category this is. The glyph between them rides in as an
+        // attachment with its tint drawn into it, so there is no attribute here to read it back from -- see
+        // `StatusItemTitle.glyphColour`, which is where that one is pinned.
+        reading = TimingReadout.Reading(
+            category: CategoryRecord(
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+            ),
+            state: .paused,
+            seconds: 30
+        )
+
+        let spent = title(controller(), isLimitReached: true)
+
+        XCTAssertEqual(colour(of: "0:00:30", in: spent), .systemRed)
+        XCTAssertEqual(colour(of: "Meeting", in: spent), .systemCyan)
+    }
+
+    func testWithNothingBeingTimedTheAppsNameIsNotCyan() {
         reading = .idle
 
         XCTAssertEqual(colour(of: "Facet", in: title(controller())), .labelColor)
@@ -458,9 +480,9 @@ final class MenuBarControllerTests: XCTestCase {
         let between = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: false))
 
         XCTAssertEqual(colour(of: "Meeting", in: flashing), .systemRed)
-        XCTAssertEqual(colour(of: "0:00:30", in: flashing), .systemGreen)
+        XCTAssertEqual(colour(of: "0:00:30", in: flashing), .systemCyan)
         XCTAssertEqual(colour(of: "Meeting", in: between), .labelColor)
-        XCTAssertEqual(colour(of: "0:00:30", in: between), .systemGreen)
+        XCTAssertEqual(colour(of: "0:00:30", in: between), .systemCyan)
     }
 
     func testTheAppsNameFlashesWhenThereIsNoSessionToFlash() {
