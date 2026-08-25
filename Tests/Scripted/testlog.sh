@@ -51,6 +51,7 @@ testlog_open() {
     # Each is offered unconditionally and allowed to fail: sqlite refuses a duplicate column and refuses to
     # drop a column that is not there, which is the normal case once a database has been through this once.
     sqlite3 "$TESTLOG" "ALTER TABLE script ADD COLUMN expected INTEGER NOT NULL DEFAULT 0;" >/dev/null 2>&1 || true
+    sqlite3 "$TESTLOG" "ALTER TABLE script ADD COLUMN human_seconds INTEGER NOT NULL DEFAULT 0;" >/dev/null 2>&1 || true
     sqlite3 "$TESTLOG" "CREATE UNIQUE INDEX IF NOT EXISTS UN1_script ON script (run_id, name);" >/dev/null 2>&1 || true
     # A skip has been unreachable since the helpers stopped offering the verdict, and a column that can only
     # ever be 0 is one people read as meaning something.
@@ -105,6 +106,13 @@ CREATE TABLE IF NOT EXISTS script (
     expected        INTEGER NOT NULL DEFAULT 0,
     passed          INTEGER DEFAULT 0,
     failed          INTEGER DEFAULT 0,
+    -- Seconds the script spent waiting for a person: a prompt answered, a cube turned, a radio switched off
+    -- and on. Held apart from `finished_epoch - started_epoch` rather than folded into it, because the two
+    -- answer different questions -- how long the app took is worth watching for a regression, and how long
+    -- somebody took to reach the keyboard is worth nothing except that the app must not be charged for it.
+    -- A script that usually takes two minutes and took thirty because whoever ran it went to make coffee
+    -- otherwise looks exactly like one that has broken.
+    human_seconds   INTEGER NOT NULL DEFAULT 0,
     -- **No `skipped` here, deliberately.** Nothing in `Tests/Scripted` has incremented `SKIPPED` since the
     -- helpers stopped offering a skip verdict: every path now answers pass or fail, and a column that is 0 in
     -- every row of every run is a column somebody reads as meaning something. `run` keeps its own, because the
@@ -434,7 +442,8 @@ testlog_script_finish() {
     testlog_copy_app_log
     tlog "UPDATE script
              SET finished_epoch = strftime('%s','now'),
-                 passed = $passed, failed = $failed
+                 passed = $passed, failed = $failed,
+                 human_seconds = ${HUMAN_SECONDS:-0}
            WHERE script_id = $TESTLOG_SCRIPT_ID;"
 
     # A script run on its own owns its run row, so it closes it too.
@@ -612,6 +621,12 @@ EOF
         # belong to `run.sh`, not to any script, which is why the total below is short of the wall clock in the
         # header.
         #
+        # **Time spent waiting for a person is taken out of it and shown in brackets.** Several scripts stop and ask
+        # -- a cube to be turned, a radio switched off, a dialog answered -- and until this the answer sat inside the
+        # script's own figure, so a script that took two minutes and waited half an hour for somebody to come back to
+        # the keyboard was indistinguishable from one that had broken. The figure on the left is now the app's alone,
+        # and the bracket is what the run waited on a human for.
+        #
         # Empty means the script never reached its own finish, which is what a run stopped part way leaves behind.
         # A dash rather than `0m 00s`, since no time at all and no answer are different things.
         echo "| script | expected | passed | failed | time |"
@@ -620,8 +635,12 @@ EOF
             "SELECT name, expected, passed, failed,
                     CASE
                         WHEN started_epoch IS NULL OR finished_epoch IS NULL THEN ''
-                        ELSE printf('%dm %02ds', (finished_epoch - started_epoch) / 60,
-                                                 (finished_epoch - started_epoch) % 60)
+                        ELSE printf('%dm %02ds',
+                                    (finished_epoch - started_epoch - human_seconds) / 60,
+                                    (finished_epoch - started_epoch - human_seconds) % 60)
+                             || CASE WHEN human_seconds > 0
+                                     THEN printf(' (%dm %02ds)', human_seconds / 60, human_seconds % 60)
+                                     ELSE '' END
                     END
                FROM script WHERE run_id = $run ORDER BY sequence;" \
             2>/dev/null |
@@ -634,11 +653,18 @@ EOF
         # **The time total adds up the column, and so is less than `finished` minus `started` above.** What is
         # missing is `run.sh`'s own work between scripts -- rebuilding the database, capturing the seeds -- which
         # no script did and none of them should be charged for.
-        local script_seconds
-        script_seconds=$(tlog "SELECT IFNULL(SUM(finished_epoch - started_epoch), 0) FROM script
+        local script_seconds human_seconds total_time
+        script_seconds=$(tlog "SELECT IFNULL(SUM(finished_epoch - started_epoch - human_seconds), 0) FROM script
                                 WHERE run_id = $run AND started_epoch IS NOT NULL AND finished_epoch IS NOT NULL;")
-        echo "| **total** | **$(tlog "SELECT IFNULL(SUM(expected), 0) FROM script WHERE run_id = $run;")** | **${passed}** | **${failed}** | **$(printf '%dm %02ds' "$(( ${script_seconds:-0} / 60 ))" "$(( ${script_seconds:-0} % 60 ))")** |"
+        human_seconds=$(tlog "SELECT IFNULL(SUM(human_seconds), 0) FROM script
+                               WHERE run_id = $run AND started_epoch IS NOT NULL AND finished_epoch IS NOT NULL;")
+        total_time=$(printf '%dm %02ds' "$(( ${script_seconds:-0} / 60 ))" "$(( ${script_seconds:-0} % 60 ))")
+        [ "${human_seconds:-0}" -gt 0 ] && total_time="$total_time ($(printf '%dm %02ds' "$(( human_seconds / 60 ))" "$(( human_seconds % 60 ))"))"
+        echo "| **total** | **$(tlog "SELECT IFNULL(SUM(expected), 0) FROM script WHERE run_id = $run;")** | **${passed}** | **${failed}** | **${total_time}** |"
         echo ""
+        # Said once, under the table, rather than in every row that has one: a bracket with no legend reads as
+        # easily as "and another 30 minutes on top" as it does the truth.
+        [ "${human_seconds:-0}" -gt 0 ] && echo "A bracketed figure is time the script spent waiting for a person, already taken out of the time beside it." && echo ""
         if [ "${dirty:-0}" = "1" ]; then
             echo "> The working tree had uncommitted changes when this ran, so it is not evidence about the"
             echo "> commit it names. CI refuses a stamp in this state."
