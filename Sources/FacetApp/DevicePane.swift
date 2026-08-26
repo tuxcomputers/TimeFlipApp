@@ -487,10 +487,10 @@ final class DevicePane: NSView {
         let details = stack()
         add(
             [
-                row("Manufacturer", manufacturerValue, identifier: Identifier.manufacturer),
-                row("Model", modelValue, identifier: Identifier.model),
-                row("Hardware", hardwareValue, identifier: Identifier.hardware),
-                row("Firmware", firmwareValue, identifier: Identifier.firmware),
+                SettingsRow.make("Manufacturer", manufacturerValue),
+                SettingsRow.make("Model", modelValue),
+                SettingsRow.make("Hardware", hardwareValue),
+                SettingsRow.make("Firmware", firmwareValue),
             ],
             to: details
         )
@@ -506,9 +506,9 @@ final class DevicePane: NSView {
         moreRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.more, expanded) }
 
         return [
-            row("Name", nameValue, identifier: Identifier.name),
-            row("Connection", connectionValue, identifier: Identifier.connection),
-            row("Battery", batteryValue, identifier: Identifier.battery),
+            SettingsRow.make("Name", nameValue),
+            SettingsRow.make("Connection", connectionValue),
+            SettingsRow.make("Battery", batteryValue),
             moreRow,
         ]
     }
@@ -533,8 +533,8 @@ final class DevicePane: NSView {
         let led = stack()
         add(
             [
-                row("Brightness", ledBrightnessValue, identifier: Identifier.ledBrightness),
-                row("Blink Interval", ledBlinkValue, identifier: Identifier.ledBlink),
+                SettingsRow.make("Brightness", ledBrightnessValue),
+                SettingsRow.make("Blink Interval", ledBlinkValue),
             ],
             to: led
         )
@@ -566,7 +566,7 @@ final class DevicePane: NSView {
             let field = SteppedNumberField(value: current, range: 0...255, suffix: "", identifier: identifier)
             field.onChange = { [weak self] _ in self?.doubleTapValueChanged() }
             doubleTapValues[identifier] = field
-            doubleTapRows.append(row(title, field, identifier: identifier))
+            doubleTapRows.append(SettingsRow.make(title, field))
         }
         add(doubleTapRows, to: doubleTap)
         doubleTapRow = DisclosureRow(
@@ -575,7 +575,7 @@ final class DevicePane: NSView {
         doubleTapRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.doubleTap, expanded) }
 
         return [
-            row("Auto-pause (0 disable, max 240m)", autoPauseField, identifier: Identifier.autoPause),
+            SettingsRow.make("Auto-pause (0 disable, max 240m)", autoPauseField),
             ledRow,
             doubleTapRow,
         ]
@@ -666,7 +666,7 @@ final class DevicePane: NSView {
             scanStatusLabel.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
 
         ])
-        _ = settled(controls)
+        SettingsRow.settle(controls)
         scanStatusLabel.alignment = .right
         scanStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         pair.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -714,7 +714,7 @@ final class DevicePane: NSView {
             name.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
 
         ])
-        return settled(row)
+        return SettingsRow.settle(row)
     }
 
     @objc private func scanPressed() {
@@ -863,65 +863,6 @@ final class DevicePane: NSView {
         return field
     }
 
-    /// Gives a row a height that is **decided**, not merely bounded.
-    ///
-    /// **This is the fault this tab kept producing, three times over.** A row here is a bare `NSView`, which has no
-    /// intrinsic content size, so `heightAnchor >= minimumRowHeight` is the only thing saying how tall it is -- and a
-    /// minimum is not a value. Auto Layout is then free to pick anything at or above it, and inside a `.fill` stack
-    /// pinned to the panel on all four sides it picks bigger: the auto-pause row drew several times its height, and
-    /// once that was pinned down the slack moved to the scan controls row and did it again.
-    ///
-    /// The low-priority equality is what decides it. Anything real -- a taller control, a wrapped label -- outranks
-    /// it and the row grows properly; with nothing pushing, the row sits at the rhythm of the list.
-    ///
-    /// **Every row builder on this tab ends here**, which is the point. Applying it per row is what let the third one
-    /// be written without it.
-    private func settled(_ row: NSView) -> NSView {
-        row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight).isActive = true
-        let preferred = row.heightAnchor.constraint(equalToConstant: Layout.minimumRowHeight)
-        preferred.priority = .defaultLow
-        preferred.isActive = true
-        return row
-    }
-
-    /// One row: the words on the left, the value or control pinned to the right-hand edge.
-    ///
-    /// **The control is pinned to the trailing edge rather than following the label**, which is what the archive's
-    /// form did and what makes the column line up down the right whatever the words in front of it. A fixed label
-    /// column would line them up too, and park them in the middle with dead space beyond.
-    private func row(_ title: String, _ control: NSView?, identifier: String) -> NSView {
-        let row = NSView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        guard let control else { return row }
-
-        let label = NSTextField(labelWithString: title)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        control.setAccessibilityLabel(title)
-
-        row.addSubview(label)
-        row.addSubview(control)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
-            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            // The label gives way before the value does: a window narrow enough to squeeze one of these should
-            // truncate the words, not the answer.
-            label.trailingAnchor.constraint(lessThanOrEqualTo: control.leadingAnchor, constant: -Layout.rowInset),
-
-            control.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
-            control.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            control.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
-            control.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
-
-        ])
-
-        // The control is told to hug as well, because a control with a width constraint and no height --
-        // `SteppedNumberField` is exactly that -- has nothing of its own to stop it stretching and taking the row
-        // with it. `settled` decides the row; this stops the control arguing with it.
-        control.setContentHuggingPriority(.required, for: .vertical)
-        control.setContentCompressionResistancePriority(.required, for: .vertical)
-        return settled(row)
-    }
-
     /// A row whose content sits at the left rather than being split across it, for the two controls that are not a
     /// label and an answer.
     private func leading(_ content: NSView) -> NSView {
@@ -934,6 +875,6 @@ final class DevicePane: NSView {
             content.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Layout.rowPadding),
             content.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -Layout.rowPadding),
         ])
-        return settled(row)
+        return SettingsRow.settle(row)
     }
 }

@@ -262,6 +262,12 @@ final class CategoryTableRow: NSStackView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(category.name)
         addViews()
+        // **The same height contract the other two tabs keep**, and the reason this tab needed it at all: its rows
+        // were 24pt because the daily-limit field is 24pt, so `SettingsMetrics.rowHeight` moved the App and Device
+        // tabs and left this one exactly where it was. One value governing the look of all three was not true until
+        // this line. It changes nothing today, the number and the field agreeing; it is what makes the number the
+        // answer rather than a coincidence.
+        SettingsRow.settle(self)
     }
 
     @available(*, unavailable)

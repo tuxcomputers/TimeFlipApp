@@ -79,6 +79,9 @@ final class SettingsMetricsTests: XCTestCase {
         let appContent = hosted(app)
         let device = DevicePane()
         let deviceContent = hosted(device)
+        let table = CategoryTable()
+        table.show([category(1, "Break"), category(2, "Meeting")])
+        let tableContent = hosted(table)
 
         let appPitch = pitch(
             try view(AppSettingsPane.Identifier.showSeconds, in: app),
@@ -91,7 +94,38 @@ final class SettingsMetricsTests: XCTestCase {
             in: deviceContent
         )
 
-        XCTAssertEqual(appPitch, devicePitch, accuracy: 0.5, "the two tabs draw a list at different rhythms")
+        let boxes = descendants(of: table).filter { $0.accessibilityIdentifier().hasPrefix("category-active-") }
+        let categoriesPitch = pitch(boxes[0], boxes[1], in: tableContent)
+
+        XCTAssertEqual(appPitch, devicePitch, accuracy: 0.5, "the App and Device tabs draw a list at different rhythms")
+        XCTAssertEqual(appPitch, categoriesPitch, accuracy: 0.5, "the App tab and the tab it copies disagree")
+    }
+
+    func testTheCategoriesTabDrawsRowsAtTheSharedPitch() throws {
+        // **The hole this closes.** Until `SettingsRow.settle` reached this tab, its rows were 24pt because the
+        // daily-limit field inside them is 24pt and nothing here read `rowHeight` at all -- so raising that value
+        // moved the App and Device tabs and left this one behind, which is the opposite of what one point of
+        // reference is for. Checked by measuring: with `rowHeight` at 40 this measured 32 and said so.
+        let table = CategoryTable()
+        table.show([category(1, "Break"), category(2, "Meeting")])
+        let content = hosted(table)
+
+        let boxes = descendants(of: table)
+            .filter { $0.accessibilityIdentifier().hasPrefix("category-active-") }
+        XCTAssertEqual(boxes.count, 2, "two rows to measure between")
+
+        XCTAssertEqual(
+            pitch(boxes[0], boxes[1], in: content),
+            SettingsMetrics.rowHeight + SettingsMetrics.rowSpacing,
+            accuracy: 0.5
+        )
+    }
+
+    private func category(_ id: Int, _ name: String) -> CategoryRecord {
+        CategoryRecord(
+            id: id, name: name, iconName: nil, colourID: 0, colour: nil,
+            usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+        )
     }
 
     // MARK: - nothing is drawn between rows
