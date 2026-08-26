@@ -203,8 +203,38 @@ open_settings
 
 google_calendar_id() { sql "SELECT IFNULL(json_extract(setting_value, '\$.calendar_id'), '') FROM setting WHERE setting_name = 'google_account';"; }
 
+# **The delete-then-create, on its own so it can be run twice.** Once as the run finds things, and again after
+# somebody has signed back in. It reports nothing and decides nothing: the caller owns what a failure means,
+# because the same failure means "your token is dead" the first time and "signing in did not help" the second.
+make_a_calendar() {
+    local since
+
+    if [ -n "$(google_calendar_id)" ]; then
+        since=$(mark)
+        press app-google-calendar-delete
+        sleep 1
+        press_title "Delete Calendar"
+        # **Not fatal, and it carries on to Create.** The commonest reason a delete fails is that the calendar
+        # is already gone -- somebody removed it at Google, or a run died between 03's delete and its create --
+        # and stopping there would refuse to reach the known state over a calendar that is already in the state
+        # wanted. A delete that failed for any other reason (no network, dead token) is caught by the Create
+        # below, which cannot succeed without the thing the delete needed.
+        if wait_for "$since" "Google calendar deleted,%" 45 >/dev/null; then
+            step "last run's calendar is gone"
+        else
+            step "last run's calendar could not be deleted, so it was probably already gone; making a fresh one"
+        fi
+    fi
+
+    # The one real request, and so the one real proof: this fails if the token is dead, if the account was
+    # disconnected at Google, or if there is no network.
+    since=$(mark)
+    press app-google-calendar-create
+    wait_for "$since" "Google calendar created,%" 45 >/dev/null
+}
+
 setup_google() {
-    local since email
+    local email
 
     select_tab App
     email=$(sql "SELECT IFNULL(json_extract(setting_value, '\$.email'), '') FROM setting WHERE setting_name = 'google_account';")
@@ -232,30 +262,64 @@ setup_google() {
         return 1
     fi
 
-    if [ -n "$(google_calendar_id)" ]; then
-        since=$(mark)
-        press app-google-calendar-delete
-        sleep 1
-        press_title "Delete Calendar"
-        # **Not fatal, and it carries on to Create.** The commonest reason a delete fails is that the calendar
-        # is already gone -- somebody removed it at Google, or a run died between 03's delete and its create --
-        # and stopping there would refuse to reach the known state over a calendar that is already in the state
-        # wanted. A delete that failed for any other reason (no network, dead token) is caught by the Create
-        # below, which cannot succeed without the thing the delete needed.
-        if wait_for "$since" "Google calendar deleted,%" 45 >/dev/null; then
-            step "last run's calendar is gone"
+    if ! make_a_calendar; then
+        # **The state a row cannot show, and this is the only place in the suite that deals with it.** Everything
+        # above proves there is an email. Nothing about an email proves the connection behind it works, because the
+        # two live in different places: the identity is in `google_account`, and the refresh token that makes it
+        # usable is in the Keychain. The row reads identically whether the token beside it is present, revoked at
+        # myaccount.google.com, expired through disuse, or simply not there at all. It is why the calendar is made
+        # by pressing the button rather than by reading the row, and the press failing is the whole of the evidence
+        # that the two have parted company.
+        #
+        # **Measured 2026-08-26**, which is what this branch was written for: `google_account` held a name, an email,
+        # a calendar id and a calendar name, the App tab said Connected, and the app refused the delete with
+        # `Facet is not connected to a Google account`. That message is `GoogleCalendarClient.currentAccessToken`
+        # finding no refresh token in the Keychain -- so the missing half was the token, with a complete-looking row
+        # sitting in front of it.
+        #
+        # **Reporting it is not enough, because the state repairs nothing on its own and the setup rebuilds it.**
+        # `apply_private_seeds` writes the whole `google_account` value back at the top of this script, so a dead
+        # token means the email is present on every run from now on, this branch is taken on every run from now on,
+        # and a `trouble` line saying "sign in again" scrolls past while 03 and 10 fail for a reason that looks like
+        # the app. So it stops and asks, in the same shape as the missing-email case above.
+        if action_required \
+            "The settings hold a Google account ($email) but the connection does not work." \
+            "The identity is in the database and the token that makes it usable is in the" \
+            "Keychain, and only the first of those is still there. The App tab says Connected" \
+            "because the row is complete, which is exactly what cannot be trusted here." \
+            "" \
+            "03-settings-window and 10-google-calendar both fail without a working one." \
+            "" \
+            "The Settings window is open on the App tab. Press Disconnect, then Sign in with" \
+            "Google, consent in the browser, and come back here." \
+            "" \
+            "Answer n to carry on with the dead connection and let 03 and 10 fail."; then
+            email=$(sql "SELECT IFNULL(json_extract(setting_value, '\$.email'), '') FROM setting WHERE setting_name = 'google_account';")
         else
-            step "last run's calendar could not be deleted, so it was probably already gone; making a fresh one"
+            trouble "the Google connection does not work and was left alone, so 03 and 10 have nothing to work with"
+            return 1
         fi
-    fi
 
-    # The one real request, and so the one real proof: this fails if the token is dead, if the account was
-    # disconnected at Google, or if there is no network.
-    since=$(mark)
-    press app-google-calendar-create
-    if ! wait_for "$since" "Google calendar created,%" 45 >/dev/null; then
-        trouble "the app could not make a calendar at Google, so the connection does not work (sign in again on the App tab)"
-        return 1
+        # **Checked before retrying, rather than pressing at a button that is not there.** The calendar row is only
+        # drawn while the app thinks an account is connected, so after a Disconnect that was never followed by a
+        # sign-in there is no Create to press -- and `press` says nothing when it finds nothing, so the retry would
+        # spend 45 seconds waiting and then blame Google.
+        if [ -z "$email" ]; then
+            trouble "the account was disconnected but nothing was signed back in, so there is no connection to use"
+            return 1
+        fi
+
+        if ! make_a_calendar; then
+            trouble "the app still could not make a calendar at Google after signing in again, so the connection does not work"
+            return 1
+        fi
+
+        # **Captured again, because the account signed in may not be the one that was there.** The seed still holds
+        # the old email, and `apply_private_seeds` would write it over the row on the next run while the Keychain
+        # holds a token for this one: the same two-answers disagreement, moved somewhere it is harder to see. This
+        # is also what stops the question being asked again on every run from now on.
+        capture_private_seeds
+        step "signed in again, and the seeds now hold the account that works"
     fi
 
     if [ -z "$(google_calendar_id)" ]; then
