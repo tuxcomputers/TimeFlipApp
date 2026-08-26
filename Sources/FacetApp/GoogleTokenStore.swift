@@ -44,8 +44,24 @@ enum GoogleTokenStore {
         return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 
-    /// The stored token, or `nil` when there is none.
-    static func refreshToken() -> String? {
+    /// What the Keychain said when asked for the token. **Three answers, not two.**
+    ///
+    /// "There is no token" and "the Keychain would not answer" are different facts with opposite remedies: the first
+    /// is fixed by signing in, the second by working out why the item cannot be read, and offering a sign-in for the
+    /// second throws away a working connection to solve a problem it does not have.
+    ///
+    /// This used to be one `guard` that returned `nil` for both, which is the "nothing fails silently" rule broken in
+    /// the place it costs most: `.missing` and `.unavailable` arrive at the App tab as the same words.
+    enum Lookup: Equatable {
+        case found(String)
+        /// `errSecItemNotFound`: nothing is stored. Signing in is the whole of the fix.
+        case missing
+        /// Any other status. The item may be sitting there perfectly well; this process could not read it.
+        case unavailable(OSStatus)
+    }
+
+    /// Asks the Keychain, and says which of the three answers came back.
+    static func lookUp() -> Lookup {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -54,11 +70,24 @@ enum GoogleTokenStore {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else {
-            return nil
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return .missing }
+        guard status == errSecSuccess else { return .unavailable(status) }
+        guard let data = item as? Data, let token = String(data: data, encoding: .utf8) else {
+            // A success that yielded something unreadable is not an absent token either. `errSecDecode` names the
+            // shape of the problem: the item is there and its contents make no sense.
+            return .unavailable(errSecDecode)
         }
-        return String(data: data, encoding: .utf8)
+        return .found(token)
+    }
+
+    /// The stored token, or `nil` when there is none **or when it could not be read**.
+    ///
+    /// Kept for the callers that genuinely cannot act on the difference. Anything that reports a state to somebody
+    /// should call `lookUp` instead, so that "we could not check" does not reach them as "you are signed out".
+    static func refreshToken() -> String? {
+        guard case let .found(token) = lookUp() else { return nil }
+        return token
     }
 
     /// Forgets it, which is half of signing out. The other half is the identity in the `google_account` row.

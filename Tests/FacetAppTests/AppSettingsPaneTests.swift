@@ -525,6 +525,9 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         var values = stored
         values.googleAccount = GoogleAccountRules.Account(name: "Harry", email: "harry@example.com")
+        // Both halves, because an identity on its own is now `signedOut` and `signedOut` has a note: the row names
+        // somebody and there is no token for them, which is exactly the thing worth saying out loud.
+        values.googleCredential = .present
         pane.show(values)
         let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
         XCTAssertTrue(note.isHidden, "precondition: a connected account is explained by the rows themselves")

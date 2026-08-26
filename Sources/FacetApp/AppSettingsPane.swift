@@ -85,6 +85,12 @@ final class AppSettingsPane: NSView {
         /// Who is signed in, from the `google_account` row. Part of this struct rather than read separately because
         /// it is read in the same pass: opening the window reads every value the window shows, in one go.
         var googleAccount = GoogleAccountRules.Account.none
+        /// Whether the Keychain holds a token for that account, which the row cannot say. Read in the same pass as
+        /// the row: one of them without the other is exactly the half-answer this section used to draw.
+        var googleCredential = GoogleAccountRules.Credential.missing
+        /// What Google last said about the token. Starts `notAsked` because opening a window is not asking Google
+        /// anything; the window fills this in when the check comes back.
+        var googleVerification = GoogleAccountRules.Verification.notAsked
         /// Whether this build has an OAuth client in it at all. Not a setting: it comes from the bundle and the
         /// override file, and it decides whether the button can do anything.
         var googleCredentialsAvailable = false
@@ -133,6 +139,12 @@ final class AppSettingsPane: NSView {
         case googleCalendarDeleteRequested
         /// The calendar the table now holds, after Google answered and the write was read back.
         case googleCalendarChanged(GoogleCalendarRules.Calendar)
+        /// What the Keychain now says. **Not a request and not a setting**: nobody edits this in the window, it is
+        /// the other half of a fact the row only tells half of.
+        case googleCredentialChanged(GoogleAccountRules.Credential)
+        /// What Google said when asked whether the token still works. Arrives once per ask and is never stored,
+        /// because it is true of a moment rather than of the account.
+        case googleVerified(GoogleAccountRules.Verification)
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -203,6 +215,17 @@ final class AppSettingsPane: NSView {
             break
         case let .googleConnected(account):
             values.googleAccount = account
+            // A sign-in that got this far stored a token, so both halves move together. Asserting the credential
+            // here rather than leaving it at whatever it was is the difference between the section saying Connected
+            // because it just watched it happen and saying it out of habit.
+            values.googleCredential = .present
+            values.googleVerification = .working
+            showGoogle()
+        case let .googleCredentialChanged(credential):
+            values.googleCredential = credential
+            showGoogle()
+        case let .googleVerified(verification):
+            values.googleVerification = verification
             showGoogle()
         case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarDeleteRequested:
             // Requests. What the calendar becomes arrives as `googleCalendarChanged`, including a deletion,
@@ -213,6 +236,11 @@ final class AppSettingsPane: NSView {
             showGoogle()
         case .googleDisconnected:
             values.googleAccount = .none
+            // Signing out clears the token as well as the identity, so both halves are put back together. Leaving
+            // the credential at `.present` would leave the section one read away from claiming a connection to an
+            // account it has just forgotten.
+            values.googleCredential = .missing
+            values.googleVerification = .notAsked
             // **The calendar is not forgotten here.** The id survives a sign-out so that signing back in on the same
             // account keeps the calendar and its history; it is checked on the way back in rather than trusted, and
             // only cleared once Google has said it is gone.
@@ -260,9 +288,14 @@ final class AppSettingsPane: NSView {
         calendarCell = nil
 
         let account = values.googleAccount
+        // Worked out once, at the top, and everything below reads it. Deriving it per control is how the status
+        // label and the button came to be able to disagree in the first place.
+        let state = GoogleAccountRules.state(
+            for: account, credential: values.googleCredential, verification: values.googleVerification
+        )
         var built: [NSView] = [
             SettingsRow.make(
-                "Status", label(GoogleAccountRules.status(for: account), identifier: Identifier.googleStatus)
+                "Status", label(GoogleAccountRules.status(for: state), identifier: Identifier.googleStatus)
             ),
         ]
         if let name = account.name {
@@ -272,29 +305,32 @@ final class AppSettingsPane: NSView {
             built.append(SettingsRow.make("Email", label(email, identifier: Identifier.googleEmail)))
         }
 
-        if account.isConnected {
+        if GoogleAccountRules.showsCalendar(for: state) {
             built.append(calendarRow())
         }
 
         let hasCredentials = values.googleCredentialsAvailable
         let button = NSButton(
-            title: GoogleAccountRules.buttonTitle(for: account, isSigningIn: isSigningIn),
+            title: GoogleAccountRules.buttonTitle(for: state, isSigningIn: isSigningIn),
             target: self,
             action: #selector(googleButtonPressed)
         )
         button.bezelStyle = .rounded
         button.translatesAutoresizingMaskIntoConstraints = false
         button.isEnabled = GoogleAccountRules.isButtonEnabled(
-            for: account, hasCredentials: hasCredentials, isSigningIn: isSigningIn
+            for: state, hasCredentials: hasCredentials, isSigningIn: isSigningIn
         )
         button.setAccessibilityIdentifier(Identifier.googleButton)
-        built.append(SettingsRow.make(account.isConnected ? "Account" : "Google", button))
+        let isForgetting = GoogleAccountRules.action(for: state) == .disconnect
+        built.append(SettingsRow.make(isForgetting ? "Account" : "Google", button))
 
         for view in built {
             googleRows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: googleRows.widthAnchor).isActive = true
         }
-        googleNote.stringValue = GoogleAccountRules.note(for: account, hasCredentials: hasCredentials) ?? ""
+        googleNote.stringValue = GoogleAccountRules.note(
+            for: state, hasCredentials: hasCredentials, verification: values.googleVerification
+        ) ?? ""
         showGoogleNote()
     }
 
@@ -398,7 +434,14 @@ final class AppSettingsPane: NSView {
     @objc
     private func googleButtonPressed() {
         guard !isSigningIn else { return }
-        onChange?(values.googleAccount.isConnected ? .googleDisconnected : .googleSignInRequested)
+        let state = GoogleAccountRules.state(
+            for: values.googleAccount,
+            credential: values.googleCredential,
+            verification: values.googleVerification
+        )
+        // The same state the title was drawn from, so the button cannot say one thing and do another. It used to be
+        // decided from the identity alone, which meant a row with no token behind it offered Disconnect.
+        onChange?(GoogleAccountRules.action(for: state) == .disconnect ? .googleDisconnected : .googleSignInRequested)
     }
 
     /// Two sections, App settings above Google, each folding away behind its own triangle.

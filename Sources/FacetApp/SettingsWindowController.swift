@@ -220,6 +220,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // thing that knows about it, and would make leaving the tab and coming back a different answer from
             // staying on it. See the source-of-truth rule in `CLAUDE.md`.
             wire(pane)
+            // **Google is asked, though, and that is not the same thing.** Whether the saved sign-in still works is
+            // not a setting this window holds; it is a fact about somebody else's server that this app cannot store
+            // and cannot infer, and it is asked at the point of use for the same reason the cube is asked rather
+            // than believed. Nothing is written and no row is re-read.
+            verifyGoogleConnection(on: pane)
 
         case let pane as ReportPane:
             // Nothing to read: the range is a question somebody is asking, not a setting. Today moves, though, and
@@ -280,6 +285,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 name: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.nameField),
                 email: settings.string(GoogleAccountRules.setting, field: GoogleAccountRules.emailField)
             ),
+            googleCredential: {
+                // Read here, with the row, because the two are one answer: opening the window reads every value the
+                // window shows, in one go, and an identity read without its token is the half-answer that let the
+                // tab say Connected with nothing behind it.
+                switch GoogleTokenStore.lookUp() {
+                case .found: return .present
+                case .missing: return .missing
+                case .unavailable: return .unavailable
+                }
+            }(),
             googleCredentialsAvailable: GoogleCredentials.resolve() != nil,
             googleCalendar: GoogleCalendarRules.calendar(
                 id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
@@ -1053,6 +1068,52 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             } catch {
                 self?.debugLog?.record(.field, "Google sign-in failed: \(error.localizedDescription)")
                 self?.showGoogleFailed(error)
+            }
+        }
+    }
+
+    /// Asks Google whether the saved sign-in still works, and tells the pane what came back.
+    ///
+    /// **This is the device rule, applied to Google.** `CLAUDE.md` already says a command the cube can be asked about
+    /// is read back before it is believed, because an in-memory copy of what was last sent is a second answer that
+    /// can disagree. A refresh token is the same shape of thing and freer to disagree: it can be revoked at
+    /// myaccount.google.com, expire through disuse, or die with a password change, and the bytes in the Keychain read
+    /// identically in every one of those cases. So the only honest answer comes from asking.
+    ///
+    /// **It never puts anything on screen.** No alert, no sheet, no failure dialog. Opening a tab is not somebody
+    /// asking for a calendar, and a check that can interrupt would make the App tab a thing you brace for. Everything
+    /// it learns arrives as a row of the section instead.
+    ///
+    /// **Nothing is stored.** The answer is true of the moment it was given, so it lives in the pane until the window
+    /// closes and is asked again next time. Writing it to a `setting` row would recreate exactly the stale-copy fault
+    /// this whole change is about.
+    ///
+    /// **Offline is not signed out**, which is the distinction the whole thing turns on: a `URLError` means the
+    /// question could not be put, and answering it as "you are signed out" would push somebody through a browser
+    /// consent to fix a connection that was never broken.
+    private func verifyGoogleConnection(on pane: AppSettingsPane) {
+        // Nothing to verify without an identity: the section already says Not connected, and asking Google about an
+        // account nobody named would be a request that cannot have an answer.
+        guard pane.values.googleAccount.hasIdentity else { return }
+        Task { @MainActor [weak self, weak pane] in
+            do {
+                _ = try await GoogleCalendarClient.currentAccessToken()
+                pane?.adopt(.googleVerified(.working))
+                self?.debugLog?.record(.field, "Google sign-in checked and works")
+            } catch GoogleCalendarRules.Failure.notSignedIn {
+                pane?.adopt(.googleCredentialChanged(.missing))
+                self?.debugLog?.record(.field, "Google sign-in checked: there is no saved sign-in")
+            } catch let GoogleCalendarRules.Failure.keychainUnavailable(status) {
+                pane?.adopt(.googleCredentialChanged(.unavailable))
+                self?.debugLog?.record(.field, "Google sign-in checked: the Keychain would not answer, error \(status)")
+            } catch let error as URLError {
+                // The question could not be put. Nothing is known, and nothing is claimed.
+                pane?.adopt(.googleVerified(.unreachable(error.localizedDescription)))
+                self?.debugLog?.record(.field, "Google sign-in could not be checked: \(error.localizedDescription)")
+            } catch {
+                // Google was reached and would not accept the token. Signing in again is the only fix.
+                pane?.adopt(.googleVerified(.refused(error.localizedDescription)))
+                self?.debugLog?.record(.field, "Google sign-in checked and refused: \(error.localizedDescription)")
             }
         }
     }
