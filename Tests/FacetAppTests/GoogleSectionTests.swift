@@ -17,15 +17,22 @@ final class GoogleSectionTests: XCTestCase {
         (view(identifier, in: root) as? NSTextField)?.stringValue
     }
 
+    /// `credential` defaults to `.present`, so a test that names an account gets the ordinary case: somebody signed
+    /// in and the token is where it was left. The states where the two halves disagree are asked for explicitly,
+    /// which is the point of them being separate arguments at all.
     private func pane(
         name: String? = nil,
         email: String? = nil,
         credentials: Bool = true,
+        credential: GoogleAccountRules.Credential = .present,
+        verification: GoogleAccountRules.Verification = .notAsked,
         calendar: GoogleCalendarRules.Calendar = .none
     ) -> AppSettingsPane {
         let pane = AppSettingsPane()
         var values = AppSettingsPane.Values.seeded
         values.googleAccount = GoogleAccountRules.account(name: name, email: email)
+        values.googleCredential = credential
+        values.googleVerification = verification
         values.googleCredentialsAvailable = credentials
         values.googleCalendar = calendar
         pane.show(values)
@@ -141,25 +148,148 @@ final class GoogleSectionTests: XCTestCase {
 
     // MARK: - what the row holds
 
-    func testAnAccountWithNeitherNameNorEmailIsNotAConnection() {
+    func testAnAccountWithNeitherNameNorEmailHasNoIdentity() {
         // The row is seeded as `{}` and stays that way until a sign-in fills it, so "no fields" is the normal state
         // rather than an error, and it has to read as not connected rather than as a connection with blanks in it.
-        XCTAssertFalse(GoogleAccountRules.account(name: nil, email: nil).isConnected)
-        XCTAssertEqual(GoogleAccountRules.status(for: .none), "Not connected")
+        XCTAssertFalse(GoogleAccountRules.account(name: nil, email: nil).hasIdentity)
+        XCTAssertEqual(GoogleAccountRules.status(for: .notConnected), "Not connected")
     }
 
-    func testEitherFieldAloneIsStillAConnection() {
+    func testEitherFieldAloneIsStillAnIdentity() {
         // The userinfo endpoint can answer with no name on the profile. That is a connected account with one thing
         // to show, not a broken one.
-        XCTAssertTrue(GoogleAccountRules.account(name: nil, email: "h@tux.com.au").isConnected)
-        XCTAssertTrue(GoogleAccountRules.account(name: "Harry", email: nil).isConnected)
+        XCTAssertTrue(GoogleAccountRules.account(name: nil, email: "h@tux.com.au").hasIdentity)
+        XCTAssertTrue(GoogleAccountRules.account(name: "Harry", email: nil).hasIdentity)
     }
 
     func testABlankFieldCountsAsAbsent() {
         // Signing out writes empty strings rather than deleting the keys, since the row's other fields have to
         // survive. So an empty string has to mean the same as a missing one, or a sign-out would leave the section
         // claiming a connection to an account called "".
-        XCTAssertFalse(GoogleAccountRules.account(name: "", email: "   ").isConnected)
+        XCTAssertFalse(GoogleAccountRules.account(name: "", email: "   ").hasIdentity)
+    }
+
+    // MARK: - an identity is not a connection
+
+    func testAnIdentityWithNoTokenIsNotConnected() {
+        // **The fault this whole type was reshaped for, measured on 2026-08-26.** `google_account` held a name, an
+        // email, a calendar id and a calendar name, the App tab read Connected, and the Keychain had no item at all.
+        // The row was never wrong; it was only ever half the answer.
+        let account = GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")
+        XCTAssertTrue(account.hasIdentity, "the row still names somebody")
+        XCTAssertEqual(GoogleAccountRules.state(for: account, credential: .missing), .signedOut)
+        XCTAssertEqual(GoogleAccountRules.status(for: .signedOut), "Signed out")
+    }
+
+    func testAKeychainThatWillNotAnswerIsNotAnAbsentToken() {
+        // The two used to be indistinguishable, because every non-success status collapsed to `nil`. They have
+        // opposite remedies: one is fixed by signing in, the other by finding out why the item cannot be read, and
+        // sending somebody through a browser consent for the second throws away a connection that works.
+        let account = GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")
+        XCTAssertEqual(GoogleAccountRules.state(for: account, credential: .unavailable), .unreadable)
+        XCTAssertEqual(GoogleAccountRules.status(for: .unreadable), "Cannot be checked")
+        XCTAssertEqual(GoogleAccountRules.action(for: .unreadable), .disconnect,
+                       "nobody is told to sign in again over a question that was never answered")
+    }
+
+    func testBeingOfflineIsNotBeingSignedOut() {
+        // A check that cannot be made says nothing, and must not read as an answer. Rendering "Not connected" at
+        // somebody on a plane would have them re-consent in a browser to fix a connection that is fine.
+        let account = GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")
+        let state = GoogleAccountRules.state(
+            for: account, credential: .present, verification: .unreachable("offline")
+        )
+        XCTAssertEqual(state, .unreachable)
+        XCTAssertEqual(GoogleAccountRules.status(for: state), "Connected, not checked")
+        XCTAssertEqual(GoogleAccountRules.action(for: state), .disconnect)
+        XCTAssertTrue(GoogleAccountRules.showsCalendar(for: state), "still the best answer anyone has")
+    }
+
+    func testGoogleRefusingTheTokenOffersASignIn() {
+        // The one state where Google has actually spoken against the stored token. Nothing local fixes it.
+        let account = GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")
+        let state = GoogleAccountRules.state(
+            for: account, credential: .present, verification: .refused("invalid_grant")
+        )
+        XCTAssertEqual(state, .expired)
+        XCTAssertEqual(GoogleAccountRules.status(for: state), "Sign-in expired")
+        XCTAssertEqual(GoogleAccountRules.action(for: state), .signIn)
+        XCTAssertFalse(GoogleAccountRules.showsCalendar(for: state),
+                       "a Create that is going to be refused is a button that can only fail")
+    }
+
+    func testAStoredTokenReadsAsConnectedBeforeAnyoneHasAsked() {
+        // Opening a window is not asking Google anything, and the instant before the answer comes back must not
+        // flicker through "Not connected". The token being there is a real local fact, and strictly more than the
+        // old code knew.
+        let account = GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")
+        XCTAssertEqual(GoogleAccountRules.state(for: account, credential: .present), .unverified)
+        XCTAssertEqual(GoogleAccountRules.status(for: .unverified), "Connected")
+    }
+
+    func testNoIdentityOutranksWhateverTheKeychainSays() {
+        // A token with no account named beside it is not something to offer a Disconnect for. Whatever it is, it is
+        // not a connection anybody can see.
+        let none = GoogleAccountRules.Account.none
+        XCTAssertEqual(GoogleAccountRules.state(for: none, credential: .present), .notConnected)
+        XCTAssertEqual(GoogleAccountRules.state(for: none, credential: .unavailable), .notConnected)
+    }
+
+    // MARK: - what the section draws in each of them
+
+    func testASignedOutSectionSaysSoAndOffersASignIn() throws {
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au", credential: .missing)
+
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Signed out")
+        let button = try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton)
+        XCTAssertEqual(button.title, "Sign in with Google")
+        XCTAssertNil(view(AppSettingsPane.Identifier.googleCalendarCreate, in: pane),
+                     "no calendar can be made without a token")
+        let note = try XCTUnwrap(view(AppSettingsPane.Identifier.googleNote, in: pane) as? NSTextField)
+        XCTAssertTrue(note.stringValue.contains("remembered but its sign-in is not"))
+    }
+
+    func testPressingTheButtonWhileSignedOutAsksForASignInNotADisconnect() throws {
+        // The button used to be decided from the identity alone, so this state offered Disconnect: a control that
+        // said one thing and did another.
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au", credential: .missing)
+        var requested: [AppSettingsPane.Change] = []
+        pane.onChange = { requested.append($0) }
+
+        try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton).performClick(nil)
+
+        XCTAssertEqual(requested, [.googleSignInRequested])
+    }
+
+    func testAnUnreadableKeychainSaysWhatItCannotDoRatherThanBlamingTheAccount() throws {
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au", credential: .unavailable)
+
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Cannot be checked")
+        let note = try XCTUnwrap(view(AppSettingsPane.Identifier.googleNote, in: pane) as? NSTextField)
+        XCTAssertTrue(note.stringValue.contains("Keychain"))
+    }
+
+    func testAdoptingAVerdictRedrawsTheSection() throws {
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au")
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Connected")
+
+        pane.adopt(.googleVerified(.refused("invalid_grant")))
+
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Sign-in expired")
+        let note = try XCTUnwrap(view(AppSettingsPane.Identifier.googleNote, in: pane) as? NSTextField)
+        XCTAssertTrue(note.stringValue.contains("invalid_grant"), "says what Google actually said")
+    }
+
+    func testDisconnectingForgetsBothHalvesAtOnce() throws {
+        // Leaving the credential at `.present` would leave the section one read away from claiming a connection to
+        // an account it has just let go of.
+        let pane = self.pane(name: "Harry", email: "harry@tux.com.au", verification: .working)
+
+        pane.adopt(.googleDisconnected)
+
+        XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Not connected")
+        XCTAssertEqual(pane.values.googleCredential, .missing)
+        XCTAssertEqual(pane.values.googleVerification, .notAsked)
     }
 
     // MARK: - what the section draws
@@ -227,6 +357,8 @@ final class GoogleSectionTests: XCTestCase {
 
         XCTAssertEqual(text(AppSettingsPane.Identifier.googleStatus, in: pane), "Connected")
         XCTAssertEqual(text(AppSettingsPane.Identifier.googleEmail, in: pane), "harry@tux.com.au")
+        XCTAssertEqual(pane.values.googleCredential, .present,
+                       "a sign-in that got this far stored a token, so both halves move together")
     }
 
     func testAConnectedSectionNamesTheAccountAndOffersDisconnect() throws {

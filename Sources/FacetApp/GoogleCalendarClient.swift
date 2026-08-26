@@ -49,10 +49,16 @@ enum GoogleCalendarClient {
         guard let credentials = GoogleCredentials.resolve() else {
             throw GoogleOAuthRules.Failure.noCredentials
         }
-        guard let refresh = GoogleTokenStore.refreshToken() else {
+        // Asked three ways rather than two, so a Keychain that would not answer is reported as itself instead of
+        // as an account nobody signed into.
+        switch GoogleTokenStore.lookUp() {
+        case let .found(refresh):
+            return try await accessToken(credentials: credentials, refreshToken: refresh, session: session)
+        case .missing:
             throw GoogleCalendarRules.Failure.notSignedIn
+        case let .unavailable(status):
+            throw GoogleCalendarRules.Failure.keychainUnavailable(status)
         }
-        return try await accessToken(credentials: credentials, refreshToken: refresh, session: session)
     }
 
     /// Fetches the stored calendar, to find out whether it is still there and what it is called now.

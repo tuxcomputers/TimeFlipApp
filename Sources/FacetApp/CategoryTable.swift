@@ -42,13 +42,15 @@ final class CategoryTable: NSView {
         static let activeColumnWidth: CGFloat = 44
         /// The icon, which has no caption over it because there is nothing useful to call it.
         static let iconSize: CGFloat = 20
-        /// Between the columns of a row, and between the rows.
-        static let columnSpacing: CGFloat = 12
-        static let rowSpacing: CGFloat = 8
+        /// Between the columns of a row, and between the rows. **From `SettingsMetrics`**, which is where the look
+        /// of every tab is now decided: this tab is where those numbers came from, and reading them back rather
+        /// than keeping its own copy is what stops the three tabs drifting apart again.
+        static let columnSpacing = SettingsMetrics.columnSpacing
+        static let rowSpacing = SettingsMetrics.rowSpacing
         /// Inside the panel, around the heading and the list on it. Applied by [PanelSection], which owns the
         /// panel, and named here because both lists on this tab take their measurements from this one place.
-        static let padding: CGFloat = 8
-        static let cornerRadius: CGFloat = 8
+        static let padding = SettingsMetrics.panelPadding
+        static let cornerRadius = SettingsMetrics.cornerRadius
         /// The colour swatch, and how visible its outline is against a colour of its own.
         static let swatchSize: CGFloat = 14
         static let swatchCornerRadius: CGFloat = 3
@@ -260,6 +262,12 @@ final class CategoryTableRow: NSStackView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(category.name)
         addViews()
+        // **The same height contract the other two tabs keep**, and the reason this tab needed it at all: its rows
+        // were 24pt because the daily-limit field is 24pt, so `SettingsMetrics.rowHeight` moved the App and Device
+        // tabs and left this one exactly where it was. One value governing the look of all three was not true until
+        // this line. It changes nothing today, the number and the field agreeing; it is what makes the number the
+        // answer rather than a coincidence.
+        SettingsRow.settle(self)
     }
 
     @available(*, unavailable)

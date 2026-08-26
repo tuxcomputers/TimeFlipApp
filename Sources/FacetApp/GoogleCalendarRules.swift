@@ -112,6 +112,10 @@ enum GoogleCalendarRules {
     /// Errors worth telling somebody about, in words that say whose problem it is.
     enum Failure: LocalizedError, Equatable {
         case notSignedIn
+        /// The Keychain refused to hand over the token. **Not the same as not being signed in**: the item may be
+        /// there and readable by a differently-signed copy of this app, so telling somebody to sign in again would
+        /// be advice for the wrong problem.
+        case keychainUnavailable(Int32)
         case createFailed(String)
         case renameFailed(String)
         case deleteFailed(String)
@@ -120,6 +124,8 @@ enum GoogleCalendarRules {
             switch self {
             case .notSignedIn:
                 return "Facet is not connected to a Google account, so it cannot make a calendar."
+            case let .keychainUnavailable(status):
+                return "Facet could not read its Google sign-in from your Keychain (error \(status))."
             case let .createFailed(reason):
                 return "Facet could not create the calendar: \(reason)."
             case let .renameFailed(reason):

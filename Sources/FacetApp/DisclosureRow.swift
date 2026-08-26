@@ -43,8 +43,11 @@ final class DisclosureRow: NSView {
 
     /// - Parameters:
     ///   - content: the rows that fold away. Laid out by the caller; this only decides whether they are on show.
-    ///   - separated: whether a hairline closes the heading line off from the row under it, as the plain rows do.
-    init(title: String, identifier: String, isExpanded: Bool, content: NSView, separated: Bool = false) {
+    ///
+    /// **No hairline under the heading**, and no longer an option: nothing on any tab draws a line between rows, so
+    /// a folding heading that closed itself off from the row under it would be the one line left on the tab. The
+    /// gap between rows is what divides them (`SettingsMetrics.rowSpacing`).
+    init(title: String, identifier: String, isExpanded: Bool, content: NSView) {
         self.title = title
         self.isExpanded = isExpanded
         self.defaultExpanded = isExpanded
@@ -57,7 +60,7 @@ final class DisclosureRow: NSView {
         setAccessibilityRole(.group)
         setAccessibilityIdentifier(identifier)
         setAccessibilityLabel(title)
-        addContent(identifier: identifier, separated: separated)
+        addContent(identifier: identifier)
     }
 
     @available(*, unavailable)
@@ -84,7 +87,7 @@ final class DisclosureRow: NSView {
         }
     }
 
-    private func addContent(identifier: String, separated: Bool) {
+    private func addContent(identifier: String) {
         // A disclosure button draws the triangle and nothing else, so the word beside it is a label of ours: the
         // button's own title would sit in the system's small control font rather than the row font this list uses.
         toggle.setButtonType(.onOff)
@@ -138,19 +141,6 @@ final class DisclosureRow: NSView {
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-
-        if separated {
-            let separator = NSBox()
-            separator.boxType = .separator
-            separator.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(separator)
-            NSLayoutConstraint.activate([
-                separator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.rowInset),
-                separator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.rowInset),
-                separator.bottomAnchor.constraint(equalTo: headingButton.bottomAnchor),
-                separator.heightAnchor.constraint(equalToConstant: 1),
-            ])
-        }
 
         expandedConstraint = content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.rowPadding)
         collapsedConstraint = headingButton.bottomAnchor.constraint(equalTo: bottomAnchor)

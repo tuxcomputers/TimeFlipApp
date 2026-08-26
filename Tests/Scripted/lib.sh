@@ -70,6 +70,23 @@ yellow() { printf '\033[1;33m%s\033[0m\n' "$*"; }
 # stray `t` skipped the whole Google calendar section, and the run finished green having not checked it.
 # A skip is a real answer somebody may want to give, so it keeps its key -- what it no longer has is every
 # other key on the keyboard as a synonym. EOF still ends it, so a closed pipe cannot loop for ever.
+# ---------------------------------------------------------------------------- waiting on a person
+#
+# **Seconds this script spent waiting for a person, rather than for the app.** Kept apart from the script's own
+# time because they are different measurements answering different questions: how long the app took is worth
+# watching for a regression, and how long somebody took to answer a prompt is worth nothing at all except that it
+# should not be counted against the app. A device script that usually takes two minutes and took thirty because
+# whoever was running it went to make coffee looks exactly like one that has broken.
+#
+# Accumulated here rather than at the call sites: every prompt in this file goes through one of the four helpers
+# below, so a new script asking for something gets its wait discounted without knowing this exists.
+HUMAN_SECONDS=0
+
+# Adds the time since `$1` (a `$SECONDS` reading taken before the prompt went up) to the run's human total.
+note_human_wait() {
+    HUMAN_SECONDS=$(( HUMAN_SECONDS + SECONDS - ${1:-$SECONDS} ))
+}
+
 action_required() {
     local title="$1"
     shift
@@ -93,13 +110,13 @@ action_required() {
         return 1
     fi
 
-    local answer=""
+    local answer="" asked=$SECONDS
     while true; do
         printf '  Answer y (go ahead) or n (skip this): '
-        read -r answer < /dev/tty || return 1
+        read -r answer < /dev/tty || { note_human_wait "$asked"; return 1; }
         case "$answer" in
-            y | Y | yes | YES | Yes) echo ""; return 0 ;;
-            n | N | no | NO | No) echo ""; return 1 ;;
+            y | Y | yes | YES | Yes) note_human_wait "$asked"; echo ""; return 0 ;;
+            n | N | no | NO | No) note_human_wait "$asked"; echo ""; return 1 ;;
             *) red "  '$answer' is not an answer here. Type y or n." ;;
         esac
     done
@@ -138,8 +155,10 @@ wait_for_dev() {
     # **No key in particular**, unlike `action_required`: there is nothing being decided here, so there is no
     # wrong key to press and nothing a mistyped one could choose. Asking for `y` would only be a rule with
     # no answer behind it.
+    local asked=$SECONDS
     printf '  Press Return when you are ready to carry on: '
     read -r _ < /dev/tty || true
+    note_human_wait "$asked"
     echo ""
     return 0
 }
@@ -190,10 +209,13 @@ ask_and_detect() {
         return 1
     fi
 
-    local waited=0 found=""
+    local waited=0 found="" asked=$SECONDS
     while true; do
         found=$(anysql "$query")
         if [ -n "$found" ]; then
+            # **The whole of this wait is a person's**, not the app's: nothing here happens until somebody turns
+            # the cube, and the poll is only how the script notices that they have.
+            note_human_wait "$asked"
             grey "  seen: $found"
             return 0
         fi
@@ -846,8 +868,10 @@ restore_bluetooth() {
     yellow "##############################################################################"
     echo ""
     [ -r /dev/tty ] || return 0
+    local asked=$SECONDS
     printf '  Press Return once Bluetooth is back on: '
     read -r _ < /dev/tty || true
+    note_human_wait "$asked"
     echo ""
 }
 

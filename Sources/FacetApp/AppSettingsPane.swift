@@ -56,21 +56,17 @@ final class AppSettingsPane: NSView {
     }
 
     private enum Layout {
-        /// The Categories tab's numbers, so the two tabs sit at the same rhythm.
-        static let padding: CGFloat = 20
-        static let headingSpacing: CGFloat = 12
-        /// Inside the panel, to the left of a label and to the right of a control. The rows themselves run the whole
-        /// width, which is what puts a separator's ends where the archive's are.
-        static let rowInset: CGFloat = 20
-        /// Above and below a row's content. What makes the number rows taller than the switch rows is the fields
-        /// inside them, not a second measurement -- the archive's rows sized to their contents the same way.
-        static let rowPadding: CGFloat = 11
-        /// The least a row can be, so two switches in a row do not read as a tighter list than the fields under them.
-        static let minimumRowHeight: CGFloat = 38
-        static let separatorHeight: CGFloat = 1
-        /// Between one section's panel and the next section's heading. Wider than `headingSpacing`, so a heading
-        /// reads as belonging to the panel under it rather than to the one it follows.
-        static let sectionSpacing: CGFloat = 24
+        /// **Every number here comes from `SettingsMetrics`**, which is where the look of a tab is decided. This tab
+        /// used to carry its own copies, measured against the Categories tab by eye, and they had drifted: a 46pt
+        /// row against that tab's 32, with hairlines it never had.
+        static let padding = SettingsMetrics.tabPadding
+        static let headingSpacing = SettingsMetrics.headingSpacing
+        /// **No row inset and no row height here any more.** Both moved to `SettingsRow`, which is what builds a
+        /// row on this tab and on the Device tab: the panel insets the list, exactly as it does on the Categories
+        /// tab, and the height is the one `SettingsMetrics` sets for every tab.
+        /// Between one row and the next, which is what divides them now that nothing is drawn between them.
+        static let rowSpacing = SettingsMetrics.rowSpacing
+        static let sectionSpacing = SettingsMetrics.sectionSpacing
         /// How much of the Calendar row the name may take. Wide enough for a name somebody chose, and fixed so the
         /// row does not change width when the name does.
         static let calendarNameWidth: CGFloat = 240
@@ -89,6 +85,12 @@ final class AppSettingsPane: NSView {
         /// Who is signed in, from the `google_account` row. Part of this struct rather than read separately because
         /// it is read in the same pass: opening the window reads every value the window shows, in one go.
         var googleAccount = GoogleAccountRules.Account.none
+        /// Whether the Keychain holds a token for that account, which the row cannot say. Read in the same pass as
+        /// the row: one of them without the other is exactly the half-answer this section used to draw.
+        var googleCredential = GoogleAccountRules.Credential.missing
+        /// What Google last said about the token. Starts `notAsked` because opening a window is not asking Google
+        /// anything; the window fills this in when the check comes back.
+        var googleVerification = GoogleAccountRules.Verification.notAsked
         /// Whether this build has an OAuth client in it at all. Not a setting: it comes from the bundle and the
         /// override file, and it decides whether the button can do anything.
         var googleCredentialsAvailable = false
@@ -137,6 +139,12 @@ final class AppSettingsPane: NSView {
         case googleCalendarDeleteRequested
         /// The calendar the table now holds, after Google answered and the write was read back.
         case googleCalendarChanged(GoogleCalendarRules.Calendar)
+        /// What the Keychain now says. **Not a request and not a setting**: nobody edits this in the window, it is
+        /// the other half of a fact the row only tells half of.
+        case googleCredentialChanged(GoogleAccountRules.Credential)
+        /// What Google said when asked whether the token still works. Arrives once per ask and is never stored,
+        /// because it is true of a moment rather than of the account.
+        case googleVerified(GoogleAccountRules.Verification)
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -207,6 +215,17 @@ final class AppSettingsPane: NSView {
             break
         case let .googleConnected(account):
             values.googleAccount = account
+            // A sign-in that got this far stored a token, so both halves move together. Asserting the credential
+            // here rather than leaving it at whatever it was is the difference between the section saying Connected
+            // because it just watched it happen and saying it out of habit.
+            values.googleCredential = .present
+            values.googleVerification = .working
+            showGoogle()
+        case let .googleCredentialChanged(credential):
+            values.googleCredential = credential
+            showGoogle()
+        case let .googleVerified(verification):
+            values.googleVerification = verification
             showGoogle()
         case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarDeleteRequested:
             // Requests. What the calendar becomes arrives as `googleCalendarChanged`, including a deletion,
@@ -217,6 +236,11 @@ final class AppSettingsPane: NSView {
             showGoogle()
         case .googleDisconnected:
             values.googleAccount = .none
+            // Signing out clears the token as well as the identity, so both halves are put back together. Leaving
+            // the credential at `.present` would leave the section one read away from claiming a connection to an
+            // account it has just forgotten.
+            values.googleCredential = .missing
+            values.googleVerification = .notAsked
             // **The calendar is not forgotten here.** The id survives a sign-out so that signing back in on the same
             // account keeps the calendar and its history; it is checked on the way back in rather than trusted, and
             // only cleared once Google has said it is gone.
@@ -264,40 +288,49 @@ final class AppSettingsPane: NSView {
         calendarCell = nil
 
         let account = values.googleAccount
+        // Worked out once, at the top, and everything below reads it. Deriving it per control is how the status
+        // label and the button came to be able to disagree in the first place.
+        let state = GoogleAccountRules.state(
+            for: account, credential: values.googleCredential, verification: values.googleVerification
+        )
         var built: [NSView] = [
-            row("Status", label(GoogleAccountRules.status(for: account), identifier: Identifier.googleStatus),
-                separated: true),
+            SettingsRow.make(
+                "Status", label(GoogleAccountRules.status(for: state), identifier: Identifier.googleStatus)
+            ),
         ]
         if let name = account.name {
-            built.append(row("Account", label(name, identifier: Identifier.googleAccount), separated: true))
+            built.append(SettingsRow.make("Account", label(name, identifier: Identifier.googleAccount)))
         }
         if let email = account.email {
-            built.append(row("Email", label(email, identifier: Identifier.googleEmail), separated: true))
+            built.append(SettingsRow.make("Email", label(email, identifier: Identifier.googleEmail)))
         }
 
-        if account.isConnected {
+        if GoogleAccountRules.showsCalendar(for: state) {
             built.append(calendarRow())
         }
 
         let hasCredentials = values.googleCredentialsAvailable
         let button = NSButton(
-            title: GoogleAccountRules.buttonTitle(for: account, isSigningIn: isSigningIn),
+            title: GoogleAccountRules.buttonTitle(for: state, isSigningIn: isSigningIn),
             target: self,
             action: #selector(googleButtonPressed)
         )
         button.bezelStyle = .rounded
         button.translatesAutoresizingMaskIntoConstraints = false
         button.isEnabled = GoogleAccountRules.isButtonEnabled(
-            for: account, hasCredentials: hasCredentials, isSigningIn: isSigningIn
+            for: state, hasCredentials: hasCredentials, isSigningIn: isSigningIn
         )
         button.setAccessibilityIdentifier(Identifier.googleButton)
-        built.append(row(account.isConnected ? "Account" : "Google", button, separated: false))
+        let isForgetting = GoogleAccountRules.action(for: state) == .disconnect
+        built.append(SettingsRow.make(isForgetting ? "Account" : "Google", button))
 
         for view in built {
             googleRows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: googleRows.widthAnchor).isActive = true
         }
-        googleNote.stringValue = GoogleAccountRules.note(for: account, hasCredentials: hasCredentials) ?? ""
+        googleNote.stringValue = GoogleAccountRules.note(
+            for: state, hasCredentials: hasCredentials, verification: values.googleVerification
+        ) ?? ""
         showGoogleNote()
     }
 
@@ -329,7 +362,7 @@ final class AppSettingsPane: NSView {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.isEnabled = !isSigningIn
             button.setAccessibilityIdentifier(Identifier.googleCalendarCreate)
-            return row("Calendar", button, separated: true)
+            return SettingsRow.make("Calendar", button)
         }
 
         // **The same cell a category name uses**, so renaming the calendar is the same act as renaming a category:
@@ -364,7 +397,7 @@ final class AppSettingsPane: NSView {
         pair.orientation = .horizontal
         pair.spacing = Layout.headingSpacing
         pair.translatesAutoresizingMaskIntoConstraints = false
-        return row("Calendar", pair, separated: true)
+        return SettingsRow.make("Calendar", pair)
     }
 
     @objc
@@ -401,7 +434,14 @@ final class AppSettingsPane: NSView {
     @objc
     private func googleButtonPressed() {
         guard !isSigningIn else { return }
-        onChange?(values.googleAccount.isConnected ? .googleDisconnected : .googleSignInRequested)
+        let state = GoogleAccountRules.state(
+            for: values.googleAccount,
+            credential: values.googleCredential,
+            verification: values.googleVerification
+        )
+        // The same state the title was drawn from, so the button cannot say one thing and do another. It used to be
+        // decided from the identity alone, which meant a row with no token behind it offered Disconnect.
+        onChange?(GoogleAccountRules.action(for: state) == .disconnect ? .googleDisconnected : .googleSignInRequested)
     }
 
     /// Two sections, App settings above Google, each folding away behind its own triangle.
@@ -478,14 +518,11 @@ final class AppSettingsPane: NSView {
 
     /// One of the tab's two sections.
     ///
-    /// **One number differs from the Categories tab's, and only one.** A row here runs the panel's full width and
-    /// holds its own label off the edge with `rowInset`, which is what puts a separator's ends where the archive's
-    /// are, so the section must not inset the content as well: doing so would indent every row twice over and stop
-    /// the hairlines short at both ends. Everything else -- where the triangle sits, the gap under the heading, the
-    /// corner -- is deliberately the same, so the two tabs' sections read as one control drawn twice rather than as
-    /// two that happen to look similar. That was measured on screen, not assumed: an inset of this tab's own 20
-    /// pushed the heading right of the labels under it and left a folded panel half again as tall as the Categories
-    /// tab's.
+    /// **Nothing is overridden any more, which is the whole of what makes this tab match the Categories tab.** It
+    /// used to pass `contentInset: 0` and inset each row itself with `rowInset`, so that the hairlines between rows
+    /// ended where the archive's did. There are no hairlines now, so that exception buys nothing and costs the one
+    /// thing worth having: a row starting at the same x on both tabs. Everything a section is -- where the triangle
+    /// sits, the gap under the heading, the corner, the inset -- now comes from `SettingsMetrics` for all three.
     ///
     /// **No label is passed**, because "App settings" and "Google" already say what they are. The Categories tab
     /// passes one; "Active" announced on its own does not mean anything.
@@ -494,17 +531,17 @@ final class AppSettingsPane: NSView {
             title: title,
             identifier: identifier,
             isExpanded: true,
-            content: content,
-            metrics: PanelSection.Metrics(contentInset: 0)
+            content: content
         )
     }
 
     private func stack(_ view: NSStackView) {
         view.orientation = .vertical
         view.alignment = .leading
-        // No gap: the rows are a list with hairlines between them, not separate controls, and the padding inside each
-        // row is what keeps them apart. The archive's grouped form again.
-        view.spacing = 0
+        // **The gap is what divides the rows**, which is how the Categories tab has always done it. This was 0 while
+        // hairlines did the dividing and the padding inside each row held them apart -- which is what made the rows
+        // here half again as tall as that tab's.
+        view.spacing = Layout.rowSpacing
         view.translatesAutoresizingMaskIntoConstraints = false
     }
 
@@ -553,60 +590,11 @@ final class AppSettingsPane: NSView {
             // time spent.
             ("Ignore flips under", blipTimeField),
         ]
-        for (index, (title, control)) in built.enumerated() {
-            // No hairline under the last one: it would draw against the panel's own bottom edge and read as a row
-            // that failed to load rather than as a divider.
-            let view = row(title, control, separated: index < built.count - 1)
+        for (title, control) in built {
+            let view = SettingsRow.make(title, control)
             rows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
         }
-    }
-
-    /// One row of the grouped form: the label against the left inset, the control against the right one, and a
-    /// hairline under it.
-    ///
-    /// **The control is pinned to the trailing edge rather than following the label**, which is what the archive's
-    /// form did and what makes the column of controls line up down the right-hand side however long the words in
-    /// front of them are. A fixed label column would line them up too, and put them in the middle of the panel with
-    /// dead space beyond -- which is not what that tab looked like.
-    private func row(_ title: String, _ control: NSView, separated: Bool) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        control.setAccessibilityLabel(title)
-
-        let row = NSView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(label)
-        row.addSubview(control)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
-            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            // The label gives way before the control does: a window narrow enough to squeeze one of these should
-            // truncate the words, not shrink the field somebody types into.
-            label.trailingAnchor.constraint(lessThanOrEqualTo: control.leadingAnchor, constant: -Layout.rowInset),
-
-            control.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
-            control.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            control.topAnchor.constraint(equalTo: row.topAnchor, constant: Layout.rowPadding),
-            control.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -Layout.rowPadding),
-
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumRowHeight),
-        ])
-        guard separated else { return row }
-
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(separator)
-        NSLayoutConstraint.activate([
-            // From the label's left edge to the control's right one, which is where the archive drew it: a hairline
-            // running the full width would cut the panel in two rather than dividing a list.
-            separator.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Layout.rowInset),
-            separator.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Layout.rowInset),
-            separator.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: Layout.separatorHeight),
-        ])
-        return row
     }
 
     private func box(identifier: String, action: Selector) -> NSButton {

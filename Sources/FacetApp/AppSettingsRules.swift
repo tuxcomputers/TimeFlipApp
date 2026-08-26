@@ -128,7 +128,10 @@ enum AppSettingsRules {
             return ("blip_time", "seconds", .number(seconds))
         case .googleDisconnected, .googleSignInRequested, .googleConnected,
              .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged,
-             .googleCalendarDeleteRequested:
+             .googleCalendarDeleteRequested,
+             // Neither of these is a row being set: one is what the Keychain says and the other is what Google
+             // says, and no `setting` field holds either.
+             .googleCredentialChanged, .googleVerified:
             return nil
         }
     }
@@ -149,7 +152,8 @@ enum AppSettingsRules {
         case .batteryWarningPercent: return "Battery warning at"
         case .fetchIntervalMinutes: return "Fetch history every"
         case .blipSeconds: return "Ignore flips under"
-        case .googleDisconnected, .googleSignInRequested, .googleConnected: return "Google account"
+        case .googleDisconnected, .googleSignInRequested, .googleConnected,
+             .googleCredentialChanged, .googleVerified: return "Google account"
         case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged,
              .googleCalendarDeleteRequested: return "Calendar"
         }

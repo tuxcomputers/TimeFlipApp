@@ -363,48 +363,46 @@ final class AppSettingsPaneTests: XCTestCase {
             let aligned = try XCTUnwrap(control.superview).convert(
                 control.alignmentRect(forFrame: control.frame), to: content
             )
+            // **The shared inset, read rather than written down.** It was 20 here, this tab's own number, while the
+            // rows ran the panel's full width and held their own labels off the edge to place the hairlines. The
+            // panel insets the list now, exactly as it does on the Categories tab.
             XCTAssertEqual(
-                aligned.maxX, right - 20, accuracy: 0.5,
+                aligned.maxX, right - SettingsMetrics.panelPadding, accuracy: 0.5,
                 "\(control.accessibilityIdentifier()) does not reach the panel's inset"
             )
         }
     }
 
-    func testTheLabelsStartAtOneXAndTheRowsSpanThePanel() throws {
+    func testTheRowsSpanThePanelsContent() throws {
         let pane = AppSettingsPane()
         let content = hosted(pane, width: 640)
 
         let panel = try panel(of: pane)
         let panelFrame = content.convert(panel.bounds, from: panel)
-        // Every row is as wide as the panel, which is what puts the hairlines where the archive's are. The rows are
-        // the stack's own arranged views, rather than anything that happens to hold a label -- a number field holds
-        // one too.
+        // Every row is one width, and that width is the panel inset by the shared padding on both sides. It used to
+        // be the panel's own full width, the rows holding their labels off the edge themselves so that the hairlines
+        // between them ended where the archive's did; with no hairlines the panel insets the list instead, which is
+        // what the Categories tab has always done.
         let stack = try XCTUnwrap(descendants(of: try section(of: pane)).compactMap { $0 as? NSStackView }.first)
         XCTAssertEqual(stack.views.count, 6)
         let rowWidths = Set(stack.views.map(\.frame.width))
-        XCTAssertEqual(rowWidths, [panelFrame.width], "one width: \(rowWidths)")
+        XCTAssertEqual(
+            rowWidths, [panelFrame.width - 2 * SettingsMetrics.panelPadding], "one width: \(rowWidths)"
+        )
     }
 
-    func testEveryRowButTheLastHasAHairlineUnderIt() throws {
-        // Under the last one it would draw against the panel's own bottom edge and read as a row that failed to load
-        // rather than as a divider.
+    func testNothingIsDrawnBetweenTheRows() throws {
+        // **No hairlines anywhere on this tab.** They were what made it read as a different list from the Categories
+        // tab, which has never drawn one: the gap between rows is what divides them. Asserted as an absence because
+        // that is what changed -- five separators used to be the check here.
         let pane = AppSettingsPane()
-        let content = hosted(pane, width: 640)
+        _ = hosted(pane, width: 640)
 
-        // Counted inside this section rather than across the pane: the Google section under it has hairlines of its
-        // own, and counting both would make this test about the sum of two unrelated lists.
-        let panel = try panel(of: pane)
-        let separators = descendants(of: try section(of: pane))
+        let separators = descendants(of: pane)
             .compactMap { $0 as? NSBox }
             .filter { $0.boxType == .separator }
-        XCTAssertEqual(separators.count, 5, "six rows, five hairlines")
 
-        let panelFrame = content.convert(panel.bounds, from: panel)
-        for separator in separators {
-            let frame = content.convert(separator.bounds, from: separator)
-            XCTAssertEqual(frame.minX, panelFrame.minX + 20, accuracy: 0.5)
-            XCTAssertEqual(frame.maxX, panelFrame.maxX - 20, accuracy: 0.5, "not the full width, which would cut the panel in two")
-        }
+        XCTAssertEqual(separators.count, 0, "the gap between rows is what divides them")
     }
 
     // MARK: - the sections fold
@@ -527,6 +525,9 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         var values = stored
         values.googleAccount = GoogleAccountRules.Account(name: "Harry", email: "harry@example.com")
+        // Both halves, because an identity on its own is now `signedOut` and `signedOut` has a note: the row names
+        // somebody and there is no token for them, which is exactly the thing worth saying out loud.
+        values.googleCredential = .present
         pane.show(values)
         let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
         XCTAssertTrue(note.isHidden, "precondition: a connected account is explained by the rows themselves")

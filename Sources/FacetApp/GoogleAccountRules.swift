@@ -28,18 +28,21 @@ enum GoogleAccountRules {
     static let nameField = "name"
     static let emailField = "email"
 
-    /// The connected account, as far as the table knows.
+    /// The identity the `google_account` row carries, which is **half** of a connection.
     ///
     /// Both fields are optional and independently so: the row starts as `{}`, and the userinfo endpoint can return a
-    /// profile with no name on it. Connection is therefore decided by having *either*, not by having both.
+    /// profile with no name on it. So an identity exists if *either* is there, not if both are.
     struct Account: Equatable {
         var name: String?
         var email: String?
 
-        /// **Nothing at all means nothing to show.** An account with neither a name nor an email is indistinguishable
-        /// from never having signed in, so it is reported as not connected rather than as a connection with empty
-        /// labels under it.
-        var isConnected: Bool {
+        /// **Whether the row names somebody, and nothing more than that.**
+        ///
+        /// This used to be called `isConnected` and was the whole of the answer, which is the fault the rest of this
+        /// file exists to correct: the identity is in the database and the token that makes it usable is in the
+        /// Keychain, so a row can name an account perfectly while the app has no way to act as it. Measured on
+        /// 2026-08-26: a complete row, an App tab reading Connected, and no Keychain item at all.
+        var hasIdentity: Bool {
             name != nil || email != nil
         }
 
@@ -62,16 +65,112 @@ enum GoogleAccountRules {
         return trimmed
     }
 
-    /// The Status row's value. The archive's two words, kept: they are what somebody is scanning the section for.
-    static func status(for account: Account) -> String {
-        account.isConnected ? "Connected" : "Not connected"
+    /// The other half: whether the Keychain holds a token for the account the row names.
+    ///
+    /// A straight mirror of `GoogleTokenStore.Lookup`, kept as its own type so this file can be reasoned about, and
+    /// tested, without a Keychain anywhere near it.
+    enum Credential: Equatable {
+        case present
+        case missing
+        /// The Keychain would not answer. **Nothing is known**, which is not the same as knowing there is nothing.
+        case unavailable
+    }
+
+    /// What Google said, the last time it was asked.
+    ///
+    /// **Never stored, deliberately.** Whether a refresh token still works is a fact held at Google, not here: it can
+    /// be revoked at myaccount.google.com, expire through disuse, or die with a password change, and the stored bytes
+    /// read identically in every case. So this is the answer to a question asked at the point of use, and it goes
+    /// stale the moment it is given, which is why it is a parameter rather than a field on anything.
+    enum Verification: Equatable {
+        /// Nobody has asked yet. The ordinary state for the instant a window opens.
+        case notAsked
+        case working
+        /// Google was asked and refused the token.
+        case refused(String)
+        /// Google could not be asked. **Being offline is not being signed out**, and treating it as such would push
+        /// somebody through a browser consent to fix a problem they do not have.
+        case unreachable(String)
+    }
+
+    /// What the section actually is, from both halves plus whatever Google last said.
+    ///
+    /// **One value, computed, rather than a pile of booleans read in whatever order two `if`s happen to run in.**
+    /// Every string, every button and the calendar row all come from this, so they cannot disagree with each other.
+    enum State: Equatable {
+        /// Nothing stored. Never signed in, or signed out cleanly.
+        case notConnected
+        /// The row names an account and there is no token for it. A fresh sign-in is the whole of the fix.
+        case signedOut
+        /// Both halves present, and Google has not been asked. Strictly more than the old code knew, which is why it
+        /// still reads as connected: the token really is there.
+        case unverified
+        /// Both halves present and Google confirmed the token works. The only state that has been proved.
+        case connected
+        /// Google refused the token. Signing in again is the fix; nothing local will help.
+        case expired
+        /// Both halves present, Google unreachable. Connected as far as anything here knows.
+        case unreachable
+        /// The row names an account and the Keychain would not say whether there is a token. Nothing is known, and
+        /// in particular the user has *not* been told to sign in again.
+        case unreadable
+    }
+
+    /// The one place the state is decided.
+    static func state(
+        for account: Account,
+        credential: Credential,
+        verification: Verification = .notAsked
+    ) -> State {
+        guard account.hasIdentity else { return .notConnected }
+        switch credential {
+        case .missing: return .signedOut
+        case .unavailable: return .unreadable
+        case .present:
+            switch verification {
+            case .notAsked: return .unverified
+            case .working: return .connected
+            case .refused: return .expired
+            case .unreachable: return .unreachable
+            }
+        }
+    }
+
+    /// The Status row's value.
+    ///
+    /// The archive's two words survive for the two states they were true of. The rest say what is actually the case,
+    /// because "Not connected" in front of somebody whose Keychain merely would not answer is a false statement with
+    /// an expensive remedy attached.
+    static func status(for state: State) -> String {
+        switch state {
+        case .notConnected: return "Not connected"
+        case .signedOut: return "Signed out"
+        case .unverified, .connected: return "Connected"
+        case .expired: return "Sign-in expired"
+        case .unreachable: return "Connected, not checked"
+        case .unreadable: return "Cannot be checked"
+        }
+    }
+
+    /// What pressing the button will do. Named rather than inferred, so the pane does not have to re-derive it from
+    /// the title it is about to draw.
+    enum Action: Equatable {
+        case signIn
+        case disconnect
+    }
+
+    static func action(for state: State) -> Action {
+        switch state {
+        case .notConnected, .signedOut, .expired: return .signIn
+        case .unverified, .connected, .unreachable, .unreadable: return .disconnect
+        }
     }
 
     /// What the button offers. One button, whose meaning flips with the state, rather than two with one always
     /// disabled.
-    static func buttonTitle(for account: Account, isSigningIn: Bool = false) -> String {
+    static func buttonTitle(for state: State, isSigningIn: Bool = false) -> String {
         if isSigningIn { return "Signing in..." }
-        return account.isConnected ? "Disconnect" : "Sign in with Google"
+        return action(for: state) == .disconnect ? "Disconnect" : "Sign in with Google"
     }
 
     /// Whether the button can be pressed.
@@ -79,22 +178,56 @@ enum GoogleAccountRules {
     /// **Off while a sign-in is running**, so a second browser window cannot be opened on top of the first, and off
     /// when this build has no credentials in it, which is a real state: the client id and secret are injected at build
     /// time and a copy built without them cannot sign in at all. Disconnecting needs neither.
-    static func isButtonEnabled(for account: Account, hasCredentials: Bool, isSigningIn: Bool = false) -> Bool {
+    static func isButtonEnabled(for state: State, hasCredentials: Bool, isSigningIn: Bool = false) -> Bool {
         if isSigningIn { return false }
-        return account.isConnected || hasCredentials
+        return action(for: state) == .disconnect || hasCredentials
+    }
+
+    /// Whether the calendar row belongs on screen.
+    ///
+    /// **Only where a calendar request could actually succeed.** Offering Create or Delete in a state where every
+    /// request is going to be refused is a button that can only fail, which is the same reason the row has always
+    /// been withheld until there is an account to make one in.
+    static func showsCalendar(for state: State) -> Bool {
+        switch state {
+        case .unverified, .connected, .unreachable: return true
+        case .notConnected, .signedOut, .expired, .unreadable: return false
+        }
     }
 
     /// The line under the button, or `nil` when the button speaks for itself.
     ///
-    /// Says what pressing it will do, rather than apologising for anything. The one case that needs explaining is a
-    /// build with no credentials, because nothing the user can do will fix that and a dead button with no reason
-    /// reads as a bug.
-    static func note(for account: Account, hasCredentials: Bool) -> String? {
-        if account.isConnected { return nil }
-        guard hasCredentials else {
-            return "This copy of Facet was built without Google credentials, so it cannot sign in."
+    /// Says what pressing it will do, or what went wrong and whose problem it is. **Every state that needs an action
+    /// says which**, and the two that need none say nothing.
+    static func note(for state: State, hasCredentials: Bool, verification: Verification = .notAsked) -> String? {
+        switch state {
+        case .connected, .unverified:
+            return nil
+        case .notConnected, .signedOut:
+            guard hasCredentials else { return Self.noCredentialsNote }
+            if state == .signedOut {
+                return "The account is remembered but its sign-in is not. Signing in again restores it."
+            }
+            return Self.signInNote
+        case .expired:
+            guard hasCredentials else { return Self.noCredentialsNote }
+            if case let .refused(reason) = verification, !reason.isEmpty {
+                return "Google would not accept the saved sign-in (\(reason)). Signing in again restores it."
+            }
+            return "Google would not accept the saved sign-in. Signing in again restores it."
+        case .unreachable:
+            if case let .unreachable(reason) = verification, !reason.isEmpty {
+                return "Facet could not reach Google to check this (\(reason)), so it is showing what it has."
+            }
+            return "Facet could not reach Google to check this, so it is showing what it has."
+        case .unreadable:
+            return "Facet could not read its sign-in from your Keychain, so it cannot say whether this works."
         }
-        return "Opens your browser to approve. Facet only ever touches a calendar it makes itself, and never the "
-            + "ones you already have."
     }
+
+    private static let noCredentialsNote =
+        "This copy of Facet was built without Google credentials, so it cannot sign in."
+    private static let signInNote =
+        "Opens your browser to approve. Facet only ever touches a calendar it makes itself, and never the "
+            + "ones you already have."
 }

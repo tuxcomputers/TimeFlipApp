@@ -336,6 +336,38 @@ fixed position, the menu bar tints from the wallpaper rather than from the appea
 a dynamic one resolved against that strip as it draws -- so a sampled pixel is a fact about somebody's desktop picture
 as much as about the app. Method 6 is still right for a window, where the background is the app's own.
 
+<a id="method-15"></a>
+## Method 15: Screenshot a window that is not in front
+
+**`screencapture -R x,y,w,h` grabs the glass, not the window.** The Settings window sits behind whatever is in front of
+it, so a region taken from its `AXPosition` returned the editor underneath -- white, with a grey block in it, which
+looks exactly like an empty tab. Three captures went that way before the images were opened and looked at.
+
+Capture by window id instead, which ignores z-order and raises nothing:
+
+```python
+import Quartz
+windows = Quartz.CGWindowListCopyWindowInfo(
+    Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+    Quartz.kCGNullWindowID,
+)
+[w["kCGWindowNumber"] for w in windows
+ if w.get("kCGWindowOwnerName") == "Facet" and w.get("kCGWindowName") == "Facet Settings"]
+```
+
+```sh
+screencapture -x -o -l "$id" shot.png     # -o drops the drop shadow
+```
+
+**Nothing has to be brought to the front**, so the focus stays where it is and a run is not fighting the editor for it.
+
+**`screencapture` exits 0 when it fails.** It prints `cannot write file to intended destination` and returns success
+anyway, so the file is the only thing that says whether it worked: `[ -s "$out" ] || exit 1`. Its complaint also goes
+to stdout rather than stderr, which is why it hides in a script that only checks the status.
+
+**Open the image afterwards and look at it.** Both failures above -- the wrong window and the missing file -- produced
+a plausible-looking run and an image nobody had seen.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token
