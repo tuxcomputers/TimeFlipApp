@@ -52,17 +52,23 @@ start "quitting closes the open segment"
 #
 # **A skip here is not a failure of the app**, and it is said loudly rather than passed over: the cube keeps this run's
 # timings, and somebody switching to production wants to know that.
+#
+# **The cube is the one the run has been using**, inherited like every device script from `52` on -- see
+# `require_a_paired_cube` in lib.sh. Not that helper itself, though, because what a missing cube means here is
+# different: everywhere else it is a bench that was never set up, and here it is this run's timings left sitting on a
+# device somebody is about to point at production. That has to be a loud failure rather than a quiet stop, so the
+# branch is written out.
 
 open_settings
 select_tab Device
 
 # No cube check: 50-device-scan stopped the run if there was none, so anything reaching here has one.
-if pair_a_cube; then
+if [ "$(setting paired paired)" = "1" ] && [ "$(setting connection connected)" = "1" ]; then
     since=$(mark)
     press device-reset
     sleep 1
     press_sheet "Reset Device"
-    grey "  wiping the cube, so this run's timings cannot reach production..."
+    step "wiping the cube, so this run's timings cannot reach production..."
     if wait_for "$since" "Reset: confirmed" 150 >/dev/null; then
         pass "the cube is wiped, so the run's timings stay in the test database"
     else
@@ -74,7 +80,7 @@ if pair_a_cube; then
     check "and the app gave the device up with it" "0" \
         "$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")"
 else
-    yellow "  the cube could not be reached to wipe it: $PAIR_REASON"
+    yellow "  no cube is connected, so there is nothing to send a reset to"
     fail "the cube was not wiped, so it may still hold this run's timings"
 fi
 

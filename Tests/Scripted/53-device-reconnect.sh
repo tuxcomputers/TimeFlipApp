@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=23
+EXPECTED_CHECKS=21
 start "reconnecting to a paired TimeFlip at launch"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -38,26 +38,17 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to come back to
 #
-# **Paired from scratch by `pair_a_cube`**, for `52-device-reset`'s reason: a script that inherited `51`'s pairing would
-# skip whenever `51` skipped and would silently test nothing after a reordering. The cost is one scan.
-#
-# A cube that cannot be paired is a skip rather than a failure here, unlike in `52`. This script's claim is about what
-# happens to a pairing across a quit, and with no pairing there is no claim to test either way.
+# **The one the script before this left**, inherited rather than paired for. See `require_a_paired_cube` in lib.sh: the
+# device range runs on `51-device-connect`'s pairing, and `52` puts it back after the wipe. That it is reachable right
+# now is a precondition and not a check -- the quit below is what this script is about, and there is nothing to say
+# about a cube that was never there.
 
-if ! pair_a_cube; then
-    pair_verdict "there is nothing to come back to"
-    close_settings
-    finish
-    exit $?
-fi
-pass "paired a cube to come back to"
+require_a_paired_cube "there is nothing to come back to"
 
 # One row per setting, the value being JSON, which is what `08-app-settings` reads them with too.
 
 paired_uuid=$(setting device_uuid uuid)
-grey "  paired to ${paired_uuid:-unknown}"
-
-check "the cube is reachable before the quit" "$(setting connection connected)" "1"
+step "paired to ${paired_uuid:-unknown}"
 
 # ---------------------------------------------------------------------------- the quit
 #
@@ -79,7 +70,7 @@ check "the pairing survives it" "$(setting paired paired)" "1"
 
 since=$(mark)
 ensure_app_running
-grey "  launched; nothing will be pressed from here until the reconnect is checked"
+step "launched; nothing will be pressed from here until the reconnect is checked"
 
 expect_log "a paired app decides for itself to look for its cube" "$since" "Paired, so going to look for the cube" 20
 # **A scan, not a connect**, which is the fact this feature turns on: CoreBluetooth will not hand back a peripheral by
@@ -87,7 +78,7 @@ expect_log "a paired app decides for itself to look for its cube" "$since" "Pair
 expect_log "and goes looking by scanning, since that is the only way to a peripheral" "$since" "Reaching for %scanning%" 20
 expect_log "the radio actually starts listening" "$since" "%Scan started%" 20
 
-grey "  waiting for the cube to answer the launch scan..."
+step "waiting for the cube to answer the launch scan..."
 # **The remembered identifier is what may cut the window short, and nothing else is.** Any other cube is collected and
 # the scan runs its ten seconds out, because a device that is not the one this app remembers cannot be known to be its
 # own until it has taken the PIN. So this row is the ordinary case going fast, and its absence would be a reconnect
@@ -158,5 +149,15 @@ expect_log "a launch with nothing paired says so" "$since" "Nothing paired, so t
 
 scans=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Reaching for %';")
 check "and does not go looking for one" "$scans" "0"
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# The forget above is a check, not tidying-up, so this script ends with nothing paired and the next one starts from a
+# cube. The window has to be open for it: Scan lives on the Device tab and there is no other way to a pairing.
+
+open_settings
+select_tab Device
+restore_the_pairing
+close_settings
 
 finish

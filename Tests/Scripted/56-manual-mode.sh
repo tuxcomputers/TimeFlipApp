@@ -38,7 +38,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=30
+EXPECTED_CHECKS=28
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -57,16 +57,12 @@ open_settings
 select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to lose
+#
+# **The one `55-device-face` put back**, inherited rather than paired for -- see `require_a_paired_cube` in lib.sh.
+# That the app can reach it right now is a precondition and not a check: the radio going off below is what this
+# script is about, and a cube that was never in reach cannot be taken out of it.
 
-link=$(mark)
-if ! pair_a_cube; then
-    pair_verdict "there is nothing to lose"
-    close_settings
-    finish
-    exit $?
-fi
-pass "paired a cube to lose"
-check "and the app can reach it" "1" "$(setting connection connected)"
+require_a_paired_cube "there is nothing to lose"
 
 # ---------------------------------------------------------------------------- the link goes
 #
@@ -209,7 +205,7 @@ press_title "Stop Looking"
 sleep 2
 
 if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
-    grey "  the alert did not answer to an AXPress, so asking for a hand"
+    step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
         "Click **Stop Looking** on the dialog" \
         "The app could not find your TimeFlip, and is asking what to do about it." \
@@ -274,7 +270,7 @@ fi
 # Said to be back on. The scan at the end of this script is what actually proves it, and until that passes the trap
 # stays armed -- a person answering a prompt is not evidence, which is this suite's whole first principle.
 
-grey "  watching for 40s to see whether the app reaches for the cube..."
+step "watching for 40s to see whether the app reaches for the cube..."
 sleep 40
 
 check "the app does not go back to looking for the cube" "0" \
@@ -295,9 +291,10 @@ check_contains "and the menu bar shows the app rather than a category" "$(status
 
 # ---------------------------------------------------------------------------- the way back out
 #
-# **Forgetting the device is half of the way out, and the script can only take that half.** The other half is the
+# **Forgetting the device is half of the way out, and every check below is about that half.** The other half is the
 # restart, which is what actually changes the mode: a launch that decided `.device` stays one until it closes, so the
-# app is still not going to time anything after this. Every later run supplies the restart anyway.
+# app is still not going to time anything between here and the end of this section. The restart comes with the pairing
+# put back at the foot of the script, which is where the mode is decided again.
 #
 # It is also what `99-quit` needs, since it cannot wipe a cube this script left unreachable.
 
@@ -338,7 +335,14 @@ else
     fail "the radio did not come up -- is Bluetooth still off? 99-quit cannot wipe the cube without it"
 fi
 sleep 11
-press device-scan
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# The forget above is a check, and the scan just now was the radio proving itself, so this script ends with nothing
+# paired and `57-cube-pause` starts from a cube. The scan is waited out first: pressing Scan while one is running
+# stops it, and `pair_a_cube` presses it.
+
+restore_the_pairing
 
 close_settings
 finish

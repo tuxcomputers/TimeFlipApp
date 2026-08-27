@@ -64,7 +64,7 @@ sleep 0.5
 # **Waited on `Scan started`, not on the Bluetooth state.** The state callback fires on a *change*, so by the time
 # this script runs the manager `50` built is already powered on and no such row is ever written again. That is what
 # this check waited 60 seconds for on its first run, and the app now says when the radio actually starts listening.
-grey "  waiting for the radio to come up..."
+step "waiting for the radio to come up..."
 if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
     unavailable=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
     if [ -n "$unavailable" ]; then
@@ -77,7 +77,7 @@ if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
     exit 1
 fi
 
-grey "  listening for advertisements..."
+step "listening for advertisements..."
 if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
     fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
     press device-scan
@@ -95,7 +95,7 @@ if [ -z "$row" ]; then
     finish
     exit 1
 fi
-grey "  pressing $row"
+step "pressing $row"
 
 # ---------------------------------------------------------------------------- the connection
 
@@ -125,7 +125,7 @@ expect_log "and answers on the command result characteristic" "$since" "commandR
 
 # The attempt may take two connections: the vendor default first, then the stored PIN, with a second's settle in
 # between so the refused link has finished coming down. Forty seconds covers both, generously.
-grey "  waiting for the cube's verdict..."
+step "waiting for the cube's verdict..."
 verdict=$(wait_for "$since" "%PIN accepted%" 40)
 if [ -n "$verdict" ]; then
     pass "the cube accepted a PIN"
@@ -171,7 +171,7 @@ except Exception:
 PY
 }
 
-grey "  waiting for the app to settle the cube's PIN..."
+step "waiting for the app to settle the cube's PIN..."
 if wait_for "$since" "The cube is now on %" 25 >/dev/null; then
     pass "the cube took a new PIN and proved it by logging in with it"
 
@@ -242,7 +242,7 @@ fi
 # **A cube that answers none of them is a skip, not a failure.** The app is specified to pair and connect exactly the
 # same either way, and the checks above have already proved it did.
 
-grey "  waiting for the cube to say what it is..."
+step "waiting for the cube to say what it is..."
 if wait_for "$since" "The cube says it is %" 25 >/dev/null; then
     pass "the cube answered the Device Information reads"
 
@@ -341,5 +341,32 @@ fi
 
 check "and the connection is still recorded as up" "1" "$(sql "SELECT json_extract(setting_value, '\$.connected') FROM setting WHERE setting_name = 'connection';")"
 check "with the pairing untouched" "1" "$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")"
+
+# ---------------------------------------------------------------------------- and a launch that uses it
+#
+# **Arranging, and deliberately not a check.** The pairing this script just made is the one every device script after
+# it runs on, and a pairing on its own is not enough: `LaunchMode` decides once, at startup, from `paired`, and nothing
+# moves it afterwards. A run begins with a rebuilt database and so with a launch that decided `manual`, which goes on
+# being its own clock with a freshly paired cube sitting beside it -- the case the Connection row names in full two
+# sections above, and the reason that check pins what the row must never say rather than which mode it reports.
+#
+# **What it looks like when this is missing** is not a pairing failure, which is why it is worth the words: the cube
+# pairs, connects and answers, and the app carries on ignoring it. Run 112 (2026-08-27) failed on `52-device-reset`
+# reading `Manual mode, no device` off the Connection row where it wanted `Device gone, restart to time by hand`, with
+# every check in this script green. Before the range was made to inherit one pairing, each script got this for free
+# from the `pair_a_cube` it opened with.
+#
+# **Not a check, for `restore_the_pairing`'s reason** (lib.sh): whether a relaunch reaches the cube again is
+# `53-device-reconnect`'s subject and not this one's, and counting it here would put it in `EXPECTED_CHECKS` twice.
+# But it stops the run, because everything below this line would otherwise be testing a launch that is not using the
+# cube it is talking to.
+
+step "restarting, so the launch the rest of the run inherits is one that follows the cube..."
+if ! relink_a_cube; then
+    red "  the pairing took, but the launch restarted to use it did not reach the cube again within 90s"
+    red "  every device script after this one runs on that launch, so the run stops here"
+    finish
+    exit 1
+fi
 
 finish

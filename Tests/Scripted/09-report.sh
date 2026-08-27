@@ -28,7 +28,7 @@ if [ -z "$DAY" ]; then
     finish
     exit 1
 fi
-grey "  reporting on $DAY (the app's day starts at ${RESET}:00)"
+step "reporting on $DAY (the app's day starts at ${RESET}:00)"
 
 # ---------------------------------------------------------------------------- the range
 

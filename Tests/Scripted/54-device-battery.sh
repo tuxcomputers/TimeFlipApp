@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=10
+EXPECTED_CHECKS=9
 start "the charge: pulled on connecting, pushed after that, and shown without flapping"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -32,18 +32,25 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a live link to ask
 #
-# Paired from scratch, for the reason `52` and `53` give: a script that inherited an earlier one's pairing would
-# silently test nothing whenever that one skipped. The pairing is also what this script times from -- every row it
-# looks at is one this connection wrote, baselined here.
+# **The link is taken down and let back up, and the pairing is left alone.** The first section below is about what the
+# app does *on connecting*, which a connection that is already up cannot answer: its rows are older than any mark this
+# script can take. So `relink_a_cube` quits and relaunches, and the app reconnects to the cube it inherited -- the
+# reconnect `53-device-reconnect` proves, running the same login a fresh pairing would. See lib.sh for why this is not
+# a `pair_a_cube`: nothing here is about pairing, and forgetting a cube to get a link would cost a scan for nothing.
+#
+# It is also what this script times from: every row it looks at is one this connection wrote, baselined here.
+
+require_a_paired_cube "there is nothing to ask"
 
 since=$(mark)
-if ! pair_a_cube; then
-    pair_verdict "there is nothing to ask"
-    close_settings
+if ! relink_a_cube; then
+    fail "the app did not reach the cube again within 90s, so there is no connecting to watch"
     finish
-    exit $?
+    exit 1
 fi
-pass "paired a cube to ask"
+# The relaunch took the window with it, and everything below reads the Device tab.
+open_settings
+select_tab Device
 
 # ---------------------------------------------------------------------------- the pull
 #
@@ -83,7 +90,7 @@ for _ in $(seq 1 50); do
     [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ] && break
     sleep 0.2
 done
-grey "  asked for $asked subscription(s), the cube took $took"
+step "asked for $asked subscription(s), the cube took $took"
 
 if [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ]; then
     pass "every characteristic the cube can push on is subscribed to, not only the one a feature reads"
@@ -102,7 +109,7 @@ check_contains "and the trace names what the service actually has" \
 
 shown=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %' ORDER BY debug_log_id DESC LIMIT 1;")
 percent=$(printf '%s' "$shown" | sed -n 's/^Charge \([0-9]*\)%.*/\1/p')
-grey "  the log's latest figure is ${percent:-unknown}%"
+step "the log's latest figure is ${percent:-unknown}%"
 
 if [ -n "$percent" ]; then
     check_contains "the Battery row shows what was last read" "$(element device-battery)" "${percent}%"
@@ -121,7 +128,7 @@ fi
 
 raw=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message GLOB 'batteryLevel: [0-9A-F][0-9A-F]*';")
 answers=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %';")
-grey "  the cube reported $raw time(s); the figure on show moved $answers time(s)"
+step "the cube reported $raw time(s); the figure on show moved $answers time(s)"
 
 climbs=$(dsql "
     WITH shown AS (
@@ -147,6 +154,13 @@ sleep 1
 
 expect_log "letting the cube go takes the charge with it" "$since" "The charge goes with the link"
 check_contains "and the Battery row stops claiming one" "$(element device-battery)" "Not paired"
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# The forget above is how this script drops the link, so it ends with nothing paired and `55-device-face` starts from
+# a cube. See `restore_the_pairing` in lib.sh.
+
+restore_the_pairing
 
 close_settings
 finish

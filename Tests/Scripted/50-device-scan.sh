@@ -69,7 +69,7 @@ expect_log "pressing Scan starts a filtered scan" "$since" "%Scan requested, Tim
 # that the button was pressed. Waiting on the state callback instead looks equivalent and is not: it fires when the
 # state *changes*, so it is written on the first scan of a session and never again, which is exactly how
 # `51-device-connect` failed on its first run.
-grey "  waiting for the radio to come up..."
+step "waiting for the radio to come up..."
 if wait_for "$since" "%Scan started%" 60 >/dev/null; then
     pass "the radio answered, and the scan is running"
 else
@@ -96,7 +96,7 @@ check_contains "and the button offers to stop it" "$(tree | grep -m1 'id=device-
 # waiting longer than the radio listens is waiting for something nothing is looking for any more. That is still six
 # times the slowest advertisement measured (2.12s across eight scans), so a timeout here is a real absence -- a cube
 # that is asleep, or not in the room -- rather than bad luck.
-grey "  listening for advertisements..."
+step "listening for advertisements..."
 found=$(wait_for "$since" "%: peripheral %" 13)
 if [ -n "$found" ]; then
     pass "a device answered the scan"
@@ -110,7 +110,7 @@ fi
 # **Both names, out of the app's own line**, because the scan list is exactly where they disagree: a rename changes
 # the GAP name and never the advertised one, so a cube renamed on this desk still advertises `TimeFlip v2.0`. Which
 # of the two the row carries is worth having in the record whichever way it comes out.
-grey "  $found"
+step "$found"
 
 # ---------------------------------------------------------------------------- what the tab shows
 #
@@ -177,7 +177,7 @@ select_tab Device
 since=$(mark)
 press device-scan
 sleep 1
-grey "  waiting out the 10 second scan timeout..."
+step "waiting out the 10 second scan timeout..."
 if wait_for "$since" "%Scan timed out%" 15 >/dev/null; then
     pass "a scan nobody stops ends by itself"
 else

@@ -27,7 +27,10 @@ ensure_app_running
 # **21, measured on run 80 (2026-08-23), which is the first time this script ever ran to the end.** It was
 # seeded at 20 from reading the source, and that was one short: 25 verdict sites less the four that only fire
 # on a failure arm. The miscount was mine and the count is what caught it, on the first run that got here.
-EXPECTED_CHECKS=21
+#
+# **20 since the pairing became something this script inherits** rather than makes: the check that read it back was
+# the one verdict that went with it.
+EXPECTED_CHECKS=20
 start "a cube that refuses this app's PIN: the offer, Retry, and manual mode"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -43,7 +46,7 @@ restore_pin() {
     if [ -f "$CONFIG.58-backup" ]; then
         mv "$CONFIG.58-backup" "$CONFIG"
         PIN_RESTORED=1
-        grey "  the PIN in config.json has been put back"
+        step "the PIN in config.json has been put back"
         return 0
     fi
     yellow "##############################################################################"
@@ -62,19 +65,12 @@ trap restore_pin EXIT INT TERM
 
 # ---------------------------------------------------------------------------- a cube to be refused by
 #
-# Paired first, with the right PIN, so what follows is a cube this app owns rather than one it never reached. The
-# window is opened for the pairing and shut again: everything below is about a dialog the app puts up on its own.
+# **Already paired, with the right PIN**, so what follows is a cube this app owns rather than one it never reached.
+# Inherited from `57-cube-pause` rather than paired for here -- see `require_a_paired_cube` in lib.sh. That it is
+# paired is a precondition and not a check: breaking the PIN under a cube this app never owned would be a script
+# about nothing.
 
-open_settings
-select_tab Device
-if ! pair_a_cube; then
-    pair_verdict "there is no paired cube for the PIN to be wrong for"
-    close_settings
-    finish
-    exit $?
-fi
-check "the cube is paired before anything is broken" "1" "$(setting paired paired)"
-close_settings
+require_a_paired_cube "there is no paired cube for the PIN to be wrong for"
 
 # ---------------------------------------------------------------------------- the PIN goes wrong
 #
@@ -152,7 +148,7 @@ press_title "Retry"
 sleep 2
 
 if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
-    grey "  the alert did not answer to an AXPress, so asking for a hand"
+    step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
         "Click **Retry** on the dialog" \
         "The app could not open your TimeFlip, and is asking what to do about it." \
@@ -185,7 +181,7 @@ press_title "Stop Looking"
 sleep 2
 
 if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
-    grey "  the alert did not answer to an AXPress, so asking for a hand"
+    step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
         "Click **Stop Looking** on the dialog" \
         "The app still could not open your TimeFlip, and is asking again." \

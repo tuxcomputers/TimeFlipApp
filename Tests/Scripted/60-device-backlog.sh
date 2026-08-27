@@ -46,6 +46,11 @@ start "a cube out of range: what the app shows, what it refuses to write, and wh
 # `99-quit` wipes the cube so this run's timings cannot reach production, and it cannot do that with the radio off.
 watch_bluetooth
 
+# **The cube `59-double-tap` left connected**, inherited like every device script from `52` on -- see
+# `require_a_paired_cube` in lib.sh. Checked before the radio goes anywhere, because the repairs below send the cube
+# commands and there would be no link to send them over.
+require_a_paired_cube "there is no cube to take out of range"
+
 # Whether the app believes the cube is locked, read off the menu bar rather than out of the log.
 #
 # **A live answer, which the log cannot give here.** `55-device-face` reads the newest `The cube is ...ocked and ...`
@@ -96,7 +101,7 @@ if cube_is_locked; then
     sleep 0.8
     press toggle-cube-lock
     if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
-        grey "  the cube arrived locked, and was unlocked so it can be turned below"
+        step "the cube arrived locked, and was unlocked so it can be turned below"
     fi
     # The badge is drawn on the item's own tick, so the guard below is given a tick to see the unlock in. Without it
     # a repair that worked could still be read as a cube that would not unlock.
@@ -114,7 +119,7 @@ if [ "$(open_paused)" = "1" ]; then
     click_right
     sleep 1.5
     if wait_for "$resuming" "The cube is running" 20 >/dev/null; then
-        grey "  the cube arrived paused, and was started again so there is something to backfill"
+        step "the cube arrived paused, and was started again so there is something to backfill"
     fi
     # **The row lands after the log line, not with it.** A resume sends `0x06` and then asks for history, and it is
     # the fetch that rewrites `paused` -- so the guard below is polled onto rather than read once. Its own timeout is
@@ -171,7 +176,7 @@ else
     FACE_A=$MEETING_FACE; NAME_A="$meeting"
     FACE_B=$BREAK_FACE;   NAME_B="$break_name"
 fi
-grey "  the cube is on face $FACE_A ($NAME_A), and will be turned to face $FACE_B ($NAME_B) out of range"
+step "the cube is on face $FACE_A ($NAME_A), and will be turned to face $FACE_B ($NAME_B) out of range"
 
 # **The figure has to be able to move in the seconds this watches**, or the quiet window below proves nothing about it.
 if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'display_seconds';")" != "1" ]; then
@@ -241,7 +246,7 @@ expect_colours "and the line turns yellow, nothing about it being confirmable an
 quiet=$(mark)
 menu_before=$(status_item)
 row_duration_before=$(column_of duration_seconds "$ROW_A")
-grey "  watching for $((INTERVAL + 6))s, which is long enough for the history timer to come round..."
+step "watching for $((INTERVAL + 6))s, which is long enough for the history timer to come round..."
 sleep $((INTERVAL + 6))
 menu_after=$(status_item)
 row_duration_after=$(column_of duration_seconds "$ROW_A")

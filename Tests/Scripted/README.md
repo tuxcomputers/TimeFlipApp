@@ -107,6 +107,33 @@ Each script also runs on its own, and launches the app itself if it is not alrea
 bash Tests/Scripted/04-categories.sh
 ```
 
+**Getting it to the state it wants is yours to do.** A script arranges nothing it merely needs: it
+starts from what the one above it left, which is what the whole suite running in order gives it. So a
+device script run on its own stops straight away and says which state is missing, rather than pairing a
+cube to make itself work.
+
+## One pairing, for the whole device range
+
+**`51-device-connect` pairs the cube, and every script from `52` to `99` uses that one.** None of them
+forgets it and pairs again to be sure of what it is starting from -- the run is a sequence, and a cube
+sitting there connected is exactly as good as one paired thirty seconds ago.
+
+`51` ends by restarting the app, which is the other half of what it hands on. A pairing alone is not
+enough: `LaunchMode` decides once at startup from `paired`, so the launch a run begins with decided
+`manual` and would go on being its own clock with a freshly paired cube beside it.
+
+A script whose subject *is* giving a cube up puts it back before it finishes: the wipe in `52`, and the
+checked forgets in `53`, `54`, `55` and `56`. That is `restore_the_pairing`, and it is not a check --
+whether a cube can be paired again is not what any of those scripts is about -- but it does stop the run
+if it cannot, because everything after it would otherwise fail at a cube that is not there.
+
+**Three of them still take the link down and let it back up**, which is a different thing from pairing:
+`54`, `55` and `57` each assert on what the app does *as a link comes up* -- the charge pulled on
+connecting, the face read as the link opens, the clock set after the login -- and a connection that is
+already up wrote those rows before the script could mark anything. `relink_a_cube` quits and relaunches,
+and the app reconnects to the cube it already has. No scan, no pairing. It is the same call `51` ends
+with.
+
 ## What a failure looks like
 
 ```

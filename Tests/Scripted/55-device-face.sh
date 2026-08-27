@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=47
+EXPECTED_CHECKS=46
 start "the face the cube is on, and both places drawing the same one"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -48,18 +48,22 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to turn
 #
-# Paired from scratch, for the reason `52`, `53` and `54` all give: a script that inherited an earlier one's pairing
-# would silently test nothing whenever that one skipped. `54` ends by forgetting the device anyway, so there is
-# nothing here to inherit.
+# **The link is taken down and let back up, and the pairing is left alone**, for `54-device-battery`'s reason: the
+# section below is about what the app asks *as the link opens*, and a connection that is already up has written those
+# rows before this script can mark anything. `relink_a_cube` quits and relaunches, and the app reconnects to the cube
+# it inherited from `54`, running the same login a fresh pairing would.
+
+require_a_paired_cube "there is no face to read"
 
 link=$(mark)
-if ! pair_a_cube; then
-    pair_verdict "there is no face to read"
-    close_settings
+if ! relink_a_cube; then
+    fail "the app did not reach the cube again within 90s, so there is no link coming up to read a face from"
     finish
-    exit $?
+    exit 1
 fi
-pass "paired a cube to turn"
+# The relaunch took the window with it, and everything below reads the Device tab.
+open_settings
+select_tab Device
 
 # The high-water mark for `device_event`, taken before anything is turned. What it is for is further down: reading a
 # face is all this feature does, and the check that nothing was *recorded* needs a line to measure from.
@@ -138,7 +142,7 @@ open_paused() {
     sql "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
 }
 
-grey "  the cube says: $(status_row)"
+step "the cube says: $(status_row)"
 
 # ---------------------------------------------------------------------------- 1. unlocked, whatever it was
 #
@@ -230,7 +234,7 @@ fi
 # direction from the open segment, so a click aimed at resuming only resumes if that is what the table says. Reading
 # `0x10` here and clicking on the strength of it could send a pause into a cube the app believed was already running.
 if [ "$(open_paused)" = "1" ]; then
-    grey "  the cube is paused, so its turns would file no history; starting it again first"
+    step "the cube is paused, so its turns would file no history; starting it again first"
     resuming=$(mark)
     # The right half, single, which is the only control the app offers for a plain resume: the dropdown's Unlock
     # resumes too, but only appears on a locked cube. Deferred by the double-click interval at the far end, hence the
@@ -263,7 +267,7 @@ name_on_face() {
 }
 meeting=$(name_on_face $MEETING_FACE)
 break_name=$(name_on_face $BREAK_FACE)
-grey "  face $MEETING_FACE holds '$meeting', face $BREAK_FACE holds '$break_name'"
+step "face $MEETING_FACE holds '$meeting', face $BREAK_FACE holds '$break_name'"
 
 if [ -z "$meeting" ] || [ -z "$break_name" ]; then
     fail "one of the two seeded faces holds no category, so there would be no name to follow"
@@ -276,7 +280,7 @@ fi
 # is resting on would leave the poll with nothing to detect, and the run would sit there indefinitely while somebody
 # stared at a cube that was already right.
 resting=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;" | sed -n 's/^Face \([0-9]*\) is up$/\1/p')
-grey "  the cube is resting on face ${resting:-unknown}"
+step "the cube is resting on face ${resting:-unknown}"
 if [ "${resting:-0}" = "$BREAK_FACE" ]; then
     first_face=$MEETING_FACE; first_name="$meeting"
     second_face=$BREAK_FACE;  second_name="$break_name"
@@ -341,7 +345,7 @@ check_turn() {
         fi
         attempt=$((attempt + 1))
     done
-    grey "  $item"
+    step "$item"
 
     # The menu bar, which is the half that was wrong. Read as the whole line: the name is in the drawn title and again
     # in the spoken description, and either one carrying it is the item saying it.
@@ -377,7 +381,7 @@ check_turn() {
     if [ -n "$(element timing-face-glyph)" ]; then
         pass "and the tab draws whether the cube is running or paused"
     else
-        grey "  no glyph: the cube's history has not said whether it is paused"
+        step "no glyph: the cube's history has not said whether it is paused"
     fi
 
     # **The turn is filed**, which is the half that changed when ingestion landed: this used to check that *nothing*
@@ -495,7 +499,7 @@ if wait_for "$sampling" "Fetching history (the timer asked)%" $((INTERVAL + 15))
     figure_after=$(figure_now)
     menu_after=$(status_item)
     row_after=$(open_cube_row)
-    grey "  the tab read $figure_before then $figure_after, the row held $row_before then $row_after"
+    step "the tab read $figure_before then $figure_after, the row held $row_before then $row_after"
 
     if [ -n "$figure_before" ] && [ "$figure_before" != "$figure_after" ]; then
         pass "the figure on the Faces tab counts up between fetches ($figure_before -> $figure_after)"
@@ -534,6 +538,14 @@ case "$(tree)" in
     *timing-device-face*) fail "the Faces tab is still drawing a cube nothing is connected to" ;;
     *) pass "and the Faces tab stops drawing one" ;;
 esac
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# The forget above is how this script drops the link, so it ends with nothing paired and `56-manual-mode` starts from
+# a cube. Back on the Device tab first: Scan is there and nowhere else.
+
+select_tab Device
+restore_the_pairing
 
 close_settings
 finish
