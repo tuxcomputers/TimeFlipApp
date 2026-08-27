@@ -430,6 +430,10 @@ pair_a_cube() {
         PAIR_STATUS=1
         return 1
     fi
+    # Put the window back where the caller left it. Every one of them opens Settings on the Device tab before calling
+    # this and carries on using it afterwards.
+    open_settings
+    select_tab Device
     return 0
 }
 
@@ -445,10 +449,19 @@ pair_a_cube() {
 # charge, the face and the state, and it runs on every connect rather than only on a first one. `53-device-reconnect`
 # is the script that proves that path, so everything relying on it here is already covered.
 #
+# **It is also how the run gets a launch that follows a cube at all.** `LaunchMode` decides that once, at startup,
+# from `paired`, and nothing moves it afterwards -- so the launch a run begins with decided `manual`, the database
+# having been rebuilt with nothing paired, and goes on being its own clock with a freshly paired cube beside it.
+# `51-device-connect` ends with this for that reason, and hands the rest of the range a launch that uses the pairing
+# it just made.
+#
 # **What it leaves behind: a locked, paused cube.** The app pauses and locks the cube as it goes ("Quit: the cube is
 # paused and locked"), so a script that relinks inherits one. Most do not care. `57` does, a locked cube refusing the
 # pause it is about, and unlocks it first -- as a repair rather than as a check, so its declared total does not depend
 # on the hardware.
+#
+# **The window is the caller's business, not this function's**: `51` ends with it shut and `57` never opens one, while
+# `pair_a_cube` and the two scripts that read the Device tab afterwards put it back themselves.
 relink_a_cube() {
     quit_app
     sleep 1
@@ -457,10 +470,6 @@ relink_a_cube() {
     ensure_app_running
     # Waited for rather than assumed: every caller goes straight on to something that needs the link up.
     wait_for "$relaunched" "%: loggedIn" 90 >/dev/null || return 1
-    # Put the window back where the caller left it. Every one of them opens Settings on the Device tab before calling
-    # this and carries on using it afterwards.
-    open_settings
-    select_tab Device
     return 0
 }
 

@@ -118,6 +118,10 @@ cube to make itself work.
 forgets it and pairs again to be sure of what it is starting from -- the run is a sequence, and a cube
 sitting there connected is exactly as good as one paired thirty seconds ago.
 
+`51` ends by restarting the app, which is the other half of what it hands on. A pairing alone is not
+enough: `LaunchMode` decides once at startup from `paired`, so the launch a run begins with decided
+`manual` and would go on being its own clock with a freshly paired cube beside it.
+
 A script whose subject *is* giving a cube up puts it back before it finishes: the wipe in `52`, and the
 checked forgets in `53`, `54`, `55` and `56`. That is `restore_the_pairing`, and it is not a check --
 whether a cube can be paired again is not what any of those scripts is about -- but it does stop the run
@@ -127,7 +131,8 @@ if it cannot, because everything after it would otherwise fail at a cube that is
 `54`, `55` and `57` each assert on what the app does *as a link comes up* -- the charge pulled on
 connecting, the face read as the link opens, the clock set after the login -- and a connection that is
 already up wrote those rows before the script could mark anything. `relink_a_cube` quits and relaunches,
-and the app reconnects to the cube it already has. No scan, no pairing.
+and the app reconnects to the cube it already has. No scan, no pairing. It is the same call `51` ends
+with.
 
 ## What a failure looks like
 

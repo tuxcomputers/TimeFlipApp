@@ -58,10 +58,12 @@ require_a_paired_cube "there is no face to read"
 link=$(mark)
 if ! relink_a_cube; then
     fail "the app did not reach the cube again within 90s, so there is no link coming up to read a face from"
-    close_settings
     finish
     exit 1
 fi
+# The relaunch took the window with it, and everything below reads the Device tab.
+open_settings
+select_tab Device
 
 # The high-water mark for `device_event`, taken before anything is turned. What it is for is further down: reading a
 # face is all this feature does, and the check that nothing was *recorded* needs a line to measure from.

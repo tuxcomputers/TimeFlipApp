@@ -45,8 +45,9 @@ start "pausing and locking the cube from the status item"
 # a connection that is already up wrote them before this script could mark anything. `relink_a_cube` quits and
 # relaunches, and the app reconnects to the cube `56-manual-mode` put back.
 #
-# **The window it leaves open is shut again straight after.** Everything past this section is about the status item,
-# which is read with no window at all.
+# **No Settings window anywhere in this section**, which is what makes the relink cheaper than the pairing it
+# replaced: pairing needs the Scan button and so needs the window, and everything past this section is about the
+# status item, which is read with no window at all.
 
 require_a_paired_cube "there is nothing to pause"
 
@@ -56,7 +57,6 @@ if ! relink_a_cube; then
     finish
     exit 1
 fi
-close_settings
 
 # **The clock, before anything else the connection does.** The cube stamps every history frame with its own clock, so
 # one that has never been told the time has nothing to date an interval with -- and a factory reset clears it, which
