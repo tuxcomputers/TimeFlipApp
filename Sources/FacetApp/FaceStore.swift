@@ -30,7 +30,7 @@ final class FaceStore {
     /// **A reader, so a refusal can say which.** `assign` already refuses a locked face at the write, and that is
     /// where the guarantee belongs -- but "the write refused" is not something anybody can act on, and a category
     /// that silently fails to land is a control that reads as broken rather than as one being deliberate.
-    func isLocked(face faceID: Int) -> Bool? {
+    func isFaceLocked(face faceID: Int) -> Bool? {
         var locked: Bool?
         connection.forEachRow("SELECT locked FROM face WHERE face_id = \(faceID);") { row in
             locked = row.bool(0)
@@ -74,12 +74,12 @@ final class FaceStore {
     /// Both halves in one read because both answers are needed together: retiring a category takes it off the faces
     /// it is on, and a locked face is one the user has said keeps what it has, so the question is never "which faces"
     /// without "and may I".
-    func facesHolding(categoryID: Int) -> [(face: Int, isLocked: Bool)] {
-        var found: [(face: Int, isLocked: Bool)] = []
+    func facesHolding(categoryID: Int) -> [(face: Int, isFaceLocked: Bool)] {
+        var found: [(face: Int, isFaceLocked: Bool)] = []
         connection.forEachRow(
             "SELECT face_id, locked FROM face WHERE category_id = \(categoryID) ORDER BY face_id;"
         ) { row in
-            found.append((face: Int(row.int(0)), isLocked: row.bool(1)))
+            found.append((face: Int(row.int(0)), isFaceLocked: row.bool(1)))
         }
         return found
     }

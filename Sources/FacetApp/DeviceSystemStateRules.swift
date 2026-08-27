@@ -18,7 +18,7 @@ import Foundation
 /// recording says so on this characteristic and the app had no way to hear it.
 enum DeviceSystemStateRules {
     /// What the cube wants the app to do.
-    enum Sync: Equatable {
+    enum CubeSyncState: Equatable {
         case ok
         /// It has been put back to the factory, so whatever it held is gone.
         case factoryReset
@@ -34,7 +34,7 @@ enum DeviceSystemStateRules {
     }
 
     /// Whether the cube's own hardware is working.
-    enum Hardware: Equatable {
+    enum CubeHardwareState: Equatable {
         case ok
         case accelerometer
         /// **Where history is stored.** A cube reporting this records nothing and cannot say so any other way: its
@@ -45,14 +45,14 @@ enum DeviceSystemStateRules {
     }
 
     struct State: Equatable {
-        let sync: Sync
-        let hardware: Hardware
+        let cubeSyncState: CubeSyncState
+        let cubeHardwareState: CubeHardwareState
         /// The raw halves, kept so a row in the log can name a code this app does not recognise.
         let rawSync: UInt16
         let rawHardware: UInt16
 
         /// Whether anything here is worth saying out loud.
-        var isEverythingFine: Bool { sync == .ok && hardware == .ok }
+        var isEverythingFine: Bool { cubeSyncState == .ok && cubeHardwareState == .ok }
     }
 
     /// Reads the four bytes, or `nil` for a payload that is not one.
@@ -64,14 +64,14 @@ enum DeviceSystemStateRules {
         let rawSync = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
         let rawHardware = UInt16(bytes[2]) << 8 | UInt16(bytes[3])
         return State(
-            sync: sync(rawSync),
-            hardware: hardware(rawHardware),
+            cubeSyncState: cubeSyncState(rawSync),
+            cubeHardwareState: cubeHardwareState(rawHardware),
             rawSync: rawSync,
             rawHardware: rawHardware
         )
     }
 
-    private static func sync(_ raw: UInt16) -> Sync {
+    private static func cubeSyncState(_ raw: UInt16) -> CubeSyncState {
         switch raw {
         case 0x0000: return .ok
         case 0x0100: return .factoryReset
@@ -85,7 +85,7 @@ enum DeviceSystemStateRules {
         }
     }
 
-    private static func hardware(_ raw: UInt16) -> Hardware {
+    private static func cubeHardwareState(_ raw: UInt16) -> CubeHardwareState {
         switch raw {
         case 0x0000: return .ok
         case 0x0201: return .accelerometer
@@ -100,10 +100,10 @@ enum DeviceSystemStateRules {
     /// **Spelled out because the codes are the only thing the cube gives and they mean nothing to a reader.** An
     /// unrecognised one carries its number, which is the whole reason `unknown` keeps it.
     static func describe(_ state: State) -> String {
-        "\(describe(state.sync)), hardware \(describe(state.hardware))"
+        "\(describe(state.cubeSyncState)), hardware \(describe(state.cubeHardwareState))"
     }
 
-    private static func describe(_ sync: Sync) -> String {
+    private static func describe(_ sync: CubeSyncState) -> String {
         switch sync {
         case .ok: return "nothing to sync"
         case .factoryReset: return "it has been put back to the factory"
@@ -117,7 +117,7 @@ enum DeviceSystemStateRules {
         }
     }
 
-    private static func describe(_ hardware: Hardware) -> String {
+    private static func describe(_ hardware: CubeHardwareState) -> String {
         switch hardware {
         case .ok: return "fine"
         case .accelerometer: return "ACCELEROMETER FAULT, so it cannot tell which face is up"

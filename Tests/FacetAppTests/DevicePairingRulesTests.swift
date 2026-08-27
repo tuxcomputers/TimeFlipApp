@@ -49,22 +49,22 @@ final class DevicePairingRulesTests: XCTestCase {
     // MARK: - which controls the TimeFlip section shows
 
     func testAnAppWithNoDeviceIsOfferedAScan() {
-        XCTAssertTrue(DevicePairingRules.showsScanControls(isPaired: false))
-        XCTAssertFalse(DevicePairingRules.showsPairedControls(isPaired: false))
+        XCTAssertTrue(DevicePairingRules.showsScanControls(isCubePaired: false))
+        XCTAssertFalse(DevicePairingRules.showsPairedControls(isCubePaired: false))
     }
 
     func testAPairedAppIsOfferedForgetAndResetInstead() {
-        XCTAssertFalse(DevicePairingRules.showsScanControls(isPaired: true))
-        XCTAssertTrue(DevicePairingRules.showsPairedControls(isPaired: true))
+        XCTAssertFalse(DevicePairingRules.showsScanControls(isCubePaired: true))
+        XCTAssertTrue(DevicePairingRules.showsPairedControls(isCubePaired: true))
     }
 
     func testExactlyOneSetOfControlsIsUp() {
         // The two are the section's two states rather than two independent switches, so a combination showing both or
         // neither is not a thing the tab can be in.
-        for isPaired in [true, false] {
+        for isCubePaired in [true, false] {
             XCTAssertNotEqual(
-                DevicePairingRules.showsScanControls(isPaired: isPaired),
-                DevicePairingRules.showsPairedControls(isPaired: isPaired)
+                DevicePairingRules.showsScanControls(isCubePaired: isCubePaired),
+                DevicePairingRules.showsPairedControls(isCubePaired: isCubePaired)
             )
         }
     }
@@ -74,23 +74,23 @@ final class DevicePairingRulesTests: XCTestCase {
     func testForgetIsLiveWheneverThereIsSomethingToForget() {
         // It reaches no radio, so it stays available in exactly the state it is most needed: a cube that is missing,
         // flat, or on a PIN this app cannot present. After a battery change it is the only way back.
-        XCTAssertTrue(DevicePairingRules.allowsForget(isPaired: true, isReaching: false))
+        XCTAssertTrue(DevicePairingRules.allowsForget(isCubePaired: true, isReachingForCube: false))
     }
 
     func testForgetIsDeadWithNothingPaired() {
-        XCTAssertFalse(DevicePairingRules.allowsForget(isPaired: false, isReaching: false))
+        XCTAssertFalse(DevicePairingRules.allowsForget(isCubePaired: false, isReachingForCube: false))
     }
 
     func testForgetIsDeadWhileAnAttemptIsInFlight() {
         // A connect owns the pairing state until it resolves; dropping it from underneath one would leave the two
         // disagreeing about whether there is a device.
-        XCTAssertFalse(DevicePairingRules.allowsForget(isPaired: true, isReaching: true))
+        XCTAssertFalse(DevicePairingRules.allowsForget(isCubePaired: true, isReachingForCube: true))
     }
 
     func testTheScanControlsStayAwayWhileTheCubeIsMerelyOutOfRange() {
         // Gated on the pairing, not the connection: a cube in another room is still this app's cube, and offering a
         // scan the moment it went quiet would invite replacing a device that has not gone anywhere.
-        XCTAssertFalse(DevicePairingRules.showsScanControls(isPaired: true))
+        XCTAssertFalse(DevicePairingRules.showsScanControls(isCubePaired: true))
     }
 
     // MARK: - whether Reset may be pressed
@@ -98,16 +98,16 @@ final class DevicePairingRulesTests: XCTestCase {
     func testResetNeedsTheCubeAndForgetDoesNot() {
         // The whole difference between the two buttons: one is a command that has to reach the hardware, the other is
         // this app's own rows. A live Reset with nothing connected would report a wipe that never left the Mac.
-        XCTAssertFalse(DevicePairingRules.allowsReset(isPaired: true, isConnected: false, isReaching: false))
-        XCTAssertTrue(DevicePairingRules.allowsReset(isPaired: true, isConnected: true, isReaching: false))
-        XCTAssertTrue(DevicePairingRules.allowsForget(isPaired: true, isReaching: false))
+        XCTAssertFalse(DevicePairingRules.allowsReset(isCubePaired: true, isCubeConnected: false, isReachingForCube: false))
+        XCTAssertTrue(DevicePairingRules.allowsReset(isCubePaired: true, isCubeConnected: true, isReachingForCube: false))
+        XCTAssertTrue(DevicePairingRules.allowsForget(isCubePaired: true, isReachingForCube: false))
     }
 
     func testResetIsDeadWithNothingPaired() {
-        XCTAssertFalse(DevicePairingRules.allowsReset(isPaired: false, isConnected: true, isReaching: false))
+        XCTAssertFalse(DevicePairingRules.allowsReset(isCubePaired: false, isCubeConnected: true, isReachingForCube: false))
     }
 
     func testResetIsDeadWhileAnAttemptIsInFlight() {
-        XCTAssertFalse(DevicePairingRules.allowsReset(isPaired: true, isConnected: true, isReaching: true))
+        XCTAssertFalse(DevicePairingRules.allowsReset(isCubePaired: true, isCubeConnected: true, isReachingForCube: true))
     }
 }

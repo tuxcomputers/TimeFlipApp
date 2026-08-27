@@ -455,10 +455,15 @@ pair_a_cube() {
 # `51-device-connect` ends with this for that reason, and hands the rest of the range a launch that uses the pairing
 # it just made.
 #
-# **What it leaves behind: a locked, paused cube.** The app pauses and locks the cube as it goes ("Quit: the cube is
-# paused and locked"), so a script that relinks inherits one. Most do not care. `57` does, a locked cube refusing the
-# pause it is about, and unlocks it first -- as a repair rather than as a check, so its declared total does not depend
-# on the hardware.
+# **What it leaves behind: an unlocked, running cube, and it has to undo a quit to get there.** The app pauses and
+# locks the cube on its way out ("Quit: the cube is paused and locked"), so the launch this makes inherits one -- and
+# a cube that arrives stopped is a cube every script after it has to cope with. Coping is what the branches were:
+# `55`, `57`, `60` and `62` each carried an `if` asking what state the hardware had been left in, which is a check
+# that may or may not run and, on run 117, one that did not.
+#
+# So it is undone here, once, and every script downstream is entitled to a cube that is unlocked and counting. **Not a
+# guess about the state**: a quit always locks and always pauses, so the toggle below is aimed at a known state rather
+# than at whatever it finds. `57` locks the cube itself, that being its subject; nothing else has to think about it.
 #
 # **The window is the caller's business, not this function's**: `51` ends with it shut and `57` never opens one, while
 # `pair_a_cube` and the two scripts that read the Device tab afterwards put it back themselves.
@@ -470,6 +475,32 @@ relink_a_cube() {
     ensure_app_running
     # Waited for rather than assumed: every caller goes straight on to something that needs the link up.
     wait_for "$relaunched" "%: loggedIn" 90 >/dev/null || return 1
+
+    free_the_cube || return 1
+    return 0
+}
+
+# Takes off the lock and the pause a quit put on, so what follows inherits a cube that is counting.
+#
+# **Aimed at a known state rather than at whatever it finds.** The app pauses and locks the cube on its way out
+# ("Quit: the cube is paused and locked"), always and both, so the dropdown's Lock item -- which unlocks and resumes in
+# one gesture (`CubeLock.resume`) -- undoes exactly the pair that was applied. Nothing is asked first, because there is
+# nothing to ask.
+#
+# **Every quit has to come through here, and that is the whole of the invariant.** `relink_a_cube` calls it, so
+# everything reached through `pair_a_cube` or `restore_the_pairing` is covered; `58-wrong-pin` quits on its own terms
+# and calls it directly. Run 119 (2026-08-27) is what one uncovered quit costs: `58` left the cube locked and paused,
+# `59` had no reason to care, and `60-device-backlog` took its cube out of range already stopped -- so the figure it
+# expects to go on counting stood still, and the failure read as the app having stopped following a cube.
+free_the_cube() {
+    local freeing
+    freeing=$(mark)
+    click_left
+    sleep 0.8
+    press toggle-cube-lock
+    wait_for "$freeing" "The cube is unlocked" 20 >/dev/null || return 1
+    wait_for "$freeing" "The cube is running" 20 >/dev/null || return 1
+    step "unlocked and counting again, which is what every script after this one is entitled to"
     return 0
 }
 
@@ -498,12 +529,22 @@ relink_a_cube() {
 require_a_paired_cube() {
     local paired connected
     paired=$(setting paired paired)
-    connected=$(setting connection connected)
+    if [ "$paired" = "1" ]; then
+        # **A launch that has just started is still on its way to the cube, and that is not a bench fault.** Reaching
+        # a paired cube again is a scan, a connect and a login; `ensure_app_running` waits for the *process* to appear
+        # and not for the radio, so a script run on its own reads this a second later and finds it false.
+        #
+        # Run 115 (2026-08-27): `run.sh --keep 62` refused outright on a cube that was paired, awake, and about forty
+        # seconds from connected, because the run before it had quit the app on its way out. In the suite this costs
+        # nothing -- the script above has left the link up, so the first poll answers -- and 90s is the same budget
+        # `relink_a_cube` gives the same wait.
+        connected=$(wait_sql "1" "SELECT json_extract(setting_value, '\$.connected') FROM setting WHERE setting_name = 'connection';" 90)
+    fi
     [ "$paired" = "1" ] && [ "$connected" = "1" ] && return 0
 
     red "  no cube is connected, so $1"
     if [ "$paired" = "1" ]; then
-        red "  a cube is paired but the app cannot reach it -- is it awake, and is Bluetooth on?"
+        red "  a cube is paired but the app did not reach it in 90s -- is it awake, and is Bluetooth on?"
     else
         red "  the device scripts run on the cube 51-device-connect pairs, and each one leaves it behind."
         red "  Run the suite in order, or pair a cube on the Device tab before running this one on its own."

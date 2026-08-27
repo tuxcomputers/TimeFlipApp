@@ -97,16 +97,16 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
     func testTwoRowsSharingANameAreBrokenOnID() {
         // Legitimate: a category created alongside retired namesakes. Left to an unstable sort, the list
         // could come back in a different order each time it was read.
-        let first = CategoryRecord(id: 4, name: "Reading", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
-        let second = CategoryRecord(id: 9, name: "Reading", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let first = CategoryRecord(id: 4, name: "Reading", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
+        let second = CategoryRecord(id: 9, name: "Reading", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
 
         XCTAssertTrue(CategoryRecord.displayOrder(first, second))
         XCTAssertFalse(CategoryRecord.displayOrder(second, first))
     }
 
     func testTheSameNumberWrittenTwoWaysStillOrdersStably() {
-        let padded = CategoryRecord(id: 9, name: "01", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
-        let plain = CategoryRecord(id: 4, name: "1", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        let padded = CategoryRecord(id: 9, name: "01", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
+        let plain = CategoryRecord(id: 4, name: "1", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
 
         // Equal as numbers and equal to localizedStandardCompare, so the id decides.
         XCTAssertTrue(CategoryRecord.displayOrder(plain, padded))
@@ -196,7 +196,7 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         // What the rules rely on to decide from `matches.first` alone.
         let matches = categories.matching(name: "Break")
         XCTAssertEqual(matches.count, 2)
-        XCTAssertTrue(try XCTUnwrap(matches.first).isActive)
+        XCTAssertTrue(try XCTUnwrap(matches.first).isCategoryActive)
     }
 
     func testMatchingNothingFindsNothing() {
@@ -213,7 +213,7 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(created.name, "Deep Work")
         XCTAssertNil(created.iconName, "named first, dressed later")
         XCTAssertNil(created.colour)
-        XCTAssertTrue(created.isActive)
+        XCTAssertTrue(created.isCategoryActive)
     }
 
     func testInsertIsRefusedForANameAnActiveCategoryHolds() {
@@ -259,7 +259,7 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse(categories.activeCategories().contains { $0.name == "Break" })
         // The row stays, which is the point of the column rather than a delete: every `time_entry` recorded against
         // it still has to resolve.
-        XCTAssertEqual(categories.category(id: id)?.isActive, false)
+        XCTAssertEqual(categories.category(id: id)?.isCategoryActive, false)
         XCTAssertEqual(categories.category(id: id)?.name, "Break")
     }
 
@@ -270,7 +270,7 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(categories.setActive(id: id, false))
 
         XCTAssertEqual(categories.inactiveCategories().map(\.name), ["Break"])
-        XCTAssertEqual(categories.inactiveCategories().first?.isActive, false)
+        XCTAssertEqual(categories.inactiveCategories().first?.isCategoryActive, false)
     }
 
     func testTheInactiveListLeavesUnassignedOutToo() throws {
@@ -319,7 +319,7 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         // Retiring it would take the empty answer out of the list every face needs to be able to fall back to, while
         // the row itself went on sitting under every face pointing at it.
         XCTAssertFalse(categories.setActive(id: 0, false))
-        XCTAssertEqual(categories.category(id: 0)?.isActive, true)
+        XCTAssertEqual(categories.category(id: 0)?.isCategoryActive, true)
     }
 
     func testTheUnassignedSentinelCannotBeGivenArtwork() {

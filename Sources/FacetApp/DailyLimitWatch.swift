@@ -48,11 +48,18 @@ final class DailyLimitWatch {
     /// be answered from a tick that is never coming back, and a limit raised afterwards would go unnoticed for the
     /// rest of the launch. That was the bug run 15 found. A readout per ask is the same cost the menu bar already pays
     /// for `display_seconds`, on the same once-a-second draw.
-    var isReached: Bool {
+    /// Whether the pause on the cube right now is one the limit placed.
+    ///
+    /// **What `ForcedPauseWatch` asks before it lifts anything.** Both types decide the same cube's pause state, and a
+    /// hard limit has to win or it is not hard: a limit's pause lifted by assigning a category to the face would be a
+    /// refusal with a way round it. Read rather than pushed, like everything else here.
+    var isLimitHoldingPause: Bool { enforcement.isLimitHoldingPause }
+
+    var isLimitReached: Bool {
         let reading = timing()
-        return enforcement.isReached(
+        return enforcement.isLimitReached(
             categoryID: reading.category?.id,
-            limitMinutes: reading.category?.dailyLimitMinutes ?? 0,
+            dailyLimitMinutes: reading.category?.dailyLimitMinutes ?? 0,
             totalSeconds: reading.seconds,
             windowStart: windowStart(Date())
         )
@@ -73,7 +80,14 @@ final class DailyLimitWatch {
     /// Starts watching, if there is a running clock to watch.
     func start() {
         guard timer == nil else { return }
-        guard timing().state == .running else { return }
+        // **`isCounting`, not `state == .running`, and the difference is the whole of whether this works with a cube.**
+        // `state` is about *this app's* clock: `TimingReadout` answers `.idle` for a cube however busy it is, because
+        // the app is running no session of its own while it follows one. `isCounting` is the other question -- whether
+        // the figure is moving -- and it is true for both sources, being an open segment that is not paused.
+        //
+        // Run 116 (2026-08-27) is what this cost: a cube sat on a category five seconds from its limit for 68 seconds
+        // and nothing happened, because the tick had refused to start at all.
+        guard timing().isCounting else { return }
         let timer = Timer(timeInterval: Self.intervalSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.check()
@@ -105,9 +119,11 @@ final class DailyLimitWatch {
         let reading = timing()
         let action = enforcement.evaluate(
             categoryID: reading.category?.id,
-            limitMinutes: reading.category?.dailyLimitMinutes ?? 0,
+            dailyLimitMinutes: reading.category?.dailyLimitMinutes ?? 0,
             totalSeconds: reading.seconds,
-            isPaused: reading.state != .running,
+            // Same reason as `start`: with a cube this said "paused" every time, so the enforcement believed a running
+            // cube was already stopped and never asked for the pause it was there to ask for.
+            isCounting: reading.isCounting,
             windowStart: windowStart(now)
         )
 
@@ -141,12 +157,12 @@ final class DailyLimitWatch {
         // **It used to say "an answer that cannot change", and that was the bug.** The answer can change while the
         // clock is stopped, because the limit itself can be raised on the Categories tab -- and the state this stands
         // down into is exactly the one a spent limit produces. Nothing here notices that any more, and nothing needs
-        // to: `isReached` is worked out when it is asked, and `setDailyLimit` calls `onTimingChanged` so the edit
+        // to: `isLimitReached` is worked out when it is asked, and `setDailyLimit` calls `onTimingChanged` so the edit
         // itself is what redraws. What is genuinely lost is `.resume`, which cannot fire while the tick is down. In
         // manual mode that costs a log line, since `.resume` is deliberately not acted on (above). **With a cube it
         // would cost the pause being lifted**, so a device arriving here needs this stand-down revisited -- keeping
         // the tick alive while a limit is latched is the shape that fixes it.
-        if reading.state != .running {
+        if !reading.isCounting {
             stop()
         }
     }

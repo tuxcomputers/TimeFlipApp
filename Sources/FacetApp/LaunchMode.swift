@@ -54,11 +54,11 @@ enum LaunchMode: Equatable {
     /// the value itself is a plain enum anything may hold.
     @MainActor
     static func decided(from settings: SettingStore, debugLog: DebugLog?) -> LaunchMode {
-        let isPaired = settings.flag("paired", field: "paired") ?? false
-        let mode: LaunchMode = isPaired ? .device : .manual
+        let isCubePaired = settings.flag("paired", field: "paired") ?? false
+        let mode: LaunchMode = isCubePaired ? .device : .manual
         debugLog?.record(
             .mode,
-            isPaired
+            isCubePaired
                 ? "Launch mode: device, a device is paired"
                 : "Launch mode: manual, no device is paired"
         )

@@ -180,7 +180,7 @@ final class HistoryTimer {
     private func currentInterval() -> TimeInterval {
         Self.interval(
             fromSeconds: settings.integer(Self.settingName, field: Self.settingField),
-            isDeveloperBuild: DeveloperMode.isEnabled
+            isDeveloperMode: DeveloperMode.isDeveloperMode
         )
     }
 
@@ -189,9 +189,9 @@ final class HistoryTimer {
     /// A missing or non-numeric value falls back rather than switching the timer off: with a cube paired, not
     /// asking for history means not recording time, which is a worse answer to a malformed row than using the
     /// value the schema seeds.
-    static func interval(fromSeconds seconds: Int?, isDeveloperBuild: Bool) -> TimeInterval {
+    static func interval(fromSeconds seconds: Int?, isDeveloperMode: Bool) -> TimeInterval {
         let requested = seconds ?? defaultSeconds
-        let floor = isDeveloperBuild ? developerMinimumSeconds : productionMinimumSeconds
+        let floor = isDeveloperMode ? developerMinimumSeconds : productionMinimumSeconds
         return TimeInterval(min(maximumSeconds, max(floor, requested)))
     }
 }

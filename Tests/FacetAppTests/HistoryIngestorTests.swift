@@ -412,7 +412,7 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
     func testAFetchLeftInFlightByALostLinkDoesNotBlockTheNextOne() {
         // **The fault this exists for cost a whole session on a device run, 2026-08-22.** A stream request went out,
         // the suite pressed Forget Device before the answer came back, and the closure the radio was holding was
-        // simply never called. `isRefreshing` stayed true for the life of the process, so every later refresh was
+        // simply never called. `isHistoryFetching` stayed true for the life of the process, so every later refresh was
         // refused and no history was ingested again until relaunch -- while the log showed six refusals that each
         // looked like an ordinary bit of coalescing.
         deviceLast = segment(2, at: 2000)
@@ -444,7 +444,7 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
     func testAnAnswerFromAnAbandonedFetchIsIgnored() {
         // A late answer must not finish a fetch that is no longer anybody's: `done` would clear the *current* fetch's
-        // isRefreshing, letting a second conversation start on top of it -- the exact thing one-at-a-time prevents.
+        // isHistoryFetching, letting a second conversation start on top of it -- the exact thing one-at-a-time prevents.
         deviceLast = segment(2, at: 2000)
         stream = [segment(1, at: 1000), segment(2, at: 2000)]
         var strand: (([DeviceEventSegment]) -> Void)?

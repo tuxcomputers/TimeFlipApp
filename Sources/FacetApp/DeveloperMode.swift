@@ -3,7 +3,7 @@
 /// Compile-time and nothing else. What it gates is decided by whatever needs gating, when there is
 /// something to gate.
 enum DeveloperMode {
-    static let isEnabled = true
+    static let isDeveloperMode = true
 
     /// The one PIN a developer build ever puts on a cube, and `nil` in any other build.
     ///
@@ -27,5 +27,5 @@ enum DeveloperMode {
     /// them -- the archive used the Keychain, and this app has no such store yet. Setting a PIN it cannot write down
     /// would lock the cube out of every app including this one, so until that store exists a non-developer build
     /// leaves the cube on whatever PIN let it in.
-    static var devicePIN: String? { isEnabled ? "123456" : nil }
+    static var devicePIN: String? { isDeveloperMode ? "123456" : nil }
 }

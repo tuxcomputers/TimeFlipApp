@@ -295,7 +295,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 case .unavailable: return .unavailable
                 }
             }(),
-            googleCredentialsAvailable: GoogleCredentials.resolve() != nil,
+            hasGoogleCredentials: GoogleCredentials.resolve() != nil,
             googleCalendar: GoogleCalendarRules.calendar(
                 id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
                 name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
@@ -573,11 +573,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             scanner.stop()
         }
         wireConnect(on: pane, using: scanner)
-        // What a pane built mid-scan has to be told, since it missed the callback that said so. `isResetting` is the
+        // What a pane built mid-scan has to be told, since it missed the callback that said so. `isFactoryResetRunning` is the
         // same question one step further on: a reset survives the window being closed and reopened, and a tab that came
         // back showing an idle Scan button would be offering to look for the cube it is in the middle of wiping.
         pane.showScanning(scanner.isScanning)
-        pane.showReaching(scanner.isResetting)
+        pane.showReaching(scanner.isFactoryResetRunning)
     }
 
     /// Connects the listed devices to the radio that goes and reaches them.
@@ -903,8 +903,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let seeded = DevicePane.Values.seeded
         guard let settings else { return seeded }
         return DevicePane.Values(
-            isPaired: settings.flag("paired", field: "paired") ?? seeded.isPaired,
-            isConnected: settings.flag("connection", field: "connected") ?? seeded.isConnected,
+            isCubePaired: settings.flag("paired", field: "paired") ?? seeded.isCubePaired,
+            isCubeConnected: settings.flag("connection", field: "connected") ?? seeded.isCubeConnected,
             isManualMode: launchMode?.isManual ?? seeded.isManualMode,
             deviceName: settings.string("device_name", field: "name"),
             batteryPercent: radio?.batteryPercent,
@@ -1094,7 +1094,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func verifyGoogleConnection(on pane: AppSettingsPane) {
         // Nothing to verify without an identity: the section already says Not connected, and asking Google about an
         // account nobody named would be a request that cannot have an answer.
-        guard pane.values.googleAccount.hasIdentity else { return }
+        guard pane.values.googleAccount.hasGoogleIdentity else { return }
         Task { @MainActor [weak self, weak pane] in
             do {
                 _ = try await GoogleCalendarClient.currentAccessToken()
@@ -1484,7 +1484,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.reinstate(category)
         }
         // **The same handler the Active list's rename reaches**, given the retired record. Everything that differs
-        // between the two is a question about the record -- `CategoryRenameRules.decision` reads `isActive` to tell an
+        // between the two is a question about the record -- `CategoryRenameRules.decision` reads `isCategoryActive` to tell an
         // index violation from a name the table will take -- so a second handler here would be a second answer to a
         // question one already answers.
         pane.retiredTable.onRename = { [weak self] category, typed in
@@ -1808,7 +1808,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     }
 
     /// Whether that repaint is running. Internal so it can be asserted without waiting a second for a real one.
-    var isTicking: Bool { tick != nil }
+    var isRepaintTicking: Bool { tick != nil }
 
     /// Re-reads the Report tab's totals, for the two moments that turn a stretch into an entry: a pause, and a switch
     /// to another category. Both can happen while the Report tab is the one on show -- the status item pauses from
@@ -1833,33 +1833,33 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // written out twice: the archive's `canAssignToFaceOnShow` was read by both for exactly this reason, and this
         // app had only the click half until a locked face was watched refusing one on hardware with nothing on screen
         // to say so.
-        let isLocked = reading.deviceFace.map { faces?.isLocked(face: $0) == true } ?? false
+        let isFaceLocked = reading.cubeFace.map { faces?.isFaceLocked(face: $0) == true } ?? false
         pane.categoryList.allowPicking(
             FacesTabRules.click(
-                deviceFace: reading.deviceFace,
-                isFaceLocked: isLocked,
-                isTimingByHand: launchMode?.isManual == true,
-                isDeviceReachable: reading.isDeviceReachable
+                cubeFace: reading.cubeFace,
+                isFaceLocked: isFaceLocked,
+                isManualMode: launchMode?.isManual == true,
+                isCubeConnected: reading.isCubeConnected
             ).doesAnything
         )
-        if let face = reading.deviceFace {
+        if let face = reading.cubeFace {
             pane.timingView.show(
                 face: face,
                 category: reading.category,
-                isLocked: isLocked,
+                isFaceLocked: isFaceLocked,
                 // The same figure the menu bar draws, out of the same reading, so the two cannot differ by a read.
                 elapsed: reading.seconds,
                 // Read at the moment it is drawn, like every other setting: the App tab can change it while this
                 // window is open, and the next redraw is what carries it.
                 showingSeconds: settings?.flag("display_seconds", field: "enabled") ?? true,
                 // The same answer the menu bar's glyph is drawn from, out of the same reading.
-                isDevicePaused: reading.deviceIsPaused
+                cubePauseState: reading.cubePauseState
             )
             return
         }
         pane.timingView.show(
             category: reading.category,
-            state: reading.state,
+            timingState: reading.timingState,
             elapsed: reading.seconds,
             isLimitReached: isLimitReached()
         )
@@ -1895,10 +1895,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // refusing a click is visible and recoverable while starting a clock nobody asked for writes rows.
         let reading = timing?.read()
         switch FacesTabRules.click(
-            deviceFace: reading?.deviceFace,
-            isFaceLocked: reading?.deviceFace.map { faces.isLocked(face: $0) == true } ?? false,
-            isTimingByHand: launchMode?.isManual == true,
-            isDeviceReachable: reading?.isDeviceReachable ?? false
+            cubeFace: reading?.cubeFace,
+            isFaceLocked: reading?.cubeFace.map { faces.isFaceLocked(face: $0) == true } ?? false,
+            isManualMode: launchMode?.isManual == true,
+            isCubeConnected: reading?.isCubeConnected ?? false
         ) {
         case let .assignToFace(face):
             assignToCube(face: face, category)
@@ -2022,7 +2022,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // **The refusal itself.** Every path in -- the dropdown item, the status item's right half, the Timing
         // column's glyph -- lands here, so a limit that stopped the clock cannot be undone by finding another
         // button. The two controls also grey themselves, but that is the courtesy; this is the enforcement.
-        guard ManualTimerRules.isClickable(before.state, isLimitReached: isLimitReached()) else {
+        guard ManualTimerRules.isClickable(before.timingState, isLimitReached: isLimitReached()) else {
             debugLog?.record(
                 .limit,
                 "Resume refused, \(before.category?.name ?? "nothing") has spent its daily limit"
@@ -2031,7 +2031,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         // One moment for both halves, so the segment that ends and the one that begins meet exactly.
         let moment = Date()
-        if before.state == .running {
+        if before.timingState == .running {
             deviceEvents?.closeOpenSegment(at: moment)
         } else {
             // The same face the paused stretch was on, not the next one, and nothing is written to it. Rotating
@@ -2045,7 +2045,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let after = timing?.read() ?? .idle
         debugLog?.record(
             .mode,
-            "Timing: \(after.state == .running ? "running" : "stopped") "
+            "Timing: \(after.timingState == .running ? "running" : "stopped") "
                 + "\(after.category?.name ?? "nothing"), \(Int(after.seconds))s today"
         )
         draw(after)
@@ -2077,7 +2077,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
-    /// Internal for the same reason `isTicking` is: a test that starts the clock has to be able to put it down
+    /// Internal for the same reason `isRepaintTicking` is: a test that starts the clock has to be able to put it down
     /// again, rather than leaving a timer on the run loop for the rest of the suite.
     func stopTicking() {
         tick?.invalidate()
@@ -2403,14 +2403,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// reading back after a write: a refused write shows as the lock it really is rather than the one that was wanted.
     /// It also redraws the list, since the lock is exactly what decides whether the rows are live.
     private func toggleFaceLock() {
-        guard let faces, let face = timing?.read().deviceFace else {
+        guard let faces, let face = timing?.read().cubeFace else {
             // Not reachable through the button, which is hidden when there is no cube -- but the closure outlives any
             // one drawing of it, and a click landing as the link drops would otherwise write to whatever face was last
             // on screen.
             debugLog?.record(.click, "The lock was pressed with no cube face to lock")
             return
         }
-        let wanted = !(faces.isLocked(face: face) ?? false)
+        let wanted = !(faces.isFaceLocked(face: face) ?? false)
         debugLog?.record(.click, "Button clicked: face \(face) lock -> \(wanted ? "locked" : "unlocked")")
         if !faces.setLocked(wanted, face: face) {
             debugLog?.record(.click, "Face \(face) would not take the lock")
@@ -2453,8 +2453,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         report.totalsList.onSort = { [weak self] order in
             self?.debugLog?.record(
                 .report,
-                "Report sorted by \(order.column == .time ? "time" : "category"), "
-                    + "\(order.direction == .ascending ? "ascending" : "descending")"
+                "Report sorted by \(order.sortColumnState == .time ? "time" : "category"), "
+                    + "\(order.isSortAscending ? "ascending" : "descending")"
             )
         }
         return report

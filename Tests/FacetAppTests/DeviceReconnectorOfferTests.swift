@@ -56,7 +56,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
     /// The loop, plus a way to answer the question it asks. `answering` is `nil` for a presenter that puts the offer up
     /// and is still waiting, which is the state the app spends the dialog in.
     private func reconnector(
-        isTimingByHand: @escaping () -> Bool = { false },
+        isManualMode: @escaping () -> Bool = { false },
         answering: CubeNotFoundAnswer? = nil,
         asked: @escaping (String) -> Void = { _ in }
     ) -> DeviceReconnector {
@@ -65,7 +65,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
             settings: settings,
             debugLog: debugLog,
             storedPIN: { nil },
-            isTimingByHand: isTimingByHand
+            isManualMode: isManualMode
         )
         loop.onCubeNotFound = { reason, answer in
             asked(reason)
@@ -142,7 +142,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         var timingByHand = false
         var asked = 0
         let loop = reconnector(
-            isTimingByHand: { timingByHand },
+            isManualMode: { timingByHand },
             answering: .stopLooking,
             asked: { _ in
                 asked += 1
@@ -164,7 +164,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
     /// The loop with the mode already on, which is where a launch is the moment after the offer is answered.
     private func loopTimingByHand() -> DeviceReconnector {
         setPaired(true)
-        return reconnector(isTimingByHand: { true })
+        return reconnector(isManualMode: { true })
     }
 
     func testADropSchedulesNothingOnceManualModeIsTaken() {
@@ -204,7 +204,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         // its own clock stop reaching without anything having to tell this object so.
         var timingByHand = true
         setPaired(true)
-        let loop = reconnector(isTimingByHand: { timingByHand })
+        let loop = reconnector(isManualMode: { timingByHand })
         loop.noteDropped()
         XCTAssertFalse(logged("Looking for the cube again%"), "precondition: stood down")
 

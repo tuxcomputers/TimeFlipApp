@@ -51,7 +51,7 @@ final class HistoryIngestor {
     /// **About the radio rather than about the cube.** Two fetches at once would be two conversations on one
     /// characteristic with nothing in the answers to say which is which -- the same reason `DeviceLogin` allows one
     /// at a time.
-    private var isRefreshing = false
+    private var isHistoryFetching = false
 
     /// A refresh asked for while one was already running, kept so it can be run the moment that one is over.
     ///
@@ -80,7 +80,7 @@ final class HistoryIngestor {
     ///
     /// Bumped when a fetch starts and when the link ends, and read by every step, so an answer from a conversation
     /// that has been abandoned is ignored instead of finishing a fetch that is no longer anybody's. Without the check
-    /// a late answer would call `done` on whatever fetch is running by then, clearing its `isRefreshing` and letting
+    /// a late answer would call `done` on whatever fetch is running by then, clearing its `isHistoryFetching` and letting
     /// a second conversation start on top of it.
     private var generation = 0
 
@@ -101,7 +101,7 @@ final class HistoryIngestor {
 
     /// Asks the cube what has happened and records it.
     func refresh(because reason: String, then finished: ((Outcome) -> Void)? = nil) {
-        guard !isRefreshing else {
+        guard !isHistoryFetching else {
             // Said rather than returned silently. A refresh that folded into one already running otherwise leaves no
             // trace at all, and the archive records a real run where exactly that made a startup fetch look as though
             // it had never happened.
@@ -113,7 +113,7 @@ final class HistoryIngestor {
             finished?(.nothingToAsk)
             return
         }
-        isRefreshing = true
+        isHistoryFetching = true
         generation += 1
         let mine = generation
 
@@ -160,11 +160,11 @@ final class HistoryIngestor {
     /// The pending re-run goes too. It named a reason to talk to a cube that is gone, and a reconnection asks for the
     /// history itself as the first thing it does (`the link came up`).
     func linkEnded() {
-        guard isRefreshing || pendingReason != nil else { return }
+        guard isHistoryFetching || pendingReason != nil else { return }
         debugLog?.record(.history, "The history fetch goes with the link")
         // Bumped so the abandoned conversation's own answers, if any still arrive, are recognised as somebody else's.
         generation += 1
-        isRefreshing = false
+        isHistoryFetching = false
         pendingReason = nil
     }
 
@@ -268,7 +268,7 @@ final class HistoryIngestor {
     }
 
     private func done(_ outcome: Outcome, reason: String, changed: Bool, finished: ((Outcome) -> Void)?) {
-        isRefreshing = false
+        isHistoryFetching = false
         debugLog?.record(.history, "History fetch done (\(reason)): \(outcome)")
         if changed { onChanged?() }
         finished?(outcome)

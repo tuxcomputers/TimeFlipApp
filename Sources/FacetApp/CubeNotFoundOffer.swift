@@ -40,16 +40,16 @@ struct CubeNotFoundOffer {
 
     /// Whether this launch has ever reached the cube. One-way: nothing sets it back, which is what makes the offer a
     /// startup-only thing.
-    private(set) var hasReachedTheCube = false
+    private(set) var hasReachedCube = false
 
     /// A login succeeded. Settles the question for the rest of the launch.
     mutating func recordConnected() {
-        hasReachedTheCube = true
+        hasReachedCube = true
     }
 
     /// An attempt failed. Says whether to go round again or ask.
     mutating func recordFailedAttempt() -> Decision {
-        hasReachedTheCube ? .keepTrying : .ask
+        hasReachedCube ? .keepTrying : .ask
     }
 
     /// Why the app gave up, in the words the offer's log line needs.

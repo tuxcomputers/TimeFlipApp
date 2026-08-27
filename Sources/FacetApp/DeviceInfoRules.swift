@@ -38,8 +38,8 @@ enum DeviceInfoRules {
     /// The name outlives a great deal -- it survives Forget Device, because forgetting does not un-rename a cube --
     /// but it is only *shown* while there is a pairing for it to belong to. A remembered name against no pairing
     /// would read as a device the app has, and the app has none.
-    static func name(isPaired: Bool, deviceName: String?) -> String {
-        guard isPaired else { return "Not paired" }
+    static func name(isCubePaired: Bool, deviceName: String?) -> String {
+        guard isCubePaired else { return "Not paired" }
         let name = (deviceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         // Paired and unnamed is a real state, not a fault: the name is read from the cube on connect and never
         // guessed, so a pairing that has not connected since has nothing to show.
@@ -63,15 +63,15 @@ enum DeviceInfoRules {
     ///   changes it -- otherwise the honest state reads exactly like the app being broken.
     ///
     /// Both name the restart, because in both the restart is the entire remedy and nothing on any tab is.
-    static func connection(isPaired: Bool, isConnected: Bool, isManualMode: Bool) -> String {
+    static func connection(isCubePaired: Bool, isCubeConnected: Bool, isManualMode: Bool) -> String {
         if isManualMode {
-            guard isPaired else { return "Manual mode, no device" }
-            return isConnected
+            guard isCubePaired else { return "Manual mode, no device" }
+            return isCubeConnected
                 ? "Connected, not used until restart"
                 : "Paired, not used until restart"
         }
-        guard isPaired else { return "Device gone, restart to time by hand" }
-        return isConnected ? "Connected" : "Disconnected"
+        guard isCubePaired else { return "Device gone, restart to time by hand" }
+        return isCubeConnected ? "Connected" : "Disconnected"
     }
 
     /// What the Battery row shows.
@@ -79,10 +79,10 @@ enum DeviceInfoRules {
     /// **No cube at all is a different answer from a cube that cannot be heard from**, which is the archive's line
     /// and the reason this is not simply blank. A percentage only ever comes off a live reading: the level is not
     /// stored anywhere, deliberately, since a remembered one is a number that was true at some point nobody can name.
-    static func battery(isPaired: Bool, isConnected: Bool, percent: Int?) -> String {
-        guard isPaired else { return "Not paired" }
-        guard isConnected, let percent else { return "Unknown" }
-        return "\(percent)%"
+    static func battery(isCubePaired: Bool, isCubeConnected: Bool, batteryPercent: Int?) -> String {
+        guard isCubePaired else { return "Not paired" }
+        guard isCubeConnected, let batteryPercent else { return "Unknown" }
+        return "\(batteryPercent)%"
     }
 
     /// What one of the More rows shows: what the cube reported, or that it has not.
@@ -91,8 +91,8 @@ enum DeviceInfoRules {
     /// stored now, and stored means they outlive the connection that read them -- so an app with no device would
     /// otherwise go on reporting a manufacturer and a firmware version for a cube it no longer has, which is a
     /// stronger claim than any of the other rows are allowed to make.
-    static func detail(isPaired: Bool, reported: String?) -> String {
-        guard isPaired else { return "Not paired" }
+    static func detail(isCubePaired: Bool, reported: String?) -> String {
+        guard isCubePaired else { return "Not paired" }
         let value = (reported ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? "Unknown" : value
     }
@@ -116,12 +116,4 @@ enum DeviceInfoRules {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
     }
-
-    /// Whether the TimeFlip section's readings are describing something the app can currently hear.
-    ///
-    /// What it drives is the colour: live values read in the ordinary label colour, and everything else greys, so
-    /// "Not paired" and "Unknown" sit back as the placeholders they are rather than presenting as readings. The
-    /// archive greyed them together for that reason and it is worth keeping -- a greyed row is the difference between
-    /// a value the app is standing behind and one it is not.
-    static func isLive(isConnected: Bool) -> Bool { isConnected }
 }

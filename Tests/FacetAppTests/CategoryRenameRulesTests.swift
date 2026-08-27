@@ -16,7 +16,7 @@ final class CategoryRenameRulesTests: XCTestCase {
             colour: nil,
             usesWhiteLines: false,
             dailyLimitMinutes: 0,
-            isActive: active
+            isCategoryActive: active
         )
     }
 

@@ -49,11 +49,11 @@ enum DevicePairingRules {
     /// **Gated on the pairing and not on the connection**, which is the same distinction the TimeFlip section draws: a cube
     /// out of range is still this app's cube, and putting the Scan button back the moment it went quiet would offer to
     /// replace a device that is merely in another room.
-    static func showsScanControls(isPaired: Bool) -> Bool { !isPaired }
+    static func showsScanControls(isCubePaired: Bool) -> Bool { !isCubePaired }
 
     /// Whether **Forget** and **Reset** are on show. The other half of the same swap: exactly one of the two sets is up
     /// at any time, because they answer the two states the section can be in.
-    static func showsPairedControls(isPaired: Bool) -> Bool { isPaired }
+    static func showsPairedControls(isCubePaired: Bool) -> Bool { isCubePaired }
 
     /// Whether **Forget Device** may be pressed.
     ///
@@ -66,7 +66,7 @@ enum DevicePairingRules {
     /// **Refused while an attempt is in flight**, which is the archive's other half: a connect owns the pairing state
     /// until it resolves, and dropping it from underneath one would leave the two disagreeing about whether there is a
     /// device. An attempt is over in seconds.
-    static func allowsForget(isPaired: Bool, isReaching: Bool) -> Bool { isPaired && !isReaching }
+    static func allowsForget(isCubePaired: Bool, isReachingForCube: Bool) -> Bool { isCubePaired && !isReachingForCube }
 
     /// Whether **Reset Device** may be pressed.
     ///
@@ -79,7 +79,7 @@ enum DevicePairingRules {
     /// the reset was then "confirmed" without any cube being touched. Here there is one path and it is the radio, so a
     /// live button with nothing connected would report a wipe that never left the Mac. Wanting to stop chasing a cube
     /// is what Forget is for, and it stays available in exactly that state.
-    static func allowsReset(isPaired: Bool, isConnected: Bool, isReaching: Bool) -> Bool {
-        isPaired && isConnected && !isReaching
+    static func allowsReset(isCubePaired: Bool, isCubeConnected: Bool, isReachingForCube: Bool) -> Bool {
+        isCubePaired && isCubeConnected && !isReachingForCube
     }
 }

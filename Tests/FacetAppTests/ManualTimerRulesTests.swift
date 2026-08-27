@@ -6,16 +6,16 @@ final class ManualTimerRulesTests: XCTestCase {
     // MARK: - what the control shows
 
     func testNothingPickedIsIdle() {
-        XCTAssertEqual(ManualTimerRules.state(categoryID: nil, isRunning: false), .idle)
+        XCTAssertEqual(ManualTimerRules.timingState(categoryID: nil, isRunning: false), .idle)
         XCTAssertEqual(
-            ManualTimerRules.state(categoryID: nil, isRunning: true), .idle,
+            ManualTimerRules.timingState(categoryID: nil, isRunning: true), .idle,
             "running against no category is not a state to draw"
         )
     }
 
     func testAPickedCategoryIsRunningOrPaused() {
-        XCTAssertEqual(ManualTimerRules.state(categoryID: 7, isRunning: true), .running)
-        XCTAssertEqual(ManualTimerRules.state(categoryID: 7, isRunning: false), .paused)
+        XCTAssertEqual(ManualTimerRules.timingState(categoryID: 7, isRunning: true), .running)
+        XCTAssertEqual(ManualTimerRules.timingState(categoryID: 7, isRunning: false), .paused)
     }
 
     func testTheIconSaysWhatIsHappeningNotWhatClickingDoes() {

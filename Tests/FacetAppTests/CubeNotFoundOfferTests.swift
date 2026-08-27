@@ -45,11 +45,11 @@ final class CubeNotFoundOfferTests: XCTestCase {
         for _ in 0..<5 {
             XCTAssertEqual(offer.recordFailedAttempt(), .keepTrying)
         }
-        XCTAssertTrue(offer.hasReachedTheCube)
+        XCTAssertTrue(offer.hasReachedCube)
     }
 
     func testNothingIsReachedUntilSomethingSaysSo() {
-        XCTAssertFalse(CubeNotFoundOffer().hasReachedTheCube)
+        XCTAssertFalse(CubeNotFoundOffer().hasReachedCube)
     }
 
     // MARK: - why it gave up

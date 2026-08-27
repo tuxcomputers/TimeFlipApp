@@ -32,7 +32,7 @@ enum ManualFace {
     /// wall-clock figure written over that is this app overwriting a measurement with a guess. Asked in the two
     /// places that would do it -- `DeviceEventRecorder.closeOpenSegment` and `refreshOpenSegment` -- rather than
     /// left to each caller to remember.
-    static func isTheApps(_ face: Int) -> Bool {
+    static func isAppFace(_ face: Int) -> Bool {
         face > highestDeviceFace
     }
 
@@ -54,7 +54,7 @@ enum ManualFace {
     }
 }
 
-/// What the timing control is doing, as far as the Faces tab needs to draw it.
+/// What the timingState control is doing, as far as the Faces tab needs to draw it.
 enum TimingState: Equatable {
     /// Nothing picked, so nothing is being timed.
     case idle
@@ -74,7 +74,7 @@ enum TimingState: Equatable {
 ///
 /// Carried over from the previous app, reasoning included, because the reasoning still holds.
 enum ManualTimerRules {
-    static func state(categoryID: Int?, isRunning: Bool) -> TimingState {
+    static func timingState(categoryID: Int?, isRunning: Bool) -> TimingState {
         guard categoryID != nil else { return .idle }
         return isRunning ? .running : .paused
     }
@@ -82,8 +82,8 @@ enum ManualTimerRules {
     /// The SF Symbol the control draws, and `nil` when there is nothing to draw. Idle shows nothing: an
     /// empty space is the honest picture of a session that has not started, and it is also the invitation
     /// to pick a category.
-    static func symbolName(for state: TimingState) -> String? {
-        switch state {
+    static func symbolName(for timingState: TimingState) -> String? {
+        switch timingState {
         case .idle: return nil
         case .running: return "play.fill"
         case .paused: return "pause.fill"
@@ -108,9 +108,9 @@ enum ManualTimerRules {
     /// right half turns into a no-op with it, and `togglePause` refuses with it, so the refusal cannot be
     /// implemented in one of the three and forgotten in the others. That is the exact fault the paragraph above
     /// records, and a limit is a second chance to make it.
-    static func isClickable(_ state: TimingState, isLimitReached: Bool = false) -> Bool {
-        guard state != .idle else { return false }
-        return !(state == .paused && isLimitReached)
+    static func isClickable(_ timingState: TimingState, isLimitReached: Bool = false) -> Bool {
+        guard timingState != .idle else { return false }
+        return !(timingState == .paused && isLimitReached)
     }
 
     /// What the dropdown's Pause item is called.
@@ -122,7 +122,7 @@ enum ManualTimerRules {
     /// With nothing being timed it reads "Pause" rather than "Resume", carried over from the previous app
     /// with its reasoning: the item is disabled either way, and a dead item claiming there is something to
     /// resume is worse than a dead item claiming there is something to pause.
-    static func pauseMenuTitle(for state: TimingState) -> String {
-        state == .paused ? "Resume" : "Pause"
+    static func pauseMenuTitle(for timingState: TimingState) -> String {
+        timingState == .paused ? "Resume" : "Pause"
     }
 }

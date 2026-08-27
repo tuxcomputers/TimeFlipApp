@@ -11,7 +11,7 @@ final class DeviceFaceRulesTests: XCTestCase {
     private func category(colour: NSColor?, whiteLines: Bool = false) -> CategoryRecord {
         CategoryRecord(
             id: 7, name: "Deep Work", iconName: "ic_admin",
-            colourID: 3, colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isActive: true
+            colourID: 3, colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isCategoryActive: true
         )
     }
 

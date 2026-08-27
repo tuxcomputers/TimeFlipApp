@@ -105,7 +105,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
 
     /// A cube resting on `face`, answered per reading exactly as the radio answers it.
     private func cubeIsOn(_ face: Int) {
-        readout.deviceFace = { face }
+        readout.cubeFace = { face }
     }
 
     /// A row of the Faces tab's list being clicked, through the closure the row actually calls.
@@ -156,7 +156,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
 
         controller.redrawTiming()
 
-        XCTAssertTrue(controller.isTicking)
+        XCTAssertTrue(controller.isRepaintTicking)
     }
 
     func testAPausedCubeStopsTheTick() {
@@ -168,12 +168,12 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
         cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
         controller.redrawTiming()
-        XCTAssertTrue(controller.isTicking, "precondition")
+        XCTAssertTrue(controller.isRepaintTicking, "precondition")
 
         cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60), paused: true)
         controller.redrawTiming()
 
-        XCTAssertFalse(controller.isTicking)
+        XCTAssertFalse(controller.isRepaintTicking)
     }
 
     func testAWindowThatIsNotOnScreenDoesNotTick() {
@@ -188,7 +188,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
 
         controller.redrawTiming()
 
-        XCTAssertFalse(controller.isTicking)
+        XCTAssertFalse(controller.isRepaintTicking)
     }
 
     // MARK: - the face takes it
@@ -209,7 +209,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertEqual(readout.read().category?.id, id("Break"))
-        XCTAssertEqual(readout.read().deviceFace, freeFace)
+        XCTAssertEqual(readout.read().cubeFace, freeFace)
     }
 
     func testNoClockStarts() {
@@ -220,7 +220,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertEqual(openSegments, 0)
-        XCTAssertEqual(readout.read().state, .idle)
+        XCTAssertEqual(readout.read().timingState, .idle)
         XCTAssertEqual(readout.read().seconds, 0)
     }
 
@@ -303,7 +303,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertEqual(openSegments, 1)
-        XCTAssertEqual(readout.read().state, .running)
+        XCTAssertEqual(readout.read().timingState, .running)
         XCTAssertTrue(ManualFace.all.contains { faces.categoryID(forFace: $0) == id("Break") })
     }
 
@@ -378,7 +378,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertNil(readout.read().category)
-        XCTAssertEqual(readout.read().state, .idle)
+        XCTAssertEqual(readout.read().timingState, .idle)
     }
 
     func testAPairedAppWithItsCubeInFrontOfItStillTakesTheClick() {
@@ -398,7 +398,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         // a paired app that has not been told to get on without one.
         pairADevice()
         var face: Int? = freeFace
-        readout.deviceFace = { face }
+        readout.cubeFace = { face }
         click("Break")
         XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Break"), "precondition: the cube's face took it")
 
@@ -524,11 +524,11 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
     func testPressingTheLockLocksTheFaceTheCubeIsOn() {
         cubeIsOn(freeFace)
         controller.redrawTiming()
-        XCTAssertEqual(faces.isLocked(face: freeFace), false, "precondition")
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), false, "precondition")
 
         timingView()?.onToggleLock?()
 
-        XCTAssertEqual(faces.isLocked(face: freeFace), true)
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), true)
     }
 
     func testPressingItAgainUnlocksIt() {
@@ -537,7 +537,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
 
         timingView()?.onToggleLock?()
 
-        XCTAssertEqual(faces.isLocked(face: lockedFace), false)
+        XCTAssertEqual(faces.isFaceLocked(face: lockedFace), false)
     }
 
     func testLockingImmediatelyRefusesTheNextClick() {
@@ -557,13 +557,13 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         // The cube can be turned between the tab being drawn and the click landing, so the toggle reads the face now
         // rather than acting on the one the button was drawn for.
         var face = freeFace
-        readout.deviceFace = { face }
+        readout.cubeFace = { face }
         controller.redrawTiming()
 
         face = 6
         timingView()?.onToggleLock?()
 
-        XCTAssertEqual(faces.isLocked(face: 6), true, "the face the cube is on now")
-        XCTAssertEqual(faces.isLocked(face: freeFace), false, "not the one the lock was drawn for")
+        XCTAssertEqual(faces.isFaceLocked(face: 6), true, "the face the cube is on now")
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), false, "not the one the lock was drawn for")
     }
 }

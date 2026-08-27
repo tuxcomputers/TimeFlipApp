@@ -53,7 +53,7 @@ let timezones = TimezoneStore(connection: database)
 // The badge names which database this launch opened, which is a developer's question -- a shipped copy
 // only ever has the real one, so a permanent "PROD" tag would occupy the menu bar to answer something
 // nobody asked.
-let databaseBadge = DeveloperMode.isEnabled
+let databaseBadge = DeveloperMode.isDeveloperMode
     ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
     : nil
 // **The trace goes in its own file**, brought up here rather than at the top: it is only wanted when developer mode
@@ -61,7 +61,7 @@ let databaseBadge = DeveloperMode.isEnabled
 // not a reason to refuse the launch either -- the app works perfectly well without a trace, and `DebugLog` already
 // keeps printing to the terminal when the recording half cannot start.
 let debugLog: DebugLog? = {
-    guard DeveloperMode.isEnabled else { return nil }
+    guard DeveloperMode.isDeveloperMode else { return nil }
     let url = (try? DatabaseBootstrap.ensureDebugDatabase().databaseURL) ?? DatabaseBootstrap.debugDatabaseURL()
     return DebugLog(databaseURL: url)
 }()
@@ -138,11 +138,11 @@ let timingReadout = TimingReadout(
 // thing**: both draw from one reading, and this is the question that decides which of the two pictures that reading
 // describes. Set here rather than passed in because the readout is built alongside the tables and the radio is not one.
 //
-timingReadout.deviceFace = { radio.currentFace }
+timingReadout.cubeFace = { radio.cubeFace }
 // **Timing by hand means the cube is not asked about at all**, which is the other half of the reconnect loop standing
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
-// `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
-timingReadout.isTimingByHand = { launchMode.isManual }
+// `TimingReadout.isManualMode`; that it is asked rather than copied is the same reason everything else here is.
+timingReadout.isManualMode = { launchMode.isManual }
 // **Read from the table at the moment a reading is taken**, like every other answer here. It is what tells a cube
 // that has gone quiet from no cube at all: without it a dropped link fell through to the app's own faces and drew a
 // manual session nobody had started.
@@ -192,15 +192,15 @@ quitSequence.letGoOfTheDevice = { settingsWindow.letGoOfTheDevice() }
 // arbitrary.
 let cubeLock = CubeLock(
     settings: settings,
-    isConnected: { radio.connectedDevice != nil },
+    isCubeConnected: { radio.connectedDevice != nil },
     send: { command, reported in radio.send(command, reported) },
     // The cube's own account of what it is doing, out of `device_event` by way of the readout -- the same answer the
     // menu bar and the Faces tab draw their play/pause glyph from, so the click flips what is on show rather than
     // something only the app can see. Read at the moment it is needed, never held.
-    isPaused: { timingReadout.read().deviceIsPaused },
+    cubePauseState: { timingReadout.read().cubePauseState },
     // A different source, because nothing else answers it: no history frame carries a lock bit and `device_event` has
     // no column for one, so `0x10` is all there is. See `CubeLock.isLocked`.
-    isLocked: { radio.cubeStatus?.isLocked },
+    cubeLockState: { CubeLockState(reported: radio.cubeStatus?.isLocked) },
     debugLog: debugLog
 )
 // The other half of the way out: the cube is paused and then locked before the link is given back, so a device left on
@@ -219,7 +219,7 @@ let reconnector = DeviceReconnector(
     rotatingTo: DeveloperMode.devicePIN,
     // Asked rather than told, so there is one answer to "is this launch timing by hand" rather than a copy beside it.
     // It cannot move under the loop any more (`LaunchMode`), which makes asking safe as well as right.
-    isTimingByHand: { launchMode.isManual }
+    isManualMode: { launchMode.isManual }
 )
 // What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
 // menu bar that says nothing.
@@ -263,13 +263,6 @@ let historyIngestor = HistoryIngestor(
     fetchHistory: { from, answered in radio.fetchHistory(from: from, answered) },
     debugLog: debugLog
 )
-// Recorded time changed, so everything drawn from it is stale: the readings on both surfaces, the day's totals, and
-// whether a category has spent its limit.
-historyIngestor.onChanged = {
-    menuBar.redraw()
-    settingsWindow.redrawTiming()
-}
-
 let historyTimer = HistoryTimer(
     settings: settings,
     debugLog: debugLog,
@@ -302,10 +295,81 @@ let dailyLimit = DailyLimitWatch(
     timing: { timingReadout.read() },
     windowStart: { dayTotal.windowStart(at: $0) },
     debugLog: debugLog,
-    stopTiming: { settingsWindow.togglePause() }
+    // **Which clock is running decides where the stop goes**, and the open segment's face is what says so -- the same
+    // test `DeviceEventRecorder.closeOpenSegment` makes before it will write a row. A cube's pause is a command; the
+    // app's is a row, and sending one where the other was wanted does nothing at all.
+    //
+    // **It did exactly that until now.** This was `settingsWindow.togglePause()` outright, which is the app's own
+    // clock, so with a cube on the other end the limit reached `closeOpenSegment`, was refused on the face, and logged
+    // that the row was left open for the cube to report the length of. Nothing went out, nothing was corrupted, and
+    // the limit simply did not apply to a device. `12-daily-limit` never caught it: it sits below 50 and runs in
+    // manual mode, where the wiring it had was the right one.
+    //
+    // **The fetch afterwards is how the app finds out**, not tidying up. Measured 2026-08-27 (finding 9 in
+    // `docs/timeflip2-firmware-observations.md`): a pause files a new history event on the cube and the cube
+    // announces nothing, so without asking, the open segment would go on reporting the old state.
+    stopTiming: {
+        guard let open = deviceEvents.openSegment(), !ManualFace.isAppFace(open.face) else {
+            settingsWindow.togglePause()
+            return
+        }
+        cubeLock.setPause(true) { _ in
+            historyIngestor.refresh(because: "a category spent its daily limit")
+        }
+    }
 )
 // Asked rather than pushed, so the refusal and the greying cannot be working from different copies of one answer.
-settingsWindow.isLimitReached = { dailyLimit.isReached }
+settingsWindow.isLimitReached = { dailyLimit.isLimitReached }
+// **The fourth path that could send a resume, and the one that was not refusing.** Unlocking resumes the cube, so a
+// double click on the status item's right half was a way round a spent limit: lock, unlock, and the budget is
+// spendable again until the watch notices. `CubeLock.resume` now unlocks and leaves it stopped.
+cubeLock.isLimitReached = { dailyLimit.isLimitReached }
+
+// Stops the cube when it is resting on a face with no category, and starts it again when that face is given one.
+//
+// **Time the app cannot attribute is time it will not let the cube record.** The decision is `ForcedPause` and this
+// only puts it on the wire; both are driven from the two funnels below rather than from a tick, there being nothing
+// else that can change the answer.
+//
+// **After the daily limit deliberately**, because the two decide the same cube's pause state and a hard limit has to
+// win: `limitIsHolding` is what stands this down while the limit has one of its own.
+let forcedPause = ForcedPauseWatch(
+    // The cube's own open row and nothing else. `ManualFace.isAppFace` filters 13 and 14 out here rather than in the
+    // decision, so what the decision is handed is only ever a face a cube reported.
+    cubeFace: { deviceEvents.openSegment().map(\.face).flatMap { ManualFace.isAppFace($0) ? nil : $0 } },
+    hasCategory: { faces.categoryID(forFace: $0) != nil },
+    // **The same three sources `CubeLock` reads**, deliberately: the thing deciding to send a pause and the thing
+    // sending it must not be working from different answers about whether the cube is stopped, locked or reachable.
+    cubePauseState: { timingReadout.read().cubePauseState },
+    cubeLockState: { CubeLockState(reported: radio.cubeStatus?.isLocked) },
+    isCubeConnected: { radio.connectedDevice != nil },
+    limitIsHolding: { dailyLimit.isLimitHoldingPause },
+    setPause: { wanted, then in cubeLock.setPause(wanted, then: then) },
+    refreshHistory: { reason, done in historyIngestor.refresh(because: reason) { _ in done() } },
+    debugLog: debugLog
+)
+
+// Recorded time changed, so everything drawn from it is stale: the readings on both surfaces, the day's totals, and
+// whether a category has spent its limit.
+historyIngestor.onChanged = {
+    menuBar.redraw()
+    settingsWindow.redrawTiming()
+    // **The limit's tick stands itself down the moment nothing is being timed, and a pause is exactly that**, so
+    // without this the watch dies at the first limit it enforces and never looks again. `resumeIfStopped` was reached
+    // only from `onTimingChanged`, which every path that starts the *app's* clock goes through and no cube ever does.
+    //
+    // That is what makes a flip back onto a spent category work: the flip resumes the cube in firmware, this fetch
+    // brings the frame in, the tick comes back because something is running again, and the evaluation that follows
+    // finds a category still spent for the day. Without it the cube is stopped once and then left alone for ever.
+    //
+    // Cheap where it does nothing: `resumeIfStopped` returns at once if the tick is already up, and `start` refuses
+    // unless something really is running.
+    dailyLimit.resumeIfStopped()
+    // **An event came in, so the face the cube is resting on may be one with nothing on it.** This is the moment that
+    // is true of, and a flip reaches it promptly: the faces characteristic notifies and the app fetches on it, so this
+    // does not wait out `fetch_history_interval_seconds`.
+    forcedPause.check()
+}
 
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
@@ -321,7 +385,7 @@ let menuBar = MenuBarController(
     togglePause: { settingsWindow.togglePause() },
     // Greys the dropdown's Resume and turns the item's right half into a no-op. `togglePause` refuses as well,
     // which is the enforcement; these two are what stop it looking like a control that is simply broken.
-    isLimitReached: { dailyLimit.isReached },
+    isLimitReached: { dailyLimit.isLimitReached },
     // Asked as the item is drawn, like everything else it shows. What makes it draw twice a second while a warning
     // is up is the watch itself, below.
     lowBattery: { lowBattery.alert },
@@ -330,9 +394,9 @@ let menuBar = MenuBarController(
     // has asked yet rather than guessing the other way.
     cube: {
         MenuBarController.CubeReading(
-            isConnected: radio.connectedDevice != nil,
-            isLocked: radio.cubeStatus?.isLocked,
-            isPaused: radio.cubeStatus?.isPaused
+            isCubeConnected: radio.connectedDevice != nil,
+            cubeLockState: CubeLockState(reported: radio.cubeStatus?.isLocked),
+            cubePauseState: CubePauseState(reported: radio.cubeStatus?.isPaused)
         )
     },
     // Whichever way it is offering. What the app is holding decides, and the commands are `CubeLock`'s.
@@ -344,7 +408,7 @@ let menuBar = MenuBarController(
     // nothing when its pause changes. Without asking, the glyph on both surfaces would go on drawing the old state
     // until the timer next fired, which a shipped build floors at a minute.
     toggleCubeLock: {
-        if radio.cubeStatus?.isLocked == true {
+        if CubeLockState(reported: radio.cubeStatus?.isLocked) == .locked {
             cubeLock.resume { _ in
                 historyIngestor.refresh(because: "the cube was unlocked from the menu bar")
             }
@@ -398,7 +462,7 @@ radio.onFace = { _, _ in
     settingsWindow.redrawTiming()
     // **A flip closed a segment and opened another**, which is exactly what history is a record of, so this is the
     // moment to go and get it rather than waiting out the rest of the tick. It also refreshes whether the cube is
-    // paused, because every frame carries that in its face byte -- see `timingReadout.isDevicePaused`.
+    // paused, because every frame carries that in its face byte -- see `timingReadout.cubePauseState`.
     historyIngestor.refresh(because: "the cube was turned")
 }
 // **The link coming up is its own reason to ask, and it used to be nobody's.** The fetch on connect happened only
@@ -437,7 +501,7 @@ radio.onLinkEnded = { _ in
 // **flash memory fault** turns up: history lives in flash, so a cube reporting one records nothing, and from the
 // outside that looks exactly like a cube that was reset.
 radio.onSystemState = { _, state in
-    guard state.sync == .factoryReset else { return }
+    guard state.cubeSyncState == .factoryReset else { return }
     historyIngestor.refresh(because: "the cube says it was put back to the factory")
 }
 
@@ -455,6 +519,10 @@ settingsWindow.onTimingChanged = {
     // The same funnel, for the same reason: this stands itself down while nothing is being timed, and every path
     // that starts the clock already comes through here, so a new one gets the limit enforced for nothing.
     dailyLimit.resumeIfStopped()
+    // **The other half, and the only route to it.** Giving a face a category changes a table with the cube sitting
+    // still, so no history event follows and nothing else would ever notice. `SettingsWindowController` comes through
+    // here after every assignment for exactly this sort of reason.
+    forcedPause.check()
 }
 
 // Connecting Google is the other moment a sweep becomes possible. Without this, somebody who signs in after a week

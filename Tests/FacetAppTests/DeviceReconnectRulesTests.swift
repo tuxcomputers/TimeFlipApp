@@ -8,22 +8,22 @@ import XCTest
 /// so silently and for hours.
 final class DeviceReconnectRulesTests: XCTestCase {
     private func shouldAttempt(
-        isPaired: Bool = true,
-        isConnected: Bool = false,
+        isCubePaired: Bool = true,
+        isCubeConnected: Bool = false,
         isScanning: Bool = false,
-        isReaching: Bool = false,
-        isResetting: Bool = false,
+        isReachingForCube: Bool = false,
+        isFactoryResetRunning: Bool = false,
         isAwaitingAnswer: Bool = false,
-        isTimingByHand: Bool = false
+        isManualMode: Bool = false
     ) -> Bool {
         DeviceReconnectRules.shouldAttempt(
-            isPaired: isPaired,
-            isConnected: isConnected,
+            isCubePaired: isCubePaired,
+            isCubeConnected: isCubeConnected,
             isScanning: isScanning,
-            isReaching: isReaching,
-            isResetting: isResetting,
+            isReachingForCube: isReachingForCube,
+            isFactoryResetRunning: isFactoryResetRunning,
             isAwaitingAnswer: isAwaitingAnswer,
-            isTimingByHand: isTimingByHand
+            isManualMode: isManualMode
         )
     }
 
@@ -37,18 +37,18 @@ final class DeviceReconnectRulesTests: XCTestCase {
         // The whole licence to hold a connection is the pairing. Every other input says the radio is free, and it stays
         // free: an app with no device has nothing to look for, and a loop that scanned anyway would be a radio running
         // for the life of a launch that never had a cube.
-        XCTAssertFalse(shouldAttempt(isPaired: false))
+        XCTAssertFalse(shouldAttempt(isCubePaired: false))
     }
 
     func testForgettingTheDeviceStopsTheLoopWithNothingHavingToTellIt() {
         // The same case as above, and it is here under its own name because it is the one that matters at runtime:
-        // `isPaired` is read from the table per attempt, so Forget Device stops this without the button knowing the loop
+        // `isCubePaired` is read from the table per attempt, so Forget Device stops this without the button knowing the loop
         // exists. If this ever answers true, forgetting a cube leaves the app chasing it.
-        XCTAssertFalse(shouldAttempt(isPaired: false, isConnected: false))
+        XCTAssertFalse(shouldAttempt(isCubePaired: false, isCubeConnected: false))
     }
 
     func testAConnectedAppDoesNotReachForWhatItAlreadyHas() {
-        XCTAssertFalse(shouldAttempt(isConnected: true))
+        XCTAssertFalse(shouldAttempt(isCubeConnected: true))
     }
 
     // MARK: - standing down while the radio is busy
@@ -60,14 +60,14 @@ final class DeviceReconnectRulesTests: XCTestCase {
     }
 
     func testAnAttemptAlreadyInFlightIsNotDoubled() {
-        XCTAssertFalse(shouldAttempt(isReaching: true))
+        XCTAssertFalse(shouldAttempt(isReachingForCube: true))
     }
 
     func testACubeBeingResetIsNotReachedFor() {
         // A reset is the app being told to give the cube up, and its confirmation is a login this loop must not
         // interfere with -- presenting the stored PIN mid-wipe would either fail or, worse, succeed and be counted as
         // proof the wipe took. `BluetoothRadio.factoryReset` explains why only the vendor default may be offered there.
-        XCTAssertFalse(shouldAttempt(isResetting: true))
+        XCTAssertFalse(shouldAttempt(isFactoryResetRunning: true))
     }
 
     // MARK: - standing down because the app has stopped
@@ -81,7 +81,7 @@ final class DeviceReconnectRulesTests: XCTestCase {
     func testNothingIsAttemptedOnceManualModeIsChosen() {
         // The whole of what choosing it means: the app looks for nothing on its own again this launch, so a cube
         // drifting into range for a few seconds cannot surprise anybody.
-        XCTAssertFalse(shouldAttempt(isTimingByHand: true))
+        XCTAssertFalse(shouldAttempt(isManualMode: true))
     }
 
     func testAnOfferAndAFreeRadioStillDoNotAttempt() {
@@ -89,13 +89,13 @@ final class DeviceReconnectRulesTests: XCTestCase {
         // that only asked whether the radio was busy would retry straight through the dialog.
         XCTAssertTrue(shouldAttempt(), "precondition: an idle radio would otherwise attempt")
         XCTAssertFalse(shouldAttempt(isAwaitingAnswer: true))
-        XCTAssertFalse(shouldAttempt(isTimingByHand: true))
+        XCTAssertFalse(shouldAttempt(isManualMode: true))
     }
 
     func testPairingIsStillWhatDecidesFirst() {
         // Manual mode does not touch the pairing and the pairing does not override the mode: an unpaired app has
         // nothing to reach for whatever else is true.
-        XCTAssertFalse(shouldAttempt(isPaired: false, isAwaitingAnswer: false, isTimingByHand: false))
+        XCTAssertFalse(shouldAttempt(isCubePaired: false, isAwaitingAnswer: false, isManualMode: false))
     }
 
     // MARK: - how long to wait

@@ -15,12 +15,12 @@ import XCTest
 @MainActor
 final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     private var reading: TimingReadout.Reading = .idle
-    private var state: TimingState {
-        get { reading.state }
-        set { reading = TimingReadout.Reading(category: reading.category, state: newValue, seconds: reading.seconds) }
+    private var timingState: TimingState {
+        get { reading.timingState }
+        set { reading = TimingReadout.Reading(category: reading.category, timingState: newValue, seconds: reading.seconds) }
     }
     private var toggles = 0
-    private var cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+    private var cube = MenuBarController.CubeReading(isCubeConnected: false, cubeLockState: .unknown)
     private var cubeToggles = 0
 
     /// Held for the length of the test, because an item's `target` is **weak**: a controller nobody keeps is
@@ -58,7 +58,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     /// A category to be timed, which every reading below needs one of.
     private static let meeting = CategoryRecord(
         id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil,
-        usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+        usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
     )
 
     func testTheItemTicksWhileACubeIsTiming() {
@@ -67,17 +67,17 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // whenever a fetch redrew it. The figure was growing on every read the entire time.
         reading = TimingReadout.Reading(
             category: Self.meeting,
-            state: .idle,
+            timingState: .idle,
             seconds: 30,
             isCounting: true,
-            deviceFace: 5,
-            deviceIsPaused: false
+            cubeFace: 5,
+            cubePauseState: .running
         )
         let controller = controller()
 
         controller.redraw()
 
-        XCTAssertTrue(controller.isTicking)
+        XCTAssertTrue(controller.isRepaintTicking)
         // Put down rather than left on the run loop for the rest of the suite.
         controller.stopTicking()
     }
@@ -87,31 +87,31 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // what redraws the item. A timer repainting an unchanging number is a wake-up a second for nothing.
         reading = TimingReadout.Reading(
             category: Self.meeting,
-            state: .idle,
+            timingState: .idle,
             seconds: 30,
             isCounting: false,
-            deviceFace: 5,
-            deviceIsPaused: true
+            cubeFace: 5,
+            cubePauseState: .paused
         )
         let controller = controller()
 
         controller.redraw()
 
-        XCTAssertFalse(controller.isTicking)
+        XCTAssertFalse(controller.isRepaintTicking)
     }
 
     func testTheTickStopsWhenTheFigureStops() {
         reading = TimingReadout.Reading(
-            category: Self.meeting, state: .running, seconds: 30, isCounting: true
+            category: Self.meeting, timingState: .running, seconds: 30, isCounting: true
         )
         let controller = controller()
         controller.redraw()
-        XCTAssertTrue(controller.isTicking, "precondition")
+        XCTAssertTrue(controller.isRepaintTicking, "precondition")
 
-        reading = TimingReadout.Reading(category: Self.meeting, state: .paused, seconds: 30)
+        reading = TimingReadout.Reading(category: Self.meeting, timingState: .paused, seconds: 30)
         controller.redraw()
 
-        XCTAssertFalse(controller.isTicking)
+        XCTAssertFalse(controller.isRepaintTicking)
     }
 
     // MARK: - how wide the item has to be
@@ -172,7 +172,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testTheLockItemIsDeadWithNoCubeConnected() {
         // It ends in a command, and a command needs a live link. A paired cube in another room can be neither locked
         // nor resumed, so an item offering it would be a control that does nothing and says nothing about why.
-        cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+        cube = MenuBarController.CubeReading(isCubeConnected: false, cubeLockState: .unknown)
 
         let item = try? XCTUnwrap(lockItem())
 
@@ -181,7 +181,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testAConnectedUnlockedCubeIsOfferedALock() throws {
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unlocked)
 
         let item = try XCTUnwrap(lockItem())
 
@@ -190,7 +190,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testALockedCubeIsOfferedAnUnlock() throws {
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
 
         let item = try XCTUnwrap(lockItem())
 
@@ -202,8 +202,8 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // Seen on screen: with the app's clock stopped and the cube locked, the dropdown offered "Resume" twice --
         // one starting the app's clock and one starting the cube. Two items reading the same thing while doing
         // entirely different things is a menu nobody can use.
-        state = .paused
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        timingState = .paused
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
 
         let titles = menu().items.filter { !$0.isSeparatorItem }.map(\.title)
 
@@ -213,7 +213,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testACubeNobodyHasAskedYetReadsLock() throws {
         // The safer of the two to be wrong about: offering to lock an already-locked cube sends a command that
         // changes nothing, while offering to resume a running one would unlock what was never locked.
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: nil)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unknown)
 
         XCTAssertEqual(try XCTUnwrap(lockItem()).title, "Lock")
     }
@@ -223,11 +223,11 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // changes.
         let controller = controller()
         let menu = controller.makeMenu()
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unlocked)
         controller.refresh(menu)
         XCTAssertEqual(try XCTUnwrap(item(named: MenuBarController.Identifier.toggleCubeLock, in: menu)).title, "Lock")
 
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
         controller.refresh(menu)
 
         XCTAssertEqual(
@@ -237,7 +237,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testChoosingItGoesToTheOneLockPath() throws {
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unlocked)
         let item = try XCTUnwrap(lockItem())
 
         _ = item.target?.perform(item.action, with: item)
@@ -257,7 +257,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     // MARK: - what Pause says
 
     func testWithNothingBeingTimedItReadsPauseAndCannotBeChosen() {
-        state = .idle
+        timingState = .idle
 
         let pause = pauseItem(in: menu())
 
@@ -268,7 +268,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testWhileRunningItOffersToPause() {
-        state = .running
+        timingState = .running
 
         let pause = pauseItem(in: menu())
 
@@ -279,7 +279,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testWhileStoppedItOffersToResume() {
-        state = .paused
+        timingState = .paused
 
         let pause = pauseItem(in: menu())
 
@@ -291,11 +291,11 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         let controller = controller()
         let menu = controller.makeMenu()
 
-        state = .running
+        timingState = .running
         controller.refresh(menu)
         XCTAssertEqual(pauseItem(in: menu)?.title, "Pause")
 
-        state = .paused
+        timingState = .paused
         controller.refresh(menu)
 
         // Asked as the menu opens rather than pushed when the clock changes: a menu that never remembers
@@ -330,7 +330,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
                 isLimitReached: isLimitReached,
                 lowBattery: lowBattery,
                 // From the same reading the dropdown's Lock item is drawn from, so a test setting one gets the other.
-                isCubeLocked: cube.isLocked == true
+                cubeLockState: cube.cubeLockState
             )
         )
     }
@@ -349,9 +349,9 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testTheOrderIsBadgeIconCategoryGlyphThenTime() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
-            state: .running,
+            timingState: .running,
             seconds: 30
         )
 
@@ -368,12 +368,12 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // still timing or stopped stays worth seeing while it is locked.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
-            state: .running,
+            timingState: .running,
             seconds: 30
         )
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
 
         XCTAssertEqual(
             line(controller(badge: .forEnvironment(.test))),
@@ -385,7 +385,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testALockedCubeShowsTheBadgeWithNothingBeingTimed() {
         // The state that most needs saying: a locked cube is why nothing is running.
         reading = .idle
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
 
         XCTAssertEqual(line(controller()), "Facet \(attachment)")
     }
@@ -394,17 +394,17 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // A link that drops takes the status with it (`BluetoothRadio` clears it), and the badge has to go with that
         // -- a lock drawn for a cube nobody can reach is a claim about hardware the app cannot see.
         reading = .idle
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
         XCTAssertEqual(line(controller()), "Facet \(attachment)", "precondition")
 
-        cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+        cube = MenuBarController.CubeReading(isCubeConnected: false, cubeLockState: .unknown)
 
         XCTAssertEqual(line(controller()), "Facet")
     }
 
     func testAnUnlockedCubeAddsNothingToTheLine() {
         reading = .idle
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unlocked)
 
         XCTAssertEqual(line(controller()), "Facet")
     }
@@ -426,9 +426,9 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testTheBadgeKeepsItsOwnColourWhileTheSessionIsCyan() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
-            state: .running,
+            timingState: .running,
             seconds: 30
         )
 
@@ -449,9 +449,9 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // `StatusItemTitle.glyphColour`, which is where that one is pinned.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
-            state: .paused,
+            timingState: .paused,
             seconds: 30
         )
 
@@ -473,13 +473,13 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // and the figure beside them stays the colour it was, being a clock somebody is reading.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
-            state: .running,
+            timingState: .running,
             seconds: 30
         )
-        let flashing = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: true))
-        let between = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: false))
+        let flashing = title(controller(), lowBattery: LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))
+        let between = title(controller(), lowBattery: LowBatteryAlert(isBatteryLow: true, isBlinkOn: false))
 
         XCTAssertEqual(colour(of: "Meeting", in: flashing), .systemRed)
         XCTAssertEqual(colour(of: "0:00:30", in: flashing), .systemCyan)
@@ -491,7 +491,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         reading = .idle
 
         XCTAssertEqual(
-            colour(of: "Facet", in: title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: true))),
+            colour(of: "Facet", in: title(controller(), lowBattery: LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))),
             .systemRed
         )
     }
@@ -499,9 +499,9 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testACategoryWithNoIconDrawsOneAttachmentRatherThanTwo() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
-            state: .paused,
+            timingState: .paused,
             seconds: 30
         )
 
@@ -511,7 +511,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     // MARK: - what choosing it does
 
     func testChoosingItGoesToTheOneTogglePath() throws {
-        state = .running
+        timingState = .running
         let menu = menu()
         let pause = try XCTUnwrap(pauseItem(in: menu))
 

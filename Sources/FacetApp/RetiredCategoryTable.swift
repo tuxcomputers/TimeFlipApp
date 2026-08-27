@@ -247,7 +247,7 @@ final class RetiredCategoryRow: NSStackView {
 
     private func lastUsedLabel() -> NSTextField {
         let label = NSTextField(
-            labelWithString: CategoryLastUsedText.label(isActive: category.isActive, lastUsed: lastUsed) ?? ""
+            labelWithString: CategoryLastUsedText.label(isCategoryActive: category.isCategoryActive, lastUsed: lastUsed) ?? ""
         )
         label.textColor = .secondaryLabelColor
         label.lineBreakMode = .byTruncatingTail

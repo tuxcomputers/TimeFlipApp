@@ -23,44 +23,36 @@ enum ReportSortRules {
         case time
     }
 
-    enum Direction: Equatable {
-        case ascending
-        case descending
-    }
-
     struct Order: Equatable {
-        var column: Column
-        var direction: Direction
+        var sortColumnState: Column
+        var isSortAscending: Bool
 
         /// What the tab opens on: the biggest figure first, which is the question a report is opened to ask.
         ///
-        /// The same answer `defaultDirection(for: .time)` gives, and deliberately not written twice: opening on one
+        /// The same answer `defaultIsSortAscending(for: .time)` gives, and deliberately not written twice: opening on one
         /// direction and clicking Time into another would make the heading's first click do nothing visible, which
         /// reads as a dead control.
-        static let initial = Order(column: .time, direction: defaultDirection(for: .time))
+        static let initial = Order(sortColumnState: .time, isSortAscending: defaultIsSortAscending(for: .time))
     }
 
     /// Where a column starts when it is first clicked.
-    static func defaultDirection(for column: Column) -> Direction {
-        switch column {
+    static func defaultIsSortAscending(for sortColumnState: Column) -> Bool {
+        switch sortColumnState {
         case .category:
             // A to Z, which is the shared `CategoryOrder` read forwards.
-            return .ascending
+            return true
         case .time:
             // Largest first. See the note above: this is the question the column is clicked to ask.
-            return .descending
+            return false
         }
     }
 
     /// The order a click produces, given the order in force.
-    static func next(after current: Order, clicking column: Column) -> Order {
-        guard current.column == column else {
-            return Order(column: column, direction: defaultDirection(for: column))
+    static func next(after current: Order, clicking sortColumnState: Column) -> Order {
+        guard current.sortColumnState == sortColumnState else {
+            return Order(sortColumnState: sortColumnState, isSortAscending: defaultIsSortAscending(for: sortColumnState))
         }
-        return Order(
-            column: column,
-            direction: current.direction == .ascending ? .descending : .ascending
-        )
+        return Order(sortColumnState: sortColumnState, isSortAscending: !current.isSortAscending)
     }
 
     /// The totals in that order.
@@ -71,7 +63,7 @@ enum ReportSortRules {
     static func sorted(_ totals: [CategoryTotal], by order: Order) -> [CategoryTotal] {
         totals.sorted { lhs, rhs in
             let ascending: Bool
-            switch order.column {
+            switch order.sortColumnState {
             case .category:
                 ascending = CategoryOrder.isBefore(lhs.name, id: lhs.categoryID, than: rhs.name, id: rhs.categoryID)
             case .time:
@@ -83,7 +75,7 @@ enum ReportSortRules {
                     return CategoryOrder.isBefore(lhs.name, id: lhs.categoryID, than: rhs.name, id: rhs.categoryID)
                 }
             }
-            return order.direction == .ascending ? ascending : !ascending
+            return order.isSortAscending ? ascending : !ascending
         }
     }
 
@@ -91,8 +83,8 @@ enum ReportSortRules {
     ///
     /// **Only the active column carries an arrow.** Two arrows would say the list is sorted by both, and a column with
     /// no arrow is the honest way to say "not this one, click to use it".
-    static func heading(_ title: String, column: Column, order: Order) -> String {
-        guard order.column == column else { return title }
-        return order.direction == .ascending ? "\(title) \u{25B2}" : "\(title) \u{25BC}"
+    static func heading(_ title: String, sortColumnState: Column, order: Order) -> String {
+        guard order.sortColumnState == sortColumnState else { return title }
+        return order.isSortAscending ? "\(title) \u{25B2}" : "\(title) \u{25BC}"
     }
 }

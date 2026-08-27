@@ -127,13 +127,13 @@ struct StatusItemTitle: Equatable {
         showingSeconds: Bool,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
-        isCubeLocked: Bool = false
+        cubeLockState: CubeLockState = .unknown
     ) -> StatusItemTitle {
         // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
         // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
         // name drawn in whatever the line's own colour turns out to be.
-        let flash: NSColor? = lowBattery.isLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
-        let lockGlyphName = isCubeLocked ? "lock.fill" : nil
+        let flash: NSColor? = lowBattery.isBatteryLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
+        let lockGlyphName = cubeLockState == .locked ? "lock.fill" : nil
         // **Following a cube: the face's category and what it has recorded today.**
         //
         // The figure is the archive's, copied: its menu bar drew the same day total in device mode, out of the same
@@ -144,7 +144,7 @@ struct StatusItemTitle: Equatable {
         // **No glyph until the cube has answered.** `nil` is a cube that has not been asked yet or would not say, and
         // guessing "running" would be the app making a claim about hardware on no evidence -- the one thing
         // `CLAUDE.md`'s read-back rule exists to stop.
-        if reading.deviceFace != nil, let category = reading.category {
+        if reading.cubeFace != nil, let category = reading.category {
             // Formatted once and used twice, drawn and spoken, so the two cannot come to read differently.
             let onTheFace = DurationFormat.hoursMinutesSeconds(
                 reading.seconds,
@@ -160,21 +160,23 @@ struct StatusItemTitle: Equatable {
             // reasonable time"). A local build passing is not evidence about this, since the limit is a time budget
             // and a slower machine has less of it. Appending in order also puts the reading order in the code.
             var spokenParts: [String] = [category.name]
-            if let isDevicePaused = reading.deviceIsPaused {
-                spokenParts.append(isDevicePaused ? "device paused" : "device running")
+            switch reading.cubePauseState {
+            case .paused: spokenParts.append("device paused")
+            case .running: spokenParts.append("device running")
+            case .unknown: break
             }
             // **Said where it is drawn, which is right after what it qualifies.** The yellow below is the whole of
             // this on screen, and what it says is that the paused-or-running just spoken is the cube's last word
             // rather than its current one.
-            if !reading.isDeviceReachable { spokenParts.append("device unreachable") }
+            if !reading.isCubeConnected { spokenParts.append("device unreachable") }
             spokenParts.append(onTheFace)
-            if isCubeLocked { spokenParts.append("device locked") }
+            if cubeLockState == .locked { spokenParts.append("device locked") }
             // **Said even where the yellow has taken the red off the figure.** The limit is a fact about
             // `time_entry` and this machine's clock, so it does not stop being true when a cube goes out of range;
             // what the yellow withdraws is the claim that the *cube's* reading is current, and that is said in its
             // own words just above.
             if isLimitReached { spokenParts.append("daily limit reached") }
-            if lowBattery.isLow { spokenParts.append("low battery") }
+            if lowBattery.isBatteryLow { spokenParts.append("low battery") }
             spokenParts.append(appLabel)
             // **Green while the cube can be heard, yellow once it cannot**, and the second one takes the name as
             // well as the figure. See `colour` and `nameColour`: a reading nobody can confirm is not the place for
@@ -185,17 +187,22 @@ struct StatusItemTitle: Equatable {
             // above is about: this file has already failed CI once for asking Swift to type-check too much at once.
             let lineColour: NSColor
             let cubeNameColour: NSColor
-            if reading.isDeviceReachable {
+            if reading.isCubeConnected {
                 lineColour = isLimitReached ? .systemRed : .systemGreen
                 cubeNameColour = flash ?? .systemGreen
             } else {
                 lineColour = .systemYellow
                 cubeNameColour = .systemYellow
             }
+            let cubeGlyphName: String? = switch reading.cubePauseState {
+            case .paused: "pause.fill"
+            case .running: "play.fill"
+            case .unknown: nil
+            }
             return StatusItemTitle(
                 text: category.name,
                 iconName: category.iconName,
-                glyphName: reading.deviceIsPaused.map { $0 ? "pause.fill" : "play.fill" },
+                glyphName: cubeGlyphName,
                 lockGlyphName: lockGlyphName,
                 duration: onTheFace,
                 // Not the by-hand cyan: that colour is a claim that this app is doing the timing, and here it is
@@ -214,11 +221,11 @@ struct StatusItemTitle: Equatable {
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
         // starts. `guard` on both, though the readout only ever pairs them: a category with no state to draw, or a
         // state with no category to name, is half a session either way.
-        guard let category = reading.category, let glyphName = ManualTimerRules.symbolName(for: reading.state) else {
+        guard let category = reading.category, let glyphName = ManualTimerRules.symbolName(for: reading.timingState) else {
             // Built up rather than chained, for the reason given at the first of these.
             var idleParts: [String] = [appLabel]
-            if isCubeLocked { idleParts.append("device locked") }
-            if lowBattery.isLow { idleParts.append("low battery") }
+            if cubeLockState == .locked { idleParts.append("device locked") }
+            if lowBattery.isBatteryLow { idleParts.append("low battery") }
             return StatusItemTitle(
                 text: appLabel,
                 iconName: nil,
@@ -258,10 +265,10 @@ struct StatusItemTitle: Equatable {
         // **The lock is said, not just drawn**, for the same reason the limit and the warning are: a badge is the
         // whole of the signal on screen, so without this the state that explains why a cube is not changing face
         // would be invisible to anybody reading the item aloud.
-        var sessionParts: [String] = [category.name, reading.state == .running ? "running" : "paused", duration]
-        if isCubeLocked { sessionParts.append("device locked") }
+        var sessionParts: [String] = [category.name, reading.timingState == .running ? "running" : "paused", duration]
+        if cubeLockState == .locked { sessionParts.append("device locked") }
         if isLimitReached { sessionParts.append("daily limit reached") }
-        if lowBattery.isLow { sessionParts.append("low battery") }
+        if lowBattery.isBatteryLow { sessionParts.append("low battery") }
         sessionParts.append(appLabel)
         return StatusItemTitle(
             text: category.name,
@@ -273,7 +280,7 @@ struct StatusItemTitle: Equatable {
             // `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen` on the same line. The session colour
             // is a claim that time is being recorded normally, and once a limit has stopped the clock that claim is
             // no longer true -- so the colour and the pause are two faces of one fact, drawn from the same answer
-            // (`DailyLimitEnforcement.isReached`) rather than from two comparisons that could disagree by a second.
+            // (`DailyLimitEnforcement.isLimitReached`) rather than from two comparisons that could disagree by a second.
             //
             // **On the figure and not on the whole line**, which is where this parts from the archive: the figure is
             // what has reached the number, and the name is only which category it belongs to.

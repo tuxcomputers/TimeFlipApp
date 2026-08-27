@@ -12,14 +12,14 @@ final class FacesTabRulesTests: XCTestCase {
 
     func testAnUnlockedFaceTakesTheCategory() {
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: false),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: false, isManualMode: false),
             .assignToFace(5)
         )
     }
 
     func testALockedFaceKeepsWhatItHas() {
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: true, isTimingByHand: false),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: true, isManualMode: false),
             .faceIsLocked(5)
         )
     }
@@ -28,7 +28,7 @@ final class FacesTabRulesTests: XCTestCase {
         // Not reachable today -- the readout answers no face while timing by hand -- but the order is the one the tab
         // draws with, and a rule that disagreed with the picture would put the click somewhere nobody was looking.
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: true),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: false, isManualMode: true),
             .assignToFace(5)
         )
     }
@@ -37,14 +37,14 @@ final class FacesTabRulesTests: XCTestCase {
 
     func testTimingByHandStartsTheClock() {
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: nil, isFaceLocked: false, isTimingByHand: true),
+            FacesTabRules.click(cubeFace: nil, isFaceLocked: false, isManualMode: true),
             .startTiming
         )
     }
 
     func testAPairedAppThatIsNotTimingByHandIsStillLooking() {
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: nil, isFaceLocked: false, isTimingByHand: false),
+            FacesTabRules.click(cubeFace: nil, isFaceLocked: false, isManualMode: false),
             .waitingForTheDevice
         )
     }
@@ -53,7 +53,7 @@ final class FacesTabRulesTests: XCTestCase {
         // `isFaceLocked` is about the face on show, so with none it has nothing to say. Pinned because the two
         // arguments arrive together from one reading and it would be easy to let a stale lock decide something.
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: nil, isFaceLocked: true, isTimingByHand: true),
+            FacesTabRules.click(cubeFace: nil, isFaceLocked: true, isManualMode: true),
             .startTiming
         )
     }
@@ -75,13 +75,13 @@ final class FacesTabRulesTests: XCTestCase {
     // MARK: - the lock itself
 
     func testOnlyACubesFaceHasALock() {
-        XCTAssertTrue(FacesTabRules.showsLock(deviceFace: 5))
+        XCTAssertTrue(FacesTabRules.showsLock(cubeFace: 5))
     }
 
     func testManualModeHasNoLockToOffer() {
         // Its face is meant to be reassigned -- every category picked lands on it -- so a lock could only get in the
         // way of the one gesture the tab has. Hidden rather than shown open, which is the archive's choice too.
-        XCTAssertFalse(FacesTabRules.showsLock(deviceFace: nil))
+        XCTAssertFalse(FacesTabRules.showsLock(cubeFace: nil))
     }
 
     // MARK: - a cube that cannot be reached
@@ -92,7 +92,7 @@ final class FacesTabRulesTests: XCTestCase {
         // assignment to a device nobody can hear. The face is worth showing; sending to it is not something the app
         // can carry out.
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: false, isDeviceReachable: false),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: false, isManualMode: false, isCubeConnected: false),
             .waitingForTheDevice
         )
     }
@@ -101,7 +101,7 @@ final class FacesTabRulesTests: XCTestCase {
         // The lock is a fact about a face on a cube the app cannot ask, so it is not the reason to give: not being
         // able to reach it comes first, and answering `faceIsLocked` would explain the refusal with the wrong cause.
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: true, isTimingByHand: false, isDeviceReachable: false),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: true, isManualMode: false, isCubeConnected: false),
             .waitingForTheDevice
         )
     }
@@ -110,7 +110,7 @@ final class FacesTabRulesTests: XCTestCase {
         // Manual mode is still what decides that, and it is unchanged: a cube that has gone quiet is not somebody
         // having said to get on without it.
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: true, isDeviceReachable: false),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: false, isManualMode: true, isCubeConnected: false),
             .startTiming
         )
     }
@@ -118,7 +118,7 @@ final class FacesTabRulesTests: XCTestCase {
     func testAReachableCubeIsUnaffected() {
         // The ordinary case, spelled out so the new parameter's default cannot quietly change it.
         XCTAssertEqual(
-            FacesTabRules.click(deviceFace: 5, isFaceLocked: false, isTimingByHand: false),
+            FacesTabRules.click(cubeFace: 5, isFaceLocked: false, isManualMode: false),
             .assignToFace(5)
         )
     }

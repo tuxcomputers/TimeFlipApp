@@ -209,6 +209,8 @@ correctly, so it passes and the line says which case it met.
 | `58-wrong-pin` | a cube that refuses this app's PIN: the offer, Retry, and taking manual mode (**asks you to answer a dialog twice**) |
 | `59-double-tap` | the four registers: stepped, sent, read back off the cube, then written down, and dead while the gesture is off |
 | `60-device-backlog` | a cube out of range: what the app shows, what it refuses to write, and what the cube backfills when it returns (**asks you to switch Bluetooth off and on, and to turn the cube in between**) |
+| `61-lock-without-pause` | locking the cube from the status item with `pause_on_lock` off |
+| `62-forced-pause` | the app stopping the cube itself: a face with no category, and a category that has spent its `daily_limit` (**asks you to turn the cube four times**) |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written

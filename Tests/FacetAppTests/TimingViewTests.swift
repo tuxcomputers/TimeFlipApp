@@ -13,7 +13,7 @@ final class TimingViewTests: XCTestCase {
     ) -> CategoryRecord {
         CategoryRecord(
             id: 7, name: "Deep Work", iconName: iconName,
-            colourID: 0, colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isActive: true
+            colourID: 0, colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isCategoryActive: true
         )
     }
 
@@ -49,7 +49,7 @@ final class TimingViewTests: XCTestCase {
     func testIdleDrawsNothing() {
         let view = view()
 
-        view.show(category: nil, state: .idle, elapsed: 0)
+        view.show(category: nil, timingState: .idle, elapsed: 0)
 
         XCTAssertFalse(view.playPauseButton.isEnabled, "nothing to click at")
         XCTAssertTrue(view.categoryNameLabel.isHidden)
@@ -60,7 +60,7 @@ final class TimingViewTests: XCTestCase {
     func testRunningShowsTheCategoryItsColourAndTheClock() {
         let view = view()
 
-        view.show(category: category(), state: .running, elapsed: 3_723)
+        view.show(category: category(), timingState: .running, elapsed: 3_723)
 
         XCTAssertTrue(view.playPauseButton.isEnabled)
         XCTAssertEqual(view.playPauseButton.contentTintColor, .red, "the glyph is the category's colour")
@@ -72,7 +72,7 @@ final class TimingViewTests: XCTestCase {
 
     func testTheSquareIsAsTallAsTheColumnIsWide() {
         let view = view(width: 384)
-        view.show(category: category(), state: .running, elapsed: 0)
+        view.show(category: category(), timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
 
         // The space the device graphic occupies when there is a cube to draw.
@@ -83,7 +83,7 @@ final class TimingViewTests: XCTestCase {
 
     func testTheGlyphAndTheClockAreSizedFromTheSquare() {
         let view = view(width: 384)
-        view.show(category: category(), state: .running, elapsed: 0)
+        view.show(category: category(), timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
 
         // 0.29 of the square, and the clock 0.3 of the glyph -- the ratios the previous app used.
@@ -93,10 +93,10 @@ final class TimingViewTests: XCTestCase {
 
     func testEverythingGrowsWithTheColumn() {
         let narrow = view(width: 300)
-        narrow.show(category: category(), state: .running, elapsed: 0)
+        narrow.show(category: category(), timingState: .running, elapsed: 0)
         narrow.layoutSubtreeIfNeeded()
         let wide = view(width: 600)
-        wide.show(category: category(), state: .running, elapsed: 0)
+        wide.show(category: category(), timingState: .running, elapsed: 0)
         wide.layoutSubtreeIfNeeded()
 
         XCTAssertGreaterThan(wide.playPauseButton.frame.width, narrow.playPauseButton.frame.width)
@@ -108,16 +108,16 @@ final class TimingViewTests: XCTestCase {
 
     func testTheNameIsLargeAndShrinksRatherThanWrapping() {
         let view = view()
-        view.show(category: category(), state: .running, elapsed: 0)
+        view.show(category: category(), timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
         XCTAssertEqual(view.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
         XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, 1)
 
         let long = CategoryRecord(
             id: 8, name: "Quarterly planning and review workshop", iconName: nil,
-            colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+            colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
         )
-        view.show(category: long, state: .running, elapsed: 0)
+        view.show(category: long, timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
 
         let size = try? XCTUnwrap(view.categoryNameLabel.font?.pointSize)
@@ -131,7 +131,7 @@ final class TimingViewTests: XCTestCase {
     func testTheElapsedFigureIsTruncatedNotRounded() {
         let view = view()
 
-        view.show(category: category(), state: .running, elapsed: 59.9)
+        view.show(category: category(), timingState: .running, elapsed: 59.9)
 
         XCTAssertEqual(view.elapsedLabel.stringValue, "0:00:59", "a clock must never read ahead of itself")
     }
@@ -139,7 +139,7 @@ final class TimingViewTests: XCTestCase {
     func testACategoryWithNoColourDrawsInTheOrdinaryLabelColour() {
         let view = view()
 
-        view.show(category: category(colour: nil), state: .running, elapsed: 0)
+        view.show(category: category(colour: nil), timingState: .running, elapsed: 0)
 
         // Nothing sits behind the glyph, so there is no dark background for it to be swallowed by and no
         // white-on-dark decision to make -- unlike the icon in the list, which sits on the colour.
@@ -149,7 +149,7 @@ final class TimingViewTests: XCTestCase {
     func testPausedStillShowsTheSessionAndStaysClickable() {
         let view = view()
 
-        view.show(category: category(), state: .paused, elapsed: 45)
+        view.show(category: category(), timingState: .paused, elapsed: 45)
 
         XCTAssertTrue(view.playPauseButton.isEnabled, "clicking is how it starts again")
         XCTAssertEqual(view.elapsedLabel.stringValue, "0:00:45")
@@ -159,10 +159,10 @@ final class TimingViewTests: XCTestCase {
     func testTheControlSaysOutLoudWhichStateItIsIn() {
         let view = view()
 
-        view.show(category: category(), state: .running, elapsed: 0)
+        view.show(category: category(), timingState: .running, elapsed: 0)
         XCTAssertEqual(view.playPauseButton.accessibilityLabel(), "Running, click to pause")
 
-        view.show(category: category(), state: .paused, elapsed: 0)
+        view.show(category: category(), timingState: .paused, elapsed: 0)
         XCTAssertEqual(
             view.playPauseButton.accessibilityLabel(), "Paused, click to resume",
             "the glyph carries the state visually, so the label has to carry it for a screen reader"
@@ -175,7 +175,7 @@ final class TimingViewTests: XCTestCase {
         let window = OffscreenWindow.host(view)
         var clicks = 0
         view.onTogglePause = { clicks += 1 }
-        view.show(category: category(), state: .running, elapsed: 0)
+        view.show(category: category(), timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
 
         view.playPauseButton.performClick(nil)
@@ -190,7 +190,7 @@ final class TimingViewTests: XCTestCase {
         XCTAssertEqual(view.playPauseButton.accessibilityIdentifier(), TimingView.Identifier.playPause)
         XCTAssertEqual(view.elapsedLabel.accessibilityIdentifier(), TimingView.Identifier.elapsed)
         XCTAssertEqual(view.categoryNameLabel.accessibilityIdentifier(), TimingView.Identifier.categoryName)
-        XCTAssertEqual(view.deviceView.accessibilityIdentifier(), TimingView.Identifier.deviceFace)
+        XCTAssertEqual(view.deviceView.accessibilityIdentifier(), TimingView.Identifier.cubeFace)
         XCTAssertEqual(view.centreIconView.accessibilityIdentifier(), TimingView.Identifier.centreIcon)
     }
 
@@ -294,7 +294,7 @@ final class TimingViewTests: XCTestCase {
         let view = view()
         view.show(face: 2, category: category())
 
-        view.show(category: category(), state: .running, elapsed: 60)
+        view.show(category: category(), timingState: .running, elapsed: 60)
 
         XCTAssertTrue(view.deviceView.isHidden)
         XCTAssertNil(view.deviceView.image)
@@ -321,7 +321,7 @@ final class TimingViewTests: XCTestCase {
         // drawn open: there is no lock to offer, not one that happens to be unlocked.
         let view = view()
 
-        view.show(category: nil, state: .idle, elapsed: 0)
+        view.show(category: nil, timingState: .idle, elapsed: 0)
 
         XCTAssertTrue(view.lockButton.isHidden)
     }
@@ -329,7 +329,7 @@ final class TimingViewTests: XCTestCase {
     func testFollowingACubeDrawsTheLock() {
         let view = view()
 
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
 
         XCTAssertFalse(view.lockButton.isHidden)
     }
@@ -339,10 +339,10 @@ final class TimingViewTests: XCTestCase {
         // it is already in.
         let view = view()
 
-        view.show(face: 5, category: nil, isLocked: true)
+        view.show(face: 5, category: nil, isFaceLocked: true)
         XCTAssertEqual(view.lockButton.accessibilityLabel(), "Unlock face")
 
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         XCTAssertEqual(view.lockButton.accessibilityLabel(), "Lock face")
     }
 
@@ -351,10 +351,10 @@ final class TimingViewTests: XCTestCase {
         // that have to be read together.
         let view = view()
 
-        view.show(face: 5, category: nil, isLocked: true)
+        view.show(face: 5, category: nil, isFaceLocked: true)
         XCTAssertEqual(view.lockButton.contentTintColor, .systemRed)
 
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         XCTAssertEqual(view.lockButton.contentTintColor, .systemGreen)
     }
 
@@ -362,7 +362,7 @@ final class TimingViewTests: XCTestCase {
         // The band of square the ring leaves empty, which is the whole reason it can sit on the artwork without
         // landing on any of it.
         let view = view(width: 400)
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         view.layoutSubtreeIfNeeded()
 
         let expected = (400 * TimingView.Layout.lockScale).rounded()
@@ -375,10 +375,10 @@ final class TimingViewTests: XCTestCase {
         // The archive's 40 points was right for one window width and nothing else. Everything in this column follows
         // the square, and a lock that did not would swamp a narrow window and vanish in a wide one.
         let narrow = view(width: 200)
-        narrow.show(face: 5, category: nil, isLocked: false)
+        narrow.show(face: 5, category: nil, isFaceLocked: false)
         narrow.layoutSubtreeIfNeeded()
         let wide = view(width: 600)
-        wide.show(face: 5, category: nil, isLocked: false)
+        wide.show(face: 5, category: nil, isFaceLocked: false)
         wide.layoutSubtreeIfNeeded()
 
         XCTAssertLessThan(lockSize(of: narrow).width, lockSize(of: wide).width)
@@ -387,10 +387,10 @@ final class TimingViewTests: XCTestCase {
     func testTheLockGoesWhenTheCubeDoes() {
         // A link that drops must not leave a lock behind on a face nobody is holding.
         let view = view()
-        view.show(face: 5, category: nil, isLocked: true)
+        view.show(face: 5, category: nil, isFaceLocked: true)
         XCTAssertFalse(view.lockButton.isHidden, "precondition")
 
-        view.show(category: nil, state: .idle, elapsed: 0)
+        view.show(category: nil, timingState: .idle, elapsed: 0)
 
         XCTAssertTrue(view.lockButton.isHidden)
     }
@@ -401,7 +401,7 @@ final class TimingViewTests: XCTestCase {
         let window = OffscreenWindow.host(view)
         var pressed = 0
         view.onToggleLock = { pressed += 1 }
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         view.layoutSubtreeIfNeeded()
 
         view.lockButton.performClick(nil)
@@ -417,7 +417,7 @@ final class TimingViewTests: XCTestCase {
         // artwork would be writing over the picture.
         let view = view(width: 400)
 
-        view.show(face: 5, category: category(), isLocked: false, elapsed: 3661)
+        view.show(face: 5, category: category(), isFaceLocked: false, elapsed: 3661)
         view.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(view.faceElapsedLabel.stringValue, "1:01:01")
@@ -462,7 +462,7 @@ final class TimingViewTests: XCTestCase {
         view.show(face: 5, category: category(), elapsed: 500)
         XCTAssertFalse(view.faceElapsedLabel.stringValue.isEmpty, "precondition")
 
-        view.show(category: category(), state: .paused, elapsed: 90)
+        view.show(category: category(), timingState: .paused, elapsed: 90)
 
         XCTAssertEqual(view.faceElapsedLabel.stringValue, "", "a figure left over from a cube that has gone")
     }
@@ -474,7 +474,7 @@ final class TimingViewTests: XCTestCase {
         withCube.show(face: 5, category: category(), elapsed: 500)
         withCube.layoutSubtreeIfNeeded()
         let manual = view(width: 400)
-        manual.show(category: category(), state: .paused, elapsed: 500)
+        manual.show(category: category(), timingState: .paused, elapsed: 500)
         manual.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(manual.faceElapsedLabel.frame.height, 0, accuracy: 0.5)
@@ -491,12 +491,12 @@ extension TimingViewTests {
     func testTheGlyphSaysWhetherTheCubeIsRunning() {
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         view.layoutSubtreeIfNeeded()
         XCTAssertFalse(view.faceGlyphView.isHidden)
         let running = view.faceGlyphView.image
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: true)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .paused)
         view.layoutSubtreeIfNeeded()
 
         XCTAssertNotNil(running)
@@ -509,10 +509,10 @@ extension TimingViewTests {
         // scripted check are here to ask.
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         XCTAssertEqual(view.faceGlyphView.accessibilityLabel(), "Device running")
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: true)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .paused)
         XCTAssertEqual(view.faceGlyphView.accessibilityLabel(), "Device paused")
     }
 
@@ -521,7 +521,7 @@ extension TimingViewTests {
         // the cube has not claimed.
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: nil)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .unknown)
 
         XCTAssertNil(view.faceGlyphView.accessibilityLabel())
     }
@@ -529,7 +529,7 @@ extension TimingViewTests {
     func testACubeThatHasNotAnsweredDrawsNoGlyph() {
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: nil)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .unknown)
 
         XCTAssertTrue(view.faceGlyphView.isHidden)
     }
@@ -539,7 +539,7 @@ extension TimingViewTests {
         // figure that is not there.
         let view = view()
 
-        view.show(face: 5, category: nil, elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: nil, elapsed: 60, cubePauseState: .running)
 
         XCTAssertTrue(view.faceGlyphView.isHidden)
         XCTAssertEqual(view.faceElapsedLabel.stringValue, "")
@@ -547,10 +547,10 @@ extension TimingViewTests {
 
     func testTheGlyphGoesWhenTheCubeDoes() {
         let view = view()
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         XCTAssertFalse(view.faceGlyphView.isHidden, "precondition")
 
-        view.show(category: category(), state: .paused, elapsed: 90)
+        view.show(category: category(), timingState: .paused, elapsed: 90)
 
         XCTAssertTrue(view.faceGlyphView.isHidden)
     }
@@ -560,7 +560,7 @@ extension TimingViewTests {
         // be two symbols on one picture answering different questions.
         let view = view(width: 400)
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         view.layoutSubtreeIfNeeded()
 
         // Both converted into the view's own space: the figure lives inside the row's stack now, so its `frame` is in

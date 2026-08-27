@@ -118,13 +118,13 @@ final class DeveloperConfigFileTests: XCTestCase {
     func testOnlyADeveloperBuildHasAConfigFile() {
         // A build without the developer flag has no `config.json`, in the same way it has no `debug_log` rows: an
         // absent facility is clearer than one that exists and declines.
-        XCTAssertEqual(DeveloperConfigFile.standard != nil, DeveloperMode.isEnabled)
+        XCTAssertEqual(DeveloperConfigFile.standard != nil, DeveloperMode.isDeveloperMode)
     }
 
     func testTheStandardFileSitsBesideTheDatabase() throws {
         // `~/Library/Application Support/Facet/config.json`: the archive's location, under this app's name. It has to
         // outlive a database swap, which is the reason a PIN is not a `setting` row in the first place.
-        try XCTSkipIf(!DeveloperMode.isEnabled)
+        try XCTSkipIf(!DeveloperMode.isDeveloperMode)
         let url = try XCTUnwrap(DeveloperConfigFile.standard).url
         XCTAssertEqual(url.lastPathComponent, "config.json")
         XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "Facet")

@@ -30,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=37
+EXPECTED_CHECKS=38
 start "pausing and locking the cube from the status item"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -121,37 +121,21 @@ open_paused() {
 # **Unlocked, or nothing below means anything**: a locked cube refuses the pause on purpose, which is checked further
 # down but would swallow every check before it.
 
-if [[ "$(status_row)" == *"is locked"* ]]; then
-    unlocking=$(mark)
-    click_left
-    sleep 0.8
-    press toggle-cube-lock
-    sleep 1.5
-    # **Repair, and deliberately not a check.** Whether the cube arrived locked is not this script's subject, and
-    # counting it made `EXPECTED_CHECKS` a property of the state the hardware was left in rather than of the script:
-    # run 86 ran 39 against a declared 38, with all 39 passing, and was refused for it (2026-08-23).
-    #
-    # **It arrives locked as a matter of course now.** The app pauses and locks the cube as it quits ("Quit: the cube
-    # is paused and locked"), and `relink_a_cube` above is a quit and a launch -- so this script inherits a locked cube
-    # where it used to inherit a live one.
-    #
-    # Nothing is lost by not counting it: the guard immediately below re-reads the cube's own answer and fails the
-    # script outright if the unlock did not take, which is the check that was ever worth having.
-    if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
-        step "the cube arrived locked, and was unlocked to start from a known state"
-    fi
-fi
-
-if [[ "$(status_row)" == *"is locked"* ]]; then
-    fail "the cube is still locked, and a locked cube refuses the pause this script is about"
-    finish
-    exit 1
-fi
-
-# The app has to have ingested something before the direction of the first click means anything. A cube reset and not
-# yet flipped has no open segment at all, which the app treats as running -- a true answer, but not one this script
-# can predict, so it is reported rather than assumed.
-step "the app's record says the cube is $( [ "$(open_paused)" = "1" ] && echo "paused" || echo "running" )"
+# **Nothing is repaired here any more, because there is nothing left to repair.** This script used to open by asking
+# whether the cube had arrived locked and unlocking it if so, and then asking again in case that had not taken. Both
+# were branches, and a branch is a check that may or may not run: run 86 counted one that fired and was refused for
+# running 39 against a declared 38 (2026-08-23), and run 117 counted one that did not and was refused for running 36
+# against 37.
+#
+# `relink_a_cube` above hands on a cube that is unlocked and counting, and `00-setup` says which face it is resting on.
+# So the state here is known, and the script simply says what it is rather than finding out.
+# **Asserted rather than assumed, because assuming it is how run 119 went wrong.** Every script from `52` is entitled
+# to a cube that is unlocked and counting -- `free_the_cube` undoes the lock and pause every quit applies. This says so
+# out loud, so a break in that chain fails here, at the top, naming the invariant, instead of eight checks later as
+# something else. `58-wrong-pin` left a stopped cube once and the failure surfaced in `60` as a menu bar figure that
+# would not move.
+check "the cube arrives unlocked and counting, as every script from 52 leaves it" "0" \
+    "$(sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")"
 
 # ---------------------------------------------------------------------------- one click stops it
 #
@@ -301,11 +285,12 @@ BREAK_FACE=8
 
 # Paused first, with the click already proven above. `open_paused` is waited on rather than read straight after the
 # log row, because the row says the read-back confirmed and the segment is written by the ingest that follows it.
+# **One click, aimed at a cube known to be counting.** Everything above this leaves it running -- the last thing it
+# did was unlock, which resumes -- so this does not ask first. A toggle aimed at a state nobody established is what
+# the branch here used to be, and it reported 36 of a declared 37 on run 117 by skipping its own check.
 since=$(mark)
-if [ "$(open_paused)" != "1" ]; then
-    click_right
-    expect_log "the cube is stopped, ready to be turned while it is stopped" "$since" "The cube is paused" 20
-fi
+click_right
+expect_log "the cube is stopped, ready to be turned while it is stopped" "$since" "The cube is paused" 20
 if ! wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;" "1" 25; then
     fail "the cube could not be got into a paused state, so the turn has nothing to lift"
     finish
@@ -323,13 +308,30 @@ target_name=$(sql "SELECT category_name FROM category WHERE category_id = (SELEC
 step "the cube is on face ${on_face:-unknown}, so the turn asked for is face $target ('$target_name')"
 
 # **The line everything below measures from, taken while the cube is still paused.** `event_number` rather than
-# `device_event_id`: the cube issues the numbers, so a higher one is the cube having started something new, which is
-# the claim -- a higher row id could just be the ingest rewriting what was already there.
+# `device_event_id` alone: the cube issues the numbers, so a higher one is the cube having started something new,
+# which is the claim -- a higher row id could just be the ingest rewriting what was already there.
+#
+# **But the cube's numbers restart, and this table remembers the ones from before.** `52-device-reset` wipes the
+# device, and a wiped cube counts from 1 again -- so rows written by `50` and `51`, when the counter was in the
+# twenties or thirties, outrank everything the reset cube will produce for the rest of the run. Taking `MAX` over the
+# whole table therefore asks the cube to reach a number it has already been past and can no longer be at.
+#
+# **Run 115 (2026-08-27) hung here for exactly that.** The baseline read 31 off pre-reset rows while the cube was on
+# event 23, so a turn that plainly happened -- the app had the cube on face 2 and running -- satisfied nothing, and an
+# indefinite wait sat there for ever. It had been passing only because the arrangement before it wasted eight
+# pairings, each of which quit the app and filed events, carrying the counter past the old high water mark before this
+# line was reached. The baseline was always wrong; the waste was hiding it.
+#
+# So two conditions, and both are needed. `device_event_id` bounds it to rows this table did not already hold, which
+# is what keeps the pre-reset rows out; `event_number` above the one the cube is **on** says the cube started
+# something new rather than the ingest having rewritten what was there.
 paused_at=$(mark)
-event_before=$(sql "SELECT IFNULL(MAX(event_number), 0) FROM device_event WHERE device_face BETWEEN 1 AND 12;")
+row_before=$(sql "SELECT IFNULL(MAX(device_event_id), 0) FROM device_event;")
+event_before=$(sql "SELECT IFNULL(event_number, 0) FROM device_event WHERE device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")
+step "the cube is on event ${event_before:-0}, and the turn has to file one after row ${row_before:-0}"
 
 if ask_and_detect \
-    "SELECT device_event_id FROM device_event WHERE device_face = $target AND event_number > $event_before AND paused = 0 ORDER BY device_event_id DESC LIMIT 1;" \
+    "SELECT device_event_id FROM device_event WHERE device_face = $target AND device_event_id > $row_before AND event_number > $event_before AND paused = 0 ORDER BY device_event_id DESC LIMIT 1;" \
     "Turn the cube, while it is stopped, so the $target_name face is up" \
     "That is face $target. The cube is paused right now, and turning it is expected to start it" \
     "again by itself -- nothing here will send it a resume." \

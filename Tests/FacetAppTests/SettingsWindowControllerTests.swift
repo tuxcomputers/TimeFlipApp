@@ -120,11 +120,11 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         controller.select(.app)
         let pane = try XCTUnwrap(appPane(in: controller))
-        XCTAssertFalse(watch.alert.isLow, "precondition: 15% is not low while the level is the seeded 10%")
+        XCTAssertFalse(watch.alert.isBatteryLow, "precondition: 15% is not low while the level is the seeded 10%")
 
         pane.onChange?(.batteryWarningPercent(20))
 
         XCTAssertEqual(settings.integer("low_battery_level", field: "percent"), 20, "the row has to be written first")
-        XCTAssertTrue(watch.alert.isLow, "the warning was never told that what counts as low had moved")
+        XCTAssertTrue(watch.alert.isBatteryLow, "the warning was never told that what counts as low had moved")
     }
 }

@@ -339,7 +339,7 @@ setup_google || true
 # this; here it is only driven, and only the end state is read back.
 
 setup_the_cube() {
-    local since verdict
+    local since verdict resting
 
     select_tab Device
 
@@ -348,6 +348,37 @@ setup_the_cube() {
         return 1
     fi
     step "paired, so there is a link to send the reset down"
+
+    # ------------------------------------------------------------------ where the cube is lying
+    #
+    # **The one thing about the device no later script can work out**, and it decides more than it looks. A face with
+    # nothing assigned to it stops the cube by itself now (`ForcedPause`), so a cube resting on one is a cube every
+    # script from `50` inherits stopped -- and which face it is resting on is simply where somebody last put it down.
+    #
+    # **Run 117 (2026-08-27) is what that costs.** The cube sat on face 1 from `50` to `55`, nothing before `55` having
+    # any reason to ask for a turn, and the app duly stopped it. `57-cube-pause` then reported 36 of a declared 37 with
+    # nothing failing, because the arm that checks a stop was skipped on a cube that arrived stopped.
+    #
+    # **Asked here because here is the only place it can be asked.** Every other script is entitled to know what it
+    # inherits; this one is the only one facing a desk it knows nothing about. Asked while the cube is still connected,
+    # so the answer is read back rather than trusted, and before the wipe, which clears the cube's flash and not the
+    # desk it is lying on.
+    #
+    # **Satisfied by a cube already in the right place**, which is why this reads the newest face the app knows rather
+    # than waiting for a change: the face characteristic notifies on change only, so asking for a turn onto the face it
+    # is already on would wait for a notification nobody can produce.
+    resting=$(sql "SELECT f.face_id FROM face f JOIN category c ON c.category_id = f.category_id WHERE c.category_name = 'Break' AND f.face_id BETWEEN 1 AND 12 ORDER BY f.face_id LIMIT 1;")
+    if ! ask_and_detect \
+        "SELECT 1 FROM debug_log WHERE debug_log_id = (SELECT MAX(debug_log_id) FROM debug_log WHERE tag = 'face' AND message LIKE 'Face % is up') AND message = 'Face $resting is up';" \
+        "Put the cube down on the Break face, and leave it there" \
+        "That is face $resting. Every device script starts from wherever the cube is now." \
+        "If it is already on Break there is nothing to do: this carries straight on." \
+        "A face with nothing assigned stops the cube by itself, which is why the run needs a known one."
+    then
+        trouble "the cube was never put on the Break face, so the device scripts would start from an unknown one"
+        return 1
+    fi
+    step "the cube is resting on face $resting, which is where the device range starts"
 
     since=$(mark)
     press device-reset

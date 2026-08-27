@@ -17,7 +17,7 @@ final class RetiredCategoryTableTests: XCTestCase {
             colourID: 0, colour: .red,
             usesWhiteLines: false,
             dailyLimitMinutes: 45,
-            isActive: false
+            isCategoryActive: false
         )
     }
 
@@ -326,7 +326,7 @@ final class RetiredCategoryTableTests: XCTestCase {
         pane.show(
             active: [CategoryRecord(
                 id: 1, name: "Break", iconName: nil, colourID: 0, colour: nil,
-                usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             )],
             inactive: [retired(3, "Old")]
         )

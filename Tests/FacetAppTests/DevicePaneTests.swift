@@ -44,8 +44,8 @@ final class DevicePaneTests: XCTestCase {
 
     private var paired: DevicePane.Values {
         var values = DevicePane.Values.seeded
-        values.isPaired = true
-        values.isConnected = true
+        values.isCubePaired = true
+        values.isCubeConnected = true
         values.isManualMode = false
         values.deviceName = "Dibby"
         values.batteryPercent = 34
@@ -327,10 +327,10 @@ final class DevicePaneTests: XCTestCase {
         pane.show(paired)
         let battery = try? XCTUnwrap(view(DevicePane.Identifier.battery, in: pane) as? NSTextField)
 
-        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: true))
+        pane.showLowBattery(LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))
         XCTAssertEqual(battery?.textColor, .systemRed)
 
-        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: false))
+        pane.showLowBattery(LowBatteryAlert(isBatteryLow: true, isBlinkOn: false))
         XCTAssertEqual(battery?.textColor, .labelColor)
     }
 
@@ -340,7 +340,7 @@ final class DevicePaneTests: XCTestCase {
         // -- which on this hardware is several times a minute.
         let pane = DevicePane()
         pane.show(paired)
-        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: true))
+        pane.showLowBattery(LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))
 
         var values = paired
         values.batteryPercent = 4
@@ -356,11 +356,11 @@ final class DevicePaneTests: XCTestCase {
         // keeping a colour from a cube that is no longer there.
         let pane = DevicePane()
         pane.show(paired)
-        pane.showLowBattery(LowBatteryAlert(isLow: true, isBlinkOn: true))
+        pane.showLowBattery(LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))
 
         pane.showLowBattery(.none)
         var values = paired
-        values.isConnected = false
+        values.isCubeConnected = false
         values.batteryPercent = nil
         pane.show(values)
 
@@ -880,7 +880,7 @@ final class DevicePaneTests: XCTestCase {
     func testForgetStaysPressableWithNothingConnected() {
         let pane = DevicePane()
         var values = paired
-        values.isConnected = false
+        values.isCubeConnected = false
 
         pane.show(values)
 
@@ -916,7 +916,7 @@ final class DevicePaneTests: XCTestCase {
     func testResetGoesDeadWithNothingConnectedWhileForgetStaysLive() {
         let pane = DevicePane()
         var values = paired
-        values.isConnected = false
+        values.isCubeConnected = false
 
         pane.show(values)
 
@@ -937,7 +937,7 @@ final class DevicePaneTests: XCTestCase {
     func testACubeOutOfRangeStillCountsAsPaired() {
         let pane = DevicePane()
         var values = paired
-        values.isConnected = false
+        values.isCubeConnected = false
 
         pane.show(values)
 

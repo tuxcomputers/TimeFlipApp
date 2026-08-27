@@ -38,11 +38,11 @@ enum GoogleAccountRules {
 
         /// **Whether the row names somebody, and nothing more than that.**
         ///
-        /// This used to be called `isConnected` and was the whole of the answer, which is the fault the rest of this
+        /// This used to be called `isCubeConnected` and was the whole of the answer, which is the fault the rest of this
         /// file exists to correct: the identity is in the database and the token that makes it usable is in the
         /// Keychain, so a row can name an account perfectly while the app has no way to act as it. Measured on
         /// 2026-08-26: a complete row, an App tab reading Connected, and no Keychain item at all.
-        var hasIdentity: Bool {
+        var hasGoogleIdentity: Bool {
             name != nil || email != nil
         }
 
@@ -122,7 +122,7 @@ enum GoogleAccountRules {
         credential: Credential,
         verification: Verification = .notAsked
     ) -> State {
-        guard account.hasIdentity else { return .notConnected }
+        guard account.hasGoogleIdentity else { return .notConnected }
         switch credential {
         case .missing: return .signedOut
         case .unavailable: return .unreadable
@@ -141,8 +141,8 @@ enum GoogleAccountRules {
     /// The archive's two words survive for the two states they were true of. The rest say what is actually the case,
     /// because "Not connected" in front of somebody whose Keychain merely would not answer is a false statement with
     /// an expensive remedy attached.
-    static func status(for state: State) -> String {
-        switch state {
+    static func status(for googleAccountState: State) -> String {
+        switch googleAccountState {
         case .notConnected: return "Not connected"
         case .signedOut: return "Signed out"
         case .unverified, .connected: return "Connected"
@@ -159,37 +159,37 @@ enum GoogleAccountRules {
         case disconnect
     }
 
-    static func action(for state: State) -> Action {
-        switch state {
+    static func action(for googleAccountState: State) -> Action {
+        switch googleAccountState {
         case .notConnected, .signedOut, .expired: return .signIn
         case .unverified, .connected, .unreachable, .unreadable: return .disconnect
         }
     }
 
-    /// What the button offers. One button, whose meaning flips with the state, rather than two with one always
+    /// What the button offers. One button, whose meaning flips with the googleAccountState, rather than two with one always
     /// disabled.
-    static func buttonTitle(for state: State, isSigningIn: Bool = false) -> String {
+    static func buttonTitle(for googleAccountState: State, isSigningIn: Bool = false) -> String {
         if isSigningIn { return "Signing in..." }
-        return action(for: state) == .disconnect ? "Disconnect" : "Sign in with Google"
+        return action(for: googleAccountState) == .disconnect ? "Disconnect" : "Sign in with Google"
     }
 
     /// Whether the button can be pressed.
     ///
     /// **Off while a sign-in is running**, so a second browser window cannot be opened on top of the first, and off
-    /// when this build has no credentials in it, which is a real state: the client id and secret are injected at build
+    /// when this build has no credentials in it, which is a real googleAccountState: the client id and secret are injected at build
     /// time and a copy built without them cannot sign in at all. Disconnecting needs neither.
-    static func isButtonEnabled(for state: State, hasCredentials: Bool, isSigningIn: Bool = false) -> Bool {
+    static func isButtonEnabled(for googleAccountState: State, hasGoogleCredentials: Bool, isSigningIn: Bool = false) -> Bool {
         if isSigningIn { return false }
-        return action(for: state) == .disconnect || hasCredentials
+        return action(for: googleAccountState) == .disconnect || hasGoogleCredentials
     }
 
     /// Whether the calendar row belongs on screen.
     ///
-    /// **Only where a calendar request could actually succeed.** Offering Create or Delete in a state where every
+    /// **Only where a calendar request could actually succeed.** Offering Create or Delete in a googleAccountState where every
     /// request is going to be refused is a button that can only fail, which is the same reason the row has always
     /// been withheld until there is an account to make one in.
-    static func showsCalendar(for state: State) -> Bool {
-        switch state {
+    static func showsCalendar(for googleAccountState: State) -> Bool {
+        switch googleAccountState {
         case .unverified, .connected, .unreachable: return true
         case .notConnected, .signedOut, .expired, .unreadable: return false
         }
@@ -197,20 +197,20 @@ enum GoogleAccountRules {
 
     /// The line under the button, or `nil` when the button speaks for itself.
     ///
-    /// Says what pressing it will do, or what went wrong and whose problem it is. **Every state that needs an action
+    /// Says what pressing it will do, or what went wrong and whose problem it is. **Every googleAccountState that needs an action
     /// says which**, and the two that need none say nothing.
-    static func note(for state: State, hasCredentials: Bool, verification: Verification = .notAsked) -> String? {
-        switch state {
+    static func note(for googleAccountState: State, hasGoogleCredentials: Bool, verification: Verification = .notAsked) -> String? {
+        switch googleAccountState {
         case .connected, .unverified:
             return nil
         case .notConnected, .signedOut:
-            guard hasCredentials else { return Self.noCredentialsNote }
-            if state == .signedOut {
+            guard hasGoogleCredentials else { return Self.noCredentialsNote }
+            if googleAccountState == .signedOut {
                 return "The account is remembered but its sign-in is not. Signing in again restores it."
             }
             return Self.signInNote
         case .expired:
-            guard hasCredentials else { return Self.noCredentialsNote }
+            guard hasGoogleCredentials else { return Self.noCredentialsNote }
             if case let .refused(reason) = verification, !reason.isEmpty {
                 return "Google would not accept the saved sign-in (\(reason)). Signing in again restores it."
             }

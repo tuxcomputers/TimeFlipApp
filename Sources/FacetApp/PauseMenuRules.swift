@@ -31,7 +31,7 @@ enum PauseMenuRules {
     ///     compared here, so this and the status item cannot come to different answers about manual mode.
     ///   - isCubeConnected: **the connection, not the pairing.** It ends in a command and a command needs a live
     ///     link, which is where `CubeLockRules.isEnabled` draws the same line.
-    ///   - isCubeLocked: `nil` when nobody has asked. **A locked cube is not pausable at all**: lock freezes it on the
+    ///   - cubeLockState: `unknown` when nobody has asked. **A locked cube is not pausable at all**: lock freezes it on the
     ///     face it is on and it ignores everything but an unlock, so an item offering to pause one is an item that
     ///     will be refused. `CubeLock.togglePause` refuses it in as many words -- "The cube is locked, so pausing it
     ///     means nothing; unlock it first" -- and a menu is the one surface that can say so before it is pressed
@@ -39,21 +39,32 @@ enum PauseMenuRules {
     ///   - isLimitReached: whether the category on show has spent its `daily_limit`, which is what makes the limit
     ///     hard rather than advisory. About the app's own clock only, as it is everywhere else.
     static func target(
-        timing: TimingState,
+        timingState: TimingState,
         isCubeConnected: Bool,
-        isCubeLocked: Bool?,
+        cubeLockState: CubeLockState,
+        cubePauseState: CubePauseState = .unknown,
         isLimitReached: Bool = false
     ) -> Target {
-        if ManualTimerRules.isClickable(timing, isLimitReached: isLimitReached) { return .appClock }
+        if ManualTimerRules.isClickable(timingState, isLimitReached: isLimitReached) { return .appClock }
         // A session that exists but has been refused stays refused rather than falling through to the cube, which is
         // `StatusItemClickRouter`'s rule and for its reason: a spent daily limit would otherwise be undone by
         // reaching for the menu instead of the status item.
-        guard timing == .idle, isCubeConnected else { return .nothing }
+        guard timingState == .idle, isCubeConnected else { return .nothing }
+        // **And the limit has to be asked again for the cube, which it was not.** `ManualTimerRules.isClickable`
+        // above answers about *this app's* clock, and a cube leaves that `.idle` however busy it is -- so every cube
+        // click fell straight past the only place the limit was consulted. Reported live on 2026-08-27: a single
+        // click on the right half started a cube whose category had spent its budget, and `DailyLimitWatch` stopped
+        // it again two seconds later.
+        //
+        // **Only a click that would *start* it is refused**, which is the same asymmetry `ManualTimerRules` has:
+        // stopping stays available throughout, because a limit that trapped somebody into recording time would be the
+        // opposite of what it is for. A click at a running cube is a pause and is always allowed.
+        guard !(isLimitReached && cubePauseState == .paused) else { return .nothing }
         // **Unknown is treated as unlocked**, which is the same way round as `CubeLockRules.title`. A cube nobody has
         // asked is far more often running than locked, and of the two ways to be wrong an item that is enabled and
         // gets refused says why in the log, while one greyed out for a lock that is not there offers no way to find
         // out it was wrong.
-        return isCubeLocked == true ? .nothing : .cube
+        return cubeLockState == .locked ? .nothing : .cube
     }
 
     /// What the item is called.
@@ -61,13 +72,13 @@ enum PauseMenuRules {
     /// **A menu item says what clicking does**, which `ManualTimerRules.pauseMenuTitle` already sets out: it reads
     /// "Pause" while time is being recorded, the opposite of the glyph beside it.
     ///
-    /// - Parameter isCubePaused: only consulted for `.cube`, and that matters: **a locked cube reports itself paused
+    /// - Parameter cubePauseState: only consulted for `.cube`, and that matters: **a locked cube reports itself paused
     ///   whatever its pause byte says**, so this answer is only meaningful where the cube is not locked -- which is
     ///   exactly and only where `target` returns `.cube`.
     static func title(
         for target: Target,
-        timing: TimingState,
-        isCubePaused: Bool? = nil
+        timingState: TimingState,
+        cubePauseState: CubePauseState = .unknown
     ) -> String {
         switch target {
         case .appClock, .nothing:
@@ -75,9 +86,9 @@ enum PauseMenuRules {
             // a dead item claiming there is something to resume is worse than one claiming there is something to
             // pause. That covers the locked cube too, where the cube would answer "paused" and "Resume" would be an
             // offer the cube is going to refuse.
-            return ManualTimerRules.pauseMenuTitle(for: timing)
+            return ManualTimerRules.pauseMenuTitle(for: timingState)
         case .cube:
-            return isCubePaused == true ? "Resume" : "Pause"
+            return cubePauseState == .paused ? "Resume" : "Pause"
         }
     }
 

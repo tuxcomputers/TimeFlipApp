@@ -102,8 +102,8 @@ final class FaceStoreTests: XCTestCase, @unchecked Sendable {
         // Face 8 is seeded locked, holding Break.
         let holding = faces.facesHolding(categoryID: try categoryID(named: "Break"))
 
-        XCTAssertEqual(holding.first { $0.face == 8 }?.isLocked, true)
-        XCTAssertEqual(holding.filter(\.isLocked).map(\.face), [8], "and nothing else is")
+        XCTAssertEqual(holding.first { $0.face == 8 }?.isFaceLocked, true)
+        XCTAssertEqual(holding.filter(\.isFaceLocked).map(\.face), [8], "and nothing else is")
     }
 
     func testACategoryOnNoFaceHoldsNothing() throws {
@@ -118,40 +118,40 @@ final class FaceStoreTests: XCTestCase, @unchecked Sendable {
     func testTheSeededFacesReportTheirLock() {
         // Faces 2 and 8 are the two the DDL seeds with a category, and both are seeded locked -- which makes a locked
         // face the ordinary case on a fresh database rather than an edge of it.
-        XCTAssertEqual(faces.isLocked(face: 2), true)
-        XCTAssertEqual(faces.isLocked(face: 8), true)
-        XCTAssertEqual(faces.isLocked(face: 5), false, "an Unassigned face is free to take one")
+        XCTAssertEqual(faces.isFaceLocked(face: 2), true)
+        XCTAssertEqual(faces.isFaceLocked(face: 8), true)
+        XCTAssertEqual(faces.isFaceLocked(face: 5), false, "an Unassigned face is free to take one")
     }
 
     func testAManualFaceIsNeverLocked() {
         // Being reassigned is the whole point of them, so the guard `assign` shares must never catch one.
         for face in ManualFace.all {
-            XCTAssertEqual(faces.isLocked(face: face), false, "manual face \(face)")
+            XCTAssertEqual(faces.isFaceLocked(face: face), false, "manual face \(face)")
         }
     }
 
     func testAFaceWithNoRowAnswersNothingRatherThanUnlocked() {
         // The two are different faults and a caller reports them differently: one is a face somebody protected, the
         // other is not a face at all.
-        XCTAssertNil(faces.isLocked(face: 99))
+        XCTAssertNil(faces.isFaceLocked(face: 99))
     }
 
     func testALockChangedElsewhereIsSeenByTheNextRead() {
-        XCTAssertEqual(faces.isLocked(face: 2), true, "precondition")
+        XCTAssertEqual(faces.isFaceLocked(face: 2), true, "precondition")
 
         XCTAssertTrue(database.execute("UPDATE face SET locked = 0 WHERE face_id = 2;"))
 
-        XCTAssertEqual(faces.isLocked(face: 2), false)
+        XCTAssertEqual(faces.isFaceLocked(face: 2), false)
     }
 
     // MARK: - locking a face
 
     func testAFaceCanBeLockedAndUnlocked() {
         XCTAssertTrue(faces.setLocked(true, face: 5))
-        XCTAssertEqual(faces.isLocked(face: 5), true)
+        XCTAssertEqual(faces.isFaceLocked(face: 5), true)
 
         XCTAssertTrue(faces.setLocked(false, face: 5))
-        XCTAssertEqual(faces.isLocked(face: 5), false)
+        XCTAssertEqual(faces.isFaceLocked(face: 5), false)
     }
 
     func testUnlockingASeededFaceLetsItTakeACategoryAgain() {
@@ -168,7 +168,7 @@ final class FaceStoreTests: XCTestCase, @unchecked Sendable {
     func testLockingIsNotItselfRefusedByTheLock() {
         // Or it would be a switch that can only be flicked one way. Locking stops a *category* landing; it does not
         // stop the lock being changed.
-        XCTAssertEqual(faces.isLocked(face: 8), true, "precondition: seeded locked")
+        XCTAssertEqual(faces.isFaceLocked(face: 8), true, "precondition: seeded locked")
 
         XCTAssertTrue(faces.setLocked(false, face: 8))
         XCTAssertTrue(faces.setLocked(true, face: 8))

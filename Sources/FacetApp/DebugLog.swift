@@ -13,7 +13,7 @@ import SQLite3
 /// the log of what the app was doing when it went wrong would disappear along with the work that went
 /// wrong. Separate connection, no shared transaction, nothing to undo it.
 ///
-/// Gated on `DeveloperMode.isEnabled` at the point of construction, so an app built without the dev
+/// Gated on `DeveloperMode.isDeveloperMode` at the point of construction, so an app built without the dev
 /// flag has no logger at all rather than a logger that returns early. (`011_setting.sql` also seeds a
 /// `debug` setting for turning this on and off without a rebuild. Nothing reads it yet -- one gate is
 /// enough while the only audience is a developer with a terminal open.)
@@ -57,6 +57,10 @@ final class DebugLog {
         case sync
         /// A category spending its `daily_limit`, and the clock being stopped for it (`DailyLimitWatch`).
         case limit
+        /// A pause the app put on the cube for a reason of its own, and what lifted it (`ForcedPause`). Its own tag
+        /// rather than `command`, which says what went down the wire: a scripted check needs to tell a pause the app
+        /// forced from one the user asked for, and the two put the same bytes on the wire.
+        case forced
         /// Looking for a device: what the radio is doing, and both names of every advertisement listed
         /// (`BluetoothRadio`). Both, because the scan list is where the two disagree.
         case scan

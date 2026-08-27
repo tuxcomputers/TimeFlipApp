@@ -150,13 +150,13 @@ final class DeviceHistoryRulesTests: XCTestCase {
             0x00, 0x00, 0x00, 0x00, 0x6A, 0x87, 0xF7, 0xA1,
         ])
 
-        XCTAssertTrue(DeviceHistoryRules.isNoSuchEvent(empty))
-        XCTAssertFalse(DeviceHistoryRules.isNoSuchEvent(frame(event: 7, face: 66)), "a real event with a bad side")
+        XCTAssertEqual(DeviceHistoryRules.historyFrameState(empty), .noSuchEvent)
+        XCTAssertNotEqual(DeviceHistoryRules.historyFrameState(frame(event: 7, face: 66)), .noSuchEvent, "a real event with a bad side")
     }
 
     func testTheSentinelIsNotReportedAsAMissingEvent() {
         // It starts with four zero bytes too, and it already has its own answer: the stream is over.
-        XCTAssertFalse(DeviceHistoryRules.isNoSuchEvent(Data(repeating: 0, count: 20)))
+        XCTAssertNotEqual(DeviceHistoryRules.historyFrameState(Data(repeating: 0, count: 20)), .noSuchEvent)
     }
 
     func testARealFrameFromTheEvidenceDatabaseReadsCorrectly() {
@@ -219,7 +219,7 @@ final class DeviceHistoryRulesTests: XCTestCase {
     // MARK: - the end of a stream
 
     func testAnAllZeroFrameEndsTheStream() {
-        XCTAssertTrue(DeviceHistoryRules.isEndOfStream(Data(repeating: 0, count: 20)))
+        XCTAssertEqual(DeviceHistoryRules.historyFrameState(Data(repeating: 0, count: 20)), .endOfStream)
     }
 
     func testTheSentinelIsSeventeenZerosNotTwenty() {
@@ -229,12 +229,12 @@ final class DeviceHistoryRulesTests: XCTestCase {
         bytes[18] = 0x2A
         bytes[19] = 0x11
 
-        XCTAssertTrue(DeviceHistoryRules.isEndOfStream(Data(bytes)))
+        XCTAssertEqual(DeviceHistoryRules.historyFrameState(Data(bytes)), .endOfStream)
         XCTAssertNil(DeviceHistoryRules.segment(from: Data(bytes)))
     }
 
     func testARealFrameIsNotTheEnd() {
-        XCTAssertFalse(DeviceHistoryRules.isEndOfStream(frame()))
+        XCTAssertNotEqual(DeviceHistoryRules.historyFrameState(frame()), .endOfStream)
     }
 
     // MARK: - the same segment, or a different generation

@@ -91,6 +91,34 @@ written when the database file is created and never again), and a read that woul
 repeating timer. Neither is a licence to cache by default -- they are the cases where the comment has to
 earn it, and "it would be a read per tick" is a reason to be explicit, not a reason to say nothing.
 
+## What a state is called is settled in `docs/state-reference.md`
+
+**Before writing any branch, look the fact up in `docs/state-reference.md` and use the name it lists.** That
+is the register of every state this app branches on: what the fact is, what values it can take, where the
+truth for it lives, and the one name it goes by. A state that can only be true or false is `is<Name>`; one
+that can be more than that is `<name>State`. If the fact is not in there, add it in the same change that adds
+the branch.
+
+`docs/state-audit.md` is its companion and a different thing: the snapshot of what the code calls these
+things today, kept deliberately unedited. Read it to find out what a fact is *currently* spelled where you
+are working. The two disagreeing is the record of what is left to rename, and their section numbers match.
+
+This is the rule above pointed at the app itself. That one keeps one answer in the database; this keeps one
+*question* in the code. Two names for one fact are the same hazard as two copies of one value: they get asked
+in different places, one gets taught something the other does not, and nothing fails.
+
+Already paid for, and the audit names each one:
+
+- `isLocked` is the cube being frozen in one file and a face refusing reassignment in another.
+- `isPaused` is the cube's pause byte in `CubeLock`, and "the figure is not moving" in
+  `DailyLimitEnforcement`, whose own doc comment still describes the first.
+- Whether the daily limit is spent is decided by four separate expressions in four files. Two of them did not
+  exist until a spent budget was bypassed on a live cube on 2026-08-27, because the other two ask about the
+  app's own clock and a cube leaves that `.idle` however busy it is.
+
+So check the collisions section before reusing a name, and the alias table before inventing one. A branch that
+coins a synonym is the next row in that table.
+
 ## Read how the archived app did it, before building anything
 
 The app is being rebuilt from the ground up, and the previous implementation is in `Archive/`

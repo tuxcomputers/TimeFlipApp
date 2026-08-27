@@ -36,7 +36,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=21
+EXPECTED_CHECKS=22
 start "a cube out of range: what the app shows, what it refuses to write, and what the cube backfills"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so anything
@@ -51,26 +51,6 @@ watch_bluetooth
 # commands and there would be no link to send them over.
 require_a_paired_cube "there is no cube to take out of range"
 
-# Whether the app believes the cube is locked, read off the menu bar rather than out of the log.
-#
-# **A live answer, which the log cannot give here.** `55-device-face` reads the newest `The cube is ...ocked and ...`
-# row and can, because it takes its mark before pairing and a fresh link always writes one. Nothing in this script
-# makes the cube speak, so the newest such row could be from any earlier script in the run -- and a stale "is locked"
-# would send the repair below to unlock a cube that is already unlocked, then fail the script on the same stale row.
-# The badge is what the app is drawing at this instant, spelled out for a screen reader (`StatusItemTitle.spoken`).
-cube_is_locked() {
-    case "$(status_item)" in
-        *"device locked"*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# Whether the cube is stopped, as the app's own record has it -- the source `CubeLock.togglePause` takes its direction
-# from, so it is the one to ask before sending a click meant to go a particular way.
-open_paused() {
-    sql "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"
-}
-
 # The cube's own open row: the stretch it is timing right now. Its faces only, because a manual segment carries the
 # epoch as its event number and is very often the newest open row of any kind.
 open_cube_row() {
@@ -83,56 +63,24 @@ column_of() {
 
 # ---------------------------------------------------------------------------- a cube that can be turned
 #
-# **All of this is repair, and none of it is a check.** Whether the cube arrived locked or paused is not this script's
-# subject, and counting it would make `EXPECTED_CHECKS` a property of the state the hardware was left in rather than of
-# the script (`57-cube-pause` records the run that was refused for exactly that). Each repair is followed by a guard
-# that fails the script outright if it did not take, which is the check that was ever worth having.
+# **Nothing is repaired here, because there is nothing left to repair.** Two device states can strand the flip below
+# and they strand it differently: a locked cube silently refuses to change face, and a paused one reports the turn but
+# files no history for it, so the backlog this script is about would never exist.
 #
-# **Both have to happen before the radio goes off**, which is the ordering that matters here and nowhere else: the app
-# unlocks and resumes a cube by sending it a command, and there is no link to send one over once this script has taken
-# it away. A cube left locked would silently refuse the flip below, and a paused one would record nothing to backfill.
-
+# Both used to be asked about and fixed. Neither can happen now: `relink_a_cube` takes off the lock and the pause its
+# own quit put on, so every script from `52` inherits a cube that is unlocked and counting, and `00-setup` says which
+# face it is resting on. Repairs that only fire when the hardware misbehaves are checks nobody reads and counts nobody
+# can trust -- `57-cube-pause` and `55-device-face` were each refused for one, in opposite directions.
+#
 # **No Settings window anywhere in this script.** Everything it reads is the menu bar and the two databases, and the
 # window would only be one more thing on screen while the radio goes off.
-
-if cube_is_locked; then
-    unlocking=$(mark)
-    click_left
-    sleep 0.8
-    press toggle-cube-lock
-    if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
-        step "the cube arrived locked, and was unlocked so it can be turned below"
-    fi
-    # The badge is drawn on the item's own tick, so the guard below is given a tick to see the unlock in. Without it
-    # a repair that worked could still be read as a cube that would not unlock.
-    sleep 1.5
-fi
-
-if cube_is_locked; then
-    fail "the cube is still locked, and a locked cube silently refuses to change face"
-    finish
-    exit 1
-fi
-
-if [ "$(open_paused)" = "1" ]; then
-    resuming=$(mark)
-    click_right
-    sleep 1.5
-    if wait_for "$resuming" "The cube is running" 20 >/dev/null; then
-        step "the cube arrived paused, and was started again so there is something to backfill"
-    fi
-    # **The row lands after the log line, not with it.** A resume sends `0x06` and then asks for history, and it is
-    # the fetch that rewrites `paused` -- so the guard below is polled onto rather than read once. Its own timeout is
-    # not checked: the guard is what reports a resume that did not take, and reporting it twice would be one failure
-    # wearing two descriptions.
-    wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;" "0" 30
-fi
-
-if [ "$(open_paused)" = "1" ]; then
-    fail "the cube is still paused, so it would record nothing while it is out of range"
-    finish
-    exit 1
-fi
+# **Asserted rather than assumed, because assuming it is how run 119 went wrong.** Every script from `52` is entitled
+# to a cube that is unlocked and counting -- `free_the_cube` undoes the lock and pause every quit applies. This says so
+# out loud, so a break in that chain fails here, at the top, naming the invariant, instead of eight checks later as
+# something else. `58-wrong-pin` left a stopped cube once and the failure surfaced in `60` as a menu bar figure that
+# would not move.
+check "the cube arrives unlocked and counting, as every script from 52 leaves it" "0" \
+    "$(sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")"
 
 # **The two seeded faces, read from the table rather than written down here.** Which category a face holds is `face`'s
 # answer, and a check comparing the screen against a name spelled out in this script would be agreeing with itself.
@@ -199,6 +147,10 @@ else
     exit 1
 fi
 
+# **Both halves of the baseline, for `57-cube-pause`'s reason.** `event_number` says the cube filed something new;
+# `ROW_A` bounds it to rows this table did not already hold, which is what keeps pre-reset rows out. A wiped cube
+# counts from 1 again (`52-device-reset`), so a row written before the wipe can carry a higher number than anything
+# the cube will reach again this run, and on the wrong face that is a backlog reported as arrived before it has.
 N_A=$(column_of event_number "$ROW_A")
 DURATION_BEFORE=$(column_of duration_seconds "$ROW_A")
 ROWS_BEFORE=$(sql "SELECT COUNT(*) FROM device_event;")
@@ -344,9 +296,9 @@ fi
 # an empty string is what a broken query answers with too. Ingestion lands a moment after the fetch comes back, so
 # this is polled rather than read once.
 arrived=$(wait_sql "yes" \
-    "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM device_event WHERE device_face = $FACE_B AND event_number > ${N_A:-0};" 60)
+    "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM device_event WHERE device_face = $FACE_B AND device_event_id > $ROW_A AND event_number > ${N_A:-0};" 60)
 NEW_B=""
-[ "$arrived" = "yes" ] && NEW_B=$(sql "SELECT device_event_id FROM device_event WHERE device_face = $FACE_B AND event_number > ${N_A:-0} ORDER BY device_event_id DESC LIMIT 1;")
+[ "$arrived" = "yes" ] && NEW_B=$(sql "SELECT device_event_id FROM device_event WHERE device_face = $FACE_B AND device_event_id > $ROW_A AND event_number > ${N_A:-0} ORDER BY device_event_id DESC LIMIT 1;")
 if [ -n "$NEW_B" ]; then
     pass "the turn arrived as its own segment on $NAME_B (id $NEW_B, event $(column_of event_number "$NEW_B"))"
 else

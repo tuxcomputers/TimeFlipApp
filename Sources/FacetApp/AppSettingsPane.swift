@@ -93,7 +93,7 @@ final class AppSettingsPane: NSView {
         var googleVerification = GoogleAccountRules.Verification.notAsked
         /// Whether this build has an OAuth client in it at all. Not a setting: it comes from the bundle and the
         /// override file, and it decides whether the button can do anything.
-        var googleCredentialsAvailable = false
+        var hasGoogleCredentials = false
         /// The calendar Facet owns, from the same row as the identity.
         var googleCalendar = GoogleCalendarRules.Calendar.none
 
@@ -309,7 +309,7 @@ final class AppSettingsPane: NSView {
             built.append(calendarRow())
         }
 
-        let hasCredentials = values.googleCredentialsAvailable
+        let hasGoogleCredentials = values.hasGoogleCredentials
         let button = NSButton(
             title: GoogleAccountRules.buttonTitle(for: state, isSigningIn: isSigningIn),
             target: self,
@@ -318,7 +318,7 @@ final class AppSettingsPane: NSView {
         button.bezelStyle = .rounded
         button.translatesAutoresizingMaskIntoConstraints = false
         button.isEnabled = GoogleAccountRules.isButtonEnabled(
-            for: state, hasCredentials: hasCredentials, isSigningIn: isSigningIn
+            for: state, hasGoogleCredentials: hasGoogleCredentials, isSigningIn: isSigningIn
         )
         button.setAccessibilityIdentifier(Identifier.googleButton)
         let isForgetting = GoogleAccountRules.action(for: state) == .disconnect
@@ -329,7 +329,7 @@ final class AppSettingsPane: NSView {
             view.widthAnchor.constraint(equalTo: googleRows.widthAnchor).isActive = true
         }
         googleNote.stringValue = GoogleAccountRules.note(
-            for: state, hasCredentials: hasCredentials, verification: values.googleVerification
+            for: state, hasGoogleCredentials: hasGoogleCredentials, verification: values.googleVerification
         ) ?? ""
         showGoogleNote()
     }

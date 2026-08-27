@@ -15,7 +15,7 @@ import Foundation
 enum DeviceReconnectRules {
     /// Whether an attempt may start right now.
     ///
-    /// **`isPaired` is the only reason to try at all**, and it is read from the table at the moment this is asked rather
+    /// **`isCubePaired` is the only reason to try at all**, and it is read from the table at the moment this is asked rather
     /// than remembered from launch: pairing and forgetting both happen while the app runs, and a loop working from a
     /// copy would either chase a device the user has given up or sit still beside one they just paired.
     ///
@@ -25,7 +25,7 @@ enum DeviceReconnectRules {
     /// of. Starting a second attempt over the top of any of them would be two conversations with one radio.
     ///
     /// **The last two are the app having deliberately stopped**, and they are the archive's `shouldAttemptConnection`
-    /// minus its `shouldMaintainConnection` (which is `isPaired` here). Both mean no attempt from any path: somebody
+    /// minus its `shouldMaintainConnection` (which is `isCubePaired` here). Both mean no attempt from any path: somebody
     /// who starts the app and walks away has to find the offer exactly where they left it, not a backoff retry having
     /// quietly started another run of attempts behind the dialog -- and manual mode means the app looks for nothing on
     /// its own again, so a cube drifting into range for a few seconds cannot surprise anybody.
@@ -33,17 +33,17 @@ enum DeviceReconnectRules {
     /// They default to `false`, which reads as "no offer is up and nothing is being timed by hand" -- the state
     /// every caller that predates them was in.
     static func shouldAttempt(
-        isPaired: Bool,
-        isConnected: Bool,
+        isCubePaired: Bool,
+        isCubeConnected: Bool,
         isScanning: Bool,
-        isReaching: Bool,
-        isResetting: Bool,
+        isReachingForCube: Bool,
+        isFactoryResetRunning: Bool,
         isAwaitingAnswer: Bool = false,
-        isTimingByHand: Bool = false
+        isManualMode: Bool = false
     ) -> Bool {
-        guard isPaired else { return false }
-        guard !isAwaitingAnswer, !isTimingByHand else { return false }
-        return !isConnected && !isScanning && !isReaching && !isResetting
+        guard isCubePaired else { return false }
+        guard !isAwaitingAnswer, !isManualMode else { return false }
+        return !isCubeConnected && !isScanning && !isReachingForCube && !isFactoryResetRunning
     }
 
     /// How long to wait before the attempt after `failures` failed ones. `2s, 4s, 6s ... 30s`.

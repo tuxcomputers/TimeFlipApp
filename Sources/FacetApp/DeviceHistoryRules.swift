@@ -49,12 +49,36 @@ enum DeviceHistoryRules {
 
     // MARK: - reading an answer
 
+    /// What kind of answer a history frame is.
+    ///
+    /// **Three answers, which is why this is a state and not two booleans.** It was `isEndOfStream` and
+    /// `isNoSuchEvent`, and the second had to test the first before it could answer, because a terminator is also
+    /// four zero bytes. One classifier decides once, in order, and a caller cannot ask them the wrong way round.
+    enum HistoryFrameState: Equatable {
+        /// A real event, there to be read into a segment.
+        case event
+        /// The cube saying it has no such event, which is how "no history at all" arrives.
+        case noSuchEvent
+        /// The terminator.
+        case endOfStream
+    }
+
+    /// Which of the three this frame is.
+    ///
+    /// **Order matters and is the whole point of doing it here.** End of stream is tested first, because its
+    /// seventeen zeros also satisfy the four-zero test that says "no such event".
+    static func historyFrameState(_ frame: Data) -> HistoryFrameState {
+        if isEndOfStream(frame) { return .endOfStream }
+        if isNoSuchEvent(frame) { return .noSuchEvent }
+        return .event
+    }
+
     /// Whether this frame is the end of the stream.
     ///
     /// **Seventeen zeros, not twenty.** The spec draws the sentinel as an all-zero frame; the archive checks the first
     /// seventeen because bytes 18 and 19 carry a previous-event pointer that some firmware fills in regardless. A
     /// stricter check would read a real terminator as a frame and go on waiting.
-    static func isEndOfStream(_ frame: Data) -> Bool {
+    private static func isEndOfStream(_ frame: Data) -> Bool {
         guard frame.count >= 17 else { return true }
         return frame.prefix(17).allSatisfy { $0 == 0 }
     }
@@ -70,7 +94,7 @@ enum DeviceHistoryRules {
     /// documented: what arrives is thirteen zero bytes and then four that track the cube's own clock, ticking a second
     /// at a time between requests. `docs/timeflip2-firmware-evidence.sqlite` holds the same answer given to the
     /// previous app, so it is the firmware's habit rather than anything this app provoked.
-    static func isNoSuchEvent(_ frame: Data) -> Bool {
+    private static func isNoSuchEvent(_ frame: Data) -> Bool {
         guard frame.count >= 4, !isEndOfStream(frame) else { return false }
         return frame.prefix(4).allSatisfy { $0 == 0 }
     }

@@ -97,7 +97,7 @@ enum CategoryCreateRules {
         let matches = matching(name)
         guard let first = matches.first else { return .insert(name: name) }
         // At most one match can be active, and the ordering puts it first.
-        if first.isActive { return .alreadyActive(first) }
+        if first.isCategoryActive { return .alreadyActive(first) }
         // Every retired namesake, however many. Several of them used to insert outright, on the grounds that
         // bringing one back would mean picking blind -- true, and not a reason to make the decision silently:
         // creating alongside them is one of two answers, and the other is to go and look at the Inactive list.

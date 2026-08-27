@@ -109,8 +109,8 @@ final class ReportTotalsList: NSView {
     private var showingSeconds = true
 
     /// A heading was clicked: work out the new order, then redraw what is already here in it.
-    private func sortBy(_ column: ReportSortRules.Column) {
-        order = ReportSortRules.next(after: order, clicking: column)
+    private func sortBy(_ sortColumnState: ReportSortRules.Column) {
+        order = ReportSortRules.next(after: order, clicking: sortColumnState)
         show(shownTotals, showingSeconds: showingSeconds)
         onSort?(order)
     }
@@ -122,8 +122,8 @@ final class ReportTotalsList: NSView {
     private func timeHeadingClicked() { sortBy(.time) }
 
     private func drawHeadings() {
-        categoryHeading.title = ReportSortRules.heading("Category", column: .category, order: order)
-        timeHeading.title = ReportSortRules.heading("Time", column: .time, order: order)
+        categoryHeading.title = ReportSortRules.heading("Category", sortColumnState: .category, order: order)
+        timeHeading.title = ReportSortRules.heading("Time", sortColumnState: .time, order: order)
         categoryHeading.setAccessibilityLabel(categoryHeading.title)
         timeHeading.setAccessibilityLabel(timeHeading.title)
     }

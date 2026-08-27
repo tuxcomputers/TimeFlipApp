@@ -211,49 +211,29 @@ else
     fail "pause_on_lock is off, so the app will not lock from here and neither direction can be checked"
 fi
 
-# ---------------------------------------------------------------------------- unlocked AND running, or stop here
+# ---------------------------------------------------------------------------- unlocked AND running, which it is
 #
 # **Two device states can strand a flip, and they strand it in different places.** A locked cube silently refuses to
 # change face, so `ask_and_detect` would sit for ever with nothing to detect (`01i` Scenario A, Step 3 found exactly
 # that). A cube that is merely *paused* is worse to debug: it still reports the turn on the faces characteristic, so
-# the prompt is satisfied and the face check passes, but it files no history for the interval -- and `check_turn` now
+# the prompt is satisfied and the face check passes, but it files no history for the interval -- and `check_turn`
 # waits for the turn to reach `device_event`, so the failure lands twenty seconds later on a line about ingestion.
 #
-# The lock is settled by the three steps above. The pause is not: steps 2 and 3 leave the cube running as a side
-# effect of the lock cycle, but both are gated on `pause_on_lock`, so a cube found unlocked-and-paused on a run with
-# that setting off reaches here still paused. So it is asked here, and cleared here, rather than assumed.
-
-if [[ "$(status_row)" == *"is locked"* ]]; then
-    fail "the cube is still locked, and a locked cube silently refuses to change face"
-    close_settings
-    finish
-    exit 1
-fi
-
-# **Asked of the app's record rather than of `status_row`, and that is deliberate.** `CubeLock.togglePause` takes its
-# direction from the open segment, so a click aimed at resuming only resumes if that is what the table says. Reading
-# `0x10` here and clicking on the strength of it could send a pause into a cube the app believed was already running.
-if [ "$(open_paused)" = "1" ]; then
-    step "the cube is paused, so its turns would file no history; starting it again first"
-    resuming=$(mark)
-    # The right half, single, which is the only control the app offers for a plain resume: the dropdown's Unlock
-    # resumes too, but only appears on a locked cube. Deferred by the double-click interval at the far end, hence the
-    # wait -- written here rather than wrapped in a local `click_right`, which is what this was and which called
-    # itself: bash resolves the inner name to the redefinition, so it recursed instead of clicking. Never seen, this
-    # branch being taken only when the cube happens to arrive paused, which is exactly the kind of failure a device
-    # run pays for.
-    click_right
-    sleep 1.5
-    expect_log "a cube found paused is started again, so the turns below are recorded" \
-        "$resuming" "The cube is running" 20
-fi
-
-if [ "$(open_paused)" = "1" ]; then
-    fail "the cube is still paused, so a turn would be reported but never recorded ($(status_row))"
-    close_settings
-    finish
-    exit 1
-fi
+# **Neither is asked about any more, because neither can happen.** `relink_a_cube` at the top of this script takes off
+# the lock and the pause its own quit put on, so what arrives here is unlocked and counting. What used to be here was
+# a repair for each, and the pause one carried a check inside it -- so on run 118, with the cube arriving running as
+# intended, the branch was not taken and the script ran 45 of a declared 46 with nothing failing.
+#
+# That is the second time a repair has been caught doing this, `57-cube-pause` being the first, and it is the argument
+# for the rule: a check that only runs when the hardware misbehaves is a check nobody reads and a count nobody can
+# trust.
+# **Asserted rather than assumed, because assuming it is how run 119 went wrong.** Every script from `52` is entitled
+# to a cube that is unlocked and counting -- `free_the_cube` undoes the lock and pause every quit applies. This says so
+# out loud, so a break in that chain fails here, at the top, naming the invariant, instead of eight checks later as
+# something else. `58-wrong-pin` left a stopped cube once and the failure surfaced in `60` as a menu bar figure that
+# would not move.
+check "the cube arrives unlocked and counting, as every script from 52 leaves it" "0" \
+    "$(sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")"
 
 # ---------------------------------------------------------------------------- the two faces, and which to ask for
 #

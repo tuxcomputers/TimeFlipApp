@@ -21,17 +21,17 @@ final class CubeLock {
     private let send: (Data, @escaping (Bool) -> Void) -> Void
 
     /// Whether there is a live link to send anything down.
-    private let isConnected: () -> Bool
+    private let isCubeConnected: () -> Bool
 
     /// Whether the cube is counting or stopped, **read from `device_event` at the moment it is needed**.
     ///
     /// The app already knows this without asking: `HistoryIngestor` brings the cube's own record of the day into
     /// `device_event`, and a paused stretch arrives there as an interval the cube filed for `Side + 128`. So the open
     /// segment's `paused` is the cube's own account of what it is doing, and it is the same answer both surfaces draw
-    /// their play/pause glyph from (`TimingReadout.Reading.deviceIsPaused`).
+    /// their play/pause glyph from (`TimingReadout.Reading.cubePauseState`).
     ///
     /// `nil` for a cube with no open segment to read -- one that has been reset and not yet flipped, say.
-    private let isPaused: () -> Bool?
+    private let cubePauseState: () -> CubePauseState
 
     /// Whether the cube is locked.
     ///
@@ -41,23 +41,44 @@ final class CubeLock {
     /// `BluetoothRadio.cubeStatus` -- read when the link comes up and refreshed by the read-back of every command the
     /// app sends. It has no back door to go stale through: the cube offers no gesture that locks itself, unlike
     /// pause, which a double tap or auto-pause changes with nothing said.
-    private let isLocked: () -> Bool?
+    private let cubeLockState: () -> CubeLockState
+
+    /// Whether starting the cube is refused right now, which is exactly "the category on show has spent its budget".
+    ///
+    /// **The enforcement, as opposed to the courtesy.** `PauseMenuRules` greys the item and routes the click to
+    /// nothing, which is what stops it looking like a control that is simply broken; this is what makes the limit
+    /// hard, because it catches every caller including ones that never asked the router. Both are needed and they are
+    /// not the same thing.
+    ///
+    /// **Pausing is never refused**, only starting: a limit that trapped somebody into recording time would be the
+    /// opposite of what it is for. So this is asked of a resume and nothing else.
+    private func startingIsRefused() -> Bool {
+        guard isLimitReached() else { return false }
+        debugLog?.record(.command, "The cube is left stopped: the category on show has spent its daily limit")
+        return true
+    }
+
+    /// Whether the category on show has spent its `daily_limit`, read at the moment it matters.
+    ///
+    /// **Set after construction**, because `DailyLimitWatch` is built from things that are built after this. A `var`
+    /// rather than an `init` parameter for the same reason `QuitSequence.cubeLock` is one.
+    var isLimitReached: () -> Bool = { false }
 
     private let debugLog: DebugLog?
 
     init(
         settings: SettingStore?,
-        isConnected: @escaping () -> Bool,
+        isCubeConnected: @escaping () -> Bool,
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
-        isPaused: @escaping () -> Bool? = { nil },
-        isLocked: @escaping () -> Bool? = { nil },
+        cubePauseState: @escaping () -> CubePauseState = { .unknown },
+        cubeLockState: @escaping () -> CubeLockState = { .unknown },
         debugLog: DebugLog?
     ) {
         self.settings = settings
-        self.isConnected = isConnected
+        self.isCubeConnected = isCubeConnected
         self.send = send
-        self.isPaused = isPaused
-        self.isLocked = isLocked
+        self.cubePauseState = cubePauseState
+        self.cubeLockState = cubeLockState
         self.debugLog = debugLog
     }
 
@@ -86,15 +107,32 @@ final class CubeLock {
     /// Returns whether anything was sent. `false` means `finished` will not be called.
     @discardableResult
     func togglePause(then finished: @escaping (Bool) -> Void) -> Bool {
-        guard isConnected() else {
+        setPause(cubePauseState() != .paused, then: finished)
+    }
+
+    /// Stops the cube or starts it **in a named direction**, rather than by flipping whatever it is doing.
+    ///
+    /// **What the toggle is built from, and what the app uses when it is not a gesture.** A click means "the other
+    /// one", so it has to read the cube's state first; a pause the app forces already knows which way it wants, and
+    /// reading the state to work out a direction it was told would be a chance to get it wrong. The guards, the
+    /// command and the read-back are the same either way, which is why they live here once.
+    ///
+    /// Returns whether anything was sent. `false` means `finished` will not be called.
+    @discardableResult
+    func setPause(_ wanted: Bool, then finished: @escaping (Bool) -> Void) -> Bool {
+        guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or resume")
             return false
         }
-        guard isLocked() != true else {
+        guard cubeLockState() != .locked else {
             debugLog?.record(.command, "The cube is locked, so pausing it means nothing; unlock it first")
             return false
         }
-        let wanted = !(isPaused() ?? false)
+        // **Every path that could start the cube comes through here**, which is what makes this the enforcement rather
+        // than one more place that happens to check. Reported live on 2026-08-27: a single click on the status item's
+        // right half sent `06 02` against a spent budget, because the router only ever asked the limit about the app's
+        // own clock and a cube leaves that idle.
+        guard !(wanted == false && startingIsRefused()) else { return false }
         send(DeviceCommandRules.pause(wanted)) { [weak self] took in
             self?.debugLog?.record(
                 .command,
@@ -129,7 +167,7 @@ final class CubeLock {
     /// for, which is what lets the quit answer `.terminateNow` from the same fact rather than a second opinion.
     @discardableResult
     func lock(then finished: @escaping (Bool) -> Void) -> Bool {
-        guard isConnected() else {
+        guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or lock")
             return false
         }
@@ -175,17 +213,35 @@ final class CubeLock {
     /// otherwise not get it out of.
     @discardableResult
     func resume(then finished: @escaping (Bool) -> Void) -> Bool {
-        guard isConnected() else {
+        guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to unlock")
             return false
         }
         send(DeviceCommandRules.lock(false)) { [weak self] unlocked in
-            self?.debugLog?.record(.command, unlocked ? "The cube is unlocked" : "The cube would not unlock")
-            // **The resume goes out either way, for the mirror of the reason the lock does.** A cube left paused and
-            // unlocked is a cube that quietly records nothing while somebody flips it, which is worse than a lock
-            // they can see. If the unlock failed the resume cannot be confirmed either, and that is what it reports.
-            self?.send(DeviceCommandRules.pause(false)) { running in
-                self?.debugLog?.record(.command, running ? "The cube is running" : "The cube would not resume")
+            guard let self else { return }
+            self.debugLog?.record(.command, unlocked ? "The cube is unlocked" : "The cube would not unlock")
+            // **The unlock happens whatever the limit says, and the resume does not.**
+            //
+            // A spent `daily_limit` is meant to be hard, and it is only as hard as the set of paths that can send
+            // `0x06 0x02`. This was one of them and nothing gated it: a double click on the status item's right half
+            // unlocks, which resumes, so the way round a limit was to lock the cube and unlock it again. Measured on
+            // 2026-08-27 -- `The cube is unlocked`, `Sending 06 02`, `The cube is running`, and `DailyLimitWatch`
+            // stopping it again two seconds later, the app plainly arguing with itself.
+            //
+            // **Unlocking is never refused**, which is the other half. Refusing it would strand the cube in the one
+            // state this app cannot otherwise get it out of, and the limit is about recording time rather than about
+            // holding somebody's hardware shut. So a spent budget leaves it unlocked and stopped, which is exactly
+            // what the limit means, and every other way to start it again is already refused.
+            guard !self.startingIsRefused() else {
+                finished(unlocked)
+                return
+            }
+            // **The resume goes out either way otherwise, for the mirror of the reason the lock does.** A cube left
+            // paused and unlocked is a cube that quietly records nothing while somebody flips it, which is worse than
+            // a lock they can see. If the unlock failed the resume cannot be confirmed either, and that is what it
+            // reports.
+            self.send(DeviceCommandRules.pause(false)) { running in
+                self.debugLog?.record(.command, running ? "The cube is running" : "The cube would not resume")
                 finished(unlocked && running)
             }
         }

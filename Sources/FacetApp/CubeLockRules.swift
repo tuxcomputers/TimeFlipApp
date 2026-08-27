@@ -22,8 +22,8 @@ enum CubeLockRules {
     /// **Unknown reads as "Lock".** That covers a cube nobody has asked yet and one that would not answer, and it is
     /// the safer of the two to be wrong about: an item that offers to lock an already-locked cube sends a command
     /// that changes nothing, while one offering to unlock a running cube would unpause what was never paused.
-    static func title(isLocked: Bool?) -> String {
-        isLocked == true ? "Unlock" : "Lock"
+    static func title(cubeLockState: CubeLockState) -> String {
+        cubeLockState == .locked ? "Unlock" : "Lock"
     }
 
     /// Whether it can be chosen: only with a cube on the other end.
@@ -35,7 +35,7 @@ enum CubeLockRules {
     /// **Manual mode is not a case here, unlike Pause.** Pause survives into manual mode because the thing it acts on
     /// moved into the app; lock has no such half. It is a device command with a device state behind it, and with no
     /// device there is nothing to send and nothing to report.
-    static func isEnabled(isConnected: Bool) -> Bool {
-        isConnected
+    static func isEnabled(isCubeConnected: Bool) -> Bool {
+        isCubeConnected
     }
 }

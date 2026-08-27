@@ -224,4 +224,10 @@ relaunched=$(mark)
 ensure_app_running
 expect_log "and a fresh launch opens the cube again" "$relaunched" "%: loggedIn" 90
 
+# **The quit above locked and paused the cube, and nothing else here undoes it.** This script relaunches on its own
+# terms rather than through `relink_a_cube`, the relaunch being the thing it is checking, so it has to hand the cube on
+# itself. Without this it leaves a stopped cube to `59`, which does not care, and then to `60-device-backlog`, which
+# takes it out of range expecting it to go on counting.
+free_the_cube
+
 finish
