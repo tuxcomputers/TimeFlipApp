@@ -455,10 +455,15 @@ pair_a_cube() {
 # `51-device-connect` ends with this for that reason, and hands the rest of the range a launch that uses the pairing
 # it just made.
 #
-# **What it leaves behind: a locked, paused cube.** The app pauses and locks the cube as it goes ("Quit: the cube is
-# paused and locked"), so a script that relinks inherits one. Most do not care. `57` does, a locked cube refusing the
-# pause it is about, and unlocks it first -- as a repair rather than as a check, so its declared total does not depend
-# on the hardware.
+# **What it leaves behind: an unlocked, running cube, and it has to undo a quit to get there.** The app pauses and
+# locks the cube on its way out ("Quit: the cube is paused and locked"), so the launch this makes inherits one -- and
+# a cube that arrives stopped is a cube every script after it has to cope with. Coping is what the branches were:
+# `55`, `57`, `60` and `62` each carried an `if` asking what state the hardware had been left in, which is a check
+# that may or may not run and, on run 117, one that did not.
+#
+# So it is undone here, once, and every script downstream is entitled to a cube that is unlocked and counting. **Not a
+# guess about the state**: a quit always locks and always pauses, so the toggle below is aimed at a known state rather
+# than at whatever it finds. `57` locks the cube itself, that being its subject; nothing else has to think about it.
 #
 # **The window is the caller's business, not this function's**: `51` ends with it shut and `57` never opens one, while
 # `pair_a_cube` and the two scripts that read the Device tab afterwards put it back themselves.
@@ -470,6 +475,17 @@ relink_a_cube() {
     ensure_app_running
     # Waited for rather than assumed: every caller goes straight on to something that needs the link up.
     wait_for "$relaunched" "%: loggedIn" 90 >/dev/null || return 1
+
+    # The lock and the pause the quit left, taken off together: the dropdown's Lock item unlocks and resumes in one
+    # gesture (`CubeLock.resume`), which is exactly the pair a quit puts on.
+    local freeing
+    freeing=$(mark)
+    click_left
+    sleep 0.8
+    press toggle-cube-lock
+    wait_for "$freeing" "The cube is unlocked" 20 >/dev/null || return 1
+    wait_for "$freeing" "The cube is running" 20 >/dev/null || return 1
+    step "unlocked and counting again, which is what every script after this one is entitled to"
     return 0
 }
 
@@ -541,45 +557,6 @@ restore_the_pairing() {
     red "  every script after this one needs it, so the run stops here rather than failing at a cube that is gone"
     finish
     exit 1
-}
-
-# Puts the cube into a named state, whatever it is in now.
-#
-# **The conditional lives here so it does not live in a checklist.** The status item offers a *toggle*, so "stop the
-# cube" is unavoidably "find out whether it is running, and click if it is" -- and that decision written into a script
-# is a branch, which is a check that may or may not run. Run 117 (2026-08-27) is what that costs: `57-cube-pause`
-# reported 36 of a declared 37 with nothing failing, because the cube arrived stopped and the arm that checks the stop
-# was skipped. The count caught it; the shape should not have been there to catch.
-#
-# **A script says what it wants and asserts afterwards**, unconditionally. Neither of these is a check: what state the
-# hardware was left in is not a verdict on the app, and counting it would put the bench into `EXPECTED_CHECKS`. Both
-# stop the run if the cube will not go, because everything after them is written against a state that never arrived.
-stop_the_cube() {
-    [ "$(cube_is_paused)" = "1" ] && return 0
-    local since
-    since=$(mark)
-    click_right
-    wait_for "$since" "The cube is paused" 20 >/dev/null && { step "the cube is stopped"; return 0; }
-    red "  the cube would not stop, and everything below this is written against a stopped cube"
-    finish
-    exit 1
-}
-
-start_the_cube() {
-    [ "$(cube_is_paused)" = "0" ] && return 0
-    local since
-    since=$(mark)
-    click_right
-    wait_for "$since" "The cube is running" 20 >/dev/null && { step "the cube is running"; return 0; }
-    red "  the cube would not start, and everything below this is written against a running cube"
-    finish
-    exit 1
-}
-
-# Whether the cube is stopped, as its own open row has it: `1` stopped, `0` running, empty for no cube row at all.
-# Its faces only, so a manual segment cannot answer for it.
-cube_is_paused() {
-    sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;"
 }
 
 start() {

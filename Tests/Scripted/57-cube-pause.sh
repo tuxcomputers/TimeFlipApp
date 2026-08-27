@@ -121,37 +121,15 @@ open_paused() {
 # **Unlocked, or nothing below means anything**: a locked cube refuses the pause on purpose, which is checked further
 # down but would swallow every check before it.
 
-if [[ "$(status_row)" == *"is locked"* ]]; then
-    unlocking=$(mark)
-    click_left
-    sleep 0.8
-    press toggle-cube-lock
-    sleep 1.5
-    # **Repair, and deliberately not a check.** Whether the cube arrived locked is not this script's subject, and
-    # counting it made `EXPECTED_CHECKS` a property of the state the hardware was left in rather than of the script:
-    # run 86 ran 39 against a declared 38, with all 39 passing, and was refused for it (2026-08-23).
-    #
-    # **It arrives locked as a matter of course now.** The app pauses and locks the cube as it quits ("Quit: the cube
-    # is paused and locked"), and `relink_a_cube` above is a quit and a launch -- so this script inherits a locked cube
-    # where it used to inherit a live one.
-    #
-    # Nothing is lost by not counting it: the guard immediately below re-reads the cube's own answer and fails the
-    # script outright if the unlock did not take, which is the check that was ever worth having.
-    if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
-        step "the cube arrived locked, and was unlocked to start from a known state"
-    fi
-fi
-
-if [[ "$(status_row)" == *"is locked"* ]]; then
-    fail "the cube is still locked, and a locked cube refuses the pause this script is about"
-    finish
-    exit 1
-fi
-
-# The app has to have ingested something before the direction of the first click means anything. A cube reset and not
-# yet flipped has no open segment at all, which the app treats as running -- a true answer, but not one this script
-# can predict, so it is reported rather than assumed.
-step "the app's record says the cube is $( [ "$(open_paused)" = "1" ] && echo "paused" || echo "running" )"
+# **Nothing is repaired here any more, because there is nothing left to repair.** This script used to open by asking
+# whether the cube had arrived locked and unlocking it if so, and then asking again in case that had not taken. Both
+# were branches, and a branch is a check that may or may not run: run 86 counted one that fired and was refused for
+# running 39 against a declared 38 (2026-08-23), and run 117 counted one that did not and was refused for running 36
+# against 37.
+#
+# `relink_a_cube` above hands on a cube that is unlocked and counting, and `00-setup` says which face it is resting on.
+# So the state here is known, and the script simply says what it is rather than finding out.
+step "the cube is unlocked and counting on face $(sql "SELECT device_face FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;"), which is what the relink left"
 
 # ---------------------------------------------------------------------------- one click stops it
 #
@@ -301,14 +279,12 @@ BREAK_FACE=8
 
 # Paused first, with the click already proven above. `open_paused` is waited on rather than read straight after the
 # log row, because the row says the read-back confirmed and the segment is written by the ingest that follows it.
-# **Asked for rather than branched on.** The cube reaching here stopped is ordinary now: unlocking resumes it, and if
-# it is resting on a face with no category the app stops it again within the second (`ForcedPause`). Run 117
-# (2026-08-27) is that exactly, and the branch that used to be here reported 36 of a declared 37 with nothing failing.
-# `stop_the_cube` owns the decision so this line does not, and the check below runs whatever state the cube was in.
-stop_the_cube
+# **One click, aimed at a cube known to be counting.** Everything above this leaves it running -- the last thing it
+# did was unlock, which resumes -- so this does not ask first. A toggle aimed at a state nobody established is what
+# the branch here used to be, and it reported 36 of a declared 37 on run 117 by skipping its own check.
 since=$(mark)
-check "the cube is stopped, ready to be turned while it is stopped" "1" \
-    "$(wait_sql "1" "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" 20)"
+click_right
+expect_log "the cube is stopped, ready to be turned while it is stopped" "$since" "The cube is paused" 20
 if ! wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;" "1" 25; then
     fail "the cube could not be got into a paused state, so the turn has nothing to lift"
     finish
