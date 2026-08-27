@@ -182,13 +182,13 @@ enum CategoryRenameRules {
         let others = matching(name).filter { $0.id != current.id }
         guard let first = others.first else { return .confirm(name: name) }
         // At most one can be active, and the ordering puts it first.
-        if first.isActive {
+        if first.isCategoryActive {
             // **Which row is being renamed decides this, not which row is in the way.** `UN1_category` is unique over
             // `active = 1`, so an active category taking an active name is the write the index throws out, and a
             // retired one taking it is a write the index has no opinion about. Refusing both would have the app
             // enforcing a constraint the database does not have, and refusing it in the one place somebody is most
             // likely to be trying to *fix* a name.
-            return current.isActive
+            return current.isCategoryActive
                 ? .refuse(activeNamesake: first)
                 : .confirmAgainstActive(name: name, activeNamesake: first)
         }

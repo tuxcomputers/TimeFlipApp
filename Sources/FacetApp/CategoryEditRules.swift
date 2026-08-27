@@ -100,7 +100,7 @@ enum CategoryEditRules {
     ///   - matches: every category holding that name, whatever state each is in -- `CategoryStore.matching(name:)`.
     static func reinstateDecision(for category: CategoryRecord, matching matches: [CategoryRecord]) -> ReinstateDecision {
         // Itself excluded: a retired row always matches its own name, and it is not in its own way.
-        guard let namesake = matches.first(where: { $0.isActive && $0.id != category.id }) else {
+        guard let namesake = matches.first(where: { $0.isCategoryActive && $0.id != category.id }) else {
             return .reinstate
         }
         return .refuse(activeNamesake: namesake)

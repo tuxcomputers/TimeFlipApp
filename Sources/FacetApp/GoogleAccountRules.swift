@@ -141,8 +141,8 @@ enum GoogleAccountRules {
     /// The archive's two words survive for the two states they were true of. The rest say what is actually the case,
     /// because "Not connected" in front of somebody whose Keychain merely would not answer is a false statement with
     /// an expensive remedy attached.
-    static func status(for state: State) -> String {
-        switch state {
+    static func status(for googleAccountState: State) -> String {
+        switch googleAccountState {
         case .notConnected: return "Not connected"
         case .signedOut: return "Signed out"
         case .unverified, .connected: return "Connected"
@@ -159,37 +159,37 @@ enum GoogleAccountRules {
         case disconnect
     }
 
-    static func action(for state: State) -> Action {
-        switch state {
+    static func action(for googleAccountState: State) -> Action {
+        switch googleAccountState {
         case .notConnected, .signedOut, .expired: return .signIn
         case .unverified, .connected, .unreachable, .unreadable: return .disconnect
         }
     }
 
-    /// What the button offers. One button, whose meaning flips with the state, rather than two with one always
+    /// What the button offers. One button, whose meaning flips with the googleAccountState, rather than two with one always
     /// disabled.
-    static func buttonTitle(for state: State, isSigningIn: Bool = false) -> String {
+    static func buttonTitle(for googleAccountState: State, isSigningIn: Bool = false) -> String {
         if isSigningIn { return "Signing in..." }
-        return action(for: state) == .disconnect ? "Disconnect" : "Sign in with Google"
+        return action(for: googleAccountState) == .disconnect ? "Disconnect" : "Sign in with Google"
     }
 
     /// Whether the button can be pressed.
     ///
     /// **Off while a sign-in is running**, so a second browser window cannot be opened on top of the first, and off
-    /// when this build has no credentials in it, which is a real state: the client id and secret are injected at build
+    /// when this build has no credentials in it, which is a real googleAccountState: the client id and secret are injected at build
     /// time and a copy built without them cannot sign in at all. Disconnecting needs neither.
-    static func isButtonEnabled(for state: State, hasGoogleCredentials: Bool, isSigningIn: Bool = false) -> Bool {
+    static func isButtonEnabled(for googleAccountState: State, hasGoogleCredentials: Bool, isSigningIn: Bool = false) -> Bool {
         if isSigningIn { return false }
-        return action(for: state) == .disconnect || hasGoogleCredentials
+        return action(for: googleAccountState) == .disconnect || hasGoogleCredentials
     }
 
     /// Whether the calendar row belongs on screen.
     ///
-    /// **Only where a calendar request could actually succeed.** Offering Create or Delete in a state where every
+    /// **Only where a calendar request could actually succeed.** Offering Create or Delete in a googleAccountState where every
     /// request is going to be refused is a button that can only fail, which is the same reason the row has always
     /// been withheld until there is an account to make one in.
-    static func showsCalendar(for state: State) -> Bool {
-        switch state {
+    static func showsCalendar(for googleAccountState: State) -> Bool {
+        switch googleAccountState {
         case .unverified, .connected, .unreachable: return true
         case .notConnected, .signedOut, .expired, .unreadable: return false
         }
@@ -197,15 +197,15 @@ enum GoogleAccountRules {
 
     /// The line under the button, or `nil` when the button speaks for itself.
     ///
-    /// Says what pressing it will do, or what went wrong and whose problem it is. **Every state that needs an action
+    /// Says what pressing it will do, or what went wrong and whose problem it is. **Every googleAccountState that needs an action
     /// says which**, and the two that need none say nothing.
-    static func note(for state: State, hasGoogleCredentials: Bool, verification: Verification = .notAsked) -> String? {
-        switch state {
+    static func note(for googleAccountState: State, hasGoogleCredentials: Bool, verification: Verification = .notAsked) -> String? {
+        switch googleAccountState {
         case .connected, .unverified:
             return nil
         case .notConnected, .signedOut:
             guard hasGoogleCredentials else { return Self.noCredentialsNote }
-            if state == .signedOut {
+            if googleAccountState == .signedOut {
                 return "The account is remembered but its sign-in is not. Signing in again restores it."
             }
             return Self.signInNote

@@ -80,16 +80,16 @@ final class DeviceInfoRulesTests: XCTestCase {
     // MARK: - the battery
 
     func testNoDeviceAtAllIsADifferentAnswerFromOneThatCannotBeHeard() {
-        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: false, isCubeConnected: false, percent: nil), "Not paired")
-        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: false, percent: nil), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: false, isCubeConnected: false, batteryPercent: nil), "Not paired")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: false, batteryPercent: nil), "Unknown")
     }
 
     func testAPercentageOnlyComesFromALiveReading() {
-        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: true, percent: 34), "34%")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: true, batteryPercent: 34), "34%")
         // A level with no connection behind it is a number that was true at some moment nobody can name, so it is
         // not shown as though it were now. Nothing stores one today, and this is what keeps that true if anything
         // ever does.
-        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: false, percent: 34), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: false, batteryPercent: 34), "Unknown")
     }
 
     // MARK: - the More rows, and the greying
@@ -145,12 +145,5 @@ final class DeviceInfoRulesTests: XCTestCase {
     func testOneAnswerIsEnoughToNotBeEmpty() {
         // Four independent reads: three failing does not make the fourth worthless.
         XCTAssertFalse(DeviceInfo(firmware: "FW_v3.64").isEmpty)
-    }
-
-    func testValuesAreOnlyLiveWhileSomethingCanBeHeard() {
-        // What this drives is the colour: a greyed row is the difference between a value the app is standing behind
-        // and a placeholder standing in for one.
-        XCTAssertTrue(DeviceInfoRules.isLive(isCubeConnected: true))
-        XCTAssertFalse(DeviceInfoRules.isLive(isCubeConnected: false))
     }
 }

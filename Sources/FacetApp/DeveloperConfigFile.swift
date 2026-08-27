@@ -34,7 +34,7 @@ struct DeveloperConfigFile {
     /// is the same thing `DebugLog` does with the `debug_log` rows and for the same reason -- an absent facility is
     /// clearer than one that exists and declines.
     static var standard: DeveloperConfigFile? {
-        guard DeveloperMode.isEnabled else { return nil }
+        guard DeveloperMode.isDeveloperMode else { return nil }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return DeveloperConfigFile(

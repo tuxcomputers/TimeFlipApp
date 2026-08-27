@@ -124,7 +124,7 @@ final class SettingsMetricsTests: XCTestCase {
     private func category(_ id: Int, _ name: String) -> CategoryRecord {
         CategoryRecord(
             id: id, name: name, iconName: nil, colourID: 0, colour: nil,
-            usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+            usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
         )
     }
 

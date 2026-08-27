@@ -1484,7 +1484,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.reinstate(category)
         }
         // **The same handler the Active list's rename reaches**, given the retired record. Everything that differs
-        // between the two is a question about the record -- `CategoryRenameRules.decision` reads `isActive` to tell an
+        // between the two is a question about the record -- `CategoryRenameRules.decision` reads `isCategoryActive` to tell an
         // index violation from a name the table will take -- so a second handler here would be a second answer to a
         // question one already answers.
         pane.retiredTable.onRename = { [weak self] category, typed in

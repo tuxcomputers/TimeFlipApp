@@ -180,7 +180,7 @@ final class HistoryTimer {
     private func currentInterval() -> TimeInterval {
         Self.interval(
             fromSeconds: settings.integer(Self.settingName, field: Self.settingField),
-            isDeveloperMode: DeveloperMode.isEnabled
+            isDeveloperMode: DeveloperMode.isDeveloperMode
         )
     }
 

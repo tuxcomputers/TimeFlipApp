@@ -22,29 +22,29 @@ final class DeviceSystemStateRulesTests: XCTestCase {
     func testAllZeroMeansThereIsNothingToDo() {
         let read = state(0x0000, 0x0000)
 
-        XCTAssertEqual(read?.sync, .ok)
-        XCTAssertEqual(read?.hardware, .ok)
+        XCTAssertEqual(read?.cubeSyncState, .ok)
+        XCTAssertEqual(read?.cubeHardwareState, .ok)
         XCTAssertEqual(read?.isEverythingFine, true)
     }
 
     func testAFactoryResetIsReported() {
         // The one this app acts on: it goes and asks for history again.
-        XCTAssertEqual(state(0x0100, 0x0000)?.sync, .factoryReset)
+        XCTAssertEqual(state(0x0100, 0x0000)?.cubeSyncState, .factoryReset)
     }
 
     func testTheSixThingsACubeCanAskFor() {
-        XCTAssertEqual(state(0x0201, 0)?.sync, .timeRequired)
-        XCTAssertEqual(state(0x0202, 0)?.sync, .faceColoursRequired)
-        XCTAssertEqual(state(0x0203, 0)?.sync, .ledBrightnessRequired)
-        XCTAssertEqual(state(0x0204, 0)?.sync, .blinkIntervalRequired)
-        XCTAssertEqual(state(0x0205, 0)?.sync, .taskParametersRequired)
-        XCTAssertEqual(state(0x0206, 0)?.sync, .autoPauseRequired)
+        XCTAssertEqual(state(0x0201, 0)?.cubeSyncState, .timeRequired)
+        XCTAssertEqual(state(0x0202, 0)?.cubeSyncState, .faceColoursRequired)
+        XCTAssertEqual(state(0x0203, 0)?.cubeSyncState, .ledBrightnessRequired)
+        XCTAssertEqual(state(0x0204, 0)?.cubeSyncState, .blinkIntervalRequired)
+        XCTAssertEqual(state(0x0205, 0)?.cubeSyncState, .taskParametersRequired)
+        XCTAssertEqual(state(0x0206, 0)?.cubeSyncState, .autoPauseRequired)
     }
 
     func testAnUnpublishedRequestKeepsItsCode() {
         // Not coerced to `ok`. A newer firmware asking for something this app has never heard of is a fact, and
         // reading it as "nothing to do" would hide it -- so the number survives into the log.
-        XCTAssertEqual(state(0x0207, 0x0000)?.sync, .unknown(0x0207))
+        XCTAssertEqual(state(0x0207, 0x0000)?.cubeSyncState, .unknown(0x0207))
         XCTAssertEqual(state(0x0207, 0x0000)?.isEverythingFine, false)
     }
 
@@ -55,14 +55,14 @@ final class DeviceSystemStateRulesTests: XCTestCase {
         // and its history reads come back empty, which is indistinguishable from a cube that has simply been reset.
         let read = state(0x0000, 0x0202)
 
-        XCTAssertEqual(read?.hardware, .flash)
+        XCTAssertEqual(read?.cubeHardwareState, .flash)
         XCTAssertEqual(read?.isEverythingFine, false)
     }
 
     func testTheOtherHardwareFaults() {
-        XCTAssertEqual(state(0, 0x0201)?.hardware, .accelerometer)
-        XCTAssertEqual(state(0, 0x0203)?.hardware, .accelerometerAndFlash)
-        XCTAssertEqual(state(0, 0x0299)?.hardware, .unknown(0x0299))
+        XCTAssertEqual(state(0, 0x0201)?.cubeHardwareState, .accelerometer)
+        XCTAssertEqual(state(0, 0x0203)?.cubeHardwareState, .accelerometerAndFlash)
+        XCTAssertEqual(state(0, 0x0299)?.cubeHardwareState, .unknown(0x0299))
     }
 
     func testAFaultIsNotFineEvenWithNothingToSync() {
@@ -77,8 +77,8 @@ final class DeviceSystemStateRulesTests: XCTestCase {
 
         XCTAssertEqual(read?.rawSync, 0x0100)
         XCTAssertEqual(read?.rawHardware, 0x0202)
-        XCTAssertEqual(read?.sync, .factoryReset)
-        XCTAssertEqual(read?.hardware, .flash)
+        XCTAssertEqual(read?.cubeSyncState, .factoryReset)
+        XCTAssertEqual(read?.cubeHardwareState, .flash)
     }
 
     func testAShortPayloadIsNotAState() {
@@ -91,7 +91,7 @@ final class DeviceSystemStateRulesTests: XCTestCase {
         var padded = Data([0x01, 0x00, 0x00, 0x00])
         padded.append(Data(repeating: 0, count: 16))
 
-        XCTAssertEqual(DeviceSystemStateRules.state(from: padded)?.sync, .factoryReset)
+        XCTAssertEqual(DeviceSystemStateRules.state(from: padded)?.cubeSyncState, .factoryReset)
     }
 
     // MARK: - saying it out loud

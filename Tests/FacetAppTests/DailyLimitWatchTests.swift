@@ -25,7 +25,7 @@ final class DailyLimitWatchTests: XCTestCase {
             colour: nil,
             usesWhiteLines: false,
             dailyLimitMinutes: limit,
-            isActive: true
+            isCategoryActive: true
         )
     }
 

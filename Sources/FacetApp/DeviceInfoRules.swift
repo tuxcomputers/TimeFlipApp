@@ -79,10 +79,10 @@ enum DeviceInfoRules {
     /// **No cube at all is a different answer from a cube that cannot be heard from**, which is the archive's line
     /// and the reason this is not simply blank. A percentage only ever comes off a live reading: the level is not
     /// stored anywhere, deliberately, since a remembered one is a number that was true at some point nobody can name.
-    static func battery(isCubePaired: Bool, isCubeConnected: Bool, percent: Int?) -> String {
+    static func battery(isCubePaired: Bool, isCubeConnected: Bool, batteryPercent: Int?) -> String {
         guard isCubePaired else { return "Not paired" }
-        guard isCubeConnected, let percent else { return "Unknown" }
-        return "\(percent)%"
+        guard isCubeConnected, let batteryPercent else { return "Unknown" }
+        return "\(batteryPercent)%"
     }
 
     /// What one of the More rows shows: what the cube reported, or that it has not.
@@ -116,12 +116,4 @@ enum DeviceInfoRules {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
     }
-
-    /// Whether the TimeFlip section's readings are describing something the app can currently hear.
-    ///
-    /// What it drives is the colour: live values read in the ordinary label colour, and everything else greys, so
-    /// "Not paired" and "Unknown" sit back as the placeholders they are rather than presenting as readings. The
-    /// archive greyed them together for that reason and it is worth keeping -- a greyed row is the difference between
-    /// a value the app is standing behind and one it is not.
-    static func isLive(isCubeConnected: Bool) -> Bool { isCubeConnected }
 }

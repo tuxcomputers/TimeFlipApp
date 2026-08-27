@@ -30,7 +30,7 @@ struct CategoryRecord: Equatable {
     let dailyLimitMinutes: Int
     /// `false` once retired: the row stays so historical `time_entry` rows keep resolving, but it drops
     /// out of the lists a category can be picked from.
-    let isActive: Bool
+    let isCategoryActive: Bool
 }
 
 extension CategoryRecord {
@@ -179,7 +179,7 @@ final class CategoryStore {
                     colour: row.string(3).flatMap(NSColor.init(hex:)),
                     usesWhiteLines: row.bool(4),
                     dailyLimitMinutes: Int(row.int(6)),
-                    isActive: row.bool(5)
+                    isCategoryActive: row.bool(5)
                 )
             )
         }
@@ -230,12 +230,12 @@ final class CategoryStore {
     /// **`category_id >= 1`, so the *Unassigned* sentinel cannot be retired.** It is what a face points at when it
     /// holds nothing, so retiring it would take the empty answer out of the list every face needs to be able to fall
     /// back to, and the row would still be sitting under every face that pointed at it.
-    func setActive(id: Int, _ isActive: Bool) -> Bool {
+    func setActive(id: Int, _ isCategoryActive: Bool) -> Bool {
         // The row count as well as the step, so a category that is not there reads as refused rather than as
         // done. A name collision is refused by the index and fails the step; a missing id changes nothing and
         // would otherwise pass.
         connection.execute(
-            "UPDATE category SET active = \(isActive ? 1 : 0) WHERE category_id = \(id) AND category_id >= 1;"
+            "UPDATE category SET active = \(isCategoryActive ? 1 : 0) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
     }
 

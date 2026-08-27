@@ -13,7 +13,7 @@ import SQLite3
 /// the log of what the app was doing when it went wrong would disappear along with the work that went
 /// wrong. Separate connection, no shared transaction, nothing to undo it.
 ///
-/// Gated on `DeveloperMode.isEnabled` at the point of construction, so an app built without the dev
+/// Gated on `DeveloperMode.isDeveloperMode` at the point of construction, so an app built without the dev
 /// flag has no logger at all rather than a logger that returns early. (`011_setting.sql` also seeds a
 /// `debug` setting for turning this on and off without a rebuild. Nothing reads it yet -- one gate is
 /// enough while the only audience is a developer with a terminal open.)

@@ -53,7 +53,7 @@ let timezones = TimezoneStore(connection: database)
 // The badge names which database this launch opened, which is a developer's question -- a shipped copy
 // only ever has the real one, so a permanent "PROD" tag would occupy the menu bar to answer something
 // nobody asked.
-let databaseBadge = DeveloperMode.isEnabled
+let databaseBadge = DeveloperMode.isDeveloperMode
     ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
     : nil
 // **The trace goes in its own file**, brought up here rather than at the top: it is only wanted when developer mode
@@ -61,7 +61,7 @@ let databaseBadge = DeveloperMode.isEnabled
 // not a reason to refuse the launch either -- the app works perfectly well without a trace, and `DebugLog` already
 // keeps printing to the terminal when the recording half cannot start.
 let debugLog: DebugLog? = {
-    guard DeveloperMode.isEnabled else { return nil }
+    guard DeveloperMode.isDeveloperMode else { return nil }
     let url = (try? DatabaseBootstrap.ensureDebugDatabase().databaseURL) ?? DatabaseBootstrap.debugDatabaseURL()
     return DebugLog(databaseURL: url)
 }()
@@ -501,7 +501,7 @@ radio.onLinkEnded = { _ in
 // **flash memory fault** turns up: history lives in flash, so a cube reporting one records nothing, and from the
 // outside that looks exactly like a cube that was reset.
 radio.onSystemState = { _, state in
-    guard state.sync == .factoryReset else { return }
+    guard state.cubeSyncState == .factoryReset else { return }
     historyIngestor.refresh(because: "the cube says it was put back to the factory")
 }
 

@@ -58,7 +58,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     /// A category to be timed, which every reading below needs one of.
     private static let meeting = CategoryRecord(
         id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil,
-        usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+        usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
     )
 
     func testTheItemTicksWhileACubeIsTiming() {
@@ -349,7 +349,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testTheOrderIsBadgeIconCategoryGlyphThenTime() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
             state: .running,
             seconds: 30
@@ -368,7 +368,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // still timing or stopped stays worth seeing while it is locked.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
             state: .running,
             seconds: 30
@@ -426,7 +426,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testTheBadgeKeepsItsOwnColourWhileTheSessionIsCyan() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
             state: .running,
             seconds: 30
@@ -449,7 +449,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // `StatusItemTitle.glyphColour`, which is where that one is pinned.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
             state: .paused,
             seconds: 30
@@ -473,7 +473,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // and the figure beside them stays the colour it was, being a clock somebody is reading.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
             state: .running,
             seconds: 30
@@ -499,7 +499,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testACategoryWithNoIconDrawsOneAttachmentRatherThanTwo() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
-                id: 2, name: "Meeting", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true
+                id: 2, name: "Meeting", iconName: nil, colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
             ),
             state: .paused,
             seconds: 30

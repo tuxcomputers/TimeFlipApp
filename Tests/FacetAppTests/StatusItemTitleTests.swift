@@ -13,7 +13,7 @@ final class StatusItemTitleTests: XCTestCase {
     private let appLabel = "Facet"
 
     private func category(name: String = "Meeting", icon: String? = "meeting") -> CategoryRecord {
-        CategoryRecord(id: 2, name: name, iconName: icon, colourID: 0, colour: .systemBlue, usesWhiteLines: false, dailyLimitMinutes: 0, isActive: true)
+        CategoryRecord(id: 2, name: name, iconName: icon, colourID: 0, colour: .systemBlue, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
     }
 
     private func title(

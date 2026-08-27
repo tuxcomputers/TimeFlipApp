@@ -242,13 +242,13 @@ final class DevicePane: NSView {
     func show(_ values: Values) {
         self.values = values
 
-        let live = DeviceInfoRules.isLive(isCubeConnected: values.isCubeConnected)
+        let live = values.isCubeConnected
         nameValue.stringValue = DeviceInfoRules.name(isCubePaired: values.isCubePaired, deviceName: values.deviceName)
         connectionValue.stringValue = DeviceInfoRules.connection(
             isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, isManualMode: values.isManualMode
         )
         batteryValue.stringValue = DeviceInfoRules.battery(
-            isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, percent: values.batteryPercent
+            isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, batteryPercent: values.batteryPercent
         )
         manufacturerValue.stringValue = DeviceInfoRules.detail(isCubePaired: values.isCubePaired, reported: values.manufacturer)
         modelValue.stringValue = DeviceInfoRules.detail(isCubePaired: values.isCubePaired, reported: values.model)
@@ -256,7 +256,8 @@ final class DevicePane: NSView {
         firmwareValue.stringValue = DeviceInfoRules.detail(isCubePaired: values.isCubePaired, reported: values.firmware)
 
         // Greyed together while nothing is live, so the placeholders sit back as the placeholders they are rather
-        // than presenting as readings. See `DeviceInfoRules.isLive`.
+        // than presenting as readings: a greyed row is the difference between a value the app is standing behind and
+        // one it is not, which is what the archive greyed them together for.
         for field in [nameValue, connectionValue, batteryValue, manufacturerValue, modelValue, hardwareValue, firmwareValue] {
             field?.textColor = live ? .labelColor : .secondaryLabelColor
         }
@@ -408,7 +409,7 @@ final class DevicePane: NSView {
 
     private func paintBattery() {
         guard let batteryValue else { return }
-        let live = DeviceInfoRules.isLive(isCubeConnected: values.isCubeConnected)
+        let live = values.isCubeConnected
         batteryValue.textColor = lowBattery.isBlinkOn ? .systemRed : (live ? .labelColor : .secondaryLabelColor)
     }
 

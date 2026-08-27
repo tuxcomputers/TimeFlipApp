@@ -26,7 +26,7 @@ final class CategoryTableTests: XCTestCase {
             colour: colour,
             usesWhiteLines: false,
             dailyLimitMinutes: limit,
-            isActive: true
+            isCategoryActive: true
         )
     }
 
