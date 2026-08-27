@@ -214,7 +214,7 @@ struct StatusItemTitle: Equatable {
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
         // starts. `guard` on both, though the readout only ever pairs them: a category with no state to draw, or a
         // state with no category to name, is half a session either way.
-        guard let category = reading.category, let glyphName = ManualTimerRules.symbolName(for: reading.state) else {
+        guard let category = reading.category, let glyphName = ManualTimerRules.symbolName(for: reading.timingState) else {
             // Built up rather than chained, for the reason given at the first of these.
             var idleParts: [String] = [appLabel]
             if isCubeLocked { idleParts.append("device locked") }
@@ -258,7 +258,7 @@ struct StatusItemTitle: Equatable {
         // **The lock is said, not just drawn**, for the same reason the limit and the warning are: a badge is the
         // whole of the signal on screen, so without this the state that explains why a cube is not changing face
         // would be invisible to anybody reading the item aloud.
-        var sessionParts: [String] = [category.name, reading.state == .running ? "running" : "paused", duration]
+        var sessionParts: [String] = [category.name, reading.timingState == .running ? "running" : "paused", duration]
         if isCubeLocked { sessionParts.append("device locked") }
         if isLimitReached { sessionParts.append("daily limit reached") }
         if lowBattery.isBatteryLow { sessionParts.append("low battery") }

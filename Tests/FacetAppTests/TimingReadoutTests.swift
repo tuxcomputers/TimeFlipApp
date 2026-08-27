@@ -90,7 +90,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // table says about segments.
         events.startSegment(face: ManualFace.first, at: noon.addingTimeInterval(-60))
 
-        XCTAssertEqual(readout.read(at: noon).state, .idle)
+        XCTAssertEqual(readout.read(at: noon).timingState, .idle)
         XCTAssertNil(readout.read(at: noon).category)
     }
 
@@ -103,7 +103,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
 
         XCTAssertEqual(reading.category?.id, meetingID)
         XCTAssertEqual(reading.category?.name, "Meeting")
-        XCTAssertEqual(reading.state, .running)
+        XCTAssertEqual(reading.timingState, .running)
     }
 
     func testItFollowsTheRotationRatherThanTheFirstFace() {
@@ -128,12 +128,12 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
 
     func testClosingTheSegmentIsWhatMakesItPaused() {
         startTiming(breakID, at: noon.addingTimeInterval(-300))
-        XCTAssertEqual(readout.read(at: noon).state, .running, "precondition")
+        XCTAssertEqual(readout.read(at: noon).timingState, .running, "precondition")
 
         events.closeOpenSegment(at: noon.addingTimeInterval(-180))
 
         let reading = readout.read(at: noon)
-        XCTAssertEqual(reading.state, .paused)
+        XCTAssertEqual(reading.timingState, .paused)
         // The two minutes since the close are not counted, and the two before it are not thrown away. Neither takes
         // a special case: there is no live part left to add.
         XCTAssertEqual(reading.seconds, 120)
@@ -145,7 +145,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         startTiming(breakID, at: noon.addingTimeInterval(-300))
         XCTAssertTrue(database.execute("UPDATE device_event SET paused = 1 WHERE finalised = 0;"))
 
-        XCTAssertEqual(readout.read(at: noon).state, .paused)
+        XCTAssertEqual(readout.read(at: noon).timingState, .paused)
     }
 
     func testASegmentOpenOnSomeOtherFaceIsNotThisSessionRunning() {
@@ -155,7 +155,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         events.closeOpenSegment(at: noon.addingTimeInterval(-300))
         events.startSegment(face: 8, at: noon.addingTimeInterval(-120))
 
-        XCTAssertEqual(readout.read(at: noon).state, .paused)
+        XCTAssertEqual(readout.read(at: noon).timingState, .paused)
     }
 
     // MARK: - a relaunch inherits the session
@@ -180,7 +180,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
 
         let reading = relaunched.read(at: noon)
         XCTAssertEqual(reading.category?.id, meetingID, "the category the last launch was left on")
-        XCTAssertEqual(reading.state, .paused, "stopped, since nothing is open")
+        XCTAssertEqual(reading.timingState, .paused, "stopped, since nothing is open")
         XCTAssertEqual(reading.seconds, 600, "the ten minutes it recorded today, not a stopwatch from zero")
     }
 
@@ -190,7 +190,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // the readout says while one is there.
         startTiming(meetingID, at: noon.addingTimeInterval(-300))
 
-        XCTAssertEqual(readout.read(at: noon).state, .running)
+        XCTAssertEqual(readout.read(at: noon).timingState, .running)
     }
 
     // MARK: - picking the same category again
@@ -360,7 +360,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
 
         XCTAssertNil(reading.cubeFace)
         XCTAssertNil(reading.category)
-        XCTAssertEqual(reading.state, .idle)
+        XCTAssertEqual(reading.timingState, .idle)
     }
 
     func testTakingManualModeStillWinsOverAPairedCube() {
@@ -382,7 +382,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
         readout.cubeFace = { 5 }
 
-        XCTAssertEqual(readout.read(at: noon).state, .idle)
+        XCTAssertEqual(readout.read(at: noon).timingState, .idle)
     }
 
     func testAConnectedCubeTimingIsCounting() {
@@ -397,7 +397,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         let reading = readout.read(at: noon)
 
         XCTAssertTrue(reading.isCounting)
-        XCTAssertEqual(reading.state, .idle, "and still no clock of this app's own")
+        XCTAssertEqual(reading.timingState, .idle, "and still no clock of this app's own")
     }
 
     func testTheFigureFollowsThisMachinesClockBetweenFetches() {
@@ -508,7 +508,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         let reading = readout.read(at: noon)
         XCTAssertNil(reading.cubeFace)
         XCTAssertEqual(reading.category?.id, breakID, "what the app is timing by hand")
-        XCTAssertEqual(reading.state, .running, "and its clock, which the cube reading has none of")
+        XCTAssertEqual(reading.timingState, .running, "and its clock, which the cube reading has none of")
     }
 
     func testItIsAskedPerReadingRatherThanOnce() {
@@ -531,7 +531,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         readout.isManualMode = { true }
 
         XCTAssertEqual(readout.read(at: noon).category?.id, meetingID)
-        XCTAssertEqual(readout.read(at: noon).state, .running)
+        XCTAssertEqual(readout.read(at: noon).timingState, .running)
     }
 
     /// A segment the cube reported, left open, which is what a history fetch writes for the interval it is on.
@@ -651,7 +651,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
 
         let reading = readout.read(at: noon)
-        XCTAssertEqual(reading.state, .idle)
+        XCTAssertEqual(reading.timingState, .idle)
         XCTAssertFalse(reading.isTiming(meetingID))
     }
 

@@ -17,16 +17,16 @@ import AppKit
 @MainActor
 final class TimingView: NSView {
     enum Identifier {
-        static let playPause = "timing-play-pause"
-        static let elapsed = "timing-elapsed"
-        static let categoryName = "timing-category-name"
-        static let cubeFace = "timing-device-face"
-        static let centreIcon = "timing-centre-icon"
-        static let faceLock = "timing-face-lock"
+        static let playPause = "timingState-play-pause"
+        static let elapsed = "timingState-elapsed"
+        static let categoryName = "timingState-category-name"
+        static let cubeFace = "timingState-device-face"
+        static let centreIcon = "timingState-centre-icon"
+        static let faceLock = "timingState-face-lock"
         /// The figure under the name while a cube is being followed. A different element from `elapsed`, because it is
         /// in a different place for a different reason -- see `faceElapsedLabel`.
-        static let faceElapsed = "timing-face-elapsed"
-        static let faceGlyph = "timing-face-glyph"
+        static let faceElapsed = "timingState-face-elapsed"
+        static let faceGlyph = "timingState-face-glyph"
     }
 
     /// The device seen from above, which is the app's own mark: `ic_facet.svg`.
@@ -158,13 +158,13 @@ final class TimingView: NSView {
     /// Which glyph sits beside the figure, held so `layout` can re-render it at a new size.
     private var faceGlyphName: String?
 
-    private(set) var state: TimingState = .idle
+    private(set) var timingState: TimingState = .idle
 
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         addContent()
-        show(category: nil, state: .idle, elapsed: 0)
+        show(category: nil, timingState: .idle, elapsed: 0)
     }
 
     @available(*, unavailable)
@@ -182,11 +182,11 @@ final class TimingView: NSView {
     ///   live and does nothing reads as broken rather than as one being deliberate.
     func show(
         category: CategoryRecord?,
-        state: TimingState,
+        timingState: TimingState,
         elapsed: TimeInterval,
         isLimitReached: Bool = false
     ) {
-        self.state = state
+        self.timingState = timingState
         // There is no cube in this picture. Clearing the artwork rather than merely hiding it means a link that drops
         // cannot leave a lit face behind it in memory, waiting to be shown again by a later resize.
         showDevice(nil, category: nil)
@@ -196,12 +196,12 @@ final class TimingView: NSView {
         faceGlyphName = nil
         faceGlyphView.isHidden = true
         applyFigureHeight()
-        symbolName = ManualTimerRules.symbolName(for: state)
+        symbolName = ManualTimerRules.symbolName(for: timingState)
         let isHidden = symbolName == nil
         centred.isHidden = isHidden
         categoryNameLabel.isHidden = isHidden
         // Not merely inert: an idle control is not drawn at all, so there is nothing to click at.
-        playPauseButton.isEnabled = ManualTimerRules.isClickable(state, isLimitReached: isLimitReached)
+        playPauseButton.isEnabled = ManualTimerRules.isClickable(timingState, isLimitReached: isLimitReached)
 
         guard !isHidden else { return }
         // No colour set falls back to the ordinary label colour, which is what the previous app drew for a
@@ -213,7 +213,7 @@ final class TimingView: NSView {
             rounding: .truncate,
             showingSeconds: true
         )
-        playPauseButton.setAccessibilityLabel(state == .running ? "Running, click to pause" : "Paused, click to resume")
+        playPauseButton.setAccessibilityLabel(timingState == .running ? "Running, click to pause" : "Paused, click to resume")
         categoryNameLabel.stringValue = category?.name ?? ""
         // Applied here as well as in `layout()`: the fitted size depends on the text, which only changes
         // here, and a view with no window may not be asked to lay out again just because it wants to.
@@ -230,7 +230,7 @@ final class TimingView: NSView {
     /// nothing is still a face -- the cube is drawn unlit rather than the column going blank.
     ///
     /// **No clock and no play/pause**, which is the archive's arrangement and its reasoning: this is a picture of
-    /// where the cube is, and the cube's own timing is not something a click on this window starts or stops.
+    /// where the cube is, and the cube's own timingState is not something a click on this window starts or stops.
     /// - Parameter isLocked: whether this face keeps the category it has. Drawn as the lock in the corner, and the
     ///   same answer the category list is drawn live or dead from -- see `FacesTabRules`.
     /// - Parameter elapsed: the category's total for the day. Drawn under its name, since the square is the cube.
@@ -247,7 +247,7 @@ final class TimingView: NSView {
         showingSeconds: Bool = true,
         isDevicePaused: Bool? = nil
     ) {
-        state = .idle
+        timingState = .idle
         centred.isHidden = true
         playPauseButton.isEnabled = false
         showDevice(face, category: category)
@@ -639,7 +639,7 @@ final class TimingView: NSView {
         isFaceLocked = isLocked
         lockButton.isHidden = false
         // Both spelled out, rather than one name for the control: what it is called has to say what pressing it does,
-        // and "Lock" on a locked face reads as a label for the state it is already in.
+        // and "Lock" on a locked face reads as a label for the timingState it is already in.
         lockButton.toolTip = isLocked
             ? "Unlock this face so its category can be changed"
             : "Lock this face to keep its category"

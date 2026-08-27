@@ -220,7 +220,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertEqual(openSegments, 0)
-        XCTAssertEqual(readout.read().state, .idle)
+        XCTAssertEqual(readout.read().timingState, .idle)
         XCTAssertEqual(readout.read().seconds, 0)
     }
 
@@ -303,7 +303,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertEqual(openSegments, 1)
-        XCTAssertEqual(readout.read().state, .running)
+        XCTAssertEqual(readout.read().timingState, .running)
         XCTAssertTrue(ManualFace.all.contains { faces.categoryID(forFace: $0) == id("Break") })
     }
 
@@ -378,7 +378,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         click("Break")
 
         XCTAssertNil(readout.read().category)
-        XCTAssertEqual(readout.read().state, .idle)
+        XCTAssertEqual(readout.read().timingState, .idle)
     }
 
     func testAPairedAppWithItsCubeInFrontOfItStillTakesTheClick() {

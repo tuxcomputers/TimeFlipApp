@@ -1859,7 +1859,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         pane.timingView.show(
             category: reading.category,
-            state: reading.state,
+            timingState: reading.timingState,
             elapsed: reading.seconds,
             isLimitReached: isLimitReached()
         )
@@ -2022,7 +2022,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // **The refusal itself.** Every path in -- the dropdown item, the status item's right half, the Timing
         // column's glyph -- lands here, so a limit that stopped the clock cannot be undone by finding another
         // button. The two controls also grey themselves, but that is the courtesy; this is the enforcement.
-        guard ManualTimerRules.isClickable(before.state, isLimitReached: isLimitReached()) else {
+        guard ManualTimerRules.isClickable(before.timingState, isLimitReached: isLimitReached()) else {
             debugLog?.record(
                 .limit,
                 "Resume refused, \(before.category?.name ?? "nothing") has spent its daily limit"
@@ -2031,7 +2031,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         // One moment for both halves, so the segment that ends and the one that begins meet exactly.
         let moment = Date()
-        if before.state == .running {
+        if before.timingState == .running {
             deviceEvents?.closeOpenSegment(at: moment)
         } else {
             // The same face the paused stretch was on, not the next one, and nothing is written to it. Rotating
@@ -2045,7 +2045,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let after = timing?.read() ?? .idle
         debugLog?.record(
             .mode,
-            "Timing: \(after.state == .running ? "running" : "stopped") "
+            "Timing: \(after.timingState == .running ? "running" : "stopped") "
                 + "\(after.category?.name ?? "nothing"), \(Int(after.seconds))s today"
         )
         draw(after)

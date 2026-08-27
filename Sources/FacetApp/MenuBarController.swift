@@ -445,19 +445,19 @@ final class MenuBarController: NSObject {
     /// see. We are already the code that opens it, so there is no reason to be told.
     func refresh(_ menu: NSMenu) {
         if let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) {
-            let state = timing().state
+            let state = timing().timingState
             // The cube asked here as well as below, because this item acts on it too: with no manual session running,
             // Pause is the cube's, exactly as a single click on the right half is. It used to ask only about the app's
             // own clock and so sat greyed above a status item that would happily pause the cube.
             let cube = self.cube()
             let target = PauseMenuRules.target(
-                timing: state,
+                timingState: state,
                 isCubeConnected: cube.isCubeConnected,
                 isCubeLocked: cube.isLocked,
                 isCubePaused: cube.isPaused,
                 isLimitReached: isLimitReached()
             )
-            pause.title = PauseMenuRules.title(for: target, timing: state, isCubePaused: cube.isPaused)
+            pause.title = PauseMenuRules.title(for: target, timingState: state, isCubePaused: cube.isPaused)
             // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
             // than advisory, and greyed on a locked cube, which cannot be paused at all until it is unlocked.
             pause.isEnabled = PauseMenuRules.isEnabled(target)
@@ -504,12 +504,12 @@ final class MenuBarController: NSObject {
         // `<=` so the exact midpoint counts as the left half, i.e. as the menu: of the two, it is the
         // one that cannot leave someone stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
-        let state = timing().state
+        let state = timing().timingState
         // Read once and handed to both, so the routing and the row below cannot describe different cubes.
         let cube = self.cube()
         let action = StatusItemClickRouter.action(
             isLeftSide: isLeftSide,
-            timing: state,
+            timingState: state,
             isCubeConnected: cube.isCubeConnected,
             isCubePaused: cube.isPaused,
             isLimitReached: isLimitReached(),
@@ -599,13 +599,13 @@ final class MenuBarController: NSObject {
 
     @objc
     private func menuTogglePause() {
-        let state = timing().state
+        let state = timing().timingState
         let cube = self.cube()
         // **Decided again here rather than remembered from `refresh`.** The menu may have been sitting open while the
         // cube went away, and acting on what was true when it was drawn is the stale-copy fault this codebase keeps
         // being bitten by. It is the same call with the same inputs, so it is the same answer unless the world moved.
         let target = PauseMenuRules.target(
-            timing: state,
+            timingState: state,
             isCubeConnected: cube.isCubeConnected,
             isCubeLocked: cube.isLocked,
             isCubePaused: cube.isPaused,
@@ -614,7 +614,7 @@ final class MenuBarController: NSObject {
         // What it was called when it was chosen, which is what the person clicking it meant.
         debugLog?.record(
             .menu,
-            "Menu item clicked: \(PauseMenuRules.title(for: target, timing: state, isCubePaused: cube.isPaused))"
+            "Menu item clicked: \(PauseMenuRules.title(for: target, timingState: state, isCubePaused: cube.isPaused))"
         )
         switch target {
         case .appClock:

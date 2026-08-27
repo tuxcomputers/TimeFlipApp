@@ -8,7 +8,7 @@ import XCTest
 /// the thing that makes the limit testable at all with no cube on the desk: **in manual mode the app is the clock**,
 /// so stopping the device is the app's own pause path.
 ///
-/// **Every reading here says `isCounting` as well as `state`, and that is not boilerplate.** `state` is about *this
+/// **Every reading here says `isCounting` as well as `timingState`, and that is not boilerplate.** `timingState` is about *this
 /// app's* clock and answers `.idle` for a cube however busy it is; `isCounting` is whether the figure is moving, which
 /// is the question the watch actually has to ask. These fixtures said only the first until run 116 found a cube five
 /// seconds from its limit sitting there for 68 seconds with the tick never started.
@@ -45,7 +45,7 @@ final class DailyLimitWatchTests: XCTestCase {
     func testTheClockIsStoppedWhenTheBudgetIsSpent() {
         // The whole feature in one check: 5 minutes of limit, 5 minutes recorded, and the app stops itself.
         var stops = 0
-        let reading = TimingReadout.Reading(category: category(7, limit: 5), state: .running, seconds: 300, isCounting: true)
+        let reading = TimingReadout.Reading(category: category(7, limit: 5), timingState: .running, seconds: 300, isCounting: true)
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
         watch.check(at: window)
@@ -58,7 +58,7 @@ final class DailyLimitWatchTests: XCTestCase {
         // 20 seconds short, which is where the archive's checklist staged its crossing and where this app's
         // scripted check stages it too.
         var stops = 0
-        let reading = TimingReadout.Reading(category: category(7, limit: 5), state: .running, seconds: 280, isCounting: true)
+        let reading = TimingReadout.Reading(category: category(7, limit: 5), timingState: .running, seconds: 280, isCounting: true)
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
         watch.check(at: window)
@@ -70,7 +70,7 @@ final class DailyLimitWatchTests: XCTestCase {
     func testACategoryWithNoLimitIsNeverStopped() {
         // `daily_limit = 0` is no limit at all, so a whole day against it is not a crossing.
         var stops = 0
-        let reading = TimingReadout.Reading(category: category(7, limit: 0), state: .running, seconds: 86_400, isCounting: true)
+        let reading = TimingReadout.Reading(category: category(7, limit: 0), timingState: .running, seconds: 86_400, isCounting: true)
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
         watch.check(at: window)
@@ -83,12 +83,12 @@ final class DailyLimitWatchTests: XCTestCase {
         // Once stopped, the reading comes back paused, and a second stop would start it again -- `togglePause` being
         // a toggle. This is the case that makes the latch matter here rather than only in the rules.
         var stops = 0
-        var state = TimingState.running
+        var timingState = TimingState.running
         let watch = watch(
-            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), state: state, seconds: 300, isCounting: state == .running) },
+            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), timingState: timingState, seconds: 300, isCounting: timingState == .running) },
             stopped: {
                 stops += 1
-                state = .paused
+                timingState = .paused
             }
         )
 
@@ -102,17 +102,17 @@ final class DailyLimitWatchTests: XCTestCase {
     func testStartingItAgainOverTheLimitStopsItAgain() {
         // The limit is hard: picking the category back up does not buy more time, it is stopped on the next tick.
         var stops = 0
-        var state = TimingState.running
+        var timingState = TimingState.running
         let watch = watch(
-            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), state: state, seconds: 300, isCounting: state == .running) },
+            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), timingState: timingState, seconds: 300, isCounting: timingState == .running) },
             stopped: {
                 stops += 1
-                state = .paused
+                timingState = .paused
             }
         )
 
         watch.check(at: window)
-        state = .running
+        timingState = .running
         watch.check(at: window)
 
         XCTAssertEqual(stops, 2)
@@ -121,13 +121,13 @@ final class DailyLimitWatchTests: XCTestCase {
     func testACubeIsStoppedEvenThoughTheAppsOwnClockIsIdle() {
         // **The shape run 116 found, and the one every fixture above is the wrong shape for.** A cube produces a
         // reading that is `.idle` and counting at the same time: the app runs no session of its own while it follows
-        // one, so `state` says idle however busy the cube is, and `isCounting` is the only thing that says the figure
-        // is moving. Asking `state == .running` meant the tick never started, and a cube five seconds from its limit
+        // one, so `timingState` says idle however busy the cube is, and `isCounting` is the only thing that says the figure
+        // is moving. Asking `timingState == .running` meant the tick never started, and a cube five seconds from its limit
         // sat on it for 68 seconds with nothing sent.
         var stops = 0
         let reading = TimingReadout.Reading(
             category: category(7, limit: 5),
-            state: .idle,
+            timingState: .idle,
             seconds: 300,
             isCounting: true,
             cubeFace: 1,
@@ -145,7 +145,7 @@ final class DailyLimitWatchTests: XCTestCase {
         var stops = 0
         let reading = TimingReadout.Reading(
             category: category(7, limit: 5),
-            state: .idle,
+            timingState: .idle,
             seconds: 280,
             isCounting: true,
             cubeFace: 1,
@@ -164,7 +164,7 @@ final class DailyLimitWatchTests: XCTestCase {
         var stops = 0
         let reading = TimingReadout.Reading(
             category: category(7, limit: 5),
-            state: .idle,
+            timingState: .idle,
             seconds: 300,
             isCounting: false,
             cubeFace: 1,
@@ -192,20 +192,20 @@ final class DailyLimitWatchTests: XCTestCase {
         // timing on its own. The user gets their Resume back; they do not get time recorded while they were away.
         var stops = 0
         var limit = 5
-        var state = TimingState.running
+        var timingState = TimingState.running
         let watch = DailyLimitWatch(
-            timing: { TimingReadout.Reading(category: self.category(7, limit: limit), state: state, seconds: 300, isCounting: state == .running) },
+            timing: { TimingReadout.Reading(category: self.category(7, limit: limit), timingState: timingState, seconds: 300, isCounting: timingState == .running) },
             windowStart: { _ in self.window },
             debugLog: nil,
             stopTiming: {
                 stops += 1
-                state = .paused
+                timingState = .paused
             }
         )
 
         watch.check(at: window)
         XCTAssertTrue(watch.isLimitReached)
-        XCTAssertEqual(state, .paused)
+        XCTAssertEqual(timingState, .paused)
 
         limit = 10
 
@@ -216,7 +216,7 @@ final class DailyLimitWatchTests: XCTestCase {
         XCTAssertFalse(watch.isLimitReached, "the refusal is lifted")
         // The clock is the user's to start. `stopTiming` is the only thing this watch can call, so the proof that
         // nothing resumed on their behalf is that the session is still stopped and was stopped exactly once.
-        XCTAssertEqual(state, .paused, "nothing started the clock on the user's behalf")
+        XCTAssertEqual(timingState, .paused, "nothing started the clock on the user's behalf")
         XCTAssertEqual(stops, 1)
     }
 
@@ -244,17 +244,17 @@ final class DailyLimitWatchTests: XCTestCase {
         // The archive exercised the refusal through this half rather than the menu item, precisely because the menu
         // item is disabled and clicking it proves nothing.
         XCTAssertEqual(
-            StatusItemClickRouter.action(isLeftSide: false, timing: .paused, isLimitReached: true), .ignore
+            StatusItemClickRouter.action(isLeftSide: false, timingState: .paused, isLimitReached: true), .ignore
         )
         XCTAssertEqual(
-            StatusItemClickRouter.action(isLeftSide: false, timing: .paused, isLimitReached: false), .togglePause
+            StatusItemClickRouter.action(isLeftSide: false, timingState: .paused, isLimitReached: false), .togglePause
         )
     }
 
     func testTheLeftHalfStillOpensTheMenu() {
-        // Quit is only reachable through the menu, so no state may take the left half away.
+        // Quit is only reachable through the menu, so no timingState may take the left half away.
         XCTAssertEqual(
-            StatusItemClickRouter.action(isLeftSide: true, timing: .paused, isLimitReached: true), .showMenu
+            StatusItemClickRouter.action(isLeftSide: true, timingState: .paused, isLimitReached: true), .showMenu
         )
     }
 

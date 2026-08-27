@@ -39,17 +39,17 @@ enum PauseMenuRules {
     ///   - isLimitReached: whether the category on show has spent its `daily_limit`, which is what makes the limit
     ///     hard rather than advisory. About the app's own clock only, as it is everywhere else.
     static func target(
-        timing: TimingState,
+        timingState: TimingState,
         isCubeConnected: Bool,
         isCubeLocked: Bool?,
         isCubePaused: Bool? = nil,
         isLimitReached: Bool = false
     ) -> Target {
-        if ManualTimerRules.isClickable(timing, isLimitReached: isLimitReached) { return .appClock }
+        if ManualTimerRules.isClickable(timingState, isLimitReached: isLimitReached) { return .appClock }
         // A session that exists but has been refused stays refused rather than falling through to the cube, which is
         // `StatusItemClickRouter`'s rule and for its reason: a spent daily limit would otherwise be undone by
         // reaching for the menu instead of the status item.
-        guard timing == .idle, isCubeConnected else { return .nothing }
+        guard timingState == .idle, isCubeConnected else { return .nothing }
         // **And the limit has to be asked again for the cube, which it was not.** `ManualTimerRules.isClickable`
         // above answers about *this app's* clock, and a cube leaves that `.idle` however busy it is -- so every cube
         // click fell straight past the only place the limit was consulted. Reported live on 2026-08-27: a single
@@ -77,7 +77,7 @@ enum PauseMenuRules {
     ///   exactly and only where `target` returns `.cube`.
     static func title(
         for target: Target,
-        timing: TimingState,
+        timingState: TimingState,
         isCubePaused: Bool? = nil
     ) -> String {
         switch target {
@@ -86,7 +86,7 @@ enum PauseMenuRules {
             // a dead item claiming there is something to resume is worse than one claiming there is something to
             // pause. That covers the locked cube too, where the cube would answer "paused" and "Resume" would be an
             // offer the cube is going to refuse.
-            return ManualTimerRules.pauseMenuTitle(for: timing)
+            return ManualTimerRules.pauseMenuTitle(for: timingState)
         case .cube:
             return isCubePaused == true ? "Resume" : "Pause"
         }
