@@ -301,11 +301,14 @@ BREAK_FACE=8
 
 # Paused first, with the click already proven above. `open_paused` is waited on rather than read straight after the
 # log row, because the row says the read-back confirmed and the segment is written by the ingest that follows it.
+# **Asked for rather than branched on.** The cube reaching here stopped is ordinary now: unlocking resumes it, and if
+# it is resting on a face with no category the app stops it again within the second (`ForcedPause`). Run 117
+# (2026-08-27) is that exactly, and the branch that used to be here reported 36 of a declared 37 with nothing failing.
+# `stop_the_cube` owns the decision so this line does not, and the check below runs whatever state the cube was in.
+stop_the_cube
 since=$(mark)
-if [ "$(open_paused)" != "1" ]; then
-    click_right
-    expect_log "the cube is stopped, ready to be turned while it is stopped" "$since" "The cube is paused" 20
-fi
+check "the cube is stopped, ready to be turned while it is stopped" "1" \
+    "$(wait_sql "1" "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" 20)"
 if ! wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;" "1" 25; then
     fail "the cube could not be got into a paused state, so the turn has nothing to lift"
     finish

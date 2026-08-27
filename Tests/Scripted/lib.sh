@@ -543,6 +543,45 @@ restore_the_pairing() {
     exit 1
 }
 
+# Puts the cube into a named state, whatever it is in now.
+#
+# **The conditional lives here so it does not live in a checklist.** The status item offers a *toggle*, so "stop the
+# cube" is unavoidably "find out whether it is running, and click if it is" -- and that decision written into a script
+# is a branch, which is a check that may or may not run. Run 117 (2026-08-27) is what that costs: `57-cube-pause`
+# reported 36 of a declared 37 with nothing failing, because the cube arrived stopped and the arm that checks the stop
+# was skipped. The count caught it; the shape should not have been there to catch.
+#
+# **A script says what it wants and asserts afterwards**, unconditionally. Neither of these is a check: what state the
+# hardware was left in is not a verdict on the app, and counting it would put the bench into `EXPECTED_CHECKS`. Both
+# stop the run if the cube will not go, because everything after them is written against a state that never arrived.
+stop_the_cube() {
+    [ "$(cube_is_paused)" = "1" ] && return 0
+    local since
+    since=$(mark)
+    click_right
+    wait_for "$since" "The cube is paused" 20 >/dev/null && { step "the cube is stopped"; return 0; }
+    red "  the cube would not stop, and everything below this is written against a stopped cube"
+    finish
+    exit 1
+}
+
+start_the_cube() {
+    [ "$(cube_is_paused)" = "0" ] && return 0
+    local since
+    since=$(mark)
+    click_right
+    wait_for "$since" "The cube is running" 20 >/dev/null && { step "the cube is running"; return 0; }
+    red "  the cube would not start, and everything below this is written against a running cube"
+    finish
+    exit 1
+}
+
+# Whether the cube is stopped, as its own open row has it: `1` stopped, `0` running, empty for no cube row at all.
+# Its faces only, so a manual segment cannot answer for it.
+cube_is_paused() {
+    sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;"
+}
+
 start() {
     echo ""
     blue "=============================================================================="
