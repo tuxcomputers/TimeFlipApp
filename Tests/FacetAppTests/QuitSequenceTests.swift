@@ -185,7 +185,7 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
     private func cubeLock(answering: Bool = true, into sent: NSMutableArray) -> CubeLock {
         CubeLock(
             settings: settings,
-            isConnected: { true },
+            isCubeConnected: { true },
             send: { command, reported in
                 sent.add(command)
                 reported(answering)
@@ -196,7 +196,7 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
 
     private func silentCubeLock() -> CubeLock {
         // Nothing ever answers, which is a cube that went out of range mid-quit.
-        CubeLock(settings: settings, isConnected: { true }, send: { _, _ in }, debugLog: nil)
+        CubeLock(settings: settings, isCubeConnected: { true }, send: { _, _ in }, debugLog: nil)
     }
 
     func testTheCubeIsStoppedBeforeTheAppGoes() {

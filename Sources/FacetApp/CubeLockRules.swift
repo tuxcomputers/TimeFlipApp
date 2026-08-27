@@ -35,7 +35,7 @@ enum CubeLockRules {
     /// **Manual mode is not a case here, unlike Pause.** Pause survives into manual mode because the thing it acts on
     /// moved into the app; lock has no such half. It is a device command with a device state behind it, and with no
     /// device there is nothing to send and nothing to report.
-    static func isEnabled(isConnected: Bool) -> Bool {
-        isConnected
+    static func isEnabled(isCubeConnected: Bool) -> Bool {
+        isCubeConnected
     }
 }

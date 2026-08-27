@@ -33,7 +33,7 @@ final class GoogleSectionTests: XCTestCase {
         values.googleAccount = GoogleAccountRules.account(name: name, email: email)
         values.googleCredential = credential
         values.googleVerification = verification
-        values.googleCredentialsAvailable = credentials
+        values.hasGoogleCredentials = credentials
         values.googleCalendar = calendar
         pane.show(values)
         return pane
@@ -151,22 +151,22 @@ final class GoogleSectionTests: XCTestCase {
     func testAnAccountWithNeitherNameNorEmailHasNoIdentity() {
         // The row is seeded as `{}` and stays that way until a sign-in fills it, so "no fields" is the normal state
         // rather than an error, and it has to read as not connected rather than as a connection with blanks in it.
-        XCTAssertFalse(GoogleAccountRules.account(name: nil, email: nil).hasIdentity)
+        XCTAssertFalse(GoogleAccountRules.account(name: nil, email: nil).hasGoogleIdentity)
         XCTAssertEqual(GoogleAccountRules.status(for: .notConnected), "Not connected")
     }
 
     func testEitherFieldAloneIsStillAnIdentity() {
         // The userinfo endpoint can answer with no name on the profile. That is a connected account with one thing
         // to show, not a broken one.
-        XCTAssertTrue(GoogleAccountRules.account(name: nil, email: "h@tux.com.au").hasIdentity)
-        XCTAssertTrue(GoogleAccountRules.account(name: "Harry", email: nil).hasIdentity)
+        XCTAssertTrue(GoogleAccountRules.account(name: nil, email: "h@tux.com.au").hasGoogleIdentity)
+        XCTAssertTrue(GoogleAccountRules.account(name: "Harry", email: nil).hasGoogleIdentity)
     }
 
     func testABlankFieldCountsAsAbsent() {
         // Signing out writes empty strings rather than deleting the keys, since the row's other fields have to
         // survive. So an empty string has to mean the same as a missing one, or a sign-out would leave the section
         // claiming a connection to an account called "".
-        XCTAssertFalse(GoogleAccountRules.account(name: "", email: "   ").hasIdentity)
+        XCTAssertFalse(GoogleAccountRules.account(name: "", email: "   ").hasGoogleIdentity)
     }
 
     // MARK: - an identity is not a connection
@@ -176,7 +176,7 @@ final class GoogleSectionTests: XCTestCase {
         // email, a calendar id and a calendar name, the App tab read Connected, and the Keychain had no item at all.
         // The row was never wrong; it was only ever half the answer.
         let account = GoogleAccountRules.account(name: "Harry", email: "harry@tux.com.au")
-        XCTAssertTrue(account.hasIdentity, "the row still names somebody")
+        XCTAssertTrue(account.hasGoogleIdentity, "the row still names somebody")
         XCTAssertEqual(GoogleAccountRules.state(for: account, credential: .missing), .signedOut)
         XCTAssertEqual(GoogleAccountRules.status(for: .signedOut), "Signed out")
     }

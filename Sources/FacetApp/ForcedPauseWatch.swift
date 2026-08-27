@@ -22,7 +22,7 @@ import Foundation
 @MainActor
 final class ForcedPauseWatch {
     /// The face the cube's open segment names, or `nil` for a cube with no open segment to read.
-    private let openFace: () -> Int?
+    private let cubeFace: () -> Int?
 
     /// Whether that face holds a category, read from `face` at the moment of the ask.
     private let hasCategory: (Int) -> Bool
@@ -34,7 +34,7 @@ final class ForcedPauseWatch {
     private let isLocked: () -> Bool?
 
     /// Whether there is a live link to send anything down.
-    private let isConnected: () -> Bool
+    private let isCubeConnected: () -> Bool
 
     /// Whether `DailyLimitEnforcement` is holding a pause of its own, so a hard limit is not lifted by this.
     private let limitIsHolding: () -> Bool
@@ -64,24 +64,24 @@ final class ForcedPauseWatch {
     /// face, table says running" is exactly what a *hand-resume* on that face looks like too, and that case
     /// deliberately does pause again. The two are indistinguishable from the tables; only knowing a command is
     /// currently in flight tells them apart.
-    private var isSending = false
+    private var isForcedPauseSending = false
 
     init(
-        openFace: @escaping () -> Int?,
+        cubeFace: @escaping () -> Int?,
         hasCategory: @escaping (Int) -> Bool,
         isPaused: @escaping () -> Bool?,
         isLocked: @escaping () -> Bool?,
-        isConnected: @escaping () -> Bool,
+        isCubeConnected: @escaping () -> Bool,
         limitIsHolding: @escaping () -> Bool,
         setPause: @escaping (Bool, @escaping (Bool) -> Void) -> Bool,
         refreshHistory: @escaping (String, @escaping () -> Void) -> Void,
         debugLog: DebugLog?
     ) {
-        self.openFace = openFace
+        self.cubeFace = cubeFace
         self.hasCategory = hasCategory
         self.isPaused = isPaused
         self.isLocked = isLocked
-        self.isConnected = isConnected
+        self.isCubeConnected = isCubeConnected
         self.limitIsHolding = limitIsHolding
         self.setPause = setPause
         self.refreshHistory = refreshHistory
@@ -90,15 +90,15 @@ final class ForcedPauseWatch {
 
     /// One look. Internal so a test can call it in place of the funnels.
     func check() {
-        guard !isSending else { return }
+        guard !isForcedPauseSending else { return }
 
-        let face = openFace()
+        let face = cubeFace()
         let action = enforcement.evaluate(
             face: face,
             hasCategory: face.map { hasCategory($0) } ?? false,
             isPaused: isPaused() ?? false,
             isLocked: isLocked(),
-            isConnected: isConnected(),
+            isCubeConnected: isCubeConnected(),
             limitIsHolding: limitIsHolding()
         )
 
@@ -121,7 +121,7 @@ final class ForcedPauseWatch {
 
     /// Sends one command, claims it only if the cube confirms it, and then goes and asks what the cube says.
     private func send(_ wanted: Bool, claiming face: Int?, because reason: String) {
-        isSending = true
+        isForcedPauseSending = true
         let sent = setPause(wanted) { [weak self] took in
             guard let self else { return }
             if took {
@@ -138,11 +138,11 @@ final class ForcedPauseWatch {
                 // **Cleared only once the fetch has written**, which is the whole point of the flag: cleared at the
                 // command's own completion instead, the very next `onChanged` would still be reading a table that says
                 // the cube is running.
-                self?.isSending = false
+                self?.isForcedPauseSending = false
             }
         }
         // Nothing was sent, so nothing will complete and nothing is in flight. `CubeLock` answers `false` for a cube
         // that is not connected or is locked, both of which it has already said in the log.
-        if !sent { isSending = false }
+        if !sent { isForcedPauseSending = false }
     }
 }

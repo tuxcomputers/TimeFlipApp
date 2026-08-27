@@ -168,7 +168,7 @@ final class DeviceEventRecorder {
     @discardableResult
     func closeOpenSegment(at moment: Date) -> Outcome? {
         guard let open = openSegment() else { return nil }
-        guard ManualFace.isTheApps(open.face) else {
+        guard ManualFace.isAppFace(open.face) else {
             // Said rather than returned in silence: a quit that closed nothing and a quit that found nothing open
             // leave the same table behind, and only a row here tells them apart.
             debugLog?.record(
@@ -226,7 +226,7 @@ final class DeviceEventRecorder {
         //
         // Quiet, like the refresh itself: this is the ordinary state of every tick while a cube is connected, and a
         // row apiece at one every ten seconds would bury the log. The tick that asked already says it fired.
-        guard ManualFace.isTheApps(open.face) else { return nil }
+        guard ManualFace.isAppFace(open.face) else { return nil }
         return record(
             DeviceEventSegment(
                 eventNumber: open.eventNumber,

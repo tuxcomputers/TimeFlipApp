@@ -13,18 +13,18 @@ final class DeviceInfoRulesTests: XCTestCase {
     func testAnUnpairedAppShowsNoNameEvenWhenItRemembersOne() {
         // The name deliberately outlives Forget Device -- forgetting does not un-rename a cube, and the remembered
         // string is what a filtered scan matches on. Showing it here would read as a device the app has.
-        XCTAssertEqual(DeviceInfoRules.name(isPaired: false, deviceName: "Dibby"), "Not paired")
+        XCTAssertEqual(DeviceInfoRules.name(isCubePaired: false, deviceName: "Dibby"), "Not paired")
     }
 
     func testAPairedDeviceShowsTheNameItIsCarrying() {
-        XCTAssertEqual(DeviceInfoRules.name(isPaired: true, deviceName: "Dibby"), "Dibby")
+        XCTAssertEqual(DeviceInfoRules.name(isCubePaired: true, deviceName: "Dibby"), "Dibby")
     }
 
     func testAPairedDeviceWithNoNameYetSaysUnknown() {
         // A real state rather than a fault: the name is read off the cube on connect and never guessed, so a pairing
         // that has not connected since has nothing to show.
-        XCTAssertEqual(DeviceInfoRules.name(isPaired: true, deviceName: nil), "Unknown")
-        XCTAssertEqual(DeviceInfoRules.name(isPaired: true, deviceName: "   "), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.name(isCubePaired: true, deviceName: nil), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.name(isCubePaired: true, deviceName: "   "), "Unknown")
     }
 
     // MARK: - the connection
@@ -33,7 +33,7 @@ final class DeviceInfoRulesTests: XCTestCase {
         // The archive's reasoning, kept: "Disconnected" is true of the cube and no answer at all to why the app is
         // plainly still recording time.
         XCTAssertEqual(
-            DeviceInfoRules.connection(isPaired: false, isConnected: false, isManualMode: true),
+            DeviceInfoRules.connection(isCubePaired: false, isCubeConnected: false, isManualMode: true),
             "Manual mode, no device"
         )
     }
@@ -43,7 +43,7 @@ final class DeviceInfoRulesTests: XCTestCase {
         // doing instead of using one. A paired cube the app is not going to use is still manual mode -- and the row
         // names the restart, because the restart is the whole of what changes it (`LaunchMode`).
         XCTAssertEqual(
-            DeviceInfoRules.connection(isPaired: true, isConnected: false, isManualMode: true),
+            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: false, isManualMode: true),
             "Paired, not used until restart"
         )
     }
@@ -53,7 +53,7 @@ final class DeviceInfoRulesTests: XCTestCase {
         // cube no longer hands it the clock. "Connected" on its own would be the more misleading half of the truth,
         // describing a link the app has and a job it is not doing with it.
         XCTAssertEqual(
-            DeviceInfoRules.connection(isPaired: true, isConnected: true, isManualMode: true),
+            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true, isManualMode: true),
             "Connected, not used until restart"
         )
     }
@@ -63,48 +63,48 @@ final class DeviceInfoRulesTests: XCTestCase {
         // having had one on record. There is nothing left to follow and the app will not start timing by hand on its
         // own, so saying "Not paired" and stopping would read exactly like the app being broken.
         XCTAssertEqual(
-            DeviceInfoRules.connection(isPaired: false, isConnected: false, isManualMode: false),
+            DeviceInfoRules.connection(isCubePaired: false, isCubeConnected: false, isManualMode: false),
             "Device gone, restart to time by hand"
         )
     }
 
     func testAPairedDeviceReportsWhetherItCanBeHeard() {
         XCTAssertEqual(
-            DeviceInfoRules.connection(isPaired: true, isConnected: true, isManualMode: false), "Connected"
+            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true, isManualMode: false), "Connected"
         )
         XCTAssertEqual(
-            DeviceInfoRules.connection(isPaired: true, isConnected: false, isManualMode: false), "Disconnected"
+            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: false, isManualMode: false), "Disconnected"
         )
     }
 
     // MARK: - the battery
 
     func testNoDeviceAtAllIsADifferentAnswerFromOneThatCannotBeHeard() {
-        XCTAssertEqual(DeviceInfoRules.battery(isPaired: false, isConnected: false, percent: nil), "Not paired")
-        XCTAssertEqual(DeviceInfoRules.battery(isPaired: true, isConnected: false, percent: nil), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: false, isCubeConnected: false, percent: nil), "Not paired")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: false, percent: nil), "Unknown")
     }
 
     func testAPercentageOnlyComesFromALiveReading() {
-        XCTAssertEqual(DeviceInfoRules.battery(isPaired: true, isConnected: true, percent: 34), "34%")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: true, percent: 34), "34%")
         // A level with no connection behind it is a number that was true at some moment nobody can name, so it is
         // not shown as though it were now. Nothing stores one today, and this is what keeps that true if anything
         // ever does.
-        XCTAssertEqual(DeviceInfoRules.battery(isPaired: true, isConnected: false, percent: 34), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.battery(isCubePaired: true, isCubeConnected: false, percent: 34), "Unknown")
     }
 
     // MARK: - the More rows, and the greying
 
     func testADetailTheCubeHasNotReportedSaysUnknown() {
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: nil), "Unknown")
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: ""), "Unknown")
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: "DI_LABS 2.0"), "DI_LABS 2.0")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: true, reported: nil), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: true, reported: ""), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: true, reported: "DI_LABS 2.0"), "DI_LABS 2.0")
     }
 
     func testAnUnpairedAppShowsNoDetailEvenWhenOneIsStored() {
         // These are stored now, so they outlive the connection that read them -- and a manufacturer reported against
         // no pairing would claim a device more strongly than the Name row above it is allowed to.
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: false, reported: "DI_LABS"), "Not paired")
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: false, reported: nil), "Not paired")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: false, reported: "DI_LABS"), "Not paired")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: false, reported: nil), "Not paired")
     }
 
     // MARK: - what comes off the wire
@@ -150,7 +150,7 @@ final class DeviceInfoRulesTests: XCTestCase {
     func testValuesAreOnlyLiveWhileSomethingCanBeHeard() {
         // What this drives is the colour: a greyed row is the difference between a value the app is standing behind
         // and a placeholder standing in for one.
-        XCTAssertTrue(DeviceInfoRules.isLive(isConnected: true))
-        XCTAssertFalse(DeviceInfoRules.isLive(isConnected: false))
+        XCTAssertTrue(DeviceInfoRules.isLive(isCubeConnected: true))
+        XCTAssertFalse(DeviceInfoRules.isLive(isCubeConnected: false))
     }
 }

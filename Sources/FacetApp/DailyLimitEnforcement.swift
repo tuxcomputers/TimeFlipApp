@@ -37,7 +37,7 @@ enum DailyLimitAction: Equatable {
 /// exception being a locked cube, which refuses the flip and reports no event). So the frame after a flip reports the
 /// cube already running and `.resume` is never needed for it. What `.resume` is actually for is a pause that
 /// *survives* -- the limit raised or cleared on the Categories tab while the cube sits paused on that same spent face,
-/// where nothing physical has happened to lift it. Only a pause this type asked for is lifted (`isPausedByLimit`) -- a
+/// where nothing physical has happened to lift it. Only a pause this type asked for is lifted (`isLimitHoldingPause`) -- a
 /// pause the user asked for is theirs, and auto-resuming it would make the Pause item a control that undoes itself.
 /// The claim is therefore dropped as soon as a frame reports the cube running with budget in hand, however it came to
 /// be running; holding it past that turned the *user's* own pause into one this type believed it had placed.
@@ -68,15 +68,15 @@ struct DailyLimitEnforcement {
     /// measured in seconds cannot drift apart in one of them.
     private static let secondsPerMinute: Double = 60
 
-    /// Whether `totalSeconds` has spent a `limitMinutes` budget. `limitMinutes <= 0` is *no limit*
+    /// Whether `totalSeconds` has spent a `dailyLimitMinutes` budget. `dailyLimitMinutes <= 0` is *no limit*
     /// (`database/007_category.sql`), so it is never reached.
     ///
     /// `>=` rather than `>`: a 60-minute limit is reached at 60:00, not at 60:01. This is the same comparison the menu
     /// bar's red duration will be drawn from, deliberately -- the colour and the pause are two faces of one fact, and a
     /// limit that turned the text red a second before it stopped the cube would be two rules with one name.
-    static func isReached(totalSeconds: TimeInterval, limitMinutes: Int) -> Bool {
-        guard limitMinutes > 0 else { return false }
-        return totalSeconds >= Double(limitMinutes) * secondsPerMinute
+    static func isLimitReached(totalSeconds: TimeInterval, dailyLimitMinutes: Int) -> Bool {
+        guard dailyLimitMinutes > 0 else { return false }
+        return totalSeconds >= Double(dailyLimitMinutes) * secondsPerMinute
     }
 
     /// How long until `totalSeconds` reaches the limit, for arming a one-shot timer on the exact second rather than
@@ -92,9 +92,9 @@ struct DailyLimitEnforcement {
     /// rather than to decide. A limit that reached its number a moment after the last repaint would wait for the next
     /// one, and enforcement hanging off a timer whose job is drawing is the kind of coupling that is fine until
     /// somebody optimises the redraw.
-    static func secondsUntilReached(totalSeconds: TimeInterval, limitMinutes: Int) -> TimeInterval? {
-        guard limitMinutes > 0 else { return nil }
-        let remaining = Double(limitMinutes) * secondsPerMinute - totalSeconds
+    static func secondsUntilReached(totalSeconds: TimeInterval, dailyLimitMinutes: Int) -> TimeInterval? {
+        guard dailyLimitMinutes > 0 else { return nil }
+        let remaining = Double(dailyLimitMinutes) * secondsPerMinute - totalSeconds
         return remaining > 0 ? remaining : nil
     }
 
@@ -105,7 +105,7 @@ struct DailyLimitEnforcement {
     /// caught -- see the type's note on why the limit is stored and not just the fact.
     private var limitWhenReached: [Int: Int] = [:]
     /// Whether the cube's current pause is one this type asked for, and so one it may lift again.
-    private(set) var isPausedByLimit = false
+    private(set) var isLimitHoldingPause = false
 
     /// Whether `categoryID` has spent its budget. **Asked at the moment it matters, not remembered from the last
     /// `evaluate`.**
@@ -123,9 +123,9 @@ struct DailyLimitEnforcement {
     /// Non-mutating, deliberately. It is asked from draw code and from click handlers, and a query that quietly latched
     /// something would make what is on screen depend on how often it was looked at. `evaluate` stays the only thing
     /// here that changes anything.
-    func isReached(
+    func isLimitReached(
         categoryID: Int?,
-        limitMinutes: Int,
+        dailyLimitMinutes: Int,
         totalSeconds: TimeInterval,
         windowStart: Date
     ) -> Bool {
@@ -134,13 +134,13 @@ struct DailyLimitEnforcement {
         // clears it; this only declines to believe it in the meantime.
         if latchedWindowStart == windowStart,
            let latchedLimit = limitWhenReached[categoryID],
-           latchedLimit == limitMinutes {
+           latchedLimit == dailyLimitMinutes {
             return true
         }
         // The fall-through `evaluate` uses once a latch is dropped for disagreeing with the limit: the old answer is
         // gone and the current number decides. Raising the limit lifts the refusal here, lowering it holds, and
         // clearing it to 0 releases -- all without waiting for a tick that may have stood down.
-        return DailyLimitEnforcement.isReached(totalSeconds: totalSeconds, limitMinutes: limitMinutes)
+        return DailyLimitEnforcement.isLimitReached(totalSeconds: totalSeconds, dailyLimitMinutes: dailyLimitMinutes)
     }
 
     /// Fold in the current state of play and say what the cube needs.
@@ -149,14 +149,14 @@ struct DailyLimitEnforcement {
     ///   - categoryID: `category_id` of the category on show, or `nil` when there is no activity to measure (the
     ///     "Idle" placeholder). A `nil` leaves every latch alone: there is no category to have spent anything, but the
     ///     ones already spent have not been given their time back.
-    ///   - limitMinutes: that category's `daily_limit`, `0` for none.
+    ///   - dailyLimitMinutes: that category's `daily_limit`, `0` for none.
     ///   - totalSeconds: what the category has tracked in this window, live segment included -- the figure the menu bar
     ///     draws (`DayTotal.seconds`), so the limit is measured against what the user is looking at.
     ///   - isPaused: whether the cube is paused *now*, as last reported by a history frame.
     ///   - windowStart: the current day window, from `DayTotal.windowStart(at:)`.
     mutating func evaluate(
         categoryID: Int?,
-        limitMinutes: Int,
+        dailyLimitMinutes: Int,
         totalSeconds: TimeInterval,
         isPaused: Bool,
         windowStart: Date
@@ -169,14 +169,14 @@ struct DailyLimitEnforcement {
         guard let categoryID else { return .none }
 
         // A limit edited since this category caught is a new question, so the old answer is dropped and the new number
-        // decides below. Clearing the limit to 0 lands here too, and then fails `isReached`, which is how "no limit"
+        // decides below. Clearing the limit to 0 lands here too, and then fails `isLimitReached`, which is how "no limit"
         // releases a category the same day.
-        if let latchedLimit = limitWhenReached[categoryID], latchedLimit != limitMinutes {
+        if let latchedLimit = limitWhenReached[categoryID], latchedLimit != dailyLimitMinutes {
             limitWhenReached[categoryID] = nil
         }
 
         let reached = limitWhenReached[categoryID] != nil
-            || DailyLimitEnforcement.isReached(totalSeconds: totalSeconds, limitMinutes: limitMinutes)
+            || DailyLimitEnforcement.isLimitReached(totalSeconds: totalSeconds, dailyLimitMinutes: dailyLimitMinutes)
 
         guard reached else {
             // Budget again on this face, and the cube already running: whatever pause this type placed is gone, so the
@@ -187,26 +187,26 @@ struct DailyLimitEnforcement {
             // frame: before this, the claim survived the firmware's resume, and Pause on a budgeted face was a control
             // that undid itself one frame later.
             guard isPaused else {
-                isPausedByLimit = false
+                isLimitHoldingPause = false
                 return .none
             }
             // Still paused with budget to spare. Only lift a pause of this type's own making; see the note above on
             // why a user's pause is not this type's to undo.
-            guard isPausedByLimit else { return .none }
-            isPausedByLimit = false
+            guard isLimitHoldingPause else { return .none }
+            isLimitHoldingPause = false
             return .resume
         }
 
-        limitWhenReached[categoryID] = limitMinutes
+        limitWhenReached[categoryID] = dailyLimitMinutes
         guard !isPaused else {
             // Already stopped, so nothing to send -- but claim the pause, which is what makes the flip away from this
             // face lift it. Two states arrive here and both want claiming: the pause this type asked for a moment ago,
             // and a cube found already paused on a spent category by a relaunch, where the flag itself did not survive
             // the quit but the cube's pause did.
-            isPausedByLimit = true
+            isLimitHoldingPause = true
             return .none
         }
-        isPausedByLimit = true
+        isLimitHoldingPause = true
         return .pause
     }
 }

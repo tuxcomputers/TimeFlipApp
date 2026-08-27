@@ -38,11 +38,11 @@ enum GoogleAccountRules {
 
         /// **Whether the row names somebody, and nothing more than that.**
         ///
-        /// This used to be called `isConnected` and was the whole of the answer, which is the fault the rest of this
+        /// This used to be called `isCubeConnected` and was the whole of the answer, which is the fault the rest of this
         /// file exists to correct: the identity is in the database and the token that makes it usable is in the
         /// Keychain, so a row can name an account perfectly while the app has no way to act as it. Measured on
         /// 2026-08-26: a complete row, an App tab reading Connected, and no Keychain item at all.
-        var hasIdentity: Bool {
+        var hasGoogleIdentity: Bool {
             name != nil || email != nil
         }
 
@@ -122,7 +122,7 @@ enum GoogleAccountRules {
         credential: Credential,
         verification: Verification = .notAsked
     ) -> State {
-        guard account.hasIdentity else { return .notConnected }
+        guard account.hasGoogleIdentity else { return .notConnected }
         switch credential {
         case .missing: return .signedOut
         case .unavailable: return .unreadable
@@ -178,9 +178,9 @@ enum GoogleAccountRules {
     /// **Off while a sign-in is running**, so a second browser window cannot be opened on top of the first, and off
     /// when this build has no credentials in it, which is a real state: the client id and secret are injected at build
     /// time and a copy built without them cannot sign in at all. Disconnecting needs neither.
-    static func isButtonEnabled(for state: State, hasCredentials: Bool, isSigningIn: Bool = false) -> Bool {
+    static func isButtonEnabled(for state: State, hasGoogleCredentials: Bool, isSigningIn: Bool = false) -> Bool {
         if isSigningIn { return false }
-        return action(for: state) == .disconnect || hasCredentials
+        return action(for: state) == .disconnect || hasGoogleCredentials
     }
 
     /// Whether the calendar row belongs on screen.
@@ -199,18 +199,18 @@ enum GoogleAccountRules {
     ///
     /// Says what pressing it will do, or what went wrong and whose problem it is. **Every state that needs an action
     /// says which**, and the two that need none say nothing.
-    static func note(for state: State, hasCredentials: Bool, verification: Verification = .notAsked) -> String? {
+    static func note(for state: State, hasGoogleCredentials: Bool, verification: Verification = .notAsked) -> String? {
         switch state {
         case .connected, .unverified:
             return nil
         case .notConnected, .signedOut:
-            guard hasCredentials else { return Self.noCredentialsNote }
+            guard hasGoogleCredentials else { return Self.noCredentialsNote }
             if state == .signedOut {
                 return "The account is remembered but its sign-in is not. Signing in again restores it."
             }
             return Self.signInNote
         case .expired:
-            guard hasCredentials else { return Self.noCredentialsNote }
+            guard hasGoogleCredentials else { return Self.noCredentialsNote }
             if case let .refused(reason) = verification, !reason.isEmpty {
                 return "Google would not accept the saved sign-in (\(reason)). Signing in again restores it."
             }

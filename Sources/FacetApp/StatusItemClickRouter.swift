@@ -27,7 +27,7 @@ enum StatusItemClick: Equatable {
 /// **The rule is the archive's, massaged** (`Archive/TimeFlipApp/MenuBarClickRouter`). Left is the menu, right acts
 /// on whatever is being timed: with a cube that is the cube, single to pause and double to lock; with the app's own
 /// clock running it is that clock, at once. What is dropped is what the archive needed extra state for -- there is no
-/// low-battery blink redirecting the left half to Settings here, and no separate `isPaired` to disagree with the
+/// low-battery blink redirecting the left half to Settings here, and no separate `isCubePaired` to disagree with the
 /// connection.
 enum StatusItemClickRouter {
     /// - Parameters:

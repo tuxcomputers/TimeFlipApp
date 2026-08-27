@@ -197,7 +197,7 @@ final class BluetoothRadio: NSObject {
     /// Bluetooth back on **forty minutes later** started a ten-second scan nobody had asked for, in an app that had
     /// been told to stop looking. Nothing connected, because the reach target was long gone, so the only trace was
     /// four rows in the log.
-    private var wantsToScan = false
+    private var isScanWanted = false
 
     /// One run at reaching a device: which one, which PINs are left to try on it, and what to leave it on.
     private struct Attempt {
@@ -265,8 +265,8 @@ final class BluetoothRadio: NSObject {
             // The same reasoning one line down, and it matters more: a face is drawn as a lit cube with a category on
             // it, so a face left behind by a dropped link is a picture of hardware claiming to be somewhere it may no
             // longer be.
-            if currentFace != nil { debugLog?.record(.face, "The face goes with the link") }
-            currentFace = nil
+            if cubeFace != nil { debugLog?.record(.face, "The face goes with the link") }
+            cubeFace = nil
             onFace?(gone, nil)
             // And the same for what it said about itself. This one is the most obviously perishable of the three: the
             // app cannot ask a cube it cannot reach, and a remembered lock would leave the dropdown offering to undo
@@ -302,7 +302,7 @@ final class BluetoothRadio: NSObject {
     /// **What the app does with a face it has never seen before is not decided here.** This is the cube's answer to
     /// "which way up am I", and nothing more: turning a flip into recorded time is `device_event`'s question and is
     /// not built.
-    private(set) var currentFace: Int?
+    private(set) var cubeFace: Int?
 
     /// What the cube last said about being locked, being paused, and its auto-pause delay -- `nil` when it has not
     /// been asked, or when there is no cube.
@@ -353,7 +353,7 @@ final class BluetoothRadio: NSObject {
     }
 
     func start(filterToTimeFlip: Bool, remembered: String?, previouslyKnown: String?) {
-        wantsToScan = true
+        isScanWanted = true
         self.isFiltering = filterToTimeFlip
         self.remembered = remembered
         self.previouslyKnown = previouslyKnown
@@ -394,7 +394,7 @@ final class BluetoothRadio: NSObject {
         // **Withdrawn ahead of the guard, not inside it.** A stop can land while the manager is still powering up, when
         // there is no scan yet to stop -- pressing Scan with the radio off and pressing it again to cancel is exactly
         // that -- and leaving the want set would have the cancelled scan start whenever Bluetooth came back.
-        wantsToScan = false
+        isScanWanted = false
         guard isScanning else { return }
         central?.stopScan()
         isScanning = false
@@ -503,9 +503,9 @@ final class BluetoothRadio: NSObject {
     private func beginScanIfReady() {
         guard let central else { return }
         // **Nobody is waiting for this any more.** Reached when the radio comes back long after the request that built
-        // the manager was abandoned -- see `wantsToScan`. Silent, because there is nothing to report about a scan that
+        // the manager was abandoned -- see `isScanWanted`. Silent, because there is nothing to report about a scan that
         // is correctly not happening.
-        guard wantsToScan else { return }
+        guard isScanWanted else { return }
         guard central.state == .poweredOn else {
             report(unavailable(for: central.state))
             return
@@ -564,7 +564,7 @@ final class BluetoothRadio: NSObject {
         debugLog?.record(.scan, "Scan unavailable: \(reason)")
         // **A reach that cannot even start is that cube being unreachable**, and saying so is what keeps the app
         // honest about it. Without this, Bluetooth being switched off at launch left `reaching` set for ever: no scan
-        // to time out, so no outcome, so `isReaching` stayed true and the reconnect loop stood down permanently --
+        // to time out, so no outcome, so `isReachingForCube` stayed true and the reconnect loop stood down permanently --
         // no retry, no offer of manual mode, and nothing on screen saying the app had stopped. The three reasons that
         // get here are all settled states (off, unauthorised, unsupported) rather than "ask again shortly", which is
         // why ending on them does not race the radio coming up.
@@ -573,7 +573,7 @@ final class BluetoothRadio: NSObject {
             // outlived the thing that made it, and the radio coming back hours later ran it. A scan somebody pressed
             // Scan for is deliberately *not* withdrawn here -- it has no `reaching` target, and picking it up when the
             // radio returns is what they asked for.
-            wantsToScan = false
+            isScanWanted = false
             endReach(because: "cannot use the radio: \(reason)")
         }
         onUnavailable?(reason)
@@ -718,10 +718,10 @@ final class BluetoothRadio: NSObject {
     private var settleThenConnect: Timer?
 
     /// Whether the radio is looking for a cube of its own accord, as opposed to for somebody watching the list.
-    var isReaching: Bool { reaching != nil || attempt != nil }
+    var isReachingForCube: Bool { reaching != nil || attempt != nil }
 
     /// Whether a reset is waiting on the cube to prove itself, which is what the tab shows instead of a connection.
-    var isResetting: Bool { resetConfirmation != nil }
+    var isFactoryResetRunning: Bool { resetConfirmation != nil }
 
     /// Puts the connected cube back to how it left the factory, and reports only once the cube has **proved** it.
     ///
@@ -1062,8 +1062,8 @@ final class BluetoothRadio: NSObject {
     /// the read taken when a link comes up naming the face already on show, which is the ordinary case for a cube
     /// nobody has touched since the last connection.
     private func received(face: Int, from id: UUID) {
-        guard face != currentFace else { return }
-        currentFace = face
+        guard face != cubeFace else { return }
+        cubeFace = face
         debugLog?.record(.face, "Face \(face) is up")
         onFace?(id, face)
     }

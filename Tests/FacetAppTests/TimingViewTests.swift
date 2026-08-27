@@ -190,7 +190,7 @@ final class TimingViewTests: XCTestCase {
         XCTAssertEqual(view.playPauseButton.accessibilityIdentifier(), TimingView.Identifier.playPause)
         XCTAssertEqual(view.elapsedLabel.accessibilityIdentifier(), TimingView.Identifier.elapsed)
         XCTAssertEqual(view.categoryNameLabel.accessibilityIdentifier(), TimingView.Identifier.categoryName)
-        XCTAssertEqual(view.deviceView.accessibilityIdentifier(), TimingView.Identifier.deviceFace)
+        XCTAssertEqual(view.deviceView.accessibilityIdentifier(), TimingView.Identifier.cubeFace)
         XCTAssertEqual(view.centreIconView.accessibilityIdentifier(), TimingView.Identifier.centreIcon)
     }
 

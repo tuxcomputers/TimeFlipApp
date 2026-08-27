@@ -18,7 +18,7 @@ final class ForcedPauseWatchTests: XCTestCase {
         var facesWithCategory: Set<Int> = []
         var isPaused: Bool? = false
         var isLocked: Bool? = false
-        var isConnected = true
+        var isCubeConnected = true
         var limitIsHolding = false
 
         /// Every `setPause` the watch asked for, in order.
@@ -41,11 +41,11 @@ final class ForcedPauseWatchTests: XCTestCase {
 
         func make() -> ForcedPauseWatch {
             ForcedPauseWatch(
-                openFace: { self.face },
+                cubeFace: { self.face },
                 hasCategory: { self.facesWithCategory.contains($0) },
                 isPaused: { self.isPaused },
                 isLocked: { self.isLocked },
-                isConnected: { self.isConnected },
+                isCubeConnected: { self.isCubeConnected },
                 limitIsHolding: { self.limitIsHolding },
                 setPause: { wanted, then in
                     guard self.accepts else { return false }

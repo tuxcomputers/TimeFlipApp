@@ -238,27 +238,27 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
     func testAFollowedCubeIsReachable() {
         // The other side of the pair, so the flag cannot quietly default the wrong way and refuse every click.
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
-        XCTAssertTrue(readout.read(at: noon).isDeviceReachable)
+        XCTAssertTrue(readout.read(at: noon).isCubeConnected)
     }
 
     func testAManualReadingHasNothingToReach() {
         // No face, so nothing to reach and nothing for the flag to be about.
         startTiming(1, at: noon)
 
-        XCTAssertFalse(readout.read(at: noon).isDeviceReachable)
+        XCTAssertFalse(readout.read(at: noon).isCubeConnected)
     }
 
     func testACubesFaceIsWhatTheReadingIsAbout() {
         // **The single answer the menu bar and the Faces tab both draw from.** They asked separately once, and a
         // launch with a cube connected then drew the face's category on the tab and the app's name in the menu bar.
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         let reading = readout.read()
 
-        XCTAssertEqual(reading.deviceFace, 5)
+        XCTAssertEqual(reading.cubeFace, 5)
         XCTAssertEqual(reading.category?.id, 2)
     }
 
@@ -269,7 +269,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(readout.read(at: noon).category?.id, 1, "precondition: timing by hand")
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
 
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertEqual(readout.read(at: noon).category?.id, 2)
     }
@@ -281,19 +281,19 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         startTiming(1, at: noon)
         var face: Int? = 5
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
-        readout.deviceFace = { face }
+        readout.cubeFace = { face }
         XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition: following the cube")
 
         face = nil
 
         XCTAssertEqual(readout.read(at: noon).category?.id, 1)
-        XCTAssertNil(readout.read(at: noon).deviceFace)
+        XCTAssertNil(readout.read(at: noon).cubeFace)
     }
 
     // MARK: - a paired cube that has gone quiet
 
     func testAPairedCubeGoingAwayDoesNotBecomeAManualSession() {
-        // **The bug this exists for.** A link drops, `deviceFace` goes with it, and the reading fell through to the
+        // **The bug this exists for.** A link drops, `cubeFace` goes with it, and the reading fell through to the
         // app's own faces -- so the menu bar drew a category on face 13 that nobody had picked, ticking, while the
         // Device tab said the cube was unreachable and the launch was not a manual one throughout. Two pictures of one
         // question. The archive kept them apart with a `reconnecting` case, "so the menu bar keeps showing the last
@@ -306,7 +306,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         _ = events.record(
             DeviceEventSegment(eventNumber: 7, face: 5, startedAt: noon, durationSeconds: 30, isPaused: false)
         )
-        readout.deviceFace = { face }
+        readout.cubeFace = { face }
         readout.isCubePaired = { true }
         XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition: following the cube")
 
@@ -314,12 +314,12 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
 
         // Still the cube's face and the cube's category, out of its own record, rather than the manual one.
         let reading = readout.read(at: noon)
-        XCTAssertEqual(reading.deviceFace, 5)
+        XCTAssertEqual(reading.cubeFace, 5)
         XCTAssertEqual(reading.category?.id, 2)
         XCTAssertNotEqual(reading.category?.id, 1, "the app's own session must not take the picture over")
         // **Drawn is not reachable.** The face is worth showing and the cube is not there to be sent anything, which
         // is what keeps a click refused rather than assigning a category to a device nobody can hear.
-        XCTAssertFalse(reading.isDeviceReachable)
+        XCTAssertFalse(reading.isCubeConnected)
     }
 
     func testACubeOutOfRangeGoesOnCounting() {
@@ -331,12 +331,12 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
         readout.isCubePaired = { true }
-        readout.deviceFace = { nil }
+        readout.cubeFace = { nil }
 
         let reading = readout.read(at: noon)
 
         XCTAssertTrue(reading.isCounting)
-        XCTAssertFalse(reading.isDeviceReachable, "counting, and still nothing anybody may send a command to")
+        XCTAssertFalse(reading.isCubeConnected, "counting, and still nothing anybody may send a command to")
         XCTAssertEqual(reading.seconds, 60)
     }
 
@@ -345,7 +345,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-60))
         readout.isCubePaired = { true }
-        readout.deviceFace = { nil }
+        readout.cubeFace = { nil }
 
         XCTAssertFalse(readout.read(at: noon).isCounting)
     }
@@ -354,11 +354,11 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // A cube on record that has never reported a face this launch. There is nothing of its to show, and the app's
         // own faces are not its stand-in: the item falls back to the app's name rather than to a session.
         readout.isCubePaired = { true }
-        readout.deviceFace = { nil }
+        readout.cubeFace = { nil }
 
         let reading = readout.read(at: noon)
 
-        XCTAssertNil(reading.deviceFace)
+        XCTAssertNil(reading.cubeFace)
         XCTAssertNil(reading.category)
         XCTAssertEqual(reading.state, .idle)
     }
@@ -370,17 +370,17 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         startTiming(1, at: noon)
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
         readout.isCubePaired = { true }
-        readout.isTimingByHand = { true }
+        readout.isManualMode = { true }
 
         XCTAssertEqual(readout.read(at: noon).category?.id, 1)
-        XCTAssertNil(readout.read(at: noon).deviceFace)
+        XCTAssertNil(readout.read(at: noon).cubeFace)
     }
 
     func testACubesReadingIsNeverRunning() {
         // The app does not read the cube's history, so there is no segment of its own to call running -- whatever the
         // cube is doing, this app is not the thing measuring it.
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertEqual(readout.read(at: noon).state, .idle)
     }
@@ -391,7 +391,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // all, and the figure they drew was repainted only when a history fetch happened to redraw them. It was
         // growing on every read the whole time.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
 
         let reading = readout.read(at: noon)
@@ -405,7 +405,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // rather than in the steps a history fetch would leave. What the cube itself measured lands in
         // `duration_seconds` on the next fetch and is not what either surface draws in between.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
 
         XCTAssertEqual(readout.read(at: noon).seconds, 60)
@@ -416,7 +416,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // Nothing is being recorded, so there is nothing for a tick to keep up with -- and a figure counting up
         // beside a paused cube would be the app inventing time the cube says was not spent.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-60))
 
         XCTAssertFalse(readout.read(at: noon).isCounting)
@@ -426,7 +426,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // Connected, on a face, and no history fetched: there is no open row behind the figure, so the figure is
         // standing still and saying otherwise would start a tick over nothing.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertFalse(readout.read(at: noon).isCounting)
     }
@@ -448,7 +448,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         startTiming(meetingID, at: noon.addingTimeInterval(-600))
         events.closeOpenSegment(at: noon.addingTimeInterval(-300))
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertEqual(readout.read(at: noon).seconds, 300)
     }
@@ -457,13 +457,13 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // Which is what every cube face reads today, the cube's own history not being ingested. It is a true answer,
         // not a missing one.
         XCTAssertTrue(faces.assign(categoryID: breakID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertEqual(readout.read(at: noon).seconds, 0)
     }
 
     func testAnUnassignedCubeFaceHasNothingToTotal() {
-        readout.deviceFace = { 1 }
+        readout.cubeFace = { 1 }
 
         XCTAssertEqual(readout.read(at: noon).seconds, 0)
     }
@@ -476,20 +476,20 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 6))
 
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         let first = readout.read(at: noon).seconds
-        readout.deviceFace = { 6 }
+        readout.cubeFace = { 6 }
 
         XCTAssertEqual(readout.read(at: noon).seconds, first)
     }
 
     func testAnUnassignedFaceReadsAsACubeWithNothingOnIt() {
         // Face 1 is seeded Unassigned. Still a cube, still a face -- there is simply no category to name.
-        readout.deviceFace = { 1 }
+        readout.cubeFace = { 1 }
 
         let reading = readout.read(at: noon)
 
-        XCTAssertEqual(reading.deviceFace, 1)
+        XCTAssertEqual(reading.cubeFace, 1)
         XCTAssertNil(reading.category)
     }
 
@@ -500,13 +500,13 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // must not then appear in the menu bar and on the Faces tab, and must not take the click with it.
         startTiming(breakID, at: noon.addingTimeInterval(-300))
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         XCTAssertEqual(readout.read(at: noon).category?.id, meetingID, "precondition: following the cube")
 
-        readout.isTimingByHand = { true }
+        readout.isManualMode = { true }
 
         let reading = readout.read(at: noon)
-        XCTAssertNil(reading.deviceFace)
+        XCTAssertNil(reading.cubeFace)
         XCTAssertEqual(reading.category?.id, breakID, "what the app is timing by hand")
         XCTAssertEqual(reading.state, .running, "and its clock, which the cube reading has none of")
     }
@@ -516,19 +516,19 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // has to reach the reading with nothing being told, which is only true if the question is asked every time.
         var byHand = true
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
-        readout.isTimingByHand = { byHand }
-        XCTAssertNil(readout.read(at: noon).deviceFace, "precondition")
+        readout.cubeFace = { 5 }
+        readout.isManualMode = { byHand }
+        XCTAssertNil(readout.read(at: noon).cubeFace, "precondition")
 
         byHand = false
 
-        XCTAssertEqual(readout.read(at: noon).deviceFace, 5)
+        XCTAssertEqual(readout.read(at: noon).cubeFace, 5)
     }
 
     func testTimingByHandWithNoCubeIsTheOrdinaryReading() {
         // The commonest case of all -- nothing ever paired -- and it must be untouched by the gate.
         startTiming(meetingID, at: noon.addingTimeInterval(-60))
-        readout.isTimingByHand = { true }
+        readout.isManualMode = { true }
 
         XCTAssertEqual(readout.read(at: noon).category?.id, meetingID)
         XCTAssertEqual(readout.read(at: noon).state, .running)
@@ -551,7 +551,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // Every history frame carries the pause in its face byte, so the interval the cube reported is the answer --
         // no status read, and nothing to go stale between one fetch and the next.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, false, "precondition")
 
@@ -565,7 +565,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // Nothing fetched and the cube not asked, so there is nothing to read a pause off at all. Drawn as no glyph
         // rather than as running, which would be a claim about hardware on no evidence.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertNil(readout.read(at: noon).deviceIsPaused)
     }
@@ -574,7 +574,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // **The first seconds of a launch.** The app asks the cube how it is well before the first history fetch
         // lands, so without this the glyph is missing for exactly the moment somebody is watching the app start.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         readout.cubeSaysPaused = { true }
 
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
@@ -585,7 +585,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // and a locked cube reports itself paused whatever its pause byte says. So the row takes over the moment
         // there is one, and goes on winning.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         readout.cubeSaysPaused = { true }
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true, "precondition: nothing but the cube's answer yet")
 
@@ -599,7 +599,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // Matching on the face is what keeps one from answering for the other.
         startTiming(breakID, at: noon.addingTimeInterval(-300))
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertNil(readout.read(at: noon).deviceIsPaused)
     }
@@ -612,7 +612,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-120))
         startTiming(breakID, at: noon.addingTimeInterval(-60))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
 
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
     }
@@ -624,15 +624,15 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-120))
         readout.isCubePaired = { true }
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true, "precondition: paused while connected")
 
-        readout.deviceFace = { nil }
+        readout.cubeFace = { nil }
 
         let reading = readout.read(at: noon)
-        XCTAssertEqual(reading.deviceFace, 5, "still the cube's face")
+        XCTAssertEqual(reading.cubeFace, 5, "still the cube's face")
         XCTAssertEqual(reading.deviceIsPaused, true, "and still the cube's pause")
-        XCTAssertFalse(reading.isDeviceReachable, "but not a cube anything may be sent to")
+        XCTAssertFalse(reading.isCubeConnected, "but not a cube anything may be sent to")
     }
 
     func testAManualReadingCarriesNoDeviceState() {
@@ -647,7 +647,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // A paused cube is still an idle *app*: nothing here is being measured by this process, so the status item's
         // tick must not start and the reading must not read as a session somebody could pause.
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
 
         let reading = readout.read(at: noon)
@@ -656,7 +656,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
     }
 
     func testAReassignedFaceShowsUpOnTheNextRead() {
-        readout.deviceFace = { 5 }
+        readout.cubeFace = { 5 }
         XCTAssertTrue(faces.assign(categoryID: 2, toFace: 5))
         XCTAssertEqual(readout.read(at: noon).category?.id, 2, "precondition")
 

@@ -198,29 +198,29 @@ final class HistoryTimerTests: XCTestCase, @unchecked Sendable {
         // With a cube paired, not asking for history means not recording time. A malformed row is a worse
         // reason to stop than to use the value the schema seeds.
         XCTAssertEqual(
-            HistoryTimer.interval(fromSeconds: nil, isDeveloperBuild: true),
+            HistoryTimer.interval(fromSeconds: nil, isDeveloperMode: true),
             TimeInterval(HistoryTimer.defaultSeconds)
         )
         XCTAssertEqual(
-            HistoryTimer.interval(fromSeconds: nil, isDeveloperBuild: false),
+            HistoryTimer.interval(fromSeconds: nil, isDeveloperMode: false),
             TimeInterval(HistoryTimer.productionMinimumSeconds),
             "the seeded default is a developer's value, so a shipped build floors it"
         )
     }
 
     func testAShippedBuildFloorsSubMinutePolling() {
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 10, isDeveloperBuild: false), 60)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 10, isDeveloperBuild: true), 10)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 10, isDeveloperMode: false), 60)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 10, isDeveloperMode: true), 10)
     }
 
     func testZeroCannotSpinTheTimer() {
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 0, isDeveloperBuild: true), 1)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: -30, isDeveloperBuild: true), 1)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 0, isDeveloperBuild: false), 60)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 0, isDeveloperMode: true), 1)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: -30, isDeveloperMode: true), 1)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 0, isDeveloperMode: false), 60)
     }
 
     func testAnHourIsTheFarEnd() {
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 86_400, isDeveloperBuild: true), 3_600)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 3_600, isDeveloperBuild: false), 3_600)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 86_400, isDeveloperMode: true), 3_600)
+        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 3_600, isDeveloperMode: false), 3_600)
     }
 }

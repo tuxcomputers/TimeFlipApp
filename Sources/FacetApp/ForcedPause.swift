@@ -76,7 +76,7 @@ struct ForcedPause {
 
     /// Whether the pause on the cube right now is one this type placed. What the menu bar would ask to say *why* the
     /// cube is stopped, and what a test asserts instead of reaching inside.
-    var isHoldingAPause: Bool { stoppedOnFace != nil }
+    var isLimitHoldingPause: Bool { stoppedOnFace != nil }
 
     /// One decision.
     ///
@@ -88,20 +88,20 @@ struct ForcedPause {
     ///   - isPaused: whether the cube is stopped, from the open `device_event` row -- the cube's own account.
     ///   - isLocked: whether the cube is locked, from `BluetoothRadio.cubeStatus`. `nil` is "nobody has asked yet",
     ///     which is treated as locked: nothing is sent on a guess about the one state that makes the pause byte lie.
-    ///   - isConnected: whether there is a link to send anything down.
+    ///   - isCubeConnected: whether there is a link to send anything down.
     ///   - limitIsHolding: whether `DailyLimitEnforcement` is holding a pause of its own.
     mutating func evaluate(
         face: Int?,
         hasCategory: Bool,
         isPaused: Bool,
         isLocked: Bool?,
-        isConnected: Bool,
+        isCubeConnected: Bool,
         limitIsHolding: Bool
     ) -> ForcedPauseAction {
         // **A pause the app cannot see is not one it holds.** The link going down says nothing about what the cube is
         // doing, and a claim carried across a reconnect would be a claim about a cube that may have been double
         // tapped, had its batteries out, or been driven by the vendor's app in the meantime.
-        guard isConnected else {
+        guard isCubeConnected else {
             stoppedOnFace = nil
             return .none
         }

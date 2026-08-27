@@ -69,17 +69,17 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
         // `database/011_setting.sql` seeds `{"percent":10}`, so 10 is low and 11 is not. Read from the table rather
         // than from a constant here, which is the point of the test.
         report(11)
-        XCTAssertFalse(watch.alert.isLow)
+        XCTAssertFalse(watch.alert.isBatteryLow)
 
         report(10)
-        XCTAssertTrue(watch.alert.isLow)
+        XCTAssertTrue(watch.alert.isBatteryLow)
     }
 
     func testTheWarningFlashesFromTheMomentItArms() {
         // On its coloured phase to begin with, so it arrives as a colour rather than as half a second of nothing.
         report(5)
 
-        XCTAssertTrue(watch.alert.isLow)
+        XCTAssertTrue(watch.alert.isBatteryLow)
         XCTAssertTrue(watch.alert.isBlinkOn)
         XCTAssertEqual(changes, 1, "the surfaces that draw the warning were not told about it")
     }
@@ -90,7 +90,7 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
 
         for percent in [11, 10, 11, 12, 11] { report(percent) }
 
-        XCTAssertTrue(watch.alert.isLow)
+        XCTAssertTrue(watch.alert.isBatteryLow)
         XCTAssertEqual(changes, armed, "the warning was redrawn while nothing about it had changed")
     }
 
@@ -98,7 +98,7 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
         report(10)
 
         report(15)
-        XCTAssertTrue(watch.alert.isLow, "15 is inside the recovery margin, so the warning still stands")
+        XCTAssertTrue(watch.alert.isBatteryLow, "15 is inside the recovery margin, so the warning still stands")
 
         report(16)
         XCTAssertEqual(watch.alert, .none)
@@ -111,7 +111,7 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
 
         report(nil)
 
-        XCTAssertTrue(watch.alert.isLow, "a link that has gone is not evidence that the cells recovered")
+        XCTAssertTrue(watch.alert.isBatteryLow, "a link that has gone is not evidence that the cells recovered")
         XCTAssertFalse(watch.alert.isBlinkOn, "there is nothing on screen to flash about with no reading behind it")
     }
 
@@ -121,7 +121,7 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
 
         report(4)
 
-        XCTAssertTrue(watch.alert.isLow)
+        XCTAssertTrue(watch.alert.isBatteryLow)
         XCTAssertTrue(watch.alert.isBlinkOn)
     }
 
@@ -131,17 +131,17 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
         // The case a reading-driven watch misses: a cube sitting steady at 15 reports nothing for as long as it stays
         // there, so without this the control would appear to do nothing at all.
         report(15)
-        XCTAssertFalse(watch.alert.isLow)
+        XCTAssertFalse(watch.alert.isBatteryLow)
 
         XCTAssertTrue(settings.write("low_battery_level", field: "percent", 20))
         watch.reconsider(because: "the warning level changed")
 
-        XCTAssertTrue(watch.alert.isLow)
+        XCTAssertTrue(watch.alert.isBatteryLow)
     }
 
     func testLoweringTheWarningLevelLetsGoOfIt() {
         report(10)
-        XCTAssertTrue(watch.alert.isLow)
+        XCTAssertTrue(watch.alert.isBatteryLow)
 
         // Low at 10, and not low at all once the level somebody cares about is 4: the charge has to clear the *new*
         // threshold plus its margin, which 10 does.
@@ -168,6 +168,6 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
         wait(for: [flipped], timeout: 2)
 
         XCTAssertFalse(watch.alert.isBlinkOn, "the first change of phase should be the colour going off")
-        XCTAssertTrue(watch.alert.isLow, "the warning itself does not blink, only its colour does")
+        XCTAssertTrue(watch.alert.isBatteryLow, "the warning itself does not blink, only its colour does")
     }
 }

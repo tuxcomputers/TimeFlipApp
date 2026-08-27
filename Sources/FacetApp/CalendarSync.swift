@@ -40,15 +40,15 @@ final class CalendarSync {
     }
 
     /// A pass is running.
-    private var isSweeping = false
+    private var isCalendarSweeping = false
     /// Somebody asked for a sweep while one was running, so go round again when it finishes rather than dropping the
     /// request. Two flips in quick succession must not leave the second one's entry sitting until a third.
-    private var wantsAnotherPass = false
+    private var isAnotherSweepWanted = false
     /// "Nothing is connected" is reported once per launch, not once per flip. Somebody who never signs in would
     /// otherwise get a line in the log every time they turn the cube, which buries everything else -- and the same
     /// silence would leave "why is nothing syncing?" with no answer at all. Cleared when a sweep gets going, so it
     /// says so again if the connection later goes away.
-    private var hasReportedNothingToSyncInto = false
+    private var hasReportedMissingCalendar = false
 
     /// Asks for a sweep. Returns immediately: the work is a task, and the caller is on the path that just recorded an
     /// entry.
@@ -56,23 +56,23 @@ final class CalendarSync {
     /// Safe to call as often as anything likes. A second call while a pass is running sets a flag rather than starting
     /// a second pass, so two sweeps cannot be sending the same entry at the same time.
     func sweep(because reason: String) {
-        guard !isSweeping else {
-            wantsAnotherPass = true
+        guard !isCalendarSweeping else {
+            isAnotherSweepWanted = true
             return
         }
-        isSweeping = true
+        isCalendarSweeping = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             var again = true
             while again {
-                self.wantsAnotherPass = false
+                self.isAnotherSweepWanted = false
                 let outcome = await self.pass(because: reason)
                 // A full batch means there is more waiting, so keep going rather than leaving the rest until the next
                 // flip. A failed pass stops: whatever refused the first entry will refuse the rest, and spinning on it
                 // would be a request per unsynced row against a quota, achieving nothing.
-                again = self.wantsAnotherPass || outcome == .moreWaiting
+                again = self.isAnotherSweepWanted || outcome == .moreWaiting
             }
-            self.isSweeping = false
+            self.isCalendarSweeping = false
         }
     }
 
@@ -110,7 +110,7 @@ final class CalendarSync {
             return .stopped
         }
 
-        hasReportedNothingToSyncInto = false
+        hasReportedMissingCalendar = false
         debugLog?.record(.sync, "Calendar sync started (\(reason)), \(pending.count) waiting")
 
         var synced = 0
@@ -223,8 +223,8 @@ final class CalendarSync {
     }
 
     private func reportNothingToSyncInto(_ reason: String, waiting: Int) {
-        guard !hasReportedNothingToSyncInto else { return }
-        hasReportedNothingToSyncInto = true
+        guard !hasReportedMissingCalendar else { return }
+        hasReportedMissingCalendar = true
         debugLog?.record(.sync, "\(waiting) entr\(waiting == 1 ? "y" : "ies") waiting to sync, but \(reason)")
     }
 

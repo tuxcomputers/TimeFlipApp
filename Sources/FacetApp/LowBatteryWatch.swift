@@ -2,18 +2,18 @@ import Foundation
 
 /// What the two surfaces that warn about a flat cube are drawing at this instant.
 ///
-/// Two facts rather than one, because they answer different questions: `isLow` is whether the warning stands, and
+/// Two facts rather than one, because they answer different questions: `isBatteryLow` is whether the warning stands, and
 /// `isBlinkOn` is which half of the flash is currently up. A screen reader wants the first and a colour wants the
 /// second.
 struct LowBatteryAlert: Equatable {
     /// Whether the level has dropped to the warning level and not yet climbed back out of it.
-    let isLow: Bool
+    let isBatteryLow: Bool
 
-    /// Whether the blink is on its coloured phase. Never true unless `isLow` is.
+    /// Whether the blink is on its coloured phase. Never true unless `isBatteryLow` is.
     let isBlinkOn: Bool
 
     /// Nothing to warn about: no cube, or a cube with charge in it.
-    static let none = LowBatteryAlert(isLow: false, isBlinkOn: false)
+    static let none = LowBatteryAlert(isBatteryLow: false, isBlinkOn: false)
 }
 
 /// The low-battery warning: whether it stands, and the flash that carries it.
@@ -54,12 +54,12 @@ final class LowBatteryWatch {
     /// it is up. Whoever draws asks for `alert` when it fires.
     var onChanged: (@MainActor () -> Void)?
 
-    private var isLow = false
+    private var isBatteryLow = false
     private var isBlinkOn = false
     private var blink: Timer?
 
     /// What to draw, now.
-    var alert: LowBatteryAlert { LowBatteryAlert(isLow: isLow, isBlinkOn: isBlinkOn) }
+    var alert: LowBatteryAlert { LowBatteryAlert(isBatteryLow: isBatteryLow, isBlinkOn: isBlinkOn) }
 
     init(level: @escaping @MainActor () -> Int?, settings: SettingStore?, debugLog: DebugLog?) {
         self.level = level
@@ -81,12 +81,12 @@ final class LowBatteryWatch {
         // guess what absence means, so the fallback is the seed the DDL itself writes.
         let threshold = settings?.integer("low_battery_level", field: "percent")
             ?? AppSettingsRules.defaultBatteryWarningPercent
-        isLow = BatteryRules.latched(isLow, level: level, threshold: threshold)
+        isBatteryLow = BatteryRules.latched(isBatteryLow, level: level, threshold: threshold)
 
-        if isLow != before.isLow {
+        if isBatteryLow != before.isBatteryLow {
             debugLog?.record(
                 .battery,
-                isLow
+                isBatteryLow
                     ? "Low battery: \(level.map(String.init) ?? "?")% at or below \(threshold)%,"
                         + " clearing above \(threshold + BatteryRules.recoveryMargin)% (\(reason))"
                     : "Battery recovered: \(level.map(String.init) ?? "?")% is above"
@@ -98,7 +98,7 @@ final class LowBatteryWatch {
         // the Battery row reads "Unknown", and a menu bar blinking about a cube nobody can hear from is a warning
         // about a charge the app cannot confirm. The latch survives, so a cube that comes back still flat is still
         // flat rather than newly discovered.
-        if isLow, level != nil {
+        if isBatteryLow, level != nil {
             startBlinking()
         } else {
             stopBlinking()

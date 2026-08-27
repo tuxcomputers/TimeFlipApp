@@ -32,7 +32,7 @@ enum ManualFace {
     /// wall-clock figure written over that is this app overwriting a measurement with a guess. Asked in the two
     /// places that would do it -- `DeviceEventRecorder.closeOpenSegment` and `refreshOpenSegment` -- rather than
     /// left to each caller to remember.
-    static func isTheApps(_ face: Int) -> Bool {
+    static func isAppFace(_ face: Int) -> Bool {
         face > highestDeviceFace
     }
 

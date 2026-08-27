@@ -138,11 +138,11 @@ let timingReadout = TimingReadout(
 // thing**: both draw from one reading, and this is the question that decides which of the two pictures that reading
 // describes. Set here rather than passed in because the readout is built alongside the tables and the radio is not one.
 //
-timingReadout.deviceFace = { radio.currentFace }
+timingReadout.cubeFace = { radio.cubeFace }
 // **Timing by hand means the cube is not asked about at all**, which is the other half of the reconnect loop standing
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
-// `TimingReadout.isTimingByHand`; that it is asked rather than copied is the same reason everything else here is.
-timingReadout.isTimingByHand = { launchMode.isManual }
+// `TimingReadout.isManualMode`; that it is asked rather than copied is the same reason everything else here is.
+timingReadout.isManualMode = { launchMode.isManual }
 // **Read from the table at the moment a reading is taken**, like every other answer here. It is what tells a cube
 // that has gone quiet from no cube at all: without it a dropped link fell through to the app's own faces and drew a
 // manual session nobody had started.
@@ -192,7 +192,7 @@ quitSequence.letGoOfTheDevice = { settingsWindow.letGoOfTheDevice() }
 // arbitrary.
 let cubeLock = CubeLock(
     settings: settings,
-    isConnected: { radio.connectedDevice != nil },
+    isCubeConnected: { radio.connectedDevice != nil },
     send: { command, reported in radio.send(command, reported) },
     // The cube's own account of what it is doing, out of `device_event` by way of the readout -- the same answer the
     // menu bar and the Faces tab draw their play/pause glyph from, so the click flips what is on show rather than
@@ -219,7 +219,7 @@ let reconnector = DeviceReconnector(
     rotatingTo: DeveloperMode.devicePIN,
     // Asked rather than told, so there is one answer to "is this launch timing by hand" rather than a copy beside it.
     // It cannot move under the loop any more (`LaunchMode`), which makes asking safe as well as right.
-    isTimingByHand: { launchMode.isManual }
+    isManualMode: { launchMode.isManual }
 )
 // What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
 // menu bar that says nothing.
@@ -309,7 +309,7 @@ let dailyLimit = DailyLimitWatch(
     // `docs/timeflip2-firmware-observations.md`): a pause files a new history event on the cube and the cube
     // announces nothing, so without asking, the open segment would go on reporting the old state.
     stopTiming: {
-        guard let open = deviceEvents.openSegment(), !ManualFace.isTheApps(open.face) else {
+        guard let open = deviceEvents.openSegment(), !ManualFace.isAppFace(open.face) else {
             settingsWindow.togglePause()
             return
         }
@@ -319,11 +319,11 @@ let dailyLimit = DailyLimitWatch(
     }
 )
 // Asked rather than pushed, so the refusal and the greying cannot be working from different copies of one answer.
-settingsWindow.isLimitReached = { dailyLimit.isReached }
+settingsWindow.isLimitReached = { dailyLimit.isLimitReached }
 // **The fourth path that could send a resume, and the one that was not refusing.** Unlocking resumes the cube, so a
 // double click on the status item's right half was a way round a spent limit: lock, unlock, and the budget is
 // spendable again until the watch notices. `CubeLock.resume` now unlocks and leaves it stopped.
-cubeLock.isLimitReached = { dailyLimit.isReached }
+cubeLock.isLimitReached = { dailyLimit.isLimitReached }
 
 // Stops the cube when it is resting on a face with no category, and starts it again when that face is given one.
 //
@@ -334,16 +334,16 @@ cubeLock.isLimitReached = { dailyLimit.isReached }
 // **After the daily limit deliberately**, because the two decide the same cube's pause state and a hard limit has to
 // win: `limitIsHolding` is what stands this down while the limit has one of its own.
 let forcedPause = ForcedPauseWatch(
-    // The cube's own open row and nothing else. `ManualFace.isTheApps` filters 13 and 14 out here rather than in the
+    // The cube's own open row and nothing else. `ManualFace.isAppFace` filters 13 and 14 out here rather than in the
     // decision, so what the decision is handed is only ever a face a cube reported.
-    openFace: { deviceEvents.openSegment().map(\.face).flatMap { ManualFace.isTheApps($0) ? nil : $0 } },
+    cubeFace: { deviceEvents.openSegment().map(\.face).flatMap { ManualFace.isAppFace($0) ? nil : $0 } },
     hasCategory: { faces.categoryID(forFace: $0) != nil },
     // **The same three sources `CubeLock` reads**, deliberately: the thing deciding to send a pause and the thing
     // sending it must not be working from different answers about whether the cube is stopped, locked or reachable.
     isPaused: { timingReadout.read().deviceIsPaused },
     isLocked: { radio.cubeStatus?.isLocked },
-    isConnected: { radio.connectedDevice != nil },
-    limitIsHolding: { dailyLimit.isHoldingAPause },
+    isCubeConnected: { radio.connectedDevice != nil },
+    limitIsHolding: { dailyLimit.isLimitHoldingPause },
     setPause: { wanted, then in cubeLock.setPause(wanted, then: then) },
     refreshHistory: { reason, done in historyIngestor.refresh(because: reason) { _ in done() } },
     debugLog: debugLog
@@ -385,7 +385,7 @@ let menuBar = MenuBarController(
     togglePause: { settingsWindow.togglePause() },
     // Greys the dropdown's Resume and turns the item's right half into a no-op. `togglePause` refuses as well,
     // which is the enforcement; these two are what stop it looking like a control that is simply broken.
-    isLimitReached: { dailyLimit.isReached },
+    isLimitReached: { dailyLimit.isLimitReached },
     // Asked as the item is drawn, like everything else it shows. What makes it draw twice a second while a warning
     // is up is the watch itself, below.
     lowBattery: { lowBattery.alert },
@@ -394,7 +394,7 @@ let menuBar = MenuBarController(
     // has asked yet rather than guessing the other way.
     cube: {
         MenuBarController.CubeReading(
-            isConnected: radio.connectedDevice != nil,
+            isCubeConnected: radio.connectedDevice != nil,
             isLocked: radio.cubeStatus?.isLocked,
             isPaused: radio.cubeStatus?.isPaused
         )

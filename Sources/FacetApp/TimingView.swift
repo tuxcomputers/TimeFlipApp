@@ -20,7 +20,7 @@ final class TimingView: NSView {
         static let playPause = "timing-play-pause"
         static let elapsed = "timing-elapsed"
         static let categoryName = "timing-category-name"
-        static let deviceFace = "timing-device-face"
+        static let cubeFace = "timing-device-face"
         static let centreIcon = "timing-centre-icon"
         static let faceLock = "timing-face-lock"
         /// The figure under the name while a cube is being followed. A different element from `elapsed`, because it is
@@ -518,8 +518,8 @@ final class TimingView: NSView {
         lockButton.identifier = NSUserInterfaceItemIdentifier(Identifier.faceLock)
         lockButton.setAccessibilityIdentifier(Identifier.faceLock)
 
-        deviceView.identifier = NSUserInterfaceItemIdentifier(Identifier.deviceFace)
-        deviceView.setAccessibilityIdentifier(Identifier.deviceFace)
+        deviceView.identifier = NSUserInterfaceItemIdentifier(Identifier.cubeFace)
+        deviceView.setAccessibilityIdentifier(Identifier.cubeFace)
         centreIconView.identifier = NSUserInterfaceItemIdentifier(Identifier.centreIcon)
         centreIconView.setAccessibilityIdentifier(Identifier.centreIcon)
 

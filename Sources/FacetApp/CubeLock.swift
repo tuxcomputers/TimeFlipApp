@@ -21,7 +21,7 @@ final class CubeLock {
     private let send: (Data, @escaping (Bool) -> Void) -> Void
 
     /// Whether there is a live link to send anything down.
-    private let isConnected: () -> Bool
+    private let isCubeConnected: () -> Bool
 
     /// Whether the cube is counting or stopped, **read from `device_event` at the moment it is needed**.
     ///
@@ -68,14 +68,14 @@ final class CubeLock {
 
     init(
         settings: SettingStore?,
-        isConnected: @escaping () -> Bool,
+        isCubeConnected: @escaping () -> Bool,
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
         isPaused: @escaping () -> Bool? = { nil },
         isLocked: @escaping () -> Bool? = { nil },
         debugLog: DebugLog?
     ) {
         self.settings = settings
-        self.isConnected = isConnected
+        self.isCubeConnected = isCubeConnected
         self.send = send
         self.isPaused = isPaused
         self.isLocked = isLocked
@@ -120,7 +120,7 @@ final class CubeLock {
     /// Returns whether anything was sent. `false` means `finished` will not be called.
     @discardableResult
     func setPause(_ wanted: Bool, then finished: @escaping (Bool) -> Void) -> Bool {
-        guard isConnected() else {
+        guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or resume")
             return false
         }
@@ -167,7 +167,7 @@ final class CubeLock {
     /// for, which is what lets the quit answer `.terminateNow` from the same fact rather than a second opinion.
     @discardableResult
     func lock(then finished: @escaping (Bool) -> Void) -> Bool {
-        guard isConnected() else {
+        guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or lock")
             return false
         }
@@ -213,7 +213,7 @@ final class CubeLock {
     /// otherwise not get it out of.
     @discardableResult
     func resume(then finished: @escaping (Bool) -> Void) -> Bool {
-        guard isConnected() else {
+        guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to unlock")
             return false
         }

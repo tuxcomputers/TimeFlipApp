@@ -53,7 +53,7 @@ final class TimingReadout {
         /// **What tells the two pictures apart**, and it is on the reading rather than asked separately by each thing
         /// that draws so that they cannot come to disagree -- which they did: the Faces tab drew the cube's face
         /// while the menu bar went on drawing the manual session, because each asked its own question.
-        let deviceFace: Int?
+        let cubeFace: Int?
 
         /// Whether the cube itself is paused, or `nil` when there is no cube being followed -- and also when there is
         /// one that has not answered the question yet.
@@ -66,20 +66,20 @@ final class TimingReadout {
 
         /// Whether the cube this reading is about can be reached **right now**.
         ///
-        /// **`deviceFace` says what to draw; this says what may be done about it.** They came apart the moment a
+        /// **`cubeFace` says what to draw; this says what may be done about it.** They came apart the moment a
         /// paired cube was allowed to keep its face after the link dropped: the face, the category and the pause are
         /// the cube's own last word and are worth drawing, but nothing may be sent to a cube nobody can hear, and a
         /// click that assigned a category to it would be doing something the window cannot carry out.
         ///
         /// The archive held the same two facts in one enum -- `reconnecting` "so the menu bar keeps showing the last
-        /// known activity/icon instead of tearing down", while `isConnected` "gates every command that goes out over
+        /// known activity/icon instead of tearing down", while `isCubeConnected` "gates every command that goes out over
         /// BLE" (`Archive/TimeFlipApp/AppState.swift`). Two fields here, set together in one place, so they cannot be
         /// answered differently by whoever is asking.
         ///
-        /// `false` whenever there is no `deviceFace` at all, which costs nothing: there is nothing to reach.
-        let isDeviceReachable: Bool
+        /// `false` whenever there is no `cubeFace` at all, which costs nothing: there is nothing to reach.
+        let isCubeConnected: Bool
 
-        /// Written out rather than left to the memberwise one so `deviceFace` can default to "no cube": a reading is
+        /// Written out rather than left to the memberwise one so `cubeFace` can default to "no cube": a reading is
         /// about what the app is timing unless it says otherwise, which is what every reading was before there was a
         /// cube to follow.
         init(
@@ -87,9 +87,9 @@ final class TimingReadout {
             state: TimingState,
             seconds: TimeInterval,
             isCounting: Bool = false,
-            deviceFace: Int? = nil,
+            cubeFace: Int? = nil,
             deviceIsPaused: Bool? = nil,
-            isDeviceReachable: Bool = true
+            isCubeConnected: Bool = true
         ) {
             self.category = category
             self.state = state
@@ -98,10 +98,10 @@ final class TimingReadout {
             // is being measured for, and a tick started on a number that never changes is a wake-up a second for no
             // repaint at all.
             self.isCounting = isCounting
-            self.deviceFace = deviceFace
+            self.cubeFace = cubeFace
             self.deviceIsPaused = deviceIsPaused
             // A reading with no face has nothing to reach, whatever the caller passed.
-            self.isDeviceReachable = deviceFace != nil && isDeviceReachable
+            self.isCubeConnected = cubeFace != nil && isCubeConnected
         }
 
         /// Nothing being timed, which is what a view built without a database draws.
@@ -125,7 +125,7 @@ final class TimingReadout {
     ///
     /// A closure rather than a radio, for the reason every dependency here is one: this is read per draw, and what it
     /// asks must be the live answer rather than one taken when the app started.
-    var deviceFace: () -> Int? = { nil }
+    var cubeFace: () -> Int? = { nil }
 
     /// Whether this launch is timing by hand, which is the one thing that stops the cube being asked about at all.
     ///
@@ -141,12 +141,12 @@ final class TimingReadout {
     /// pairing one used to end the mode without being asked; neither does now. The mode is decided once from `paired`
     /// and is what this launch is until it closes -- see `LaunchMode`, which is the whole of why this closure's answer
     /// no longer moves under the things that read it.
-    var isTimingByHand: () -> Bool = { false }
+    var isManualMode: () -> Bool = { false }
 
     /// Whether a cube is this app's cube, read from `paired` at the moment a reading is taken.
     ///
     /// **What tells a cube that has gone quiet from no cube at all**, which are two situations the app had no way to
-    /// tell apart. A link drops -- out of range, asleep, batteries out -- and `deviceFace` goes with it, because a
+    /// tell apart. A link drops -- out of range, asleep, batteries out -- and `cubeFace` goes with it, because a
     /// face left behind is a claim about hardware nobody can hear. Without this the reading then fell through to the
     /// app's own faces and built a manual session out of them: the menu bar drew a category on face 13 that nobody
     /// had picked, ticking, while the Device tab said the cube was unreachable and the launch was not a manual one
@@ -186,10 +186,10 @@ final class TimingReadout {
         // app is timing by hand is otherwise a stand-in for exactly the device that has turned up, so a reading taken
         // while a cube is connected is about the cube. Both questions are asked here rather than resolved by whoever
         // set the closures, so there is one place that decides which of the two pictures a reading describes.
-        if !isTimingByHand(), let deviceFace = deviceFace() {
+        if !isManualMode(), let cubeFace = cubeFace() {
             // Read here rather than held, like the manual face's: a category renamed, recoloured or reassigned
             // between two flips draws differently on the second one with nothing having to be told.
-            let category = faces.categoryID(forFace: deviceFace).flatMap { categories.category(id: $0) }
+            let category = faces.categoryID(forFace: cubeFace).flatMap { categories.category(id: $0) }
             return Reading(
                 category: category,
                 // **Idle, and not because nothing is happening.** The cube is timing -- it always is -- but this app
@@ -214,7 +214,7 @@ final class TimingReadout {
                 // timing, so the app's own clock is what carries the number between one history fetch and the next --
                 // see `DayTotal.isCounting`, and `refreshOpenSegment` for why the *row* is left alone meanwhile.
                 isCounting: category.map { dayTotal.isCounting(categoryID: $0.id) } ?? false,
-                deviceFace: deviceFace,
+                cubeFace: cubeFace,
                 // **Out of the cube's own history, not out of a status read.** Every history frame carries the pause
                 // in its face byte -- the vendor adds a paused interval "for the facet with Side + 128" -- so the open
                 // segment the cube reported *is* whether it is paused, refreshed on every fetch and needing nothing
@@ -229,7 +229,7 @@ final class TimingReadout {
                 // **The row first, the cube's own answer only until there is one.** See `cubeSaysPaused`: a launch
                 // has asked `0x10` before the first history fetch lands, and without the fallback the glyph is
                 // missing for exactly the seconds somebody is watching the app start.
-                deviceIsPaused: events.latestSegment(in: [deviceFace])?.isPaused ?? cubeSaysPaused()
+                deviceIsPaused: events.latestSegment(in: [cubeFace])?.isPaused ?? cubeSaysPaused()
             )
         }
         // **A cube that has gone quiet is not the app timing by hand.** Reached when a cube is on record and this
@@ -239,10 +239,10 @@ final class TimingReadout {
         // stopped being confirmable. Falling through instead would draw a session on one of the app's own faces,
         // which is a picture of something nobody started.
         //
-        // **Nothing here claims the reading is live.** `deviceFace` names the cube's face, so a click still lands on
+        // **Nothing here claims the reading is live.** `cubeFace` names the cube's face, so a click still lands on
         // it and is refused rather than starting the app's clock (`FacesTabRules.click`), which is the same answer a
         // connected cube gives and the right one: this app does not time on a cube's face.
-        if !isTimingByHand(), isCubePaired() {
+        if !isManualMode(), isCubePaired() {
             // **The cube's own faces, asked for by face rather than by whichever row is open.** A manual segment
             // carries the epoch as its event number, so it always looks like the newest thing in the table and the
             // open row is very often the app's rather than the cube's -- the same trap `newestFromTheCube` exists
@@ -250,7 +250,7 @@ final class TimingReadout {
             guard let lastSeen = events.latestSegment(in: Array(1...ManualFace.highestDeviceFace)) else {
                 // A cube on record that has never reported a face, so there is nothing of its to show. The app's own
                 // faces are not its stand-in: the item falls back to the app's name rather than to a session.
-                return Reading(category: nil, state: .idle, seconds: 0, deviceFace: nil)
+                return Reading(category: nil, state: .idle, seconds: 0, cubeFace: nil)
             }
             let category = faces.categoryID(forFace: lastSeen.face).flatMap { categories.category(id: $0) }
             return Reading(
@@ -264,7 +264,7 @@ final class TimingReadout {
                 // reconnect for the same reason (`AppState`'s `reconnecting`, "keeps showing the last known
                 // activity/icon instead of tearing down").
                 isCounting: category.map { dayTotal.isCounting(categoryID: $0.id) } ?? false,
-                deviceFace: lastSeen.face,
+                cubeFace: lastSeen.face,
                 // **The same column the connected branch draws from, and it does not stop being the answer because
                 // the link went.** `paused` is the cube's own account of what it was doing, out of its own history,
                 // so the glyph goes on saying what the cube last said rather than disappearing -- which is what the
@@ -272,7 +272,7 @@ final class TimingReadout {
                 deviceIsPaused: lastSeen.isPaused,
                 // **Drawn, but not reachable.** This is the whole of the difference between showing the cube's last
                 // word and pretending the cube is there: the Faces tab draws the face and refuses a click on it.
-                isDeviceReachable: false
+                isCubeConnected: false
             )
         }
         let face = events.currentManualFace()
@@ -287,7 +287,7 @@ final class TimingReadout {
             // The same question as `state == .running` here, and asked of the same open row -- but asked of the
             // figure, so that whoever draws it has one thing to tick on whichever picture the reading turns out to be.
             isCounting: category.map { dayTotal.isCounting(categoryID: $0.id) } ?? false,
-            deviceFace: nil
+            cubeFace: nil
         )
     }
 

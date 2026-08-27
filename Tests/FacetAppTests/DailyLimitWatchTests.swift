@@ -51,7 +51,7 @@ final class DailyLimitWatchTests: XCTestCase {
         watch.check(at: window)
 
         XCTAssertEqual(stops, 1)
-        XCTAssertTrue(watch.isReached)
+        XCTAssertTrue(watch.isLimitReached)
     }
 
     func testAClockShortOfTheLimitIsLeftRunning() {
@@ -64,7 +64,7 @@ final class DailyLimitWatchTests: XCTestCase {
         watch.check(at: window)
 
         XCTAssertEqual(stops, 0)
-        XCTAssertFalse(watch.isReached)
+        XCTAssertFalse(watch.isLimitReached)
     }
 
     func testACategoryWithNoLimitIsNeverStopped() {
@@ -76,7 +76,7 @@ final class DailyLimitWatchTests: XCTestCase {
         watch.check(at: window)
 
         XCTAssertEqual(stops, 0)
-        XCTAssertFalse(watch.isReached)
+        XCTAssertFalse(watch.isLimitReached)
     }
 
     func testItDoesNotStopTheSameSessionTwice() {
@@ -130,7 +130,7 @@ final class DailyLimitWatchTests: XCTestCase {
             state: .idle,
             seconds: 300,
             isCounting: true,
-            deviceFace: 1,
+            cubeFace: 1,
             deviceIsPaused: false
         )
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
@@ -138,7 +138,7 @@ final class DailyLimitWatchTests: XCTestCase {
         watch.check(at: window)
 
         XCTAssertEqual(stops, 1, "a cube over its limit is stopped, whatever the app's own clock is doing")
-        XCTAssertTrue(watch.isReached)
+        XCTAssertTrue(watch.isLimitReached)
     }
 
     func testACubeShortOfTheLimitIsLeftRunning() {
@@ -148,7 +148,7 @@ final class DailyLimitWatchTests: XCTestCase {
             state: .idle,
             seconds: 280,
             isCounting: true,
-            deviceFace: 1,
+            cubeFace: 1,
             deviceIsPaused: false
         )
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
@@ -167,7 +167,7 @@ final class DailyLimitWatchTests: XCTestCase {
             state: .idle,
             seconds: 300,
             isCounting: false,
-            deviceFace: 1,
+            cubeFace: 1,
             deviceIsPaused: true
         )
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
@@ -184,7 +184,7 @@ final class DailyLimitWatchTests: XCTestCase {
         watch.check(at: window)
 
         XCTAssertEqual(stops, 0)
-        XCTAssertFalse(watch.isReached)
+        XCTAssertFalse(watch.isLimitReached)
     }
 
     func testARaisedLimitLiftsTheRefusalWithoutStartingTheClock() {
@@ -204,7 +204,7 @@ final class DailyLimitWatchTests: XCTestCase {
         )
 
         watch.check(at: window)
-        XCTAssertTrue(watch.isReached)
+        XCTAssertTrue(watch.isLimitReached)
         XCTAssertEqual(state, .paused)
 
         limit = 10
@@ -213,7 +213,7 @@ final class DailyLimitWatchTests: XCTestCase {
         // app was broken: stopping the clock stands the tick down, so the real app never gets another `check` and the
         // refusal it asks about was answered from the last one for the rest of the launch (run 15, 2026-08-16). The
         // raised limit has to be answered by the ask itself.
-        XCTAssertFalse(watch.isReached, "the refusal is lifted")
+        XCTAssertFalse(watch.isLimitReached, "the refusal is lifted")
         // The clock is the user's to start. `stopTiming` is the only thing this watch can call, so the proof that
         // nothing resumed on their behalf is that the session is still stopped and was stopped exactly once.
         XCTAssertEqual(state, .paused, "nothing started the clock on the user's behalf")

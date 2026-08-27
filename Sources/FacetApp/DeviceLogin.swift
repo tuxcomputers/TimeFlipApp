@@ -122,7 +122,7 @@ final class DeviceLogin: NSObject {
     /// One request for history, and what has arrived for it so far.
     private struct HistoryFetch {
         /// `true` for the single-frame read that asks which event the cube is on, `false` for a stream.
-        let isSingleFrame: Bool
+        let isSingleFrameRequest: Bool
         var frames: [DeviceEventSegment] = []
         let answered: ([DeviceEventSegment]) -> Void
     }
@@ -141,7 +141,7 @@ final class DeviceLogin: NSObject {
 
     /// The factory reset, which is a phase of its own for the same reason the Device Information reads are: it runs
     /// long after the login is over, on a connection this object is still the delegate of.
-    private var isResetting = false
+    private var isFactoryResetRunning = false
     private var resetDeadline: Timer?
     private var resetReported: ((Bool) -> Void)?
 
@@ -162,14 +162,14 @@ final class DeviceLogin: NSObject {
     /// different questions and a value on it is otherwise unattributable; these four each have a characteristic of
     /// their own, so what an arriving value is the answer to is simply which one it came from. Sharing `Step` would
     /// have meant inventing an ambiguity the hardware does not have.
-    private var isReadingInfo = false
+    private var isReadingDeviceInfo = false
     /// The battery phase, which follows the Device Information one and then never ends: the subscription stays up for
     /// as long as the connection does, so the last thing this object does is go on receiving.
     private var isFollowingBattery = false
     /// The listening phase, which subscribes to everything the cube can push. Never ends.
     private var isListening = false
     /// Whether a `0x17` is out and its answer still expected.
-    private var isAskingAboutTaps = false
+    private var isReadingDoubleTap = false
     private var tapDeadline: Timer?
     /// The characteristics asked for and not yet answered. Built from what discovery actually found rather than from
     /// the four that were asked for, so a cube missing one does not leave this waiting on a read nobody will answer.
@@ -286,7 +286,7 @@ final class DeviceLogin: NSObject {
             reported(false)
             return
         }
-        isResetting = true
+        isFactoryResetRunning = true
         resetReported = reported
         resetDeadline?.invalidate()
         resetDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
@@ -326,7 +326,7 @@ final class DeviceLogin: NSObject {
             reported(false)
             return
         }
-        guard !isBusy else {
+        guard !isCommandInFlight else {
             debugLog?.record(.command, "A command is already out; not sending another over the top of it")
             reported(false)
             return
@@ -354,7 +354,7 @@ final class DeviceLogin: NSObject {
             answered(nil)
             return
         }
-        guard !isBusy else {
+        guard !isCommandInFlight else {
             debugLog?.record(.command, "A command is already out; not asking about state over the top of it")
             answered(nil)
             return
@@ -376,7 +376,7 @@ final class DeviceLogin: NSObject {
     /// **The answer arrives as a read, not as a notification**, unlike the stream. See `didWriteValueFor`, which is
     /// where the read is issued and where the archive's measurement behind it is written out.
     func readLastEvent(then answered: @escaping (DeviceEventSegment?) -> Void) {
-        request(DeviceHistoryRules.readEvent(), isSingleFrame: true, describing: "which event it is on") { frames in
+        request(DeviceHistoryRules.readEvent(), isSingleFrameRequest: true, describing: "which event it is on") { frames in
             answered(frames.first)
         }
     }
@@ -385,7 +385,7 @@ final class DeviceLogin: NSObject {
     func fetchHistory(from eventNumber: Int, then answered: @escaping ([DeviceEventSegment]) -> Void) {
         request(
             DeviceHistoryRules.readHistory(from: eventNumber),
-            isSingleFrame: false,
+            isSingleFrameRequest: false,
             describing: "its history from event \(eventNumber)",
             then: answered
         )
@@ -397,7 +397,7 @@ final class DeviceLogin: NSObject {
     /// the command channel allows one exchange. A second request would have its frames counted into the first.
     private func request(
         _ payload: Data,
-        isSingleFrame: Bool,
+        isSingleFrameRequest: Bool,
         describing what: String,
         then answered: @escaping ([DeviceEventSegment]) -> Void
     ) {
@@ -411,7 +411,7 @@ final class DeviceLogin: NSObject {
             answered([])
             return
         }
-        fetch = HistoryFetch(isSingleFrame: isSingleFrame, answered: answered)
+        fetch = HistoryFetch(isSingleFrameRequest: isSingleFrameRequest, answered: answered)
         armHistoryDeadline()
         debugLog?.record(.history, "Asking the cube for \(what)")
         // **Written with a response.** A request that never reached the cube and one it is still thinking about look
@@ -465,7 +465,7 @@ final class DeviceLogin: NSObject {
         }
         outstanding.frames.append(segment)
         fetch = outstanding
-        if outstanding.isSingleFrame {
+        if outstanding.isSingleFrameRequest {
             finishFetch("the cube named its latest")
             return
         }
@@ -479,7 +479,7 @@ final class DeviceLogin: NSObject {
 
     /// Whether an exchange is already out. Both kinds share one slot deliberately: they use the same characteristic
     /// and the same acknowledgement, so two at once could not be told apart.
-    private var isBusy: Bool { pendingCommand != nil || pendingStatus != nil }
+    private var isCommandInFlight: Bool { pendingCommand != nil || pendingStatus != nil }
 
     private func armCommandDeadline() {
         commandDeadline?.invalidate()
@@ -586,8 +586,8 @@ final class DeviceLogin: NSObject {
     }
 
     private func finishReset(_ sent: Bool) {
-        guard isResetting else { return }
-        isResetting = false
+        guard isFactoryResetRunning else { return }
+        isFactoryResetRunning = false
         resetDeadline?.invalidate()
         resetDeadline = nil
         let reported = resetReported
@@ -607,7 +607,7 @@ final class DeviceLogin: NSObject {
     /// discovered together at the start. That is the same reasoning `begin` gives, now paid off: a login that waited
     /// on a service it does not need would spend round trips in front of the only answer anybody is waiting for.
     private func readDeviceInfo() {
-        isReadingInfo = true
+        isReadingDeviceInfo = true
         infoDeadline?.invalidate()
         infoDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -626,8 +626,8 @@ final class DeviceLogin: NSObject {
     /// a cube with no Device Information service from a read still in flight. What is *written down* is a separate
     /// question, and `DevicePairingRecorder.recordInfo` is where it is answered.
     private func reportDeviceInfo() {
-        guard isReadingInfo else { return }
-        isReadingInfo = false
+        guard isReadingDeviceInfo else { return }
+        isReadingDeviceInfo = false
         awaitingInfo = []
         infoDeadline?.invalidate()
         infoDeadline = nil
@@ -838,12 +838,12 @@ final class DeviceLogin: NSObject {
     /// desk being bumped stops somebody's timer.
     private func askWhatMakesADoubleTap() {
         guard let command else { return }
-        isAskingAboutTaps = true
+        isReadingDoubleTap = true
         tapDeadline?.invalidate()
         tapDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.isAskingAboutTaps else { return }
-                self.isAskingAboutTaps = false
+                guard let self, self.isReadingDoubleTap else { return }
+                self.isReadingDoubleTap = false
                 self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
                 // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
                 // lock, and this is the one question the dropdown cannot draw itself without.
@@ -883,7 +883,7 @@ final class DeviceLogin: NSObject {
             debugLog?.record(.tap, "That was not an answer about double taps, so it is being waited past")
             return
         }
-        isAskingAboutTaps = false
+        isReadingDoubleTap = false
         tapDeadline?.invalidate()
         tapDeadline = nil
         debugLog?.record(.tap, "The double tap on the cube is set to \(parameters.described)")
@@ -1024,7 +1024,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             discoverCharacteristics([TimeFlipUUIDs.batteryLevel], of: service)
             return
         }
-        if isReadingInfo {
+        if isReadingDeviceInfo {
             guard error == nil,
                   let service = peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.deviceInformation })
             else {
@@ -1154,22 +1154,22 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         debugLog?.acknowledged(characteristic.uuid, error: error)
         // Both of these run long after the login, when `step` is nil, so they are asked before the guard below that
         // would otherwise discard the acknowledgement they are waiting on.
-        if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.command, let commandResult {
+        if isReadingDoubleTap, characteristic.uuid == TimeFlipUUIDs.command, let commandResult {
             guard error == nil else {
-                isAskingAboutTaps = false
+                isReadingDoubleTap = false
                 debugLog?.record(.tap, "The cube would not take the question about double taps")
                 return
             }
             read(commandResult)
             return
         }
-        if isResetting, characteristic.uuid == TimeFlipUUIDs.command {
+        if isFactoryResetRunning, characteristic.uuid == TimeFlipUUIDs.command {
             finishReset(error == nil)
             return
         }
         // Also long after the login, and above the guard for the same reason. Last of the three, so a reset or a
         // question about taps cannot have its acknowledgement taken by a command that happened to be out.
-        if isBusy, characteristic.uuid == TimeFlipUUIDs.command {
+        if isCommandInFlight, characteristic.uuid == TimeFlipUUIDs.command {
             if isReadingBack {
                 askedForConfirmation(error == nil)
             } else {
@@ -1185,7 +1185,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         //
         // So the acknowledgement is the cue to go and read the value, which is the only difference between the two
         // requests. Streaming needs nothing here: its frames arrive as notifications, which is what it asked for.
-        if let outstanding = fetch, outstanding.isSingleFrame, characteristic.uuid == TimeFlipUUIDs.history {
+        if let outstanding = fetch, outstanding.isSingleFrameRequest, characteristic.uuid == TimeFlipUUIDs.history {
             guard error == nil, let history else {
                 finishFetch("the cube would not take the question")
                 return
@@ -1266,7 +1266,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             received(historyFrame: characteristic.value)
             return
         }
-        if isAskingAboutTaps, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {
+        if isReadingDoubleTap, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {
             taps(answered: characteristic.value)
             return
         }
@@ -1279,7 +1279,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable
         // on sight -- there is no `Step` to consult and nothing to disambiguate. An error is filed as an absence: the
         // cube did not say, which is the same thing to everyone downstream as a cube that had nothing to say.
-        if isReadingInfo, awaitingInfo.contains(characteristic.uuid) {
+        if isReadingDeviceInfo, awaitingInfo.contains(characteristic.uuid) {
             if let error {
                 debugLog?.record(
                     .info,

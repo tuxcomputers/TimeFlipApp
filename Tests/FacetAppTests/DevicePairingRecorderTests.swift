@@ -233,8 +233,8 @@ final class DevicePairingRecorderTests: XCTestCase, @unchecked Sendable {
         // The row describes *the paired device*, and after this there is not one. Left behind, it would be attributed
         // to whatever is paired next: `recordInfo` only writes what a cube answers, so a second cube exposing no
         // Device Information service would wear the first one's manufacturer and firmware.
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: settings.string("device_info", field: "firmware")), "Unknown")
-        XCTAssertEqual(DeviceInfoRules.detail(isPaired: true, reported: settings.string("device_info", field: "manufacturer")), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: true, reported: settings.string("device_info", field: "firmware")), "Unknown")
+        XCTAssertEqual(DeviceInfoRules.detail(isCubePaired: true, reported: settings.string("device_info", field: "manufacturer")), "Unknown")
     }
 
     func testASecondCubeDoesNotInheritTheFirstOnesIdentity() throws {
@@ -251,7 +251,7 @@ final class DevicePairingRecorderTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(recorder.recordInfo(DeviceInfo()))
 
         XCTAssertEqual(
-            DeviceInfoRules.detail(isPaired: true, reported: settings.string("device_info", field: "firmware")),
+            DeviceInfoRules.detail(isCubePaired: true, reported: settings.string("device_info", field: "firmware")),
             "Unknown",
             "the second cube must not be shown wearing the first one's firmware"
         )
@@ -304,7 +304,7 @@ final class DevicePairingRecorderTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(recorder.recordFactoryReset())
 
         XCTAssertEqual(
-            DeviceInfoRules.detail(isPaired: true, reported: settings.string("device_info", field: "firmware")),
+            DeviceInfoRules.detail(isCubePaired: true, reported: settings.string("device_info", field: "firmware")),
             "Unknown"
         )
     }

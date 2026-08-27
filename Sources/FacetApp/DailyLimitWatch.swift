@@ -53,13 +53,13 @@ final class DailyLimitWatch {
     /// **What `ForcedPauseWatch` asks before it lifts anything.** Both types decide the same cube's pause state, and a
     /// hard limit has to win or it is not hard: a limit's pause lifted by assigning a category to the face would be a
     /// refusal with a way round it. Read rather than pushed, like everything else here.
-    var isHoldingAPause: Bool { enforcement.isPausedByLimit }
+    var isLimitHoldingPause: Bool { enforcement.isLimitHoldingPause }
 
-    var isReached: Bool {
+    var isLimitReached: Bool {
         let reading = timing()
-        return enforcement.isReached(
+        return enforcement.isLimitReached(
             categoryID: reading.category?.id,
-            limitMinutes: reading.category?.dailyLimitMinutes ?? 0,
+            dailyLimitMinutes: reading.category?.dailyLimitMinutes ?? 0,
             totalSeconds: reading.seconds,
             windowStart: windowStart(Date())
         )
@@ -119,7 +119,7 @@ final class DailyLimitWatch {
         let reading = timing()
         let action = enforcement.evaluate(
             categoryID: reading.category?.id,
-            limitMinutes: reading.category?.dailyLimitMinutes ?? 0,
+            dailyLimitMinutes: reading.category?.dailyLimitMinutes ?? 0,
             totalSeconds: reading.seconds,
             // Same reason as `start`: with a cube this said "paused" every time, so the enforcement believed a running
             // cube was already stopped and never asked for the pause it was there to ask for.
@@ -157,7 +157,7 @@ final class DailyLimitWatch {
         // **It used to say "an answer that cannot change", and that was the bug.** The answer can change while the
         // clock is stopped, because the limit itself can be raised on the Categories tab -- and the state this stands
         // down into is exactly the one a spent limit produces. Nothing here notices that any more, and nothing needs
-        // to: `isReached` is worked out when it is asked, and `setDailyLimit` calls `onTimingChanged` so the edit
+        // to: `isLimitReached` is worked out when it is asked, and `setDailyLimit` calls `onTimingChanged` so the edit
         // itself is what redraws. What is genuinely lost is `.resume`, which cannot fire while the tick is down. In
         // manual mode that costs a log line, since `.resume` is deliberately not acted on (above). **With a cube it
         // would cost the pause being lifted**, so a device arriving here needs this stand-down revisited -- keeping

@@ -87,7 +87,7 @@ final class MenuBarController: NSObject {
     /// The cube as it stands, asked when the menu is about to be drawn. Two answers rather than one because they
     /// fail differently: there may be no cube at all, and there may be a cube nobody has asked yet.
     struct CubeReading: Equatable {
-        let isConnected: Bool
+        let isCubeConnected: Bool
         /// `nil` when the cube has not been asked, or would not answer. See `CubeLockRules.title`.
         let isLocked: Bool?
         /// `nil` for the same two reasons. **Only meaningful while the cube is unlocked**, since a locked cube
@@ -98,8 +98,8 @@ final class MenuBarController: NSObject {
         /// Written out so `isPaused` can default to "nobody asked", which is what a reading built without it means.
         /// The alternative was making every existing caller name a fact it has no opinion about, which reads as an
         /// assertion that the cube is running rather than as silence.
-        init(isConnected: Bool, isLocked: Bool?, isPaused: Bool? = nil) {
-            self.isConnected = isConnected
+        init(isCubeConnected: Bool, isLocked: Bool?, isPaused: Bool? = nil) {
+            self.isCubeConnected = isCubeConnected
             self.isLocked = isLocked
             self.isPaused = isPaused
         }
@@ -181,7 +181,7 @@ final class MenuBarController: NSObject {
         togglePause: @escaping () -> Void = {},
         isLimitReached: @escaping () -> Bool = { false },
         lowBattery: @escaping () -> LowBatteryAlert = { .none },
-        cube: @escaping () -> CubeReading = { CubeReading(isConnected: false, isLocked: nil, isPaused: nil) },
+        cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, isLocked: nil, isPaused: nil) },
         toggleCubeLock: @escaping () -> Void = {},
         toggleCubePause: @escaping () -> Void = {}
     ) {
@@ -290,7 +290,7 @@ final class MenuBarController: NSObject {
 
     /// Whether the once-a-second repaint is running. Internal so it can be asserted without waiting a second for a
     /// real one, which is the same reason `makeTitle` and `width(of:)` are.
-    var isTicking: Bool { tick != nil }
+    var isRepaintTicking: Bool { tick != nil }
 
     /// The status item's line: the database badge, the category's icon, its name, the play/pause glyph, and the
     /// time that category has today. The app's name alone while nothing is being timed.
@@ -406,7 +406,7 @@ final class MenuBarController: NSObject {
         tick = timer
     }
 
-    /// Internal for the same reason `isTicking` is: a test that starts the clock has to be able to put it down
+    /// Internal for the same reason `isRepaintTicking` is: a test that starts the clock has to be able to put it down
     /// again, rather than leaving a timer on the run loop for the rest of the suite.
     func stopTicking() {
         tick?.invalidate()
@@ -452,7 +452,7 @@ final class MenuBarController: NSObject {
             let cube = self.cube()
             let target = PauseMenuRules.target(
                 timing: state,
-                isCubeConnected: cube.isConnected,
+                isCubeConnected: cube.isCubeConnected,
                 isCubeLocked: cube.isLocked,
                 isCubePaused: cube.isPaused,
                 isLimitReached: isLimitReached()
@@ -468,7 +468,7 @@ final class MenuBarController: NSObject {
             // in when something changed, would be a copy of it that could be wrong with nothing to say so.
             let cube = self.cube()
             lock.title = CubeLockRules.title(isLocked: cube.isLocked)
-            lock.isEnabled = CubeLockRules.isEnabled(isConnected: cube.isConnected)
+            lock.isEnabled = CubeLockRules.isEnabled(isCubeConnected: cube.isCubeConnected)
         }
     }
 
@@ -510,7 +510,7 @@ final class MenuBarController: NSObject {
         let action = StatusItemClickRouter.action(
             isLeftSide: isLeftSide,
             timing: state,
-            isCubeConnected: cube.isConnected,
+            isCubeConnected: cube.isCubeConnected,
             isCubePaused: cube.isPaused,
             isLimitReached: isLimitReached(),
             clickCount: event.clickCount
@@ -606,7 +606,7 @@ final class MenuBarController: NSObject {
         // being bitten by. It is the same call with the same inputs, so it is the same answer unless the world moved.
         let target = PauseMenuRules.target(
             timing: state,
-            isCubeConnected: cube.isConnected,
+            isCubeConnected: cube.isCubeConnected,
             isCubeLocked: cube.isLocked,
             isCubePaused: cube.isPaused,
             isLimitReached: isLimitReached()

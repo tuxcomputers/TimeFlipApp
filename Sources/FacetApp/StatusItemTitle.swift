@@ -132,7 +132,7 @@ struct StatusItemTitle: Equatable {
         // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
         // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
         // name drawn in whatever the line's own colour turns out to be.
-        let flash: NSColor? = lowBattery.isLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
+        let flash: NSColor? = lowBattery.isBatteryLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
         let lockGlyphName = isCubeLocked ? "lock.fill" : nil
         // **Following a cube: the face's category and what it has recorded today.**
         //
@@ -144,7 +144,7 @@ struct StatusItemTitle: Equatable {
         // **No glyph until the cube has answered.** `nil` is a cube that has not been asked yet or would not say, and
         // guessing "running" would be the app making a claim about hardware on no evidence -- the one thing
         // `CLAUDE.md`'s read-back rule exists to stop.
-        if reading.deviceFace != nil, let category = reading.category {
+        if reading.cubeFace != nil, let category = reading.category {
             // Formatted once and used twice, drawn and spoken, so the two cannot come to read differently.
             let onTheFace = DurationFormat.hoursMinutesSeconds(
                 reading.seconds,
@@ -166,7 +166,7 @@ struct StatusItemTitle: Equatable {
             // **Said where it is drawn, which is right after what it qualifies.** The yellow below is the whole of
             // this on screen, and what it says is that the paused-or-running just spoken is the cube's last word
             // rather than its current one.
-            if !reading.isDeviceReachable { spokenParts.append("device unreachable") }
+            if !reading.isCubeConnected { spokenParts.append("device unreachable") }
             spokenParts.append(onTheFace)
             if isCubeLocked { spokenParts.append("device locked") }
             // **Said even where the yellow has taken the red off the figure.** The limit is a fact about
@@ -174,7 +174,7 @@ struct StatusItemTitle: Equatable {
             // what the yellow withdraws is the claim that the *cube's* reading is current, and that is said in its
             // own words just above.
             if isLimitReached { spokenParts.append("daily limit reached") }
-            if lowBattery.isLow { spokenParts.append("low battery") }
+            if lowBattery.isBatteryLow { spokenParts.append("low battery") }
             spokenParts.append(appLabel)
             // **Green while the cube can be heard, yellow once it cannot**, and the second one takes the name as
             // well as the figure. See `colour` and `nameColour`: a reading nobody can confirm is not the place for
@@ -185,7 +185,7 @@ struct StatusItemTitle: Equatable {
             // above is about: this file has already failed CI once for asking Swift to type-check too much at once.
             let lineColour: NSColor
             let cubeNameColour: NSColor
-            if reading.isDeviceReachable {
+            if reading.isCubeConnected {
                 lineColour = isLimitReached ? .systemRed : .systemGreen
                 cubeNameColour = flash ?? .systemGreen
             } else {
@@ -218,7 +218,7 @@ struct StatusItemTitle: Equatable {
             // Built up rather than chained, for the reason given at the first of these.
             var idleParts: [String] = [appLabel]
             if isCubeLocked { idleParts.append("device locked") }
-            if lowBattery.isLow { idleParts.append("low battery") }
+            if lowBattery.isBatteryLow { idleParts.append("low battery") }
             return StatusItemTitle(
                 text: appLabel,
                 iconName: nil,
@@ -261,7 +261,7 @@ struct StatusItemTitle: Equatable {
         var sessionParts: [String] = [category.name, reading.state == .running ? "running" : "paused", duration]
         if isCubeLocked { sessionParts.append("device locked") }
         if isLimitReached { sessionParts.append("daily limit reached") }
-        if lowBattery.isLow { sessionParts.append("low battery") }
+        if lowBattery.isBatteryLow { sessionParts.append("low battery") }
         sessionParts.append(appLabel)
         return StatusItemTitle(
             text: category.name,
@@ -273,7 +273,7 @@ struct StatusItemTitle: Equatable {
             // `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen` on the same line. The session colour
             // is a claim that time is being recorded normally, and once a limit has stopped the clock that claim is
             // no longer true -- so the colour and the pause are two faces of one fact, drawn from the same answer
-            // (`DailyLimitEnforcement.isReached`) rather than from two comparisons that could disagree by a second.
+            // (`DailyLimitEnforcement.isLimitReached`) rather than from two comparisons that could disagree by a second.
             //
             // **On the figure and not on the whole line**, which is where this parts from the archive: the figure is
             // what has reached the number, and the name is only which category it belongs to.

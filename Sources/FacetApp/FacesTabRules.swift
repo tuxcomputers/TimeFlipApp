@@ -39,31 +39,31 @@ enum FacesTabRules {
     }
 
     /// - Parameters:
-    ///   - deviceFace: the face the cube is resting on, or `nil` when there is no cube being followed. This is
-    ///     `TimingReadout.Reading.deviceFace`, so it is already `nil` when the app is timing by hand.
+    ///   - cubeFace: the face the cube is resting on, or `nil` when there is no cube being followed. This is
+    ///     `TimingReadout.Reading.cubeFace`, so it is already `nil` when the app is timing by hand.
     ///   - isFaceLocked: whether that face keeps what it has. Ignored when there is no face.
-    ///   - isTimingByHand: whether this launch is timing by hand, which is the only thing that lets a click start the
+    ///   - isManualMode: whether this launch is timing by hand, which is the only thing that lets a click start the
     ///     app's own clock while a device is on record.
     static func click(
-        deviceFace: Int?,
+        cubeFace: Int?,
         isFaceLocked: Bool,
-        isTimingByHand: Bool,
-        isDeviceReachable: Bool = true
+        isManualMode: Bool,
+        isCubeConnected: Bool = true
     ) -> Click {
         // **The cube first, because it is what is on screen.** A reading that names a face is what both surfaces are
         // drawing, so a click has somewhere to land whatever the mode says -- and landing it anywhere else would be a
         // control doing something other than what the window shows.
         //
         // **Unless the cube cannot be reached**, which is a face still being drawn from the cube's own last word
-        // after the link dropped (`TimingReadout.Reading.isDeviceReachable`). The face is worth showing and the
+        // after the link dropped (`TimingReadout.Reading.isCubeConnected`). The face is worth showing and the
         // assignment is not something the app can carry out, so this answers `waitingForTheDevice` exactly as it did
         // when the face went with the link -- the difference being that now the tab has something to draw while it
         // waits. Without this, letting a quiet cube keep its face turned a refused click into an assignment to a
         // device nobody can hear.
-        if let deviceFace, isDeviceReachable {
-            return isFaceLocked ? .faceIsLocked(deviceFace) : .assignToFace(deviceFace)
+        if let cubeFace, isCubeConnected {
+            return isFaceLocked ? .faceIsLocked(cubeFace) : .assignToFace(cubeFace)
         }
-        return isTimingByHand ? .startTiming : .waitingForTheDevice
+        return isManualMode ? .startTiming : .waitingForTheDevice
     }
 
     /// Whether the face on show may be locked or unlocked from here.
@@ -72,7 +72,7 @@ enum FacesTabRules {
     /// *meant* to be reassigned, since every category picked lands on it, so a lock there could only get in the way of
     /// the one gesture the tab has. Hidden rather than shown switched off, for the same reason -- there is no lock to
     /// offer, not a lock that happens to be open.
-    static func showsLock(deviceFace: Int?) -> Bool {
-        deviceFace != nil
+    static func showsLock(cubeFace: Int?) -> Bool {
+        cubeFace != nil
     }
 }

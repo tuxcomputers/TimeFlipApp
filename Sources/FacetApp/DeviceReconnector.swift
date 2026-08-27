@@ -43,7 +43,7 @@ final class DeviceReconnector {
     /// **A closure, so there is one answer and not two.** The mode is `LaunchMode`'s to say and this reads it rather
     /// than keeping a copy. The copy used to be the dangerous one because the mode moved underneath it -- pairing a
     /// cube turned it off -- and now nothing moves it at all; asking is still right, and now it also cannot be wrong.
-    private let isTimingByHand: () -> Bool
+    private let isManualMode: () -> Bool
 
     /// How many attempts have failed in a row. The backoff is a function of it.
     private var failures = 0
@@ -71,14 +71,14 @@ final class DeviceReconnector {
         debugLog: DebugLog?,
         storedPIN: @escaping () -> String?,
         rotatingTo: String? = nil,
-        isTimingByHand: @escaping () -> Bool = { false }
+        isManualMode: @escaping () -> Bool = { false }
     ) {
         self.radio = radio
         self.settings = settings
         self.debugLog = debugLog
         self.storedPIN = storedPIN
         self.rotatingTo = rotatingTo
-        self.isTimingByHand = isTimingByHand
+        self.isManualMode = isManualMode
     }
 
     /// Starts following the device, if there is one to follow.
@@ -99,20 +99,20 @@ final class DeviceReconnector {
         next?.invalidate()
         next = nil
 
-        let isPaired = settings.flag("paired", field: "paired") == true
+        let isCubePaired = settings.flag("paired", field: "paired") == true
         guard DeviceReconnectRules.shouldAttempt(
-            isPaired: isPaired,
-            isConnected: radio.connectedDevice != nil,
+            isCubePaired: isCubePaired,
+            isCubeConnected: radio.connectedDevice != nil,
             isScanning: radio.isScanning,
-            isReaching: radio.isReaching,
-            isResetting: radio.isResetting,
+            isReachingForCube: radio.isReachingForCube,
+            isFactoryResetRunning: radio.isFactoryResetRunning,
             isAwaitingAnswer: isAwaitingAnswer,
-            isTimingByHand: isTimingByHand()
+            isManualMode: isManualMode()
         ) else {
             // **Said only when there was a pairing to act on.** An unpaired app standing down is not an event, and this
             // runs on every drop and every failed attempt: a line each time would be the loop's own noise burying the
             // rows that say what the cube did.
-            if isPaired {
+            if isCubePaired {
                 debugLog?.record(.pair, "Not reaching for the cube: the radio is busy with something else")
             }
             return
@@ -173,7 +173,7 @@ final class DeviceReconnector {
         // state -- no attempt is made, so no outcome comes back to fail -- but an offer reappearing after somebody has
         // said to get on without the device would be the app asking them to decide again, and standing down here is
         // what makes "the radio is ignored from now on" true of every path rather than of the ones thought of.
-        guard !isTimingByHand() else {
+        guard !isManualMode() else {
             debugLog?.record(.mode, "Timing by hand, so the offer is not put up again this launch")
             return
         }
@@ -236,7 +236,7 @@ final class DeviceReconnector {
         // per-launch and in memory, so a relaunch works it out again from `paired` and this loop comes back with it.
         // Forgetting the device used to be a second way out and is not one now -- see `LaunchMode`, which is why this
         // closure's answer no longer moves underneath the loop that reads it.
-        guard !isTimingByHand() else {
+        guard !isManualMode() else {
             debugLog?.record(.pair, "Timing by hand, so the cube is not being looked for again this launch")
             return
         }

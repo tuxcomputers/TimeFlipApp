@@ -20,7 +20,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         set { reading = TimingReadout.Reading(category: reading.category, state: newValue, seconds: reading.seconds) }
     }
     private var toggles = 0
-    private var cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+    private var cube = MenuBarController.CubeReading(isCubeConnected: false, isLocked: nil)
     private var cubeToggles = 0
 
     /// Held for the length of the test, because an item's `target` is **weak**: a controller nobody keeps is
@@ -70,14 +70,14 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             state: .idle,
             seconds: 30,
             isCounting: true,
-            deviceFace: 5,
+            cubeFace: 5,
             deviceIsPaused: false
         )
         let controller = controller()
 
         controller.redraw()
 
-        XCTAssertTrue(controller.isTicking)
+        XCTAssertTrue(controller.isRepaintTicking)
         // Put down rather than left on the run loop for the rest of the suite.
         controller.stopTicking()
     }
@@ -90,14 +90,14 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             state: .idle,
             seconds: 30,
             isCounting: false,
-            deviceFace: 5,
+            cubeFace: 5,
             deviceIsPaused: true
         )
         let controller = controller()
 
         controller.redraw()
 
-        XCTAssertFalse(controller.isTicking)
+        XCTAssertFalse(controller.isRepaintTicking)
     }
 
     func testTheTickStopsWhenTheFigureStops() {
@@ -106,12 +106,12 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         )
         let controller = controller()
         controller.redraw()
-        XCTAssertTrue(controller.isTicking, "precondition")
+        XCTAssertTrue(controller.isRepaintTicking, "precondition")
 
         reading = TimingReadout.Reading(category: Self.meeting, state: .paused, seconds: 30)
         controller.redraw()
 
-        XCTAssertFalse(controller.isTicking)
+        XCTAssertFalse(controller.isRepaintTicking)
     }
 
     // MARK: - how wide the item has to be
@@ -172,7 +172,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testTheLockItemIsDeadWithNoCubeConnected() {
         // It ends in a command, and a command needs a live link. A paired cube in another room can be neither locked
         // nor resumed, so an item offering it would be a control that does nothing and says nothing about why.
-        cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+        cube = MenuBarController.CubeReading(isCubeConnected: false, isLocked: nil)
 
         let item = try? XCTUnwrap(lockItem())
 
@@ -181,7 +181,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testAConnectedUnlockedCubeIsOfferedALock() throws {
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: false)
 
         let item = try XCTUnwrap(lockItem())
 
@@ -190,7 +190,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testALockedCubeIsOfferedAnUnlock() throws {
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: true)
 
         let item = try XCTUnwrap(lockItem())
 
@@ -203,7 +203,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // one starting the app's clock and one starting the cube. Two items reading the same thing while doing
         // entirely different things is a menu nobody can use.
         state = .paused
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: true)
 
         let titles = menu().items.filter { !$0.isSeparatorItem }.map(\.title)
 
@@ -213,7 +213,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testACubeNobodyHasAskedYetReadsLock() throws {
         // The safer of the two to be wrong about: offering to lock an already-locked cube sends a command that
         // changes nothing, while offering to resume a running one would unlock what was never locked.
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: nil)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: nil)
 
         XCTAssertEqual(try XCTUnwrap(lockItem()).title, "Lock")
     }
@@ -223,11 +223,11 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // changes.
         let controller = controller()
         let menu = controller.makeMenu()
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: false)
         controller.refresh(menu)
         XCTAssertEqual(try XCTUnwrap(item(named: MenuBarController.Identifier.toggleCubeLock, in: menu)).title, "Lock")
 
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: true)
         controller.refresh(menu)
 
         XCTAssertEqual(
@@ -237,7 +237,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testChoosingItGoesToTheOneLockPath() throws {
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: false)
         let item = try XCTUnwrap(lockItem())
 
         _ = item.target?.perform(item.action, with: item)
@@ -373,7 +373,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             state: .running,
             seconds: 30
         )
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: true)
 
         XCTAssertEqual(
             line(controller(badge: .forEnvironment(.test))),
@@ -385,7 +385,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testALockedCubeShowsTheBadgeWithNothingBeingTimed() {
         // The state that most needs saying: a locked cube is why nothing is running.
         reading = .idle
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: true)
 
         XCTAssertEqual(line(controller()), "Facet \(attachment)")
     }
@@ -394,17 +394,17 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         // A link that drops takes the status with it (`BluetoothRadio` clears it), and the badge has to go with that
         // -- a lock drawn for a cube nobody can reach is a claim about hardware the app cannot see.
         reading = .idle
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: true)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: true)
         XCTAssertEqual(line(controller()), "Facet \(attachment)", "precondition")
 
-        cube = MenuBarController.CubeReading(isConnected: false, isLocked: nil)
+        cube = MenuBarController.CubeReading(isCubeConnected: false, isLocked: nil)
 
         XCTAssertEqual(line(controller()), "Facet")
     }
 
     func testAnUnlockedCubeAddsNothingToTheLine() {
         reading = .idle
-        cube = MenuBarController.CubeReading(isConnected: true, isLocked: false)
+        cube = MenuBarController.CubeReading(isCubeConnected: true, isLocked: false)
 
         XCTAssertEqual(line(controller()), "Facet")
     }
@@ -478,8 +478,8 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             state: .running,
             seconds: 30
         )
-        let flashing = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: true))
-        let between = title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: false))
+        let flashing = title(controller(), lowBattery: LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))
+        let between = title(controller(), lowBattery: LowBatteryAlert(isBatteryLow: true, isBlinkOn: false))
 
         XCTAssertEqual(colour(of: "Meeting", in: flashing), .systemRed)
         XCTAssertEqual(colour(of: "0:00:30", in: flashing), .systemCyan)
@@ -491,7 +491,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         reading = .idle
 
         XCTAssertEqual(
-            colour(of: "Facet", in: title(controller(), lowBattery: LowBatteryAlert(isLow: true, isBlinkOn: true))),
+            colour(of: "Facet", in: title(controller(), lowBattery: LowBatteryAlert(isBatteryLow: true, isBlinkOn: true))),
             .systemRed
         )
     }

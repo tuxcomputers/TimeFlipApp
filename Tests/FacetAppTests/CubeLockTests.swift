@@ -49,7 +49,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
     ) -> CubeLock {
         let lock = CubeLock(
             settings: settings,
-            isConnected: { connected },
+            isCubeConnected: { connected },
             send: { command, reported in
                 sent.add(command)
                 reported(answering)

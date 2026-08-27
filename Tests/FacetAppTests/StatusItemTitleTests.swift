@@ -39,8 +39,8 @@ final class StatusItemTitleTests: XCTestCase {
         TimingReadout.Reading(category: category(), state: .running, seconds: 30)
     }
 
-    private let flashOn = LowBatteryAlert(isLow: true, isBlinkOn: true)
-    private let flashOff = LowBatteryAlert(isLow: true, isBlinkOn: false)
+    private let flashOn = LowBatteryAlert(isBatteryLow: true, isBlinkOn: true)
+    private let flashOff = LowBatteryAlert(isBatteryLow: true, isBlinkOn: false)
 
     // MARK: - a category over its daily limit
 
@@ -360,9 +360,9 @@ final class StatusItemTitleTests: XCTestCase {
             category: category,
             state: .idle,
             seconds: 0,
-            deviceFace: face,
+            cubeFace: face,
             deviceIsPaused: isDevicePaused,
-            isDeviceReachable: isReachable
+            isCubeConnected: isReachable
         )
     }
 
