@@ -320,6 +320,10 @@ let dailyLimit = DailyLimitWatch(
 )
 // Asked rather than pushed, so the refusal and the greying cannot be working from different copies of one answer.
 settingsWindow.isLimitReached = { dailyLimit.isReached }
+// **The fourth path that could send a resume, and the one that was not refusing.** Unlocking resumes the cube, so a
+// double click on the status item's right half was a way round a spent limit: lock, unlock, and the budget is
+// spendable again until the watch notices. `CubeLock.resume` now unlocks and leaves it stopped.
+cubeLock.isLimitReached = { dailyLimit.isReached }
 
 // Stops the cube when it is resting on a face with no category, and starts it again when that face is given one.
 //

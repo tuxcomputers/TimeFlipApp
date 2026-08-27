@@ -44,9 +44,10 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
         answering: Bool = true,
         isPaused: Bool? = nil,
         isLocked: Bool? = nil,
+        limitReached: Bool = false,
         into sent: NSMutableArray
     ) -> CubeLock {
-        CubeLock(
+        let lock = CubeLock(
             settings: settings,
             isConnected: { connected },
             send: { command, reported in
@@ -57,6 +58,46 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
             isLocked: { isLocked },
             debugLog: nil
         )
+        lock.isLimitReached = { limitReached }
+        return lock
+    }
+
+    // MARK: - a spent limit is a limit the unlock does not spend
+
+    func testUnlockingACubeOnASpentLimitLeavesItStopped() {
+        // **The way round a hard limit that this closes.** Unlocking resumes, so lock-then-unlock was a resume the
+        // limit never saw: measured on a real cube on 2026-08-27 as `The cube is unlocked`, `Sending 06 02`, `The cube
+        // is running`, and `DailyLimitWatch` stopping it again two seconds later.
+        let sent = NSMutableArray()
+        let lock = cubeLock(isLocked: true, limitReached: true, into: sent)
+
+        XCTAssertTrue(lock.resume { _ in })
+
+        XCTAssertEqual(sent.count, 1, "the unlock goes and the resume does not")
+        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.lock(false))
+    }
+
+    func testUnlockingIsNeverRefusedByTheLimit() {
+        // The other half: refusing the unlock would strand the cube in the one state this app cannot get it out of.
+        // A limit is about recording time, not about holding somebody's hardware shut.
+        let sent = NSMutableArray()
+        let lock = cubeLock(isLocked: true, limitReached: true, into: sent)
+
+        var reported: Bool?
+        XCTAssertTrue(lock.resume { reported = $0 })
+
+        XCTAssertEqual(reported, true, "the unlock took, and that is what the caller is told")
+    }
+
+    func testUnlockingWithBudgetInHandStillResumes() {
+        let sent = NSMutableArray()
+        let lock = cubeLock(isLocked: true, limitReached: false, into: sent)
+
+        XCTAssertTrue(lock.resume { _ in })
+
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.lock(false))
+        XCTAssertEqual(sent[1] as? Data, DeviceCommandRules.pause(false))
     }
 
     // MARK: - the plain pause, without a lock

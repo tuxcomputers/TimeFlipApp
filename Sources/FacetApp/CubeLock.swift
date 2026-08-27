@@ -43,6 +43,12 @@ final class CubeLock {
     /// pause, which a double tap or auto-pause changes with nothing said.
     private let isLocked: () -> Bool?
 
+    /// Whether the category on show has spent its `daily_limit`, read at the moment it matters.
+    ///
+    /// **Set after construction**, because `DailyLimitWatch` is built from things that are built after this. A `var`
+    /// rather than an `init` parameter for the same reason `QuitSequence.cubeLock` is one.
+    var isLimitReached: () -> Bool = { false }
+
     private let debugLog: DebugLog?
 
     init(
@@ -192,12 +198,34 @@ final class CubeLock {
             return false
         }
         send(DeviceCommandRules.lock(false)) { [weak self] unlocked in
-            self?.debugLog?.record(.command, unlocked ? "The cube is unlocked" : "The cube would not unlock")
-            // **The resume goes out either way, for the mirror of the reason the lock does.** A cube left paused and
-            // unlocked is a cube that quietly records nothing while somebody flips it, which is worse than a lock
-            // they can see. If the unlock failed the resume cannot be confirmed either, and that is what it reports.
-            self?.send(DeviceCommandRules.pause(false)) { running in
-                self?.debugLog?.record(.command, running ? "The cube is running" : "The cube would not resume")
+            guard let self else { return }
+            self.debugLog?.record(.command, unlocked ? "The cube is unlocked" : "The cube would not unlock")
+            // **The unlock happens whatever the limit says, and the resume does not.**
+            //
+            // A spent `daily_limit` is meant to be hard, and it is only as hard as the set of paths that can send
+            // `0x06 0x02`. This was one of them and nothing gated it: a double click on the status item's right half
+            // unlocks, which resumes, so the way round a limit was to lock the cube and unlock it again. Measured on
+            // 2026-08-27 -- `The cube is unlocked`, `Sending 06 02`, `The cube is running`, and `DailyLimitWatch`
+            // stopping it again two seconds later, the app plainly arguing with itself.
+            //
+            // **Unlocking is never refused**, which is the other half. Refusing it would strand the cube in the one
+            // state this app cannot otherwise get it out of, and the limit is about recording time rather than about
+            // holding somebody's hardware shut. So a spent budget leaves it unlocked and stopped, which is exactly
+            // what the limit means, and every other way to start it again is already refused.
+            guard !self.isLimitReached() else {
+                self.debugLog?.record(
+                    .command,
+                    "The cube is unlocked but left stopped: the category on show has spent its daily limit"
+                )
+                finished(unlocked)
+                return
+            }
+            // **The resume goes out either way otherwise, for the mirror of the reason the lock does.** A cube left
+            // paused and unlocked is a cube that quietly records nothing while somebody flips it, which is worse than
+            // a lock they can see. If the unlock failed the resume cannot be confirmed either, and that is what it
+            // reports.
+            self.send(DeviceCommandRules.pause(false)) { running in
+                self.debugLog?.record(.command, running ? "The cube is running" : "The cube would not resume")
                 finished(unlocked && running)
             }
         }
