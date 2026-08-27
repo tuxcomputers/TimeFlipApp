@@ -86,6 +86,19 @@ final class CubeLock {
     /// Returns whether anything was sent. `false` means `finished` will not be called.
     @discardableResult
     func togglePause(then finished: @escaping (Bool) -> Void) -> Bool {
+        setPause(!(isPaused() ?? false), then: finished)
+    }
+
+    /// Stops the cube or starts it **in a named direction**, rather than by flipping whatever it is doing.
+    ///
+    /// **What the toggle is built from, and what the app uses when it is not a gesture.** A click means "the other
+    /// one", so it has to read the cube's state first; a pause the app forces already knows which way it wants, and
+    /// reading the state to work out a direction it was told would be a chance to get it wrong. The guards, the
+    /// command and the read-back are the same either way, which is why they live here once.
+    ///
+    /// Returns whether anything was sent. `false` means `finished` will not be called.
+    @discardableResult
+    func setPause(_ wanted: Bool, then finished: @escaping (Bool) -> Void) -> Bool {
         guard isConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or resume")
             return false
@@ -94,7 +107,6 @@ final class CubeLock {
             debugLog?.record(.command, "The cube is locked, so pausing it means nothing; unlock it first")
             return false
         }
-        let wanted = !(isPaused() ?? false)
         send(DeviceCommandRules.pause(wanted)) { [weak self] took in
             self?.debugLog?.record(
                 .command,

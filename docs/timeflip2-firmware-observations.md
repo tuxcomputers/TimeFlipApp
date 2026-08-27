@@ -306,6 +306,66 @@ offer came back saying "nothing answered" about a cube on the desk that had answ
 So a failed attempt forgets its peripheral handle, and Retry clears the whole found list, which is what makes the
 next attempt a real scan rather than another go at a connection already being torn down.
 
+## 9. A pause command files a new history event, and the cube says nothing about it
+
+Measured 2026-08-27, on the cube this repository is developed against, driving the rebuilt app through the status
+item's right half and reading the `ble-tx`/`ble-rx` trace in order.
+
+**The cube does two things and announces neither.** `0x06 0x01` closes the event that was running and opens a fresh
+one on the same face, marked paused, at zero seconds. That record exists in the cube's flash from the moment the
+command lands. Nothing is pushed to say so.
+
+The whole window between the write and the app's next request, verbatim:
+
+```
+[command]  Sending 06 01
+[ble-tx]   command withResponse: 06 01
+[ble-rx]   command: write acknowledged      <- the ATT reply to the line above
+[command]  Asking whether it took: 10
+[ble-tx]   command withResponse: 10
+[ble-rx]   command: write acknowledged      <- the ATT reply to the line above
+[ble-tx]   commandResult: read requested
+[ble-rx]   commandResult: 02 01 00 05 00 00 ...   <- the reply to the read above
+[command]  The cube is unlocked and paused
+[history]  Fetching history (the cube was paused from the menu bar)   <- the app asks
+```
+
+Every `ble-rx` in that window is on the command characteristic and is a reply to something the host sent. Nothing
+arrives on the history characteristic at all. When the app does ask, the new event is there waiting:
+
+```
+[history]  The cube is on event 12, face 2, 0s, paused
+[event]    device_event updated  id=6 ev=11 face=2 dur=17s paused=false
+[event]    device_event inserted id=7 ev=12 face=2 dur=0s  paused=true
+```
+
+So "the cube records a pause" and "the cube reports a pause" are different claims. The first is true, the second is
+not, and a client that waits to be told is waiting for something that never comes.
+
+### This confirms the archive rather than correcting it
+
+The previous app already worked around it, in a comment on the line that does so
+(`Archive/TimeFlipApp/ApplicationDelegate.swift`): *"Device doesn't send notification after setPause command, so
+explicitly fetch history to confirm state change."* This is that claim measured rather than inherited, which is worth
+having written down: it was reasonable to wonder whether newer firmware had started volunteering the record, and it
+has not.
+
+### What it costs, and where the cost actually falls
+
+**Not on flips.** The faces characteristic *does* notify on change, and this app fetches history on it
+(`radio.onFace` -> `refresh(because: "the cube was turned")`). So a cube flipped back and forth is followed at once
+whatever `fetch_history_interval_seconds` is set to, and the seeded description of that setting says as much: the
+timer runs "in addition to the fetches already triggered by live face/pause events".
+
+**On any pause the app did not make.** A double tap stops the cube's tracking in firmware with no command involved
+(`Archive/Tests/Methods.md` Method 22), and the vendor's own app can pause it too. Neither produces a face change,
+neither writes the command result, and `systemState` carries sync and hardware health rather than pause. So there is
+no subscription that could carry it: the app finds out on its next fetch and not before. The history timer's interval
+is therefore the worst-case latency for **the cube being stopped by someone else**, and for nothing else.
+
+That is the reason a pause the app itself sends is followed immediately by a fetch at every call site that sends one.
+It is not tidying up; it is the only way the app finds out what it just did.
+
 ## Raised with the vendor
 
 Findings 1 to 3 are the subject of an issue against `DI-GROUP/TimeFlip.Docs`. The request is that the spec describe them, not that the behaviour change: a guaranteed-stable advertised name is genuinely useful for scan filtering once documented, rather than merely observed.

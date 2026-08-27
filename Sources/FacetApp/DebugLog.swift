@@ -57,6 +57,10 @@ final class DebugLog {
         case sync
         /// A category spending its `daily_limit`, and the clock being stopped for it (`DailyLimitWatch`).
         case limit
+        /// A pause the app put on the cube for a reason of its own, and what lifted it (`ForcedPause`). Its own tag
+        /// rather than `command`, which says what went down the wire: a scripted check needs to tell a pause the app
+        /// forced from one the user asked for, and the two put the same bytes on the wire.
+        case forced
         /// Looking for a device: what the radio is doing, and both names of every advertisement listed
         /// (`BluetoothRadio`). Both, because the scan list is where the two disagree.
         case scan
