@@ -498,12 +498,22 @@ relink_a_cube() {
 require_a_paired_cube() {
     local paired connected
     paired=$(setting paired paired)
-    connected=$(setting connection connected)
+    if [ "$paired" = "1" ]; then
+        # **A launch that has just started is still on its way to the cube, and that is not a bench fault.** Reaching
+        # a paired cube again is a scan, a connect and a login; `ensure_app_running` waits for the *process* to appear
+        # and not for the radio, so a script run on its own reads this a second later and finds it false.
+        #
+        # Run 115 (2026-08-27): `run.sh --keep 62` refused outright on a cube that was paired, awake, and about forty
+        # seconds from connected, because the run before it had quit the app on its way out. In the suite this costs
+        # nothing -- the script above has left the link up, so the first poll answers -- and 90s is the same budget
+        # `relink_a_cube` gives the same wait.
+        connected=$(wait_sql "1" "SELECT json_extract(setting_value, '\$.connected') FROM setting WHERE setting_name = 'connection';" 90)
+    fi
     [ "$paired" = "1" ] && [ "$connected" = "1" ] && return 0
 
     red "  no cube is connected, so $1"
     if [ "$paired" = "1" ]; then
-        red "  a cube is paired but the app cannot reach it -- is it awake, and is Bluetooth on?"
+        red "  a cube is paired but the app did not reach it in 90s -- is it awake, and is Bluetooth on?"
     else
         red "  the device scripts run on the cube 51-device-connect pairs, and each one leaves it behind."
         red "  Run the suite in order, or pair a cube on the Device tab before running this one on its own."
