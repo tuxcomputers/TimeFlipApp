@@ -24,7 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=13
+EXPECTED_CHECKS=20
 start "the app stopping the cube: a face with nothing on it, and a category that has spent its day"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so anything
@@ -282,5 +282,47 @@ fi
 expect_log "coming back to a spent category stops the cube again" "$backagain" "Daily limit reached: 627%" 60
 check "and the cube says it has stopped" "1" \
     "$(wait_sql "1" "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" 60)"
+
+# ---------------------------------------------------------------------------- 5. and the gestures cannot spend it
+#
+# **A limit is only as hard as the set of paths that can send `0x06 0x02`**, and two of them were not refusing. Both
+# were reported off a real cube on 2026-08-27, after everything above this had been green for a run:
+#
+# - **A single click on the right half.** Both routers asked the limit through `ManualTimerRules.isClickable`, which
+#   answers about the app's own clock, and a cube leaves that `.idle` however busy it is -- so every cube click fell
+#   past the one place the limit was consulted. `StatusItemClickRouter` had even documented the exemption, and had
+#   been right when it was written: the limit was not enforced against a cube at all until earlier the same day.
+# - **A double click.** Unlocking resumes, so lock-then-unlock started the cube whatever the budget said.
+#
+# **This costs no flips**, which is why it is here rather than in a script of its own: everything above leaves the
+# cube sitting on 627 with its budget spent, which is exactly the state both gestures have to refuse.
+#
+# The cube ends unlocked and stopped, which is what `99-quit` wants and what the limit means.
+
+since=$(mark)
+click_right
+sleep 3
+check_contains "a single click at a spent cube is routed to nothing" \
+    "$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'click' ORDER BY debug_log_id DESC LIMIT 1;")" \
+    "ignore"
+check "and no resume went down the wire" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'command' AND message = 'Sending 06 02';")"
+
+# **Locking is not the limit's business**, so the gesture stays live. Proved rather than assumed, because refusing it
+# would be the failure mode on the other side: a cube nobody could lock.
+since=$(mark)
+double_click_right
+expect_log "a double click still locks it, the lock being no concern of the limit" "$since" "The cube is locked" 30
+
+# **And unlocking is never refused either**, which is the half that matters most: it is the one way out of a state
+# this app cannot otherwise reach. What must not ride along with it is the resume.
+since=$(mark)
+double_click_right
+expect_log "unlocking still works, so the cube is never stranded shut" "$since" "The cube is unlocked" 30
+expect_log "but it is left stopped, and the app says why" "$since" "The cube is left stopped:%daily limit" 30
+check "so still no resume down the wire" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'command' AND message = 'Sending 06 02';")"
+check "and the cube is still stopped, which is what a spent budget means" "1" \
+    "$(wait_sql "1" "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" 30)"
 
 finish
