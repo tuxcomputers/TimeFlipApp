@@ -263,13 +263,6 @@ let historyIngestor = HistoryIngestor(
     fetchHistory: { from, answered in radio.fetchHistory(from: from, answered) },
     debugLog: debugLog
 )
-// Recorded time changed, so everything drawn from it is stale: the readings on both surfaces, the day's totals, and
-// whether a category has spent its limit.
-historyIngestor.onChanged = {
-    menuBar.redraw()
-    settingsWindow.redrawTiming()
-}
-
 let historyTimer = HistoryTimer(
     settings: settings,
     debugLog: debugLog,
@@ -302,10 +295,49 @@ let dailyLimit = DailyLimitWatch(
     timing: { timingReadout.read() },
     windowStart: { dayTotal.windowStart(at: $0) },
     debugLog: debugLog,
-    stopTiming: { settingsWindow.togglePause() }
+    // **Which clock is running decides where the stop goes**, and the open segment's face is what says so -- the same
+    // test `DeviceEventRecorder.closeOpenSegment` makes before it will write a row. A cube's pause is a command; the
+    // app's is a row, and sending one where the other was wanted does nothing at all.
+    //
+    // **It did exactly that until now.** This was `settingsWindow.togglePause()` outright, which is the app's own
+    // clock, so with a cube on the other end the limit reached `closeOpenSegment`, was refused on the face, and logged
+    // that the row was left open for the cube to report the length of. Nothing went out, nothing was corrupted, and
+    // the limit simply did not apply to a device. `12-daily-limit` never caught it: it sits below 50 and runs in
+    // manual mode, where the wiring it had was the right one.
+    //
+    // **The fetch afterwards is how the app finds out**, not tidying up. Measured 2026-08-27 (finding 9 in
+    // `docs/timeflip2-firmware-observations.md`): a pause files a new history event on the cube and the cube
+    // announces nothing, so without asking, the open segment would go on reporting the old state.
+    stopTiming: {
+        guard let open = deviceEvents.openSegment(), !ManualFace.isTheApps(open.face) else {
+            settingsWindow.togglePause()
+            return
+        }
+        cubeLock.setPause(true) { _ in
+            historyIngestor.refresh(because: "a category spent its daily limit")
+        }
+    }
 )
 // Asked rather than pushed, so the refusal and the greying cannot be working from different copies of one answer.
 settingsWindow.isLimitReached = { dailyLimit.isReached }
+
+// Recorded time changed, so everything drawn from it is stale: the readings on both surfaces, the day's totals, and
+// whether a category has spent its limit.
+historyIngestor.onChanged = {
+    menuBar.redraw()
+    settingsWindow.redrawTiming()
+    // **The limit's tick stands itself down the moment nothing is being timed, and a pause is exactly that**, so
+    // without this the watch dies at the first limit it enforces and never looks again. `resumeIfStopped` was reached
+    // only from `onTimingChanged`, which every path that starts the *app's* clock goes through and no cube ever does.
+    //
+    // That is what makes a flip back onto a spent category work: the flip resumes the cube in firmware, this fetch
+    // brings the frame in, the tick comes back because something is running again, and the evaluation that follows
+    // finds a category still spent for the day. Without it the cube is stopped once and then left alone for ever.
+    //
+    // Cheap where it does nothing: `resumeIfStopped` returns at once if the tick is already up, and `start` refuses
+    // unless something really is running.
+    dailyLimit.resumeIfStopped()
+}
 
 let menuBar = MenuBarController(
     databaseBadge: databaseBadge,
