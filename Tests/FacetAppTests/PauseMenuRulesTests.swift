@@ -131,4 +131,32 @@ final class PauseMenuRulesTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - a spent limit, with a cube on the other end
+
+    func testTheItemIsDeadForACubeThatWouldBeStartedOnASpentLimit() {
+        // The limit was only ever asked about the app's own clock, and a cube leaves that `.idle`, so every cube click
+        // fell past the one place it was consulted.
+        let target = PauseMenuRules.target(
+            timing: .idle,
+            isCubeConnected: true,
+            isCubeLocked: false,
+            isCubePaused: true,
+            isLimitReached: true
+        )
+        XCTAssertEqual(target, .nothing)
+        XCTAssertFalse(PauseMenuRules.isEnabled(target))
+    }
+
+    func testTheItemStillStopsACubeOnASpentLimit() {
+        let target = PauseMenuRules.target(
+            timing: .idle,
+            isCubeConnected: true,
+            isCubeLocked: false,
+            isCubePaused: false,
+            isLimitReached: true
+        )
+        XCTAssertEqual(target, .cube)
+        XCTAssertTrue(PauseMenuRules.isEnabled(target))
+    }
 }

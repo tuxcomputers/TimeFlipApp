@@ -454,6 +454,7 @@ final class MenuBarController: NSObject {
                 timing: state,
                 isCubeConnected: cube.isConnected,
                 isCubeLocked: cube.isLocked,
+                isCubePaused: cube.isPaused,
                 isLimitReached: isLimitReached()
             )
             pause.title = PauseMenuRules.title(for: target, timing: state, isCubePaused: cube.isPaused)
@@ -504,10 +505,13 @@ final class MenuBarController: NSObject {
         // one that cannot leave someone stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
         let state = timing().state
+        // Read once and handed to both, so the routing and the row below cannot describe different cubes.
+        let cube = self.cube()
         let action = StatusItemClickRouter.action(
             isLeftSide: isLeftSide,
             timing: state,
-            isCubeConnected: cube().isConnected,
+            isCubeConnected: cube.isConnected,
+            isCubePaused: cube.isPaused,
             isLimitReached: isLimitReached(),
             clickCount: event.clickCount
         )
@@ -604,6 +608,7 @@ final class MenuBarController: NSObject {
             timing: state,
             isCubeConnected: cube.isConnected,
             isCubeLocked: cube.isLocked,
+            isCubePaused: cube.isPaused,
             isLimitReached: isLimitReached()
         )
         // What it was called when it was chosen, which is what the person clicking it meant.

@@ -43,14 +43,24 @@ enum StatusItemClickRouter {
     ///     another room can be neither paused nor locked.
     ///   - isLimitReached: whether the category on show has spent its `daily_limit`. It makes the right half a no-op
     ///     rather than a refusal further in, so the click is recorded as ignored and nothing downstream has to know
-    ///     why. **This is about the app's own clock only.** The limit is not enforced against a cube at all yet --
-    ///     `DailyLimitWatch` only ticks while the app is the clock -- so refusing the cube's resume here would be the
-    ///     only half of that rule in existence, and would strand a cube nothing had paused.
+    ///     why.
+    ///
+    ///     **It used to be about the app's own clock only, and said so**: the limit was not enforced against a cube
+    ///     at all, `DailyLimitWatch` ticking only while the app was the clock, so refusing the cube's resume here
+    ///     would have been half a rule and would have stranded a cube nothing had paused. That reasoning was right
+    ///     and is no longer true -- the watch now enforces against a cube -- so what was a considered exemption
+    ///     became the way round the limit: reported live on 2026-08-27, a single click on the right half starting a
+    ///     cube whose budget was spent, with the watch stopping it again two seconds later.
+    ///   - isCubePaused: whether the cube is stopped, which decides *which way* the click goes and so whether the
+    ///     limit has anything to say about it. Only a click that would start the cube is refused; stopping one stays
+    ///     available throughout, for `ManualTimerRules`' reason -- a limit that trapped somebody into recording time
+    ///     would be the opposite of what it is for.
     ///   - clickCount: the event's own, so the second click of a pair is what asks for the lock.
     static func action(
         isLeftSide: Bool,
         timing: TimingState,
         isCubeConnected: Bool = false,
+        isCubePaused: Bool? = nil,
         isLimitReached: Bool = false,
         clickCount: Int = 1
     ) -> StatusItemClick {
@@ -63,6 +73,11 @@ enum StatusItemClickRouter {
         // daily limit would otherwise be undone by clicking the same place a second time.
         guard timing == .idle, isCubeConnected else { return .ignore }
         // `>= 2` rather than `== 2`, so a third click cannot land back on the pause.
-        return clickCount >= 2 ? .toggleCubeLock : .toggleCubePause
+        let action: StatusItemClick = clickCount >= 2 ? .toggleCubeLock : .toggleCubePause
+        // **The lock is not refused, only the resume.** A double click locks or unlocks, and unlocking is the one way
+        // out of a state this app cannot otherwise reach -- `CubeLock.resume` unlocks and leaves the cube stopped when
+        // the budget is spent, so the gesture stays available and simply does not start anything.
+        guard !(action == .toggleCubePause && isLimitReached && isCubePaused == true) else { return .ignore }
+        return action
     }
 }

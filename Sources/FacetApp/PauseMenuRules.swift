@@ -42,6 +42,7 @@ enum PauseMenuRules {
         timing: TimingState,
         isCubeConnected: Bool,
         isCubeLocked: Bool?,
+        isCubePaused: Bool? = nil,
         isLimitReached: Bool = false
     ) -> Target {
         if ManualTimerRules.isClickable(timing, isLimitReached: isLimitReached) { return .appClock }
@@ -49,6 +50,16 @@ enum PauseMenuRules {
         // `StatusItemClickRouter`'s rule and for its reason: a spent daily limit would otherwise be undone by
         // reaching for the menu instead of the status item.
         guard timing == .idle, isCubeConnected else { return .nothing }
+        // **And the limit has to be asked again for the cube, which it was not.** `ManualTimerRules.isClickable`
+        // above answers about *this app's* clock, and a cube leaves that `.idle` however busy it is -- so every cube
+        // click fell straight past the only place the limit was consulted. Reported live on 2026-08-27: a single
+        // click on the right half started a cube whose category had spent its budget, and `DailyLimitWatch` stopped
+        // it again two seconds later.
+        //
+        // **Only a click that would *start* it is refused**, which is the same asymmetry `ManualTimerRules` has:
+        // stopping stays available throughout, because a limit that trapped somebody into recording time would be the
+        // opposite of what it is for. A click at a running cube is a pause and is always allowed.
+        guard !(isLimitReached && isCubePaused == true) else { return .nothing }
         // **Unknown is treated as unlocked**, which is the same way round as `CubeLockRules.title`. A cube nobody has
         // asked is far more often running than locked, and of the two ways to be wrong an item that is enabled and
         // gets refused says why in the log, while one greyed out for a lock that is not there offers no way to find

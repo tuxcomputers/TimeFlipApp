@@ -115,4 +115,67 @@ final class StatusItemClickRouterTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - a spent limit, with a cube on the other end
+
+    func testASingleClickWillNotStartACubeOnASpentLimit() {
+        // **Reported live on 2026-08-27**, and it was a considered exemption that went stale rather than an oversight:
+        // this used to say the limit was about the app's own clock only, because the limit was not enforced against a
+        // cube at all. Once `DailyLimitWatch` began enforcing it, the exemption became the way round it -- a click
+        // started the cube and the watch stopped it again two seconds later.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(
+                isLeftSide: false,
+                timing: .idle,
+                isCubeConnected: true,
+                isCubePaused: true,
+                isLimitReached: true
+            ),
+            .ignore
+        )
+    }
+
+    func testASingleClickWillStillStopACubeOnASpentLimit() {
+        // Stopping stays available throughout. A limit that trapped somebody into recording time would be the
+        // opposite of what it is for, which is `ManualTimerRules`' rule applied to the cube.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(
+                isLeftSide: false,
+                timing: .idle,
+                isCubeConnected: true,
+                isCubePaused: false,
+                isLimitReached: true
+            ),
+            .toggleCubePause
+        )
+    }
+
+    func testADoubleClickStillReachesTheLockOnASpentLimit() {
+        // The lock is not the limit's business, and unlocking is the one way out of a state this app cannot otherwise
+        // reach. `CubeLock.resume` unlocks and leaves the cube stopped, so the gesture stays live and starts nothing.
+        XCTAssertEqual(
+            StatusItemClickRouter.action(
+                isLeftSide: false,
+                timing: .idle,
+                isCubeConnected: true,
+                isCubePaused: true,
+                isLimitReached: true,
+                clickCount: 2
+            ),
+            .toggleCubeLock
+        )
+    }
+
+    func testACubeWithBudgetIsUnaffected() {
+        XCTAssertEqual(
+            StatusItemClickRouter.action(
+                isLeftSide: false,
+                timing: .idle,
+                isCubeConnected: true,
+                isCubePaused: true,
+                isLimitReached: false
+            ),
+            .toggleCubePause
+        )
+    }
 }

@@ -43,6 +43,21 @@ final class CubeLock {
     /// pause, which a double tap or auto-pause changes with nothing said.
     private let isLocked: () -> Bool?
 
+    /// Whether starting the cube is refused right now, which is exactly "the category on show has spent its budget".
+    ///
+    /// **The enforcement, as opposed to the courtesy.** `PauseMenuRules` greys the item and routes the click to
+    /// nothing, which is what stops it looking like a control that is simply broken; this is what makes the limit
+    /// hard, because it catches every caller including ones that never asked the router. Both are needed and they are
+    /// not the same thing.
+    ///
+    /// **Pausing is never refused**, only starting: a limit that trapped somebody into recording time would be the
+    /// opposite of what it is for. So this is asked of a resume and nothing else.
+    private func startingIsRefused() -> Bool {
+        guard isLimitReached() else { return false }
+        debugLog?.record(.command, "The cube is left stopped: the category on show has spent its daily limit")
+        return true
+    }
+
     /// Whether the category on show has spent its `daily_limit`, read at the moment it matters.
     ///
     /// **Set after construction**, because `DailyLimitWatch` is built from things that are built after this. A `var`
@@ -113,6 +128,11 @@ final class CubeLock {
             debugLog?.record(.command, "The cube is locked, so pausing it means nothing; unlock it first")
             return false
         }
+        // **Every path that could start the cube comes through here**, which is what makes this the enforcement rather
+        // than one more place that happens to check. Reported live on 2026-08-27: a single click on the status item's
+        // right half sent `06 02` against a spent budget, because the router only ever asked the limit about the app's
+        // own clock and a cube leaves that idle.
+        guard !(wanted == false && startingIsRefused()) else { return false }
         send(DeviceCommandRules.pause(wanted)) { [weak self] took in
             self?.debugLog?.record(
                 .command,
@@ -212,11 +232,7 @@ final class CubeLock {
             // state this app cannot otherwise get it out of, and the limit is about recording time rather than about
             // holding somebody's hardware shut. So a spent budget leaves it unlocked and stopped, which is exactly
             // what the limit means, and every other way to start it again is already refused.
-            guard !self.isLimitReached() else {
-                self.debugLog?.record(
-                    .command,
-                    "The cube is unlocked but left stopped: the category on show has spent its daily limit"
-                )
+            guard !self.startingIsRefused() else {
                 finished(unlocked)
                 return
             }
