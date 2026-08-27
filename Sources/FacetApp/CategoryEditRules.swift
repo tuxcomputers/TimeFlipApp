@@ -45,8 +45,8 @@ enum CategoryEditRules {
     /// Only the *active* list is affected, which needs no check here because it is the only list that offers edits.
     /// Reinstating a category a locked face holds -- which a database written before any of this can have -- must
     /// still work, since reinstating puts nothing on any face.
-    static func editRefusal(facesHolding faces: [(face: Int, isLocked: Bool)]) -> EditRefusal? {
-        let locked = faces.filter(\.isLocked).map(\.face)
+    static func editRefusal(facesHolding faces: [(face: Int, isFaceLocked: Bool)]) -> EditRefusal? {
+        let locked = faces.filter(\.isFaceLocked).map(\.face)
         return locked.isEmpty ? nil : .lockedFaces(locked)
     }
 

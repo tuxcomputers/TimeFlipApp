@@ -71,7 +71,7 @@ final class CategoryTable: NSView {
     /// Which faces hold a category, and whether they are locked, which is what decides whether its Active box can be
     /// unticked at all. Asked per row as the row is built, so it is read when it is needed rather than passed in
     /// alongside the categories and going stale between the two.
-    var facesHolding: ((CategoryRecord) -> [(face: Int, isLocked: Bool)])?
+    var facesHolding: ((CategoryRecord) -> [(face: Int, isFaceLocked: Bool)])?
 
     /// Called when a category's icon is clicked, with the view the picker should hang from. What opens there is the
     /// window's to decide, as every other write on this tab is.

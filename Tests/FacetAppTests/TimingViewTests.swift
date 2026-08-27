@@ -329,7 +329,7 @@ final class TimingViewTests: XCTestCase {
     func testFollowingACubeDrawsTheLock() {
         let view = view()
 
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
 
         XCTAssertFalse(view.lockButton.isHidden)
     }
@@ -339,10 +339,10 @@ final class TimingViewTests: XCTestCase {
         // it is already in.
         let view = view()
 
-        view.show(face: 5, category: nil, isLocked: true)
+        view.show(face: 5, category: nil, isFaceLocked: true)
         XCTAssertEqual(view.lockButton.accessibilityLabel(), "Unlock face")
 
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         XCTAssertEqual(view.lockButton.accessibilityLabel(), "Lock face")
     }
 
@@ -351,10 +351,10 @@ final class TimingViewTests: XCTestCase {
         // that have to be read together.
         let view = view()
 
-        view.show(face: 5, category: nil, isLocked: true)
+        view.show(face: 5, category: nil, isFaceLocked: true)
         XCTAssertEqual(view.lockButton.contentTintColor, .systemRed)
 
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         XCTAssertEqual(view.lockButton.contentTintColor, .systemGreen)
     }
 
@@ -362,7 +362,7 @@ final class TimingViewTests: XCTestCase {
         // The band of square the ring leaves empty, which is the whole reason it can sit on the artwork without
         // landing on any of it.
         let view = view(width: 400)
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         view.layoutSubtreeIfNeeded()
 
         let expected = (400 * TimingView.Layout.lockScale).rounded()
@@ -375,10 +375,10 @@ final class TimingViewTests: XCTestCase {
         // The archive's 40 points was right for one window width and nothing else. Everything in this column follows
         // the square, and a lock that did not would swamp a narrow window and vanish in a wide one.
         let narrow = view(width: 200)
-        narrow.show(face: 5, category: nil, isLocked: false)
+        narrow.show(face: 5, category: nil, isFaceLocked: false)
         narrow.layoutSubtreeIfNeeded()
         let wide = view(width: 600)
-        wide.show(face: 5, category: nil, isLocked: false)
+        wide.show(face: 5, category: nil, isFaceLocked: false)
         wide.layoutSubtreeIfNeeded()
 
         XCTAssertLessThan(lockSize(of: narrow).width, lockSize(of: wide).width)
@@ -387,7 +387,7 @@ final class TimingViewTests: XCTestCase {
     func testTheLockGoesWhenTheCubeDoes() {
         // A link that drops must not leave a lock behind on a face nobody is holding.
         let view = view()
-        view.show(face: 5, category: nil, isLocked: true)
+        view.show(face: 5, category: nil, isFaceLocked: true)
         XCTAssertFalse(view.lockButton.isHidden, "precondition")
 
         view.show(category: nil, timingState: .idle, elapsed: 0)
@@ -401,7 +401,7 @@ final class TimingViewTests: XCTestCase {
         let window = OffscreenWindow.host(view)
         var pressed = 0
         view.onToggleLock = { pressed += 1 }
-        view.show(face: 5, category: nil, isLocked: false)
+        view.show(face: 5, category: nil, isFaceLocked: false)
         view.layoutSubtreeIfNeeded()
 
         view.lockButton.performClick(nil)
@@ -417,7 +417,7 @@ final class TimingViewTests: XCTestCase {
         // artwork would be writing over the picture.
         let view = view(width: 400)
 
-        view.show(face: 5, category: category(), isLocked: false, elapsed: 3661)
+        view.show(face: 5, category: category(), isFaceLocked: false, elapsed: 3661)
         view.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(view.faceElapsedLabel.stringValue, "1:01:01")

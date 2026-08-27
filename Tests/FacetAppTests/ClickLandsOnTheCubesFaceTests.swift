@@ -524,11 +524,11 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
     func testPressingTheLockLocksTheFaceTheCubeIsOn() {
         cubeIsOn(freeFace)
         controller.redrawTiming()
-        XCTAssertEqual(faces.isLocked(face: freeFace), false, "precondition")
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), false, "precondition")
 
         timingView()?.onToggleLock?()
 
-        XCTAssertEqual(faces.isLocked(face: freeFace), true)
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), true)
     }
 
     func testPressingItAgainUnlocksIt() {
@@ -537,7 +537,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
 
         timingView()?.onToggleLock?()
 
-        XCTAssertEqual(faces.isLocked(face: lockedFace), false)
+        XCTAssertEqual(faces.isFaceLocked(face: lockedFace), false)
     }
 
     func testLockingImmediatelyRefusesTheNextClick() {
@@ -563,7 +563,7 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
         face = 6
         timingView()?.onToggleLock?()
 
-        XCTAssertEqual(faces.isLocked(face: 6), true, "the face the cube is on now")
-        XCTAssertEqual(faces.isLocked(face: freeFace), false, "not the one the lock was drawn for")
+        XCTAssertEqual(faces.isFaceLocked(face: 6), true, "the face the cube is on now")
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), false, "not the one the lock was drawn for")
     }
 }

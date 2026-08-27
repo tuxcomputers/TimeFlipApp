@@ -89,7 +89,7 @@ final class MenuBarController: NSObject {
     struct CubeReading: Equatable {
         let isCubeConnected: Bool
         /// `nil` when the cube has not been asked, or would not answer. See `CubeLockRules.title`.
-        let isLocked: Bool?
+        let cubeLockState: CubeLockState
         /// `nil` for the same two reasons. **Only meaningful while the cube is unlocked**, since a locked cube
         /// reports itself paused whatever its pause byte says -- which is why `PauseMenuRules` reads it in the one
         /// case where the cube is known not to be locked, and nowhere else.
@@ -98,9 +98,9 @@ final class MenuBarController: NSObject {
         /// Written out so `isPaused` can default to "nobody asked", which is what a reading built without it means.
         /// The alternative was making every existing caller name a fact it has no opinion about, which reads as an
         /// assertion that the cube is running rather than as silence.
-        init(isCubeConnected: Bool, isLocked: Bool?, isPaused: Bool? = nil) {
+        init(isCubeConnected: Bool, cubeLockState: CubeLockState, isPaused: Bool? = nil) {
             self.isCubeConnected = isCubeConnected
-            self.isLocked = isLocked
+            self.cubeLockState = cubeLockState
             self.isPaused = isPaused
         }
     }
@@ -181,7 +181,7 @@ final class MenuBarController: NSObject {
         togglePause: @escaping () -> Void = {},
         isLimitReached: @escaping () -> Bool = { false },
         lowBattery: @escaping () -> LowBatteryAlert = { .none },
-        cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, isLocked: nil, isPaused: nil) },
+        cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, cubeLockState: .unknown, isPaused: nil) },
         toggleCubeLock: @escaping () -> Void = {},
         toggleCubePause: @escaping () -> Void = {}
     ) {
@@ -254,7 +254,7 @@ final class MenuBarController: NSObject {
             // The same answer the dropdown's Lock item reads. Asked per draw, though it can only change when the app
             // itself sends a command or reaches a cube: the badge has to come off the moment the link goes, and the
             // link going is not something this class is told about.
-            isCubeLocked: cube().isLocked == true
+            isCubeLocked: cube().cubeLockState == .locked
         )
         if title != lastDrawn {
             let drawn = makeTitle(title)
@@ -453,7 +453,7 @@ final class MenuBarController: NSObject {
             let target = PauseMenuRules.target(
                 timingState: state,
                 isCubeConnected: cube.isCubeConnected,
-                isCubeLocked: cube.isLocked,
+                cubeLockState: cube.cubeLockState,
                 isCubePaused: cube.isPaused,
                 isLimitReached: isLimitReached()
             )
@@ -467,7 +467,7 @@ final class MenuBarController: NSObject {
             // radio's answer and it is only ever as fresh as the last question -- but the alternative, a title pushed
             // in when something changed, would be a copy of it that could be wrong with nothing to say so.
             let cube = self.cube()
-            lock.title = CubeLockRules.title(isLocked: cube.isLocked)
+            lock.title = CubeLockRules.title(cubeLockState: cube.cubeLockState)
             lock.isEnabled = CubeLockRules.isEnabled(isCubeConnected: cube.isCubeConnected)
         }
     }
@@ -607,7 +607,7 @@ final class MenuBarController: NSObject {
         let target = PauseMenuRules.target(
             timingState: state,
             isCubeConnected: cube.isCubeConnected,
-            isCubeLocked: cube.isLocked,
+            cubeLockState: cube.cubeLockState,
             isCubePaused: cube.isPaused,
             isLimitReached: isLimitReached()
         )
@@ -633,7 +633,7 @@ final class MenuBarController: NSObject {
     private func menuToggleCubeLock() {
         // What it was called when it was chosen, which is what the person clicking it meant.
         let cube = self.cube()
-        debugLog?.record(.menu, "Menu item clicked: \(CubeLockRules.title(isLocked: cube.isLocked))")
+        debugLog?.record(.menu, "Menu item clicked: \(CubeLockRules.title(cubeLockState: cube.cubeLockState))")
         toggleCubeLock()
     }
 

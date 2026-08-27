@@ -31,7 +31,7 @@ final class ForcedPauseWatch {
     private let isPaused: () -> Bool?
 
     /// Whether the cube is locked, from `BluetoothRadio.cubeStatus`.
-    private let isLocked: () -> Bool?
+    private let cubeLockState: () -> CubeLockState
 
     /// Whether there is a live link to send anything down.
     private let isCubeConnected: () -> Bool
@@ -70,7 +70,7 @@ final class ForcedPauseWatch {
         cubeFace: @escaping () -> Int?,
         hasCategory: @escaping (Int) -> Bool,
         isPaused: @escaping () -> Bool?,
-        isLocked: @escaping () -> Bool?,
+        cubeLockState: @escaping () -> CubeLockState,
         isCubeConnected: @escaping () -> Bool,
         limitIsHolding: @escaping () -> Bool,
         setPause: @escaping (Bool, @escaping (Bool) -> Void) -> Bool,
@@ -80,7 +80,7 @@ final class ForcedPauseWatch {
         self.cubeFace = cubeFace
         self.hasCategory = hasCategory
         self.isPaused = isPaused
-        self.isLocked = isLocked
+        self.cubeLockState = cubeLockState
         self.isCubeConnected = isCubeConnected
         self.limitIsHolding = limitIsHolding
         self.setPause = setPause
@@ -97,7 +97,7 @@ final class ForcedPauseWatch {
             face: face,
             hasCategory: face.map { hasCategory($0) } ?? false,
             isPaused: isPaused() ?? false,
-            isLocked: isLocked(),
+            cubeLockState: cubeLockState(),
             isCubeConnected: isCubeConnected(),
             limitIsHolding: limitIsHolding()
         )

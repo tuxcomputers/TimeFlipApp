@@ -200,7 +200,7 @@ let cubeLock = CubeLock(
     isPaused: { timingReadout.read().deviceIsPaused },
     // A different source, because nothing else answers it: no history frame carries a lock bit and `device_event` has
     // no column for one, so `0x10` is all there is. See `CubeLock.isLocked`.
-    isLocked: { radio.cubeStatus?.isLocked },
+    cubeLockState: { CubeLockState(reported: radio.cubeStatus?.isLocked) },
     debugLog: debugLog
 )
 // The other half of the way out: the cube is paused and then locked before the link is given back, so a device left on
@@ -341,7 +341,7 @@ let forcedPause = ForcedPauseWatch(
     // **The same three sources `CubeLock` reads**, deliberately: the thing deciding to send a pause and the thing
     // sending it must not be working from different answers about whether the cube is stopped, locked or reachable.
     isPaused: { timingReadout.read().deviceIsPaused },
-    isLocked: { radio.cubeStatus?.isLocked },
+    cubeLockState: { CubeLockState(reported: radio.cubeStatus?.isLocked) },
     isCubeConnected: { radio.connectedDevice != nil },
     limitIsHolding: { dailyLimit.isLimitHoldingPause },
     setPause: { wanted, then in cubeLock.setPause(wanted, then: then) },
@@ -395,7 +395,7 @@ let menuBar = MenuBarController(
     cube: {
         MenuBarController.CubeReading(
             isCubeConnected: radio.connectedDevice != nil,
-            isLocked: radio.cubeStatus?.isLocked,
+            cubeLockState: CubeLockState(reported: radio.cubeStatus?.isLocked),
             isPaused: radio.cubeStatus?.isPaused
         )
     },
@@ -408,7 +408,7 @@ let menuBar = MenuBarController(
     // nothing when its pause changes. Without asking, the glyph on both surfaces would go on drawing the old state
     // until the timer next fired, which a shipped build floors at a minute.
     toggleCubeLock: {
-        if radio.cubeStatus?.isLocked == true {
+        if CubeLockState(reported: radio.cubeStatus?.isLocked) == .locked {
             cubeLock.resume { _ in
                 historyIngestor.refresh(because: "the cube was unlocked from the menu bar")
             }

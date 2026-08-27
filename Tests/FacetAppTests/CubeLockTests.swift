@@ -43,7 +43,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
         connected: Bool = true,
         answering: Bool = true,
         isPaused: Bool? = nil,
-        isLocked: Bool? = nil,
+        cubeLockState: CubeLockState = .unknown,
         limitReached: Bool = false,
         into sent: NSMutableArray
     ) -> CubeLock {
@@ -55,7 +55,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
                 reported(answering)
             },
             isPaused: { isPaused },
-            isLocked: { isLocked },
+            cubeLockState: { cubeLockState },
             debugLog: nil
         )
         lock.isLimitReached = { limitReached }
@@ -69,7 +69,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
         // limit never saw: measured on a real cube on 2026-08-27 as `The cube is unlocked`, `Sending 06 02`, `The cube
         // is running`, and `DailyLimitWatch` stopping it again two seconds later.
         let sent = NSMutableArray()
-        let lock = cubeLock(isLocked: true, limitReached: true, into: sent)
+        let lock = cubeLock(cubeLockState: .locked, limitReached: true, into: sent)
 
         XCTAssertTrue(lock.resume { _ in })
 
@@ -81,7 +81,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
         // The other half: refusing the unlock would strand the cube in the one state this app cannot get it out of.
         // A limit is about recording time, not about holding somebody's hardware shut.
         let sent = NSMutableArray()
-        let lock = cubeLock(isLocked: true, limitReached: true, into: sent)
+        let lock = cubeLock(cubeLockState: .locked, limitReached: true, into: sent)
 
         var reported: Bool?
         XCTAssertTrue(lock.resume { reported = $0 })
@@ -91,7 +91,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
 
     func testUnlockingWithBudgetInHandStillResumes() {
         let sent = NSMutableArray()
-        let lock = cubeLock(isLocked: true, limitReached: false, into: sent)
+        let lock = cubeLock(cubeLockState: .locked, limitReached: false, into: sent)
 
         XCTAssertTrue(lock.resume { _ in })
 
@@ -142,7 +142,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
         // here could be read back afterwards. The way out is the lock.
         let sent = NSMutableArray()
         var reported = false
-        let sending = cubeLock(isPaused: false, isLocked: true, into: sent).togglePause { _ in reported = true }
+        let sending = cubeLock(isPaused: false, cubeLockState: .locked, into: sent).togglePause { _ in reported = true }
 
         XCTAssertFalse(sending)
         XCTAssertEqual(sent.count, 0)
@@ -153,7 +153,7 @@ final class CubeLockTests: XCTestCase, @unchecked Sendable {
         // `nil` is "not asked yet", not "locked". Refusing on it would leave the gesture dead until something else
         // happened to put a command on the wire.
         let sent = NSMutableArray()
-        cubeLock(isPaused: false, isLocked: nil, into: sent).togglePause { _ in }
+        cubeLock(isPaused: false, cubeLockState: .unknown, into: sent).togglePause { _ in }
 
         XCTAssertEqual(sent as! [Data], [DeviceCommandRules.pause(true)])
     }

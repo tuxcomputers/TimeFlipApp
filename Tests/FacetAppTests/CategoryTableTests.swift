@@ -168,7 +168,7 @@ final class CategoryTableTests: XCTestCase {
         // Retiring takes a category off every face it is on, and a locked face is one the user has said keeps what it
         // has. A box that offered the edit and bounced back would be worse than one that says it is not on offer.
         let table = CategoryTable()
-        table.facesHolding = { _ in [(face: 8, isLocked: true)] }
+        table.facesHolding = { _ in [(face: 8, isFaceLocked: true)] }
         table.show([category(1, "Break")])
 
         let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))
@@ -182,7 +182,7 @@ final class CategoryTableTests: XCTestCase {
 
     private func lockedRow(_ name: String = "Break") -> (CategoryTable, CategoryTableRow) {
         let table = CategoryTable()
-        table.facesHolding = { _ in [(face: 8, isLocked: true)] }
+        table.facesHolding = { _ in [(face: 8, isFaceLocked: true)] }
         table.show([category(1, name, limit: 45)])
         // swiftlint:disable:next force_unwrapping
         return (table, rows(of: table).first!)
@@ -246,7 +246,7 @@ final class CategoryTableTests: XCTestCase {
         // are no argument against it: they are not asking for anything.
         let table = CategoryTable()
         table.facesHolding = { _ in
-            [(face: 8, isLocked: true), (face: 13, isLocked: false), (face: 14, isLocked: false)]
+            [(face: 8, isFaceLocked: true), (face: 13, isFaceLocked: false), (face: 14, isFaceLocked: false)]
         }
         table.show([category(1, "Break", limit: 45)])
         let row = try XCTUnwrap(rows(of: table).first)
@@ -263,7 +263,7 @@ final class CategoryTableTests: XCTestCase {
 
     func testAnUnlockedRowLeavesEveryControlAlone() throws {
         let table = CategoryTable()
-        table.facesHolding = { _ in [(face: 13, isLocked: false)] }
+        table.facesHolding = { _ in [(face: 13, isFaceLocked: false)] }
         table.show([category(1, "Break", limit: 45)])
         let row = try XCTUnwrap(rows(of: table).first)
 
@@ -287,7 +287,7 @@ final class CategoryTableTests: XCTestCase {
 
     func testAnUnlockedFaceLeavesTheBoxAlone() throws {
         let table = CategoryTable()
-        table.facesHolding = { _ in [(face: 13, isLocked: false), (face: 14, isLocked: false)] }
+        table.facesHolding = { _ in [(face: 13, isFaceLocked: false), (face: 14, isFaceLocked: false)] }
         table.show([category(1, "Break")])
 
         let box = try XCTUnwrap(activeBox(of: try XCTUnwrap(rows(of: table).first)))

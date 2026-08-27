@@ -21,7 +21,7 @@ final class ForcedPauseTests: XCTestCase {
         face: Int?,
         hasCategory: Bool,
         isPaused: Bool,
-        isLocked: Bool? = false,
+        cubeLockState: CubeLockState = .unlocked,
         isCubeConnected: Bool = true,
         limitIsHolding: Bool = false
     ) -> ForcedPauseAction {
@@ -29,7 +29,7 @@ final class ForcedPauseTests: XCTestCase {
             face: face,
             hasCategory: hasCategory,
             isPaused: isPaused,
-            isLocked: isLocked,
+            cubeLockState: cubeLockState,
             isCubeConnected: isCubeConnected,
             limitIsHolding: limitIsHolding
         )
@@ -150,14 +150,14 @@ final class ForcedPauseTests: XCTestCase {
         // The status read answers `pause (0x01/0x02 unless locked)`, so a locked cube reports itself paused whatever
         // its pause byte says. Nothing sent here could be read back and believed.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, isLocked: true), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, cubeLockState: .locked), .none)
     }
 
     func testACubeNobodyHasAskedAboutIsLeftAlone() {
         // `nil` is "no answer yet", not "unlocked". Guessing the other way is guessing about the one state that makes
         // the pause byte lie.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, isLocked: nil), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, cubeLockState: .unknown), .none)
     }
 
     func testALockedCubeKeepsTheClaimRatherThanDroppingIt() {
@@ -165,8 +165,8 @@ final class ForcedPauseTests: XCTestCase {
         // the lock is off.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        _ = evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, isLocked: true)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, isLocked: false), .resume)
+        _ = evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, cubeLockState: .locked)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, cubeLockState: .unlocked), .resume)
     }
 
     func testNothingIsDecidedWithNoLink() {

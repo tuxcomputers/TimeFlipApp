@@ -129,13 +129,13 @@ final class CategoryEditRulesTests: XCTestCase {
 
     func testACategoryOnUnlockedFacesCanBeEdited() {
         XCTAssertNil(
-            CategoryEditRules.editRefusal(facesHolding: [(face: 13, isLocked: false), (face: 14, isLocked: false)])
+            CategoryEditRules.editRefusal(facesHolding: [(face: 13, isFaceLocked: false), (face: 14, isFaceLocked: false)])
         )
     }
 
     func testALockedFaceHoldingItStopsEveryEdit() {
         let refusal = CategoryEditRules.editRefusal(
-            facesHolding: [(face: 2, isLocked: false), (face: 8, isLocked: true)]
+            facesHolding: [(face: 2, isFaceLocked: false), (face: 8, isFaceLocked: true)]
         )
 
         // Only the locked ones are named: the others are no reason for anything.
@@ -144,7 +144,7 @@ final class CategoryEditRulesTests: XCTestCase {
 
     func testTheExplanationNamesEveryLockedFaceAndTheCategory() throws {
         let refusal = CategoryEditRules.editRefusal(
-            facesHolding: [(face: 4, isLocked: true), (face: 8, isLocked: true)]
+            facesHolding: [(face: 4, isFaceLocked: true), (face: 8, isFaceLocked: true)]
         )
 
         let help = try XCTUnwrap(CategoryEditRules.editRefusalHelp(refusal, categoryName: "Break"))

@@ -14,7 +14,7 @@ final class PauseMenuRulesTests: XCTestCase {
     func testAConnectedUnlockedCubeIsPausableFromTheMenu() {
         // The whole of the report: connected and unlocked, so the item works. It used to be dead here.
         XCTAssertEqual(
-            PauseMenuRules.target(timingState: .idle, isCubeConnected: true, isCubeLocked: false),
+            PauseMenuRules.target(timingState: .idle, isCubeConnected: true, cubeLockState: .unlocked),
             .cube
         )
         XCTAssertTrue(PauseMenuRules.isEnabled(.cube))
@@ -25,7 +25,7 @@ final class PauseMenuRulesTests: XCTestCase {
         // pause one is an offer that is going to be refused. `CubeLock.togglePause` refuses it in as many words; a
         // menu is the one surface that can say so *before* it is pressed.
         XCTAssertEqual(
-            PauseMenuRules.target(timingState: .idle, isCubeConnected: true, isCubeLocked: true),
+            PauseMenuRules.target(timingState: .idle, isCubeConnected: true, cubeLockState: .locked),
             .nothing
         )
         XCTAssertFalse(PauseMenuRules.isEnabled(.nothing))
@@ -36,7 +36,7 @@ final class PauseMenuRulesTests: XCTestCase {
         // and of the two ways to be wrong, an enabled item that gets refused says why in the log, while one greyed
         // out for a lock that is not there offers no way to discover it was wrong.
         XCTAssertEqual(
-            PauseMenuRules.target(timingState: .idle, isCubeConnected: true, isCubeLocked: nil),
+            PauseMenuRules.target(timingState: .idle, isCubeConnected: true, cubeLockState: .unknown),
             .cube
         )
     }
@@ -44,7 +44,7 @@ final class PauseMenuRulesTests: XCTestCase {
     func testWithNoCubeConnectedThereIsNothingToActOn() {
         // The connection, not the pairing: it ends in a command and a command needs a live link.
         XCTAssertEqual(
-            PauseMenuRules.target(timingState: .idle, isCubeConnected: false, isCubeLocked: false),
+            PauseMenuRules.target(timingState: .idle, isCubeConnected: false, cubeLockState: .unlocked),
             .nothing
         )
     }
@@ -53,11 +53,11 @@ final class PauseMenuRulesTests: XCTestCase {
         // `StatusItemClickRouter`'s precedence, kept in the same order so the two surfaces cannot come to disagree
         // about which clock the gesture belongs to.
         XCTAssertEqual(
-            PauseMenuRules.target(timingState: .running, isCubeConnected: true, isCubeLocked: false),
+            PauseMenuRules.target(timingState: .running, isCubeConnected: true, cubeLockState: .unlocked),
             .appClock
         )
         XCTAssertEqual(
-            PauseMenuRules.target(timingState: .paused, isCubeConnected: true, isCubeLocked: false),
+            PauseMenuRules.target(timingState: .paused, isCubeConnected: true, cubeLockState: .unlocked),
             .appClock
         )
     }
@@ -67,7 +67,7 @@ final class PauseMenuRulesTests: XCTestCase {
         // hole `StatusItemClickRouter` closes for the right half.
         XCTAssertEqual(
             PauseMenuRules.target(
-                timingState: .paused, isCubeConnected: true, isCubeLocked: false, isLimitReached: true
+                timingState: .paused, isCubeConnected: true, cubeLockState: .unlocked, isLimitReached: true
             ),
             .nothing
         )
@@ -101,14 +101,14 @@ final class PauseMenuRulesTests: XCTestCase {
         // The point of the whole type. Every state where the router sends a single right-half click somewhere is a
         // state where the menu must offer the same thing, or the two surfaces disagree again -- which is the failure
         // that has no symptom until somebody notices a greyed item above a working click.
-        for locked in [false, true] {
+        for cubeLockState in [CubeLockState.unlocked, .locked] {
             for connected in [false, true] {
                 for timingState in [TimingState.idle, .running, .paused] {
                     let click = StatusItemClickRouter.action(
                         isLeftSide: false, timingState: timingState, isCubeConnected: connected, clickCount: 1
                     )
                     let menu = PauseMenuRules.target(
-                        timingState: timingState, isCubeConnected: connected, isCubeLocked: locked
+                        timingState: timingState, isCubeConnected: connected, cubeLockState: cubeLockState
                     )
                     switch click {
                     case .togglePause:
@@ -119,8 +119,8 @@ final class PauseMenuRulesTests: XCTestCase {
                         // because a click has no way to show it is unavailable. The menu can grey out instead, so it
                         // does. Both end with the cube unpaused and told why.
                         XCTAssertEqual(
-                            menu, locked ? .nothing : .cube,
-                            "state \(timingState), connected \(connected), locked \(locked)"
+                            menu, cubeLockState == .locked ? .nothing : .cube,
+                            "state \(timingState), connected \(connected), lock \(cubeLockState)"
                         )
                     case .ignore:
                         XCTAssertEqual(menu, .nothing, "state \(timingState), connected \(connected)")
@@ -140,7 +140,7 @@ final class PauseMenuRulesTests: XCTestCase {
         let target = PauseMenuRules.target(
             timingState: .idle,
             isCubeConnected: true,
-            isCubeLocked: false,
+            cubeLockState: .unlocked,
             isCubePaused: true,
             isLimitReached: true
         )
@@ -152,7 +152,7 @@ final class PauseMenuRulesTests: XCTestCase {
         let target = PauseMenuRules.target(
             timingState: .idle,
             isCubeConnected: true,
-            isCubeLocked: false,
+            cubeLockState: .unlocked,
             isCubePaused: false,
             isLimitReached: true
         )

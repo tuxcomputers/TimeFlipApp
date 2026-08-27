@@ -1833,11 +1833,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // written out twice: the archive's `canAssignToFaceOnShow` was read by both for exactly this reason, and this
         // app had only the click half until a locked face was watched refusing one on hardware with nothing on screen
         // to say so.
-        let isLocked = reading.cubeFace.map { faces?.isLocked(face: $0) == true } ?? false
+        let isFaceLocked = reading.cubeFace.map { faces?.isFaceLocked(face: $0) == true } ?? false
         pane.categoryList.allowPicking(
             FacesTabRules.click(
                 cubeFace: reading.cubeFace,
-                isFaceLocked: isLocked,
+                isFaceLocked: isFaceLocked,
                 isManualMode: launchMode?.isManual == true,
                 isCubeConnected: reading.isCubeConnected
             ).doesAnything
@@ -1846,7 +1846,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             pane.timingView.show(
                 face: face,
                 category: reading.category,
-                isLocked: isLocked,
+                isFaceLocked: isFaceLocked,
                 // The same figure the menu bar draws, out of the same reading, so the two cannot differ by a read.
                 elapsed: reading.seconds,
                 // Read at the moment it is drawn, like every other setting: the App tab can change it while this
@@ -1896,7 +1896,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let reading = timing?.read()
         switch FacesTabRules.click(
             cubeFace: reading?.cubeFace,
-            isFaceLocked: reading?.cubeFace.map { faces.isLocked(face: $0) == true } ?? false,
+            isFaceLocked: reading?.cubeFace.map { faces.isFaceLocked(face: $0) == true } ?? false,
             isManualMode: launchMode?.isManual == true,
             isCubeConnected: reading?.isCubeConnected ?? false
         ) {
@@ -2410,7 +2410,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             debugLog?.record(.click, "The lock was pressed with no cube face to lock")
             return
         }
-        let wanted = !(faces.isLocked(face: face) ?? false)
+        let wanted = !(faces.isFaceLocked(face: face) ?? false)
         debugLog?.record(.click, "Button clicked: face \(face) lock -> \(wanted ? "locked" : "unlocked")")
         if !faces.setLocked(wanted, face: face) {
             debugLog?.record(.click, "Face \(face) would not take the lock")

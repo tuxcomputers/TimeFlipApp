@@ -41,7 +41,7 @@ final class CubeLock {
     /// `BluetoothRadio.cubeStatus` -- read when the link comes up and refreshed by the read-back of every command the
     /// app sends. It has no back door to go stale through: the cube offers no gesture that locks itself, unlike
     /// pause, which a double tap or auto-pause changes with nothing said.
-    private let isLocked: () -> Bool?
+    private let cubeLockState: () -> CubeLockState
 
     /// Whether starting the cube is refused right now, which is exactly "the category on show has spent its budget".
     ///
@@ -71,14 +71,14 @@ final class CubeLock {
         isCubeConnected: @escaping () -> Bool,
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
         isPaused: @escaping () -> Bool? = { nil },
-        isLocked: @escaping () -> Bool? = { nil },
+        cubeLockState: @escaping () -> CubeLockState = { .unknown },
         debugLog: DebugLog?
     ) {
         self.settings = settings
         self.isCubeConnected = isCubeConnected
         self.send = send
         self.isPaused = isPaused
-        self.isLocked = isLocked
+        self.cubeLockState = cubeLockState
         self.debugLog = debugLog
     }
 
@@ -124,7 +124,7 @@ final class CubeLock {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or resume")
             return false
         }
-        guard isLocked() != true else {
+        guard cubeLockState() != .locked else {
             debugLog?.record(.command, "The cube is locked, so pausing it means nothing; unlock it first")
             return false
         }

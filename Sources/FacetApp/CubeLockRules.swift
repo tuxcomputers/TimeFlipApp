@@ -1,5 +1,31 @@
 import Foundation
 
+/// Whether the cube is frozen on the face it is resting on.
+///
+/// **Three answers, not two, and `unknown` is a real one.** It is the cube nobody has asked yet, and it was a `Bool?`
+/// read as `== true` until the state sweep: a comparison that looks like a slip and is in fact the whole decision that
+/// unknown counts as unlocked. Written out, a reader can see which way each caller goes, and they do not all go the
+/// same way -- `ForcedPause` deliberately requires a known `.unlocked` before it will send anything, while the menu
+/// and the click router treat unknown as unlocked so that a cube nobody has asked is still operable.
+///
+/// The truth is `0x10`, and nothing else answers it: no history frame carries a lock bit and `device_event` has no
+/// column for one.
+enum CubeLockState: Equatable {
+    /// Nobody has asked, or the cube would not answer.
+    case unknown
+    case locked
+    case unlocked
+
+    /// From the cube's own `0x10` answer, which is absent until it has been read.
+    init(reported: Bool?) {
+        switch reported {
+        case .some(true): self = .locked
+        case .some(false): self = .unlocked
+        case nil: self = .unknown
+        }
+    }
+}
+
 /// What the dropdown's Lock item is called, and whether it can be chosen.
 ///
 /// **A rules type rather than three expressions inside `makeMenu`**, which is the seam `MenuBarDropdownRules` was in
@@ -22,8 +48,8 @@ enum CubeLockRules {
     /// **Unknown reads as "Lock".** That covers a cube nobody has asked yet and one that would not answer, and it is
     /// the safer of the two to be wrong about: an item that offers to lock an already-locked cube sends a command
     /// that changes nothing, while one offering to unlock a running cube would unpause what was never paused.
-    static func title(isLocked: Bool?) -> String {
-        isLocked == true ? "Unlock" : "Lock"
+    static func title(cubeLockState: CubeLockState) -> String {
+        cubeLockState == .locked ? "Unlock" : "Lock"
     }
 
     /// Whether it can be chosen: only with a cube on the other end.

@@ -17,7 +17,7 @@ final class ForcedPauseWatchTests: XCTestCase {
         var face: Int? = 5
         var facesWithCategory: Set<Int> = []
         var isPaused: Bool? = false
-        var isLocked: Bool? = false
+        var cubeLockState: CubeLockState = .unlocked
         var isCubeConnected = true
         var limitIsHolding = false
 
@@ -44,7 +44,7 @@ final class ForcedPauseWatchTests: XCTestCase {
                 cubeFace: { self.face },
                 hasCategory: { self.facesWithCategory.contains($0) },
                 isPaused: { self.isPaused },
-                isLocked: { self.isLocked },
+                cubeLockState: { self.cubeLockState },
                 isCubeConnected: { self.isCubeConnected },
                 limitIsHolding: { self.limitIsHolding },
                 setPause: { wanted, then in
@@ -171,7 +171,7 @@ final class ForcedPauseWatchTests: XCTestCase {
 
     func testALockedCubeIsLeftAlone() {
         let bench = Bench()
-        bench.isLocked = true
+        bench.cubeLockState = .locked
         let watch = bench.make()
         watch.check()
         XCTAssertTrue(bench.sent.isEmpty)

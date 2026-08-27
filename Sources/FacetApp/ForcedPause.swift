@@ -94,7 +94,7 @@ struct ForcedPause {
         face: Int?,
         hasCategory: Bool,
         isPaused: Bool,
-        isLocked: Bool?,
+        cubeLockState: CubeLockState,
         isCubeConnected: Bool,
         limitIsHolding: Bool
     ) -> ForcedPauseAction {
@@ -108,7 +108,7 @@ struct ForcedPause {
 
         // A locked cube reports itself paused whatever its pause byte says, so there is nothing here that could be
         // read back and believed. The claim stands: unlocking does not change who stopped it.
-        guard isLocked == false else { return .none }
+        guard cubeLockState == .unlocked else { return .none }
 
         // No open segment, or one of the app's own faces. Neither is a cube resting somewhere unattributable.
         guard let face, (1...12).contains(face) else { return .none }

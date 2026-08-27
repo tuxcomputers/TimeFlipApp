@@ -41,7 +41,7 @@ enum PauseMenuRules {
     static func target(
         timingState: TimingState,
         isCubeConnected: Bool,
-        isCubeLocked: Bool?,
+        cubeLockState: CubeLockState,
         isCubePaused: Bool? = nil,
         isLimitReached: Bool = false
     ) -> Target {
@@ -64,7 +64,7 @@ enum PauseMenuRules {
         // asked is far more often running than locked, and of the two ways to be wrong an item that is enabled and
         // gets refused says why in the log, while one greyed out for a lock that is not there offers no way to find
         // out it was wrong.
-        return isCubeLocked == true ? .nothing : .cube
+        return cubeLockState == .locked ? .nothing : .cube
     }
 
     /// What the item is called.

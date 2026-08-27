@@ -231,7 +231,7 @@ final class TimingView: NSView {
     ///
     /// **No clock and no play/pause**, which is the archive's arrangement and its reasoning: this is a picture of
     /// where the cube is, and the cube's own timingState is not something a click on this window starts or stops.
-    /// - Parameter isLocked: whether this face keeps the category it has. Drawn as the lock in the corner, and the
+    /// - Parameter isFaceLocked: whether this face keeps the category it has. Drawn as the lock in the corner, and the
     ///   same answer the category list is drawn live or dead from -- see `FacesTabRules`.
     /// - Parameter elapsed: the category's total for the day. Drawn under its name, since the square is the cube.
     ///   `0` with no category to total is drawn as `0:00:00` rather than left blank: a face that has recorded nothing
@@ -242,7 +242,7 @@ final class TimingView: NSView {
     func show(
         face: Int,
         category: CategoryRecord?,
-        isLocked: Bool = false,
+        isFaceLocked: Bool = false,
         elapsed: TimeInterval = 0,
         showingSeconds: Bool = true,
         isDevicePaused: Bool? = nil
@@ -251,7 +251,7 @@ final class TimingView: NSView {
         centred.isHidden = true
         playPauseButton.isEnabled = false
         showDevice(face, category: category)
-        showFaceLock(isLocked)
+        showFaceLock(isFaceLocked)
         // Nothing on the face means nothing to total, and an unlit cube with a figure under it would be a number
         // about a category that is not there.
         faceElapsedLabel.stringValue = category == nil ? "" : DurationFormat.hoursMinutesSeconds(
@@ -631,19 +631,19 @@ final class TimingView: NSView {
     /// every category picked lands on it -- so a lock there could only get in the way of the one gesture this tab has.
     /// The archive drew it the same way, and for the same reason: there is no lock to offer, not a lock that happens
     /// to be open.
-    private func showFaceLock(_ isLocked: Bool?) {
-        guard let isLocked else {
+    private func showFaceLock(_ isFaceLocked: Bool?) {
+        guard let isFaceLocked else {
             lockButton.isHidden = true
             return
         }
-        isFaceLocked = isLocked
+        self.isFaceLocked = isFaceLocked
         lockButton.isHidden = false
         // Both spelled out, rather than one name for the control: what it is called has to say what pressing it does,
         // and "Lock" on a locked face reads as a label for the timingState it is already in.
-        lockButton.toolTip = isLocked
+        lockButton.toolTip = isFaceLocked
             ? "Unlock this face so its category can be changed"
             : "Lock this face to keep its category"
-        lockButton.setAccessibilityLabel(isLocked ? "Unlock face" : "Lock face")
+        lockButton.setAccessibilityLabel(isFaceLocked ? "Unlock face" : "Lock face")
         apply(lockSize: lockWidth.constant)
     }
 
