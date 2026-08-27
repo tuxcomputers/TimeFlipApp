@@ -38,52 +38,16 @@ LIMIT_MINUTES=5
 LIMIT_SECONDS=$(( LIMIT_MINUTES * 60 ))
 REMAINING=5
 
-# Whether the app believes the cube is locked, read off the menu bar rather than out of the log, for the reason
-# `60-device-backlog` gives: nothing in this script makes the cube speak unprompted, so the newest status row could be
-# from any earlier script in the run.
-cube_is_locked() {
-    case "$(status_item)" in
-        *"device locked"*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# Whether the cube is stopped, as the cube's own record has it. Its faces only, so a manual segment cannot answer
-# for it.
-open_paused() { sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;"; }
-
 # ---------------------------------------------------------------------------- a cube that can be turned
 #
-# **All repair, and none of it a check**, for the reason `57-cube-pause` records: whether the cube arrived locked or
-# paused is not this script's subject, and counting it would make `EXPECTED_CHECKS` a property of the state the
-# hardware was left in. Each is followed by a guard that fails the script outright if it did not take.
+# **Nothing is repaired here, because there is nothing left to repair.** A locked cube silently refuses to change
+# face, so every flip below would wait for ever with nothing to detect; a paused one reports the turn but files no
+# history for it, and every check here reads `device_event`.
 #
-# A locked cube silently refuses to change face, so every flip below would wait for ever with nothing to detect.
-
-if cube_is_locked; then
-    unlocking=$(mark)
-    click_left
-    sleep 0.8
-    press toggle-cube-lock
-    if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
-        step "the cube arrived locked, and was unlocked so it can be turned below"
-    fi
-fi
-if cube_is_locked; then
-    fail "the cube is still locked, and a locked cube refuses every flip this script asks for"
-    finish
-    exit 1
-fi
-
-# A paused cube fails differently and later: it reports the turn, so a prompt is satisfied, but it files no history
-# for it -- and every check here reads `device_event`.
-if [ "$(open_paused)" = "1" ]; then
-    resuming=$(mark)
-    click_right
-    if wait_for "$resuming" "The cube is running" 20 >/dev/null; then
-        step "the cube arrived paused, and was started again so its turns file history"
-    fi
-fi
+# Both used to be asked about and fixed. Neither can happen: `relink_a_cube` takes the lock and the pause off in one
+# gesture, so every script from `52` inherits a cube that is unlocked and counting, and `00-setup` says which face it
+# is resting on -- which matters more here than anywhere, this being the script that makes a face unassignable on
+# purpose.
 
 open_settings
 select_tab Faces
