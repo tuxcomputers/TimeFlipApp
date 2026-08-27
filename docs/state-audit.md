@@ -475,7 +475,7 @@ in neither column is already correct.
 
 | Name to use | Names that become it |
 | --- | --- |
-| `batteryPercent` | `percent` (battery) |
+| `batteryPercent` | `percent`, the reading in `DeviceInfoRules.battery`. The warning threshold beside it stays `batteryWarningPercent`, being a different fact |
 | `cubeFace` | `deviceFace`, `currentFace`, `openFace` |
 | `cubeHardwareState` | `Hardware` |
 | `cubeLockState` | `isLocked` (the cube), `isCubeLocked` |
@@ -510,10 +510,10 @@ in neither column is already correct.
 | `isReadingDoubleTap` | `isAskingAboutTaps` |
 | `isRepaintTicking` | `isTicking` |
 | `isScanWanted` | `wantsToScan` |
-| `isSegmentOpen` | `isFinalised`. **Inverted** |
+| `isSegmentOpen` | `isFinalised` was **not renamed**: it is a row's own column, like a segment's `isPaused`, and a finalised row saying it was a pause is history rather than what the cube is doing now. The state itself is `events.openSegment() != nil`, which had no boolean carrier |
 | `isSingleFrameRequest` | `isSingleFrame` |
 | `isSortAscending` | `Direction` |
-| `settingsTabState` | `SettingsTab`, carried as `tab` |
+| `settingsTabState` | **not renamed**: which tab is on show is AppKit's `selectedTabViewItem`, and `tabOnOpen` and `select(_ tab:)` name a tab value rather than the current one, so there was no state variable here |
 | `sortColumnState` | `Column`, on the report sort |
 | `timingState` | `state`, `timing`, where either is the app's own clock |
 
@@ -521,9 +521,9 @@ in neither column is already correct.
 facts depending on the file, so every occurrence is read before it is changed. The collisions section above
 says where each one lands.
 
-**Two flip as well as rename.** `isCounting` replaces an inverted `isPaused` in
-`DailyLimitEnforcement.evaluate`, and `isSegmentOpen` replaces `isFinalised`, so the argument or the
-comparison turns over as the name changes.
+**One flips as well as renaming.** `isCounting` replaces an inverted `isPaused` in
+`DailyLimitEnforcement.evaluate`. The 36 fixtures that pass with every call site inverted are what says the
+behaviour was already right and only the name was wrong.
 
 ---
 

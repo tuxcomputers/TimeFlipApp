@@ -88,6 +88,7 @@ it one name; whether it should also be one flag is a code question, not a naming
 | `cubePauseState` | `unknown` / `paused` / `running` | `device_event.paused` on the open row, or `cubeStatus?.isPaused` live |
 | `cubeFace` | 1 to 12, or none | `device_event.device_face` on the open row; `BluetoothRadio.currentFace` live |
 | `batteryPercent` | 0 to 100, or none | `BluetoothRadio.batteryPercent` |
+| `batteryWarningPercent` | 1 to 20 | `setting.low_battery_level.percent` |
 | `isBatteryLow` | true / false | `LowBatteryWatch.isLow`, latched |
 | `isBlinkOn` | true / false | `LowBatteryWatch` display phase |
 | `cubeSyncState` | `ok`, `factoryReset`, `timeRequired`, `faceColoursRequired`, `ledBrightnessRequired`, `blinkIntervalRequired`, `taskParametersRequired`, `autoPauseRequired`, `unknown` | `DeviceSystemStateRules.Sync` |
@@ -108,7 +109,7 @@ says, so a pause confirmed after a lock proves nothing and pause is confirmed fi
 | `timingState` | `idle` / `running` / `paused` | `ManualTimerRules.state(categoryID:isRunning:)` |
 | `isCounting` | true / false | `TimingReadout.Reading.isCounting`, answered by `DayTotal` |
 | `isRepaintTicking` | true / false | `tick != nil` on both view controllers |
-| `isSegmentOpen` | true / false | `device_event.finalised = 0` |
+| `isSegmentOpen` | true / false | `events.openSegment() != nil`, over `device_event.finalised = 0` |
 | `isAppFace` | true / false | `face > 12` |
 | `isHistoryTimerArmed` | true / false | `HistoryTimer.holder.timer != nil` |
 | `hasSomethingToFollow` | true / false | an open segment or a connected cube |
@@ -167,7 +168,7 @@ View state. Listed because it appears in branches, not because anything outside 
 
 | Name | Values | Truth |
 | --- | --- | --- |
-| `settingsTabState` | `faces`, `categories`, `report`, `app`, `device` | `SettingsTab` |
+| `settingsTabState` | `faces`, `categories`, `report`, `app`, `device` | AppKit's `selectedTabViewItem`; the cases are `SettingsTab` |
 | `isExpanded` | true / false | `PanelSection` / `DisclosureRow` |
 | `isEditing` | true / false | `CategoryCreateControl` |
 | `isSelected` | true / false | per list |
@@ -208,6 +209,11 @@ Naming everything `is` or `State` would take in things that are not state.
 - **Reports of what just happened.** `DeviceEventRecorder.Outcome.wasInserted` and `.isOpen` describe a write
   that has already run, not what the table now holds. `Outcome.isOpen` is therefore not renamed to
   `isSegmentOpen`.
+- **A row's own columns.** `DeviceEventSegment.isPaused`, `TimeEntryRecorder.Row.isPaused` and `.isFinalised`,
+  and `DeviceCommandRules.Status.isLocked` and `.isPaused` are fields of one decoded record, mirroring `paused`
+  and `finalised`. **A finalised row saying it was a pause is history, not what the cube is doing now**, and the
+  three-case states above exist precisely because the live question has an `unknown` that a decoded row never
+  has. So these keep their boolean names, and `cubePauseState` is built from them rather than replacing them.
 - **AppKit's own names.** `isEnabled`, `isHidden`, `isActive` on `NSLayoutConstraint`, `wantsLayer`,
   `needsLayout`. Not ours, and `isActive` is why `category.active` becomes `isCategoryActive` rather than
   `isActive`.
