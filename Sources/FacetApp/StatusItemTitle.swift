@@ -127,13 +127,13 @@ struct StatusItemTitle: Equatable {
         showingSeconds: Bool,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
-        isCubeLocked: Bool = false
+        cubeLockState: CubeLockState = .unknown
     ) -> StatusItemTitle {
         // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
         // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
         // name drawn in whatever the line's own colour turns out to be.
         let flash: NSColor? = lowBattery.isBatteryLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
-        let lockGlyphName = isCubeLocked ? "lock.fill" : nil
+        let lockGlyphName = cubeLockState == .locked ? "lock.fill" : nil
         // **Following a cube: the face's category and what it has recorded today.**
         //
         // The figure is the archive's, copied: its menu bar drew the same day total in device mode, out of the same
@@ -170,7 +170,7 @@ struct StatusItemTitle: Equatable {
             // rather than its current one.
             if !reading.isCubeConnected { spokenParts.append("device unreachable") }
             spokenParts.append(onTheFace)
-            if isCubeLocked { spokenParts.append("device locked") }
+            if cubeLockState == .locked { spokenParts.append("device locked") }
             // **Said even where the yellow has taken the red off the figure.** The limit is a fact about
             // `time_entry` and this machine's clock, so it does not stop being true when a cube goes out of range;
             // what the yellow withdraws is the claim that the *cube's* reading is current, and that is said in its
@@ -224,7 +224,7 @@ struct StatusItemTitle: Equatable {
         guard let category = reading.category, let glyphName = ManualTimerRules.symbolName(for: reading.timingState) else {
             // Built up rather than chained, for the reason given at the first of these.
             var idleParts: [String] = [appLabel]
-            if isCubeLocked { idleParts.append("device locked") }
+            if cubeLockState == .locked { idleParts.append("device locked") }
             if lowBattery.isBatteryLow { idleParts.append("low battery") }
             return StatusItemTitle(
                 text: appLabel,
@@ -266,7 +266,7 @@ struct StatusItemTitle: Equatable {
         // whole of the signal on screen, so without this the state that explains why a cube is not changing face
         // would be invisible to anybody reading the item aloud.
         var sessionParts: [String] = [category.name, reading.timingState == .running ? "running" : "paused", duration]
-        if isCubeLocked { sessionParts.append("device locked") }
+        if cubeLockState == .locked { sessionParts.append("device locked") }
         if isLimitReached { sessionParts.append("daily limit reached") }
         if lowBattery.isBatteryLow { sessionParts.append("low battery") }
         sessionParts.append(appLabel)

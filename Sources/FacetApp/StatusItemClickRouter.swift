@@ -51,7 +51,7 @@ enum StatusItemClickRouter {
     ///     and is no longer true -- the watch now enforces against a cube -- so what was a considered exemption
     ///     became the way round the limit: reported live on 2026-08-27, a single click on the right half starting a
     ///     cube whose budget was spent, with the watch stopping it again two seconds later.
-    ///   - isCubePaused: whether the cube is stopped, which decides *which way* the click goes and so whether the
+    ///   - cubePauseState: whether the cube is stopped, which decides *which way* the click goes and so whether the
     ///     limit has anything to say about it. Only a click that would start the cube is refused; stopping one stays
     ///     available throughout, for `ManualTimerRules`' reason -- a limit that trapped somebody into recording time
     ///     would be the opposite of what it is for.

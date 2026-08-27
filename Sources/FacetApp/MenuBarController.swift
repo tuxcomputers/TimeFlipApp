@@ -254,7 +254,7 @@ final class MenuBarController: NSObject {
             // The same answer the dropdown's Lock item reads. Asked per draw, though it can only change when the app
             // itself sends a command or reaches a cube: the badge has to come off the moment the link goes, and the
             // link going is not something this class is told about.
-            isCubeLocked: cube().cubeLockState == .locked
+            cubeLockState: cube().cubeLockState
         )
         if title != lastDrawn {
             let drawn = makeTitle(title)

@@ -462,7 +462,7 @@ radio.onFace = { _, _ in
     settingsWindow.redrawTiming()
     // **A flip closed a segment and opened another**, which is exactly what history is a record of, so this is the
     // moment to go and get it rather than waiting out the rest of the tick. It also refreshes whether the cube is
-    // paused, because every frame carries that in its face byte -- see `timingReadout.isDevicePaused`.
+    // paused, because every frame carries that in its face byte -- see `timingReadout.cubePauseState`.
     historyIngestor.refresh(because: "the cube was turned")
 }
 // **The link coming up is its own reason to ask, and it used to be nobody's.** The fetch on connect happened only

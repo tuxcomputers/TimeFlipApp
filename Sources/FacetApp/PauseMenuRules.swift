@@ -31,7 +31,7 @@ enum PauseMenuRules {
     ///     compared here, so this and the status item cannot come to different answers about manual mode.
     ///   - isCubeConnected: **the connection, not the pairing.** It ends in a command and a command needs a live
     ///     link, which is where `CubeLockRules.isEnabled` draws the same line.
-    ///   - isCubeLocked: `nil` when nobody has asked. **A locked cube is not pausable at all**: lock freezes it on the
+    ///   - cubeLockState: `unknown` when nobody has asked. **A locked cube is not pausable at all**: lock freezes it on the
     ///     face it is on and it ignores everything but an unlock, so an item offering to pause one is an item that
     ///     will be refused. `CubeLock.togglePause` refuses it in as many words -- "The cube is locked, so pausing it
     ///     means nothing; unlock it first" -- and a menu is the one surface that can say so before it is pressed
@@ -72,7 +72,7 @@ enum PauseMenuRules {
     /// **A menu item says what clicking does**, which `ManualTimerRules.pauseMenuTitle` already sets out: it reads
     /// "Pause" while time is being recorded, the opposite of the glyph beside it.
     ///
-    /// - Parameter isCubePaused: only consulted for `.cube`, and that matters: **a locked cube reports itself paused
+    /// - Parameter cubePauseState: only consulted for `.cube`, and that matters: **a locked cube reports itself paused
     ///   whatever its pause byte says**, so this answer is only meaningful where the cube is not locked -- which is
     ///   exactly and only where `target` returns `.cube`.
     static func title(

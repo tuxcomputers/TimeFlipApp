@@ -314,7 +314,7 @@ final class BluetoothRadio: NSObject {
     ///
     /// **What it cannot cover is the cube being changed by something else**: a double tap pauses it, auto-pause
     /// pauses it, and the vendor's app can do either. The `isPaused` here is therefore only as fresh as the last
-    /// answer, and nothing draws it. `isLocked` is the one the dropdown reads, and lock has no such back door -- the
+    /// answer, and nothing draws it. `cubeLockState` is the one the dropdown reads, and lock has no such back door -- the
     /// cube offers no gesture that locks itself.
     private(set) var cubeStatus: DeviceCommandRules.Status?
 

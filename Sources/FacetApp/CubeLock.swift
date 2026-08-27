@@ -28,7 +28,7 @@ final class CubeLock {
     /// The app already knows this without asking: `HistoryIngestor` brings the cube's own record of the day into
     /// `device_event`, and a paused stretch arrives there as an interval the cube filed for `Side + 128`. So the open
     /// segment's `paused` is the cube's own account of what it is doing, and it is the same answer both surfaces draw
-    /// their play/pause glyph from (`TimingReadout.Reading.deviceIsPaused`).
+    /// their play/pause glyph from (`TimingReadout.Reading.cubePauseState`).
     ///
     /// `nil` for a cube with no open segment to read -- one that has been reset and not yet flipped, say.
     private let cubePauseState: () -> CubePauseState

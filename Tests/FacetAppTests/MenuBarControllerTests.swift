@@ -330,7 +330,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
                 isLimitReached: isLimitReached,
                 lowBattery: lowBattery,
                 // From the same reading the dropdown's Lock item is drawn from, so a test setting one gets the other.
-                isCubeLocked: cube.cubeLockState == .locked
+                cubeLockState: cube.cubeLockState
             )
         )
     }

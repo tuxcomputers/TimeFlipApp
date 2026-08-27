@@ -236,7 +236,7 @@ final class TimingView: NSView {
     /// - Parameter elapsed: the category's total for the day. Drawn under its name, since the square is the cube.
     ///   `0` with no category to total is drawn as `0:00:00` rather than left blank: a face that has recorded nothing
     ///   today is a real answer, and a gap where a figure belongs reads as one that failed to arrive.
-    /// - Parameter isDevicePaused: whether the cube itself is paused, or `nil` for one that has not answered. Drawn
+    /// - Parameter cubePauseState: whether the cube itself is stopped, `unknown` for one that has not answered. Drawn
     ///   as the glyph beside the figure; nothing is drawn for `nil`, since a guess would be a claim about hardware on
     ///   no evidence.
     func show(

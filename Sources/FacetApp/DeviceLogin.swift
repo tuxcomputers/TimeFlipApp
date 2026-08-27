@@ -444,17 +444,19 @@ final class DeviceLogin: NSObject {
             finishFetch("the cube answered with nothing")
             return
         }
-        if DeviceHistoryRules.isEndOfStream(value) {
-            finishFetch("the cube says that is all of it")
-            return
-        }
         // **Said as what it is.** An event numbered zero is the cube reporting it has no such event, which for a
         // request for its latest means it holds no history at all -- an ordinary state for a cube that has been reset,
         // and not the same thing as a frame this app failed to read. Reporting it as the latter is what sent somebody
         // looking for a parser bug while the cube answered correctly.
-        if DeviceHistoryRules.isNoSuchEvent(value) {
+        switch DeviceHistoryRules.historyFrameState(value) {
+        case .endOfStream:
+            finishFetch("the cube says that is all of it")
+            return
+        case .noSuchEvent:
             finishFetch("the cube has no such event, so there is no history of it to bring back")
             return
+        case .event:
+            break
         }
         guard let segment = DeviceHistoryRules.segment(from: value) else {
             // **Ends the fetch rather than skipping the frame.** A frame this app cannot read means the stream is not

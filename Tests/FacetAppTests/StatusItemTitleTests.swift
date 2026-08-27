@@ -22,7 +22,7 @@ final class StatusItemTitleTests: XCTestCase {
         badge: String? = nil,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
-        isCubeLocked: Bool = false
+        cubeLockState: CubeLockState = .unknown
     ) -> StatusItemTitle {
         StatusItemTitle.make(
             appLabel: appLabel,
@@ -31,7 +31,7 @@ final class StatusItemTitleTests: XCTestCase {
             showingSeconds: showingSeconds,
             isLimitReached: isLimitReached,
             lowBattery: lowBattery,
-            isCubeLocked: isCubeLocked
+            cubeLockState: cubeLockState
         )
     }
 
@@ -320,13 +320,13 @@ final class StatusItemTitleTests: XCTestCase {
     // MARK: - the cube being locked
 
     func testALockedCubeCarriesItsOwnGlyph() {
-        let title = title(running, isCubeLocked: true)
+        let title = title(running, cubeLockState: .locked)
 
         XCTAssertEqual(title.lockGlyphName, "lock.fill")
     }
 
     func testAnUnlockedCubeCarriesNone() {
-        let title = title(running, isCubeLocked: false)
+        let title = title(running, cubeLockState: .unlocked)
 
         XCTAssertNil(title.lockGlyphName)
     }
@@ -334,7 +334,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testTheLockIsSaidOutLoud() {
         // A badge is the whole of the signal on screen, so without this the timingState that explains why a cube is not
         // changing face would be invisible to anybody reading the item aloud.
-        let title = title(running, isCubeLocked: true)
+        let title = title(running, cubeLockState: .locked)
 
         XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
     }
@@ -342,7 +342,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testALockedCubeIsDrawnAndSaidWithNothingBeingTimed() {
         // A fact about the device rather than about the session, and the moment it matters most is when nothing is
         // running -- because being locked is why.
-        let title = title(.idle, isCubeLocked: true)
+        let title = title(.idle, cubeLockState: .locked)
 
         XCTAssertEqual(title.lockGlyphName, "lock.fill")
         XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
@@ -486,7 +486,7 @@ final class StatusItemTitleTests: XCTestCase {
     }
 
     func testTheLockAndTheWarningStillShowWhileFollowingACube() {
-        let title = title(onCube(category: category()), lowBattery: flashOn, isCubeLocked: true)
+        let title = title(onCube(category: category()), lowBattery: flashOn, cubeLockState: .locked)
 
         XCTAssertEqual(title.lockGlyphName, "lock.fill")
         XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)

@@ -86,7 +86,7 @@ struct ForcedPause {
     ///   - hasCategory: whether that face holds a category, read from `face` at the moment of the ask.
     ///     `FaceStore.categoryID(forFace:)` answers `nil` for the seeded *Unassigned* row, which is this being false.
     ///   - isPaused: whether the cube is stopped, from the open `device_event` row -- the cube's own account.
-    ///   - isLocked: whether the cube is locked, from `BluetoothRadio.cubeStatus`. `nil` is "nobody has asked yet",
+    ///   - cubeLockState: whether the cube is locked, from `BluetoothRadio.cubeStatus`. `unknown` is "nobody has asked yet",
     ///     which is treated as locked: nothing is sent on a guess about the one state that makes the pause byte lie.
     ///   - isCubeConnected: whether there is a link to send anything down.
     ///   - limitIsHolding: whether `DailyLimitEnforcement` is holding a pause of its own.
