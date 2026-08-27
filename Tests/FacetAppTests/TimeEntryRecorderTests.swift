@@ -9,7 +9,7 @@ import XCTest
 /// about the question that made the pair of app faces necessary: **which category a finished segment is filed
 /// under when the next one has already started.**
 @MainActor
-final class TimeEntryRecorderTests: XCTestCase {
+final class TimeEntryRecorderTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var connection: DatabaseConnection!
     private var faces: FaceStore!
@@ -22,32 +22,36 @@ final class TimeEntryRecorderTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        connection = database.connection()
-        faces = FaceStore(connection: connection)
-        categories = CategoryStore(connection: connection)
-        entries = TimeEntryRecorder(
-            connection: connection,
-            settings: SettingStore(connection: connection),
-            faces: faces,
-            debugLog: nil
-        )
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: entries,
-            debugLog: nil
-        )
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            connection = database.connection()
+            faces = FaceStore(connection: connection)
+            categories = CategoryStore(connection: connection)
+            entries = TimeEntryRecorder(
+                connection: connection,
+                settings: SettingStore(connection: connection),
+                faces: faces,
+                debugLog: nil
+            )
+            events = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: entries,
+                debugLog: nil
+            )
+        }
     }
 
     override func tearDown() {
-        events = nil
-        entries = nil
-        categories = nil
-        faces = nil
-        connection = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            events = nil
+            entries = nil
+            categories = nil
+            faces = nil
+            connection = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

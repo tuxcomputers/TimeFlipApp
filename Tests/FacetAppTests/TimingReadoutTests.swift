@@ -10,7 +10,7 @@ import XCTest
 /// in memory, because there is no session in memory to set up: a test says "running" by leaving a segment open,
 /// which is the same thing the app says it with.
 @MainActor
-final class TimingReadoutTests: XCTestCase {
+final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var connection: DatabaseConnection!
     private var faces: FaceStore!
@@ -27,42 +27,46 @@ final class TimingReadoutTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        connection = database.connection()
-        faces = FaceStore(connection: connection)
-        // Wired to the time entry recorder as `main.swift` wires it, so closing a segment records it. The figure is
-        // summed from `time_entry`, so a recorder with nowhere to hand a finished stretch would show none of it.
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: TimeEntryRecorder(
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            connection = database.connection()
+            faces = FaceStore(connection: connection)
+            // Wired to the time entry recorder as `main.swift` wires it, so closing a segment records it. The figure is
+            // summed from `time_entry`, so a recorder with nowhere to hand a finished stretch would show none of it.
+            events = DeviceEventRecorder(
                 connection: connection,
-                settings: SettingStore(connection: connection),
-                faces: faces,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: TimeEntryRecorder(
+                    connection: connection,
+                    settings: SettingStore(connection: connection),
+                    faces: faces,
+                    debugLog: nil
+                ),
                 debugLog: nil
-            ),
-            debugLog: nil
-        )
-        readout = TimingReadout(
-            categories: CategoryStore(connection: connection),
-            faces: faces,
-            events: events,
-            dayTotal: DayTotal(
-                settings: SettingStore(connection: connection),
-                entries: TimeEntryStore(connection: connection),
-                events: events,
-                faces: faces
             )
-        )
+            readout = TimingReadout(
+                categories: CategoryStore(connection: connection),
+                faces: faces,
+                events: events,
+                dayTotal: DayTotal(
+                    settings: SettingStore(connection: connection),
+                    entries: TimeEntryStore(connection: connection),
+                    events: events,
+                    faces: faces
+                )
+            )
+        }
     }
 
     override func tearDown() {
-        readout = nil
-        events = nil
-        faces = nil
-        connection = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            readout = nil
+            events = nil
+            faces = nil
+            connection = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

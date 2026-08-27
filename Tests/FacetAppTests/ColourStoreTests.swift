@@ -7,20 +7,24 @@ import XCTest
 /// Run against the seeded `colour` table (`database/005_colour.sql`), because what is being tested is what those rows
 /// mean: a *None* sentinel that is not a colour to choose, and a hex that has to parse before a square can be drawn.
 @MainActor
-final class ColourStoreTests: XCTestCase {
+final class ColourStoreTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var colours: ColourStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        colours = ColourStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            colours = ColourStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        colours = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            colours = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

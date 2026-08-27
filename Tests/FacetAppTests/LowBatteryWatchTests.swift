@@ -11,7 +11,7 @@ import XCTest
 /// The charge is handed in through a closure the test moves, which is exactly how the app wires it: the watch asks
 /// `BluetoothRadio` for the live figure and holds none of it.
 @MainActor
-final class LowBatteryWatchTests: XCTestCase {
+final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
     private var built: LowBatteryWatch?
@@ -21,18 +21,22 @@ final class LowBatteryWatchTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
-        level = nil
-        changes = 0
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+            level = nil
+            changes = 0
+        }
     }
 
     override func tearDown() {
-        built?.stop()
-        built = nil
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            built?.stop()
+            built = nil
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

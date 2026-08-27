@@ -122,12 +122,23 @@ final class CategoryListViewTests: XCTestCase {
         XCTAssertEqual(picked, ["Meeting"], "the row reports which category, and decides nothing")
     }
 
-    func testARowIsAButtonSoItIsReachableWithoutAMouse() {
+    func testARowIsAButtonSoItIsReachableWithoutAMouse() throws {
         let list = CategoryListView()
         list.show([category(1, "Break")])
 
         // Not a view with a click handler bolted on: a real control, which is what makes it keyboard- and
         // script-reachable as well as clickable.
-        XCTAssertTrue(rowViews(of: list).first is NSButton)
+        //
+        // **Asked of what being a control actually buys, rather than of the type.** `CategoryRowView` is declared
+        // `: NSButton`, so `is NSButton` was true the instant a row existed and the assertion only ever proved the
+        // list was not empty -- a clean build says as much, "succeeds whenever the value is non-nil". The two things
+        // the declaration is *for* are below, and either of them going missing is the regression this guards.
+        // **Target and action, which is the whole of what "a real control" buys.** Deliberately not the
+        // accessibility role: a `CategoryRowView` outside a window answers `AXUnknown` rather than `AXButton`, and
+        // whether that is true of one on screen is a question for the accessibility tree of a running app, not for
+        // a view that has never been in a window. Asserting it here would pin an artefact.
+        let row = try XCTUnwrap(rowViews(of: list).first)
+        XCTAssertNotNil(row.action, "pressing it, by mouse or by keyboard or by script, does something")
+        XCTAssertNotNil(row.target, "and there is something for it to do it to")
     }
 }

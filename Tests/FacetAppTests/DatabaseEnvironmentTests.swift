@@ -7,20 +7,24 @@ import XCTest
 /// database is open, so a wrong answer is worse than no answer -- which is why the `nil` cases below are
 /// tested as carefully as the two real ones.
 @MainActor
-final class DatabaseEnvironmentTests: XCTestCase {
+final class DatabaseEnvironmentTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

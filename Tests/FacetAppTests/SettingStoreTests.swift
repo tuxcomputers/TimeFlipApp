@@ -4,20 +4,24 @@ import XCTest
 /// Covers `SettingStore`: reading a setting's fields, writing one of them, and -- the important one -- that it
 /// reads every time rather than remembering.
 @MainActor
-final class SettingStoreTests: XCTestCase {
+final class SettingStoreTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

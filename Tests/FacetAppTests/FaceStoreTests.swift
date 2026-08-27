@@ -3,24 +3,28 @@ import XCTest
 
 /// Covers `FaceStore`: which category a face holds, and what it takes to change it.
 @MainActor
-final class FaceStoreTests: XCTestCase {
+final class FaceStoreTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var faces: FaceStore!
     private var categories: CategoryStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        let connection = database.connection()
-        faces = FaceStore(connection: connection)
-        categories = CategoryStore(connection: connection)
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            let connection = database.connection()
+            faces = FaceStore(connection: connection)
+            categories = CategoryStore(connection: connection)
+        }
     }
 
     override func tearDown() {
-        faces = nil
-        categories = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            faces = nil
+            categories = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

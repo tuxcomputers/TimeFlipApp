@@ -8,7 +8,7 @@ import XCTest
 /// is seeded `{"paired":false}` and `device_uuid` is seeded `{}`, and a writer that only worked against a row it had
 /// invented itself would prove nothing about either.
 @MainActor
-final class DevicePairingRecorderTests: XCTestCase {
+final class DevicePairingRecorderTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
     private var recorder: DevicePairingRecorder!
@@ -22,16 +22,20 @@ final class DevicePairingRecorderTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
-        recorder = DevicePairingRecorder(settings: settings, debugLog: nil)
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+            recorder = DevicePairingRecorder(settings: settings, debugLog: nil)
+        }
     }
 
     override func tearDown() {
-        recorder = nil
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            recorder = nil
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 
