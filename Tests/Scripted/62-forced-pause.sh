@@ -199,7 +199,30 @@ check "627 is given a ${LIMIT_MINUTES} minute budget" "$LIMIT_MINUTES" \
 #
 # **Marked synced**, so the Google sweep has nothing to do with it: a fixture rather than time somebody wants in their
 # calendar.
-seeded=$(( LIMIT_SECONDS - REMAINING ))
+# **What 627 has recorded already, which is never nothing.** Section 2 put the category on the face the cube was
+# resting on and the app started the cube again, so every second between that and the flip to Break is against this
+# category -- and how many there are depends entirely on how long somebody took to pick the cube up.
+#
+# **Run 114 (2026-08-27) failed here for exactly that**, expecting 295 and finding 309: fourteen seconds of 627,
+# against a check that assumed the seed was all there was. Seeding a fixed amount cannot work when the starting point
+# is a person's reaction time, so the seed is the difference and the assertion is the total it adds up to.
+#
+# Waited for rather than read straight away: the stretch on 627 has to be closed and swept into `time_entry` before it
+# can be counted, and reading between those two would seed too much. A blip that never becomes an entry is fine and
+# needs no special case -- it contributes nothing, and the arithmetic below is the same.
+wait_sql "0" "SELECT COUNT(*) FROM device_event WHERE finalised = 0 AND device_face = $FACE;" 30 >/dev/null
+sleep 2
+already=$(sql "SELECT CAST(IFNULL(SUM(duration_seconds), 0) AS INTEGER) FROM time_entry WHERE category_id = $CATEGORY;")
+already=${already:-0}
+step "627 already has ${already}s against it from the stretch it was just timed on"
+
+seeded=$(( LIMIT_SECONDS - REMAINING - already ))
+if [ "$seeded" -le 0 ]; then
+    fail "627 already has ${already}s of its ${LIMIT_SECONDS}s budget, so there is nothing left to seed -- was the cube left on 627 for five minutes?"
+    close_settings
+    finish
+    exit 1
+fi
 zone=$(sql "SELECT timezone_id FROM timezone ORDER BY timezone_id LIMIT 1;")
 zone=${zone:-0}
 started=$(( $(date +%s) - seeded - 60 ))
@@ -236,7 +259,8 @@ sql "INSERT INTO time_entry (
          $seeded, 1
      );"
 
-check "627 is ${seeded}s into its ${LIMIT_SECONDS}s budget, so ${REMAINING}s are left" "$seeded" \
+check "627 is $(( LIMIT_SECONDS - REMAINING ))s into its ${LIMIT_SECONDS}s budget, so ${REMAINING}s are left" \
+    "$(( LIMIT_SECONDS - REMAINING ))" \
     "$(sql "SELECT CAST(IFNULL(SUM(duration_seconds), 0) AS INTEGER) FROM time_entry WHERE category_id = $CATEGORY;")"
 
 close_settings
