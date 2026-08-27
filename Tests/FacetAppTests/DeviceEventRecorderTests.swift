@@ -9,7 +9,7 @@ import XCTest
 /// landing where they should, the close-out actually closing, and the pair being what identifies a segment
 /// once a unique index has a say in it.
 @MainActor
-final class DeviceEventRecorderTests: XCTestCase {
+final class DeviceEventRecorderTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var recorder: DeviceEventRecorder!
 
@@ -18,22 +18,26 @@ final class DeviceEventRecorderTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        let connection = database.connection()
-        recorder = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            // nil, so these are about `device_event` alone: what closing a row means for tracked time is
-            // `TimeEntryRecorderTests`, including the two of them together.
-            timeEntries: nil,
-            debugLog: nil
-        )
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            let connection = database.connection()
+            recorder = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                // nil, so these are about `device_event` alone: what closing a row means for tracked time is
+                // `TimeEntryRecorderTests`, including the two of them together.
+                timeEntries: nil,
+                debugLog: nil
+            )
+        }
     }
 
     override func tearDown() {
-        recorder = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            recorder = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

@@ -9,20 +9,24 @@ import XCTest
 /// are about what those rows mean -- an *Unassigned* placeholder that is not a choice, retirement that
 /// hides a category without deleting it, and insertion order.
 @MainActor
-final class CategoryStoreTests: XCTestCase {
+final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var categories: CategoryStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        categories = CategoryStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            categories = CategoryStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        categories = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            categories = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

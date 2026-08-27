@@ -8,7 +8,7 @@ import XCTest
 /// delivering `applicationWillTerminate`, which is the part with no decisions in it -- and the part `main.swift`
 /// holds the delegate in a binding for, since `NSApplication.delegate` is weak.
 @MainActor
-final class QuitSequenceTests: XCTestCase {
+final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var events: DeviceEventRecorder!
     private var settings: SettingStore!
@@ -18,33 +18,37 @@ final class QuitSequenceTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        let connection = database.connection()
-        // Segments here run on `ManualFace.first`, because that is the only kind of segment a quit closes: a face
-        // of the app's own, timed by the app's own clock. A cube's face is left alone -- see
-        // `testACubesOwnSegmentIsLeftForItsHistoryToClose` -- so a test that started one on face 8 would be asserting
-        // the very thing that must not happen.
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: TimeEntryRecorder(
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            let connection = database.connection()
+            // Segments here run on `ManualFace.first`, because that is the only kind of segment a quit closes: a face
+            // of the app's own, timed by the app's own clock. A cube's face is left alone -- see
+            // `testACubesOwnSegmentIsLeftForItsHistoryToClose` -- so a test that started one on face 8 would be asserting
+            // the very thing that must not happen.
+            events = DeviceEventRecorder(
                 connection: connection,
-                settings: SettingStore(connection: connection),
-                faces: FaceStore(connection: connection),
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: TimeEntryRecorder(
+                    connection: connection,
+                    settings: SettingStore(connection: connection),
+                    faces: FaceStore(connection: connection),
+                    debugLog: nil
+                ),
                 debugLog: nil
-            ),
-            debugLog: nil
-        )
-        settings = SettingStore(connection: connection)
-        quit = QuitSequence(deviceEvents: events, debugLog: nil)
+            )
+            settings = SettingStore(connection: connection)
+            quit = QuitSequence(deviceEvents: events, debugLog: nil)
+        }
     }
 
     override func tearDown() {
-        quit = nil
-        settings = nil
-        events = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            quit = nil
+            settings = nil
+            events = nil
+            database.remove()
+        }
         super.tearDown()
     }
 
@@ -251,17 +255,20 @@ final class QuitSequenceTests: XCTestCase {
         XCTAssertFalse(finished)
     }
 
-    func testARefusedSequenceDoesNotDelayTheQuitEither() {
-        // `pause_on_lock` off: `CubeLock` sends nothing, so there is nothing to wait for and the quit must not be
-        // deferred on the strength of having asked.
+    func testQuittingWithPauseOnLockOffStillLocksAndIsStillWaitedFor() {
+        // **Quit is the second of the two places that lock**, so it moved with the first. The setting decides whether
+        // a pause goes in front of the lock, not whether quitting locks at all, and the quit has to be deferred for
+        // the one command exactly as it is for the two -- a lock nobody waits for is a lock that races the process
+        // going away.
         setPauseOnLock(false)
         let sent = NSMutableArray()
         quit.cubeLock = cubeLock(into: sent)
         var finished = false
 
-        XCTAssertFalse(quit.pauseAndLockTheCube { finished = true })
+        XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
 
-        XCTAssertEqual(sent.count, 0)
-        XCTAssertFalse(finished)
+        XCTAssertEqual(sent.count, 1, "the lock, and no pause in front of it")
+        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.lock(true))
+        XCTAssertTrue(finished)
     }
 }

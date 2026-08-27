@@ -8,7 +8,7 @@ import XCTest
 /// `BluetoothRadio` can be built here and driven through the whole decision without a scan, a cube, or the system's
 /// Bluetooth prompt. What a real reconnection does is a device run's answer (see `Tests/Scripted`).
 @MainActor
-final class DeviceReconnectorOfferTests: XCTestCase {
+final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
     /// A real log, because what the loop does once it has stood down is *nothing* -- and the only way to tell nothing
@@ -17,17 +17,21 @@ final class DeviceReconnectorOfferTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        try database.bootstrapDebug()
-        settings = SettingStore(connection: database.connection())
-        debugLog = DebugLog(databaseURL: database.debugURL)
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            try database.bootstrapDebug()
+            settings = SettingStore(connection: database.connection())
+            debugLog = DebugLog(databaseURL: database.debugURL)
+        }
     }
 
     override func tearDown() {
-        debugLog = nil
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            debugLog = nil
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

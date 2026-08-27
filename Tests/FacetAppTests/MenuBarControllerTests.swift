@@ -13,7 +13,7 @@ import XCTest
 /// built `NSMenuItem`s, out of reach of any test -- and that is how the dropdown came to disagree with the
 /// status item about pausing, with nothing failing.
 @MainActor
-final class MenuBarControllerTests: XCTestCase {
+final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     private var reading: TimingReadout.Reading = .idle
     private var state: TimingState {
         get { reading.state }
@@ -32,7 +32,9 @@ final class MenuBarControllerTests: XCTestCase {
     private var kept: MenuBarController?
 
     override func tearDown() {
-        kept = nil
+        MainActor.assumeIsolated {
+            kept = nil
+        }
         super.tearDown()
     }
 

@@ -13,7 +13,7 @@ import XCTest
 /// is that a face now holds the category and a segment is open against it. Those are rows, and only the tables can
 /// say whether they are there.
 @MainActor
-final class CreateStartsTimingTests: XCTestCase {
+final class CreateStartsTimingTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var categories: CategoryStore!
     private var faces: FaceStore!
@@ -23,39 +23,43 @@ final class CreateStartsTimingTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        _ = try database.bootstrap()
-        let connection = database.connection()
-        categories = CategoryStore(connection: connection)
-        faces = FaceStore(connection: connection)
-        let settings = SettingStore(connection: connection)
-        let entries = TimeEntryStore(connection: connection)
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: nil,
-            debugLog: nil
-        )
-        let dayTotal = DayTotal(settings: settings, entries: entries, events: events, faces: faces)
-        readout = TimingReadout(categories: categories, faces: faces, events: events, dayTotal: dayTotal)
-        // **Decided the way a launch decides it**, from a table with nothing paired, rather than set by hand. The
-        // clock only starts by hand while the app is its own clock, so a controller with no `LaunchMode` refuses every
-        // start -- and a test that skipped this would be describing a state no launch reaches.
-        controller = SettingsWindowController(
-            debugLog: nil,
-            categories: categories,
-            faces: faces,
-            deviceEvents: events,
-            timing: readout,
-            entries: entries,
-            settings: settings,
-            launchMode: LaunchMode.decided(from: settings, debugLog: nil)
-        )
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            _ = try database.bootstrap()
+            let connection = database.connection()
+            categories = CategoryStore(connection: connection)
+            faces = FaceStore(connection: connection)
+            let settings = SettingStore(connection: connection)
+            let entries = TimeEntryStore(connection: connection)
+            events = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: nil,
+                debugLog: nil
+            )
+            let dayTotal = DayTotal(settings: settings, entries: entries, events: events, faces: faces)
+            readout = TimingReadout(categories: categories, faces: faces, events: events, dayTotal: dayTotal)
+            // **Decided the way a launch decides it**, from a table with nothing paired, rather than set by hand. The
+            // clock only starts by hand while the app is its own clock, so a controller with no `LaunchMode` refuses every
+            // start -- and a test that skipped this would be describing a state no launch reaches.
+            controller = SettingsWindowController(
+                debugLog: nil,
+                categories: categories,
+                faces: faces,
+                deviceEvents: events,
+                timing: readout,
+                entries: entries,
+                settings: settings,
+                launchMode: LaunchMode.decided(from: settings, debugLog: nil)
+            )
+        }
     }
 
     override func tearDown() {
-        controller = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            controller = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

@@ -13,6 +13,11 @@ import AppKit
 /// rows were 24pt because the number field inside them is 24pt, and nothing on that tab read `rowHeight` at all --
 /// so `SettingsMetrics.rowHeight` moved the App and Device tabs and left the tab the numbers came from where it was.
 /// The claim that one value governs the look of all three was not true, and `settle` is what makes it true.
+/// **`@MainActor`, like `PanelSection` and `DisclosureRow`.** Everything here touches AppKit, which is main-actor
+/// isolated, and a plain `enum` is not -- so without this every line of it warns. It was missed when these two
+/// helpers were lifted out of the panes: as methods on an `@MainActor` view they inherited the isolation, and a free
+/// type inherits nothing.
+@MainActor
 enum SettingsRow {
     /// Gives a row a height that is **decided**, not merely bounded.
     ///

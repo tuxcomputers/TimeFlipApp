@@ -116,9 +116,14 @@ final class CubeLock {
     /// around: **a locked cube reports itself paused whatever its pause byte says**, so a pause sent after a lock
     /// could never be confirmed -- the read-back would answer "paused" either way.
     ///
-    /// **Gated on `pause_on_lock`**, read here rather than anywhere earlier. The whole sequence is gated and not just
-    /// the pause: it is the setting that says what locking from the app means, and with it off the app does not lock
-    /// from either of the two places it can.
+    /// **`pause_on_lock` gates the pause and nothing else**, read here rather than anywhere earlier. On, this pauses
+    /// and then locks; off, it locks. The lock is the point of the gesture and happens either way, from both of the
+    /// places that ask for it -- a double click on the right half of the status item, and quit.
+    ///
+    /// It used to gate the whole sequence, so turning the setting off turned the lock off with it and the app
+    /// answered a double click by doing nothing at all, saying only `pause_on_lock is off, so the cube is left as it
+    /// is`. The name is about pausing *on* lock: it says whether locking also stops the clock, not whether locking
+    /// happens.
     ///
     /// Returns whether anything was sent. `false` means `finished` will not be called and there is nothing to wait
     /// for, which is what lets the quit answer `.terminateNow` from the same fact rather than a second opinion.
@@ -128,13 +133,17 @@ final class CubeLock {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or lock")
             return false
         }
-        // **An unreadable row counts as off**, which is not the seeded default and is deliberate. Of the two ways to
-        // be wrong, leaving the cube running is visible in its own history and undone by flipping it; locking one is
-        // recoverable only from the dropdown or the vendor's app, and a launch that cannot read its own settings is
-        // not one to be handing a lock. `LaunchMode.decided` chooses its fallback the same way.
+        // **An unreadable row counts as off**, which is not the seeded default and is deliberate. It now costs the
+        // pause rather than the whole gesture: a launch that cannot read its own settings still locks, because that
+        // is what was asked for, and simply does not take the extra liberty of stopping the clock as well.
+        // `LaunchMode.decided` chooses its fallback the same way.
         guard settings?.flag("pause_on_lock", field: "enabled") == true else {
-            debugLog?.record(.command, "pause_on_lock is off, so the cube is left as it is")
-            return false
+            debugLog?.record(.command, "pause_on_lock is off, so the cube is locked without pausing it")
+            send(DeviceCommandRules.lock(true)) { [weak self] locked in
+                self?.debugLog?.record(.command, locked ? "The cube is locked" : "The cube would not lock")
+                finished(locked)
+            }
+            return true
         }
         // **Sent whatever the cube is already doing, and that is not free.** `0x06 0x01` is not idempotent: measured
         // on hardware 2026-08-12, the cube mints a `device_event` per write (see the archive's

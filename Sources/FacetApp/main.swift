@@ -331,7 +331,8 @@ let menuBar = MenuBarController(
     cube: {
         MenuBarController.CubeReading(
             isConnected: radio.connectedDevice != nil,
-            isLocked: radio.cubeStatus?.isLocked
+            isLocked: radio.cubeStatus?.isLocked,
+            isPaused: radio.cubeStatus?.isPaused
         )
     },
     // Whichever way it is offering. What the app is holding decides, and the commands are `CubeLock`'s.

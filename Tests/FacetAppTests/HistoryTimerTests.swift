@@ -8,7 +8,7 @@ import XCTest
 /// asserted in milliseconds instead of minutes. What that skips is `Timer` itself, which is the part with no
 /// decisions in it.
 @MainActor
-final class HistoryTimerTests: XCTestCase {
+final class HistoryTimerTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
     private var built: HistoryTimer?
@@ -16,16 +16,20 @@ final class HistoryTimerTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        built?.stop()
-        built = nil
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            built?.stop()
+            built = nil
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 
@@ -77,6 +81,17 @@ final class HistoryTimerTests: XCTestCase {
 
     /// A timer whose "is there anything to follow" answer this test controls, standing in for an open segment and a
     /// connected cube.
+    /// A flag the test moves and an escaping closure reads.
+    ///
+    /// **A plain `var` captured directly warns**, and the warning has a point: `hasSomethingToFollow` escapes, so
+    /// the capture and the later mutation are two different things reaching the same storage, and nothing in the
+    /// types says that is safe. It works today because all of this is one synchronous main-actor sequence. A
+    /// reference makes the sharing the declaration rather than the coincidence.
+    private final class Flag {
+        var value: Bool
+        init(_ value: Bool) { self.value = value }
+    }
+
     private func timer(following: @escaping @MainActor () -> Bool) -> HistoryTimer {
         let created = HistoryTimer(
             settings: settings, debugLog: nil, hasSomethingToFollow: following
@@ -88,12 +103,12 @@ final class HistoryTimerTests: XCTestCase {
     func testATimeoutWithNothingToFollowStopsRatherThanRearming() {
         // Pausing closes the open segment, so a paused app with no cube has nothing to ask and nothing to grow. It
         // used to go on waking every interval to discover that.
-        var anything = true
-        let timer = timer(following: { anything })
+        let anything = Flag(true)
+        let timer = timer(following: { anything.value })
         timer.start()
         XCTAssertNotNil(timer.scheduledSeconds)
 
-        anything = false
+        anything.value = false
         timer.fire()
 
         XCTAssertEqual(timeouts, 0, "the work is not done either -- there is nothing to do")
@@ -110,12 +125,12 @@ final class HistoryTimerTests: XCTestCase {
 
     func testItComesBackWhenSomethingIsBeingTimedAgain() {
         // `resumeIfStopped` is called from `onTimingChanged`, the funnel every path that starts timing already uses.
-        var anything = false
-        let timer = timer(following: { anything })
+        let anything = Flag(false)
+        let timer = timer(following: { anything.value })
         timer.start()
         XCTAssertNil(timer.scheduledSeconds)
 
-        anything = true
+        anything.value = true
         timer.resumeIfStopped()
 
         XCTAssertEqual(timer.scheduledSeconds, TimeInterval(HistoryTimer.defaultSeconds))

@@ -12,7 +12,7 @@ import XCTest
 /// Against a real database, for the reason every test around this is: what is being checked is not that a method was
 /// called, it is that `face` now names a different category and `device_event` does not. Those are rows.
 @MainActor
-final class ClickLandsOnTheCubesFaceTests: XCTestCase {
+final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var categories: CategoryStore!
     private var faces: FaceStore!
@@ -30,41 +30,43 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        _ = try database.bootstrap()
-        let connection = database.connection()
-        categories = CategoryStore(connection: connection)
-        faces = FaceStore(connection: connection)
-        settings = SettingStore(connection: connection)
-        let entries = TimeEntryStore(connection: connection)
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: nil,
-            debugLog: nil
-        )
-        readout = TimingReadout(
-            categories: categories,
-            faces: faces,
-            events: events,
-            dayTotal: DayTotal(settings: settings, entries: entries, events: events, faces: faces)
-        )
-        // Decided from a table with nothing paired, which is what a launch does. The tests that want the other mode
-        // rebuild the controller through `pairADevice`, because a launch's mode is settled before it has a window and
-        // cannot be moved afterwards -- see `LaunchMode`.
-        // Built here rather than through `buildController`, which `setUpWithError` cannot reach: it overrides a
-        // nonisolated method, so calling a `@MainActor` one on `self` from it is sending `self` across actors.
-        launchMode = .manual
-        controller = SettingsWindowController(
-            debugLog: nil,
-            categories: categories,
-            faces: faces,
-            deviceEvents: events,
-            timing: readout,
-            entries: entries,
-            settings: settings,
-            launchMode: launchMode
-        )
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            _ = try database.bootstrap()
+            let connection = database.connection()
+            categories = CategoryStore(connection: connection)
+            faces = FaceStore(connection: connection)
+            settings = SettingStore(connection: connection)
+            let entries = TimeEntryStore(connection: connection)
+            events = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: nil,
+                debugLog: nil
+            )
+            readout = TimingReadout(
+                categories: categories,
+                faces: faces,
+                events: events,
+                dayTotal: DayTotal(settings: settings, entries: entries, events: events, faces: faces)
+            )
+            // Decided from a table with nothing paired, which is what a launch does. The tests that want the other mode
+            // rebuild the controller through `pairADevice`, because a launch's mode is settled before it has a window and
+            // cannot be moved afterwards -- see `LaunchMode`.
+            // Built here rather than through `buildController`, which `setUpWithError` cannot reach: it overrides a
+            // nonisolated method, so calling a `@MainActor` one on `self` from it is sending `self` across actors.
+            launchMode = .manual
+            controller = SettingsWindowController(
+                debugLog: nil,
+                categories: categories,
+                faces: faces,
+                deviceEvents: events,
+                timing: readout,
+                entries: entries,
+                settings: settings,
+                launchMode: launchMode
+            )
+        }
     }
 
     /// Builds the window's controller in the mode a launch would have decided on.
@@ -86,16 +88,18 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase {
     }
 
     override func tearDown() {
-        // Put down rather than left on the run loop for the rest of the suite: the timer outlives the controller,
-        // whose deallocation it does not notice.
-        controller?.stopTicking()
-        controller = nil
-        settings = nil
-        readout = nil
-        events = nil
-        faces = nil
-        categories = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            // Put down rather than left on the run loop for the rest of the suite: the timer outlives the controller,
+            // whose deallocation it does not notice.
+            controller?.stopTicking()
+            controller = nil
+            settings = nil
+            readout = nil
+            events = nil
+            faces = nil
+            categories = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

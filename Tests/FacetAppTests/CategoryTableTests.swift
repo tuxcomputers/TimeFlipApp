@@ -80,14 +80,23 @@ final class CategoryTableTests: XCTestCase {
         XCTAssertEqual(row?.accessibilityLabel(), "Admin")
     }
 
-    func testARowIsNotAControl() {
+    func testARowIsNotAControl() throws {
         // Nothing here is clickable yet, and a button would announce itself to the keyboard and to accessibility as
         // something to press.
+        //
+        // **Asked of what is inside the row, not of the row's type.** `CategoryTableRow` is an `NSStackView`, so
+        // `rows(of: table).first is NSButton` was a cast the compiler could see could never succeed: the assertion
+        // passed unconditionally, and would have gone on passing with a button sitting in the row. A clean build
+        // said so -- "cast from CategoryTableRow? to unrelated type NSButton always fails" -- which is how a test
+        // that could not fail was found.
         let table = CategoryTable()
         table.show([category(1, "Break")])
 
-        XCTAssertFalse(rows(of: table).first is NSButton)
-        XCTAssertEqual(rows(of: table).first?.accessibilityRole(), .group)
+        // The row itself, not what is on it: these rows carry a checkbox and two picker buttons, so "no button
+        // anywhere inside" stopped being true long ago. What must stay true is that the row is a container and
+        // announces itself as one -- press it between the controls and nothing happens, which is what `.group` says
+        // to the keyboard and to VoiceOver.
+        XCTAssertEqual(try XCTUnwrap(rows(of: table).first).accessibilityRole(), .group)
     }
 
     // MARK: - the columns

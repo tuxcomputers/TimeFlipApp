@@ -9,12 +9,14 @@ import XCTest
 /// fault that fails nothing -- and because a control left in editing state after a save would show the
 /// next person a field with the last name still in it.
 @MainActor
-final class CategoryCreateControlTests: XCTestCase {
+final class CategoryCreateControlTests: XCTestCase, @unchecked Sendable {
     /// Kept alive for the length of a test: a click needs a window, and losing it takes the view's away.
     private var window: NSWindow?
 
     override func tearDown() {
-        window = nil
+        MainActor.assumeIsolated {
+            window = nil
+        }
         super.tearDown()
     }
 

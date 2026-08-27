@@ -72,7 +72,8 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// is locked and not paused goes on recording against whatever face was up, for as long as it sits there with
     /// nobody watching. Pausing first is what stops a closed laptop turning into eight hours of "Meeting".
     ///
-    /// **Gated on `pause_on_lock`**, which `CubeLock` reads at the step that needs it.
+    /// **The lock always goes; `pause_on_lock` only decides whether a pause goes first**, which `CubeLock` reads at
+    /// the step that needs it.
     ///
     /// **`applicationShouldTerminate` rather than `applicationWillTerminate`**, because these are BLE writes: the
     /// process does not outlive `willTerminate` long enough for a round trip, so a pause started there would be a

@@ -10,22 +10,26 @@ import XCTest
 /// and because console output cannot be asserted on without capturing a file descriptor, which would
 /// test the plumbing instead of the record.
 @MainActor
-final class DebugLogTests: XCTestCase {
+final class DebugLogTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var log: DebugLog!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        // The trace's own database, which is the only one that has `debug_log` in it.
-        try database.bootstrapDebug()
-        log = DebugLog(databaseURL: database.debugURL)
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            // The trace's own database, which is the only one that has `debug_log` in it.
+            try database.bootstrapDebug()
+            log = DebugLog(databaseURL: database.debugURL)
+        }
     }
 
     override func tearDown() {
-        // Released before the file goes, so the connection closes first.
-        log = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            // Released before the file goes, so the connection closes first.
+            log = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

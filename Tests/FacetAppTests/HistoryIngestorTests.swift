@@ -9,7 +9,7 @@ import XCTest
 /// what ends up in the table, and the table is the one thing that can say. The cube is two closures because that is
 /// all the ingestor uses of it -- one frame, or a stream from a number.
 @MainActor
-final class HistoryIngestorTests: XCTestCase {
+final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var events: DeviceEventRecorder!
 
@@ -21,24 +21,28 @@ final class HistoryIngestorTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        let connection = database.connection()
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: nil,
-            debugLog: nil
-        )
-        deviceLast = nil
-        stream = []
-        askedFrom = []
-        lastEventReads = 0
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            let connection = database.connection()
+            events = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: nil,
+                debugLog: nil
+            )
+            deviceLast = nil
+            stream = []
+            askedFrom = []
+            lastEventReads = 0
+        }
     }
 
     override func tearDown() {
-        events = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            events = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

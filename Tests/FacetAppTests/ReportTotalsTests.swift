@@ -8,7 +8,7 @@ import XCTest
 /// Against a real database, because the sum is a statement rather than a decision: what is being asserted is that the
 /// clipping and the grouping in that SQL do what the range means.
 @MainActor
-final class ReportTotalsTests: XCTestCase {
+final class ReportTotalsTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var connection: DatabaseConnection!
     private var entries: TimeEntryStore!
@@ -23,18 +23,22 @@ final class ReportTotalsTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        connection = database.connection()
-        entries = TimeEntryStore(connection: connection)
-        categories = CategoryStore(connection: connection)
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            connection = database.connection()
+            entries = TimeEntryStore(connection: connection)
+            categories = CategoryStore(connection: connection)
+        }
     }
 
     override func tearDown() {
-        entries = nil
-        categories = nil
-        connection = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            entries = nil
+            categories = nil
+            connection = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

@@ -1055,6 +1055,18 @@ click_status_item() {
     return 1
 }
 
+# The status item's own line, which is where the lock badge shows up. Matched through the spoken description rather
+# than the drawn title: the badge is an image attachment and every attachment is the same character in text, so a
+# title cannot tell a lock apart from a category icon. `setAccessibilityLabel(title.spoken)` spells it out, which is
+# what makes it assertable at all.
+#
+# **Here rather than in whichever script wanted it first**, for the reason the radio helpers above are: it was
+# byte-identical in four of them and a fifth was about to be written, which is the point at which a copy stops being
+# cheaper than a shared line.
+status_item() {
+    python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true
+}
+
 click_left()         { click_status_item; }
 click_right()        { click_status_item --right; }
 double_click_left()  { click_status_item --double; }

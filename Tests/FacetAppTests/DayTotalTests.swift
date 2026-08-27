@@ -8,7 +8,7 @@ import XCTest
 /// The whole point is that nothing accumulates. Every figure here is re-derived, so the tests write rows and ask
 /// rather than driving a sequence of events.
 @MainActor
-final class DayTotalTests: XCTestCase {
+final class DayTotalTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var connection: DatabaseConnection!
     private var entries: TimeEntryStore!
@@ -28,27 +28,31 @@ final class DayTotalTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        connection = database.connection()
-        entries = TimeEntryStore(connection: connection)
-        faces = FaceStore(connection: connection)
-        events = DeviceEventRecorder(
-            connection: connection,
-            timezones: TimezoneStore(connection: connection),
-            timeEntries: nil,
-            debugLog: nil
-        )
-        total = DayTotal(settings: SettingStore(connection: connection), entries: entries, events: events, faces: faces)
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            connection = database.connection()
+            entries = TimeEntryStore(connection: connection)
+            faces = FaceStore(connection: connection)
+            events = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: nil,
+                debugLog: nil
+            )
+            total = DayTotal(settings: SettingStore(connection: connection), entries: entries, events: events, faces: faces)
+        }
     }
 
     override func tearDown() {
-        total = nil
-        events = nil
-        faces = nil
-        entries = nil
-        connection = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            total = nil
+            events = nil
+            faces = nil
+            entries = nil
+            connection = nil
+            database.remove()
+        }
         super.tearDown()
     }
 

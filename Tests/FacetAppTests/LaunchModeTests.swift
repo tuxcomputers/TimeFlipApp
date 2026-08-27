@@ -4,20 +4,24 @@ import XCTest
 /// Covers `LaunchMode`: that a launch with no paired device is its own clock, one with a paired device follows it,
 /// and that nothing after startup can move a launch from one to the other.
 @MainActor
-final class LaunchModeTests: XCTestCase {
+final class LaunchModeTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 
