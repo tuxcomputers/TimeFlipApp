@@ -26,7 +26,7 @@ calendar_id=$(sql "SELECT json_extract(setting_value, '\$.calendar_id') FROM set
 if [ -z "$email" ]; then
     fail "no Google account is connected, so the calendar and the sync cannot be checked"
     fail "connect one on Settings -> App to include this section"
-    grey "  the google_account row is: $account"
+    step "the google_account row is: $account"
     finish
     exit $?
 fi

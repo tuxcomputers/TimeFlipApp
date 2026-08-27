@@ -19,7 +19,7 @@ select_tab Faces
 # is using.
 BLIP=$(sql "SELECT json_extract(setting_value, '\$.seconds') FROM setting WHERE setting_name = 'blip_time';")
 BLIP=${BLIP:-5}
-grey "  blip_time is ${BLIP}s"
+step "blip_time is ${BLIP}s"
 
 NAME=$(next_name Entry)
 since=$(mark)

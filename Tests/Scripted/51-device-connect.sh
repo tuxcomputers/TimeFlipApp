@@ -64,7 +64,7 @@ sleep 0.5
 # **Waited on `Scan started`, not on the Bluetooth state.** The state callback fires on a *change*, so by the time
 # this script runs the manager `50` built is already powered on and no such row is ever written again. That is what
 # this check waited 60 seconds for on its first run, and the app now says when the radio actually starts listening.
-grey "  waiting for the radio to come up..."
+step "waiting for the radio to come up..."
 if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
     unavailable=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
     if [ -n "$unavailable" ]; then
@@ -77,7 +77,7 @@ if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
     exit 1
 fi
 
-grey "  listening for advertisements..."
+step "listening for advertisements..."
 if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
     fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
     press device-scan
@@ -95,7 +95,7 @@ if [ -z "$row" ]; then
     finish
     exit 1
 fi
-grey "  pressing $row"
+step "pressing $row"
 
 # ---------------------------------------------------------------------------- the connection
 
@@ -125,7 +125,7 @@ expect_log "and answers on the command result characteristic" "$since" "commandR
 
 # The attempt may take two connections: the vendor default first, then the stored PIN, with a second's settle in
 # between so the refused link has finished coming down. Forty seconds covers both, generously.
-grey "  waiting for the cube's verdict..."
+step "waiting for the cube's verdict..."
 verdict=$(wait_for "$since" "%PIN accepted%" 40)
 if [ -n "$verdict" ]; then
     pass "the cube accepted a PIN"
@@ -171,7 +171,7 @@ except Exception:
 PY
 }
 
-grey "  waiting for the app to settle the cube's PIN..."
+step "waiting for the app to settle the cube's PIN..."
 if wait_for "$since" "The cube is now on %" 25 >/dev/null; then
     pass "the cube took a new PIN and proved it by logging in with it"
 
@@ -242,7 +242,7 @@ fi
 # **A cube that answers none of them is a skip, not a failure.** The app is specified to pair and connect exactly the
 # same either way, and the checks above have already proved it did.
 
-grey "  waiting for the cube to say what it is..."
+step "waiting for the cube to say what it is..."
 if wait_for "$since" "The cube says it is %" 25 >/dev/null; then
     pass "the cube answered the Device Information reads"
 

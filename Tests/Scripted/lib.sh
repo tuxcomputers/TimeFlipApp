@@ -50,6 +50,12 @@ red()    { printf '\033[0;31m%s\033[0m\n' "$*"; }
 grey()   { printf '\033[0;90m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[1;33m%s\033[0m\n' "$*"; }
 
+# **Blue is the script talking; grey is something being shown.** The two sit at different indents already -- a
+# narration line at the check's own two spaces, a value read back under the verdict -- but at one colour they
+# read as one stream, and a "watching for 16s..." line looks like evidence for the check above it. So narration
+# goes through `step`, and `grey` is left for the value.
+step() { blue "  $*"; }
+
 # Stops the run and waits for the person running it. Answers 0 for yes, 1 for anything else.
 #
 #     action_required "Sign in to Google" "1. A browser opens." "2. Approve the account."
@@ -106,7 +112,7 @@ action_required() {
     echo ""
 
     if [ ! -r /dev/tty ]; then
-        grey "  no terminal to ask, so this is being skipped"
+        step "no terminal to ask, so this is being skipped"
         return 1
     fi
 
@@ -149,7 +155,7 @@ wait_for_dev() {
     echo ""
 
     if [ ! -r /dev/tty ]; then
-        grey "  no terminal to wait on, so carrying straight on"
+        step "no terminal to wait on, so carrying straight on"
         return 0
     fi
     # **No key in particular**, unlike `action_required`: there is nothing being decided here, so there is no
@@ -205,7 +211,7 @@ ask_and_detect() {
     echo ""
 
     if [ ! -r /dev/tty ]; then
-        grey "  no terminal to ask, so this is being skipped"
+        step "no terminal to ask, so this is being skipped"
         return 1
     fi
 
@@ -216,7 +222,7 @@ ask_and_detect() {
             # **The whole of this wait is a person's**, not the app's: nothing here happens until somebody turns
             # the cube, and the poll is only how the script notices that they have.
             note_human_wait "$asked"
-            grey "  seen: $found"
+            step "seen: $found"
             return 0
         fi
         sleep 1
@@ -359,7 +365,7 @@ pair_a_cube() {
     fi
 
     if [ -n "$(element device-forget)" ]; then
-        grey "  already paired; forgetting first so this pairs its own cube"
+        step "already paired; forgetting first so this pairs its own cube"
         press device-forget
         sleep 1
     fi
@@ -369,7 +375,7 @@ pair_a_cube() {
     press device-scan
     sleep 0.5
 
-    grey "  waiting for the radio to come up..."
+    step "waiting for the radio to come up..."
     if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
         PAIR_REASON=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Scan unavailable:%' ORDER BY debug_log_id DESC LIMIT 1;")
         [ -n "$PAIR_REASON" ] && { PAIR_STATUS=2; return 2; }
@@ -378,7 +384,7 @@ pair_a_cube() {
         return 1
     fi
 
-    grey "  listening for advertisements..."
+    step "listening for advertisements..."
     if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
         # The scan is stopped on the way out: leaving the radio listening behind a script that has given up is what
         # the timeout exists to prevent, and this path is reached before it fires.
@@ -398,7 +404,7 @@ pair_a_cube() {
 
     since=$(mark)
     press "$row"
-    grey "  pairing..."
+    step "pairing..."
     if ! wait_for "$since" "Paired with %" 60 >/dev/null; then
         PAIR_REASON="the cube was found but would not pair -- it may be on a PIN this app cannot present"
         PAIR_STATUS=1
@@ -542,8 +548,8 @@ setting() { sql "SELECT json_extract(setting_value, '\$.$2') FROM setting WHERE 
 # ---------------------------------------------------------------------------- arranging, as opposed to checking
 #
 # **For a script that sets things up rather than testing them, where the whole script is one verdict.** `00-setup`
-# is the only one, and it answers once at the bottom: `step` narrates what it did, `trouble` records what it could
-# not do, and neither writes a `check_result` row.
+# is the only one, and it answers once at the bottom: `step` (with the output helpers above) narrates what it did,
+# `trouble` records what it could not do, and neither writes a `check_result` row.
 #
 # **Defined here rather than in the script**, because `seed-private.sh` needs them too and a second copy is how
 # `58-wrong-pin` came to call a `setting` helper that three other scripts each defined privately -- it ran zero
@@ -559,7 +565,6 @@ trouble() {
       - $*"
     red "  could not: $*"
 }
-step() { grey "  $*"; }
 
 # `check "name" "expected" "actual"` -- the common shape, so a failure prints both sides without every
 # script formatting its own message.
@@ -661,7 +666,7 @@ require_test_database() {
     local target
     target="$(readlink "$DB" || echo "$DB")"
     case "$target" in
-        *test.sqlite) grey "  database: test.sqlite" ;;
+        *test.sqlite) step "database: test.sqlite" ;;
         *)
             red "REFUSING TO RUN: appdata.sqlite points at '$target', not test.sqlite."
             red "These scripts write real rows and nothing undoes them."
@@ -853,7 +858,7 @@ restore_bluetooth() {
     [ "$BLUETOOTH_IS_OFF" = "1" ] || return 0
     BLUETOOTH_IS_OFF=0
     if bluetooth_is_on; then
-        grey "  Bluetooth is back on already, so there is nothing to ask for"
+        step "Bluetooth is back on already, so there is nothing to ask for"
         return 0
     fi
     echo ""
@@ -928,21 +933,21 @@ is_running() { pgrep -x Facet >/dev/null 2>&1; }
 # and proves nothing; that has cost this project an hour once already (see Tests/Methods.md, Method 1).
 ensure_app_running() {
     if is_running; then
-        grey "  app: already running"
+        step "app: already running"
         # Captured and matched rather than piped into `grep -q`: see `tree_has` for why a pipeline cannot answer
         # this under pipefail. This note is where that was found -- it said ad-hoc about a properly signed app on
         # 18 runs out of 20, which is exactly the wrong way round for a warning nobody can act on.
         case "$(codesign -dvvv "$APP" 2>&1)" in
             *TeamIdentifier=[A-Z0-9]*) ;;
             *)
-                grey "  note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
-                grey "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
+                step "note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
+                blue "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
                 ;;
         esac
         return 0
     fi
     if [ ! -x "$BINARY" ] || [ -n "$(find Sources -newer "$BINARY" -name '*.swift' -print -quit 2>/dev/null)" ]; then
-        grey "  building (sources are newer than the bundle)..."
+        step "building (sources are newer than the bundle)..."
         # **Signed, exactly as scripts/run.sh signs it.** An ad-hoc build is a different application to
         # the Keychain, so the refresh token behind Google sync stops being readable without a prompt --
         # and nothing says so: the sweep just never runs. That is how 10-google-calendar failed the first
@@ -958,7 +963,7 @@ ensure_app_running() {
             output=$(mint run stackotter/swift-bundler@main bundle Facet --codesign --identity "$identity" 2>&1)
             status=$?
         else
-            grey "  no codesigning identity, so this build is ad-hoc: anything reading the Keychain will stall"
+            step "no codesigning identity, so this build is ad-hoc: anything reading the Keychain will stall"
             output=$(mint run stackotter/swift-bundler@main bundle Facet 2>&1)
             status=$?
         fi
@@ -970,7 +975,7 @@ ensure_app_running() {
             exit 2
         fi
     fi
-    grey "  launching $(stat -f '%Sm' "$BINARY")"
+    step "launching $(stat -f '%Sm' "$BINARY")"
     open "$APP"
     local waited=0
     while [ "$waited" -lt 100 ]; do
@@ -1085,7 +1090,7 @@ quit_app() {
         sleep 0.1
         waited=$((waited + 1))
     done
-    grey "  the menu quit did not take; killing"
+    step "the menu quit did not take; killing"
     pkill -x Facet
 }
 

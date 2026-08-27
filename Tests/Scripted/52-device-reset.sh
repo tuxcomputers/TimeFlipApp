@@ -69,7 +69,7 @@ esac
 
 # The name is read before the reset takes it away, so the assertion further down has something to compare against.
 name_before=$(sql "SELECT IFNULL(json_extract(setting_value, '\$.name'), '') FROM setting WHERE setting_name = 'device_name';")
-grey "  the cube is calling itself '$name_before'"
+step "the cube is calling itself '$name_before'"
 
 # ---------------------------------------------------------------------------- the button, and what it asks first
 #
@@ -153,7 +153,7 @@ expect_log "and drops it deliberately" "$since" "Disconnecting from %the cube is
 # safety net. Only that the loop runs is asserted, not how many times: that is the cube's business and it varied.
 expect_log "it goes looking for the cube on the vendor PIN" "$since" "Trying the vendor PIN%" 30
 
-grey "  waiting for the cube to finish erasing and answer (up to 140s)..."
+step "waiting for the cube to finish erasing and answer (up to 140s)..."
 verdict=$(wait_for "$since" "Reset: %" 140)
 case "$verdict" in
     *confirmed*) pass "the cube let the app in on the vendor PIN, which is the wipe proved" ;;

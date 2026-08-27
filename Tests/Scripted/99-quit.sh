@@ -62,7 +62,7 @@ if pair_a_cube; then
     press device-reset
     sleep 1
     press_sheet "Reset Device"
-    grey "  wiping the cube, so this run's timings cannot reach production..."
+    step "wiping the cube, so this run's timings cannot reach production..."
     if wait_for "$since" "Reset: confirmed" 150 >/dev/null; then
         pass "the cube is wiped, so the run's timings stay in the test database"
     else

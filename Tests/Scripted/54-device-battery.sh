@@ -83,7 +83,7 @@ for _ in $(seq 1 50); do
     [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ] && break
     sleep 0.2
 done
-grey "  asked for $asked subscription(s), the cube took $took"
+step "asked for $asked subscription(s), the cube took $took"
 
 if [ "${asked:-0}" -ge 2 ] && [ "$asked" = "$took" ]; then
     pass "every characteristic the cube can push on is subscribed to, not only the one a feature reads"
@@ -102,7 +102,7 @@ check_contains "and the trace names what the service actually has" \
 
 shown=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %' ORDER BY debug_log_id DESC LIMIT 1;")
 percent=$(printf '%s' "$shown" | sed -n 's/^Charge \([0-9]*\)%.*/\1/p')
-grey "  the log's latest figure is ${percent:-unknown}%"
+step "the log's latest figure is ${percent:-unknown}%"
 
 if [ -n "$percent" ]; then
     check_contains "the Battery row shows what was last read" "$(element device-battery)" "${percent}%"
@@ -121,7 +121,7 @@ fi
 
 raw=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-rx' AND message GLOB 'batteryLevel: [0-9A-F][0-9A-F]*';")
 answers=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'battery' AND message LIKE 'Charge %';")
-grey "  the cube reported $raw time(s); the figure on show moved $answers time(s)"
+step "the cube reported $raw time(s); the figure on show moved $answers time(s)"
 
 climbs=$(dsql "
     WITH shown AS (

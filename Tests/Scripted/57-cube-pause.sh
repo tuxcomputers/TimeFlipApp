@@ -102,7 +102,7 @@ fi
 # instead of to the cube. `56` no longer leaves anything behind here: giving up on a cube does not change the mode.
 # Not bounded to this script's window, deliberately: the decision is made once per launch and the launch this runs
 # in began back in `56`, so a row after `$link` is exactly what there will not be.
-grey "  $(dsql "SELECT message FROM debug_log WHERE tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
+step "$(dsql "SELECT message FROM debug_log WHERE tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
 # What the cube last said about itself. Written by `BluetoothRadio` and only when the answer is news, which is enough:
 # the ask made when a link comes up always writes one, since the held status is cleared with the connection.
@@ -138,7 +138,7 @@ if [[ "$(status_row)" == *"is locked"* ]]; then
     # Nothing is lost by not counting it: the guard immediately below re-reads the cube's own answer and fails the
     # script outright if the unlock did not take, which is the check that was ever worth having.
     if wait_for "$unlocking" "The cube is unlocked" 20 >/dev/null; then
-        grey "  the cube arrived locked, and was unlocked to start from a known state"
+        step "the cube arrived locked, and was unlocked to start from a known state"
     fi
 fi
 
@@ -151,7 +151,7 @@ fi
 # The app has to have ingested something before the direction of the first click means anything. A cube reset and not
 # yet flipped has no open segment at all, which the app treats as running -- a true answer, but not one this script
 # can predict, so it is reported rather than assumed.
-grey "  the app's record says the cube is $( [ "$(open_paused)" = "1" ] && echo "paused" || echo "running" )"
+step "the app's record says the cube is $( [ "$(open_paused)" = "1" ] && echo "paused" || echo "running" )"
 
 # ---------------------------------------------------------------------------- one click stops it
 #
@@ -320,7 +320,7 @@ on_face=$(dsql "SELECT CAST(replace(replace(message, 'Face ', ''), ' is up', '')
                 WHERE tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;")
 if [ "$on_face" = "$MEETING_FACE" ]; then target=$BREAK_FACE; else target=$MEETING_FACE; fi
 target_name=$(sql "SELECT category_name FROM category WHERE category_id = (SELECT category_id FROM face WHERE face_id = $target);")
-grey "  the cube is on face ${on_face:-unknown}, so the turn asked for is face $target ('$target_name')"
+step "the cube is on face ${on_face:-unknown}, so the turn asked for is face $target ('$target_name')"
 
 # **The line everything below measures from, taken while the cube is still paused.** `event_number` rather than
 # `device_event_id`: the cube issues the numbers, so a higher one is the cube having started something new, which is

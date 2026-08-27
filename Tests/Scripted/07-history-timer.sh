@@ -18,7 +18,7 @@ select_tab Faces
 
 INTERVAL=$(sql "SELECT json_extract(setting_value, '\$.seconds') FROM setting WHERE setting_name = 'fetch_history_interval_seconds';")
 INTERVAL=${INTERVAL:-10}
-grey "  the interval is ${INTERVAL}s"
+step "the interval is ${INTERVAL}s"
 
 # Whatever the last script left, start from stopped so what follows is this script's doing.
 if [ "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")" != "0" ]; then
@@ -82,10 +82,10 @@ expect_log "and goes on firing" "$since" "History timer fired%" $((INTERVAL + 8)
 # than a consequence of how long they happened to take.
 elapsed=$(( $(date +%s) - TIMING_FROM ))
 if [ "$elapsed" -lt 22 ]; then
-    grey "  letting the clock climb to 22s before pausing (${elapsed}s so far)"
+    step "letting the clock climb to 22s before pausing (${elapsed}s so far)"
     sleep $(( 22 - elapsed ))
 fi
-grey "  paused after $(( $(date +%s) - TIMING_FROM ))s of timing"
+step "paused after $(( $(date +%s) - TIMING_FROM ))s of timing"
 
 since=$(mark)
 press timing-play-pause

@@ -43,7 +43,7 @@ restore_pin() {
     if [ -f "$CONFIG.58-backup" ]; then
         mv "$CONFIG.58-backup" "$CONFIG"
         PIN_RESTORED=1
-        grey "  the PIN in config.json has been put back"
+        step "the PIN in config.json has been put back"
         return 0
     fi
     yellow "##############################################################################"
@@ -152,7 +152,7 @@ press_title "Retry"
 sleep 2
 
 if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
-    grey "  the alert did not answer to an AXPress, so asking for a hand"
+    step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
         "Click **Retry** on the dialog" \
         "The app could not open your TimeFlip, and is asking what to do about it." \
@@ -185,7 +185,7 @@ press_title "Stop Looking"
 sleep 2
 
 if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
-    grey "  the alert did not answer to an AXPress, so asking for a hand"
+    step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
         "Click **Stop Looking** on the dialog" \
         "The app still could not open your TimeFlip, and is asking again." \

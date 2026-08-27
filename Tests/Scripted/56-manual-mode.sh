@@ -209,7 +209,7 @@ press_title "Stop Looking"
 sleep 2
 
 if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
-    grey "  the alert did not answer to an AXPress, so asking for a hand"
+    step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
         "Click **Stop Looking** on the dialog" \
         "The app could not find your TimeFlip, and is asking what to do about it." \
@@ -274,7 +274,7 @@ fi
 # Said to be back on. The scan at the end of this script is what actually proves it, and until that passes the trap
 # stays armed -- a person answering a prompt is not evidence, which is this suite's whole first principle.
 
-grey "  watching for 40s to see whether the app reaches for the cube..."
+step "watching for 40s to see whether the app reaches for the cube..."
 sleep 40
 
 check "the app does not go back to looking for the cube" "0" \

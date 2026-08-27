@@ -14,7 +14,7 @@ start "the app launches, opens the test database and records what it does"
 # to go first -- otherwise `ensure_app_running` finds it up, launches nothing, and every check below waits
 # for rows a launch that never happened would have written.
 if is_running; then
-    grey "  quitting the app left running, so this starts cold"
+    step "quitting the app left running, so this starts cold"
     quit_app
     sleep 1
 fi

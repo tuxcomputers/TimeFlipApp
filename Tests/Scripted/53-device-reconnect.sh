@@ -55,7 +55,7 @@ pass "paired a cube to come back to"
 # One row per setting, the value being JSON, which is what `08-app-settings` reads them with too.
 
 paired_uuid=$(setting device_uuid uuid)
-grey "  paired to ${paired_uuid:-unknown}"
+step "paired to ${paired_uuid:-unknown}"
 
 check "the cube is reachable before the quit" "$(setting connection connected)" "1"
 
@@ -79,7 +79,7 @@ check "the pairing survives it" "$(setting paired paired)" "1"
 
 since=$(mark)
 ensure_app_running
-grey "  launched; nothing will be pressed from here until the reconnect is checked"
+step "launched; nothing will be pressed from here until the reconnect is checked"
 
 expect_log "a paired app decides for itself to look for its cube" "$since" "Paired, so going to look for the cube" 20
 # **A scan, not a connect**, which is the fact this feature turns on: CoreBluetooth will not hand back a peripheral by
@@ -87,7 +87,7 @@ expect_log "a paired app decides for itself to look for its cube" "$since" "Pair
 expect_log "and goes looking by scanning, since that is the only way to a peripheral" "$since" "Reaching for %scanning%" 20
 expect_log "the radio actually starts listening" "$since" "%Scan started%" 20
 
-grey "  waiting for the cube to answer the launch scan..."
+step "waiting for the cube to answer the launch scan..."
 # **The remembered identifier is what may cut the window short, and nothing else is.** Any other cube is collected and
 # the scan runs its ten seconds out, because a device that is not the one this app remembers cannot be known to be its
 # own until it has taken the PIN. So this row is the ordinary case going fast, and its absence would be a reconnect

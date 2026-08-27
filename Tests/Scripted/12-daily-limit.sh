@@ -166,7 +166,7 @@ for remaining in "${REMAINING_CASES[@]}"; do
         "$(wait_sql "1" "SELECT COUNT(*) FROM device_event WHERE finalised = 0;")"
 
     # **The wait is the test.** Nothing here presses anything: what is being checked is that the app stops itself.
-    grey "  waiting out the last $remaining seconds of the budget..."
+    step "waiting out the last $remaining seconds of the budget..."
     if wait_for "$since" "%Daily limit reached%" $(( remaining + 25 )) >/dev/null; then
         pass "reaching the limit from $remaining seconds out stops the clock, and says so"
     else
