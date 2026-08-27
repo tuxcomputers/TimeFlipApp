@@ -17,16 +17,16 @@ import AppKit
 @MainActor
 final class TimingView: NSView {
     enum Identifier {
-        static let playPause = "timingState-play-pause"
-        static let elapsed = "timingState-elapsed"
-        static let categoryName = "timingState-category-name"
-        static let cubeFace = "timingState-device-face"
-        static let centreIcon = "timingState-centre-icon"
-        static let faceLock = "timingState-face-lock"
+        static let playPause = "timing-play-pause"
+        static let elapsed = "timing-elapsed"
+        static let categoryName = "timing-category-name"
+        static let cubeFace = "timing-device-face"
+        static let centreIcon = "timing-centre-icon"
+        static let faceLock = "timing-face-lock"
         /// The figure under the name while a cube is being followed. A different element from `elapsed`, because it is
         /// in a different place for a different reason -- see `faceElapsedLabel`.
-        static let faceElapsed = "timingState-face-elapsed"
-        static let faceGlyph = "timingState-face-glyph"
+        static let faceElapsed = "timing-face-elapsed"
+        static let faceGlyph = "timing-face-glyph"
     }
 
     /// The device seen from above, which is the app's own mark: `ic_facet.svg`.
