@@ -124,8 +124,17 @@ struct ForcedPause {
         // From here the cube is stopped. Either this type stopped it on this face, or the pause is somebody else's.
         guard stoppedOnFace == face, hasCategory else { return .none }
         guard !limitIsHolding else { return .none }
-        stoppedOnFace = nil
         return .resume
+    }
+
+    /// Records that the resume this type just asked for actually took, which is what gives the claim up.
+    ///
+    /// **The mirror of `pauseTook`, and it exists for the case that goes wrong quietly.** Giving the claim up at the
+    /// moment `.resume` was *decided* would mean a refused resume left a cube paused with nobody claiming it: the next
+    /// look would find a face with a category, a stopped cube and no claim, answer `.none`, and leave it stopped for
+    /// good. Held until the cube confirms, the same look answers `.resume` again and it is retried.
+    mutating func resumeTook() {
+        stoppedOnFace = nil
     }
 
     /// Records that the pause this type just asked for actually took, which is what makes the claim.

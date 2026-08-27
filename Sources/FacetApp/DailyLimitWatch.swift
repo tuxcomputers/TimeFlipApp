@@ -48,6 +48,13 @@ final class DailyLimitWatch {
     /// be answered from a tick that is never coming back, and a limit raised afterwards would go unnoticed for the
     /// rest of the launch. That was the bug run 15 found. A readout per ask is the same cost the menu bar already pays
     /// for `display_seconds`, on the same once-a-second draw.
+    /// Whether the pause on the cube right now is one the limit placed.
+    ///
+    /// **What `ForcedPauseWatch` asks before it lifts anything.** Both types decide the same cube's pause state, and a
+    /// hard limit has to win or it is not hard: a limit's pause lifted by assigning a category to the face would be a
+    /// refusal with a way round it. Read rather than pushed, like everything else here.
+    var isHoldingAPause: Bool { enforcement.isPausedByLimit }
+
     var isReached: Bool {
         let reading = timing()
         return enforcement.isReached(

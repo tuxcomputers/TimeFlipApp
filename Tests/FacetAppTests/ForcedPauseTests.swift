@@ -77,13 +77,25 @@ final class ForcedPauseTests: XCTestCase {
         XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
     }
 
-    func testTheClaimIsGivenUpOnceTheResumeIsIssued() {
+    func testTheClaimIsGivenUpOnceTheResumeIsConfirmed() {
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
         XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        subject.resumeTook()
         XCTAssertFalse(subject.isHoldingAPause)
         // And it is not issued twice: the cube is running by the time the next frame arrives.
         XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: false), .none)
+    }
+
+    func testARefusedResumeIsTriedAgainRatherThanStrandingTheCube() {
+        // The claim is held until the cube confirms. Given up at the moment `.resume` was decided, a refused resume
+        // would leave a stopped cube nobody claimed: a face with a category, no claim, `.none`, and stopped for good.
+        var subject = ForcedPause()
+        subject.pauseTook(onFace: 5)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        // The command was refused, so nothing confirms it and the cube is still stopped.
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertTrue(subject.isHoldingAPause)
     }
 
     func testAFlipOntoAnAssignedFaceNeedsNoCommandBecauseTheFirmwareLiftsIt() {

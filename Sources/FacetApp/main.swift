@@ -321,6 +321,30 @@ let dailyLimit = DailyLimitWatch(
 // Asked rather than pushed, so the refusal and the greying cannot be working from different copies of one answer.
 settingsWindow.isLimitReached = { dailyLimit.isReached }
 
+// Stops the cube when it is resting on a face with no category, and starts it again when that face is given one.
+//
+// **Time the app cannot attribute is time it will not let the cube record.** The decision is `ForcedPause` and this
+// only puts it on the wire; both are driven from the two funnels below rather than from a tick, there being nothing
+// else that can change the answer.
+//
+// **After the daily limit deliberately**, because the two decide the same cube's pause state and a hard limit has to
+// win: `limitIsHolding` is what stands this down while the limit has one of its own.
+let forcedPause = ForcedPauseWatch(
+    // The cube's own open row and nothing else. `ManualFace.isTheApps` filters 13 and 14 out here rather than in the
+    // decision, so what the decision is handed is only ever a face a cube reported.
+    openFace: { deviceEvents.openSegment().map(\.face).flatMap { ManualFace.isTheApps($0) ? nil : $0 } },
+    hasCategory: { faces.categoryID(forFace: $0) != nil },
+    // **The same three sources `CubeLock` reads**, deliberately: the thing deciding to send a pause and the thing
+    // sending it must not be working from different answers about whether the cube is stopped, locked or reachable.
+    isPaused: { timingReadout.read().deviceIsPaused },
+    isLocked: { radio.cubeStatus?.isLocked },
+    isConnected: { radio.connectedDevice != nil },
+    limitIsHolding: { dailyLimit.isHoldingAPause },
+    setPause: { wanted, then in cubeLock.setPause(wanted, then: then) },
+    refreshHistory: { reason, done in historyIngestor.refresh(because: reason) { _ in done() } },
+    debugLog: debugLog
+)
+
 // Recorded time changed, so everything drawn from it is stale: the readings on both surfaces, the day's totals, and
 // whether a category has spent its limit.
 historyIngestor.onChanged = {
@@ -337,6 +361,10 @@ historyIngestor.onChanged = {
     // Cheap where it does nothing: `resumeIfStopped` returns at once if the tick is already up, and `start` refuses
     // unless something really is running.
     dailyLimit.resumeIfStopped()
+    // **An event came in, so the face the cube is resting on may be one with nothing on it.** This is the moment that
+    // is true of, and a flip reaches it promptly: the faces characteristic notifies and the app fetches on it, so this
+    // does not wait out `fetch_history_interval_seconds`.
+    forcedPause.check()
 }
 
 let menuBar = MenuBarController(
@@ -487,6 +515,10 @@ settingsWindow.onTimingChanged = {
     // The same funnel, for the same reason: this stands itself down while nothing is being timed, and every path
     // that starts the clock already comes through here, so a new one gets the limit enforced for nothing.
     dailyLimit.resumeIfStopped()
+    // **The other half, and the only route to it.** Giving a face a category changes a table with the cube sitting
+    // still, so no history event follows and nothing else would ever notice. `SettingsWindowController` comes through
+    // here after every assignment for exactly this sort of reason.
+    forcedPause.check()
 }
 
 // Connecting Google is the other moment a sweep becomes possible. Without this, somebody who signs in after a week
