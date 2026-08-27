@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=47
+EXPECTED_CHECKS=46
 start "the face the cube is on, and both places drawing the same one"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -48,18 +48,20 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to turn
 #
-# Paired from scratch, for the reason `52`, `53` and `54` all give: a script that inherited an earlier one's pairing
-# would silently test nothing whenever that one skipped. `54` ends by forgetting the device anyway, so there is
-# nothing here to inherit.
+# **The link is taken down and let back up, and the pairing is left alone**, for `54-device-battery`'s reason: the
+# section below is about what the app asks *as the link opens*, and a connection that is already up has written those
+# rows before this script can mark anything. `relink_a_cube` quits and relaunches, and the app reconnects to the cube
+# it inherited from `54`, running the same login a fresh pairing would.
+
+require_a_paired_cube "there is no face to read"
 
 link=$(mark)
-if ! pair_a_cube; then
-    pair_verdict "there is no face to read"
+if ! relink_a_cube; then
+    fail "the app did not reach the cube again within 90s, so there is no link coming up to read a face from"
     close_settings
     finish
-    exit $?
+    exit 1
 fi
-pass "paired a cube to turn"
 
 # The high-water mark for `device_event`, taken before anything is turned. What it is for is further down: reading a
 # face is all this feature does, and the check that nothing was *recorded* needs a line to measure from.
@@ -534,6 +536,14 @@ case "$(tree)" in
     *timing-device-face*) fail "the Faces tab is still drawing a cube nothing is connected to" ;;
     *) pass "and the Faces tab stops drawing one" ;;
 esac
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# The forget above is how this script drops the link, so it ends with nothing paired and `56-manual-mode` starts from
+# a cube. Back on the Device tab first: Scan is there and nowhere else.
+
+select_tab Device
+restore_the_pairing
 
 close_settings
 finish

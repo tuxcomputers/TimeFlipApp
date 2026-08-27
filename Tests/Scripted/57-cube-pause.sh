@@ -30,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=38
+EXPECTED_CHECKS=37
 start "pausing and locking the cube from the status item"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -40,22 +40,22 @@ start "pausing and locking the cube from the status item"
 
 # ---------------------------------------------------------------------------- a cube to click at
 #
-# **The window is opened for the pairing and shut again straight after.** Scan and Forget live on the Device tab, so
-# there is no way to pair without it -- and everything after this is about the status item, which is read with the
-# window shut. It was missing altogether until 2026-08-22 and cost this script a whole run: `press` says nothing when
-# the element is not there, so the scan simply never happened and `pair_a_cube` blamed the radio sixty seconds later.
+# **The link is taken down and let back up, and the pairing is left alone**, for `54-device-battery`'s reason: every
+# row asserted below is one the login writes as the link comes up -- the clock, the state, the characteristics -- and
+# a connection that is already up wrote them before this script could mark anything. `relink_a_cube` quits and
+# relaunches, and the app reconnects to the cube `56-manual-mode` put back.
+#
+# **The window it leaves open is shut again straight after.** Everything past this section is about the status item,
+# which is read with no window at all.
 
-open_settings
-select_tab Device
+require_a_paired_cube "there is nothing to pause"
 
 link=$(mark)
-if ! pair_a_cube; then
-    pair_verdict "there is nothing to pause"
-    close_settings
+if ! relink_a_cube; then
+    fail "the app did not reach the cube again within 90s, so there is no link coming up to watch"
     finish
-    exit $?
+    exit 1
 fi
-pass "paired a cube to click at"
 close_settings
 
 # **The clock, before anything else the connection does.** The cube stamps every history frame with its own clock, so
@@ -100,8 +100,8 @@ fi
 # rather than asserted, because which one it is depends on whether the database came in paired -- but it is the first
 # thing to look at if the routing check below fails, since a manual launch routes a click to the app's own clock
 # instead of to the cube. `56` no longer leaves anything behind here: giving up on a cube does not change the mode.
-# Not bounded to this script's window, deliberately: the decision is made once per launch and the launch this runs
-# in began back in `56`, so a row after `$link` is exactly what there will not be.
+# Not bounded to this script's window, deliberately: the decision is made once per launch, and the launch this runs in
+# is the one `relink_a_cube` started, so the newest row of all is the one that describes it.
 step "$(dsql "SELECT message FROM debug_log WHERE tag = 'mode' AND message LIKE 'Launch mode:%' ORDER BY debug_log_id DESC LIMIT 1;")"
 
 # What the cube last said about itself. Written by `BluetoothRadio` and only when the answer is news, which is enough:
@@ -132,8 +132,8 @@ if [[ "$(status_row)" == *"is locked"* ]]; then
     # run 86 ran 39 against a declared 38, with all 39 passing, and was refused for it (2026-08-23).
     #
     # **It arrives locked as a matter of course now.** The app pauses and locks the cube as it quits ("Quit: the cube
-    # is paused and locked"), and `pair_a_cube` restarts the app so the launch is one that follows a cube -- so every
-    # script that pairs now inherits a locked cube where it used to inherit a live one.
+    # is paused and locked"), and `relink_a_cube` above is a quit and a launch -- so this script inherits a locked cube
+    # where it used to inherit a live one.
     #
     # Nothing is lost by not counting it: the guard immediately below re-reads the cube's own answer and fails the
     # script outright if the unlock did not take, which is the check that was ever worth having.

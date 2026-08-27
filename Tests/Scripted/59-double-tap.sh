@@ -24,7 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=18
+EXPECTED_CHECKS=17
 start "the double-tap registers: sent, read back off the cube, then written down"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -60,16 +60,11 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a live cube to send to
 #
-# Paired from scratch, for the reason `52`, `53` and `54` give: a script that inherited an earlier one's pairing
-# would silently test nothing whenever that one skipped.
+# **The one `58-wrong-pin` left reachable**, inherited rather than paired for -- see `require_a_paired_cube` in lib.sh.
+# Nothing here is about a link coming up: the registers are written and read back over whatever connection is open, so
+# an inherited one is exactly as good as a fresh one and costs no scan.
 
-if ! pair_a_cube; then
-    pair_verdict "there is no cube to send registers to"
-    close_settings
-    finish
-    exit $?
-fi
-pass "paired a cube to set the registers against"
+require_a_paired_cube "there is no cube to send registers to"
 
 # ---------------------------------------------------------------------------- reaching the four fields
 #

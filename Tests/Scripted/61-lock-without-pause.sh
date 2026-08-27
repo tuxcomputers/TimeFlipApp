@@ -41,6 +41,11 @@ start "locking the cube with pause_on_lock off"
 
 # **No cube check here**, for the reason `57-cube-pause` gives: `00-setup` asked once and `50-device-scan` stops the
 # run if the answer was no, so anything reaching this line has a cube.
+#
+# **The cube `60-device-backlog` left connected**, inherited like every device script from `52` on -- see
+# `require_a_paired_cube` in lib.sh. A precondition and not a check: the lock below is a command that has to arrive
+# somewhere.
+require_a_paired_cube "there is no cube to lock"
 
 # ---------------------------------------------------------------------------- turning the pause off
 #

@@ -21,18 +21,19 @@
 # and the run stops at `50-device-scan`, long before this.
 #
 # **It needs the cube twice**: connected first, because a reset is a command that has to arrive somewhere, and then
-# again as it comes back. So it pairs from scratch rather than assuming an earlier script left a pairing behind.
+# again as it comes back. The first is the connection `51-device-connect` left up, inherited rather than arranged; the
+# second is what the reset itself has to produce.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=33
+EXPECTED_CHECKS=32
 start "resetting a TimeFlip to factory settings"
 
 # **The cube is already factory reset when this starts**, because `00-setup` pairs one and wipes it. That is not a
 # rehearsal of this script: setup only drives the sequence and reads the end state, while everything below asserts
-# each step of it. What it does mean is that this reset is the second of the run, on a cube 51 re-paired.
+# each step of it. What it does mean is that this reset is the second of the run, on the cube `51` paired.
 #
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
 # anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
@@ -44,28 +45,10 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to reset
 #
-# **Paired from scratch by `pair_a_cube`**, not inherited. `51-device-connect` leaves a pairing behind on a passing run,
-# but a script that depended on it would skip whenever `51` skipped and would silently test nothing after a reordering.
-# The cost is one scan.
-#
-# An unusable radio is a skip, since it says nothing about the app. Anything else is a failure: this script's subject is
-# what happens to a cube that is right there, so being unable to reach one is not a result.
+# **The one `51-device-connect` paired**, inherited rather than arranged. See `require_a_paired_cube` in lib.sh for why
+# the whole device range runs on one pairing, and for what running this script on its own asks of whoever does it.
 
-pair_a_cube
-case $? in
-    0) pass "paired a cube to reset" ;;
-    2)
-        fail "the radio is unusable, so there is nothing to reset ($PAIR_REASON)"
-        finish
-        exit $?
-        ;;
-    *)
-        fail "could not pair a cube, so there is nothing to reset: $PAIR_REASON"
-        close_settings
-        finish
-        exit 1
-        ;;
-esac
+require_a_paired_cube "there is nothing to reset"
 
 # The name is read before the reset takes it away, so the assertion further down has something to compare against.
 name_before=$(sql "SELECT IFNULL(json_extract(setting_value, '\$.name'), '') FROM setting WHERE setting_name = 'device_name';")
@@ -222,6 +205,14 @@ check_contains "and the Connection row says the device is gone and a restart is 
 # The swap goes back the other way: with no device there is a cube to look for again.
 check_contains "the Scan button is back" "$(element device-scan)" "title=Scan for Devices"
 check "and Reset is gone with the pairing" "" "$(element device-reset)"
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# A wipe is the one thing in this folder that takes the pairing away as a matter of course rather than as a check, and
+# `53-device-reconnect` next door starts from a cube it can quit and come back to. The cube answers to the vendor PIN
+# now, which is the first one a connect presents, so this pairs exactly as `51` did.
+
+restore_the_pairing
 
 close_settings
 finish

@@ -46,6 +46,11 @@ start "a cube out of range: what the app shows, what it refuses to write, and wh
 # `99-quit` wipes the cube so this run's timings cannot reach production, and it cannot do that with the radio off.
 watch_bluetooth
 
+# **The cube `59-double-tap` left connected**, inherited like every device script from `52` on -- see
+# `require_a_paired_cube` in lib.sh. Checked before the radio goes anywhere, because the repairs below send the cube
+# commands and there would be no link to send them over.
+require_a_paired_cube "there is no cube to take out of range"
+
 # Whether the app believes the cube is locked, read off the menu bar rather than out of the log.
 #
 # **A live answer, which the log cannot give here.** `55-device-face` reads the newest `The cube is ...ocked and ...`

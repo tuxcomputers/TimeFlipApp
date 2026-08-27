@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=23
+EXPECTED_CHECKS=21
 start "reconnecting to a paired TimeFlip at launch"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -38,26 +38,17 @@ select_tab Device
 
 # ---------------------------------------------------------------------------- a cube to come back to
 #
-# **Paired from scratch by `pair_a_cube`**, for `52-device-reset`'s reason: a script that inherited `51`'s pairing would
-# skip whenever `51` skipped and would silently test nothing after a reordering. The cost is one scan.
-#
-# A cube that cannot be paired is a skip rather than a failure here, unlike in `52`. This script's claim is about what
-# happens to a pairing across a quit, and with no pairing there is no claim to test either way.
+# **The one the script before this left**, inherited rather than paired for. See `require_a_paired_cube` in lib.sh: the
+# device range runs on `51-device-connect`'s pairing, and `52` puts it back after the wipe. That it is reachable right
+# now is a precondition and not a check -- the quit below is what this script is about, and there is nothing to say
+# about a cube that was never there.
 
-if ! pair_a_cube; then
-    pair_verdict "there is nothing to come back to"
-    close_settings
-    finish
-    exit $?
-fi
-pass "paired a cube to come back to"
+require_a_paired_cube "there is nothing to come back to"
 
 # One row per setting, the value being JSON, which is what `08-app-settings` reads them with too.
 
 paired_uuid=$(setting device_uuid uuid)
 step "paired to ${paired_uuid:-unknown}"
-
-check "the cube is reachable before the quit" "$(setting connection connected)" "1"
 
 # ---------------------------------------------------------------------------- the quit
 #
@@ -158,5 +149,15 @@ expect_log "a launch with nothing paired says so" "$since" "Nothing paired, so t
 
 scans=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Reaching for %';")
 check "and does not go looking for one" "$scans" "0"
+
+# ---------------------------------------------------------------------------- putting the cube back
+#
+# The forget above is a check, not tidying-up, so this script ends with nothing paired and the next one starts from a
+# cube. The window has to be open for it: Scan lives on the Device tab and there is no other way to a pairing.
+
+open_settings
+select_tab Device
+restore_the_pairing
+close_settings
 
 finish
