@@ -199,6 +199,10 @@ else
     exit 1
 fi
 
+# **Both halves of the baseline, for `57-cube-pause`'s reason.** `event_number` says the cube filed something new;
+# `ROW_A` bounds it to rows this table did not already hold, which is what keeps pre-reset rows out. A wiped cube
+# counts from 1 again (`52-device-reset`), so a row written before the wipe can carry a higher number than anything
+# the cube will reach again this run, and on the wrong face that is a backlog reported as arrived before it has.
 N_A=$(column_of event_number "$ROW_A")
 DURATION_BEFORE=$(column_of duration_seconds "$ROW_A")
 ROWS_BEFORE=$(sql "SELECT COUNT(*) FROM device_event;")
@@ -344,9 +348,9 @@ fi
 # an empty string is what a broken query answers with too. Ingestion lands a moment after the fetch comes back, so
 # this is polled rather than read once.
 arrived=$(wait_sql "yes" \
-    "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM device_event WHERE device_face = $FACE_B AND event_number > ${N_A:-0};" 60)
+    "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM device_event WHERE device_face = $FACE_B AND device_event_id > $ROW_A AND event_number > ${N_A:-0};" 60)
 NEW_B=""
-[ "$arrived" = "yes" ] && NEW_B=$(sql "SELECT device_event_id FROM device_event WHERE device_face = $FACE_B AND event_number > ${N_A:-0} ORDER BY device_event_id DESC LIMIT 1;")
+[ "$arrived" = "yes" ] && NEW_B=$(sql "SELECT device_event_id FROM device_event WHERE device_face = $FACE_B AND device_event_id > $ROW_A AND event_number > ${N_A:-0} ORDER BY device_event_id DESC LIMIT 1;")
 if [ -n "$NEW_B" ]; then
     pass "the turn arrived as its own segment on $NAME_B (id $NEW_B, event $(column_of event_number "$NEW_B"))"
 else

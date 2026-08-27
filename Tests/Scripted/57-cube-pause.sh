@@ -323,13 +323,30 @@ target_name=$(sql "SELECT category_name FROM category WHERE category_id = (SELEC
 step "the cube is on face ${on_face:-unknown}, so the turn asked for is face $target ('$target_name')"
 
 # **The line everything below measures from, taken while the cube is still paused.** `event_number` rather than
-# `device_event_id`: the cube issues the numbers, so a higher one is the cube having started something new, which is
-# the claim -- a higher row id could just be the ingest rewriting what was already there.
+# `device_event_id` alone: the cube issues the numbers, so a higher one is the cube having started something new,
+# which is the claim -- a higher row id could just be the ingest rewriting what was already there.
+#
+# **But the cube's numbers restart, and this table remembers the ones from before.** `52-device-reset` wipes the
+# device, and a wiped cube counts from 1 again -- so rows written by `50` and `51`, when the counter was in the
+# twenties or thirties, outrank everything the reset cube will produce for the rest of the run. Taking `MAX` over the
+# whole table therefore asks the cube to reach a number it has already been past and can no longer be at.
+#
+# **Run 115 (2026-08-27) hung here for exactly that.** The baseline read 31 off pre-reset rows while the cube was on
+# event 23, so a turn that plainly happened -- the app had the cube on face 2 and running -- satisfied nothing, and an
+# indefinite wait sat there for ever. It had been passing only because the arrangement before it wasted eight
+# pairings, each of which quit the app and filed events, carrying the counter past the old high water mark before this
+# line was reached. The baseline was always wrong; the waste was hiding it.
+#
+# So two conditions, and both are needed. `device_event_id` bounds it to rows this table did not already hold, which
+# is what keeps the pre-reset rows out; `event_number` above the one the cube is **on** says the cube started
+# something new rather than the ingest having rewritten what was there.
 paused_at=$(mark)
-event_before=$(sql "SELECT IFNULL(MAX(event_number), 0) FROM device_event WHERE device_face BETWEEN 1 AND 12;")
+row_before=$(sql "SELECT IFNULL(MAX(device_event_id), 0) FROM device_event;")
+event_before=$(sql "SELECT IFNULL(event_number, 0) FROM device_event WHERE device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")
+step "the cube is on event ${event_before:-0}, and the turn has to file one after row ${row_before:-0}"
 
 if ask_and_detect \
-    "SELECT device_event_id FROM device_event WHERE device_face = $target AND event_number > $event_before AND paused = 0 ORDER BY device_event_id DESC LIMIT 1;" \
+    "SELECT device_event_id FROM device_event WHERE device_face = $target AND device_event_id > $row_before AND event_number > $event_before AND paused = 0 ORDER BY device_event_id DESC LIMIT 1;" \
     "Turn the cube, while it is stopped, so the $target_name face is up" \
     "That is face $target. The cube is paused right now, and turning it is expected to start it" \
     "again by itself -- nothing here will send it a resume." \
