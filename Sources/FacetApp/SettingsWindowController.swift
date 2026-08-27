@@ -2453,8 +2453,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         report.totalsList.onSort = { [weak self] order in
             self?.debugLog?.record(
                 .report,
-                "Report sorted by \(order.column == .time ? "time" : "category"), "
-                    + "\(order.direction == .ascending ? "ascending" : "descending")"
+                "Report sorted by \(order.sortColumnState == .time ? "time" : "category"), "
+                    + "\(order.isSortAscending ? "ascending" : "descending")"
             )
         }
         return report
