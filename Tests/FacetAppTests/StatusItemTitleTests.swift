@@ -194,8 +194,8 @@ final class StatusItemTitleTests: XCTestCase {
         // rename here with no matching edit in `Tests/Scripted` is a check that goes on passing while matching
         // nothing.
         let byHand = TimingReadout.Reading(category: category(), timingState: .running, seconds: 60)
-        let onACube = onCube(category: category(), isDevicePaused: true)
-        let gone = onCube(category: category(), isDevicePaused: true, isReachable: false)
+        let onACube = onCube(category: category(), cubePauseState: .paused)
+        let gone = onCube(category: category(), cubePauseState: .paused, isReachable: false)
 
         XCTAssertEqual(title(byHand).colourDescription, "name cyan, glyph label, figure cyan")
         XCTAssertEqual(title(byHand, isLimitReached: true).colourDescription, "name cyan, glyph label, figure red")
@@ -353,7 +353,7 @@ final class StatusItemTitleTests: XCTestCase {
     private func onCube(
         _ face: Int = 2,
         category: CategoryRecord?,
-        isDevicePaused: Bool? = nil,
+        cubePauseState: CubePauseState = .unknown,
         isReachable: Bool = true
     ) -> TimingReadout.Reading {
         TimingReadout.Reading(
@@ -361,7 +361,7 @@ final class StatusItemTitleTests: XCTestCase {
             timingState: .idle,
             seconds: 0,
             cubeFace: face,
-            deviceIsPaused: isDevicePaused,
+            cubePauseState: cubePauseState,
             isCubeConnected: isReachable
         )
     }
@@ -384,19 +384,19 @@ final class StatusItemTitleTests: XCTestCase {
     func testTheGlyphIsTheCubesOwnState() {
         // The archive's `showsPauseIcon` took the *device's* paused timingState, not the app's, which is what makes a glyph
         // mean anything here: this app runs no clock while it follows a cube, but the cube certainly is.
-        XCTAssertEqual(title(onCube(category: category(), isDevicePaused: false)).glyphName, "play.fill")
-        XCTAssertEqual(title(onCube(category: category(), isDevicePaused: true)).glyphName, "pause.fill")
+        XCTAssertEqual(title(onCube(category: category(), cubePauseState: .running)).glyphName, "play.fill")
+        XCTAssertEqual(title(onCube(category: category(), cubePauseState: .paused)).glyphName, "pause.fill")
     }
 
     func testACubeThatHasNotAnsweredGetsNoGlyph() {
         // Guessing "running" would be a claim about hardware on no evidence, which is the one thing the read-back
         // rule exists to stop.
-        XCTAssertNil(title(onCube(category: category(), isDevicePaused: nil)).glyphName)
+        XCTAssertNil(title(onCube(category: category(), cubePauseState: .unknown)).glyphName)
     }
 
     func testTheCubesStateIsSaidAloudAsWellAsDrawn() {
-        XCTAssertTrue(title(onCube(category: category(), isDevicePaused: true)).spoken.contains("device paused"))
-        XCTAssertTrue(title(onCube(category: category(), isDevicePaused: false)).spoken.contains("device running"))
+        XCTAssertTrue(title(onCube(category: category(), cubePauseState: .paused)).spoken.contains("device paused"))
+        XCTAssertTrue(title(onCube(category: category(), cubePauseState: .running)).spoken.contains("device running"))
     }
 
     func testFollowingACubeSaysTheFigureAloud() {
@@ -410,7 +410,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testFollowingACubeIsGreen() {
         // The previous app's colour and its meaning: green says this reading is live. Cyan would be a claim that
         // this app is the one recording, and here the cube is.
-        let title = title(onCube(category: category(), isDevicePaused: true))
+        let title = title(onCube(category: category(), cubePauseState: .paused))
 
         XCTAssertEqual(title.colour, .systemGreen)
         XCTAssertEqual(title.nameColour, .systemGreen)
@@ -419,7 +419,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testTheGlyphIsTheSameColourInBothPictures() {
         // The one piece of the line that does not change with which picture is on show, because what it reports --
         // whether a clock is going -- means the same in both.
-        let onACube = title(onCube(category: category(), isDevicePaused: true))
+        let onACube = title(onCube(category: category(), cubePauseState: .paused))
         let byHand = title(TimingReadout.Reading(category: category(), timingState: .running, seconds: 60))
 
         XCTAssertEqual(onACube.glyphColour, .labelColor)
@@ -429,7 +429,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testACubesFigureTurnsRedWhenTheLimitIsSpent() {
         // The limit is the cube's case as much as the app's -- `DailyLimitEnforcement` exists to pause a cube --
         // so the colour that goes with the pause has to reach this half of the line too.
-        let reading = onCube(category: category(), isDevicePaused: true)
+        let reading = onCube(category: category(), cubePauseState: .paused)
 
         XCTAssertEqual(title(reading, isLimitReached: true).colour, .systemRed)
         XCTAssertEqual(title(reading, isLimitReached: true).nameColour, .systemGreen)
@@ -438,7 +438,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testACubeThatCannotBeHeardTurnsTheLineYellow() {
         // The archive's third answer: the last face is still worth drawing, and nothing about it can be confirmed
         // any more. The glyph is untouched, being the one colour that is the same in every timingState.
-        let title = title(onCube(category: category(), isDevicePaused: true, isReachable: false))
+        let title = title(onCube(category: category(), cubePauseState: .paused, isReachable: false))
 
         XCTAssertEqual(title.colour, .systemYellow)
         XCTAssertEqual(title.nameColour, .systemYellow)
@@ -448,7 +448,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testYellowIsNotSharedWithTheLimitOrTheFlash() {
         // "A flat unknown yellow -- not a stale over-limit/low-battery color left over from before the drop." Both
         // of those are claims about a reading that has stopped being confirmable, so neither draws over it.
-        let reading = onCube(category: category(), isDevicePaused: true, isReachable: false)
+        let reading = onCube(category: category(), cubePauseState: .paused, isReachable: false)
 
         XCTAssertEqual(title(reading, isLimitReached: true).colour, .systemYellow)
         XCTAssertEqual(title(reading, lowBattery: flashOn).nameColour, .systemYellow)
@@ -458,22 +458,22 @@ final class StatusItemTitleTests: XCTestCase {
     func testACubeThatCannotBeHeardSaysSoOutLoud() {
         // A colour is the whole of the signal on screen, so the timingState the yellow exists to report has to reach
         // somebody reading the item aloud. It is said where it is drawn: qualifying the cube's own timingState.
-        let gone = title(onCube(category: category(), isDevicePaused: true, isReachable: false))
+        let gone = title(onCube(category: category(), cubePauseState: .paused, isReachable: false))
 
         XCTAssertEqual(gone.spoken, "Meeting, device paused, device unreachable, 0:00:00, Facet")
-        XCTAssertFalse(title(onCube(category: category(), isDevicePaused: true)).spoken.contains("unreachable"))
+        XCTAssertFalse(title(onCube(category: category(), cubePauseState: .paused)).spoken.contains("unreachable"))
     }
 
     func testALimitIsStillSaidWhileTheCubeIsOutOfReach() {
         // The yellow withdraws the claim that the cube's reading is current. It does not withdraw the limit, which
         // is a fact about `time_entry` -- so the red goes and the words stay.
-        let gone = title(onCube(category: category(), isDevicePaused: true, isReachable: false), isLimitReached: true)
+        let gone = title(onCube(category: category(), cubePauseState: .paused, isReachable: false), isLimitReached: true)
 
         XCTAssertTrue(gone.spoken.contains("daily limit reached"), gone.spoken)
     }
 
     func testACubesLimitIsSaidAloudAsWellAsColoured() {
-        let title = title(onCube(category: category(), isDevicePaused: true), isLimitReached: true)
+        let title = title(onCube(category: category(), cubePauseState: .paused), isLimitReached: true)
 
         XCTAssertTrue(title.spoken.contains("daily limit reached"), title.spoken)
     }

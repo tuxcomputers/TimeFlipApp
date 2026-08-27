@@ -31,7 +31,7 @@ final class CubeLock {
     /// their play/pause glyph from (`TimingReadout.Reading.deviceIsPaused`).
     ///
     /// `nil` for a cube with no open segment to read -- one that has been reset and not yet flipped, say.
-    private let isPaused: () -> Bool?
+    private let cubePauseState: () -> CubePauseState
 
     /// Whether the cube is locked.
     ///
@@ -70,14 +70,14 @@ final class CubeLock {
         settings: SettingStore?,
         isCubeConnected: @escaping () -> Bool,
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
-        isPaused: @escaping () -> Bool? = { nil },
+        cubePauseState: @escaping () -> CubePauseState = { .unknown },
         cubeLockState: @escaping () -> CubeLockState = { .unknown },
         debugLog: DebugLog?
     ) {
         self.settings = settings
         self.isCubeConnected = isCubeConnected
         self.send = send
-        self.isPaused = isPaused
+        self.cubePauseState = cubePauseState
         self.cubeLockState = cubeLockState
         self.debugLog = debugLog
     }
@@ -107,7 +107,7 @@ final class CubeLock {
     /// Returns whether anything was sent. `false` means `finished` will not be called.
     @discardableResult
     func togglePause(then finished: @escaping (Bool) -> Void) -> Bool {
-        setPause(!(isPaused() ?? false), then: finished)
+        setPause(cubePauseState() != .paused, then: finished)
     }
 
     /// Stops the cube or starts it **in a named direction**, rather than by flipping whatever it is doing.

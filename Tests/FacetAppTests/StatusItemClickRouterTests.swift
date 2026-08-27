@@ -128,7 +128,7 @@ final class StatusItemClickRouterTests: XCTestCase {
                 isLeftSide: false,
                 timingState: .idle,
                 isCubeConnected: true,
-                isCubePaused: true,
+                cubePauseState: .paused,
                 isLimitReached: true
             ),
             .ignore
@@ -143,7 +143,7 @@ final class StatusItemClickRouterTests: XCTestCase {
                 isLeftSide: false,
                 timingState: .idle,
                 isCubeConnected: true,
-                isCubePaused: false,
+                cubePauseState: .running,
                 isLimitReached: true
             ),
             .toggleCubePause
@@ -158,7 +158,7 @@ final class StatusItemClickRouterTests: XCTestCase {
                 isLeftSide: false,
                 timingState: .idle,
                 isCubeConnected: true,
-                isCubePaused: true,
+                cubePauseState: .paused,
                 isLimitReached: true,
                 clickCount: 2
             ),
@@ -172,7 +172,7 @@ final class StatusItemClickRouterTests: XCTestCase {
                 isLeftSide: false,
                 timingState: .idle,
                 isCubeConnected: true,
-                isCubePaused: true,
+                cubePauseState: .paused,
                 isLimitReached: false
             ),
             .toggleCubePause

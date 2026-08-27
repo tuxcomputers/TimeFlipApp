@@ -16,7 +16,7 @@ final class ForcedPauseWatchTests: XCTestCase {
     private final class Bench {
         var face: Int? = 5
         var facesWithCategory: Set<Int> = []
-        var isPaused: Bool? = false
+        var cubePauseState: CubePauseState = .running
         var cubeLockState: CubeLockState = .unlocked
         var isCubeConnected = true
         var limitIsHolding = false
@@ -43,7 +43,7 @@ final class ForcedPauseWatchTests: XCTestCase {
             ForcedPauseWatch(
                 cubeFace: { self.face },
                 hasCategory: { self.facesWithCategory.contains($0) },
-                isPaused: { self.isPaused },
+                cubePauseState: { self.cubePauseState },
                 cubeLockState: { self.cubeLockState },
                 isCubeConnected: { self.isCubeConnected },
                 limitIsHolding: { self.limitIsHolding },
@@ -101,7 +101,7 @@ final class ForcedPauseWatchTests: XCTestCase {
         let watch = bench.make()
         watch.check()
         // The fetch lands and writes what the cube says: stopped, on the same face.
-        bench.isPaused = true
+        bench.cubePauseState = .paused
         bench.landTheFetch()
 
         watch.check()
@@ -133,7 +133,7 @@ final class ForcedPauseWatchTests: XCTestCase {
         bench.landTheFetch()
 
         // The cube turns out to be stopped anyway, and the face is given a category. That pause is not this app's.
-        bench.isPaused = true
+        bench.cubePauseState = .paused
         bench.facesWithCategory = [5]
         watch.check()
         XCTAssertEqual(bench.sent, [true], "nothing was claimed, so nothing is lifted")
@@ -143,7 +143,7 @@ final class ForcedPauseWatchTests: XCTestCase {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
-        bench.isPaused = true
+        bench.cubePauseState = .paused
         bench.landTheFetch()
 
         // Nothing physical happens: the table changes under a cube sitting still.
@@ -157,12 +157,12 @@ final class ForcedPauseWatchTests: XCTestCase {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
-        bench.isPaused = true
+        bench.cubePauseState = .paused
         bench.landTheFetch()
 
         bench.face = 2
         bench.facesWithCategory = [2]
-        bench.isPaused = false
+        bench.cubePauseState = .running
         watch.check()
         XCTAssertEqual(bench.sent, [true], "nothing to send: the cube is already running")
     }
@@ -181,7 +181,7 @@ final class ForcedPauseWatchTests: XCTestCase {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
-        bench.isPaused = true
+        bench.cubePauseState = .paused
         bench.landTheFetch()
 
         bench.facesWithCategory = [5]

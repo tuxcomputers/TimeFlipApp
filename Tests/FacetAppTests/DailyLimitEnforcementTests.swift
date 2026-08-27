@@ -42,8 +42,8 @@ final class DailyLimitEnforcementTests: XCTestCase {
 
     func testReachingTheLimitPausesTheCube() {
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3599, paused: false), .none)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3599, isCounting: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
         XCTAssertTrue(isLimitReached(enforcement, category: breakCategory, limit: 60, total: 3600))
     }
 
@@ -51,7 +51,7 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // Nothing to send: the user pausing a second before the limit lands leaves the cube in the state the limit
         // wanted. The claim is still taken, which is what a later flip away lifts.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: false), .none)
         XCTAssertTrue(enforcement.isLimitHoldingPause)
     }
 
@@ -61,8 +61,8 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // the limit. Without the latch this is a `.resume`, undoing the pause on the strength of a total the app knows
         // is incomplete.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 2400, paused: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 2400, isCounting: false), .none)
         XCTAssertTrue(isLimitReached(enforcement, category: breakCategory, limit: 60, total: 2400))
     }
 
@@ -71,9 +71,9 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // tells the app afterwards. So it is answered rather than refused -- the history frame reports it running, and
         // the pause goes out again.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: true), .none)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: false), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
     }
 
     // MARK: - flipping off the spent face, and back
@@ -87,8 +87,8 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // edit produces: the limit raised or cleared while the cube sits paused on the face that spent it, so nothing
         // physical has lifted the pause and this type's own `.resume` is the only thing that will.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, paused: true), .resume)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, isCounting: false), .resume)
         XCTAssertFalse(isLimitReached(enforcement, category: meetingCategory, limit: 60, total: 120))
         XCTAssertFalse(enforcement.isLimitHoldingPause)
     }
@@ -97,10 +97,10 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // What a flip actually looks like: the cube arrives on the new face already running. Nothing is sent, and the
         // claim must not outlive the pause it was about.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
         XCTAssertTrue(enforcement.isLimitHoldingPause, "precondition: this type placed the pause")
 
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 120, paused: false), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 120, isCounting: true), .none)
         XCTAssertFalse(
             enforcement.isLimitHoldingPause,
             "the firmware resumed the cube on the flip, so there is no longer a pause of this type's to claim"
@@ -112,35 +112,35 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // away (firmware resumes), then pause deliberately on the new face. That pause is the user's, and a limit that
         // had not noticed losing its own would send `.resume` on the next frame and take it away again.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 120, paused: false), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 120, isCounting: true), .none)
 
         XCTAssertEqual(
-            evaluate(&enforcement, category: meetingCategory, limit: 0, total: 180, paused: true), .none,
+            evaluate(&enforcement, category: meetingCategory, limit: 0, total: 180, isCounting: false), .none,
             "the user paused this; nothing here asked for it and nothing here undoes it"
         )
     }
 
     func testFlippingBackToTheSpentFacePausesItAgain() {
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, paused: true), .resume)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, isCounting: false), .resume)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
     }
 
     func testACategoryWithNoLimitOfItsOwnIsNeverHeld() {
         // The common case for the face someone flips to: no limit set, so nothing to spend.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 86_400, paused: true), .resume)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 0, total: 86_400, isCounting: false), .resume)
     }
 
     func testAPauseTheUserAskedForIsNotLiftedByAFlip() {
         // Only a pause of this type's own making is lifted. Auto-resuming the user's would make Pause a control that
         // undoes itself on the next flip of the cube.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 600, paused: true), .none)
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, paused: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 600, isCounting: false), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, isCounting: false), .none)
         XCTAssertFalse(enforcement.isLimitHoldingPause)
     }
 
@@ -148,10 +148,10 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // No category on show is not the same as a category with budget: there is nothing to measure, so nothing is
         // sent, and what has been spent stays spent for the flip back.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: nil, limit: 0, total: 0, paused: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: nil, limit: 0, total: 0, isCounting: false), .none)
         XCTAssertFalse(isLimitReached(enforcement, category: nil, limit: 0, total: 0))
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: false), .none)
         XCTAssertTrue(isLimitReached(enforcement, category: breakCategory, limit: 60, total: 3600))
     }
 
@@ -161,14 +161,14 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // `daily_reset_time` starts the budgets again, so the window carrying the latches is what releases them -- no
         // separate reset path to remember to call.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
         let tomorrow = window.addingTimeInterval(86_400)
         XCTAssertEqual(
             enforcement.evaluate(
                 categoryID: breakCategory,
                 dailyLimitMinutes: 60,
                 totalSeconds: 0,
-                isPaused: true,
+                isCounting: false,
                 windowStart: tomorrow
             ),
             .resume
@@ -184,8 +184,8 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // The one thing a stale total cannot imitate, and so what the latch stores the limit for: an edit on the
         // Categories tab is a deliberate act and is answered immediately.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 90, total: 3600, paused: true), .resume)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 90, total: 3600, isCounting: false), .resume)
         XCTAssertFalse(isLimitReached(enforcement, category: breakCategory, limit: 90, total: 3600))
     }
 
@@ -196,7 +196,7 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // is set, the limit is raised on the Categories tab, and the refusal is asked the way the dropdown, the status
         // item's right half and `togglePause` ask it.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
         XCTAssertTrue(isLimitReached(enforcement, category: breakCategory, limit: 60, total: 3600))
 
         XCTAssertFalse(
@@ -212,21 +212,21 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // The other direction of the same ask, which must not be released by the edit alone: 30 minutes is spent by
         // an hour, so the refusal survives the latch being dropped for disagreeing.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
         XCTAssertTrue(isLimitReached(enforcement, category: breakCategory, limit: 30, total: 3600))
     }
 
     func testClearingTheLimitReleasesTheCategoryToo() {
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: false), .pause)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 0, total: 3600, paused: true), .resume)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: true), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 0, total: 3600, isCounting: false), .resume)
     }
 
     func testLoweringTheLimitBelowWhatIsSpentHoldsItAgain() {
         // The edit is answered, and the new number is what answers: 30 minutes is spent by an hour.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 90, total: 3600, paused: false), .none)
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 30, total: 3600, paused: false), .pause)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 90, total: 3600, isCounting: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 30, total: 3600, isCounting: true), .pause)
     }
 
     // MARK: - across a relaunch
@@ -236,9 +236,9 @@ final class DailyLimitEnforcementTests: XCTestCase {
         // it. A spent category and a paused cube is exactly the state this type produces, so it takes it back -- which
         // is what lets the first flip away lift it.
         var enforcement = DailyLimitEnforcement()
-        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, paused: true), .none)
+        XCTAssertEqual(evaluate(&enforcement, category: breakCategory, limit: 60, total: 3600, isCounting: false), .none)
         XCTAssertTrue(enforcement.isLimitHoldingPause)
-        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, paused: true), .resume)
+        XCTAssertEqual(evaluate(&enforcement, category: meetingCategory, limit: 60, total: 120, isCounting: false), .resume)
     }
 
     private func evaluate(
@@ -246,13 +246,13 @@ final class DailyLimitEnforcementTests: XCTestCase {
         category: Int?,
         limit: Int,
         total: TimeInterval,
-        paused: Bool
+        isCounting: Bool
     ) -> DailyLimitAction {
         enforcement.evaluate(
             categoryID: category,
             dailyLimitMinutes: limit,
             totalSeconds: total,
-            isPaused: paused,
+            isCounting: isCounting,
             windowStart: window
         )
     }

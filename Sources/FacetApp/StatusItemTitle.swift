@@ -160,8 +160,10 @@ struct StatusItemTitle: Equatable {
             // reasonable time"). A local build passing is not evidence about this, since the limit is a time budget
             // and a slower machine has less of it. Appending in order also puts the reading order in the code.
             var spokenParts: [String] = [category.name]
-            if let isDevicePaused = reading.deviceIsPaused {
-                spokenParts.append(isDevicePaused ? "device paused" : "device running")
+            switch reading.cubePauseState {
+            case .paused: spokenParts.append("device paused")
+            case .running: spokenParts.append("device running")
+            case .unknown: break
             }
             // **Said where it is drawn, which is right after what it qualifies.** The yellow below is the whole of
             // this on screen, and what it says is that the paused-or-running just spoken is the cube's last word
@@ -192,10 +194,15 @@ struct StatusItemTitle: Equatable {
                 lineColour = .systemYellow
                 cubeNameColour = .systemYellow
             }
+            let cubeGlyphName: String? = switch reading.cubePauseState {
+            case .paused: "pause.fill"
+            case .running: "play.fill"
+            case .unknown: nil
+            }
             return StatusItemTitle(
                 text: category.name,
                 iconName: category.iconName,
-                glyphName: reading.deviceIsPaused.map { $0 ? "pause.fill" : "play.fill" },
+                glyphName: cubeGlyphName,
                 lockGlyphName: lockGlyphName,
                 duration: onTheFace,
                 // Not the by-hand cyan: that colour is a claim that this app is doing the timing, and here it is

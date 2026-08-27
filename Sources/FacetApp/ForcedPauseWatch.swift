@@ -28,7 +28,7 @@ final class ForcedPauseWatch {
     private let hasCategory: (Int) -> Bool
 
     /// Whether the cube is stopped, from the open `device_event` row -- the cube's own account.
-    private let isPaused: () -> Bool?
+    private let cubePauseState: () -> CubePauseState
 
     /// Whether the cube is locked, from `BluetoothRadio.cubeStatus`.
     private let cubeLockState: () -> CubeLockState
@@ -69,7 +69,7 @@ final class ForcedPauseWatch {
     init(
         cubeFace: @escaping () -> Int?,
         hasCategory: @escaping (Int) -> Bool,
-        isPaused: @escaping () -> Bool?,
+        cubePauseState: @escaping () -> CubePauseState,
         cubeLockState: @escaping () -> CubeLockState,
         isCubeConnected: @escaping () -> Bool,
         limitIsHolding: @escaping () -> Bool,
@@ -79,7 +79,7 @@ final class ForcedPauseWatch {
     ) {
         self.cubeFace = cubeFace
         self.hasCategory = hasCategory
-        self.isPaused = isPaused
+        self.cubePauseState = cubePauseState
         self.cubeLockState = cubeLockState
         self.isCubeConnected = isCubeConnected
         self.limitIsHolding = limitIsHolding
@@ -96,7 +96,7 @@ final class ForcedPauseWatch {
         let action = enforcement.evaluate(
             face: face,
             hasCategory: face.map { hasCategory($0) } ?? false,
-            isPaused: isPaused() ?? false,
+            cubePauseState: cubePauseState(),
             cubeLockState: cubeLockState(),
             isCubeConnected: isCubeConnected(),
             limitIsHolding: limitIsHolding()

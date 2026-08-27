@@ -123,7 +123,7 @@ final class DailyLimitWatch {
             totalSeconds: reading.seconds,
             // Same reason as `start`: with a cube this said "paused" every time, so the enforcement believed a running
             // cube was already stopped and never asked for the pause it was there to ask for.
-            isPaused: !reading.isCounting,
+            isCounting: reading.isCounting,
             windowStart: windowStart(now)
         )
 

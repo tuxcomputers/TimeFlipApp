@@ -197,7 +197,7 @@ let cubeLock = CubeLock(
     // The cube's own account of what it is doing, out of `device_event` by way of the readout -- the same answer the
     // menu bar and the Faces tab draw their play/pause glyph from, so the click flips what is on show rather than
     // something only the app can see. Read at the moment it is needed, never held.
-    isPaused: { timingReadout.read().deviceIsPaused },
+    cubePauseState: { timingReadout.read().cubePauseState },
     // A different source, because nothing else answers it: no history frame carries a lock bit and `device_event` has
     // no column for one, so `0x10` is all there is. See `CubeLock.isLocked`.
     cubeLockState: { CubeLockState(reported: radio.cubeStatus?.isLocked) },
@@ -340,7 +340,7 @@ let forcedPause = ForcedPauseWatch(
     hasCategory: { faces.categoryID(forFace: $0) != nil },
     // **The same three sources `CubeLock` reads**, deliberately: the thing deciding to send a pause and the thing
     // sending it must not be working from different answers about whether the cube is stopped, locked or reachable.
-    isPaused: { timingReadout.read().deviceIsPaused },
+    cubePauseState: { timingReadout.read().cubePauseState },
     cubeLockState: { CubeLockState(reported: radio.cubeStatus?.isLocked) },
     isCubeConnected: { radio.connectedDevice != nil },
     limitIsHolding: { dailyLimit.isLimitHoldingPause },
@@ -396,7 +396,7 @@ let menuBar = MenuBarController(
         MenuBarController.CubeReading(
             isCubeConnected: radio.connectedDevice != nil,
             cubeLockState: CubeLockState(reported: radio.cubeStatus?.isLocked),
-            isPaused: radio.cubeStatus?.isPaused
+            cubePauseState: CubePauseState(reported: radio.cubeStatus?.isPaused)
         )
     },
     // Whichever way it is offering. What the app is holding decides, and the commands are `CubeLock`'s.

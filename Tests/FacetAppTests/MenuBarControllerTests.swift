@@ -71,7 +71,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             seconds: 30,
             isCounting: true,
             cubeFace: 5,
-            deviceIsPaused: false
+            cubePauseState: .running
         )
         let controller = controller()
 
@@ -91,7 +91,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             seconds: 30,
             isCounting: false,
             cubeFace: 5,
-            deviceIsPaused: true
+            cubePauseState: .paused
         )
         let controller = controller()
 

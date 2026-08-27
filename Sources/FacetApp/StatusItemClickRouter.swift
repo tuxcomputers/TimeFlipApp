@@ -60,7 +60,7 @@ enum StatusItemClickRouter {
         isLeftSide: Bool,
         timingState: TimingState,
         isCubeConnected: Bool = false,
-        isCubePaused: Bool? = nil,
+        cubePauseState: CubePauseState = .unknown,
         isLimitReached: Bool = false,
         clickCount: Int = 1
     ) -> StatusItemClick {
@@ -77,7 +77,7 @@ enum StatusItemClickRouter {
         // **The lock is not refused, only the resume.** A double click locks or unlocks, and unlocking is the one way
         // out of a timingState this app cannot otherwise reach -- `CubeLock.resume` unlocks and leaves the cube stopped when
         // the budget is spent, so the gesture stays available and simply does not start anything.
-        guard !(action == .toggleCubePause && isLimitReached && isCubePaused == true) else { return .ignore }
+        guard !(action == .toggleCubePause && isLimitReached && cubePauseState == .paused) else { return .ignore }
         return action
     }
 }

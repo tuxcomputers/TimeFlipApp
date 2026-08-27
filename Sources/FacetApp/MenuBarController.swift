@@ -93,15 +93,15 @@ final class MenuBarController: NSObject {
         /// `nil` for the same two reasons. **Only meaningful while the cube is unlocked**, since a locked cube
         /// reports itself paused whatever its pause byte says -- which is why `PauseMenuRules` reads it in the one
         /// case where the cube is known not to be locked, and nowhere else.
-        let isPaused: Bool?
+        let cubePauseState: CubePauseState
 
         /// Written out so `isPaused` can default to "nobody asked", which is what a reading built without it means.
         /// The alternative was making every existing caller name a fact it has no opinion about, which reads as an
         /// assertion that the cube is running rather than as silence.
-        init(isCubeConnected: Bool, cubeLockState: CubeLockState, isPaused: Bool? = nil) {
+        init(isCubeConnected: Bool, cubeLockState: CubeLockState, cubePauseState: CubePauseState = .unknown) {
             self.isCubeConnected = isCubeConnected
             self.cubeLockState = cubeLockState
-            self.isPaused = isPaused
+            self.cubePauseState = cubePauseState
         }
     }
 
@@ -181,7 +181,7 @@ final class MenuBarController: NSObject {
         togglePause: @escaping () -> Void = {},
         isLimitReached: @escaping () -> Bool = { false },
         lowBattery: @escaping () -> LowBatteryAlert = { .none },
-        cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, cubeLockState: .unknown, isPaused: nil) },
+        cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, cubeLockState: .unknown, cubePauseState: .unknown) },
         toggleCubeLock: @escaping () -> Void = {},
         toggleCubePause: @escaping () -> Void = {}
     ) {
@@ -454,10 +454,10 @@ final class MenuBarController: NSObject {
                 timingState: state,
                 isCubeConnected: cube.isCubeConnected,
                 cubeLockState: cube.cubeLockState,
-                isCubePaused: cube.isPaused,
+                cubePauseState: cube.cubePauseState,
                 isLimitReached: isLimitReached()
             )
-            pause.title = PauseMenuRules.title(for: target, timingState: state, isCubePaused: cube.isPaused)
+            pause.title = PauseMenuRules.title(for: target, timingState: state, cubePauseState: cube.cubePauseState)
             // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
             // than advisory, and greyed on a locked cube, which cannot be paused at all until it is unlocked.
             pause.isEnabled = PauseMenuRules.isEnabled(target)
@@ -511,7 +511,7 @@ final class MenuBarController: NSObject {
             isLeftSide: isLeftSide,
             timingState: state,
             isCubeConnected: cube.isCubeConnected,
-            isCubePaused: cube.isPaused,
+            cubePauseState: cube.cubePauseState,
             isLimitReached: isLimitReached(),
             clickCount: event.clickCount
         )
@@ -608,13 +608,13 @@ final class MenuBarController: NSObject {
             timingState: state,
             isCubeConnected: cube.isCubeConnected,
             cubeLockState: cube.cubeLockState,
-            isCubePaused: cube.isPaused,
+            cubePauseState: cube.cubePauseState,
             isLimitReached: isLimitReached()
         )
         // What it was called when it was chosen, which is what the person clicking it meant.
         debugLog?.record(
             .menu,
-            "Menu item clicked: \(PauseMenuRules.title(for: target, timingState: state, isCubePaused: cube.isPaused))"
+            "Menu item clicked: \(PauseMenuRules.title(for: target, timingState: state, cubePauseState: cube.cubePauseState))"
         )
         switch target {
         case .appClock:

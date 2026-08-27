@@ -76,8 +76,8 @@ final class PauseMenuRulesTests: XCTestCase {
     // MARK: - what it is called
 
     func testTheCubesOwnPauseStateNamesTheItem() {
-        XCTAssertEqual(PauseMenuRules.title(for: .cube, timingState: .idle, isCubePaused: false), "Pause")
-        XCTAssertEqual(PauseMenuRules.title(for: .cube, timingState: .idle, isCubePaused: true), "Resume")
+        XCTAssertEqual(PauseMenuRules.title(for: .cube, timingState: .idle, cubePauseState: .running), "Pause")
+        XCTAssertEqual(PauseMenuRules.title(for: .cube, timingState: .idle, cubePauseState: .paused), "Resume")
     }
 
     func testADeadItemReadsPauseRatherThanResume() {
@@ -85,7 +85,7 @@ final class PauseMenuRulesTests: XCTestCase {
         // worse than one claiming there is something to pause. It matters most on a locked cube, which reports itself
         // paused whatever its pause byte says -- so "Resume" would be an offer the cube is certain to refuse.
         XCTAssertEqual(
-            PauseMenuRules.title(for: .nothing, timingState: .idle, isCubePaused: true),
+            PauseMenuRules.title(for: .nothing, timingState: .idle, cubePauseState: .paused),
             "Pause"
         )
     }
@@ -141,7 +141,7 @@ final class PauseMenuRulesTests: XCTestCase {
             timingState: .idle,
             isCubeConnected: true,
             cubeLockState: .unlocked,
-            isCubePaused: true,
+            cubePauseState: .paused,
             isLimitReached: true
         )
         XCTAssertEqual(target, .nothing)
@@ -153,7 +153,7 @@ final class PauseMenuRulesTests: XCTestCase {
             timingState: .idle,
             isCubeConnected: true,
             cubeLockState: .unlocked,
-            isCubePaused: false,
+            cubePauseState: .running,
             isLimitReached: true
         )
         XCTAssertEqual(target, .cube)

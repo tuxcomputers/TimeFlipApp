@@ -491,12 +491,12 @@ extension TimingViewTests {
     func testTheGlyphSaysWhetherTheCubeIsRunning() {
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         view.layoutSubtreeIfNeeded()
         XCTAssertFalse(view.faceGlyphView.isHidden)
         let running = view.faceGlyphView.image
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: true)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .paused)
         view.layoutSubtreeIfNeeded()
 
         XCTAssertNotNil(running)
@@ -509,10 +509,10 @@ extension TimingViewTests {
         // scripted check are here to ask.
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         XCTAssertEqual(view.faceGlyphView.accessibilityLabel(), "Device running")
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: true)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .paused)
         XCTAssertEqual(view.faceGlyphView.accessibilityLabel(), "Device paused")
     }
 
@@ -521,7 +521,7 @@ extension TimingViewTests {
         // the cube has not claimed.
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: nil)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .unknown)
 
         XCTAssertNil(view.faceGlyphView.accessibilityLabel())
     }
@@ -529,7 +529,7 @@ extension TimingViewTests {
     func testACubeThatHasNotAnsweredDrawsNoGlyph() {
         let view = view()
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: nil)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .unknown)
 
         XCTAssertTrue(view.faceGlyphView.isHidden)
     }
@@ -539,7 +539,7 @@ extension TimingViewTests {
         // figure that is not there.
         let view = view()
 
-        view.show(face: 5, category: nil, elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: nil, elapsed: 60, cubePauseState: .running)
 
         XCTAssertTrue(view.faceGlyphView.isHidden)
         XCTAssertEqual(view.faceElapsedLabel.stringValue, "")
@@ -547,7 +547,7 @@ extension TimingViewTests {
 
     func testTheGlyphGoesWhenTheCubeDoes() {
         let view = view()
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         XCTAssertFalse(view.faceGlyphView.isHidden, "precondition")
 
         view.show(category: category(), timingState: .paused, elapsed: 90)
@@ -560,7 +560,7 @@ extension TimingViewTests {
         // be two symbols on one picture answering different questions.
         let view = view(width: 400)
 
-        view.show(face: 5, category: category(), elapsed: 60, isDevicePaused: false)
+        view.show(face: 5, category: category(), elapsed: 60, cubePauseState: .running)
         view.layoutSubtreeIfNeeded()
 
         // Both converted into the view's own space: the figure lives inside the row's stack now, so its `frame` is in

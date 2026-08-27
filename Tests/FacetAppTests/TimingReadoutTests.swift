@@ -553,12 +553,12 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.cubeFace = { 5 }
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, false, "precondition")
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .running, "precondition")
 
         // The next fetch brings the same interval back marked paused, which is what a double tap looks like.
         cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-60))
 
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .paused)
     }
 
     func testACubeWithNoHistoryAndNothingAskedSaysNothingEitherWay() {
@@ -567,7 +567,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.cubeFace = { 5 }
 
-        XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .unknown)
     }
 
     func testBeforeAnyHistoryTheCubesOwnAnswerDrawsTheGlyph() {
@@ -577,7 +577,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         readout.cubeFace = { 5 }
         readout.cubeSaysPaused = { true }
 
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .paused)
     }
 
     func testOnceThereIsHistoryTheRowWinsOverWhatTheCubeSaid() {
@@ -587,11 +587,11 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.cubeFace = { 5 }
         readout.cubeSaysPaused = { true }
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true, "precondition: nothing but the cube's answer yet")
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .paused, "precondition: nothing but the cube's answer yet")
 
         cubeIsOn(face: 5, paused: false, at: noon.addingTimeInterval(-60))
 
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, false)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .running)
     }
 
     func testAnOpenSegmentOnAnotherFaceIsNotThisCubesPause() {
@@ -601,7 +601,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(faces.assign(categoryID: meetingID, toFace: 5))
         readout.cubeFace = { 5 }
 
-        XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .unknown)
     }
 
     func testAManualSegmentOpenOnTopDoesNotHideTheCubesPause() {
@@ -614,7 +614,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         startTiming(breakID, at: noon.addingTimeInterval(-60))
         readout.cubeFace = { 5 }
 
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .paused)
     }
 
     func testAQuietCubeGoesOnSayingWhatTheColumnSays() {
@@ -625,13 +625,13 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         cubeIsOn(face: 5, paused: true, at: noon.addingTimeInterval(-120))
         readout.isCubePaired = { true }
         readout.cubeFace = { 5 }
-        XCTAssertEqual(readout.read(at: noon).deviceIsPaused, true, "precondition: paused while connected")
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .paused, "precondition: paused while connected")
 
         readout.cubeFace = { nil }
 
         let reading = readout.read(at: noon)
         XCTAssertEqual(reading.cubeFace, 5, "still the cube's face")
-        XCTAssertEqual(reading.deviceIsPaused, true, "and still the cube's pause")
+        XCTAssertEqual(reading.cubePauseState, .paused, "and still the cube's pause")
         XCTAssertFalse(reading.isCubeConnected, "but not a cube anything may be sent to")
     }
 
@@ -640,7 +640,7 @@ final class TimingReadoutTests: XCTestCase, @unchecked Sendable {
         // about hardware that is not there.
         startTiming(meetingID, at: noon.addingTimeInterval(-60))
 
-        XCTAssertNil(readout.read(at: noon).deviceIsPaused)
+        XCTAssertEqual(readout.read(at: noon).cubePauseState, .unknown)
     }
 
     func testTheCubesPauseIsNotTheAppsClock() {

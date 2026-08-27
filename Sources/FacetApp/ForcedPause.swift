@@ -93,7 +93,7 @@ struct ForcedPause {
     mutating func evaluate(
         face: Int?,
         hasCategory: Bool,
-        isPaused: Bool,
+        cubePauseState: CubePauseState,
         cubeLockState: CubeLockState,
         isCubeConnected: Bool,
         limitIsHolding: Bool
@@ -116,7 +116,7 @@ struct ForcedPause {
         // **The cube is running.** Whatever this type had claimed is over -- a flip lifted it, or a double tap did,
         // or the user did -- and the claim goes before anything else is decided, so a hand-resume on an unassigned
         // face is answered by a fresh pause rather than by a claim that never lapsed.
-        guard isPaused else {
+        guard cubePauseState == .paused else {
             stoppedOnFace = nil
             return hasCategory ? .none : .pause
         }

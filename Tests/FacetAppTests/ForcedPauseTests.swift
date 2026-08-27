@@ -20,7 +20,7 @@ final class ForcedPauseTests: XCTestCase {
         _ subject: inout ForcedPause,
         face: Int?,
         hasCategory: Bool,
-        isPaused: Bool,
+        cubePauseState: CubePauseState,
         cubeLockState: CubeLockState = .unlocked,
         isCubeConnected: Bool = true,
         limitIsHolding: Bool = false
@@ -28,7 +28,7 @@ final class ForcedPauseTests: XCTestCase {
         subject.evaluate(
             face: face,
             hasCategory: hasCategory,
-            isPaused: isPaused,
+            cubePauseState: cubePauseState,
             cubeLockState: cubeLockState,
             isCubeConnected: isCubeConnected,
             limitIsHolding: limitIsHolding
@@ -39,28 +39,28 @@ final class ForcedPauseTests: XCTestCase {
 
     func testACountingCubeOnAFaceWithNoCategoryIsStopped() {
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false), .pause)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running), .pause)
     }
 
     func testACountingCubeOnAFaceWithACategoryIsLeftAlone() {
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, isPaused: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, cubePauseState: .running), .none)
     }
 
     func testAnAlreadyStoppedCubeIsNotStoppedAgain() {
         // The frame after the pause reports the cube stopped on the same unassigned face. Sending `0x06 0x01` again
         // would be a command per history fetch for as long as it sits there.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false), .pause)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running), .pause)
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: true), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .paused), .none)
     }
 
     func testThePauseIsNotClaimedUntilTheCubeConfirmsIt() {
         // `.pause` is the ask; `pauseTook` is the answer. A command that was refused leaves nothing claimed, so the
         // category assigned next does not lift a pause that was never placed.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false), .pause)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running), .pause)
         XCTAssertFalse(subject.isLimitHoldingPause)
         subject.pauseTook(onFace: 5)
         XCTAssertTrue(subject.isLimitHoldingPause)
@@ -72,19 +72,19 @@ final class ForcedPauseTests: XCTestCase {
         // The case the feature is for: the cube sits stopped on face 5, somebody assigns a category to face 5 on the
         // Faces tab, and nothing physical has happened that would lift the pause.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false), .pause)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running), .pause)
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused), .resume)
     }
 
     func testTheClaimIsGivenUpOnceTheResumeIsConfirmed() {
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused), .resume)
         subject.resumeTook()
         XCTAssertFalse(subject.isLimitHoldingPause)
         // And it is not issued twice: the cube is running by the time the next frame arrives.
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .running), .none)
     }
 
     func testARefusedResumeIsTriedAgainRatherThanStrandingTheCube() {
@@ -92,9 +92,9 @@ final class ForcedPauseTests: XCTestCase {
         // would leave a stopped cube nobody claimed: a face with a category, no claim, `.none`, and stopped for good.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused), .resume)
         // The command was refused, so nothing confirms it and the cube is still stopped.
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused), .resume)
         XCTAssertTrue(subject.isLimitHoldingPause)
     }
 
@@ -103,7 +103,7 @@ final class ForcedPauseTests: XCTestCase {
         // running, and there is nothing to send.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, isPaused: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, cubePauseState: .running), .none)
         XCTAssertFalse(subject.isLimitHoldingPause)
     }
 
@@ -112,16 +112,16 @@ final class ForcedPauseTests: XCTestCase {
         // stops again -- on the new face, which is the one a later category would lift it from.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 9, hasCategory: unassigned, isPaused: false), .pause)
+        XCTAssertEqual(evaluate(&subject, face: 9, hasCategory: unassigned, cubePauseState: .running), .pause)
         subject.pauseTook(onFace: 9)
-        XCTAssertEqual(evaluate(&subject, face: 9, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertEqual(evaluate(&subject, face: 9, hasCategory: assigned, cubePauseState: .paused), .resume)
     }
 
     func testAPauseOnAFaceThisAppNeverStoppedIsNotLifted() {
         // Somebody paused the cube by hand on a face that has a category. Assigning categories elsewhere, or anything
         // else that brings this back round, must not undo it: a Pause item that undoes itself is not one.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, isPaused: true), .none)
+        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, cubePauseState: .paused), .none)
         XCTAssertFalse(subject.isLimitHoldingPause)
     }
 
@@ -130,7 +130,7 @@ final class ForcedPauseTests: XCTestCase {
         // face 5 and the cube reports itself stopped on face 2. That pause is not the one this type placed.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, isPaused: true), .none)
+        XCTAssertEqual(evaluate(&subject, face: 2, hasCategory: assigned, cubePauseState: .paused), .none)
     }
 
     // MARK: - a hand-resume on a face that still has no category
@@ -141,7 +141,7 @@ final class ForcedPauseTests: XCTestCase {
         // whole feature: time the app cannot attribute is time it will not record.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false), .pause)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running), .pause)
     }
 
     // MARK: - what it will not touch
@@ -150,14 +150,14 @@ final class ForcedPauseTests: XCTestCase {
         // The status read answers `pause (0x01/0x02 unless locked)`, so a locked cube reports itself paused whatever
         // its pause byte says. Nothing sent here could be read back and believed.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, cubeLockState: .locked), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running, cubeLockState: .locked), .none)
     }
 
     func testACubeNobodyHasAskedAboutIsLeftAlone() {
         // `nil` is "no answer yet", not "unlocked". Guessing the other way is guessing about the one state that makes
         // the pause byte lie.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, cubeLockState: .unknown), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running, cubeLockState: .unknown), .none)
     }
 
     func testALockedCubeKeepsTheClaimRatherThanDroppingIt() {
@@ -165,13 +165,13 @@ final class ForcedPauseTests: XCTestCase {
         // the lock is off.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        _ = evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, cubeLockState: .locked)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, cubeLockState: .unlocked), .resume)
+        _ = evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused, cubeLockState: .locked)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused, cubeLockState: .unlocked), .resume)
     }
 
     func testNothingIsDecidedWithNoLink() {
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, isCubeConnected: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running, isCubeConnected: false), .none)
     }
 
     func testAClaimDoesNotSurviveTheLinkGoingDown() {
@@ -179,22 +179,22 @@ final class ForcedPauseTests: XCTestCase {
         // reach, so a pause claimed before the drop is not one this app can still say it placed.
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, isCubeConnected: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused, isCubeConnected: false), .none)
         XCTAssertFalse(subject.isLimitHoldingPause)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .none)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused), .none)
     }
 
     func testACubeWithNoOpenSegmentIsLeftAlone() {
         // Reset and not yet flipped: it has not said where it is, so there is nothing to attribute or refuse.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: nil, hasCategory: unassigned, isPaused: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: nil, hasCategory: unassigned, cubePauseState: .running), .none)
     }
 
     func testTheAppsOwnFacesAreNotTheCubes() {
         // 13 and 14 are manual mode's, seeded Unassigned and meant to be. There is no cube to stop.
         var subject = ForcedPause()
-        XCTAssertEqual(evaluate(&subject, face: 13, hasCategory: unassigned, isPaused: false), .none)
-        XCTAssertEqual(evaluate(&subject, face: 14, hasCategory: unassigned, isPaused: false), .none)
+        XCTAssertEqual(evaluate(&subject, face: 13, hasCategory: unassigned, cubePauseState: .running), .none)
+        XCTAssertEqual(evaluate(&subject, face: 14, hasCategory: unassigned, cubePauseState: .running), .none)
     }
 
     // MARK: - the daily limit holds the same cube
@@ -205,12 +205,12 @@ final class ForcedPauseTests: XCTestCase {
         var subject = ForcedPause()
         subject.pauseTook(onFace: 5)
         XCTAssertEqual(
-            evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true, limitIsHolding: true),
+            evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused, limitIsHolding: true),
             .none
         )
         // And the claim is still there once the limit lets go, so the resume is not lost with it.
         XCTAssertTrue(subject.isLimitHoldingPause)
-        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, isPaused: true), .resume)
+        XCTAssertEqual(evaluate(&subject, face: 5, hasCategory: assigned, cubePauseState: .paused), .resume)
     }
 
     func testTheLimitDoesNotStopTheCubeBeingStopped() {
@@ -218,7 +218,7 @@ final class ForcedPauseTests: XCTestCase {
         // this can reach is one that is running.
         var subject = ForcedPause()
         XCTAssertEqual(
-            evaluate(&subject, face: 5, hasCategory: unassigned, isPaused: false, limitIsHolding: true),
+            evaluate(&subject, face: 5, hasCategory: unassigned, cubePauseState: .running, limitIsHolding: true),
             .pause
         )
     }

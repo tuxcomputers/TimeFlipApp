@@ -1853,7 +1853,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 // window is open, and the next redraw is what carries it.
                 showingSeconds: settings?.flag("display_seconds", field: "enabled") ?? true,
                 // The same answer the menu bar's glyph is drawn from, out of the same reading.
-                isDevicePaused: reading.deviceIsPaused
+                cubePauseState: reading.cubePauseState
             )
             return
         }

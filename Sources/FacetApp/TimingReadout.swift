@@ -62,7 +62,7 @@ final class TimingReadout {
         /// the app is running no clock at all, so `timingState` is idle; what is or is not running is the cube, and this is
         /// the cube's own answer to it. Keeping them apart is what stops a cube's reading starting the status item's
         /// tick, or reading as a session that could be clicked to pause.
-        let deviceIsPaused: Bool?
+        let cubePauseState: CubePauseState
 
         /// Whether the cube this reading is about can be reached **right now**.
         ///
@@ -88,7 +88,7 @@ final class TimingReadout {
             seconds: TimeInterval,
             isCounting: Bool = false,
             cubeFace: Int? = nil,
-            deviceIsPaused: Bool? = nil,
+            cubePauseState: CubePauseState = .unknown,
             isCubeConnected: Bool = true
         ) {
             self.category = category
@@ -99,7 +99,7 @@ final class TimingReadout {
             // repaint at all.
             self.isCounting = isCounting
             self.cubeFace = cubeFace
-            self.deviceIsPaused = deviceIsPaused
+            self.cubePauseState = cubePauseState
             // A reading with no face has nothing to reach, whatever the caller passed.
             self.isCubeConnected = cubeFace != nil && isCubeConnected
         }
@@ -229,7 +229,7 @@ final class TimingReadout {
                 // **The row first, the cube's own answer only until there is one.** See `cubeSaysPaused`: a launch
                 // has asked `0x10` before the first history fetch lands, and without the fallback the glyph is
                 // missing for exactly the seconds somebody is watching the app start.
-                deviceIsPaused: events.latestSegment(in: [cubeFace])?.isPaused ?? cubeSaysPaused()
+                cubePauseState: CubePauseState(reported: events.latestSegment(in: [cubeFace])?.isPaused ?? cubeSaysPaused())
             )
         }
         // **A cube that has gone quiet is not the app timingState by hand.** Reached when a cube is on record and this
@@ -269,7 +269,7 @@ final class TimingReadout {
                 // the link went.** `paused` is the cube's own account of what it was doing, out of its own history,
                 // so the glyph goes on saying what the cube last said rather than disappearing -- which is what the
                 // archive meant by keeping "the last known activity/icon" instead of tearing down.
-                deviceIsPaused: lastSeen.isPaused,
+                cubePauseState: CubePauseState(reported: lastSeen.isPaused),
                 // **Drawn, but not reachable.** This is the whole of the difference between showing the cube's last
                 // word and pretending the cube is there: the Faces tab draws the face and refuses a click on it.
                 isCubeConnected: false

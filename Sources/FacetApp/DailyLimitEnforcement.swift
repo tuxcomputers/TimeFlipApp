@@ -152,13 +152,18 @@ struct DailyLimitEnforcement {
     ///   - dailyLimitMinutes: that category's `daily_limit`, `0` for none.
     ///   - totalSeconds: what the category has tracked in this window, live segment included -- the figure the menu bar
     ///     draws (`DayTotal.seconds`), so the limit is measured against what the user is looking at.
-    ///   - isPaused: whether the cube is paused *now*, as last reported by a history frame.
+    ///   - isCounting: whether the figure is going up right now, whichever clock is measuring it.
+    ///
+    ///     **Not "is the cube paused", which is what this parameter was called and documented as until the state
+    ///     sweep.** It is fed `!reading.isCounting`, and the two are different questions: a cube that has flipped but
+    ///     whose history has not arrived still names its new face, and the newest row for that face may be a stretch
+    ///     that ended an hour ago. The name now says what is passed.
     ///   - windowStart: the current day window, from `DayTotal.windowStart(at:)`.
     mutating func evaluate(
         categoryID: Int?,
         dailyLimitMinutes: Int,
         totalSeconds: TimeInterval,
-        isPaused: Bool,
+        isCounting: Bool,
         windowStart: Date
     ) -> DailyLimitAction {
         if latchedWindowStart != windowStart {
@@ -186,7 +191,7 @@ struct DailyLimitEnforcement {
             // the *user's* next pause on a budgeted face being read as this type's own and undone on the following
             // frame: before this, the claim survived the firmware's resume, and Pause on a budgeted face was a control
             // that undid itself one frame later.
-            guard isPaused else {
+            guard !isCounting else {
                 isLimitHoldingPause = false
                 return .none
             }
@@ -198,7 +203,7 @@ struct DailyLimitEnforcement {
         }
 
         limitWhenReached[categoryID] = dailyLimitMinutes
-        guard !isPaused else {
+        guard isCounting else {
             // Already stopped, so nothing to send -- but claim the pause, which is what makes the flip away from this
             // face lift it. Two states arrive here and both want claiming: the pause this type asked for a moment ago,
             // and a cube found already paused on a spent category by a relaunch, where the flag itself did not survive

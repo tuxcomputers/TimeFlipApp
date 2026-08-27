@@ -245,7 +245,7 @@ final class TimingView: NSView {
         isFaceLocked: Bool = false,
         elapsed: TimeInterval = 0,
         showingSeconds: Bool = true,
-        isDevicePaused: Bool? = nil
+        cubePauseState: CubePauseState = .unknown
     ) {
         timingState = .idle
         centred.isHidden = true
@@ -262,9 +262,12 @@ final class TimingView: NSView {
         )
         // Nothing to qualify means nothing to draw beside it, so the glyph goes with the figure rather than sitting
         // alone under an unlit cube.
-        faceGlyphName = faceElapsedLabel.stringValue.isEmpty
-            ? nil
-            : isDevicePaused.map { $0 ? "pause.fill" : "play.fill" }
+        let cubeGlyphName: String? = switch cubePauseState {
+        case .paused: "pause.fill"
+        case .running: "play.fill"
+        case .unknown: nil
+        }
+        faceGlyphName = faceElapsedLabel.stringValue.isEmpty ? nil : cubeGlyphName
         faceGlyphView.isHidden = faceGlyphName == nil
         // **Said in words as well as drawn**, which is what the menu bar's own line already does for the same fact
         // (`StatusItemTitle` spells "device paused" into the spoken description). A symbol is one character to
@@ -273,7 +276,12 @@ final class TimingView: NSView {
         //
         // A readout, not an instruction: it says what the cube is doing, because that is all this is. Pressing it
         // does nothing -- see `faceGlyphView`.
-        faceGlyphView.setAccessibilityLabel(isDevicePaused.map { $0 ? "Device paused" : "Device running" })
+        let cubeGlyphLabel: String? = switch cubePauseState {
+        case .paused: "Device paused"
+        case .running: "Device running"
+        case .unknown: nil
+        }
+        faceGlyphView.setAccessibilityLabel(cubeGlyphLabel)
         applyFigureHeight()
         categoryNameLabel.isHidden = false
         categoryNameLabel.stringValue = category?.name ?? ""

@@ -131,7 +131,7 @@ final class DailyLimitWatchTests: XCTestCase {
             seconds: 300,
             isCounting: true,
             cubeFace: 1,
-            deviceIsPaused: false
+            cubePauseState: .running
         )
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
@@ -149,7 +149,7 @@ final class DailyLimitWatchTests: XCTestCase {
             seconds: 280,
             isCounting: true,
             cubeFace: 1,
-            deviceIsPaused: false
+            cubePauseState: .running
         )
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
@@ -168,7 +168,7 @@ final class DailyLimitWatchTests: XCTestCase {
             seconds: 300,
             isCounting: false,
             cubeFace: 1,
-            deviceIsPaused: true
+            cubePauseState: .paused
         )
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
