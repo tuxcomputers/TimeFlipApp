@@ -53,11 +53,6 @@ start "manual mode with a device paired: what it refuses, and what it stops doin
 # once a scan has proved it back on -- so every failure between the two reaches the trap with it still set.
 watch_bluetooth
 
-# The status item's line, which is where a reading that followed a cube would show up.
-status_item() {
-    python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true
-}
-
 open_settings
 select_tab Device
 

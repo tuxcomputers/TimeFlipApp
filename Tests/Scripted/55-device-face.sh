@@ -26,7 +26,7 @@
 # ever with nothing to detect (`01i` Scenario A, Step 3, which found exactly that and had to unlock before it could
 # carry on). A paused cube fails differently and later: it still reports the turn, so the prompt is satisfied, but it
 # files no history for it. Neither is a precaution: `53-device-reconnect` quits the app, and quitting pauses and locks
-# the cube whenever `pause_on_lock` is on, which is what the DDL seeds.
+# the cube: it always locks, and it pauses first whenever `pause_on_lock` is on, which is what the DDL seeds.
 #
 # **Runs after `54`, and before the wipe in `99`.** It needs a live link and it needs a person, so it sits with the
 # other device scripts rather than out on its own.
@@ -94,22 +94,14 @@ expect_log "and the cube answers, so the app knows which way the lock is" "$link
 # **Both directions, on every run, by normalising first rather than by branching.** Whichever state the cube is found
 # in it is unlocked, and only then locked and unlocked again -- so the two presses below are the same two presses on
 # every run, in the same order, whatever `53`'s quit happened to leave. Branching on the state found instead meant the
-# lock direction went untested on exactly the runs where it mattered most: `53` quits the app, quitting locks the cube
-# whenever `pause_on_lock` is on, and the DDL seeds it on, so the full-run case was the one that skipped the lock.
+# lock direction went untested on exactly the runs where it mattered most: `53` quits the app and quitting locks the
+# cube, so the full-run case was the one that skipped the lock.
 
 # What the cube last said about itself, from this connection onwards. Written by `BluetoothRadio` and only when the
 # answer is news, which is enough: the ask made when a link comes up always writes one, since the held status is
 # cleared with the connection.
 status_row() {
     dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'command' AND message LIKE 'The cube is %ocked and %' ORDER BY debug_log_id DESC LIMIT 1;"
-}
-
-# The status item's own line, which is where the lock badge shows up. Matched through the spoken description rather
-# than the drawn title: the badge is an image attachment and every attachment is the same character in text, so a
-# title cannot tell a lock apart from a category icon. `setAccessibilityLabel(title.spoken)` spells it out, which is
-# what makes it assertable at all.
-status_item() {
-    python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true
 }
 
 # Opens the dropdown and presses the Lock/Unlock item, whichever one it is currently offering.
@@ -170,9 +162,13 @@ fi
 
 # ---------------------------------------------------------------------------- 2. locked, and the badge raised
 #
-# **Gated on the same setting the app gates it on.** `pause_on_lock` decides whether locking from the app means
-# anything at all, and with it off `CubeLock.lock` sends nothing -- so this would sit waiting for a state the app is
-# deliberately refusing to reach. With it off there is no lock to undo either, so step 3 is skipped with it.
+# **Gated because this section asserts the pause, not because the lock is optional.** `pause_on_lock` decides whether
+# a pause goes in front of the lock; the lock itself goes either way, from here and from quit. So with the setting off
+# the cube would still lock and step 3 would still have something to undo -- the one thing that would never arrive is
+# the `The cube is paused` on the line below, which is what this is really waiting for.
+#
+# `00-setup` pins the setting on, so the `else` is a guard against that guarantee having slipped rather than a path
+# any run takes.
 
 if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'pause_on_lock';")" = "1" ]; then
     locking=$(mark)

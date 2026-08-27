@@ -90,6 +90,19 @@ final class MenuBarController: NSObject {
         let isConnected: Bool
         /// `nil` when the cube has not been asked, or would not answer. See `CubeLockRules.title`.
         let isLocked: Bool?
+        /// `nil` for the same two reasons. **Only meaningful while the cube is unlocked**, since a locked cube
+        /// reports itself paused whatever its pause byte says -- which is why `PauseMenuRules` reads it in the one
+        /// case where the cube is known not to be locked, and nowhere else.
+        let isPaused: Bool?
+
+        /// Written out so `isPaused` can default to "nobody asked", which is what a reading built without it means.
+        /// The alternative was making every existing caller name a fact it has no opinion about, which reads as an
+        /// assertion that the cube is running rather than as silence.
+        init(isConnected: Bool, isLocked: Bool?, isPaused: Bool? = nil) {
+            self.isConnected = isConnected
+            self.isLocked = isLocked
+            self.isPaused = isPaused
+        }
     }
 
     private let cube: () -> CubeReading
@@ -168,7 +181,7 @@ final class MenuBarController: NSObject {
         togglePause: @escaping () -> Void = {},
         isLimitReached: @escaping () -> Bool = { false },
         lowBattery: @escaping () -> LowBatteryAlert = { .none },
-        cube: @escaping () -> CubeReading = { CubeReading(isConnected: false, isLocked: nil) },
+        cube: @escaping () -> CubeReading = { CubeReading(isConnected: false, isLocked: nil, isPaused: nil) },
         toggleCubeLock: @escaping () -> Void = {},
         toggleCubePause: @escaping () -> Void = {}
     ) {
@@ -433,10 +446,20 @@ final class MenuBarController: NSObject {
     func refresh(_ menu: NSMenu) {
         if let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) {
             let state = timing().state
-            pause.title = ManualTimerRules.pauseMenuTitle(for: state)
+            // The cube asked here as well as below, because this item acts on it too: with no manual session running,
+            // Pause is the cube's, exactly as a single click on the right half is. It used to ask only about the app's
+            // own clock and so sat greyed above a status item that would happily pause the cube.
+            let cube = self.cube()
+            let target = PauseMenuRules.target(
+                timing: state,
+                isCubeConnected: cube.isConnected,
+                isCubeLocked: cube.isLocked,
+                isLimitReached: isLimitReached()
+            )
+            pause.title = PauseMenuRules.title(for: target, timing: state, isCubePaused: cube.isPaused)
             // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
-            // than advisory: the item still reads "Resume", because that is what it would do, and it will not do it.
-            pause.isEnabled = ManualTimerRules.isClickable(state, isLimitReached: isLimitReached())
+            // than advisory, and greyed on a locked cube, which cannot be paused at all until it is unlocked.
+            pause.isEnabled = PauseMenuRules.isEnabled(target)
         }
         if let lock = menu.items.first(where: { $0.identifier?.rawValue == Identifier.toggleCubeLock }) {
             // Both asked at the moment the menu opens, like everything else here. What the cube is doing is the
@@ -572,9 +595,33 @@ final class MenuBarController: NSObject {
 
     @objc
     private func menuTogglePause() {
+        let state = timing().state
+        let cube = self.cube()
+        // **Decided again here rather than remembered from `refresh`.** The menu may have been sitting open while the
+        // cube went away, and acting on what was true when it was drawn is the stale-copy fault this codebase keeps
+        // being bitten by. It is the same call with the same inputs, so it is the same answer unless the world moved.
+        let target = PauseMenuRules.target(
+            timing: state,
+            isCubeConnected: cube.isConnected,
+            isCubeLocked: cube.isLocked,
+            isLimitReached: isLimitReached()
+        )
         // What it was called when it was chosen, which is what the person clicking it meant.
-        debugLog?.record(.menu, "Menu item clicked: \(ManualTimerRules.pauseMenuTitle(for: timing().state))")
-        togglePause()
+        debugLog?.record(
+            .menu,
+            "Menu item clicked: \(PauseMenuRules.title(for: target, timing: state, isCubePaused: cube.isPaused))"
+        )
+        switch target {
+        case .appClock:
+            togglePause()
+        case .cube:
+            // **At once, not deferred.** `deferCubePause` exists because a click on the right half might turn out to
+            // be the first half of a double click that means lock; a menu item is chosen once and there is no second
+            // gesture it could be part of.
+            toggleCubePause()
+        case .nothing:
+            break
+        }
     }
 
     @objc

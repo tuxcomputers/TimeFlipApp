@@ -46,10 +46,6 @@ start "a cube out of range: what the app shows, what it refuses to write, and wh
 # `99-quit` wipes the cube so this run's timings cannot reach production, and it cannot do that with the radio off.
 watch_bluetooth
 
-status_item() {
-    python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true
-}
-
 # Whether the app believes the cube is locked, read off the menu bar rather than out of the log.
 #
 # **A live answer, which the log cannot give here.** `55-device-face` reads the newest `The cube is ...ocked and ...`

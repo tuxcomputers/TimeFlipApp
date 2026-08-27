@@ -110,14 +110,6 @@ status_row() {
     dsql "SELECT message FROM debug_log WHERE debug_log_id > $link AND tag = 'command' AND message LIKE 'The cube is %ocked and %' ORDER BY debug_log_id DESC LIMIT 1;"
 }
 
-# The status item's own line. Matched through the spoken description rather than the drawn title: the glyph is an
-# image attachment and every attachment is the same character in text, so a title cannot tell a pause apart from a
-# category icon. `StatusItemTitle` spells "device paused" and "device running" into the spoken form, which is what
-# makes it assertable at all.
-status_item() {
-    python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true
-}
-
 # Whether the cube is stopped, as the app's own record has it. The open segment is what both surfaces draw from.
 open_paused() {
     sql "SELECT paused FROM device_event WHERE finalised = 0 ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;"

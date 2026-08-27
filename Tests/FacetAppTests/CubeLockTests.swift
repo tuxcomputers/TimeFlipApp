@@ -9,20 +9,24 @@ import XCTest
 /// to land before the resume can be confirmed. Get either backwards and the app reports a state it has no evidence
 /// for -- and neither would be visible in `swift test` without a test that looks at the order.
 @MainActor
-final class CubeLockTests: XCTestCase {
+final class CubeLockTests: XCTestCase, @unchecked Sendable {
     private var database: TemporaryDatabase!
     private var settings: SettingStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        database = TemporaryDatabase()
-        try database.bootstrap()
-        settings = SettingStore(connection: database.connection())
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            try database.bootstrap()
+            settings = SettingStore(connection: database.connection())
+        }
     }
 
     override func tearDown() {
-        settings = nil
-        database.remove()
+        MainActor.assumeIsolated {
+            settings = nil
+            database.remove()
+        }
         super.tearDown()
     }
 
@@ -170,26 +174,33 @@ final class CubeLockTests: XCTestCase {
         XCTAssertFalse(stopped)
     }
 
-    func testNothingIsSentWithPauseOnLockOff() {
-        // The setting says what locking from the app means, so with it off the app does not lock from either of the
-        // two places it can.
+    func testWithPauseOnLockOffItStillLocksAndOnlySkipsThePause() {
+        // **The whole of this branch, and it used to send nothing at all.** The setting is named for what it does:
+        // whether locking *also* pauses. It never decided whether locking happens, and while it did, turning it off
+        // meant a double click on the right half and a quit both answered by leaving the cube running and unlocked,
+        // with `pause_on_lock is off, so the cube is left as it is` the only sign anything had been asked.
         setPauseOnLock(false)
         let sent = NSMutableArray()
+        var stopped = false
 
-        XCTAssertFalse(cubeLock(into: sent).lock { _ in })
+        XCTAssertTrue(cubeLock(into: sent).lock { stopped = $0 })
 
-        XCTAssertEqual(sent.count, 0)
+        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.lock(true))
+        XCTAssertEqual(sent.count, 1, "the lock, and no pause in front of it")
+        XCTAssertTrue(stopped)
     }
 
-    func testAnUnreadableSettingLeavesTheCubeAlone() {
-        // Deliberately not the seeded default: a launch that cannot read its own settings is not one to be handing a
-        // lock, since leaving the cube running is the failure somebody can get out of by flipping it.
+    func testAnUnreadableSettingLocksWithoutPausing() {
+        // An unreadable row still counts as off, which is deliberate and now costs only the pause: the lock was what
+        // somebody asked for, and a launch that cannot read its own settings simply does not take the extra liberty
+        // of stopping the clock as well.
         XCTAssertTrue(database.execute("UPDATE setting SET setting_value = '{}' WHERE setting_name = 'pause_on_lock';"))
         let sent = NSMutableArray()
 
-        XCTAssertFalse(cubeLock(into: sent).lock { _ in })
+        XCTAssertTrue(cubeLock(into: sent).lock { _ in })
 
-        XCTAssertEqual(sent.count, 0)
+        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.lock(true))
+        XCTAssertEqual(sent.count, 1)
     }
 
     func testNothingIsSentWithNoCubeConnected() {
