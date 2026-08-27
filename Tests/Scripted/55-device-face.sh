@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=45
+EXPECTED_CHECKS=46
 start "the face the cube is on, and both places drawing the same one"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -227,7 +227,13 @@ fi
 # That is the second time a repair has been caught doing this, `57-cube-pause` being the first, and it is the argument
 # for the rule: a check that only runs when the hardware misbehaves is a check nobody reads and a count nobody can
 # trust.
-step "the cube is unlocked and counting, which is what the relink left"
+# **Asserted rather than assumed, because assuming it is how run 119 went wrong.** Every script from `52` is entitled
+# to a cube that is unlocked and counting -- `free_the_cube` undoes the lock and pause every quit applies. This says so
+# out loud, so a break in that chain fails here, at the top, naming the invariant, instead of eight checks later as
+# something else. `58-wrong-pin` left a stopped cube once and the failure surfaced in `60` as a menu bar figure that
+# would not move.
+check "the cube arrives unlocked and counting, as every script from 52 leaves it" "0" \
+    "$(sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")"
 
 # ---------------------------------------------------------------------------- the two faces, and which to ask for
 #

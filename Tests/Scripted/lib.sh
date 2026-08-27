@@ -476,8 +476,23 @@ relink_a_cube() {
     # Waited for rather than assumed: every caller goes straight on to something that needs the link up.
     wait_for "$relaunched" "%: loggedIn" 90 >/dev/null || return 1
 
-    # The lock and the pause the quit left, taken off together: the dropdown's Lock item unlocks and resumes in one
-    # gesture (`CubeLock.resume`), which is exactly the pair a quit puts on.
+    free_the_cube || return 1
+    return 0
+}
+
+# Takes off the lock and the pause a quit put on, so what follows inherits a cube that is counting.
+#
+# **Aimed at a known state rather than at whatever it finds.** The app pauses and locks the cube on its way out
+# ("Quit: the cube is paused and locked"), always and both, so the dropdown's Lock item -- which unlocks and resumes in
+# one gesture (`CubeLock.resume`) -- undoes exactly the pair that was applied. Nothing is asked first, because there is
+# nothing to ask.
+#
+# **Every quit has to come through here, and that is the whole of the invariant.** `relink_a_cube` calls it, so
+# everything reached through `pair_a_cube` or `restore_the_pairing` is covered; `58-wrong-pin` quits on its own terms
+# and calls it directly. Run 119 (2026-08-27) is what one uncovered quit costs: `58` left the cube locked and paused,
+# `59` had no reason to care, and `60-device-backlog` took its cube out of range already stopped -- so the figure it
+# expects to go on counting stood still, and the failure read as the app having stopped following a cube.
+free_the_cube() {
     local freeing
     freeing=$(mark)
     click_left

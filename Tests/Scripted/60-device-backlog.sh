@@ -36,7 +36,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=21
+EXPECTED_CHECKS=22
 start "a cube out of range: what the app shows, what it refuses to write, and what the cube backfills"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so anything
@@ -74,7 +74,13 @@ column_of() {
 #
 # **No Settings window anywhere in this script.** Everything it reads is the menu bar and the two databases, and the
 # window would only be one more thing on screen while the radio goes off.
-step "the cube is unlocked and counting, which is what the script before this one left"
+# **Asserted rather than assumed, because assuming it is how run 119 went wrong.** Every script from `52` is entitled
+# to a cube that is unlocked and counting -- `free_the_cube` undoes the lock and pause every quit applies. This says so
+# out loud, so a break in that chain fails here, at the top, naming the invariant, instead of eight checks later as
+# something else. `58-wrong-pin` left a stopped cube once and the failure surfaced in `60` as a menu bar figure that
+# would not move.
+check "the cube arrives unlocked and counting, as every script from 52 leaves it" "0" \
+    "$(sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")"
 
 # **The two seeded faces, read from the table rather than written down here.** Which category a face holds is `face`'s
 # answer, and a check comparing the screen against a name spelled out in this script would be agreeing with itself.
