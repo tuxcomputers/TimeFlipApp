@@ -80,7 +80,14 @@ final class DailyLimitWatch {
     /// Starts watching, if there is a running clock to watch.
     func start() {
         guard timer == nil else { return }
-        guard timing().state == .running else { return }
+        // **`isCounting`, not `state == .running`, and the difference is the whole of whether this works with a cube.**
+        // `state` is about *this app's* clock: `TimingReadout` answers `.idle` for a cube however busy it is, because
+        // the app is running no session of its own while it follows one. `isCounting` is the other question -- whether
+        // the figure is moving -- and it is true for both sources, being an open segment that is not paused.
+        //
+        // Run 116 (2026-08-27) is what this cost: a cube sat on a category five seconds from its limit for 68 seconds
+        // and nothing happened, because the tick had refused to start at all.
+        guard timing().isCounting else { return }
         let timer = Timer(timeInterval: Self.intervalSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.check()
@@ -114,7 +121,9 @@ final class DailyLimitWatch {
             categoryID: reading.category?.id,
             limitMinutes: reading.category?.dailyLimitMinutes ?? 0,
             totalSeconds: reading.seconds,
-            isPaused: reading.state != .running,
+            // Same reason as `start`: with a cube this said "paused" every time, so the enforcement believed a running
+            // cube was already stopped and never asked for the pause it was there to ask for.
+            isPaused: !reading.isCounting,
             windowStart: windowStart(now)
         )
 
@@ -153,7 +162,7 @@ final class DailyLimitWatch {
         // manual mode that costs a log line, since `.resume` is deliberately not acted on (above). **With a cube it
         // would cost the pause being lifted**, so a device arriving here needs this stand-down revisited -- keeping
         // the tick alive while a limit is latched is the shape that fixes it.
-        if reading.state != .running {
+        if !reading.isCounting {
             stop()
         }
     }

@@ -7,6 +7,11 @@ import XCTest
 /// `DailyLimitEnforcement` is where the decisions are tested; this is about what the app does with them, and about
 /// the thing that makes the limit testable at all with no cube on the desk: **in manual mode the app is the clock**,
 /// so stopping the device is the app's own pause path.
+///
+/// **Every reading here says `isCounting` as well as `state`, and that is not boilerplate.** `state` is about *this
+/// app's* clock and answers `.idle` for a cube however busy it is; `isCounting` is whether the figure is moving, which
+/// is the question the watch actually has to ask. These fixtures said only the first until run 116 found a cube five
+/// seconds from its limit sitting there for 68 seconds with the tick never started.
 @MainActor
 final class DailyLimitWatchTests: XCTestCase {
     private let window = Date(timeIntervalSince1970: 1_700_000_000)
@@ -40,7 +45,7 @@ final class DailyLimitWatchTests: XCTestCase {
     func testTheClockIsStoppedWhenTheBudgetIsSpent() {
         // The whole feature in one check: 5 minutes of limit, 5 minutes recorded, and the app stops itself.
         var stops = 0
-        let reading = TimingReadout.Reading(category: category(7, limit: 5), state: .running, seconds: 300)
+        let reading = TimingReadout.Reading(category: category(7, limit: 5), state: .running, seconds: 300, isCounting: true)
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
         watch.check(at: window)
@@ -53,7 +58,7 @@ final class DailyLimitWatchTests: XCTestCase {
         // 20 seconds short, which is where the archive's checklist staged its crossing and where this app's
         // scripted check stages it too.
         var stops = 0
-        let reading = TimingReadout.Reading(category: category(7, limit: 5), state: .running, seconds: 280)
+        let reading = TimingReadout.Reading(category: category(7, limit: 5), state: .running, seconds: 280, isCounting: true)
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
         watch.check(at: window)
@@ -65,7 +70,7 @@ final class DailyLimitWatchTests: XCTestCase {
     func testACategoryWithNoLimitIsNeverStopped() {
         // `daily_limit = 0` is no limit at all, so a whole day against it is not a crossing.
         var stops = 0
-        let reading = TimingReadout.Reading(category: category(7, limit: 0), state: .running, seconds: 86_400)
+        let reading = TimingReadout.Reading(category: category(7, limit: 0), state: .running, seconds: 86_400, isCounting: true)
         let watch = watch(reading: { reading }, stopped: { stops += 1 })
 
         watch.check(at: window)
@@ -80,7 +85,7 @@ final class DailyLimitWatchTests: XCTestCase {
         var stops = 0
         var state = TimingState.running
         let watch = watch(
-            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), state: state, seconds: 300) },
+            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), state: state, seconds: 300, isCounting: state == .running) },
             stopped: {
                 stops += 1
                 state = .paused
@@ -99,7 +104,7 @@ final class DailyLimitWatchTests: XCTestCase {
         var stops = 0
         var state = TimingState.running
         let watch = watch(
-            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), state: state, seconds: 300) },
+            reading: { TimingReadout.Reading(category: self.category(7, limit: 5), state: state, seconds: 300, isCounting: state == .running) },
             stopped: {
                 stops += 1
                 state = .paused
@@ -111,6 +116,65 @@ final class DailyLimitWatchTests: XCTestCase {
         watch.check(at: window)
 
         XCTAssertEqual(stops, 2)
+    }
+
+    func testACubeIsStoppedEvenThoughTheAppsOwnClockIsIdle() {
+        // **The shape run 116 found, and the one every fixture above is the wrong shape for.** A cube produces a
+        // reading that is `.idle` and counting at the same time: the app runs no session of its own while it follows
+        // one, so `state` says idle however busy the cube is, and `isCounting` is the only thing that says the figure
+        // is moving. Asking `state == .running` meant the tick never started, and a cube five seconds from its limit
+        // sat on it for 68 seconds with nothing sent.
+        var stops = 0
+        let reading = TimingReadout.Reading(
+            category: category(7, limit: 5),
+            state: .idle,
+            seconds: 300,
+            isCounting: true,
+            deviceFace: 1,
+            deviceIsPaused: false
+        )
+        let watch = watch(reading: { reading }, stopped: { stops += 1 })
+
+        watch.check(at: window)
+
+        XCTAssertEqual(stops, 1, "a cube over its limit is stopped, whatever the app's own clock is doing")
+        XCTAssertTrue(watch.isReached)
+    }
+
+    func testACubeShortOfTheLimitIsLeftRunning() {
+        var stops = 0
+        let reading = TimingReadout.Reading(
+            category: category(7, limit: 5),
+            state: .idle,
+            seconds: 280,
+            isCounting: true,
+            deviceFace: 1,
+            deviceIsPaused: false
+        )
+        let watch = watch(reading: { reading }, stopped: { stops += 1 })
+
+        watch.check(at: window)
+
+        XCTAssertEqual(stops, 0)
+    }
+
+    func testAPausedCubeIsNotStoppedAgain() {
+        // A stopped cube is not counting, which is the same answer the app's own paused clock gives -- so the one
+        // question covers both and there is no mode to tell apart.
+        var stops = 0
+        let reading = TimingReadout.Reading(
+            category: category(7, limit: 5),
+            state: .idle,
+            seconds: 300,
+            isCounting: false,
+            deviceFace: 1,
+            deviceIsPaused: true
+        )
+        let watch = watch(reading: { reading }, stopped: { stops += 1 })
+
+        watch.check(at: window)
+
+        XCTAssertEqual(stops, 0, "nothing counting means nothing that can cross a limit")
     }
 
     func testNothingBeingTimedIsNotACrossing() {
@@ -130,7 +194,7 @@ final class DailyLimitWatchTests: XCTestCase {
         var limit = 5
         var state = TimingState.running
         let watch = DailyLimitWatch(
-            timing: { TimingReadout.Reading(category: self.category(7, limit: limit), state: state, seconds: 300) },
+            timing: { TimingReadout.Reading(category: self.category(7, limit: limit), state: state, seconds: 300, isCounting: state == .running) },
             windowStart: { _ in self.window },
             debugLog: nil,
             stopTiming: {
