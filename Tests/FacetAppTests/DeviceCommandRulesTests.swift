@@ -25,6 +25,28 @@ final class DeviceCommandRulesTests: XCTestCase {
         XCTAssertEqual(DeviceCommandRules.status, Data([0x10]))
     }
 
+    func testTheLEDBytesAreTheVendorsOwnToo() {
+        // `0x09 0xXX` brightness in %, `0x0A 0xXX` the gap between flashes in seconds. Pinned as bytes for the reason
+        // above: the two commands differ by one, so a transposition is a valid command setting the wrong thing.
+        XCTAssertEqual(DeviceCommandRules.ledBrightness(80), Data([0x09, 80]))
+        XCTAssertEqual(DeviceCommandRules.ledBlink(30), Data([0x0A, 30]))
+    }
+
+    func testTheLEDRangesAreTheSpecsAndTheCommandKeepsToThem() {
+        // 1-100 and 5-60, and neither starts at zero: a cube cannot be told to put its LED out this way, so 0 is a
+        // value the firmware refuses rather than an off switch.
+        XCTAssertEqual(DeviceCommandRules.brightnessRange, 1...100)
+        XCTAssertEqual(DeviceCommandRules.blinkRange, 5...60)
+
+        // Clamped on the way to the wire as well as in the field somebody types into. The field is what stops a bad
+        // number being chosen; this is what stops one being sent, which matters because a value can also come out of
+        // a database row nobody in this app wrote.
+        XCTAssertEqual(DeviceCommandRules.ledBrightness(0), Data([0x09, 1]))
+        XCTAssertEqual(DeviceCommandRules.ledBrightness(9_999), Data([0x09, 100]))
+        XCTAssertEqual(DeviceCommandRules.ledBlink(0), Data([0x0A, 5]))
+        XCTAssertEqual(DeviceCommandRules.ledBlink(1_000), Data([0x0A, 60]))
+    }
+
     // MARK: - what the cube says it is doing
 
     func testARealAnswerIsRead() {

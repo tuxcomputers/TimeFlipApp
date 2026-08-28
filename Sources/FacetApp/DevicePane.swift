@@ -9,8 +9,11 @@ import AppKit
 ///   kinds of "no device" live), and under them sit the controls that change with the state -- Scan while there is
 ///   nothing paired, Forget and Reset once there is (`DevicePairingRules.showsScanControls`).
 /// - **Settings**, which are the cube's own: they are stored here and sent to it on connect, so they are readable and
-///   meaningful with no cube present, which is why they are drawn rather than hidden. Nothing in it writes yet; what
-///   each control does arrives with the feature that can honestly do it.
+///   meaningful with no cube present, which is why they are drawn rather than hidden. **The Double tap group and the
+///   two LED fields write; Auto-pause does not yet.** A writing control sends to the cube, records what the cube
+///   took, and puts itself back with an alert if either refuses, so a row is never left showing a number that
+///   reached neither. Auto-pause is the shape the value will be edited in and nothing more: it steps, and what is
+///   stepped is dropped when the window closes.
 ///
 /// **These were three sections until 2026-08-22**, with the readings under "Info" and the scan under a "TimeFlip" of
 /// its own. One section, because the split asked somebody to know that what a cube *is* and how to *get* one are
@@ -136,7 +139,10 @@ final class DevicePane: NSView {
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             ledBlinkSeconds: 15,
-            isDoubleTapEnabled: true,
+            // **Off, matching `database/011_setting.sql`.** The gesture pauses the cube on any knock hard enough,
+            // which includes one through the desk it is sitting on, so a cube nobody has asked for it should not be
+            // stopping the clock.
+            isDoubleTapEnabled: false,
             doubleTapThreshold: 90,
             doubleTapLimit: 20,
             doubleTapLatency: 50,
@@ -157,8 +163,8 @@ final class DevicePane: NSView {
     private var hardwareValue: NSTextField!
     private var firmwareValue: NSTextField!
     private var autoPauseField: SteppedNumberField!
-    private var ledBrightnessValue: NSTextField!
-    private var ledBlinkValue: NSTextField!
+    private var ledBrightnessField: SteppedNumberField!
+    private var ledBlinkField: SteppedNumberField!
     private var doubleTapDisableBox: NSButton!
     private var doubleTapValues: [String: SteppedNumberField] = [:]
 
@@ -216,6 +222,19 @@ final class DevicePane: NSView {
     /// **Every tick of a held arrow fires this**, which is the whole reason the window debounces rather than sending
     /// from here: a hold repeats every 0.1s (`StepperHoldRules`) and each of those would be a command on the wire.
     var onDoubleTapValueChanged: (() -> Void)?
+
+    /// One of the two LED fields moved. What it moved to is on the pane; this only says that it did.
+    ///
+    /// **One each rather than one between them**, because they are two settings and not one: brightness goes as
+    /// `0x09` and the blink period as `0x0A`, and a cube told about the first has been told nothing about the second.
+    /// The archive found the cost of running them together, and it was not tidiness -- one debounce shared across two
+    /// settings drops whichever write is still waiting when the other one is scheduled
+    /// (`Archive/TimeFlipAppTests/Workflows/W07-debounced-device-writes.swift`).
+    ///
+    /// **Every tick of a held arrow fires these**, as it does for the registers, which is why the window debounces
+    /// rather than sending from here.
+    var onLEDBrightnessChanged: (() -> Void)?
+    var onLEDBlinkChanged: (() -> Void)?
 
     /// Somebody ticked or unticked **Disable** under Double tap. `true` means the gesture is wanted.
     ///
@@ -290,8 +309,8 @@ final class DevicePane: NSView {
         )
 
         autoPauseField.value = values.autoPauseMinutes
-        ledBrightnessValue.stringValue = "\(values.ledBrightnessPercent) %"
-        ledBlinkValue.stringValue = "\(values.ledBlinkSeconds) sec"
+        ledBrightnessField.value = values.ledBrightnessPercent
+        ledBlinkField.value = values.ledBlinkSeconds
         drawDoubleTap(isEnabled: values.isDoubleTapEnabled)
         doubleTapValues[Identifier.doubleTapThreshold]?.value = values.doubleTapThreshold
         doubleTapValues[Identifier.doubleTapLimit]?.value = values.doubleTapLimit
@@ -318,6 +337,46 @@ final class DevicePane: NSView {
             latency: register(Identifier.doubleTapLatency, or: values.doubleTapLatency),
             window: register(Identifier.doubleTapWindow, or: values.doubleTapWindow)
         )
+    }
+
+    /// The two LED values as this window currently holds them.
+    ///
+    /// **Read off the fields rather than off `values`**, for the reason `doubleTapParameters` gives directly above:
+    /// a held arrow moves the field several times a second and nothing writes those back to `values` until one
+    /// lands, so a command built from `values` would carry the number the row opened with.
+    var ledBrightnessPercent: Int { ledBrightnessField.value }
+    var ledBlinkSeconds: Int { ledBlinkField.value }
+
+    /// Records that a LED value reached the cube and the table, **without touching the field it came from**.
+    ///
+    /// What this is for is `values`, which the field has been ahead of since the first arrow moved. Writing the field
+    /// as well would be wrong rather than merely redundant: by the time a command has been out and back, the field
+    /// may hold a newer number that already has a write of its own queued, and assigning this one would take that
+    /// number off the screen and then send it again on the next tick -- losing an edit nothing had refused.
+    ///
+    /// So the two paths are separate on purpose. This one is a write that landed and has nothing to correct; the
+    /// pair below are a write that did not, where the number on screen is precisely what is wrong with it.
+    func recordLEDBrightness(_ percent: Int) {
+        values.ledBrightnessPercent = percent
+    }
+
+    func recordLEDBlink(_ seconds: Int) {
+        values.ledBlinkSeconds = seconds
+    }
+
+    /// Puts a LED field back where the table says it should be, without telling anybody it moved.
+    ///
+    /// **The mirror of `showDoubleTapValues`, and for the same reason**: a refused write has to correct one row
+    /// while every other row on the tab goes on showing what it was showing, so this is a path that must not re-read
+    /// the whole tab. `values` moves with the field, so the two cannot part company.
+    func showLEDBrightness(_ percent: Int) {
+        recordLEDBrightness(percent)
+        put(percent, in: ledBrightnessField)
+    }
+
+    func showLEDBlink(_ seconds: Int) {
+        recordLEDBlink(seconds)
+        put(seconds, in: ledBlinkField)
     }
 
     /// Puts the Disable box where the answer says it should be, without telling anybody it moved.
@@ -372,7 +431,14 @@ final class DevicePane: NSView {
     }
 
     private func put(_ value: Int, in identifier: String) {
-        guard let field = doubleTapValues[identifier], field.value != value else { return }
+        put(value, in: doubleTapValues[identifier])
+    }
+
+    /// **A field already on the value is left alone**, which is what keeps a correction from taking the text out
+    /// from under whoever is typing: `SteppedNumberField.value` replaces the box's contents whatever it held, and
+    /// rebuilding a row to show a number it is already showing is a fault `CLAUDE.md` names on its own.
+    private func put(_ value: Int, in field: SteppedNumberField?) {
+        guard let field, field.value != value else { return }
         field.value = value
     }
 
@@ -529,13 +595,34 @@ final class DevicePane: NSView {
             value: values.autoPauseMinutes, range: 0...240, suffix: "min", identifier: Identifier.autoPause
         )
 
-        ledBrightnessValue = value(identifier: Identifier.ledBrightness)
-        ledBlinkValue = value(identifier: Identifier.ledBlink)
+        // **Both ranges come from the commands that carry them**, rather than being written out again here:
+        // `DeviceCommandRules` is where 1-100 % and 5-60 seconds are kept, and it clamps to the same bounds on the
+        // way to the wire. A field that would accept a number the command then quietly changed is two answers to one
+        // question, which is the fault the first rule in `CLAUDE.md` is about.
+        //
+        // **Arrows rather than a slider**, which is the archive's finding and worth keeping the reason for: a slider
+        // commits a value per pixel of travel, and one brightness drag logged thirty-odd changes -- every one of them
+        // a device write once the debounce settles. A stepped field commits one number at a time, and both ranges are
+        // short enough to cross by holding an arrow (`StepperHoldRules` accelerates).
+        ledBrightnessField = SteppedNumberField(
+            value: values.ledBrightnessPercent,
+            range: DeviceCommandRules.brightnessRange,
+            suffix: "%",
+            identifier: Identifier.ledBrightness
+        )
+        ledBrightnessField.onChange = { [weak self] _ in self?.onLEDBrightnessChanged?() }
+        ledBlinkField = SteppedNumberField(
+            value: values.ledBlinkSeconds,
+            range: DeviceCommandRules.blinkRange,
+            suffix: "sec",
+            identifier: Identifier.ledBlink
+        )
+        ledBlinkField.onChange = { [weak self] _ in self?.onLEDBlinkChanged?() }
         let led = stack()
         add(
             [
-                SettingsRow.make("Brightness", ledBrightnessValue),
-                SettingsRow.make("Blink Interval", ledBlinkValue),
+                SettingsRow.make("Brightness", ledBrightnessField),
+                SettingsRow.make("Blink Interval", ledBlinkField),
             ],
             to: led
         )

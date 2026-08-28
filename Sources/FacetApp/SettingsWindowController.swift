@@ -96,12 +96,34 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// when it needs to go first. See `WriteDebounce`, which carries the why for both halves.
     private let doubleTapWrite = WriteDebounce()
 
+    /// The same for each LED field, and **one each rather than one between them**.
+    ///
+    /// They are two settings carried by two commands (`0x09` and `0x0A`), and `WriteDebounce.schedule` displaces
+    /// whatever was already queued -- so a single debounce shared across both would mean that nudging Blink Interval
+    /// within half a second of Brightness silently threw the brightness write away. That is the archive's measured
+    /// finding rather than a worry: it kept one debouncer per setting for exactly this
+    /// (`Archive/TimeFlipAppTests/Workflows/W07-debounced-device-writes.swift`).
+    private let ledBrightnessWrite = WriteDebounce()
+    private let ledBlinkWrite = WriteDebounce()
+
     /// What keeps the paired cube reachable. Told what each login came to and when a link goes, since the radio's
     /// callbacks are set here.
     ///
     /// **Weak, and for the ordinary reason**: the app owns the loop and this window is one of the things that talks to
     /// it. `nil` in every layout test, and in a launch with nothing paired, which is why every call to it is optional.
     weak var reconnect: DeviceReconnector?
+
+    /// What tells the cube which colour to light a face in.
+    ///
+    /// **Weak, and owned by the app rather than by this window**, for the reason `reconnect` is: a link coming up
+    /// sends all twelve whether or not anybody has opened Settings, so this window is one of the things that talks to
+    /// it rather than the thing that has it. `nil` in every layout test.
+    ///
+    /// Three edits here change what a face should be lit in, and each one tells it: a face taking a category, a
+    /// category being recoloured, and a category being retired off the faces it was on. The fourth path is manual
+    /// mode starting a session, and that one deliberately says nothing -- `ManualFace.all` is 13 and 14, faces no
+    /// cube has.
+    weak var faceColours: FaceColourSync?
 
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
@@ -318,8 +340,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// The Device tab: drawn from the tables, with its TimeFlip section wired to the radio.
     ///
-    /// **No control above that section writes anything**, and what each of them does arrives with the feature that can
-    /// honestly do it. The folds are recorded, being the one thing elsewhere on the tab that already works.
+    /// **Three controls write: the Disable box, the four registers, and each LED field.** Every one of them takes the
+    /// same route -- send to the cube, record once it has taken the command, and put the control back with an alert
+    /// if either refuses -- so no row is left showing a number that reached neither. Auto-pause is the one that does
+    /// not yet, and what it does arrives with the feature that can honestly do it. The folds are recorded, being the
+    /// one thing elsewhere on the tab that already works.
+    ///
+    /// **Each writing control owns a debounce and they are not shared.** `WriteDebounce.schedule` displaces whatever
+    /// was queued, so one queue across two settings would drop a write, which is the archive's measured finding
+    /// rather than a worry (`Archive/TimeFlipAppTests/Workflows/W07-debounced-device-writes.swift`).
     private func makeDevicePane() -> DevicePane {
         let pane = DevicePane()
         pane.onToggle = { [weak self] identifier, isExpanded in
@@ -336,6 +365,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self.doubleTapWrite.schedule { [weak self, weak pane] in
                 guard let self, let pane else { return }
                 self.applyDoubleTapValues(on: pane)
+            }
+        }
+        // The same arrangement for each LED field, on its own debounce for the reason the two properties give.
+        pane.onLEDBrightnessChanged = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            self.ledBrightnessWrite.schedule { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                self.applyLEDBrightness(on: pane)
+            }
+        }
+        pane.onLEDBlinkChanged = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            self.ledBlinkWrite.schedule { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                self.applyLEDBlink(on: pane)
             }
         }
         pane.show(deviceSettings())
@@ -388,7 +432,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 self.debugLog?.record(.field, "Double tap: the cube did not take it, so the window goes back")
                 pane.showDoubleTapEnabled(!isEnabled)
                 self.putDoubleTapBack(on: pane)
-                self.showDoubleTapRefusedByTheCube()
+                self.showRefusedByTheCube("double-tap")
                 return
             }
             var fields = Self.doubleTapFields(held)
@@ -400,7 +444,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 // that being what the next open of it will read, and the alert says the cube is out of step.
                 pane.showDoubleTapEnabled(!isEnabled)
                 self.putDoubleTapBack(on: pane)
-                self.showDoubleTapNotRecorded("double tap being turned \(isEnabled ? "on" : "off")")
+                self.showNotRecorded("double tap being turned \(isEnabled ? "on" : "off")")
                 return
             }
             pane.showDoubleTapEnabled(isEnabled)
@@ -450,12 +494,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                     "Double tap: the cube did not take \(wanted.described), so the window goes back"
                 )
                 self.putDoubleTapBack(on: pane)
-                self.showDoubleTapRefusedByTheCube()
+                self.showRefusedByTheCube("double-tap")
                 return
             }
             guard self.recordDoubleTap(Self.doubleTapFields(held), describing: held.described) else {
                 self.putDoubleTapBack(on: pane)
-                self.showDoubleTapNotRecorded("the double-tap values")
+                self.showNotRecorded("the double-tap values")
                 return
             }
             // Nothing moves on screen: the fields already hold these numbers, and `showDoubleTapValues` leaves a
@@ -463,6 +507,124 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // the first arrow moved.
             pane.showDoubleTapValues(held)
         }
+    }
+
+    /// Sends one LED setting after its arrows have stopped, and records what the cube took.
+    ///
+    /// **The shape is `applyDoubleTapValues` above**: the cube goes first, the table is written only once the cube
+    /// has taken the command, and a refusal from either puts the row back to what is stored and says so in an alert.
+    /// Recording ahead of the send would be the app writing its own wish down as the cube's state, which is the fault
+    /// the first rule in `CLAUDE.md` exists for.
+    ///
+    /// **Where it departs, and it is the whole of the difference: there is no read-back.** The vendor spec defines no
+    /// command that asks a cube what its LED is set to (`DeviceCommandRules.readBack(for:)` says so for both of
+    /// these, and `docs/timeflip.md` has the matrix), so what `send` reports here is the cube acknowledging the write
+    /// and nothing more. That is genuinely weaker: an acknowledgement says the bytes were accepted, not that the
+    /// light changed. It is also all there is, so the rows below say which of the two happened rather than claiming a
+    /// confirmation nobody made.
+    ///
+    /// **One setting per call, never both.** They are two commands, and a cube told about brightness has been told
+    /// nothing about the blink period -- so a failure puts back the one that failed and leaves the other alone, which
+    /// matters because the other may have an edit of its own still waiting on its debounce.
+    ///
+    /// - Parameters:
+    ///   - putBack: corrects the field from what the table holds, for the paths where the write did not land.
+    ///   - record: brings `values` up to date after one that did, leaving the field alone. See `recordLEDBrightness`,
+    ///     which says why those are two things and not one.
+    private func applyLED(
+        _ value: Int,
+        named name: String,
+        unit: String,
+        field: String,
+        command: Data,
+        on pane: DevicePane,
+        putBack: @escaping (DevicePane, DevicePane.Values) -> Void,
+        record: @escaping (DevicePane, Int) -> Void
+    ) {
+        let described = "\(name) \(value) \(unit)"
+        // **No radio at all refuses and says so**, exactly as the double-tap path does: a field left showing a number
+        // that reached neither the cube nor the table is the surface claiming something about hardware nobody ever
+        // asked.
+        guard let radio else {
+            debugLog?.record(.field, "LED: there is no radio to send to, so \(described) goes back")
+            putBack(pane, deviceSettings())
+            return
+        }
+        debugLog?.record(.field, "LED: sending \(described)")
+        radio.send(command) { [weak self, weak pane] acknowledged in
+            guard let self, let pane else { return }
+            guard acknowledged else {
+                self.debugLog?.record(.field, "LED: the cube did not take \(described), so the window goes back")
+                putBack(pane, self.deviceSettings())
+                self.showRefusedByTheCube("LED \(name)")
+                return
+            }
+            // Worded as an acknowledgement rather than as a confirmation, which is the honest word for it here and
+            // the reason this row exists at all: somebody reading the log for a cube whose light did not change has
+            // to be able to see that nothing ever checked.
+            self.debugLog?.record(
+                .field, "LED: the cube acknowledged \(described), and there is no read-back to confirm it with"
+            )
+            guard self.recordLED(field: field, value, describing: described) else {
+                putBack(pane, self.deviceSettings())
+                self.showNotRecorded("the LED \(name)")
+                return
+            }
+            // Nothing moves on screen, deliberately: a field moved again while the command was out holds a newer
+            // number with a write of its own already queued, and correcting it here would lose that edit.
+            record(pane, value)
+        }
+    }
+
+    private func applyLEDBrightness(on pane: DevicePane) {
+        let percent = pane.ledBrightnessPercent
+        applyLED(
+            percent,
+            named: "brightness",
+            // **The word rather than the sign**, and it is the same hazard as an apostrophe: these rows are read
+            // back out of `debug_log` by SQL `LIKE` patterns, where a literal `%` is the wildcard. A pattern naming
+            // this row could never match it exactly, and would quietly match a great deal else. `CLAUDE.md` names
+            // apostrophes and quotation marks; this is the third one.
+            unit: "percent",
+            field: "brightness",
+            command: DeviceCommandRules.ledBrightness(percent),
+            on: pane,
+            putBack: { $0.showLEDBrightness($1.ledBrightnessPercent) },
+            record: { $0.recordLEDBrightness($1) }
+        )
+    }
+
+    private func applyLEDBlink(on pane: DevicePane) {
+        let seconds = pane.ledBlinkSeconds
+        applyLED(
+            seconds,
+            named: "blink interval",
+            unit: "sec",
+            field: "blink_interval",
+            command: DeviceCommandRules.ledBlink(seconds),
+            on: pane,
+            putBack: { $0.showLEDBlink($1.ledBlinkSeconds) },
+            record: { $0.recordLEDBlink($1) }
+        )
+    }
+
+    /// Writes one field of the `led_settings` row and says whether the table took it, with a row either way.
+    ///
+    /// **One field, not the pair**, which is the opposite of `recordDoubleTap` and right for the opposite reason: the
+    /// registers go to the cube as a single command and describe nothing apart, while brightness and the blink period
+    /// are two commands that have never had to agree about anything. `SettingStore.write(_:field:_:)` merges into the
+    /// row it finds, so writing one leaves the other exactly as it was -- which the archive pinned in a test of its
+    /// own after the two shared a row (`SettingsPersistenceTests.testSavingLEDBrightnessLeavesBlinkIntervalIntact`).
+    ///
+    /// The field names are the ones `database/011_setting.sql` seeds.
+    private func recordLED(field: String, _ value: Int, describing what: String) -> Bool {
+        guard let settings else {
+            debugLog?.record(.field, "LED: there is no settings store, so \(what) cannot be recorded")
+            return false
+        }
+        let stored = settings.write("led_settings", field: field, value)
+        debugLog?.record(.field, stored ? "LED: the table now holds \(what)" : "LED: the table REFUSED \(what)")
+        return stored
     }
 
     /// The four registers as fields of the `double_tap_settings` row.
@@ -515,11 +677,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     }
 
     /// What a cube that would not take the command says.
-    private func showDoubleTapRefusedByTheCube() {
+    ///
+    /// **Named by its caller**, so the two settings that write share one wording rather than each growing a version
+    /// of it: what somebody needs from this sheet is which control went back, and a second copy of the sentence is a
+    /// second chance for the two to end up saying different things about the same failure.
+    private func showRefusedByTheCube(_ what: String) {
         let alert = NSAlert()
         alert.messageText = "The TimeFlip did not accept that"
         alert.informativeText = """
-        The double-tap setting was sent to the device and the device did not confirm it, so nothing has changed and \
+        The \(what) setting was sent to the device and the device did not confirm it, so nothing has changed and \
         the window has gone back to what is stored.
 
         This usually means the device is out of range or busy. Trying again is safe.
@@ -530,7 +696,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// What a cube that took it and a table that would not says. Rarer than the above and worse, so it says plainly
     /// that the two now disagree and which one the app will believe next time.
-    private func showDoubleTapNotRecorded(_ what: String) {
+    private func showNotRecorded(_ what: String) {
         let alert = NSAlert()
         alert.messageText = "That setting was not saved"
         alert.informativeText = """
@@ -1564,6 +1730,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             .click,
             "Category \(category.name) colour -> colour_id \(colourID)\(stored ? "" : " REFUSED")"
         )
+        // **Every face wearing this category, and only those.** Recolouring is the one edit here that can change more
+        // than one face at once, and it can equally change none -- a category on no face is a swatch in a list and
+        // nothing on the cube. The faces are asked for rather than assumed, since which of them hold it is a question
+        // only the table can answer.
+        if stored, let faces {
+            let wearing = faces.facesHolding(categoryID: category.id).map(\.face)
+            faceColours?.send(faces: wearing, because: "\(category.name) was recoloured")
+        }
         // Read back, which is what redraws the row's swatch: this changes what a row says about itself rather than a
         // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
         reloadSelectedPane()
@@ -1715,6 +1889,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             .click,
             "Category \(category.name) retired, cleared from face(s) \(cleared.map(\.face))"
         )
+        // **The cleared faces go dark**, which is the same instruction the window has just carried out on screen. A
+        // face holding nothing has no colour, and `FaceColourRules` sends that as black -- leaving the old colour lit
+        // would make a retired category go on showing on the cube, which is precisely what retiring it means it is
+        // not. Only the faces this actually cleared: a refused clear is a face still wearing the category.
+        faceColours?.send(faces: cleared.map(\.face), because: "\(category.name) was retired")
         // The list is read again because retiring changes which rows belong in it, not merely what one of them says.
         reloadSelectedPane()
         // The Faces tab and the status item draw from the same tables, and a face this cleared may be the one being
@@ -1987,6 +2166,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         debugLog?.record(.mode, "Face \(face) now holds \(category.name) (category_id \(category.id))")
+        // The cube lights this face in its category's colour, so a face that has just taken a different category is
+        // showing the wrong one until it is told. One face, not all twelve: nothing else moved.
+        faceColours?.send(face: face, because: "face \(face) took \(category.name)")
         redrawTiming()
         redrawTotals()
         // **Through the same funnel, though no clock started.** What this actually means here is "the reading

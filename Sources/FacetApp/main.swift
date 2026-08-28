@@ -207,6 +207,23 @@ let cubeLock = CubeLock(
 // the desk is not still counting time against whatever face was up when the app went away.
 quitSequence.cubeLock = cubeLock
 
+// What the cube lights each face in. Built here rather than inside the window, because the window is not who mostly
+// tells it anything: a link coming up sends all twelve, and the Settings window is one of four things that change one.
+let faceColours = FaceColourSync(
+    send: { command, reported in radio.send(command, reported) },
+    isCubeConnected: { radio.connectedDevice != nil },
+    // **Two reads and a fallback, taken at the moment the command is built** rather than a table of colours kept
+    // anywhere. `categoryID(forFace:)` answers `nil` for a face holding the seeded *Unassigned* row, and
+    // `CategoryRecord.colour` is `nil` for the *None* colour; both mean the same thing to a cube, and
+    // `FaceColourRules.channels` is the one place that turns either into black.
+    faceColour: { face in
+        let category = faces.categoryID(forFace: face).flatMap { categories.category(id: $0) }
+        return FaceColour(face: face, categoryName: category?.name, colour: category?.colour)
+    },
+    debugLog: debugLog
+)
+settingsWindow.faceColours = faceColours
+
 // What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
 //
 // **The stored PIN is a closure rather than a value**, for the reason every read in this app is at the point of use:
@@ -480,11 +497,25 @@ radio.onFace = { _, _ in
 radio.onCubeReady = { _ in
     historyIngestor.refresh(because: "the link came up")
 }
+// **Every face, every time the link comes up, and nothing remembered between times.** `0x11` has no read-back, so the
+// only record of what a cube is showing would be a note the app wrote to itself -- which is the second copy of a fact
+// `CLAUDE.md`'s first rule is about, and it goes stale the moment anything else colours the cube. Twelve writes is what
+// the archive itself did on the first connect of every run; see `FaceColourSync`.
+//
+// **`onCubeSettled`, not `onCubeReady`.** The two fire a few round trips apart, and a command sent on the earlier one
+// writes over a question the login still has out. The history fetch above is on the earlier one deliberately, being a
+// question rather than a command and wanting to be first in the queue.
+radio.onCubeSettled = { _ in
+    faceColours.linkSettled()
+}
 // **The other end of the same thought.** A fetch waits on answers the radio delivers, so a link ending mid-conversation
 // leaves it in flight with nothing ever going to finish it -- and one fetch at a time then means no fetch ever again.
 // The mirror of the refresh above: what a link coming up starts, a link going has to let go of.
 radio.onLinkEnded = { _ in
     historyIngestor.linkEnded()
+    // The same thought again: what is queued for a cube that has gone is dropped rather than sent one refusal at a
+    // time.
+    faceColours.linkEnded()
 }
 // What the cube says about its own condition, which until now the app subscribed to and threw away.
 //
@@ -501,8 +532,16 @@ radio.onLinkEnded = { _ in
 // **flash memory fault** turns up: history lives in flash, so a cube reporting one records nothing, and from the
 // outside that looks exactly like a cube that was reset.
 radio.onSystemState = { _, state in
+    // **The one the cube asks for that this app can now answer.** A cube that has lost its face colours says so here,
+    // and it says so repeatedly -- which is why the answer is collapsed rather than given once per notification. See
+    // `FaceColourSync.cooldownSeconds`, where the archive records what answering one for one did to a failing device.
+    if state.cubeSyncState == .faceColoursRequired {
+        faceColours.cubeAskedForThem()
+    }
     guard state.cubeSyncState == .factoryReset else { return }
     historyIngestor.refresh(because: "the cube says it was put back to the factory")
+    // A wiped cube has the factory colours, whatever it was last told. Nothing needs to ask for this: a reset drops
+    // the link, and the reconnect behind it sends all twelve.
 }
 
 // A launch can inherit a running clock, so the watch starts here rather than waiting for somebody to press
