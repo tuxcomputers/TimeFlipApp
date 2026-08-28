@@ -581,7 +581,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         applyLED(
             percent,
             named: "brightness",
-            unit: "%",
+            // **The word rather than the sign**, and it is the same hazard as an apostrophe: these rows are read
+            // back out of `debug_log` by SQL `LIKE` patterns, where a literal `%` is the wildcard. A pattern naming
+            // this row could never match it exactly, and would quietly match a great deal else. `CLAUDE.md` names
+            // apostrophes and quotation marks; this is the third one.
+            unit: "percent",
             field: "brightness",
             command: DeviceCommandRules.ledBrightness(percent),
             on: pane,

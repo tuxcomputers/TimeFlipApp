@@ -211,6 +211,8 @@ correctly, so it passes and the line says which case it met.
 | `60-device-backlog` | a cube out of range: what the app shows, what it refuses to write, and what the cube backfills when it returns (**asks you to switch Bluetooth off and on, and to turn the cube in between**) |
 | `61-lock-without-pause` | locking the cube from the status item with `pause_on_lock` off |
 | `62-forced-pause` | the app stopping the cube itself: a face with no category, and a category that has spent its `daily_limit` (**asks you to turn the cube four times**) |
+| `63-led-settings` | the cube LED: brightness and blink period stepped, sent to the cube, then written down |
+| `64-face-colours` | the cube lit in its faces colours: twelve on connecting, and one when a category is recoloured |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written
