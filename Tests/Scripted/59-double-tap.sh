@@ -24,7 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=17
+EXPECTED_CHECKS=19
 start "the double-tap registers: sent, read back off the cube, then written down"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -34,11 +34,16 @@ start "the double-tap registers: sent, read back off the cube, then written down
 
 # ---------------------------------------------------------------------------- arranging, not checking
 #
-# **The row is put to its seeded four before anything opens.** Every pattern below names the numbers it expects, and
-# a run inheriting a `window` somebody left at 0 would turn the whole disable section into a check that cannot fail:
-# sending 0 when the stored value is already 0 proves nothing about the faking. This is the same licence
-# `08-app-settings` takes when it puts `fetch_history_interval_seconds` back by hand, and it is taken here for the
-# same reason -- there is no control that can reach an arbitrary starting state in one press.
+# **The row is turned on and put to its four registers before anything opens.** Every pattern below names the numbers
+# it expects, and a run inheriting a `window` somebody left at 0 would turn the whole disable section into a check
+# that cannot fail: sending 0 when the stored value is already 0 proves nothing about the faking. This is the same
+# licence `08-app-settings` takes when it puts `fetch_history_interval_seconds` back by hand, and it is taken here for
+# the same reason -- there is no control that can reach an arbitrary starting state in one press.
+#
+# **`enabled` is an arrangement now rather than the seed.** `database/011_setting.sql` seeds the gesture **off**, a
+# cube that pauses itself on a knock through the desk being no use to anybody who did not ask for it. This script is
+# the one place that wants it on, so it turns it on here and turns it back off at the end -- see the last section,
+# which is what leaves the rest of the run the cube it expects.
 #
 # **Written with the window shut**, which is what makes it safe. An open Settings window is the source of truth for
 # what it shows (`CLAUDE.md`), so writing underneath one would be the two-answers problem this script exists to check
@@ -169,6 +174,24 @@ wait_for_value "SELECT json_extract(setting_value, '\$.enabled') FROM setting WH
 check "the table says the gesture is on again" "1" "$(setting double_tap_settings enabled)"
 check "and the four registers are back where this script found them" "90/20/50/50" \
     "$(setting double_tap_settings clickThreshold)/$(setting double_tap_settings limit)/$(setting double_tap_settings latency)/$(setting double_tap_settings window)"
+
+# ---------------------------------------------------------------------------- and left off for everything after it
+#
+# **This script is the only one that wants the gesture on, so it is the only one that has to put it back.** The seed
+# is off (`database/011_setting.sql`), and a cube left double-tapping for the rest of the run is a cube that pauses
+# itself on a knock through the desk part way through somebody else's checks -- which would surface as that script
+# having stopped the clock, three files away from the thing that did it.
+#
+# **Checked rather than merely done**, for the reason `free_the_cube` is: this is an invariant the scripts after it
+# inherit, and a press that silently did nothing would fail somewhere else as something else.
+
+since=$(mark)
+press device-double-tap-disable
+expect_log "the gesture is turned off again on the way out" "$since" \
+    "Double tap: turning it off, sending Threshold: 90, Limit: 20, Latency: 50, Window: 0"
+wait_for_value "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'double_tap_settings';" "0" 30
+check "so every script after this one inherits a cube that cannot be double-tapped" "0" \
+    "$(setting double_tap_settings enabled)"
 
 close_settings
 finish

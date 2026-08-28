@@ -48,6 +48,17 @@ final class DevicePaneTests: XCTestCase {
         try XCTUnwrap(descendants(of: field).compactMap { $0 as? HoldArrow }.first { $0.direction == direction })
     }
 
+    /// The tab with the gesture on, whatever the seed says.
+    ///
+    /// **Stated rather than inherited.** These tests are about what the box and the four registers do when it is
+    /// switched, not about which way the database seeds it -- and a test that reads the default is a test that breaks
+    /// when the default changes, which is exactly what happened when it was seeded off on 2026-08-28.
+    private var gestureOn: DevicePane.Values {
+        var values = DevicePane.Values.seeded
+        values.isDoubleTapEnabled = true
+        return values
+    }
+
     private var paired: DevicePane.Values {
         var values = DevicePane.Values.seeded
         values.isCubePaired = true
@@ -585,7 +596,7 @@ final class DevicePaneTests: XCTestCase {
         // It says "Disable", so ticked is the gesture being unwanted. Reported the right way round once, here, rather
         // than at every reader of it.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(gestureOn)
         var reported: [Bool] = []
         pane.onDoubleTapEnabledChanged = { reported.append($0) }
         let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
@@ -603,7 +614,7 @@ final class DevicePaneTests: XCTestCase {
         // With the gesture off there is nothing for the four to describe: `DoubleTapRules.asSent` sends Window as 0
         // whatever they hold, so a live field would take a number and then not send it.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(gestureOn)
         let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
 
         box.performClick(nil)
@@ -620,7 +631,7 @@ final class DevicePaneTests: XCTestCase {
 
     func testUntickingItGivesThemBack() throws {
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(gestureOn)
         let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
 
         box.performClick(nil)
@@ -851,8 +862,8 @@ final class DevicePaneTests: XCTestCase {
 
         let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
         XCTAssertEqual(box.state, .on)
-        pane.show(.seeded)
-        XCTAssertEqual(box.state, .off, "the gesture is on by default, so the Disable box is clear")
+        pane.show(gestureOn)
+        XCTAssertEqual(box.state, .off, "and clear again when the gesture is on")
     }
 
     func testValuesGreyWhenNothingCanBeHeardFrom() throws {

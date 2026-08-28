@@ -139,7 +139,10 @@ final class DevicePane: NSView {
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             ledBlinkSeconds: 15,
-            isDoubleTapEnabled: true,
+            // **Off, matching `database/011_setting.sql`.** The gesture pauses the cube on any knock hard enough,
+            // which includes one through the desk it is sitting on, so a cube nobody has asked for it should not be
+            // stopping the clock.
+            isDoubleTapEnabled: false,
             doubleTapThreshold: 90,
             doubleTapLimit: 20,
             doubleTapLatency: 50,
