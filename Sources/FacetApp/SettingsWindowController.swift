@@ -113,6 +113,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// it. `nil` in every layout test, and in a launch with nothing paired, which is why every call to it is optional.
     weak var reconnect: DeviceReconnector?
 
+    /// What tells the cube which colour to light a face in.
+    ///
+    /// **Weak, and owned by the app rather than by this window**, for the reason `reconnect` is: a link coming up
+    /// sends all twelve whether or not anybody has opened Settings, so this window is one of the things that talks to
+    /// it rather than the thing that has it. `nil` in every layout test.
+    ///
+    /// Three edits here change what a face should be lit in, and each one tells it: a face taking a category, a
+    /// category being recoloured, and a category being retired off the faces it was on. The fourth path is manual
+    /// mode starting a session, and that one deliberately says nothing -- `ManualFace.all` is 13 and 14, faces no
+    /// cube has.
+    weak var faceColours: FaceColourSync?
+
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
     /// **Asked of the app rather than of a table, and that is right rather than an exception.** `LaunchMode` is in
@@ -1714,6 +1726,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             .click,
             "Category \(category.name) colour -> colour_id \(colourID)\(stored ? "" : " REFUSED")"
         )
+        // **Every face wearing this category, and only those.** Recolouring is the one edit here that can change more
+        // than one face at once, and it can equally change none -- a category on no face is a swatch in a list and
+        // nothing on the cube. The faces are asked for rather than assumed, since which of them hold it is a question
+        // only the table can answer.
+        if stored, let faces {
+            let wearing = faces.facesHolding(categoryID: category.id).map(\.face)
+            faceColours?.send(faces: wearing, because: "\(category.name) was recoloured")
+        }
         // Read back, which is what redraws the row's swatch: this changes what a row says about itself rather than a
         // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
         reloadSelectedPane()
@@ -1865,6 +1885,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             .click,
             "Category \(category.name) retired, cleared from face(s) \(cleared.map(\.face))"
         )
+        // **The cleared faces go dark**, which is the same instruction the window has just carried out on screen. A
+        // face holding nothing has no colour, and `FaceColourRules` sends that as black -- leaving the old colour lit
+        // would make a retired category go on showing on the cube, which is precisely what retiring it means it is
+        // not. Only the faces this actually cleared: a refused clear is a face still wearing the category.
+        faceColours?.send(faces: cleared.map(\.face), because: "\(category.name) was retired")
         // The list is read again because retiring changes which rows belong in it, not merely what one of them says.
         reloadSelectedPane()
         // The Faces tab and the status item draw from the same tables, and a face this cleared may be the one being
@@ -2137,6 +2162,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         debugLog?.record(.mode, "Face \(face) now holds \(category.name) (category_id \(category.id))")
+        // The cube lights this face in its category's colour, so a face that has just taken a different category is
+        // showing the wrong one until it is told. One face, not all twelve: nothing else moved.
+        faceColours?.send(face: face, because: "face \(face) took \(category.name)")
         redrawTiming()
         redrawTotals()
         // **Through the same funnel, though no clock started.** What this actually means here is "the reading

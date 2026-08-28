@@ -51,6 +51,7 @@ cases and stays an enum for the reasons its own file gives; what a branch reads 
 | --- | --- | --- |
 | `isCubePaired` | true / false | `setting.paired.paired` |
 | `isCubeConnected` | true / false | `BluetoothRadio.connectedDevice != nil` |
+| `isLinkSettled` | true / false | `FaceColourSync.isLinkSettled`, set by `BluetoothRadio.onCubeSettled` |
 | `isScanning` | true / false | `BluetoothRadio.isScanning` |
 | `isScanWanted` | true / false | `BluetoothRadio.wantsToScan` |
 | `isReachingForCube` | true / false | `BluetoothRadio.isReaching` |
@@ -61,6 +62,13 @@ cases and stays an enum for the reasons its own file gives; what a branch reads 
 `isCubeConnected` is the connection, not the pairing: a paired cube in another room can be neither paused nor
 locked. `isDeviceReachable` folds into it. The reading keeps `cubeFace` after a link drops because the face is
 worth drawing, and this is the separate question of what may be sent.
+
+`isLinkSettled` is a third question again, and it is not `isCubeConnected` said later. The connection turns true
+several round trips before the login has finished asking the cube its own questions, and until it has, the command
+channel belongs to the login: the `0x17` read it has outstanding does not set `isCommandInFlight`, so a command sent
+in that window is written over it rather than refused. So `isCubeConnected` is whether there is a cube to send to and
+this is whether it may be sent to yet. Measured on 2026-08-28: over 26 connects the cube answered the systemState read
+about 480ms before the login settled, every time.
 
 `isFactoryResetRunning` is one fact currently held as two flags set and cleared independently. The sweep gives
 it one name; whether it should also be one flag is a code question, not a naming one.

@@ -118,6 +118,14 @@ final class BluetoothRadio: NSObject {
     /// because there is not one yet. This is the first moment the cube can actually be asked.
     var onCubeReady: ((UUID) -> Void)?
 
+    /// The cube has answered everything the login asks it, so the command channel is free for somebody else.
+    ///
+    /// **What to hang a command on, where `onCubeReady` is what to hang a question on.** The login writes to the
+    /// command characteristic after `ready` -- the `0x17` read and the `0x10` behind it -- and the first of those
+    /// does not set `isCommandInFlight`, so a command sent off `onCubeReady` writes over a question already out. See
+    /// `DeviceLogin.settled`.
+    var onCubeSettled: ((UUID) -> Void)?
+
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
@@ -1254,6 +1262,13 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.debugLog?.record(.login, "The cube is ready to be asked things")
                 self.onCubeReady?(attempt.id)
+            },
+            // The same guard once more. See `DeviceLogin.settled` for why this is a separate moment from the one
+            // above rather than the same one said twice.
+            settled: { [weak self] in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.debugLog?.record(.login, "The cube has answered the opening questions")
+                self.onCubeSettled?(attempt.id)
             }
         ) { [weak self] outcome in
             self?.finish(attempt.id, outcome)

@@ -97,6 +97,10 @@ final class DebugLog {
         /// (`DeviceLogin`, `BluetoothRadio`). **A row per change**, as `battery` is, so a row here means the cube
         /// turned over rather than that it spoke -- every arrival is already in the trace below.
         case face
+        /// What each face is told to light up in, and what became of the telling (`FaceColourSync`). Its own tag
+        /// rather than `face`, which is the cube reporting which side is up: one is a reading and the other is a
+        /// command, and a run of twelve colour writes would bury the flips among them.
+        case colour
         /// Commands the app tells the cube to obey, and whether it acknowledged them (`DeviceCommandRules`,
         /// `DeviceLogin.send`). Its own tag rather than `login`, because these are the app changing the device's
         /// behaviour rather than reaching it -- and an acknowledgement here says the cube heard, never that it obeyed.

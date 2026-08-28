@@ -100,6 +100,16 @@ final class DeviceLogin: NSObject {
     /// at that point `history` is still nil and a fetch made on the strength of it reports "no history characteristic"
     /// against a cube that has one. This fires after that discovery, which is the first moment a request can land.
     private let ready: () -> Void
+
+    /// Called once the opening questions are answered and the command channel is free.
+    ///
+    /// **A different moment from `ready`, and the difference is what it is for.** `ready` fires as soon as the
+    /// characteristics are discovered, deliberately early so a history fetch is first in the queue rather than behind
+    /// two round trips. What follows it is this login writing to the command characteristic on its own account -- the
+    /// `0x17` read and the `0x10` status behind it -- and the `0x17` read does not set `isCommandInFlight`, so
+    /// anything sending a command off the back of `ready` writes over a question already out. This is the point after
+    /// which it is safe to send, which is what the face colours needed and what nothing announced before.
+    private let settled: () -> Void
     private let finished: (DeviceLoginOutcome) -> Void
 
     private var deadline: Timer?
@@ -209,6 +219,7 @@ final class DeviceLogin: NSObject {
         status: @escaping (DeviceCommandRules.Status) -> Void = { _ in },
         systemState: @escaping (DeviceSystemStateRules.State) -> Void = { _ in },
         ready: @escaping () -> Void = {},
+        settled: @escaping () -> Void = {},
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
         self.peripheral = peripheral
@@ -223,6 +234,7 @@ final class DeviceLogin: NSObject {
         self.status = status
         self.systemState = systemState
         self.ready = ready
+        self.settled = settled
         self.finished = finished
         super.init()
     }
@@ -871,8 +883,11 @@ final class DeviceLogin: NSObject {
     /// and both wait for an answer on the command result, and neither an acknowledgement nor a `0x10` answer carries
     /// anything saying which question it belongs to -- so two in flight is two answers nobody can attribute. The face
     /// read above is safe to fire alongside them only because it has a characteristic of its own.
+    /// **And the last of them**, so the answer arriving is what says the opening questions are done. Reported either
+    /// way: a cube that would not say what state it is in is still a cube with a free command channel, and holding
+    /// the announcement back would leave the face colours unsent over a question that has nothing to do with them.
     private func askWhatStateItIsIn() {
-        askStatus { _ in }
+        askStatus { [weak self] _ in self?.settled() }
     }
 
     /// What the cube answered `0x17` with.
