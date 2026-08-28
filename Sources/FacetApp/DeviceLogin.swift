@@ -151,6 +151,7 @@ final class DeviceLogin: NSObject {
 
     /// The factory reset, which is a phase of its own for the same reason the Device Information reads are: it runs
     /// long after the login is over, on a connection this object is still the delegate of.
+    /// **Counts as an exchange being out**, so nothing is written over a reset waiting for its acknowledgement.
     private var isFactoryResetRunning = false
     private var resetDeadline: Timer?
     private var resetReported: ((Bool) -> Void)?
@@ -292,25 +293,34 @@ final class DeviceLogin: NSObject {
     /// (`ApplicationDelegate.factoryResetConfirmDeadline`). This app has no reconnect loop to do that in, so what it
     /// does instead is refuse to throw away the one thing that would be needed to find a cube whose wipe silently
     /// failed -- see `DevicePairingRecorder.recordFactoryReset`.
+    /// **Queued like every other command**, and it earns its place there rather than being tidied into it: this is
+    /// reachable from the Device tab the moment a cube is connected, so it can be asked for while a run of face
+    /// colours is going out. Written straight to the characteristic it would land in the middle of one.
     func factoryReset(_ reported: @escaping (Bool) -> Void) {
-        guard let command else {
+        guard command != nil else {
             debugLog?.record(.pair, "This cube has no command characteristic, so it cannot be reset")
             reported(false)
             return
         }
-        isFactoryResetRunning = true
-        resetReported = reported
-        resetDeadline?.invalidate()
-        resetDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.debugLog?.record(.pair, "The cube never acknowledged the reset command")
-                self?.finishReset(false)
+        enqueue("the factory reset") { [weak self] in
+            guard let self, let command = self.command else {
+                reported(false)
+                return
             }
+            self.isFactoryResetRunning = true
+            self.resetReported = reported
+            self.resetDeadline?.invalidate()
+            self.resetDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.debugLog?.record(.pair, "The cube never acknowledged the reset command")
+                    self?.finishReset(false)
+                }
+            }
+            if let resetDeadline = self.resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
+            let payload = Data([DeviceLoginRules.factoryReset])
+            self.debugLog?.record(.pair, "Sending the factory reset command")
+            self.write(payload, to: command, type: .withResponse)
         }
-        if let resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
-        let payload = Data([DeviceLoginRules.factoryReset])
-        debugLog?.record(.pair, "Sending the factory reset command")
-        write(payload, to: command, type: .withResponse)
     }
 
     // MARK: - telling the cube to do something
@@ -333,23 +343,24 @@ final class DeviceLogin: NSObject {
     /// makes that worse, since a `0x10` answer carries no echoed command byte either. The refusal is reported rather
     /// than queued: what to do about a busy cube is the caller's question.
     func send(_ payload: Data, then reported: @escaping (Bool) -> Void) {
-        guard let command else {
+        guard command != nil else {
             debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to send to")
             reported(false)
             return
         }
-        guard !isCommandInFlight else {
-            debugLog?.record(.command, "A command is already out; not sending another over the top of it")
-            reported(false)
-            return
+        enqueue("the command \(BLETrace.describe(payload))") { [weak self] in
+            guard let self, let command = self.command else {
+                reported(false)
+                return
+            }
+            self.pendingCommand = reported
+            self.pendingReadBack = DeviceCommandRules.readBack(for: payload)
+            self.isReadingBack = false
+            self.armCommandDeadline()
+            // The bytes themselves go into the trace as `ble-tx` by `write`, so what this row adds is why they went.
+            self.debugLog?.record(.command, "Sending \(BLETrace.describe(payload))")
+            self.write(payload, to: command, type: .withResponse)
         }
-        pendingCommand = reported
-        pendingReadBack = DeviceCommandRules.readBack(for: payload)
-        isReadingBack = false
-        armCommandDeadline()
-        // The bytes themselves go into the trace as `ble-tx` by `write`, so what this row adds is why they went.
-        debugLog?.record(.command, "Sending \(BLETrace.describe(payload))")
-        write(payload, to: command, type: .withResponse)
     }
 
     /// Asks the cube what state it is in (`0x10`), and reports what it says.
@@ -361,22 +372,23 @@ final class DeviceLogin: NSObject {
     ///
     /// `nil` for a cube that would not answer, which is a different thing from a cube that answered "unlocked".
     func askStatus(then answered: @escaping (DeviceCommandRules.Status?) -> Void) {
-        guard let command else {
+        guard command != nil else {
             debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to ask")
             answered(nil)
             return
         }
-        guard !isCommandInFlight else {
-            debugLog?.record(.command, "A command is already out; not asking about state over the top of it")
-            answered(nil)
-            return
+        enqueue("the question about the state of the cube") { [weak self] in
+            guard let self, let command = self.command else {
+                answered(nil)
+                return
+            }
+            self.pendingStatus = answered
+            // The acknowledgement about to arrive is this question's, not a command's.
+            self.isReadingBack = true
+            self.armCommandDeadline()
+            self.debugLog?.record(.command, "Asking the cube what state it is in")
+            self.write(DeviceCommandRules.status, to: command, type: .withResponse)
         }
-        pendingStatus = answered
-        // The acknowledgement about to arrive is this question's, not a command's.
-        isReadingBack = true
-        armCommandDeadline()
-        debugLog?.record(.command, "Asking the cube what state it is in")
-        write(DeviceCommandRules.status, to: command, type: .withResponse)
     }
 
     /// Asks the cube which event it is on: one frame, the newest it holds.
@@ -491,9 +503,60 @@ final class DeviceLogin: NSObject {
         armHistoryDeadline()
     }
 
-    /// Whether an exchange is already out. Both kinds share one slot deliberately: they use the same characteristic
-    /// and the same acknowledgement, so two at once could not be told apart.
-    private var isCommandInFlight: Bool { pendingCommand != nil || pendingStatus != nil }
+    /// Whether an exchange is already out on the command characteristic.
+    ///
+    /// **All three kinds count, and the third was missing until 2026-08-28.** A command, a plain question about the
+    /// state, and the double-tap read all write to the same characteristic and are answered on the same one, so two
+    /// at once could not be told apart -- but only the first two set a `pending` slot, so a command sent during a
+    /// `0x17` read sailed past this and was written over the top of it. Nothing refused it and nothing said so.
+    private var isCommandInFlight: Bool {
+        pendingCommand != nil || pendingStatus != nil || isReadingDoubleTap || isFactoryResetRunning
+    }
+
+    /// Exchanges waiting their turn on the command characteristic, in the order they were asked for.
+    ///
+    /// **Waiting, not refused.** This used to answer `false` to anything arriving while the channel was busy, which
+    /// made the caller believe the cube had declined -- and with twelve face colours going out on every connect, that
+    /// window is now most of a second at the moment a user is most likely to press something. Measured on 2026-08-28:
+    /// the scripted suite pressed Unlock 350ms after a link came up, both its commands were refused, and the run
+    /// reported the cube would not unlock.
+    ///
+    /// **A queue of exchanges rather than of writes**, which is the only version that helps: the hazard is a second
+    /// write going out before the first one's *reply* has been read, so what has to be held is the whole
+    /// write-and-await, not the write.
+    ///
+    /// **Nothing here survives the link going.** A queued exchange whose `DeviceLogin` is discarded is released with
+    /// its completion uncalled, which is what already happens to one in flight -- the deadline below fires into a
+    /// `nil` self. Callers that hold state across a send must reset it when the link ends rather than wait for a
+    /// completion that is not coming (`FaceColourSync.linkEnded`).
+    private var waiting: [(describe: String, begin: () -> Void)] = []
+
+    /// Puts an exchange in the queue and starts it if the channel is free.
+    ///
+    /// **One way in, so there is no path that skips the queue.** Every caller of the command characteristic goes
+    /// through here, including this object's own questions -- a login that wrote directly would be exactly the fault
+    /// this exists to remove.
+    private func enqueue(_ what: String, _ begin: @escaping () -> Void) {
+        waiting.append((describe: what, begin: begin))
+        if isCommandInFlight {
+            debugLog?.record(
+                .command,
+                "The command channel is busy, so \(what) waits its turn, \(waiting.count) in the queue"
+            )
+        }
+        startNextIfIdle()
+    }
+
+    /// Begins the next exchange, if there is one and nothing is out.
+    ///
+    /// **Called after the completions rather than before them.** `finishExchange` clears both slots and then tells
+    /// whoever was waiting, and a caller is free to send from inside that call -- the lock sequence does exactly that.
+    /// So by the time this runs the channel may already be busy again with the caller's own next command, which is
+    /// why it asks rather than assumes.
+    private func startNextIfIdle() {
+        guard !isCommandInFlight, !waiting.isEmpty else { return }
+        waiting.removeFirst().begin()
+    }
 
     private func armCommandDeadline() {
         commandDeadline?.invalidate()
@@ -597,6 +660,7 @@ final class DeviceLogin: NSObject {
         if let status { self.status(status) }
         reportCommand?(took)
         reportStatus?(status)
+        startNextIfIdle()
     }
 
     private func finishReset(_ sent: Bool) {
@@ -607,6 +671,7 @@ final class DeviceLogin: NSObject {
         let reported = resetReported
         resetReported = nil
         reported?(sent)
+        startNextIfIdle()
     }
 
     // MARK: - what the cube says it is
@@ -851,6 +916,11 @@ final class DeviceLogin: NSObject {
     /// (`Archive/Tests/Methods.md` Method 22), so how hard a knock has to be is the whole of what decides whether a
     /// desk being bumped stops somebody's timer.
     private func askWhatMakesADoubleTap() {
+        guard command != nil else { return }
+        enqueue("the question about double taps") { [weak self] in self?.beginAskingWhatMakesADoubleTap() }
+    }
+
+    private func beginAskingWhatMakesADoubleTap() {
         guard let command else { return }
         isReadingDoubleTap = true
         tapDeadline?.invalidate()
@@ -859,6 +929,7 @@ final class DeviceLogin: NSObject {
                 guard let self, self.isReadingDoubleTap else { return }
                 self.isReadingDoubleTap = false
                 self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
+                defer { self.startNextIfIdle() }
                 // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
                 // lock, and this is the one question the dropdown cannot draw itself without.
                 self.askWhatStateItIsIn()
@@ -904,7 +975,9 @@ final class DeviceLogin: NSObject {
         tapDeadline?.invalidate()
         tapDeadline = nil
         debugLog?.record(.tap, "The double tap on the cube is set to \(parameters.described)")
+        // The state question goes in the queue behind whatever arrived while this was out, rather than in front of it.
         askWhatStateItIsIn()
+        startNextIfIdle()
     }
 
     // MARK: - the PIN this app puts on it
@@ -931,6 +1004,9 @@ final class DeviceLogin: NSObject {
             return
         }
         self.newPIN = newPIN
+        // **The login's own writes are the one path that does not queue, and they do not need to.** `connectedDevice`
+        // is set only once the login succeeds (`BluetoothRadio.finish`), so `send` refuses everything until then and
+        // the channel is this sequence's alone. Nothing can arrive to be trampled or to trample.
         step = .setting
         // The value goes in the log as well as in the trace beneath it. It is the one thing here that cannot be
         // recovered from anywhere else if the write down the line fails, and a PIN somebody can read off a terminal
@@ -1175,6 +1251,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             guard error == nil else {
                 isReadingDoubleTap = false
                 debugLog?.record(.tap, "The cube would not take the question about double taps")
+                startNextIfIdle()
                 return
             }
             read(commandResult)

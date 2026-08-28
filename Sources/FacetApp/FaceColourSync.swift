@@ -204,6 +204,11 @@ final class FaceColourSync {
         isLinkSettled = false
         // What makes the next connection a change to true rather than more of this one.
         wasCubeConnected = false
+        // **The run is stood down as well as emptied**, and forgetting this is a stall rather than a lost write: a
+        // command out when the link goes is never completed -- `DeviceLogin` is discarded and its completion released
+        // uncalled -- so `step` is never called back, and a flag left true makes `run` return early for the rest of
+        // the launch. Every connection after it would queue twelve faces and send none.
+        isSending = false
     }
 
     private func run() {

@@ -314,6 +314,26 @@ final class FaceColourSyncTests: XCTestCase {
         XCTAssertEqual(wire.faces.count, 48, "two connections and an answered ask on each")
     }
 
+    func testALinkGoingMidCommandDoesNotStallEveryConnectionAfterIt() {
+        // **Measured, and it is a stall rather than a lost write.** A command out when the link goes is never
+        // completed: `DeviceLogin` is discarded and the completion released uncalled, so nothing calls back into the
+        // run. A run left standing would make every later connection queue twelve faces and send none.
+        let wire = Wire()
+        let link = Link()
+        let colours = sync(link: link, answering: false, on: wire)
+        colours.linkSettled()
+        XCTAssertEqual(wire.faces, [1], "one out, and it is never going to be answered")
+
+        link.isCubeConnected = false
+        colours.linkEnded()
+        link.isCubeConnected = true
+        colours.linkSettled()
+
+        // Two, not thirteen: this wire never answers, so each connection gets exactly one command out and waits. The
+        // property being pinned is that the second connection started at all.
+        XCTAssertEqual(wire.faces, [1, 1], "the next connection starts its run rather than sending nothing")
+    }
+
     func testAskingIsNotCarriedOverALinkThatWent() {
         // A request made on a connection that then dropped is answered by the next connection sending all twelve, not
         // by an extra run on top of it. What the cube wanted was its colours, and it is about to get them.
