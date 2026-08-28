@@ -27,6 +27,37 @@ enum DeviceCommandRules {
         Data([lockCommand, on ? 0x01 : 0x02])
     }
 
+    /// LED brightness (`0x09 0xXX`), as a percentage of full.
+    ///
+    /// **The range is the vendor's and this is where it is kept.** `brightnessRange` is what the Device tab builds
+    /// its field from, so the number a control will accept and the number that goes on the wire are one fact rather
+    /// than two that could drift. Clamped here as well as there, because bytes reaching hardware are the last place
+    /// to assume somebody upstream checked.
+    ///
+    /// **Nothing reads it back**, which is the spec and not an omission: see `readBack(for:)`, where both LED
+    /// commands say so out loud, and the matrix in `docs/timeflip.md`. The app is the system of record for what a
+    /// cube's LED is set to, and the cube asks for the value again when it has lost one (`0x0203`,
+    /// `DeviceSystemStateRules.Sync.ledBrightnessRequired`).
+    static func ledBrightness(_ percent: Int) -> Data {
+        Data([ledBrightnessCommand, UInt8(clamping: brightnessRange.clamped(percent))])
+    }
+
+    /// LED blink period (`0x0A 0xXX`): the gap between two consecutive flashes, in seconds.
+    ///
+    /// The same shape and the same caveat as `ledBrightness` above, down to having no read-back.
+    static func ledBlink(_ seconds: Int) -> Data {
+        Data([ledBlinkCommand, UInt8(clamping: blinkRange.clamped(seconds))])
+    }
+
+    /// What `0x09` accepts: 1 to 100 %, the vendor spec's own range (Tab. 1).
+    ///
+    /// **There is no 0.** A cube cannot be told to put its LED out this way, so 0 is a value the firmware refuses
+    /// rather than a way to turn the light off -- which is the opposite of auto-pause, where 0 is what disables it.
+    static let brightnessRange = 1...100
+
+    /// What `0x0A` accepts: 5 to 60 seconds between flashes, again the spec's range.
+    static let blinkRange = 5...60
+
     /// Sets the cube's clock (`0x08`): the command byte then the epoch as `uint64` big-endian, in **UTC**.
     ///
     /// **The cube stamps every history frame with this clock**, so a cube whose time has never been set has nothing to
@@ -190,6 +221,12 @@ enum DeviceCommandRules {
                 // asked for is logged by whoever asked, and what arrived would otherwise be a verdict with no figures.
                 described: { DoubleTapRules.parameters(from: $0)?.described }
             )
+        case ledBrightnessCommand, ledBlinkCommand:
+            // **Said out loud rather than left to the default below**, which is `CLAUDE.md`'s rule for a command with
+            // no read-back: the spec defines no way to ask a cube what its LED is set to, so a reader finding these
+            // two missing here would have no way to tell a deliberate `nil` from a forgotten one. The write is the
+            // whole of the evidence, and what it proves is only that the cube took the bytes.
+            return nil
         case timeCommand:
             // The clock this command asked for, read back out of the command's own bytes rather than passed in
             // alongside them: there is one place that knows the layout and it is `setTime`.
@@ -210,4 +247,12 @@ enum DeviceCommandRules {
     private static let pauseCommand: UInt8 = 0x06
     private static let readTimeCommand: UInt8 = 0x07
     private static let timeCommand: UInt8 = 0x08
+    private static let ledBrightnessCommand: UInt8 = 0x09
+    private static let ledBlinkCommand: UInt8 = 0x0A
+}
+
+private extension ClosedRange where Bound == Int {
+    func clamped(_ value: Int) -> Int {
+        Swift.min(upperBound, Swift.max(lowerBound, value))
+    }
 }

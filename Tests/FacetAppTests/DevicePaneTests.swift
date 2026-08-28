@@ -42,6 +42,12 @@ final class DevicePaneTests: XCTestCase {
             .first { descendants(of: $0).contains { $0.accessibilityIdentifier() == identifier } }
     }
 
+    /// One of a stepped field's two arrows, pressed rather than held. What a *hold* does is `StepperHoldRules`,
+    /// tested on its own -- driving it here would mean holding a real mouse button down for several seconds.
+    private func arrow(_ direction: Int, of field: SteppedNumberField) throws -> HoldArrow {
+        try XCTUnwrap(descendants(of: field).compactMap { $0 as? HoldArrow }.first { $0.direction == direction })
+    }
+
     private var paired: DevicePane.Values {
         var values = DevicePane.Values.seeded
         values.isCubePaired = true
@@ -400,6 +406,8 @@ final class DevicePaneTests: XCTestCase {
 
         for (identifier, root) in [
             (DevicePane.Identifier.autoPause, device as NSView),
+            (DevicePane.Identifier.ledBrightness, device as NSView),
+            (DevicePane.Identifier.ledBlink, device as NSView),
             (AppSettingsPane.Identifier.batteryWarning, app as NSView),
             (AppSettingsPane.Identifier.dailyReset, app as NSView),
             (AppSettingsPane.Identifier.fetchInterval, app as NSView),
@@ -424,8 +432,14 @@ final class DevicePaneTests: XCTestCase {
 
         // The unit is part of the answer: "20" against Blink Interval could be seconds or minutes, and the archive
         // wrote both out for that reason.
-        XCTAssertEqual(value(DevicePane.Identifier.ledBrightness, in: pane), "70 %")
-        XCTAssertEqual(value(DevicePane.Identifier.ledBlink, in: pane), "20 sec")
+        //
+        // **It is the field's suffix now rather than part of the value**, the two LED rows having become stepped
+        // fields like the rest of the tab. The unit has to be checked where it actually is: a number and a suffix
+        // that had drifted apart would read as the right value in the wrong unit, which is the fault this pins.
+        XCTAssertEqual(stepper(DevicePane.Identifier.ledBrightness, in: pane)?.value, 70)
+        XCTAssertEqual(stepper(DevicePane.Identifier.ledBrightness, in: pane)?.suffix, "%")
+        XCTAssertEqual(stepper(DevicePane.Identifier.ledBlink, in: pane)?.value, 20)
+        XCTAssertEqual(stepper(DevicePane.Identifier.ledBlink, in: pane)?.suffix, "sec")
         XCTAssertEqual(stepper(DevicePane.Identifier.autoPause, in: pane)?.value, 12)
     }
 
@@ -437,6 +451,9 @@ final class DevicePaneTests: XCTestCase {
         //
         // A control taller than a row is still allowed to push it -- the padding constraints are inequalities -- so
         // this is not a cap. It is that nothing on this tab should be reaching for one.
+        //
+        // **The two LED rows are in the list for the same reason the four registers are**: they became stepped
+        // fields the same way, and a row that is the only one at a different height is what nobody notices.
         let pane = DevicePane()
         pane.show(paired)
         pane.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
@@ -446,6 +463,8 @@ final class DevicePaneTests: XCTestCase {
             DevicePane.Identifier.connection,
             DevicePane.Identifier.battery,
             DevicePane.Identifier.autoPause,
+            DevicePane.Identifier.ledBrightness,
+            DevicePane.Identifier.ledBlink,
             DevicePane.Identifier.doubleTapDisable,
             DevicePane.Identifier.doubleTapThreshold,
             DevicePane.Identifier.doubleTapLimit,
@@ -693,6 +712,98 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLatency, in: pane)?.value, 34)
         XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.value, 0)
         XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
+    }
+
+    // MARK: - the LED fields
+
+    func testTheLEDFieldsTakeTheRangesTheCommandsAccept() throws {
+        // The ranges are `DeviceCommandRules`, not numbers written out again here, so a field cannot come to accept
+        // something the command would then quietly change. Stepping down from the seed is what shows it: brightness
+        // stops at 1 and the blink period at 5, neither of them at 0.
+        let pane = DevicePane()
+        var values = DevicePane.Values.seeded
+        values.ledBrightnessPercent = DeviceCommandRules.brightnessRange.lowerBound
+        values.ledBlinkSeconds = DeviceCommandRules.blinkRange.lowerBound
+        pane.show(values)
+
+        try arrow(-1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
+        try arrow(-1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBlink, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.ledBrightnessPercent, 1, "brightness has no 0")
+        XCTAssertEqual(pane.ledBlinkSeconds, 5, "and neither has the blink period")
+    }
+
+    func testMovingOneLEDArrowReportsThatOneAndNotTheOther() throws {
+        // **Two settings, two commands, two reports.** Brightness goes as 0x09 and the blink period as 0x0A, so a
+        // cube told about one has been told nothing about the other -- and the window debounces them separately for
+        // the same reason. One callback firing for both would put that back together again.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var brightness = 0
+        var blink = 0
+        pane.onLEDBrightnessChanged = { brightness += 1 }
+        pane.onLEDBlinkChanged = { blink += 1 }
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.ledBrightnessPercent, 51)
+        XCTAssertEqual(brightness, 1)
+        XCTAssertEqual(blink, 0, "the blink period was not touched")
+    }
+
+    func testTheLEDValuesAreReadOffTheFieldsRatherThanOffWhatWasLastShown() throws {
+        // What a command is built from. A held arrow moves the field several times a second and nothing writes those
+        // back to `values` until one lands, so reading `values` would send the number the row opened with.
+        let pane = DevicePane()
+        pane.show(.seeded)
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.ledBrightnessPercent, 51, "what is on screen")
+        XCTAssertEqual(pane.values.ledBrightnessPercent, 50, "and what was last shown, still")
+    }
+
+    func testARefusedLEDWriteCanPutAFieldBackWithoutSayingSo() throws {
+        // The mirror of the registers correction path, and for the same reason: `SteppedNumberField.value` is
+        // assigned rather than the arrow pressed, so putting a field back cannot be mistaken for somebody moving it
+        // and start a second write.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onLEDBrightnessChanged = { changes += 1 }
+
+        pane.showLEDBrightness(30)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.ledBrightness, in: pane)?.value, 30)
+        XCTAssertEqual(pane.values.ledBrightnessPercent, 30, "and `values` moved with it, so the next read agrees")
+        XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
+    }
+
+    func testAWriteThatLandedIsRecordedWithoutTouchingTheField() throws {
+        // **The race this exists to lose.** A command is out with 51 on it, somebody steps the field on to 52 while
+        // it is in flight, and the cube then says yes to the 51. Writing 51 back into the field would take 52 off the
+        // screen -- and the next debounced write reads the field, so it would send 51 again and the 52 nobody refused
+        // would be gone. What landed is recorded; what is on screen is left where its owner put it.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
+
+        pane.recordLEDBrightness(51)
+
+        XCTAssertEqual(pane.ledBrightnessPercent, 52, "still what was stepped to")
+        XCTAssertEqual(pane.values.ledBrightnessPercent, 51, "and what landed is what was recorded")
+    }
+
+    func testPuttingOneLEDFieldBackLeavesTheOtherAlone() {
+        // A failure puts back the setting that failed. The other may have an edit of its own still waiting on its
+        // own debounce, and taking that out from under somebody would lose a change nothing had refused.
+        let pane = DevicePane()
+        pane.show(.seeded)
+
+        pane.showLEDBrightness(30)
+
+        XCTAssertEqual(pane.ledBlinkSeconds, 15, "untouched")
     }
 
     func testTheCorrectedFieldsAreWhatTheNextReadOfThePaneGives() {
