@@ -500,6 +500,24 @@ free_the_cube() {
     press toggle-cube-lock
     wait_for "$freeing" "The cube is unlocked" 20 >/dev/null || return 1
     wait_for "$freeing" "The cube is running" 20 >/dev/null || return 1
+    # **And then on the table, which is a second thing rather than the same one said twice.** The rows above say the
+    # cube confirmed the commands; what the callers of this actually inherit is the app's record of the cube, and that
+    # is written by the history fetch the resume sets off -- a couple of hundred milliseconds later, because a resumed
+    # cube files a fresh event and the app has to go and read it. Until it lands, the newest open segment is still the
+    # paused one this just undid.
+    #
+    # **Measured on 2026-08-28.** `57-cube-pause` asserts exactly this query at the top, failed on it with `1`, and the
+    # row that would have answered `0` was written 300ms after the check ran. The race has always been here and was
+    # simply always won; twelve face colours now go out on every connect, and the resume confirming between them moved
+    # the fetch late enough to lose it. The same query as the assertion on purpose, so what this promises and what
+    # that checks cannot come to differ.
+    if ! wait_sql "0" \
+        "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" \
+        15 >/dev/null
+    then
+        red "  the cube was unlocked and resumed, but device_event still shows it stopped"
+        return 1
+    fi
     step "unlocked and counting again, which is what every script after this one is entitled to"
     return 0
 }
