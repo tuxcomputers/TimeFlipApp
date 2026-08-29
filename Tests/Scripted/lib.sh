@@ -193,6 +193,23 @@ wait_for_dev() {
 ask_and_detect() {
     local query="$1" title="$2"
     shift 2
+
+    # **Asked only when there is something to ask for.** The query is the whole of what this waits on, so a query that
+    # already answers describes a cube that is already where it needs to be -- and putting a banner this size in front
+    # of somebody for a turn they do not have to make is how a prompt that is meant to stop them becomes one they
+    # learn to look past. `00-setup` is the case it was written for: the run starts wherever the cube was left, and
+    # much of the time that is already the face it wants.
+    #
+    # **Safe for the callers that want a change**, because they scope their query to rows newer than a mark taken a
+    # line earlier, so nothing can already answer it. The one that does not scope is the one that means "be in this
+    # state", and that is exactly the caller this is for.
+    local already
+    already=$(anysql "$query")
+    if [ -n "$already" ]; then
+        step "already there, so nothing to ask: $already"
+        return 0
+    fi
+
     echo ""
     yellow "##############################################################################"
     yellow "##"

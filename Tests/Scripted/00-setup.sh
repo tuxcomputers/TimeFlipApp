@@ -364,15 +364,17 @@ setup_the_cube() {
     # so the answer is read back rather than trusted, and before the wipe, which clears the cube's flash and not the
     # desk it is lying on.
     #
-    # **Satisfied by a cube already in the right place**, which is why this reads the newest face the app knows rather
-    # than waiting for a change: the face characteristic notifies on change only, so asking for a turn onto the face it
-    # is already on would wait for a notification nobody can produce.
+    # **Satisfied by a cube already in the right place, and not asked about at all in that case.** This reads the
+    # newest face the app knows rather than waiting for a change, because the face characteristic notifies on change
+    # only: asking for a turn onto the face it is already on would wait for a notification nobody can produce.
+    # `ask_and_detect` runs the query before it prints anything, so a run that starts with the cube already on Break
+    # goes straight past this -- much the commonest case, since every run ends with it there.
     resting=$(sql "SELECT f.face_id FROM face f JOIN category c ON c.category_id = f.category_id WHERE c.category_name = 'Break' AND f.face_id BETWEEN 1 AND 12 ORDER BY f.face_id LIMIT 1;")
     if ! ask_and_detect \
-        "SELECT 1 FROM debug_log WHERE debug_log_id = (SELECT MAX(debug_log_id) FROM debug_log WHERE tag = 'face' AND message LIKE 'Face % is up') AND message = 'Face $resting is up';" \
+        "SELECT message FROM debug_log WHERE debug_log_id = (SELECT MAX(debug_log_id) FROM debug_log WHERE tag = 'face' AND message LIKE 'Face % is up') AND message = 'Face $resting is up';" \
         "Put the cube down on the Break face, and leave it there" \
         "That is face $resting. Every device script starts from wherever the cube is now." \
-        "If it is already on Break there is nothing to do: this carries straight on." \
+        "If it is already there, this clears itself the moment the app reports the face." \
         "A face with nothing assigned stops the cube by itself, which is why the run needs a known one."
     then
         trouble "the cube was never put on the Break face, so the device scripts would start from an unknown one"
