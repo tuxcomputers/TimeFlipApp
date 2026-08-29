@@ -35,6 +35,7 @@ fi
 # lets a tick arrive just after the count is read, which passes the check by luck rather than by the timer being
 # stopped.
 since=$(mark)
+step "watching for $((INTERVAL + 4))s with nothing being timed, which is long enough for a tick to show up..."
 sleep $((INTERVAL + 4))
 ticks=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer fired%';")
 check "it does not fire while nothing is being timed" "0" "$ticks"
@@ -99,6 +100,7 @@ expect_log "pausing stops it" "$since" "History timer stopped, nothing is being 
 # had stopped. Outlasting the period by four seconds means a timer still running has certainly fired inside the
 # window, so a zero is a zero.
 since=$(mark)
+step "watching for $((INTERVAL + 4))s, long enough that a timer still running would have fired in it..."
 sleep $((INTERVAL + 4))
 after=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'History timer fired%';")
 check "and it stays stopped" "0" "$after"
