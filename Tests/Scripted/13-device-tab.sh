@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=27
+EXPECTED_CHECKS=31
 start "the Device tab's two sections, and the folds that need no cube"
 
 open_settings
@@ -129,5 +129,39 @@ check "and More back to folded, which is its own default" "0" \
 # of folds nobody made is worse than no record at all, and it would make every check above unassertable.
 resets=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $before_reset AND message LIKE 'Device section %';")
 check "and it said nothing while putting them back" "0" "${resets:-0}"
+
+# ---------------------------------------------------------------------------- Auto-pause reaches the table
+#
+# **The one writing row on this tab that needs no cube**, which is why it is here rather than beside the LED fields in
+# `63`. Auto-pause is a device setting and nothing sends it yet: what a press changes is the `auto_pause_minutes` row,
+# and the log row says as much rather than claiming the cube was told.
+#
+# **The write is held until the arrows stop** (`WriteDebounce`), so each step below waits for the row rather than
+# reading the table a fixed moment after the press. Whether a whole hold becomes one write is `swift test`'s to answer:
+# a shell cannot press an arrow faster than the half second the window waits.
+
+# **Seeded with the window shut**, the licence `63` takes and for the same reason: an open Settings window is the
+# source of truth for what it shows, so writing underneath one is the two-answers problem this run exists to catch.
+close_settings
+sql "UPDATE setting SET setting_value = json_set(setting_value, '\$.minutes', 0) WHERE setting_name = 'auto_pause_minutes';"
+step "auto-pause starts at 0 minutes"
+
+open_settings
+select_tab Device
+
+since=$(mark)
+press device-auto-pause-up
+expect_log "stepping Auto-pause up writes it down once it settles" "$since" \
+    "Auto-pause: the table now holds 1m, and the cube has not been told"
+# **Read after the row, which is safe in this direction only**: the table is written first and the row on the way out
+# of it (`recordAutoPause`), so a row in the log is a table already holding the number. The reverse -- a row written
+# before the thing it describes -- is what `wait_sql` exists for.
+check "and the row holds what the field was left on" "1" "$(setting auto_pause_minutes minutes)"
+
+since=$(mark)
+press device-auto-pause-down
+expect_log "and stepping it back down writes that too" "$since" \
+    "Auto-pause: the table now holds 0m, and the cube has not been told"
+check "which puts the seeded row back" "0" "$(setting auto_pause_minutes minutes)"
 
 finish

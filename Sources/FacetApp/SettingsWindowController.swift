@@ -106,6 +106,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private let ledBrightnessWrite = WriteDebounce()
     private let ledBlinkWrite = WriteDebounce()
 
+    /// And one for Auto-pause, which is held back for a different reason from the three above.
+    ///
+    /// They wait so that a hold becomes one command on the wire; this one waits so that a hold becomes one row
+    /// written. `SettingStore.write` is a read, a JSON field replaced, a write and a read-back, and a held arrow moves
+    /// this field ten times a second (`StepperHoldRules`).
+    ///
+    /// **Its own rather than a share of theirs**, which nothing about its destination changes: `WriteDebounce.schedule`
+    /// displaces whatever was already queued, so a shared one would mean nudging Auto-pause silently throwing away a
+    /// Brightness write half a second old.
+    private let autoPauseWrite = WriteDebounce()
+
     /// What keeps the paired cube reachable. Told what each login came to and when a link goes, since the radio's
     /// callbacks are set here.
     ///
@@ -340,11 +351,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// The Device tab: drawn from the tables, with its TimeFlip section wired to the radio.
     ///
-    /// **Three controls write: the Disable box, the four registers, and each LED field.** Every one of them takes the
-    /// same route -- send to the cube, record once it has taken the command, and put the control back with an alert
-    /// if either refuses -- so no row is left showing a number that reached neither. Auto-pause is the one that does
-    /// not yet, and what it does arrives with the feature that can honestly do it. The folds are recorded, being the
-    /// one thing elsewhere on the tab that already works.
+    /// **Four controls write: the Disable box, the four registers, each LED field, and Auto-pause.** The first three
+    /// take the same route -- send to the cube, record once it has taken the command, and put the control back with an
+    /// alert if either refuses -- so no row is left showing a number that reached neither. The folds are recorded,
+    /// being the one thing elsewhere on the tab that already works.
+    ///
+    /// **Auto-pause stops at the table**, which is the whole of how it differs. It takes the same debounce and the
+    /// same put-back, but nothing sends it: the cube is told its idle delay with `0x05` and asked about it with
+    /// `0x10`, and that arrives with the feature that can honestly confirm it. Until then the row is what the app has
+    /// been asked to keep while the cube goes on running whatever it was last told, which is what the line
+    /// `recordAutoPause` writes to the log says out loud.
     ///
     /// **Each writing control owns a debounce and they are not shared.** `WriteDebounce.schedule` displaces whatever
     /// was queued, so one queue across two settings would drop a write, which is the archive's measured finding
@@ -380,6 +396,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self.ledBlinkWrite.schedule { [weak self, weak pane] in
                 guard let self, let pane else { return }
                 self.applyLEDBlink(on: pane)
+            }
+        }
+        // The same arrangement again and on the same interval, with the table where the three above have the cube.
+        pane.onAutoPauseChanged = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            self.autoPauseWrite.schedule { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                self.applyAutoPause(on: pane)
             }
         }
         pane.show(deviceSettings())
@@ -608,6 +632,52 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         )
     }
 
+    /// Writes Auto-pause down once the arrows have stopped, and puts the field back if the table refuses.
+    ///
+    /// **The table and nothing else**, which is where this parts company with every other writing row on the tab.
+    /// Auto-pause is a cube setting and this does not send it, so what the row records is what the app has been asked
+    /// to keep rather than anything the hardware has agreed to. Sending it is `0x05` with a `0x10` read-back to
+    /// confirm it by, and it arrives with the feature that does that.
+    ///
+    /// **Read off the field, not off `values`**: the field has been ahead of `values` since the first arrow moved, so
+    /// this carries the number the arrows were let go on rather than the one the row opened with.
+    private func applyAutoPause(on pane: DevicePane) {
+        let minutes = pane.autoPauseMinutes
+        guard recordAutoPause(minutes) else {
+            // What the table holds, read now rather than remembered, for the reason `putDoubleTapBack` gives: the
+            // write has just failed, so what is stored is precisely the question being asked.
+            pane.showAutoPause(deviceSettings().autoPauseMinutes)
+            showNotStored("the auto-pause delay")
+            return
+        }
+        // Nothing moves on screen, deliberately, as on the two paths above: a field stepped again while this was
+        // being written holds a newer number with a write of its own already queued, and assigning this one would
+        // take that edit off the screen and then write it again on the next tick.
+        pane.recordAutoPause(minutes)
+    }
+
+    /// Writes the `auto_pause_minutes` row and says whether the table took it, with a row either way.
+    ///
+    /// The setting name and its field are the ones `database/011_setting.sql` seeds, and `SettingStore.write` reads
+    /// the value back before reporting success, which is the check `CLAUDE.md` asks of a settings write.
+    ///
+    /// **The row saying so names the cube not having been told**, which is not decoration: somebody reading the log
+    /// while a cube pauses itself on a delay the table does not hold has to be able to see that nothing ever sent it.
+    private func recordAutoPause(_ minutes: Int) -> Bool {
+        guard let settings else {
+            debugLog?.record(.field, "Auto-pause: there is no settings store, so \(minutes)m cannot be recorded")
+            return false
+        }
+        let stored = settings.write("auto_pause_minutes", field: "minutes", minutes)
+        debugLog?.record(
+            .field,
+            stored
+                ? "Auto-pause: the table now holds \(minutes)m, and the cube has not been told"
+                : "Auto-pause: the table REFUSED \(minutes)m"
+        )
+        return stored
+    }
+
     /// Writes one field of the `led_settings` row and says whether the table took it, with a row either way.
     ///
     /// **One field, not the pair**, which is the opposite of `recordDoubleTap` and right for the opposite reason: the
@@ -704,6 +774,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         stored.
 
         The device and the app now disagree until the next time this is set. Trying again is safe.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    /// What a table that would not hold a setting says, where no cube was ever asked.
+    ///
+    /// **`showNotRecorded` above cannot be used for this**, and the difference is the whole reason there are two: that
+    /// one opens by saying the TimeFlip accepted the change, which is true of every other writing row on this tab and
+    /// false here. An alert describing a device nobody sent anything to would be the sheet itself claiming something
+    /// about hardware.
+    private func showNotStored(_ what: String) {
+        let alert = NSAlert()
+        alert.messageText = "That setting was not saved"
+        alert.informativeText = """
+        The database would not record \(what), so nothing has changed and the window has gone back to what is stored.
+
+        Trying again is safe.
         """
         alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window)

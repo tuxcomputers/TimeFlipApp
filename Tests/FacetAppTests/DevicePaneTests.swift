@@ -817,6 +817,67 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(pane.ledBlinkSeconds, 15, "untouched")
     }
 
+    // MARK: - the Auto-pause field
+
+    func testMovingTheAutoPauseArrowReportsItAndNothingElse() throws {
+        // **Its own report, like the two LED fields.** The window schedules a debounce per report and each scheduling
+        // displaces the last, so a report covering more than one setting would drop whichever write was still waiting.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var autoPause = 0
+        var brightness = 0
+        pane.onAutoPauseChanged = { autoPause += 1 }
+        pane.onLEDBrightnessChanged = { brightness += 1 }
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.autoPauseMinutes, 1)
+        XCTAssertEqual(autoPause, 1)
+        XCTAssertEqual(brightness, 0, "the LED was not touched")
+    }
+
+    func testTheAutoPauseValueIsReadOffTheFieldRatherThanOffWhatWasLastShown() throws {
+        // What the write carries. A held arrow moves the field several times a second and nothing writes those back
+        // to `values` until one lands, so reading `values` would store the number the row opened with.
+        let pane = DevicePane()
+        pane.show(.seeded)
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.autoPauseMinutes, 1, "what is on screen")
+        XCTAssertEqual(pane.values.autoPauseMinutes, 0, "and what was last shown, still")
+    }
+
+    func testARefusedAutoPauseWriteCanPutTheFieldBackWithoutSayingSo() throws {
+        // The mirror of the LED correction path, and for the same reason: `SteppedNumberField.value` is assigned
+        // rather than the arrow pressed, so putting the field back cannot be mistaken for somebody moving it and
+        // start a second write on top of the one that just failed.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onAutoPauseChanged = { changes += 1 }
+
+        pane.showAutoPause(15)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.autoPause, in: pane)?.value, 15)
+        XCTAssertEqual(pane.values.autoPauseMinutes, 15, "and `values` moved with it, so the next read agrees")
+        XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
+    }
+
+    func testAnAutoPauseWriteThatLandedIsRecordedWithoutTouchingTheField() throws {
+        // The same race the LED path loses on purpose: a write is being made with 1 on it, somebody steps the field
+        // on to 2 while it is, and writing 1 back would take the 2 off the screen and store it again on the next tick.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        pane.recordAutoPause(1)
+
+        XCTAssertEqual(pane.autoPauseMinutes, 2, "still what was stepped to")
+        XCTAssertEqual(pane.values.autoPauseMinutes, 1, "and what landed is what was recorded")
+    }
+
     func testTheCorrectedFieldsAreWhatTheNextReadOfThePaneGives() {
         // `values` is what `doubleTapParameters` falls back to and what the next write carries, so a correction that
         // moved the fields and left it behind would send the refused numbers again on the following change.

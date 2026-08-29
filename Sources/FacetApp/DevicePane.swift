@@ -236,6 +236,17 @@ final class DevicePane: NSView {
     var onLEDBrightnessChanged: (() -> Void)?
     var onLEDBlinkChanged: (() -> Void)?
 
+    /// The Auto-pause field moved. What it moved to is on the pane; this only says that it did.
+    ///
+    /// **Its own report rather than a share of the LED pair's**, for the reason they are two: a debounce is scheduled
+    /// per report and `WriteDebounce.schedule` displaces whatever was already queued, so a report covering two
+    /// settings would drop whichever of them was still waiting.
+    ///
+    /// **Every tick of a held arrow fires this**, as it does for the LED fields, which is why the window waits for the
+    /// value to settle rather than writing from here: a hold repeats every 0.1s (`StepperHoldRules`), and each of
+    /// those would otherwise be a row read, rewritten and read back (`SettingStore.write`).
+    var onAutoPauseChanged: (() -> Void)?
+
     /// Somebody ticked or unticked **Disable** under Double tap. `true` means the gesture is wanted.
     ///
     /// **The box reports what it now shows, and does not decide anything.** Whether the cube accepts it is the
@@ -377,6 +388,31 @@ final class DevicePane: NSView {
     func showLEDBlink(_ seconds: Int) {
         recordLEDBlink(seconds)
         put(seconds, in: ledBlinkField)
+    }
+
+    /// Auto-pause as this window currently holds it, in whole minutes.
+    ///
+    /// **Read off the field rather than off `values`**, for the reason the LED pair are read that way: a held arrow
+    /// moves the field several times a second and nothing writes those back to `values` until one lands, so a write
+    /// built from `values` would carry the number the row opened with.
+    var autoPauseMinutes: Int { autoPauseField.value }
+
+    /// Records that an Auto-pause value reached the table, **without touching the field it came from**.
+    ///
+    /// The counterpart of `recordLEDBrightness` above, and separate from the correction below for the same reason:
+    /// by the time a write has been made and read back, the field may hold a newer number with a write of its own
+    /// already queued, and assigning this one would take that number off the screen.
+    func recordAutoPause(_ minutes: Int) {
+        values.autoPauseMinutes = minutes
+    }
+
+    /// Puts the Auto-pause field back where the table says it should be, without telling anybody it moved.
+    ///
+    /// `SteppedNumberField.value` does not fire `onChange`, so a correction cannot be mistaken for somebody moving an
+    /// arrow and start a second write, and `put` leaves a field already on the number alone.
+    func showAutoPause(_ minutes: Int) {
+        recordAutoPause(minutes)
+        put(minutes, in: autoPauseField)
     }
 
     /// Puts the Disable box where the answer says it should be, without telling anybody it moved.
@@ -594,6 +630,7 @@ final class DevicePane: NSView {
         autoPauseField = SteppedNumberField(
             value: values.autoPauseMinutes, range: 0...240, suffix: "min", identifier: Identifier.autoPause
         )
+        autoPauseField.onChange = { [weak self] _ in self?.onAutoPauseChanged?() }
 
         // **Both ranges come from the commands that carry them**, rather than being written out again here:
         // `DeviceCommandRules` is where 1-100 % and 5-60 seconds are kept, and it clamps to the same bounds on the
