@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=27
+EXPECTED_CHECKS=31
 start "the Device tab's two sections, and the folds that need no cube"
 
 open_settings
@@ -46,6 +46,23 @@ check "the Settings section starts open" "1" "$(on_tab device-auto-pause)"
 # the merge: what the app knows about the cube, and what to press to get one.
 check "the Name row and the scan button are in one section" "1" "$(on_tab device-name)"
 check "and the scan button is there with it" "1" "$(on_tab device-scan)"
+
+# ---------------------------------------------------------------------------- what a tab with no cube offers
+#
+# **Auto-pause is dead before anything has been paired**, which is the state every launch starts in and the one no
+# device script can reach: from `51` onwards there is a cube. The gate is `isCubeConnected`, and here the two facts
+# give the same answer -- nothing is paired, so nothing is connected -- which is why both are read rather than only
+# the one being asserted about. `56-manual-mode` reads the discriminating case, where the pairing survives a drop.
+#
+# **This script already depends on there being no cube**: the scan button checked directly above is only on the tab
+# while nothing is paired (`DevicePairingRules.showsScanControls`), so an unconditional check adds no new assumption.
+
+check "nothing is paired, which is what this tab is drawn from" "0" "$(setting paired paired)"
+check "so nothing is connected either" "0" "$(setting connection connected)"
+check "and the Auto-pause field is dead" "1" \
+    "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
+check "with its arrows" "2" \
+    "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
 
 # ---------------------------------------------------------------------------- folding each one
 #

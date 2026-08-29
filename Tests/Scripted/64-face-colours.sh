@@ -90,6 +90,13 @@ check "one command per face wearing it, and none for the rest" "$wearing" \
 #
 # **A relaunch is the trigger, not a reset.** `quit_app` runs the app's own quit sequence, which lets the cube go, and
 # the launch behind it reconnects -- which is what `53-device-reconnect` establishes and this borrows.
+#
+# **This quit is not put back, and what follows has to know it.** The quit sequence pauses *and locks* the cube, always
+# and both, and `free_the_cube` is what normally undoes it -- but it cannot be called here: it waits for the cube to be
+# counting again, and the cube is resting on the face `62-forced-pause` spent a daily limit on, so the watch would stop
+# it a second later and the wait would fail. Nothing in this script minds a locked cube, since a colour command lands
+# on one perfectly well. `65-auto-pause` does mind, having to ask for the cube to be turned, and relinks at its own top
+# for exactly this reason (found on a real run, 2026-08-29, sitting waiting for a turn nobody could make).
 
 close_settings
 quit_app

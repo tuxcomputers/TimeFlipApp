@@ -631,7 +631,7 @@ final class DeviceLogin: NSObject {
             return
         }
         let took = readBack.took(value)
-        // **The answer in words where the command can put it in words**, which today is `0x16` alone. A verdict on
+        // **The answer in words where the command can put it in words**, which today is `0x16` and `0x05`. A verdict on
         // its own is enough for the caller and not enough for whoever reads the row afterwards: a refusal that names
         // the registers the cube is actually on is the disagreement itself, where a bare NOT leaves them to go
         // hunting for it. Nothing is appended for a command with no interpretation, and nothing for bytes that were

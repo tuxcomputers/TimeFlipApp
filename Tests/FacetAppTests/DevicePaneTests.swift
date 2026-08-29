@@ -48,6 +48,18 @@ final class DevicePaneTests: XCTestCase {
         try XCTUnwrap(descendants(of: field).compactMap { $0 as? HoldArrow }.first { $0.direction == direction })
     }
 
+    /// The tab with a cube connected, which is what the Auto-pause field needs to be live at all: the delay is a
+    /// command the cube confirms, so the arrows are dead until there is one on the other end.
+    ///
+    /// **Stated rather than inherited**, for the reason `gestureOn` below is: these tests are about what the field
+    /// does when it moves, not about which way the seed leaves the connection.
+    private var cubeConnected: DevicePane.Values {
+        var values = DevicePane.Values.seeded
+        values.isCubePaired = true
+        values.isCubeConnected = true
+        return values
+    }
+
     /// The tab with the gesture on, whatever the seed says.
     ///
     /// **Stated rather than inherited.** These tests are about what the box and the four registers do when it is
@@ -815,6 +827,127 @@ final class DevicePaneTests: XCTestCase {
         pane.showLEDBrightness(30)
 
         XCTAssertEqual(pane.ledBlinkSeconds, 15, "untouched")
+    }
+
+    // MARK: - the Auto-pause field
+
+    func testMovingTheAutoPauseArrowReportsItAndNothingElse() throws {
+        // **Its own report, like the two LED fields.** The window schedules a debounce per report and each scheduling
+        // displaces the last, so a report covering more than one setting would drop whichever write was still waiting.
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+        var autoPause = 0
+        var brightness = 0
+        pane.onAutoPauseChanged = { autoPause += 1 }
+        pane.onLEDBrightnessChanged = { brightness += 1 }
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.autoPauseMinutes, 1)
+        XCTAssertEqual(autoPause, 1)
+        XCTAssertEqual(brightness, 0, "the LED was not touched")
+    }
+
+    func testTheAutoPauseFieldIsDeadWithNoCubeConnected() {
+        // The delay is a command the cube confirms, so with nothing connected an arrow could only ever end in the
+        // refusal sheet. `.seeded` is a launch with nothing paired, which is also manual mode: one gate covers both.
+        let pane = DevicePane()
+
+        pane.show(.seeded)
+
+        XCTAssertFalse(stepper(DevicePane.Identifier.autoPause, in: pane)?.isEnabled ?? true)
+        XCTAssertNotNil(
+            stepper(DevicePane.Identifier.autoPause, in: pane)?.disabledHelp,
+            "and it says why, rather than being a control that silently ignores a click"
+        )
+    }
+
+    func testTheAutoPauseFieldIsDeadWhileAPairedCubeIsOutOfReach() {
+        // **The case that tells the gate apart from the pairing**, and the reason it is worth its own test: the two
+        // above move `isCubePaired` and `isCubeConnected` together, so a field wired to the pairing by mistake would
+        // pass both of them. A cube in another room is still this app's cube and there is still nothing to send to.
+        let pane = DevicePane()
+        var away = DevicePane.Values.seeded
+        away.isCubePaired = true
+        away.isCubeConnected = false
+
+        pane.show(away)
+
+        XCTAssertFalse(stepper(DevicePane.Identifier.autoPause, in: pane)?.isEnabled ?? true)
+    }
+
+    func testTheAutoPauseFieldComesBackToLifeWhenACubeAnswers() {
+        // Follows the link rather than the open: every path that changes the connection redraws the tab through
+        // `show`, so a cube that connects while the window is up puts the arrows back in use.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var connected = DevicePane.Values.seeded
+        connected.isCubePaired = true
+        connected.isCubeConnected = true
+
+        pane.show(connected)
+
+        XCTAssertTrue(stepper(DevicePane.Identifier.autoPause, in: pane)?.isEnabled ?? false)
+        XCTAssertNil(
+            stepper(DevicePane.Identifier.autoPause, in: pane)?.disabledHelp,
+            "and the tooltip goes with it, a live control having nothing to excuse"
+        )
+    }
+
+    func testADeadAutoPauseFieldReportsNothingWhenItsArrowIsPressed() throws {
+        // What being dead is for. A disabled control does not fire, so nothing is scheduled and nothing is sent --
+        // which is the difference between a gate and a field that bounces back a moment later.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onAutoPauseChanged = { changes += 1 }
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        XCTAssertEqual(changes, 0)
+        XCTAssertEqual(pane.autoPauseMinutes, 0, "and the number on screen did not move either")
+    }
+
+    func testTheAutoPauseValueIsReadOffTheFieldRatherThanOffWhatWasLastShown() throws {
+        // What the write carries. A held arrow moves the field several times a second and nothing writes those back
+        // to `values` until one lands, so reading `values` would store the number the row opened with.
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.autoPauseMinutes, 1, "what is on screen")
+        XCTAssertEqual(pane.values.autoPauseMinutes, 0, "and what was last shown, still")
+    }
+
+    func testARefusedAutoPauseWriteCanPutTheFieldBackWithoutSayingSo() throws {
+        // The mirror of the LED correction path, and for the same reason: `SteppedNumberField.value` is assigned
+        // rather than the arrow pressed, so putting the field back cannot be mistaken for somebody moving it and
+        // start a second write on top of the one that just failed.
+        let pane = DevicePane()
+        pane.show(.seeded)
+        var changes = 0
+        pane.onAutoPauseChanged = { changes += 1 }
+
+        pane.showAutoPause(15)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.autoPause, in: pane)?.value, 15)
+        XCTAssertEqual(pane.values.autoPauseMinutes, 15, "and `values` moved with it, so the next read agrees")
+        XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
+    }
+
+    func testAnAutoPauseWriteThatLandedIsRecordedWithoutTouchingTheField() throws {
+        // The same race the LED path loses on purpose: a write is being made with 1 on it, somebody steps the field
+        // on to 2 while it is, and writing 1 back would take the 2 off the screen and store it again on the next tick.
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: pane))).performClick(nil)
+
+        pane.recordAutoPause(1)
+
+        XCTAssertEqual(pane.autoPauseMinutes, 2, "still what was stepped to")
+        XCTAssertEqual(pane.values.autoPauseMinutes, 1, "and what landed is what was recorded")
     }
 
     func testTheCorrectedFieldsAreWhatTheNextReadOfThePaneGives() {

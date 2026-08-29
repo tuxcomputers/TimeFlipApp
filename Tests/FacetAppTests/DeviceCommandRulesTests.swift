@@ -47,6 +47,32 @@ final class DeviceCommandRulesTests: XCTestCase {
         XCTAssertEqual(DeviceCommandRules.ledBlink(1_000), Data([0x0A, 60]))
     }
 
+    func testTheAutoPauseBytesAreTheVendorsOwnToo() {
+        // `0x05 0xXX 0xXX`, the delay in minutes as two bytes high-then-low. The order is the archive's
+        // (`TimeFlipBLEDevice.setAutoPause`), the spec giving the width and not the order, and it is the way round
+        // `0x10` answers -- so a transposition here would set 256 minutes where 1 was asked for.
+        XCTAssertEqual(DeviceCommandRules.autoPause(0), Data([0x05, 0x00, 0x00]), "0 disables it")
+        XCTAssertEqual(DeviceCommandRules.autoPause(15), Data([0x05, 0x00, 0x0F]))
+        XCTAssertEqual(DeviceCommandRules.autoPause(240), Data([0x05, 0x00, 0xF0]))
+    }
+
+    func testTheAutoPauseRangeIsKeptOnTheWayToTheWire() {
+        // The field a person types into is what stops a bad number being chosen; this is what stops one being sent,
+        // which matters because the value can also come out of a database row nobody in this app wrote.
+        XCTAssertEqual(DeviceCommandRules.autoPauseRange, 0...240)
+        XCTAssertEqual(DeviceCommandRules.autoPause(-5), Data([0x05, 0x00, 0x00]))
+        XCTAssertEqual(DeviceCommandRules.autoPause(9_999), Data([0x05, 0x00, 0xF0]))
+    }
+
+    func testTheMinutesAreReadBackOutOfTheCommandsOwnBytes() {
+        // One place knows the layout, which is what the read-back compares against: what went out, rather than a
+        // number handed to it alongside. Reading a command that is not a `0x05` answers nothing at all.
+        XCTAssertEqual(DeviceCommandRules.autoPauseMinutes(sentIn: DeviceCommandRules.autoPause(45)), 45)
+        XCTAssertEqual(DeviceCommandRules.autoPauseMinutes(sentIn: Data([0x05, 0x01, 0x00])), 256, "high byte first")
+        XCTAssertNil(DeviceCommandRules.autoPauseMinutes(sentIn: DeviceCommandRules.pause(true)))
+        XCTAssertNil(DeviceCommandRules.autoPauseMinutes(sentIn: Data([0x05, 0x00])), "a byte short of a command")
+    }
+
     // MARK: - what the cube says it is doing
 
     func testARealAnswerIsRead() {
@@ -191,6 +217,44 @@ final class DeviceCommandRulesTests: XCTestCase {
 
         XCTAssertFalse(readBack.took(nil))
         XCTAssertFalse(readBack.took(Data([0x02])))
+    }
+
+    func testAutoPauseIsConfirmedByTheStatus() throws {
+        // `0x05` has a read-back, so it is one of the commands `CLAUDE.md` says must be read before it is believed.
+        // The answer is `0x10`'s, which carries the delay the cube is set to.
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DeviceCommandRules.autoPause(15)))
+
+        XCTAssertEqual(readBack.request, DeviceCommandRules.status)
+        XCTAssertTrue(readBack.took(status(locked: 0x02, paused: 0x02, minutes: 15)))
+        XCTAssertFalse(readBack.took(status(locked: 0x02, paused: 0x02, minutes: 14)), "a minute out is not it")
+        XCTAssertFalse(readBack.took(status(locked: 0x02, paused: 0x02)), "and off is certainly not it")
+    }
+
+    func testAutoPauseIsConfirmedAgainstWhatWasSentRatherThanWhatWasAskedFor() throws {
+        // The clamp is why this matters. A field asking for 300 sends 240, so a cube answering 240 has done exactly
+        // what it was told -- and comparing against the number somebody typed would report that as a refusal.
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DeviceCommandRules.autoPause(300)))
+
+        XCTAssertTrue(readBack.took(status(locked: 0x02, paused: 0x02, minutes: 240)))
+    }
+
+    func testAnAutoPauseAnswerThatIsNotAnAnswerNeverConfirms() throws {
+        // A `0x10` reply carries no echoed command byte, so what this can refuse is bytes that are not a status at
+        // all: a leftover login verdict, or a stale `0x17`, whose mode fields are not modes.
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DeviceCommandRules.autoPause(0)))
+
+        XCTAssertFalse(readBack.took(Data([0x02])), "a login verdict sitting in the characteristic")
+        XCTAssertFalse(readBack.took(Data([0x17, 0x3A, 90, 0x3B])), "somebody else's answer")
+        XCTAssertFalse(readBack.took(nil), "and nothing at all")
+    }
+
+    func testARefusedAutoPauseNamesWhatTheCubeIsOn() throws {
+        // What `described` is for: a refusal that says only "it did not take" leaves the disagreement to be guessed
+        // at, where the number the cube reports is the whole of it.
+        let readBack = try XCTUnwrap(DeviceCommandRules.readBack(for: DeviceCommandRules.autoPause(15)))
+
+        XCTAssertEqual(readBack.described(status(locked: 0x02, paused: 0x02, minutes: 5)), "auto-pause 5m")
+        XCTAssertNil(readBack.described(Data([0x02])), "and bytes that were not an answer are put into no words")
     }
 
     func testACommandWithNoReadBackSaysSo() {
