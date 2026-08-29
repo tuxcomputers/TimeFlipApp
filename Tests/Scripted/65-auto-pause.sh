@@ -52,19 +52,38 @@ sql "UPDATE setting
       WHERE setting_name = 'auto_pause_minutes';"
 step "the auto-pause row starts at 0, which is off"
 
-# **And no daily limit on either of them.** A category over its budget is stopped by the app (`DailyLimitWatch`), and a
-# cube stopped that way is indistinguishable, in `device_event`, from one that stopped itself on the delay. Both seed
-# at 0 and nothing before this sets one on them, so this is arranging what is already true rather than undoing
-# somebody else's work -- the same licence `63` takes when it puts the LED row back to its seeded pair. 627 is left
-# exactly as `62` spent it, that being `62`'s result and not this script's to tidy away.
+# **And no daily limit on any face the cube can rest on.** A category over its budget is stopped by the app
+# (`DailyLimitWatch`), and a cube stopped that way is indistinguishable, in `device_event`, from one that stopped
+# itself on the delay -- so while this script runs, no budget is in a position to make that reading.
+#
+# **Every cube face, not just the two turned to**, and 627 is the reason. `62-forced-pause` leaves the cube resting
+# there on a category whose limit it has just spent, so the resume in `free_the_cube` below would be undone by the
+# watch a second later and the relink would fail on a cube it could not get counting. Clearing it is safe by then:
+# `62` has finished asserting everything it had to say about that budget, and the rows it recorded are untouched --
+# this moves a setting, not a result.
 sql "UPDATE category SET daily_limit = 0
-      WHERE category_id IN (SELECT category_id FROM face WHERE face_id IN ($MEETING_FACE, $BREAK_FACE));"
-step "Meeting and Break carry no daily limit, so nothing but the delay can stop the cube while it rests on one"
+      WHERE category_id IN (SELECT category_id FROM face WHERE face_id BETWEEN 1 AND 12);"
+step "no face the cube can rest on carries a budget, so nothing but the delay can stop it"
+
+require_a_paired_cube "there is no cube to send an auto-pause delay to"
+
+# **Relinked rather than inherited, which is what the last section needs and nothing above it can promise.** The app
+# pauses *and locks* the cube on its way out, always and both (`QuitSequence`), and only `free_the_cube` takes that
+# off again -- so a run that reaches here after any uncovered quit meets a cube frozen on one face, which is exactly
+# the state in which asking somebody to turn it is asking the impossible. Measured on a real run, 2026-08-29: the
+# script sat waiting for a turn on a locked cube.
+#
+# `relink_a_cube` quits, relaunches, waits for the login and then takes the lock and the pause off in one gesture,
+# which is how `55`, `57` and `60` all start. It is also why the budgets above are cleared first: the resume it waits
+# for would be undone by the daily-limit watch on the face `62` leaves the cube sitting on.
+if ! relink_a_cube; then
+    fail "the app did not come back to the cube unlocked and counting, so there is nothing to time a delay against"
+    finish
+    exit 1
+fi
 
 open_settings
 select_tab Device
-
-require_a_paired_cube "there is no cube to send an auto-pause delay to"
 
 # **A precondition rather than a second copy of the claim.** That the field follows `isCubeConnected` is `56`'s, which
 # reads it live and then dead either side of one drop; what this needs to know is only that the arrows below can be
@@ -153,10 +172,9 @@ check "and leaves the row where it was" "0" "$(setting auto_pause_minutes minute
 # were, and that would remove the app's reason to stop a cube resting there -- but it would still be the wrong face to
 # ask for, for the reason a turn is asked for at all.
 #
-# **And the cube arrives stopped**, for the same reason: nothing between `62` and here turns it. A flip onto a face
-# with a category is lifted by the firmware with the app taking no part (measured 2026-08-12, see `62`), so the turn
-# below is what gets it running again, and the check after it is what says the clock this delay has to stop was
-# actually going.
+# **The cube is unlocked and counting when this starts**, which the relink at the top of the script is for: locked, it
+# could not be turned at all, and stopped, the wait below would match on a cube that had been still since before the
+# delay was set. The check after the turn is what says the clock this delay has to stop was actually going.
 
 since=$(mark)
 press device-auto-pause-up
@@ -180,11 +198,10 @@ if ask_and_detect \
     "THEN DO NOT TOUCH IT. This script waits about a minute for the cube to stop itself," \
     "and every turn starts that minute over."
 then
-    # **The clock has to be going before a delay can stop it**, and the cube arrived stopped: `62` left it that way on
-    # 627. The turn above lifts that in firmware, and this is what says it did -- without it the wait below would pass
-    # on a cube that had been stopped since before the delay was set, which is the whole failure this section exists
-    # to be better than.
-    check "the turn started the cube, so there is a running clock for the delay to stop" "0" \
+    # **The clock has to be going before a delay can stop it.** The relink handed this section a counting cube and the
+    # turn keeps it counting, but neither is worth assuming: without this the wait below would pass on a cube that had
+    # been stopped since before the delay was set, which is the whole failure this section exists to be better than.
+    check "the cube is counting on the new face, so there is a running clock for the delay to stop" "0" \
         "$(wait_sql "0" "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" 30)"
 
     # **A minute for the delay, plus the history timer coming round to notice.** Nothing announces an auto-pause: the
