@@ -174,7 +174,7 @@ expect_log "so the offer comes back" "$retried" "Offering manual mode:%" 60
 #
 # The same dialog, answered the other way. What it settles is the reconnect loop and only that: no attempt of the app's
 # own, from any path, for the rest of the launch. It does **not** turn this launch into its own clock -- a launch that
-# started with a cube on record stays one until it closes (`LaunchMode`).
+# with a cube on record still has one: a refused PIN changes nothing about the pairing.
 
 chosen=$(mark)
 press_title "Stop Looking"

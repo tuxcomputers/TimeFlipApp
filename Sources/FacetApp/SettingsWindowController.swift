@@ -137,14 +137,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
-    /// **Asked of the app rather than of a table, and that is right rather than an exception.** `LaunchMode` is in
-    /// memory on purpose: it describes what this launch is doing, not durable configuration, and a stored copy would
-    /// be a second answer to "is a device paired".
+    /// Whether this app is its own clock, asked rather than held.
     ///
-    /// **A value now rather than a reference, which is the change worth noticing.** It was held weakly because it was
-    /// an object this window could turn on and off; it can no longer be turned anywhere, so there is nothing to hold
-    /// weakly and no lifetime for the mode to depend on. What this window does with it is read it.
-    private let launchMode: LaunchMode?
+    /// **A closure over `setting.paired.paired`**, so a window open while a cube is paired or forgotten draws the new
+    /// answer on its next read instead of the one that was true when the window was built. `nil` in a layout test,
+    /// where there is no store to ask and nothing to draw about a device.
+    private let isManualMode: (() -> Bool)?
 
     /// The low-battery warning, which this window feeds and one of whose two surfaces it draws.
     ///
@@ -202,7 +200,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         icons: IconStore? = nil,
         colours: ColourStore? = nil,
         settings: SettingStore? = nil,
-        launchMode: LaunchMode? = nil,
+        isManualMode: (() -> Bool)? = nil,
         radio: BluetoothRadio? = nil,
         lowBattery: LowBatteryWatch? = nil
     ) {
@@ -215,7 +213,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         self.icons = icons
         self.colours = colours
         self.settings = settings
-        self.launchMode = launchMode
+        self.isManualMode = isManualMode
         self.lowBattery = lowBattery
         super.init()
         // After `super.init()`, because installing the radio's callbacks captures `self`.
@@ -1056,10 +1054,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func recordPairing(on pane: DevicePane?, with device: ScannedDevice) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordPairing(with: device)
-        // **The mode is not touched.** Pairing changes what the app has, not what this launch is doing: a manual
-        // launch that pairs a cube goes on timing by hand until it is restarted, and the Connection row says exactly
-        // that (`DeviceInfoRules.connection`). See `LaunchMode` for why the app no longer adopts a cube mid-launch.
         pane?.show(deviceSettings())
+        // **What the app is doing has just changed, and only this says so.** Timing by hand is what being unpaired
+        // means, so writing `paired` is what makes this app follow a cube -- every reader works that out for itself
+        // the next time it asks. The menu bar is the one that would not: it repaints on a tick that only runs while
+        // something is being timed, so a cube paired while nothing was running would leave the item drawn for an app
+        // with no device until something else happened to redraw it. That staleness is the whole of what the
+        // switching used to cost, and it is a redraw rather than a second copy of the answer.
+        //
+        // The same funnel also puts the history timer and the daily-limit watch back on their feet, which a launch
+        // that has just gained a cube to follow needs and an unpaired one had stood down.
+        onTimingChanged?()
     }
 
     /// Forgets the device and puts what the table now says back on the tab.
@@ -1068,16 +1073,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// re-reads every row, so the Scan button comes back because `paired` is actually false rather than because this
     /// asked for it -- and a write the table refused shows as the row it really holds.
     ///
-    /// **The mode is not touched**, which is the one thing this no longer does. Forgetting a cube leaves a device
-    /// launch a device launch, with nothing to follow: the Connection row says the device is gone and that the app
-    /// has to be started again (`DeviceInfoRules.connection`), rather than the app quietly becoming its own clock
-    /// half way through. See `LaunchMode`.
+    /// **The app becomes its own clock as the row is written**, which is the other half of what pairing does and
+    /// wants no more machinery than pairing does: nothing holds a mode, so every reader answers the new way the next
+    /// time it asks. The reconnect loop stops arranging attempts, the Faces tab starts accepting clicks, and the
+    /// Connection row reads `Manual mode, no device` -- none of which has to be told.
     private func forgetDevice(on pane: DevicePane) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordForget()
         // The status line described a device the app no longer has.
         pane.showScanMessage("")
         pane.show(deviceSettings())
+        // The menu bar, for the reason `recordPairing` gives: it is the one surface that does not ask again on its own.
+        onTimingChanged?()
     }
 
     /// Asks before wiping a cube. **The archive's words**, which say exactly what goes and that it cannot be undone.
@@ -1159,17 +1166,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// than hidden while nothing is connected, which is the same distinction drawn in colour instead of in words.
     /// `DeviceInfoRules` is what turns an absence into words rather than blanks either way.
     ///
-    /// **The mode is asked of the app, not the table**, and that is not a hole in the source-of-truth rule but the
-    /// rule's own reasoning: `LaunchMode` is in memory on purpose, describing what this launch is doing rather than
-    /// durable configuration, and storing it would create a second answer to "is a device paired". See its own note,
-    /// which also covers why the mode and `paired` are now allowed to differ and where the tab says so.
+    /// **There is no mode among these values any more.** Timing by hand is what being unpaired means, so `isCubePaired`
+    /// is the whole of the answer and a second field beside it would be the same fact under a second name -- which is
+    /// what let the Connection row describe an app the rest of the tab disagreed with.
     private func deviceSettings() -> DevicePane.Values {
         let seeded = DevicePane.Values.seeded
         guard let settings else { return seeded }
         return DevicePane.Values(
             isCubePaired: settings.flag("paired", field: "paired") ?? seeded.isCubePaired,
             isCubeConnected: settings.flag("connection", field: "connected") ?? seeded.isCubeConnected,
-            isManualMode: launchMode?.isManual ?? seeded.isManualMode,
             deviceName: settings.string("device_name", field: "name"),
             batteryPercent: radio?.batteryPercent,
             manufacturer: settings.string("device_info", field: "manufacturer"),
@@ -2115,7 +2120,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             FacesTabRules.click(
                 cubeFace: reading.cubeFace,
                 isFaceLocked: isFaceLocked,
-                isManualMode: launchMode?.isManual == true,
+                isManualMode: isManualMode?() == true,
                 isCubeConnected: reading.isCubeConnected
             ).doesAnything
         )
@@ -2167,14 +2172,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // live is one that does something. Everything the branches used to say inline is said there instead -- why a
         // cube's face wins, why a paired app refuses, and why a locked face keeps what it has.
         //
-        // **No `LaunchMode` at all refuses too**, which falls out of asking rather than being a case of its own: that
-        // is a controller built without one, so a layout test rather than a launch, and of the two ways to be wrong,
+        // **No way to ask at all refuses too**, which falls out of asking rather than being a case of its own: that
+        // is a controller built without the closure, so a layout test rather than a launch, and of the two ways to be wrong,
         // refusing a click is visible and recoverable while starting a clock nobody asked for writes rows.
         let reading = timing?.read()
         switch FacesTabRules.click(
             cubeFace: reading?.cubeFace,
             isFaceLocked: reading?.cubeFace.map { faces.isFaceLocked(face: $0) == true } ?? false,
-            isManualMode: launchMode?.isManual == true,
+            isManualMode: isManualMode?() == true,
             isCubeConnected: reading?.isCubeConnected ?? false
         ) {
         case let .assignToFace(face):

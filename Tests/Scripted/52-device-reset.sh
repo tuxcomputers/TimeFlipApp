@@ -195,12 +195,12 @@ fi
 
 check_contains "the tab says the cube was reset" "$(element device-scan-status)" "back to factory settings"
 check_contains "the Name row is back to Not paired" "$(element device-name)" "Not paired"
-# **Nothing is paired, and this launch still follows a cube**, which is the state the row exists to name. It does not
-# start timing by hand to fill the gap -- the mode was decided at startup and a reset does not move it (`LaunchMode`)
-# -- so what is true is that there is nothing left to follow and only a restart changes that. Saying "Not paired" and
-# stopping would read exactly like the app being broken.
-check_contains "and the Connection row says the device is gone and a restart is the way out" \
-    "$(element device-connection)" "Device gone, restart to time by hand"
+# **Nothing is paired, so this app is its own clock again, and the row says so without naming a restart.** A reset
+# forgets the device, and being unpaired is the whole of what timing by hand means now -- so the state the old wording
+# described, a launch still following a cube it no longer has, cannot be reached. What replaced it is the line an app
+# with no device has always had.
+check_contains "and the Connection row says the app is its own clock again" \
+    "$(element device-connection)" "Manual mode, no device"
 
 # The swap goes back the other way: with no device there is a cube to look for again.
 check_contains "the Scan button is back" "$(element device-scan)" "title=Scan for Devices"

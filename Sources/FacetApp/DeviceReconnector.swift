@@ -38,19 +38,25 @@ final class DeviceReconnector {
     /// The PIN a cube should end up on, or `nil` to leave it on whichever one let the app in.
     private let rotatingTo: String?
 
-    /// Whether the app is timing by hand, asked of whatever owns that rather than copied here.
-    ///
-    /// **A closure, so there is one answer and not two.** The mode is `LaunchMode`'s to say and this reads it rather
-    /// than keeping a copy. The copy used to be the dangerous one because the mode moved underneath it -- pairing a
-    /// cube turned it off -- and now nothing moves it at all; asking is still right, and now it also cannot be wrong.
-    private let isManualMode: () -> Bool
-
     /// How many attempts have failed in a row. The backoff is a function of it.
     private var failures = 0
 
     /// Whether this launch has ever reached the cube, which is the whole of what decides between retrying quietly and
     /// asking. See `CubeNotFoundOffer`.
     private var offer = CubeNotFoundOffer()
+
+    /// Whether somebody has told this launch to stop looking.
+    ///
+    /// **Its own fact, and per launch, which is the half of manual mode that was real.** "Has this launch given up
+    /// hunting" and "does this app have a device" were one flag for a while, and they are not the same question: a
+    /// cube that cannot be found is still on record, and forgetting it is a different act from being told to stop
+    /// looking for it. So this is here, in the loop it is about, rather than riding on a mode -- which is what let
+    /// the two be answered in each other's name.
+    ///
+    /// **One-way, and it dies with the process.** Nothing sets it back: a launch told to stop is told for good, and a
+    /// restart is a new one. `CubeNotFoundOffer` deliberately does not model it, its own note saying this is about
+    /// whether an attempt may run at all.
+    private var hasStoppedLooking = false
 
     /// Whether the question is on screen right now. Nothing may attempt a connection until it is answered.
     private var isAwaitingAnswer = false
@@ -70,15 +76,13 @@ final class DeviceReconnector {
         settings: SettingStore,
         debugLog: DebugLog?,
         storedPIN: @escaping () -> String?,
-        rotatingTo: String? = nil,
-        isManualMode: @escaping () -> Bool = { false }
+        rotatingTo: String? = nil
     ) {
         self.radio = radio
         self.settings = settings
         self.debugLog = debugLog
         self.storedPIN = storedPIN
         self.rotatingTo = rotatingTo
-        self.isManualMode = isManualMode
     }
 
     /// Starts following the device, if there is one to follow.
@@ -107,7 +111,7 @@ final class DeviceReconnector {
             isReachingForCube: radio.isReachingForCube,
             isFactoryResetRunning: radio.isFactoryResetRunning,
             isAwaitingAnswer: isAwaitingAnswer,
-            isManualMode: isManualMode()
+            hasStoppedLooking: hasStoppedLooking
         ) else {
             // **Said only when there was a pairing to act on.** An unpaired app standing down is not an event, and this
             // runs on every drop and every failed attempt: a line each time would be the loop's own noise burying the
@@ -169,12 +173,12 @@ final class DeviceReconnector {
     /// so no timer is left running behind the dialog -- which is half of what stops somebody coming back to an app
     /// that quietly carried on. The other half is the gate in `attempt`.
     private func ask(because reason: String) {
-        // **Asked once a launch, and never again once the answer was manual mode.** Nothing should reach this in that
-        // state -- no attempt is made, so no outcome comes back to fail -- but an offer reappearing after somebody has
-        // said to get on without the device would be the app asking them to decide again, and standing down here is
-        // what makes "the radio is ignored from now on" true of every path rather than of the ones thought of.
-        guard !isManualMode() else {
-            debugLog?.record(.mode, "Timing by hand, so the offer is not put up again this launch")
+        // **Asked once a launch, and never again once the answer was to stop.** Nothing should reach this in that
+        // state -- no attempt is arranged, so no outcome comes back to fail -- but the question reappearing after
+        // somebody has said to get on without the device would be the app asking them to decide again, and standing
+        // down here is what makes "this launch has stopped" true of every path rather than of the ones thought of.
+        guard !hasStoppedLooking else {
+            debugLog?.record(.mode, "This launch was told to stop looking, so the offer is not put up again")
             return
         }
         guard let onCubeNotFound else {
@@ -206,9 +210,10 @@ final class DeviceReconnector {
                 self.debugLog?.record(.mode, "Retry chosen; looking for the cube again")
                 self.attempt()
             case .stopLooking:
-                // **Nothing is scheduled and nothing is set here**, and now there is nothing anywhere else either:
-                // the answer settles this loop and no longer changes the launch's mode (`LaunchMode`). What stops the
-                // app looking again is the gate in `attempt`, which reads the same answer this does.
+                // **The one thing this answer sets, and it is about looking rather than about having.** The app is
+                // still paired to the cube it could not find; what has changed is that this launch is no longer
+                // hunting for it. Forgetting the device is the other act, and that one takes effect at once now.
+                self.hasStoppedLooking = true
                 self.debugLog?.record(.mode, "Stop looking chosen; this launch reaches for no cube on its own again")
             }
         }
@@ -225,19 +230,25 @@ final class DeviceReconnector {
     }
 
     private func scheduleAttempt() {
-        // **Manual mode ends the loop for the rest of the launch, and it ends it here as well as at `attempt`.**
-        // The gate down there is what stops an attempt happening; this is what stops one being *arranged*, which is a
-        // different fault and a visible one: a drop would otherwise write "Looking for the cube again in 8s" and then
-        // quietly stand down eight seconds later, so the log would describe an app still hunting for a cube it has
-        // been told to stop hunting for. Two callers reach this -- a link that went away and an attempt that failed --
-        // and neither is a reason to start again once somebody has said to get on without the device.
+        // **An app with no device arranges nothing**, and this is checked here as well as at `attempt`. The gate down
+        // there is what stops an attempt happening; this is what stops one being *arranged*, which is a different
+        // fault and a visible one: a drop would otherwise write "Looking for the cube again in 8s" and then quietly
+        // stand down eight seconds later, so the log would describe an app still hunting for a cube it no longer has.
+        // Two callers reach this -- a link that went away and an attempt that failed -- and neither is a reason to
+        // start again for a device that has since been forgotten.
         //
-        // **The way back out is a restart, and only a restart**, deliberately, and it needs nothing here: the mode is
-        // per-launch and in memory, so a relaunch works it out again from `paired` and this loop comes back with it.
-        // Forgetting the device used to be a second way out and is not one now -- see `LaunchMode`, which is why this
-        // closure's answer no longer moves underneath the loop that reads it.
-        guard !isManualMode() else {
-            debugLog?.record(.pair, "Timing by hand, so the cube is not being looked for again this launch")
+        // **Read from the table here, which is what makes forgetting a device take effect at once.** It was a copy of
+        // a mode decided at startup, so a forget left this loop chasing a cube the app had given up and only a restart
+        // stopped it.
+        guard settings.flag("paired", field: "paired") == true else {
+            debugLog?.record(.pair, "Nothing is paired, so the cube is not being looked for again")
+            return
+        }
+        // **And nothing is arranged once somebody has said to stop.** Same fault, different reason: a drop would
+        // otherwise write "Looking for the cube again in 8s" and then stand down eight seconds later at the gate in
+        // `attempt`, so the log would describe an app still hunting for a cube it was asked to leave alone.
+        guard !hasStoppedLooking else {
+            debugLog?.record(.pair, "This launch was told to stop looking, so the cube is not being looked for again")
             return
         }
         let delay = DeviceReconnectRules.delay(afterFailures: failures)

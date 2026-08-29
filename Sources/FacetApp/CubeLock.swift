@@ -174,7 +174,7 @@ final class CubeLock {
         // **An unreadable row counts as off**, which is not the seeded default and is deliberate. It now costs the
         // pause rather than the whole gesture: a launch that cannot read its own settings still locks, because that
         // is what was asked for, and simply does not take the extra liberty of stopping the clock as well.
-        // `LaunchMode.decided` chooses its fallback the same way.
+        // The same choice every unreadable setting here gets: the safer of the two ways to be wrong.
         guard settings?.flag("pause_on_lock", field: "enabled") == true else {
             debugLog?.record(.command, "pause_on_lock is off, so the cube is locked without pausing it")
             send(DeviceCommandRules.lock(true)) { [weak self] locked in

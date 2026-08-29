@@ -118,9 +118,10 @@ cube to make itself work.
 forgets it and pairs again to be sure of what it is starting from -- the run is a sequence, and a cube
 sitting there connected is exactly as good as one paired thirty seconds ago.
 
-`51` ends by restarting the app, which is the other half of what it hands on. A pairing alone is not
-enough: `LaunchMode` decides once at startup from `paired`, so the launch a run begins with decided
-`manual` and would go on being its own clock with a freshly paired cube beside it.
+`51` ends by restarting the app, which is the other half of what it hands on. Not for the mode -- since
+2026-08-29 the app reads `paired` when it is asked, so a pairing on its own is enough to make it follow
+the cube -- but for the link: what the range inherits is a cube the app has reached, with a face, a
+charge and a status behind it.
 
 A script whose subject *is* giving a cube up puts it back before it finishes: the wipe in `52`, and the
 checked forgets in `53`, `54`, `55` and `56`. That is `restore_the_pairing`, and it is not a check --

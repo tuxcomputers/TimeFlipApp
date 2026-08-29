@@ -264,6 +264,32 @@ That rule is what makes the mode safe rather than clever, and it settles a quest
 
 Manual mode is still per-launch state, held in memory and nowhere else. There is no `setting` row for it at all, which removes the obvious place to put one by mistake.
 
+### The pairing decides again (2026-08-29)
+
+**The mode is derived from `paired` at the point of use, and nothing holds it.** `LaunchMode` is gone. Pairing a cube
+makes the app follow it from the next read on, forgetting or resetting one makes the app its own clock, and neither
+needs a restart -- which is the cost the section below accepted and this one stops paying.
+
+**Why it is safe this time, when the switching below was not.** That version moved a value: a mode was set, and every
+surface had to be told it had moved, with nothing to catch the one that was not told. This version has nothing to move.
+Timing by hand *is* being unpaired, so each surface answers the question when it asks it, and there is no second copy
+to keep in step -- which is `CLAUDE.md`'s first rule applied to the thing that had been exempted from it. The one
+surface that could still show a stale answer is the menu bar, which repaints on a tick that only runs while something
+is being timed; pairing and forgetting call the same `onTimingChanged` funnel every other path uses, so it redraws. A
+redraw is not a second source of truth.
+
+**What the audit found underneath it.** `docs/state-audit.md` §1.1 lists four names for this fact and the trap that
+two of its readers infer it a third way. The mode and the pairing were the same answer all along -- `LaunchMode.decided`
+is `paired ? .device : .manual` and nothing moved it -- so the two could only ever differ by being read at different
+*times*, which is exactly what the extra states in `DeviceInfoRules.connection` were describing. Deriving live deleted
+three of its six lines, the `isManualMode` field on `DevicePane.Values`, and the `isManualMode` parameter on
+`DeviceReconnectRules.shouldAttempt`, without replacing them with anything.
+
+**What was genuinely per-launch is kept, under its own name.** Being told *Stop Looking* is not a mode: the cube is
+still on record and the app has simply given up hunting for it this launch. That is `DeviceReconnector.hasStoppedLooking`
+now, which is the fact the mode had been carrying on its behalf. It still ends only with the process, and the way to
+timing by hand from there is to forget the device -- which now takes effect at once.
+
 ### The switching was reversed (2026-08-23)
 
 **A launch now decides its mode once and keeps it until it closes**, and the paragraph above is the thing that was undone. `LaunchMode` replaced `ManualMode`: an enum decided from `paired` at startup, with no setter. Pairing a cube mid-launch, forgetting one, resetting one, and answering the offer all leave the mode exactly as they found it.

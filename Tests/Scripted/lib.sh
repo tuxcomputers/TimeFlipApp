@@ -410,13 +410,13 @@ pair_a_cube() {
         return 1
     fi
 
-    # **A pairing is not enough on its own: the launch has to be one that follows a cube.**
+    # **A pairing is enough to make the app follow the cube again** (2026-08-29): timing by hand is read from `paired`
+    # at the point of use, so writing that row is the whole of it and nothing has to be restarted.
     #
-    # `LaunchMode` decides that once, at startup, from `paired`, and nothing moves it afterwards -- so every launch in
-    # a run that began with a rebuilt database decided `manual`, there being nothing paired at the time, and goes on
-    # being its own clock with a freshly paired cube sitting beside it. This used to come free: forgetting turned
-    # manual mode on and pairing turned it off, so the forget-then-pair above landed in device mode without anybody
-    # asking for it. That switching is gone deliberately.
+    # **The relaunch below is kept for the link, not for the mode.** What the scripts after this one inherit is a cube
+    # the app has actually reached -- a login, a face, a charge and a status -- and the relink is what guarantees one
+    # rather than leaving them to a connection that may or may not still be up. It also puts the lock and the pause a
+    # quit applies back where they were.
     #
     # **What it looks like when this is missing** is not a pairing failure, which is why it is worth the words: the
     # cube pairs, connects, and answers, and the Faces tab draws the *manual* session instead of the cube's face. Run
@@ -449,11 +449,10 @@ pair_a_cube() {
 # charge, the face and the state, and it runs on every connect rather than only on a first one. `53-device-reconnect`
 # is the script that proves that path, so everything relying on it here is already covered.
 #
-# **It is also how the run gets a launch that follows a cube at all.** `LaunchMode` decides that once, at startup,
-# from `paired`, and nothing moves it afterwards -- so the launch a run begins with decided `manual`, the database
-# having been rebuilt with nothing paired, and goes on being its own clock with a freshly paired cube beside it.
-# `51-device-connect` ends with this for that reason, and hands the rest of the range a launch that uses the pairing
-# it just made.
+# **It is also how the run gets a link rather than only a pairing.** Following the cube needs no relaunch since
+# 2026-08-29 -- the app reads `paired` when it is asked, so it follows one the moment it is paired -- but what the
+# range wants is a cube actually reached, with a face, a charge and a status behind it. `51-device-connect` ends with
+# this for that reason, and hands the rest of the range a launch that has already talked to the pairing it made.
 #
 # **What it leaves behind: an unlocked, running cube, and it has to undo a quit to get there.** The app pauses and
 # locks the cube on its way out ("Quit: the cube is paused and locked"), so the launch this makes inherits one -- and

@@ -107,7 +107,6 @@ final class DevicePane: NSView {
     struct Values: Equatable {
         var isCubePaired: Bool
         var isCubeConnected: Bool
-        var isManualMode: Bool
         var deviceName: String?
         var batteryPercent: Int?
         var manufacturer: String?
@@ -129,7 +128,6 @@ final class DevicePane: NSView {
         static let seeded = Values(
             isCubePaired: false,
             isCubeConnected: false,
-            isManualMode: true,
             deviceName: nil,
             batteryPercent: nil,
             manufacturer: nil,
@@ -282,7 +280,7 @@ final class DevicePane: NSView {
         let live = values.isCubeConnected
         nameValue.stringValue = DeviceInfoRules.name(isCubePaired: values.isCubePaired, deviceName: values.deviceName)
         connectionValue.stringValue = DeviceInfoRules.connection(
-            isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, isManualMode: values.isManualMode
+            isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected
         )
         batteryValue.stringValue = DeviceInfoRules.battery(
             isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, batteryPercent: values.batteryPercent

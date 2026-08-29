@@ -13,8 +13,7 @@ final class DeviceReconnectRulesTests: XCTestCase {
         isScanning: Bool = false,
         isReachingForCube: Bool = false,
         isFactoryResetRunning: Bool = false,
-        isAwaitingAnswer: Bool = false,
-        isManualMode: Bool = false
+        isAwaitingAnswer: Bool = false
     ) -> Bool {
         DeviceReconnectRules.shouldAttempt(
             isCubePaired: isCubePaired,
@@ -22,8 +21,7 @@ final class DeviceReconnectRulesTests: XCTestCase {
             isScanning: isScanning,
             isReachingForCube: isReachingForCube,
             isFactoryResetRunning: isFactoryResetRunning,
-            isAwaitingAnswer: isAwaitingAnswer,
-            isManualMode: isManualMode
+            isAwaitingAnswer: isAwaitingAnswer
         )
     }
 
@@ -78,24 +76,20 @@ final class DeviceReconnectRulesTests: XCTestCase {
         XCTAssertFalse(shouldAttempt(isAwaitingAnswer: true))
     }
 
-    func testNothingIsAttemptedOnceManualModeIsChosen() {
-        // The whole of what choosing it means: the app looks for nothing on its own again this launch, so a cube
-        // drifting into range for a few seconds cannot surprise anybody.
-        XCTAssertFalse(shouldAttempt(isManualMode: true))
-    }
-
     func testAnOfferAndAFreeRadioStillDoNotAttempt() {
         // The two halves are independent: a radio doing nothing is exactly the state the offer is up in, so a rule
         // that only asked whether the radio was busy would retry straight through the dialog.
         XCTAssertTrue(shouldAttempt(), "precondition: an idle radio would otherwise attempt")
         XCTAssertFalse(shouldAttempt(isAwaitingAnswer: true))
-        XCTAssertFalse(shouldAttempt(isManualMode: true))
     }
 
-    func testPairingIsStillWhatDecidesFirst() {
-        // Manual mode does not touch the pairing and the pairing does not override the mode: an unpaired app has
-        // nothing to reach for whatever else is true.
-        XCTAssertFalse(shouldAttempt(isCubePaired: false, isAwaitingAnswer: false, isManualMode: false))
+    func testAnUnpairedAppReachesForNothingWhateverElseIsTrue() {
+        // **Which is also what timing by hand means**, and why there is no second parameter for it. An app with no
+        // device is the app being its own clock, so a rule taking both would have a combination that cannot happen
+        // and a way to spell the same answer twice.
+        XCTAssertFalse(shouldAttempt(isCubePaired: false))
+        XCTAssertFalse(shouldAttempt(isCubePaired: false, isCubeConnected: true))
+        XCTAssertFalse(shouldAttempt(isCubePaired: false, isAwaitingAnswer: true))
     }
 
     // MARK: - how long to wait
