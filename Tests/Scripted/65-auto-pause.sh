@@ -16,13 +16,18 @@
 # nothing connected the command cannot go, so the field goes back and the table keeps what it had. The same is true of
 # every other writing row on the tab.
 #
+# **The last section is the only place in the suite where the delay is watched doing something.** Everything before it
+# is about the command; that one sets a minute, has the cube turned, and waits for the cube to stop itself. It asks for
+# a pair of hands twice over -- a turn, and then a minute of leaving it alone -- and it says so on screen before it
+# starts waiting.
+#
 # **Runs after `64`, which leaves a launched app logged in to the cube, and before the wipe in `99`.**
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=13
+EXPECTED_CHECKS=18
 start "the cube auto-pause delay, sent to the cube, read back, and then written down"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so anything
@@ -36,11 +41,25 @@ start "the cube auto-pause delay, sent to the cube, read back, and then written 
 # **Written with the window shut**, which is what makes it safe. An open Settings window is the source of truth for what
 # it shows (`CLAUDE.md`), so writing underneath one would be the two-answers problem this script exists to check for.
 
+# **The two faces this script may use**, as the physical labels `55` and `57` have them. Named here because the
+# arranging below is about them as well as the section that turns the cube onto one.
+MEETING_FACE=2
+BREAK_FACE=8
+
 close_settings
 sql "UPDATE setting
         SET setting_value = json_set(setting_value, '\$.minutes', 0)
       WHERE setting_name = 'auto_pause_minutes';"
 step "the auto-pause row starts at 0, which is off"
+
+# **And no daily limit on either of them.** A category over its budget is stopped by the app (`DailyLimitWatch`), and a
+# cube stopped that way is indistinguishable, in `device_event`, from one that stopped itself on the delay. Both seed
+# at 0 and nothing before this sets one on them, so this is arranging what is already true rather than undoing
+# somebody else's work -- the same licence `63` takes when it puts the LED row back to its seeded pair. 627 is left
+# exactly as `62` spent it, that being `62`'s result and not this script's to tidy away.
+sql "UPDATE category SET daily_limit = 0
+      WHERE category_id IN (SELECT category_id FROM face WHERE face_id IN ($MEETING_FACE, $BREAK_FACE));"
+step "Meeting and Break carry no daily limit, so nothing but the delay can stop the cube while it rests on one"
 
 open_settings
 select_tab Device
@@ -115,6 +134,92 @@ sleep 2
 check "stepping below zero sends nothing" "0" \
     "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Auto-pause: sending%';")"
 check "and leaves the row where it was" "0" "$(setting auto_pause_minutes minutes)"
+
+# ---------------------------------------------------------------------------- and the cube acts on it
+#
+# **The only check in the suite that watches the delay do anything.** Everything above proves the cube took `0x05` and
+# reports the number back through `0x10`; a firmware that stored the value and ignored it would pass every one of them.
+# So this sets a minute, has the cube turned so the countdown starts from a known moment, and waits for it to stop.
+#
+# **Turned rather than left where it is**, because the vendor's own note is that the delay timer restarts on every face
+# change. A cube that has been still for ten minutes says nothing about when the minute began.
+#
+# **Three faces are used in this suite and only three**: Meeting, Break, and the one labelled 627. So this reads which
+# of them the cube is lying on and asks for one of the others, the way `55-device-face` and `57-cube-pause` pick their
+# target.
+#
+# **627 is where the cube is lying, so it is the one face that cannot be the target**: a turn onto the face it is
+# already on gives `ask_and_detect` nothing to detect. Its spent budget could have been cleared the way the two above
+# were, and that would remove the app's reason to stop a cube resting there -- but it would still be the wrong face to
+# ask for, for the reason a turn is asked for at all.
+#
+# **And the cube arrives stopped**, for the same reason: nothing between `62` and here turns it. A flip onto a face
+# with a category is lifted by the firmware with the app taking no part (measured 2026-08-12, see `62`), so the turn
+# below is what gets it running again, and the check after it is what says the clock this delay has to stop was
+# actually going.
+
+since=$(mark)
+press device-auto-pause-up
+expect_log "the delay goes back on for the cube to act on" "$since" \
+    "The cube confirms it took: auto-pause 1m" 30
+
+# **The face it is not already on**, which is `55-device-face`'s own correction to itself: asking for the one it is
+# resting on leaves the poll with nothing to detect and the run sits there while somebody stares at a cube that is
+# already right. The name is read from the table, so no check here agrees with a string spelled out in this script.
+resting=$(dsql "SELECT message FROM debug_log WHERE tag = 'face' AND message LIKE 'Face % is up' ORDER BY debug_log_id DESC LIMIT 1;" | sed -n 's/^Face \([0-9]*\) is up$/\1/p')
+if [ "${resting:-0}" = "$BREAK_FACE" ]; then turn_to=$MEETING_FACE; else turn_to=$BREAK_FACE; fi
+turn_name=$(sql "SELECT category_name FROM category WHERE category_id = (SELECT category_id FROM face WHERE face_id = $turn_to);")
+step "the cube is resting on face ${resting:-unknown}, so it is being sent to face $turn_to (${turn_name:-unassigned})"
+
+turned=$(mark)
+if ask_and_detect \
+    "SELECT message FROM debug_log WHERE debug_log_id > $turned AND tag = 'face' AND message = 'Face $turn_to is up';" \
+    "Turn the cube so the $turn_name face is up, then leave it alone" \
+    "That is face $turn_to. It has a category on it, which matters: an empty face stops the cube by itself." \
+    "If it is already there, turn it away and back, so the app sees the change." \
+    "THEN DO NOT TOUCH IT. This script waits about a minute for the cube to stop itself," \
+    "and every turn starts that minute over."
+then
+    # **The clock has to be going before a delay can stop it**, and the cube arrived stopped: `62` left it that way on
+    # 627. The turn above lifts that in firmware, and this is what says it did -- without it the wait below would pass
+    # on a cube that had been stopped since before the delay was set, which is the whole failure this section exists
+    # to be better than.
+    check "the turn started the cube, so there is a running clock for the delay to stop" "0" \
+        "$(wait_sql "0" "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" 30)"
+
+    # **A minute for the delay, plus the history timer coming round to notice.** Nothing announces an auto-pause: the
+    # cube files the stretch with `Side + 128` and the app finds it on its next fetch, which is the seeded interval.
+    step "the cube was turned, so now waiting up to 150s: a minute for the cube to stop itself, then the history timer to see it..."
+    if wait_for_value "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;" "1" 150; then
+        pass "the cube stopped itself once the minute was up, which is the delay actually doing something"
+    else
+        fail "the cube never stopped itself, so the delay it confirmed had no effect on the hardware"
+    fi
+    # **The check that makes the one above mean anything.** Three things in this app pause a cube -- a face with no
+    # category, a spent daily limit, and the menu bar -- and all of them say so on their way past. Silence here is what
+    # says the cube did it on its own.
+    check "and nothing in the app asked it to" "0" \
+        "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $turned AND message = 'The cube is paused';")"
+else
+    fail "nobody was there to turn the cube, so it was never started for the delay to stop"
+    fail "and so it was never watched stopping itself"
+    fail "and nothing could be said about whether the app would have been the one to stop it"
+fi
+
+# ---------------------------------------------------------------------------- putting the delay back
+#
+# **The delay off, and the cube left where the delay put it.** Turning it off is what matters: it is this script's own
+# setting, and a minute left on it would stop the cube again under whatever runs next. The cube itself stays stopped,
+# which is what `62` handed this range and what `63` and `64` passed along, and `99-quit` wipes it regardless.
+#
+# **Not resumed from the menu bar**, though it easily could be: a right click toggles, so it would have to read the
+# record to know which way it was going, and a click sent on a wrong reading would hand the wipe a cube that had
+# started counting again for no reason anybody could see afterwards.
+
+since=$(mark)
+press device-auto-pause-down
+expect_log "the delay goes off again, so nothing stops the cube after this" "$since" \
+    "The cube confirms it took: auto-pause 0m" 30
 
 close_settings
 finish
