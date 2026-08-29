@@ -26,6 +26,9 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
     private let freeFace = 5
     /// Face 2, seeded with Meeting **and locked**. The ordinary case on a fresh database, not an edge of it.
     private let lockedFace = 2
+    /// Face 8, seeded holding **Break** and locked, which is the face the whole-journey test below is driven on: a
+    /// cube resting on a face that already means something and is being kept that way.
+    private let breakFace = 8
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -533,6 +536,50 @@ final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
 
         XCTAssertNil(faces.categoryID(forFace: freeFace), "a locked face took a category")
         XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testTheLockDecidesEveryClickAlongOneJourney() throws {
+        // **Each step here has a test of its own; what this adds is that they share a face and a control.** A
+        // reassignment that left the lock behind, or a redraw that did not follow the second toggle, would pass every
+        // one of those and fail here -- which is the shape of fault a sequence catches and a case does not.
+        //
+        // Face 8 is seeded holding Break and locked, so this is a cube resting on a face that already means something
+        // and is being kept that way. Nothing is told at any point: the lock is written, the tab is redrawn from the
+        // table, and each click reads the table again.
+        cubeIsOn(breakFace)
+        controller.redrawTiming()
+        let breakID = try XCTUnwrap(id("Break"))
+        let meetingID = try XCTUnwrap(id("Meeting"))
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID, "precondition: the face holds Break")
+        XCTAssertEqual(faces.isFaceLocked(face: breakFace), true, "precondition: and is locked")
+
+        // 1. Locked, so another category is refused and the rows say so before anybody presses one.
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled }, "a locked face should draw its rows dead")
+        click("Meeting")
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID, "a locked face took a category")
+
+        // 2. Unlocked from the tab, which is the only way a person has.
+        timingView()?.onToggleLock?()
+        XCTAssertEqual(faces.isFaceLocked(face: breakFace), false)
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled), "and the rows come back with it")
+
+        // 3. The same click that was refused a moment ago now lands.
+        click("Meeting")
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), meetingID)
+
+        // 4. And the face goes back, which is a reassignment rather than a first assignment: the interesting half,
+        //    since it is where a face that remembered what it used to hold would show it.
+        click("Break")
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID)
+
+        // 5. Locked again from the same control, and the same click is refused again.
+        timingView()?.onToggleLock?()
+        XCTAssertEqual(faces.isFaceLocked(face: breakFace), true)
+        click("Meeting")
+
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID, "the lock did not take the second time")
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+        XCTAssertEqual(openSegments, 0, "and no click along the way started the app's own clock")
     }
 
     func testTheLockFollowsTheFaceRatherThanWhatWasDrawn() {
