@@ -339,15 +339,81 @@ setup_google || true
 # this; here it is only driven, and only the end state is read back.
 
 setup_the_cube() {
-    local since verdict resting
+    local since verdict resting autopause stored pressed
 
     select_tab Device
+
+    # **Before a single button is pressed.** A radio left off by a run that was killed is the state this run would
+    # otherwise spend a minute failing at, in `pair_a_cube` and then again in `50-device-scan`, both times reporting
+    # it correctly and neither asking for it.
+    if ! require_bluetooth; then
+        trouble "Bluetooth is off, so there is no radio to reach a cube with"
+        return 1
+    fi
 
     if ! pair_a_cube; then
         trouble "the cube could not be paired, so it cannot be reset ($PAIR_REASON)"
         return 1
     fi
     step "paired, so there is a link to send the reset down"
+
+    # ------------------------------------------------------------------ the cube stopping itself
+    #
+    # **A cube set to pause itself will do it in the middle of any script, and no script would survive that.** The
+    # delay lives in the cube's flash and **a factory reset does not clear it** (finding 10,
+    # `docs/timeflip2-firmware-observations.md`), so once one is set every run afterwards inherits it -- including
+    # the two resets this run makes.
+    #
+    # **Run 135 (2026-08-29) is what that costs.** The cube had five minutes on it, sat untouched through
+    # `60-device-backlog`'s wait for somebody to turn Bluetooth off, and stopped itself. The check that watches the
+    # figure carry on counting failed, correctly, about a cube that had genuinely stopped -- and it read as the app
+    # having given up on a cube that was still going, which is a different fault entirely and is where the next hour
+    # went.
+    #
+    # **Asked of the cube rather than of the table**, because they are different questions: the row says what the app
+    # last set, and this is about what the hardware is carrying. `0x10` answers with it on every status, and the app
+    # says so in the log whenever it is not zero -- which is the only place the answer appears.
+    autopause=$(dsql "SELECT message FROM debug_log WHERE tag = 'command' AND message LIKE 'The cube is %pausing itself after %' ORDER BY debug_log_id DESC LIMIT 1;")
+    stored=$(setting auto_pause_minutes minutes)
+    if [ -z "$autopause" ]; then
+        step "the cube is not set to pause itself, so there is nothing to turn off"
+    elif tree | grep -qE "id=device-auto-pause[[:space:]].*disabled"; then
+        # **The field is dead unless a cube is connected**, so this names that rather than reporting the arrows as
+        # broken. Checked before pressing anything, because `press` swallows its own failure: a press on a dead
+        # control does nothing and says nothing, and the wait afterwards would blame the write.
+        trouble "the Auto-pause field is dead, so the cube cannot be told to stop pausing itself -- is it connected?"
+    elif [ "${stored:-0}" -gt 30 ]; then
+        # Stepped one minute per press, so a long delay is a lot of clicking. Nothing in the suite sets one, and a
+        # delay this long is somebody's own doing -- so it is handed back to them rather than clicked down by force.
+        trouble "the Auto-pause field is on ${stored}m; turn that down to 0 on the Device tab by hand"
+    else
+        # **Stepped rather than typed.** Typing needs the field to take focus first, and `set_field_focused` throws
+        # away both the reason it could not and the fact that it did not: run 137 (2026-08-29) failed this step having
+        # produced no row at all, and the log could not say why. The arrows are what `65-auto-pause` drives, they need
+        # no focus, and the debounce turns a run of presses into one command half a second after the last of them.
+        #
+        # **The field has to move, and from 0 it can only move up.** This is the case a clean run is always in: the
+        # database was rebuilt, so `auto_pause_minutes` is the seeded 0 while the cube carries whatever it was last
+        # told -- the table saying 0 is exactly why nobody noticed. Pressing down at the floor changes nothing, sends
+        # nothing, and would fail this step for a third reason. So it goes up one and comes back.
+        step "the cube is set to pause itself ($autopause), and the field is on ${stored:-0}m: stepping it to 0"
+        since=$(mark)
+        if [ "${stored:-0}" = "0" ]; then
+            press device-auto-pause-up
+            press device-auto-pause-down
+        else
+            pressed=0
+            while [ "$pressed" -lt "${stored:-0}" ]; do
+                press device-auto-pause-down
+                pressed=$((pressed + 1))
+            done
+        fi
+        if wait_for "$since" "Auto-pause: the table now holds 0m" 30 >/dev/null; then
+            step "the cube will not stop itself during this run"
+        else
+            trouble "the cube would not take an auto-pause of 0 (the field reads $(element device-auto-pause)), so it may stop itself mid-run"
+        fi
+    fi
 
     # ------------------------------------------------------------------ where the cube is lying
     #

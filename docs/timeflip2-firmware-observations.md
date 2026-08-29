@@ -366,6 +366,40 @@ is therefore the worst-case latency for **the cube being stopped by someone else
 That is the reason a pause the app itself sends is followed immediately by a fetch at every call site that sends one.
 It is not tidying up; it is the only way the app finds out what it just did.
 
+## 10. A factory reset does **not** clear the auto-pause delay
+
+`0x05` writes the idle delay after which the cube stops counting on its own, and the cube keeps it in flash. `0xFF`
+does not clear it. Measured on run 135 (2026-08-29), where the delay survived two factory resets in one run and went
+on being reported afterwards.
+
+The evidence is the `0x10` answer, whose last two bytes are the delay in minutes. Across that whole run it never
+moved:
+
+```
+16:02:22  commandResult: 02 02 00 05      before 00-setup's reset
+16:02:31  commandResult: 02 02 00 05      after it
+16:15:07  commandResult: 02 02 00 05      after 52-device-reset's, which passed all 32 of its checks
+16:16:44  commandResult: 02 01 00 05      still five minutes, four scripts later
+```
+
+`02 02` is unlocked and running; `00 05` is five minutes. Every one of those readings is a fresh `0x10` after a
+login, so none is a stale reply sitting in the characteristic.
+
+**What it does when nobody is expecting it.** The cube stops itself, files the paused stretch as a new event, and
+says nothing: there is no notification for a pause the app did not send (finding 9), so the app finds out on its
+next history fetch. In run 135 the cube sat untouched for five minutes while `60-device-backlog` waited for a person
+to turn Bluetooth off, paused itself, and the check watching the figure carry on counting failed -- about a cube
+that had genuinely stopped. Nothing in the app was wrong and the failure named the app.
+
+**Consequence for this app.** The delay is not something a run can inherit safely, so `00-setup` reads it off the
+cube and turns it off before anything else runs, and `BluetoothRadio.received(status:)` now says the delay in the
+status row whenever it is not zero -- that line is the only place the answer appears, and without it a cube carrying
+a delay is indistinguishable from one that is not.
+
+**Worth raising with the vendor**, as a question rather than a correction: the spec says `0xFF` resets the tracker to
+factory settings, and a delay written by `0x05` surviving one is either a deliberate exclusion or an omission. Either
+way a client cannot assume a reset cube is a cube in its default state.
+
 ## Raised with the vendor
 
 Findings 1 to 3 are the subject of an issue against `DI-GROUP/TimeFlip.Docs`. The request is that the spec describe them, not that the behaviour change: a guaranteed-stable advertised name is genuinely useful for scan filtering once documented, rather than merely observed.

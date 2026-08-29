@@ -1026,6 +1026,40 @@ watch_bluetooth() {
     trap restore_bluetooth EXIT INT TERM
 }
 
+# Makes sure the radio is on before a script that needs it starts, asking for it if it is not. Answers 0 once it is
+# on, 1 when nobody turned it on or there was no terminal to ask.
+#
+# **The one state a run can begin in that no script can fix for itself, and that the suite creates.** `56` and `60`
+# ask for the radio to be turned off, and both arm `restore_bluetooth` to ask for it back however they end -- which
+# covers a failed check, a script exiting, and Ctrl-C. What it cannot cover is the run being killed outright or the
+# terminal being closed, and then the radio is still off the next time somebody starts a run.
+#
+# **What that looked like without this.** The diagnosis was always right and never actionable: `pair_a_cube` failed
+# and put `Scan unavailable: bluetoothOff` in a setup step nobody is being asked to act on, then `50-device-scan`
+# stopped the run a minute later with the same words. Both correct, neither asking for the one thing that would fix
+# it.
+#
+# **Asked of the system rather than of the app**, and before anything is pressed: a radio that is off leaves every
+# button on the Device tab reading perfectly correctly, so there is nothing on screen to check and no row to wait
+# for -- the app has not been asked to do anything yet.
+require_bluetooth() {
+    bluetooth_is_on && return 0
+
+    if ! action_required \
+        "Turn Bluetooth ON" \
+        "This run needs the radio and it is off. A run that turns it off asks for it back on its way out;" \
+        "one that was killed outright cannot, so it is still off from last time." \
+        "Nothing has been pressed yet: this is asked before the app is given anything to fail at."
+    then
+        return 1
+    fi
+
+    # **Asked again rather than taken on trust**, which is this suite's first principle and cheap here: somebody can
+    # answer y to a banner without having done the thing, and every check after this would then fail about the app.
+    bluetooth_is_on && return 0
+    return 1
+}
+
 # `expect_colours "name" "name cyan, glyph label, figure red"` -- one check on what the status item is drawn in.
 #
 # **The only way a script can see any of this.** The accessibility tree carries no colour at all, so the whole of the
