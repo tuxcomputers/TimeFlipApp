@@ -152,6 +152,13 @@ final class DevicePane: NSView {
 
     private(set) var values: Values = .seeded
 
+    /// What a device setting says when there is no cube to be told about it.
+    ///
+    /// **One string rather than one per control**, so the rows that gain the same gate cannot come to explain it
+    /// differently. It names the device rather than the row, because what is wrong is not the value somebody was
+    /// reaching for.
+    private static let notConnectedHelp = "The TimeFlip is not connected, so this cannot be changed."
+
     /// Which half of the low-battery flash the Battery row is currently drawing. See `showLowBattery`.
     private var lowBattery = LowBatteryAlert.none
 
@@ -320,6 +327,20 @@ final class DevicePane: NSView {
         )
 
         autoPauseField.value = values.autoPauseMinutes
+        // **Dead unless a cube is connected**, which is the archive's answer for every device setting on this tab and
+        // the honest one here: the delay is a command the cube confirms (`0x05`, read back with `0x10`), so with
+        // nothing on the other end an arrow could only ever end in the refusal sheet. A dead field says why nothing
+        // happens, which is the reasoning `drawDoubleTap` puts the four registers out of use with and the Categories
+        // tab greys a locked row with.
+        //
+        // **`isCubeConnected` and not the pairing**, so manual mode is covered by the same gate rather than by a
+        // second one: a launch with no cube has nothing connected, and neither has a paired cube in another room.
+        //
+        // **Live again the moment a cube answers.** Every path that changes the connection redraws this tab through
+        // `show` (`recordConnected` on the way up, `markConnectionDown` on the way back), so this follows the link
+        // rather than being decided when the window opened.
+        autoPauseField.isEnabled = values.isCubeConnected
+        autoPauseField.disabledHelp = values.isCubeConnected ? nil : Self.notConnectedHelp
         ledBrightnessField.value = values.ledBrightnessPercent
         ledBlinkField.value = values.ledBlinkSeconds
         drawDoubleTap(isEnabled: values.isDoubleTapEnabled)
@@ -618,9 +639,10 @@ final class DevicePane: NSView {
 
     /// The cube's own settings: stored here, and sent to it when there is one to send them to.
     private func settingsRowViews() -> [NSView] {
-        // **Its label states the ceiling**, which is the archive's wording kept as it stands: 240 minutes is the
-        // device's own limit (command 0x05), and a number the cube would refuse is worth naming before it is typed
-        // rather than after. 0 disables it, which is the vendor protocol's own disabled-by-default behaviour.
+        // **Its label states the ceiling, and takes it from the same place the field does.** The archive's wording,
+        // with the number now interpolated rather than typed twice: `DeviceCommandRules.autoPauseRange` is what the
+        // command clamps to, so the label cannot come to promise a limit the wire does not keep. 0 disables it, which
+        // is the vendor protocol's own disabled-by-default behaviour.
         //
         // **It is given no width here**, which is what makes this row read like the App tab's four.
         // `SteppedNumberField.Layout.fieldWidth` is the one number that sizes every stepped field in the app, and a
@@ -628,11 +650,14 @@ final class DevicePane: NSView {
         // unit and arrows together. At 90 it was capping the lot at the width of the box alone, which is why this
         // one field came out narrower than the others and its arrows sat where nobody else's did.
         autoPauseField = SteppedNumberField(
-            value: values.autoPauseMinutes, range: 0...240, suffix: "min", identifier: Identifier.autoPause
+            value: values.autoPauseMinutes,
+            range: DeviceCommandRules.autoPauseRange,
+            suffix: "min",
+            identifier: Identifier.autoPause
         )
         autoPauseField.onChange = { [weak self] _ in self?.onAutoPauseChanged?() }
 
-        // **Both ranges come from the commands that carry them**, rather than being written out again here:
+        // **These ranges come from the commands that carry them too**, as Auto-pause's does above:
         // `DeviceCommandRules` is where 1-100 % and 5-60 seconds are kept, and it clamps to the same bounds on the
         // way to the wire. A field that would accept a number the command then quietly changed is two answers to one
         // question, which is the fault the first rule in `CLAUDE.md` is about.
@@ -700,7 +725,9 @@ final class DevicePane: NSView {
         doubleTapRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.doubleTap, expanded) }
 
         return [
-            SettingsRow.make("Auto-pause (0 disable, max 240m)", autoPauseField),
+            SettingsRow.make(
+                "Auto-pause (0 disable, max \(DeviceCommandRules.autoPauseRange.upperBound)m)", autoPauseField
+            ),
             ledRow,
             doubleTapRow,
         ]

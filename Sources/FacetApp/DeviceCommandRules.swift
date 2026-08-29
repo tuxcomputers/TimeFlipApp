@@ -49,6 +49,46 @@ enum DeviceCommandRules {
         Data([ledBlinkCommand, UInt8(clamping: blinkRange.clamped(seconds))])
     }
 
+    /// Auto-pause (`0x05 0xXX 0xXX`): the idle minutes after which the cube stops counting on its own, `0` off.
+    ///
+    /// **Two bytes, high then low**, which is how the archive writes it (`TimeFlipBLEDevice.setAutoPause`) and the way
+    /// round `0x10` reports it back (`Status.autoPauseMinutes`). The vendor spec gives the width and the meaning and
+    /// says nothing about the order, so the archive is what settles it: it drove this hardware for a year.
+    ///
+    /// **Whole minutes, because that is the hardware's own granularity.** There is no finer unit to ask for, so a
+    /// delay measured in seconds is not something a cube can be told -- `database/011_setting.sql` says the same of
+    /// the row this is built from, and it is worth saying before somebody types 30 meaning seconds.
+    ///
+    /// **The timer restarts on every flip**, per the spec's own note, so this is a delay after the last face change
+    /// rather than a limit on a sitting.
+    ///
+    /// **Unlike the LED pair, this one can be read back**: `0x10` carries the delay the cube is set to, and
+    /// `readBack(for:)` compares that against what went out.
+    static func autoPause(_ minutes: Int) -> Data {
+        let wanted = UInt16(clamping: autoPauseRange.clamped(minutes))
+        return Data([autoPauseCommand, UInt8(wanted >> 8), UInt8(wanted & 0xFF)])
+    }
+
+    /// The minutes a `0x05` carries, read out of the command's own bytes, or `nil` when it is not one.
+    ///
+    /// **So one place knows the layout**, which is what `setTime` does with its clock: the read-back compares against
+    /// what went out rather than against a number passed alongside it, and a caller cannot hand it a value the
+    /// command never carried.
+    static func autoPauseMinutes(sentIn command: Data) -> Int? {
+        let bytes = [UInt8](command)
+        guard bytes.count >= 3, bytes[0] == autoPauseCommand else { return nil }
+        return Int(bytes[1]) << 8 | Int(bytes[2])
+    }
+
+    /// What the Auto-pause field offers: 0 to 240 minutes, 0 being off.
+    ///
+    /// **The archive's ceiling, kept rather than re-derived, and it is not the vendor's.** The spec gives two bytes
+    /// and no maximum, so 240 is the previous app's limit (`TimeFlipSettingsView.maximumAutoPauseMinutes`) and its
+    /// clamp on the way to storage -- four hours, past any working day this is for. What matters more than the number
+    /// is that one place holds it: the field, the label above it and the bytes on the wire all come from here, so a
+    /// control cannot accept something the command would then quietly change.
+    static let autoPauseRange = 0...240
+
     /// What `0x09` accepts: 1 to 100 %, the vendor spec's own range (Tab. 1).
     ///
     /// **There is no 0.** A cube cannot be told to put its LED out this way, so 0 is a value the firmware refuses
@@ -221,6 +261,22 @@ enum DeviceCommandRules {
                 // asked for is logged by whoever asked, and what arrived would otherwise be a verdict with no figures.
                 described: { DoubleTapRules.parameters(from: $0)?.described }
             )
+        case autoPauseCommand:
+            // **Compared as minutes rather than as bytes**, because the two are not the same question: `0x05` is
+            // clamped on its way out, so a field asking for 300 sends 240 and a cube answering 240 has done exactly
+            // what it was told. Reading what went out is what keeps those in step.
+            //
+            // **The `0x10` answer identifies nothing**, unlike `0x17`: it is four bare bytes, and the characteristic
+            // often holds the previous command's reply (finding 2, `docs/timeflip2-firmware-observations.md`). What
+            // makes it this command's answer is that `DeviceLogin.send` reads only after this command's own
+            // acknowledgement, and `status(from:)` refuses bytes whose mode fields are not modes at all.
+            guard let asked = autoPauseMinutes(sentIn: command) else { return nil }
+            return ReadBack(
+                request: status,
+                took: { status(from: $0)?.autoPauseMinutes == asked },
+                // The delay the cube says it is on, so a refusal names the disagreement rather than only reporting one.
+                described: { status(from: $0).map { "auto-pause \($0.autoPauseMinutes)m" } }
+            )
         case ledBrightnessCommand, ledBlinkCommand:
             // **Said out loud rather than left to the default below**, which is `CLAUDE.md`'s rule for a command with
             // no read-back: the spec defines no way to ask a cube what its LED is set to, so a reader finding these
@@ -244,6 +300,7 @@ enum DeviceCommandRules {
     }
 
     private static let lockCommand: UInt8 = 0x04
+    private static let autoPauseCommand: UInt8 = 0x05
     private static let pauseCommand: UInt8 = 0x06
     private static let readTimeCommand: UInt8 = 0x07
     private static let timeCommand: UInt8 = 0x08

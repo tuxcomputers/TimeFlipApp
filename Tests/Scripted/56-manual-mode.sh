@@ -38,7 +38,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=28
+EXPECTED_CHECKS=32
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -63,6 +63,16 @@ select_tab Device
 # script is about, and a cube that was never in reach cannot be taken out of it.
 
 require_a_paired_cube "there is nothing to lose"
+
+# **The first half of a pair, taken here and answered after the drop.** What is being checked is not that the
+# Auto-pause field is dead in some state or other, it is that it follows `isCubeConnected`: so the state is read, the
+# field is read beside it, and the same two are read again once the radio is off. Two snapshots in two scripts could
+# both pass with the field wired to nothing at all.
+#
+# The Device tab is the one showing, selected at the top of this script and switched away from below.
+check "the state says a cube is connected" "1" "$(setting connection connected)"
+check "so the Auto-pause field is live" "0" \
+    "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
 
 # ---------------------------------------------------------------------------- the link goes
 #
@@ -93,6 +103,24 @@ check "and records that it can no longer reach it" \
 # **The pairing is untouched**, which is what makes the next section a test of anything: going out of range does not
 # change which device this app is paired to, so what follows is a *paired* app with no cube.
 check "the pairing survives it" "1" "$(setting paired paired)"
+
+# **The second half of the pair**, against the state read directly above it: the row now says nothing is connected, so
+# the field that was live a moment ago is dead. The gate is `isCubeConnected` and not the pairing, which survives --
+# and it is the same gate a launch in manual mode meets, there being nothing connected in either.
+#
+# **Why dead rather than refused.** The delay is a command the cube confirms (`0x05`, read back with `0x10`), so with
+# nothing on the other end an arrow could only ever end in the refusal sheet, and a field that took a click and undid
+# it a moment later would read as the app fighting whoever pressed it.
+#
+# **The tab is borrowed and given back.** Only the selected tab's rows are in the accessibility tree, and the section
+# below is about the menu bar with Faces showing -- so this hops over, reads the two rows, and puts the window back
+# where it found it rather than leaving a tab switch behind for the next section to trip on.
+select_tab Device
+check "the Auto-pause field goes dead with the connection" "1" \
+    "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
+check "and its arrows with it" "2" \
+    "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
+select_tab Faces
 
 # ---------------------------------------------------------------------------- it is still the cube being shown
 #
