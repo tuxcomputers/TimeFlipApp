@@ -385,7 +385,7 @@ check_turn() {
 
 base=$(mark)
 if ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $base AND tag = 'face' AND message = 'Face $first_face is up';" \
+    "$(on_face_now "$base" "$first_face")" \
     "Turn the cube so the $first_name face is up" \
     "That is face $first_face. Take as long as you like: this waits, it does not time out." \
     "Nothing else needs touching -- leave the Settings window where it is."
@@ -402,7 +402,7 @@ fi
 
 base=$(mark)
 if ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $base AND tag = 'face' AND message = 'Face $second_face is up';" \
+    "$(on_face_now "$base" "$second_face")" \
     "Now turn it back, so the $second_name face is up" \
     "That is face $second_face -- the other of the two." \
     "This is the turn that says the app is following the cube rather than having asked it once."

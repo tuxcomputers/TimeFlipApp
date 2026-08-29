@@ -190,6 +190,25 @@ wait_for_dev() {
 #
 # **A run with no terminal skips rather than blocking.** That is CI or a pipe, and there is nobody there to
 # turn anything -- the same answer `action_required` gives, for the same reason.
+# The query to hand `ask_and_detect` when the cube must be **on** a face and still there: `on_face_now <mark> <face>`.
+#
+# **Two clauses, and they answer two different questions.** `debug_log_id > mark` means *a turn is required*, so this
+# is not already satisfied by the face the cube happens to be resting on -- without it `ask_and_detect` would skip the
+# ask entirely. The `MAX` clause means *and that is where it still is*, which is the half a plain match cannot do: a
+# face row, once written, is there for ever, so a person who lands on the wanted face and keeps turning satisfies a
+# plain match and the script carries on against a cube somewhere else. The failures that follow are then about
+# whatever the next check reads.
+#
+# A wrong turn *before* the right one is harmless either way, which is `ask_and_detect`'s own note: the row it writes
+# is not the row being waited for. This is about the turn after the right one.
+#
+# **Not for every ask.** `62`'s first one deliberately matches any face, because it is discovering which face 627 is,
+# and `57`'s polls `device_event` for a segment rather than a face row. Both mean something else and keep their own
+# query.
+on_face_now() {
+    printf "SELECT message FROM debug_log WHERE debug_log_id = (SELECT MAX(debug_log_id) FROM debug_log WHERE tag = 'face' AND message LIKE 'Face %% is up') AND debug_log_id > %s AND message = 'Face %s is up';" "$1" "$2"
+}
+
 ask_and_detect() {
     local query="$1" title="$2"
     shift 2
@@ -1270,8 +1289,35 @@ quit_app() {
 
 # ---------------------------------------------------------------------------- driving the window
 
-press()      { python3 scripts/ax-press.py "$1" >/dev/null 2>&1; }
-press_title() { python3 scripts/ax-press.py --title "$1" >/dev/null 2>&1; }
+# `press <identifier>` -- clicks the named element, and **says so when it cannot**.
+#
+# **Silence here has cost this suite two debugging sessions, and they looked nothing like a press failing.** Pressing
+# something that is not on screen did nothing and reported nothing, so the wait after it timed out and blamed whatever
+# it was waiting on: `57-cube-pause` reported the radio for a click that never happened (2026-08-23), and `00-setup`
+# reported that a cube would not take an auto-pause of 0 when nothing had reached the app at all (run 137,
+# 2026-08-29). Both diagnoses pointed away from the fault, which is worse than no diagnosis.
+#
+# **The output is still discarded on success**, which is the honest half of the old shape: `ax-press.py` narrates what
+# it pressed and that is noise in a run of hundreds. What is kept is the failure, printed and returned -- `CLAUDE.md`
+# calls this out by name, and the rule is that discarding output is fine and discarding the failure is not.
+#
+# **The status is returned rather than made fatal.** Callers that want to stop check it; the rest get a red line in
+# the log where their fault actually happened rather than thirty seconds later somewhere else.
+press() {
+    local output status
+    output=$(python3 scripts/ax-press.py "$1" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  the press of $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
+
+press_title() {
+    local output status
+    output=$(python3 scripts/ax-press.py --title "$1" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  the press of the button titled $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 
 # Posts Return, for the one thing a value cannot be written into: an inline edit that commits on the key
 # rather than on a button (Tests/Methods.md Method 10). The field being typed into holds focus, so there
@@ -1296,7 +1342,15 @@ for down in (True, False):
 PYTHON
 }
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
-set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
+# The unfocused write, for a field something has already clicked into. Reports a failure for the reason the two
+# above do: a value that never reached the field fails later, somewhere else, as something it is not.
+set_field() {
+    local output status
+    output=$(python3 scripts/ax-set.py "$1" "$2" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  writing $2 into $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 
 # For a field nothing has clicked into, where the Return that follows has to commit an edit.
 #
@@ -1306,7 +1360,15 @@ set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
 # category name escapes this because pressing the name makes the field first responder itself; a daily
 # limit does not, and typed into with `set_field` it silently did nothing (measured 2026-08-16: the tree
 # showed `category-limit-3 value=45` while the table still held 0).
-set_field_focused() { python3 scripts/ax-set.py --focus "$1" "$2" >/dev/null 2>&1; }
+# The same, for writing into a field: `ax-set.py` exits non-zero with the reason on stderr -- the element not being
+# in the tree, or refusing to take focus, which is what a disabled field does -- and both used to be thrown away.
+set_field_focused() {
+    local output status
+    output=$(python3 scripts/ax-set.py --focus "$1" "$2" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  writing $2 into $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
 
 # `on_tab <identifier>` -- how many elements carry exactly this identifier, 0 or 1 for anything named once.
