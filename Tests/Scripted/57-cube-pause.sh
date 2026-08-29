@@ -96,7 +96,7 @@ else
     fail "no cube segment ever reached device_event, so there is nothing for the glyph to draw"
 fi
 
-# **The mode this launch decided on**, which `LaunchMode` settles at startup and nothing changes afterwards. Reported
+# **What this launch started as**, which the row `main.swift` writes at startup records. Reported
 # rather than asserted, because which one it is depends on whether the database came in paired -- but it is the first
 # thing to look at if the routing check below fails, since a manual launch routes a click to the app's own clock
 # instead of to the cube. `56` no longer leaves anything behind here: giving up on a cube does not change the mode.

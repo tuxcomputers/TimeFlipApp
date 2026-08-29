@@ -48,29 +48,20 @@ enum DeviceInfoRules {
 
     /// What the Connection row shows.
     ///
-    /// **Manual mode is asked about first**, ahead of whether anything is paired, because it is the answer to a
-    /// different question: the other two describe a cube, and this one describes what the app is doing instead of
-    /// using one.
+    /// **Three lines, because there are three states.** Nothing paired is an app timing by hand; a pairing with no
+    /// link is a cube that cannot be heard from; a pairing with a link is a cube being followed.
     ///
-    /// **Two of the six lines exist because the mode no longer follows the pairing** (`LaunchMode`), so the two can
-    /// differ and this row is where the app admits it rather than resolving it quietly:
+    /// **It used to have six**, and the other three were the app admitting that what it was doing and what the tables
+    /// said had come apart: a manual launch that had since paired a cube read *Connected, not used until restart*, and
+    /// a device launch whose cube had been forgotten read *Device gone, restart to time by hand*. Both were honest
+    /// about a real disagreement, and both existed only because the mode was decided once at startup while `paired`
+    /// went on moving underneath it. Timing by hand is now read from the pairing at the point of use, so the two
+    /// cannot differ, and there is nothing left for those lines to say.
     ///
-    /// - A **manual launch that has since paired a cube**. The cube is real, the app can even be connected to it, and
-    ///   this launch is still not going to use it. Saying "Connected" alone would be a row describing a cube the app
-    ///   is ignoring, which is the more misleading half of the truth.
-    /// - A **device launch whose cube has since gone**, forgotten or reset from this very tab. There is nothing left
-    ///   to follow and the app will not start timing by hand on its own, so the row has to say that a restart is what
-    ///   changes it -- otherwise the honest state reads exactly like the app being broken.
-    ///
-    /// Both name the restart, because in both the restart is the entire remedy and nothing on any tab is.
-    static func connection(isCubePaired: Bool, isCubeConnected: Bool, isManualMode: Bool) -> String {
-        if isManualMode {
-            guard isCubePaired else { return "Manual mode, no device" }
-            return isCubeConnected
-                ? "Connected, not used until restart"
-                : "Paired, not used until restart"
-        }
-        guard isCubePaired else { return "Device gone, restart to time by hand" }
+    /// **So there is no `isManualMode` parameter either.** It would be `!isCubePaired` with a second name on it,
+    /// which is the fault `docs/state-reference.md` exists to keep out of new branches.
+    static func connection(isCubePaired: Bool, isCubeConnected: Bool) -> String {
+        guard isCubePaired else { return "Manual mode, no device" }
         return isCubeConnected ? "Connected" : "Disconnected"
     }
 

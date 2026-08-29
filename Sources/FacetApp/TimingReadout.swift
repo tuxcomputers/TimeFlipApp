@@ -134,13 +134,13 @@ final class TimingReadout {
     /// the Faces tab an hour later, and take the click with it, since a click follows the reading. That is the app
     /// changing its mind on somebody's behalf.
     ///
-    /// **The same answer the reconnect loop stands down on**, asked of `LaunchMode` per reading rather than copied
-    /// here, so the two halves cannot come to disagree about whether this launch follows a cube.
+    /// **The same row the reconnect loop reads**, asked per reading rather than copied here, so the two halves cannot
+    /// come to disagree about whether this app follows a cube.
     ///
-    /// **The way back out is a restart, and only a restart.** Forgetting the device used to be a second way, and
-    /// pairing one used to end the mode without being asked; neither does now. The mode is decided once from `paired`
-    /// and is what this launch is until it closes -- see `LaunchMode`, which is the whole of why this closure's answer
-    /// no longer moves under the things that read it.
+    /// **It moves while the app runs, and that is the point.** Timing by hand is what being unpaired means, so pairing
+    /// a cube hands the clock to it and forgetting one takes it back, both from the next reading on. Nothing has to be
+    /// told: a reading is taken by asking, so there is no copy here to go stale -- which is what a mode decided once
+    /// at startup was, and why every one of those changes used to need a restart.
     var isManualMode: () -> Bool = { false }
 
     /// Whether a cube is this app's cube, read from `paired` at the moment a reading is taken.

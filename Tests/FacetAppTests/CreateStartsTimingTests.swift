@@ -39,9 +39,9 @@ final class CreateStartsTimingTests: XCTestCase, @unchecked Sendable {
             )
             let dayTotal = DayTotal(settings: settings, entries: entries, events: events, faces: faces)
             readout = TimingReadout(categories: categories, faces: faces, events: events, dayTotal: dayTotal)
-            // **Decided the way a launch decides it**, from a table with nothing paired, rather than set by hand. The
-            // clock only starts by hand while the app is its own clock, so a controller with no `LaunchMode` refuses every
-            // start -- and a test that skipped this would be describing a state no launch reaches.
+            // **Asked the way the app asks it**, of a table with nothing paired, rather than set by hand. The clock
+            // only starts by hand while the app has no cube, so a controller with no way to ask refuses every start --
+            // and a test that skipped this would be describing a state no launch reaches.
             controller = SettingsWindowController(
                 debugLog: nil,
                 categories: categories,
@@ -50,7 +50,7 @@ final class CreateStartsTimingTests: XCTestCase, @unchecked Sendable {
                 timing: readout,
                 entries: entries,
                 settings: settings,
-                launchMode: LaunchMode.decided(from: settings, debugLog: nil)
+                isManualMode: { settings.flag("paired", field: "paired") != true }
             )
         }
     }

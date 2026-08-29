@@ -24,12 +24,16 @@ enum CubeNotFoundAlert {
     /// theirs and that theirs refused them, and is wrong twice over -- and it sends somebody hunting a PIN problem
     /// they do not have. Naming neither device says only what actually happened.
     ///
-    /// **What it now says about timing by hand, and why the instruction got longer rather than shorter.** This
-    /// dialog used to offer manual mode as a button, and taking it switched the running launch. It cannot any more
-    /// (`LaunchMode`): a launch that started with a cube on record stays one. So the text has to name the actual way
-    /// there, which is two steps rather than one -- **forget the device, then restart** -- because a restart on its
-    /// own comes straight back to this dialog, the app still being paired and still unable to find anything. Saying
-    /// only "start the app again" would send somebody round that loop with no way of knowing why.
+    /// **What it says about timing by hand is one step again.** This dialog used to offer manual mode as a button,
+    /// and taking it switched the running launch; then it could not switch anything, and the text had to name two
+    /// steps -- forget the device, then restart -- because being unpaired was not by itself enough to make the app
+    /// its own clock. It is now: timing by hand is what being unpaired means, read at the point of use, so forgetting
+    /// the device is the whole of the way there and the sentence says exactly that.
+    ///
+    /// **What is deliberately still two steps is coming back to the cube after choosing to stop**, which is the other
+    /// half of the sentence: this launch has given up looking (`DeviceReconnector.hasStoppedLooking`) and nothing
+    /// short of a new launch starts it again. That is a fact about this launch's hunting rather than about what the
+    /// app is, which is why forgetting does not fix it and a relaunch does.
     ///
     /// Only a paired launch ever sees this dialog, so Forget is on the Device tab to be used; what is not there is a
     /// Scan button, the tab showing none while a cube is paired (`DevicePairingRules.showsScanControls`).
@@ -37,7 +41,7 @@ enum CubeNotFoundAlert {
         No TimeFlip answered: either none is in range, or none of the ones found would accept this app's PIN.
 
         This launch will not look for it again on its own -- quit and start the app to try once more. To track time \
-        from the app instead, forget the device on the Device tab and then start the app again.
+        from the app instead, forget the device on the Device tab.
         """
 
     /// Puts the question up and reports the answer.

@@ -191,7 +191,7 @@ step "the cube is resting on face ${resting:-unknown}, so it is being sent to fa
 
 turned=$(mark)
 if ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $turned AND tag = 'face' AND message = 'Face $turn_to is up';" \
+    "$(on_face_now "$turned" "$turn_to")" \
     "Turn the cube so the $turn_name face is up, then leave it alone" \
     "That is face $turn_to. It has a category on it, which matters: an empty face stops the cube by itself." \
     "If it is already there, turn it away and back, so the app sees the change." \

@@ -94,11 +94,10 @@ final class CubeNotFoundOfferTests: XCTestCase {
     }
 
     @MainActor
-    func testTheOfferNamesBothStepsToTimingByHand() {
+    func testTheOfferNamesTheWayToTimingByHand() {
         // **A restart on its own comes straight back to this dialog**, the app still being paired and still unable to
-        // find anything. Since the answer can no longer switch the running launch (`LaunchMode`), the text has to name
-        // the actual way across -- forget the device, then start the app -- or it sends somebody round that loop with
-        // no way of knowing why.
+        // find anything. The answer does not switch the running app either, so the text has to name what does --
+        // forgetting the device, which is the whole of it now and takes effect without a relaunch.
         XCTAssertTrue(CubeNotFoundAlert.informativeText.contains("forget the device"), CubeNotFoundAlert.informativeText)
         XCTAssertFalse(
             CubeNotFoundAlert.informativeText.contains("Manual mode lets you"),

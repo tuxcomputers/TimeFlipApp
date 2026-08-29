@@ -1102,6 +1102,12 @@ final class BluetoothRadio: NSObject {
         debugLog?.record(
             .command,
             "The cube is \(status.isLocked ? "locked" : "unlocked") and \(status.isPaused ? "paused" : "running")"
+                // **Said only when it is set, and it is worth saying.** `0x10` carries the delay on every answer and
+                // the app read it and threw it away, so a cube that had been told to stop itself after five minutes
+                // looked exactly like one that had not -- until it stopped, half an hour into a run, and the script
+                // watching it reported that the app had given up on a cube that was still going (run 135,
+                // 2026-08-29). A delay of zero is the ordinary state and would be noise on every status.
+                + (status.autoPauseMinutes > 0 ? ", pausing itself after \(status.autoPauseMinutes)m" : "")
         )
         onCubeStatus?(id, status)
     }

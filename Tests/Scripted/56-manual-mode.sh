@@ -16,7 +16,7 @@
 #      answer settles the reconnect loop and does not turn the launch into its own clock.
 #
 # **Why the second state no longer starts the clock.** A launch decides once whether it follows a cube or is its own
-# clock, and nothing moves it after that (`LaunchMode`). This script used to press the offer's second button and watch
+# clock, and it is read from `paired` whenever it is asked. This script used to press the offer's second button and watch
 # the same click go from refused to allowed; that was one launch being two things in turn, and the switching it needed
 # is what was removed. The way to timing by hand is a forget and a restart, which is what the dialog now says.
 #
@@ -38,7 +38,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=32
+EXPECTED_CHECKS=33
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -319,10 +319,10 @@ check_contains "and the menu bar shows the app rather than a category" "$(status
 
 # ---------------------------------------------------------------------------- the way back out
 #
-# **Forgetting the device is half of the way out, and every check below is about that half.** The other half is the
-# restart, which is what actually changes the mode: a launch that decided `.device` stays one until it closes, so the
-# app is still not going to time anything between here and the end of this section. The restart comes with the pairing
-# put back at the foot of the script, which is where the mode is decided again.
+# **Forgetting the device is the whole of the way out, and there is no restart in it** (2026-08-29). Timing by hand is
+# what being unpaired means, read at the point of use, so writing that row is what makes this app its own clock: the
+# Connection row changes, the category rows come alive, and nothing had to be told. Until then this was half a way out
+# -- the pairing went, the launch stayed a launch that followed a cube, and only a relaunch finished the job.
 #
 # It is also what `99-quit` needs, since it cannot wipe a cube this script left unreachable.
 
@@ -333,16 +333,20 @@ press device-forget
 sleep 1.5
 
 check "forgetting the device gives the pairing up" "0" "$(setting paired paired)"
-# **Nothing about the mode is logged here, and that is the app being right.** Forgetting a cube is exactly the kind of
-# tidying-up that used to reset the mode along with the pairing -- it was one of three callers that did -- and a launch
-# that changed what it was at this point would be the switching coming back through the back door.
-#
-# The whole `mode` tag is asserted rather than one message, because what must not happen is any mode row at all: the
-# only one a launch writes is the line `LaunchMode.decided` writes at startup.
-check "and the launch is still what it was, no mode row of any kind" "0" \
-    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND tag = 'mode';")"
-# Still the app's own name: a forget does not hand the clock over any more than the offer did.
-check_contains "so the menu bar still shows the app rather than a category" "$(status_item)" "Facet"
+# **And the app is its own clock from that moment**, which is the row saying so rather than a mode being set anywhere:
+# nothing holds one, so the tab draws the new answer because it asked again. "Device gone, restart to time by hand"
+# was the old line here and it named a state that can no longer be reached.
+check_contains "so the Connection row says the app is its own clock" \
+    "$(element device-connection)" "Manual mode, no device"
+# **The mirror of the dead rows above**, and the half a person actually feels: the same list that would not take a
+# click while a cube was on record takes one now, with no relaunch in between. Checked as drawing rather than driven,
+# since starting a session here would leave an open manual segment for the scripts after this one to inherit.
+case "$(element "category-row-$BREAK")" in
+    *disabled*) fail "the category rows are still dead, so the app has not taken the clock back" ;;
+    *) pass "and the category rows come alive, this app being the clock again" ;;
+esac
+# Still the app's own name, and now for the ordinary reason rather than a refusal: nothing has been started yet.
+check_contains "so the menu bar shows the app, nothing having been started" "$(status_item)" "Facet"
 # The Scan button is hidden while a cube is paired, so its coming back is the whole of what "and reconnect" means.
 if [ -n "$(element device-scan)" ]; then
     pass "the Scan button is back, which is the way to a cube again"

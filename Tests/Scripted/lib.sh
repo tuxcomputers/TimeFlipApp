@@ -190,9 +190,45 @@ wait_for_dev() {
 #
 # **A run with no terminal skips rather than blocking.** That is CI or a pipe, and there is nobody there to
 # turn anything -- the same answer `action_required` gives, for the same reason.
+# The query to hand `ask_and_detect` when the cube must be **on** a face and still there: `on_face_now <mark> <face>`.
+#
+# **Two clauses, and they answer two different questions.** `debug_log_id > mark` means *a turn is required*, so this
+# is not already satisfied by the face the cube happens to be resting on -- without it `ask_and_detect` would skip the
+# ask entirely. The `MAX` clause means *and that is where it still is*, which is the half a plain match cannot do: a
+# face row, once written, is there for ever, so a person who lands on the wanted face and keeps turning satisfies a
+# plain match and the script carries on against a cube somewhere else. The failures that follow are then about
+# whatever the next check reads.
+#
+# A wrong turn *before* the right one is harmless either way, which is `ask_and_detect`'s own note: the row it writes
+# is not the row being waited for. This is about the turn after the right one.
+#
+# **Not for every ask.** `62`'s first one deliberately matches any face, because it is discovering which face 627 is,
+# and `57`'s polls `device_event` for a segment rather than a face row. Both mean something else and keep their own
+# query.
+on_face_now() {
+    printf "SELECT message FROM debug_log WHERE debug_log_id = (SELECT MAX(debug_log_id) FROM debug_log WHERE tag = 'face' AND message LIKE 'Face %% is up') AND debug_log_id > %s AND message = 'Face %s is up';" "$1" "$2"
+}
+
 ask_and_detect() {
     local query="$1" title="$2"
     shift 2
+
+    # **Asked only when there is something to ask for.** The query is the whole of what this waits on, so a query that
+    # already answers describes a cube that is already where it needs to be -- and putting a banner this size in front
+    # of somebody for a turn they do not have to make is how a prompt that is meant to stop them becomes one they
+    # learn to look past. `00-setup` is the case it was written for: the run starts wherever the cube was left, and
+    # much of the time that is already the face it wants.
+    #
+    # **Safe for the callers that want a change**, because they scope their query to rows newer than a mark taken a
+    # line earlier, so nothing can already answer it. The one that does not scope is the one that means "be in this
+    # state", and that is exactly the caller this is for.
+    local already
+    already=$(anysql "$query")
+    if [ -n "$already" ]; then
+        step "already there, so nothing to ask: $already"
+        return 0
+    fi
+
     echo ""
     yellow "##############################################################################"
     yellow "##"
@@ -410,13 +446,13 @@ pair_a_cube() {
         return 1
     fi
 
-    # **A pairing is not enough on its own: the launch has to be one that follows a cube.**
+    # **A pairing is enough to make the app follow the cube again** (2026-08-29): timing by hand is read from `paired`
+    # at the point of use, so writing that row is the whole of it and nothing has to be restarted.
     #
-    # `LaunchMode` decides that once, at startup, from `paired`, and nothing moves it afterwards -- so every launch in
-    # a run that began with a rebuilt database decided `manual`, there being nothing paired at the time, and goes on
-    # being its own clock with a freshly paired cube sitting beside it. This used to come free: forgetting turned
-    # manual mode on and pairing turned it off, so the forget-then-pair above landed in device mode without anybody
-    # asking for it. That switching is gone deliberately.
+    # **The relaunch below is kept for the link, not for the mode.** What the scripts after this one inherit is a cube
+    # the app has actually reached -- a login, a face, a charge and a status -- and the relink is what guarantees one
+    # rather than leaving them to a connection that may or may not still be up. It also puts the lock and the pause a
+    # quit applies back where they were.
     #
     # **What it looks like when this is missing** is not a pairing failure, which is why it is worth the words: the
     # cube pairs, connects, and answers, and the Faces tab draws the *manual* session instead of the cube's face. Run
@@ -449,11 +485,10 @@ pair_a_cube() {
 # charge, the face and the state, and it runs on every connect rather than only on a first one. `53-device-reconnect`
 # is the script that proves that path, so everything relying on it here is already covered.
 #
-# **It is also how the run gets a launch that follows a cube at all.** `LaunchMode` decides that once, at startup,
-# from `paired`, and nothing moves it afterwards -- so the launch a run begins with decided `manual`, the database
-# having been rebuilt with nothing paired, and goes on being its own clock with a freshly paired cube beside it.
-# `51-device-connect` ends with this for that reason, and hands the rest of the range a launch that uses the pairing
-# it just made.
+# **It is also how the run gets a link rather than only a pairing.** Following the cube needs no relaunch since
+# 2026-08-29 -- the app reads `paired` when it is asked, so it follows one the moment it is paired -- but what the
+# range wants is a cube actually reached, with a face, a charge and a status behind it. `51-device-connect` ends with
+# this for that reason, and hands the rest of the range a launch that has already talked to the pairing it made.
 #
 # **What it leaves behind: an unlocked, running cube, and it has to undo a quit to get there.** The app pauses and
 # locks the cube on its way out ("Quit: the cube is paused and locked"), so the launch this makes inherits one -- and
@@ -1010,6 +1045,40 @@ watch_bluetooth() {
     trap restore_bluetooth EXIT INT TERM
 }
 
+# Makes sure the radio is on before a script that needs it starts, asking for it if it is not. Answers 0 once it is
+# on, 1 when nobody turned it on or there was no terminal to ask.
+#
+# **The one state a run can begin in that no script can fix for itself, and that the suite creates.** `56` and `60`
+# ask for the radio to be turned off, and both arm `restore_bluetooth` to ask for it back however they end -- which
+# covers a failed check, a script exiting, and Ctrl-C. What it cannot cover is the run being killed outright or the
+# terminal being closed, and then the radio is still off the next time somebody starts a run.
+#
+# **What that looked like without this.** The diagnosis was always right and never actionable: `pair_a_cube` failed
+# and put `Scan unavailable: bluetoothOff` in a setup step nobody is being asked to act on, then `50-device-scan`
+# stopped the run a minute later with the same words. Both correct, neither asking for the one thing that would fix
+# it.
+#
+# **Asked of the system rather than of the app**, and before anything is pressed: a radio that is off leaves every
+# button on the Device tab reading perfectly correctly, so there is nothing on screen to check and no row to wait
+# for -- the app has not been asked to do anything yet.
+require_bluetooth() {
+    bluetooth_is_on && return 0
+
+    if ! action_required \
+        "Turn Bluetooth ON" \
+        "This run needs the radio and it is off. A run that turns it off asks for it back on its way out;" \
+        "one that was killed outright cannot, so it is still off from last time." \
+        "Nothing has been pressed yet: this is asked before the app is given anything to fail at."
+    then
+        return 1
+    fi
+
+    # **Asked again rather than taken on trust**, which is this suite's first principle and cheap here: somebody can
+    # answer y to a banner without having done the thing, and every check after this would then fail about the app.
+    bluetooth_is_on && return 0
+    return 1
+}
+
 # `expect_colours "name" "name cyan, glyph label, figure red"` -- one check on what the status item is drawn in.
 #
 # **The only way a script can see any of this.** The accessibility tree carries no colour at all, so the whole of the
@@ -1220,8 +1289,35 @@ quit_app() {
 
 # ---------------------------------------------------------------------------- driving the window
 
-press()      { python3 scripts/ax-press.py "$1" >/dev/null 2>&1; }
-press_title() { python3 scripts/ax-press.py --title "$1" >/dev/null 2>&1; }
+# `press <identifier>` -- clicks the named element, and **says so when it cannot**.
+#
+# **Silence here has cost this suite two debugging sessions, and they looked nothing like a press failing.** Pressing
+# something that is not on screen did nothing and reported nothing, so the wait after it timed out and blamed whatever
+# it was waiting on: `57-cube-pause` reported the radio for a click that never happened (2026-08-23), and `00-setup`
+# reported that a cube would not take an auto-pause of 0 when nothing had reached the app at all (run 137,
+# 2026-08-29). Both diagnoses pointed away from the fault, which is worse than no diagnosis.
+#
+# **The output is still discarded on success**, which is the honest half of the old shape: `ax-press.py` narrates what
+# it pressed and that is noise in a run of hundreds. What is kept is the failure, printed and returned -- `CLAUDE.md`
+# calls this out by name, and the rule is that discarding output is fine and discarding the failure is not.
+#
+# **The status is returned rather than made fatal.** Callers that want to stop check it; the rest get a red line in
+# the log where their fault actually happened rather than thirty seconds later somewhere else.
+press() {
+    local output status
+    output=$(python3 scripts/ax-press.py "$1" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  the press of $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
+
+press_title() {
+    local output status
+    output=$(python3 scripts/ax-press.py --title "$1" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  the press of the button titled $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 
 # Posts Return, for the one thing a value cannot be written into: an inline edit that commits on the key
 # rather than on a button (Tests/Methods.md Method 10). The field being typed into holds focus, so there
@@ -1246,7 +1342,15 @@ for down in (True, False):
 PYTHON
 }
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
-set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
+# The unfocused write, for a field something has already clicked into. Reports a failure for the reason the two
+# above do: a value that never reached the field fails later, somewhere else, as something it is not.
+set_field() {
+    local output status
+    output=$(python3 scripts/ax-set.py "$1" "$2" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  writing $2 into $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 
 # For a field nothing has clicked into, where the Return that follows has to commit an edit.
 #
@@ -1256,7 +1360,15 @@ set_field()  { python3 scripts/ax-set.py "$1" "$2" >/dev/null 2>&1; }
 # category name escapes this because pressing the name makes the field first responder itself; a daily
 # limit does not, and typed into with `set_field` it silently did nothing (measured 2026-08-16: the tree
 # showed `category-limit-3 value=45` while the table still held 0).
-set_field_focused() { python3 scripts/ax-set.py --focus "$1" "$2" >/dev/null 2>&1; }
+# The same, for writing into a field: `ax-set.py` exits non-zero with the reason on stderr -- the element not being
+# in the tree, or refusing to take focus, which is what a disabled field does -- and both used to be thrown away.
+set_field_focused() {
+    local output status
+    output=$(python3 scripts/ax-set.py --focus "$1" "$2" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  writing $2 into $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
 
 # `on_tab <identifier>` -- how many elements carry exactly this identifier, 0 or 1 for anything named once.

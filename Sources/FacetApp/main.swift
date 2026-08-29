@@ -66,10 +66,29 @@ let debugLog: DebugLog? = {
     return DebugLog(databaseURL: url)
 }()
 
-// With no device paired there is nothing to follow, so the app times by hand. Startup is the first place that needs
-// the answer, which is why the read happens here and not sooner -- and the only place, this being the one moment the
-// mode is decided at all. Nothing after this line may change it; see `LaunchMode`.
-let launchMode = LaunchMode.decided(from: settings, debugLog: debugLog)
+// With no device paired there is nothing to follow, so the app times by hand.
+//
+// **One derivation, defined here and asked rather than held.** Timing by hand is not a fact of its own: it is what
+// being unpaired means, and `paired` is the table's to answer. So this reads the row every time somebody asks, which
+// is `CLAUDE.md`'s first rule and, here, the whole of what lets the app follow a cube the moment one is paired
+// instead of at the next launch. It replaced a `LaunchMode` decided once at startup, whose value could not move while
+// the row under it did -- which is two answers to one question, and cost a restart after every pair, forget and reset
+// to keep them in step.
+//
+// **Every reader takes this closure rather than a copy**, so nothing has to be told when the answer changes. What
+// does have to be told is anything that draws intermittently: the menu bar repaints on a tick that only runs while
+// something is being timed, so it is redrawn where the pairing changes (`settingsWindow.onPairingChanged`).
+let isManualMode = { settings.flag("paired", field: "paired") != true }
+
+// **What this launch started as, for the log and nothing else.** Nothing branches on it: the row is here so a run
+// reconstructed from `debug_log` says which of the two the app came up as, which is the first thing worth knowing
+// about a session and is otherwise only inferable from what happened next.
+debugLog?.record(
+    .mode,
+    isManualMode()
+        ? "Launch mode: manual, no device is paired"
+        : "Launch mode: device, a device is paired"
+)
 
 let app = NSApplication.shared
 // `.accessory`: a menu bar app, so no Dock icon and no app menu. It is also why the dropdown's Quit
@@ -142,7 +161,7 @@ timingReadout.cubeFace = { radio.cubeFace }
 // **Timing by hand means the cube is not asked about at all**, which is the other half of the reconnect loop standing
 // down: that stops the app looking for a cube, and this stops one being drawn if it turns up anyway. Why is
 // `TimingReadout.isManualMode`; that it is asked rather than copied is the same reason everything else here is.
-timingReadout.isManualMode = { launchMode.isManual }
+timingReadout.isManualMode = isManualMode
 // **Read from the table at the moment a reading is taken**, like every other answer here. It is what tells a cube
 // that has gone quiet from no cube at all: without it a dropped link fell through to the app's own faces and drew a
 // manual session nobody had started.
@@ -180,7 +199,7 @@ let settingsWindow = SettingsWindowController(
     icons: IconStore(connection: database),
     colours: ColourStore(connection: database),
     settings: settings,
-    launchMode: launchMode,
+    isManualMode: isManualMode,
     radio: radio,
     lowBattery: lowBattery
 )
@@ -233,22 +252,18 @@ let reconnector = DeviceReconnector(
     settings: settings,
     debugLog: debugLog,
     storedPIN: { DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN },
-    rotatingTo: DeveloperMode.devicePIN,
-    // Asked rather than told, so there is one answer to "is this launch timing by hand" rather than a copy beside it.
-    // It cannot move under the loop any more (`LaunchMode`), which makes asking safe as well as right.
-    isManualMode: { launchMode.isManual }
+    rotatingTo: DeveloperMode.devicePIN
 )
 // What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
 // menu bar that says nothing.
 //
 // **The answer decides whether to keep looking, and nothing else.** It used to decide the launch's mode as well,
-// switching a device launch to timing by hand -- which is the switching `LaunchMode` exists to have removed. A launch
-// that started with a cube on record stays a launch with a cube on record even when the cube cannot be found; what
-// the Device tab says about that is `DeviceInfoRules.connection`'s to answer, and the way to the other mode is to
-// forget the device and start the app again.
+// switching a device launch to timing by hand, and that is deliberately not back: whether this launch has given up
+// hunting is a different fact from whether the app has a device, and the two sharing a name is what the state audit
+// is about. A cube that cannot be found is still on record, which the Device tab says as `Disconnected`; the way to
+// timing by hand is to forget the device, and that now takes effect without a restart.
 //
-// So this closure now only presents the question: the reconnector stops on either answer, and the gate in `attempt`
-// is what keeps it stopped.
+// So this closure only presents the question: the reconnector stops on either answer by arranging nothing further.
 reconnector.onCubeNotFound = { _, answer in
     CubeNotFoundAlert.ask(answer)
 }

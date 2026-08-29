@@ -36,7 +36,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=22
+EXPECTED_CHECKS=23
 start "a cube out of range: what the app shows, what it refuses to write, and what the cube backfills"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so anything
@@ -187,6 +187,15 @@ check "and records that it can no longer reach it" "0" \
 # The state this script is named for. The app has no cube and knows it, and goes on drawing the last thing the cube
 # said -- which is still a true account of what the cube is doing, it has simply stopped being confirmable. Yellow is
 # the whole of how that is said on screen.
+
+# **Everything below assumes the cube was still counting when the link went**, and it is worth asserting rather than
+# assuming, because the alternative reads as an app fault. A cube that stopped itself while this script waited for
+# somebody to turn Bluetooth off leaves a paused segment behind, and a paused segment's figure stands still -- so the
+# check further down reports that the app stopped following a cube, about a cube that had genuinely stopped. Run 135
+# (2026-08-29) lost an hour to exactly that, on a cube carrying a five-minute auto-pause delay; `00-setup` now turns
+# that off, and this is the line that would have said so in one word.
+check "the cube was still counting when the link went, so there is something for the figure to count" "0" \
+    "$(sql "SELECT paused FROM device_event WHERE finalised = 0 AND device_face BETWEEN 1 AND 12 ORDER BY device_event_id DESC LIMIT 1;")"
 
 check_contains "the menu bar goes on naming $NAME_A, which is what the cube last said" \
     "$(status_item)" "$NAME_A"

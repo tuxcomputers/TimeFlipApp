@@ -24,14 +24,18 @@ enum DeviceReconnectRules {
     /// login in flight reports its own outcome, and a reset that is being confirmed is a cube deliberately being let go
     /// of. Starting a second attempt over the top of any of them would be two conversations with one radio.
     ///
-    /// **The last two are the app having deliberately stopped**, and they are the archive's `shouldAttemptConnection`
-    /// minus its `shouldMaintainConnection` (which is `isCubePaired` here). Both mean no attempt from any path: somebody
-    /// who starts the app and walks away has to find the offer exactly where they left it, not a backoff retry having
-    /// quietly started another run of attempts behind the dialog -- and manual mode means the app looks for nothing on
-    /// its own again, so a cube drifting into range for a few seconds cannot surprise anybody.
+    /// **The last one is the app having deliberately stopped**: it is the archive's `shouldAttemptConnection` minus its
+    /// `shouldMaintainConnection` (which is `isCubePaired` here). No attempt from any path while the question is on
+    /// screen -- somebody who starts the app and walks away has to find the offer exactly where they left it, not a
+    /// backoff retry having quietly started another run of attempts behind the dialog.
     ///
-    /// They default to `false`, which reads as "no offer is up and nothing is being timed by hand" -- the state
-    /// every caller that predates them was in.
+    /// **`hasStoppedLooking` is the other one, and it is not a mode.** It used to be spelled `isManualMode` here,
+    /// which made it the same parameter as "this app has no device" -- two different facts sharing a name, and the
+    /// name belonged to neither. A cube that cannot be found is still on record; what somebody answered is whether
+    /// this launch goes on hunting for it. Being unpaired is now the first guard's business and nothing else's.
+    ///
+    /// Both default to `false`, which reads as "no offer is up and nobody has said to stop" -- the state every caller
+    /// that predates them was in.
     static func shouldAttempt(
         isCubePaired: Bool,
         isCubeConnected: Bool,
@@ -39,10 +43,9 @@ enum DeviceReconnectRules {
         isReachingForCube: Bool,
         isFactoryResetRunning: Bool,
         isAwaitingAnswer: Bool = false,
-        isManualMode: Bool = false
+        hasStoppedLooking: Bool = false
     ) -> Bool {
-        guard isCubePaired else { return false }
-        guard !isAwaitingAnswer, !isManualMode else { return false }
+        guard isCubePaired, !isAwaitingAnswer, !hasStoppedLooking else { return false }
         return !isCubeConnected && !isScanning && !isReachingForCube && !isFactoryResetRunning
     }
 

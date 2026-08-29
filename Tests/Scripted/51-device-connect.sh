@@ -307,11 +307,10 @@ check_contains "the Connection row says Connected" "$connection" "Connected"
 
 # **What must never appear with a cube on the other end is a row claiming there is none.**
 #
-# This used to be the check that pairing took the app out of manual mode, and pairing no longer does: a manual launch
-# that pairs a cube goes on timing by hand and says so *alongside* the link -- "Connected, not used until restart" --
-# rather than instead of it (`LaunchMode`). So the thing worth pinning is not which mode the row reports, which
-# depends on how this launch started, but that it never denies a device that is plainly connected. The bare
-# "Manual mode, no device" is the line that would be a lie here.
+# This is again the check that pairing takes the app out of timing by hand, because pairing does that again: the mode
+# is read from `paired` at the point of use, so a launch that started with nothing follows the cube from the moment
+# the row is written. The row therefore reads a plain "Connected" -- the qualified "Connected, not used until restart"
+# is gone with the state it described. "Manual mode, no device" is the line that would be a lie here.
 case "$connection" in
     *"no device"*) fail "the Connection row says there is no device, with one connected" ;;
     *) pass "and does not deny the device, one being connected" ;;
@@ -345,16 +344,13 @@ check "with the pairing untouched" "1" "$(sql "SELECT json_extract(setting_value
 # ---------------------------------------------------------------------------- and a launch that uses it
 #
 # **Arranging, and deliberately not a check.** The pairing this script just made is the one every device script after
-# it runs on, and a pairing on its own is not enough: `LaunchMode` decides once, at startup, from `paired`, and nothing
-# moves it afterwards. A run begins with a rebuilt database and so with a launch that decided `manual`, which goes on
-# being its own clock with a freshly paired cube sitting beside it -- the case the Connection row names in full two
-# sections above, and the reason that check pins what the row must never say rather than which mode it reports.
+# it runs on, and the relaunch is what hands them a link rather than a pairing on its own.
 #
-# **What it looks like when this is missing** is not a pairing failure, which is why it is worth the words: the cube
-# pairs, connects and answers, and the app carries on ignoring it. Run 112 (2026-08-27) failed on `52-device-reset`
-# reading `Manual mode, no device` off the Connection row where it wanted `Device gone, restart to time by hand`, with
-# every check in this script green. Before the range was made to inherit one pairing, each script got this for free
-# from the `pair_a_cube` it opened with.
+# **It is no longer needed to change what the app is**, which it was until 2026-08-29: the mode was decided once at
+# startup, so a run that began with a rebuilt database went on timing by hand with a freshly paired cube beside it
+# until something restarted the app. Run 112 (2026-08-27) is what that cost -- `52-device-reset` read
+# `Manual mode, no device` off the Connection row where it wanted `Device gone, restart to time by hand`, with every
+# check in this script green. Both of those lines have since gone, along with the state they described.
 #
 # **Not a check, for `restore_the_pairing`'s reason** (lib.sh): whether a relaunch reaches the cube again is
 # `53-device-reconnect`'s subject and not this one's, and counting it here would put it in `EXPECTED_CHECKS` twice.

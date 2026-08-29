@@ -75,7 +75,6 @@ final class DevicePaneTests: XCTestCase {
         var values = DevicePane.Values.seeded
         values.isCubePaired = true
         values.isCubeConnected = true
-        values.isManualMode = false
         values.deviceName = "Dibby"
         values.batteryPercent = 34
         values.manufacturer = "DI_LABS 2.0"

@@ -38,6 +38,16 @@ start "scanning for a TimeFlip, and finding one"
 check "a TimeFlip was offered for this run, back in 00-setup" "yes" \
     "$(device_required && echo yes || echo no)"
 
+# **And the radio, asked for rather than failed at.** `00-setup` asks this too, but a run started part way in with
+# `--keep` never reaches that -- and the state it is guarding against is one the suite itself creates: `56` and `60`
+# ask for the radio to be turned off, and a run killed outright cannot ask for it back. Without this the script goes
+# on to press Scan, waits its full minute, and reports the radio correctly to somebody who is no longer watching.
+if ! require_bluetooth; then
+    fail "Bluetooth is off, so nothing can be scanned for"
+    finish
+    exit $?
+fi
+
 open_settings
 select_tab Device
 

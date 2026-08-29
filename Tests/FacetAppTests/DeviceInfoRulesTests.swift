@@ -29,51 +29,34 @@ final class DeviceInfoRulesTests: XCTestCase {
 
     // MARK: - the connection
 
-    func testManualModeSaysSoRatherThanDisconnected() {
+    func testNothingPairedIsAnAppTimingByHand() {
         // The archive's reasoning, kept: "Disconnected" is true of the cube and no answer at all to why the app is
-        // plainly still recording time.
+        // plainly still recording time. Nothing paired is the whole of what timing by hand means now, so this is the
+        // only state that says it.
         XCTAssertEqual(
-            DeviceInfoRules.connection(isCubePaired: false, isCubeConnected: false, isManualMode: true),
+            DeviceInfoRules.connection(isCubePaired: false, isCubeConnected: false),
             "Manual mode, no device"
         )
     }
 
-    func testManualModeOutranksPairing() {
-        // It answers a different question from the other two: they describe a cube, this describes what the app is
-        // doing instead of using one. A paired cube the app is not going to use is still manual mode -- and the row
-        // names the restart, because the restart is the whole of what changes it (`LaunchMode`).
-        XCTAssertEqual(
-            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: false, isManualMode: true),
-            "Paired, not used until restart"
-        )
-    }
-
-    func testAManualLaunchThatPairedACubeSaysItIsNotUsingIt() {
-        // **Connected and ignored at the same time**, which is a state the app can now sit in for hours: pairing a
-        // cube no longer hands it the clock. "Connected" on its own would be the more misleading half of the truth,
-        // describing a link the app has and a job it is not doing with it.
-        XCTAssertEqual(
-            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true, isManualMode: true),
-            "Connected, not used until restart"
-        )
-    }
-
-    func testADeviceLaunchWhoseCubeHasGoneSaysToRestart() {
-        // Only reachable by forgetting or resetting the cube from this very tab, a launch that decided `.device`
-        // having had one on record. There is nothing left to follow and the app will not start timing by hand on its
-        // own, so saying "Not paired" and stopping would read exactly like the app being broken.
-        XCTAssertEqual(
-            DeviceInfoRules.connection(isCubePaired: false, isCubeConnected: false, isManualMode: false),
-            "Device gone, restart to time by hand"
-        )
-    }
-
     func testAPairedDeviceReportsWhetherItCanBeHeard() {
-        XCTAssertEqual(
-            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true, isManualMode: false), "Connected"
+        XCTAssertEqual(DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true), "Connected")
+        XCTAssertEqual(DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: false), "Disconnected")
+    }
+
+    func testPairingACubeIsAllItTakesToBeFollowingOne() {
+        // **The three lines that went, and why they cannot come back.** A manual launch that had since paired a cube
+        // read "Connected, not used until restart", and a device launch whose cube had been forgotten read "Device
+        // gone, restart to time by hand". Both were the app admitting that a mode decided at startup had come apart
+        // from the row underneath it. Timing by hand is read from the pairing now, so the only thing between a cube
+        // being paired and being followed is the row this reads.
+        XCTAssertEqual(DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true), "Connected")
+        XCTAssertNotEqual(
+            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: true), "Connected, not used until restart"
         )
-        XCTAssertEqual(
-            DeviceInfoRules.connection(isCubePaired: true, isCubeConnected: false, isManualMode: false), "Disconnected"
+        XCTAssertNotEqual(
+            DeviceInfoRules.connection(isCubePaired: false, isCubeConnected: false),
+            "Device gone, restart to time by hand"
         )
     }
 

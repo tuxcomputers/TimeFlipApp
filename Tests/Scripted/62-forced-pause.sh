@@ -136,7 +136,7 @@ fi
 
 parked=$(mark)
 if ! ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $parked AND tag = 'face' AND message = 'Face $BREAK_FACE is up';" \
+    "$(on_face_now "$parked" "$BREAK_FACE")" \
     "Turn the cube to the Break face" \
     "That is face $BREAK_FACE. 627 is about to be given a five minute budget, and it must not be spending it yet." \
     "Take as long as you like: this waits, it does not time out."
@@ -231,7 +231,7 @@ close_settings
 
 spending=$(mark)
 if ! ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $spending AND tag = 'face' AND message = 'Face $FACE is up';" \
+    "$(on_face_now "$spending" "$FACE")" \
     "Turn the cube back to the face labelled 627" \
     "It has ${REMAINING} seconds of budget left. Put it down and leave it: the clock runs it out by itself." \
     "Take as long as you like: this waits, it does not time out."
@@ -254,7 +254,7 @@ check "and the cube says it has stopped" "1" \
 
 away=$(mark)
 if ! ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $away AND tag = 'face' AND message = 'Face $BREAK_FACE is up';" \
+    "$(on_face_now "$away" "$BREAK_FACE")" \
     "Turn the cube to the Break face" \
     "Break has no budget set, so the cube is meant to carry on running there." \
     "Take as long as you like: this waits, it does not time out."
@@ -269,7 +269,7 @@ check "the cube runs on Break, which has no budget to spend" "0" \
 
 backagain=$(mark)
 if ! ask_and_detect \
-    "SELECT message FROM debug_log WHERE debug_log_id > $backagain AND tag = 'face' AND message = 'Face $FACE is up';" \
+    "$(on_face_now "$backagain" "$FACE")" \
     "Turn the cube back to the face labelled 627 one last time" \
     "Its budget is already spent, so the app should stop it again within a second or two of the turn." \
     "Take as long as you like: this waits, it does not time out."

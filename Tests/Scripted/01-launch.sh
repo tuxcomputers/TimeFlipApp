@@ -95,7 +95,7 @@ rm -f "$refusal"
 
 # The point of the lock: a duplicate must not open the database. `Launch mode` is logged after the lock
 # is claimed and the database is open (`main.swift` exits a duplicate at the lock, well before
-# `LaunchMode.decided` records the row), so a second one of those is the failure this exists to prevent --
+# `main.swift` records the row at startup), so a second one of those is the failure this exists to prevent --
 # and it is a sharper test than counting processes, which cannot tell "refused" from "never started".
 #
 # **It was `Manual mode%` until 2026-08-24, and had stopped matching anything.** The row was renamed to

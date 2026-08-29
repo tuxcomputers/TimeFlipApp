@@ -7,10 +7,11 @@ enum CubeNotFoundAnswer: Equatable {
     case retry
     /// Stop. The app makes no further attempt **of its own** for the rest of the launch.
     ///
-    /// **It settles the loop and nothing else.** This used to be `switchToManualMode` and used to change what the
-    /// launch was, which is the switching `LaunchMode` exists to have removed: the app is still a launch with a cube
-    /// on record, now one that has given up looking for it. What that state says on screen is
-    /// `DeviceInfoRules.connection`'s to answer.
+    /// **It settles the loop and nothing else.** This used to be `switchToManualMode` and used to change what the app
+    /// was, which is a different fact: the cube is still on record, and what has changed is that this launch has
+    /// given up looking for it (`DeviceReconnector.hasStoppedLooking`). Timing by hand is reached by forgetting the
+    /// device, which takes effect at once. What this state says on screen is `DeviceInfoRules.connection`'s to
+    /// answer, and it is `Disconnected`: a cube on record that cannot be heard from.
     case stopLooking
 }
 

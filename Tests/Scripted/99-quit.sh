@@ -87,7 +87,7 @@ fi
 # ---------------------------------------------------------------------------- and then a launch that can time
 #
 # **The wipe above forgot the device, and this launch still follows one.** A launch decides once whether it follows a
-# cube or is its own clock, and forgetting the cube does not move it (`LaunchMode`) -- so what is running now is an
+# cube or is its own clock, and it is read from `paired` every time it is asked -- so what is running now is an
 # app with nothing to follow and no licence to start a clock of its own. Creating a category below would open no
 # segment at all, and the quit would have nothing to close.
 #
@@ -96,8 +96,8 @@ fi
 # said a segment was open. It was; it was simply not this script's. The conversion check then failed twelve lines
 # later, on the honest ground that a paused segment never becomes a `time_entry`.
 #
-# Restarting with nothing paired is what makes this an app that times by hand, and it is exactly what the app tells a
-# user to do ("Device gone, restart to time by hand").
+# Nothing paired is what makes this an app that times by hand, and since 2026-08-29 the restart is not what the app tells a
+# part of it: the wipe forgets the device and the app is its own clock from that moment.
 
 close_settings
 quit_app

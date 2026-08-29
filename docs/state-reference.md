@@ -31,8 +31,14 @@ asked the cube yet*, that is a real third answer the app already branches on, so
 `unknown` case. Where `nil` means *there is no such thing to ask about*, as in a face number that is not a
 face, that is a failed lookup, the name stays `is<Name>`, and the absence is handled where the lookup is.
 
-**A two-valued enum is a boolean.** The convention is about the fact, not the storage. `LaunchMode` has two
-cases and stays an enum for the reasons its own file gives; what a branch reads is `isManualMode`.
+**A two-valued enum is a boolean.** The convention is about the fact, not the storage.
+
+**Timing by hand is not a state of its own** (2026-08-29). `isManualMode` is `!isCubePaired`, read from the same row
+at the same moment, so the two rows above are one fact under two names and the second is kept only because it reads
+better where the question is "am I the clock". Nothing may hold it: it was a `LaunchMode` decided once at startup,
+which could not move while the row under it did, and keeping the two in step cost a restart after every pair, forget
+and reset. What is left of the old mode is `hasStoppedLooking`, which is a different fact -- whether this launch has
+given up hunting for a cube it still has -- and now says so in its own name.
 
 ---
 
@@ -40,7 +46,7 @@ cases and stays an enum for the reasons its own file gives; what a branch reads 
 
 | Name | Values | Truth |
 | --- | --- | --- |
-| `isManualMode` | true / false | `LaunchMode`, from `setting.paired.paired` at startup |
+| `isManualMode` | true / false | `setting.paired.paired`, read at the point of use: it **is** `!isCubePaired` |
 | `isDeveloperMode` | true / false | `DeveloperMode` |
 | `isTestDatabase` | true / false | `DatabaseEnvironment`, from `setting.database.type` |
 | `isQuitting` | true / false | `setting.connection.quit_request`, plus `QuitSequence` progress |
@@ -56,6 +62,7 @@ cases and stays an enum for the reasons its own file gives; what a branch reads 
 | `isScanWanted` | true / false | `BluetoothRadio.wantsToScan` |
 | `isReachingForCube` | true / false | `BluetoothRadio.isReaching` |
 | `isAwaitingAnswer` | true / false | `DeviceReconnector.isAwaitingAnswer` |
+| `hasStoppedLooking` | true / false | `DeviceReconnector.hasStoppedLooking`, per launch |
 | `isDisconnectingDeliberately` | true / false | `BluetoothRadio.isDisconnectingDeliberately` |
 | `isFactoryResetRunning` | true / false | today two separate flags |
 
