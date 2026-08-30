@@ -199,6 +199,8 @@ Characters are deliberately **not** filtered as they are typed. An emoji that va
 
 A failed *write* is deliberately excluded from all of that: the device not answering is a different problem from a name it cannot hold, and quoting the character rules at a connection fault sends the user looking in the wrong place. `DeviceNameRulesTests` asserts each of these.
 
+**What is pinned without a cube, and what is not.** `RenamingTheCubeReachesItFirstTests` drives the Name row against a real database and a radio with nothing on it, which is every path that must leave `device_name` alone: a name the cube cannot hold never reaching the radio, a name no cube took never being written down, the row going back to what is stored, and the reported-name rule refusing exactly the stale read. What no hermetic test can reach is a cube that takes the write, so the other half -- the row following a `0x15` the cube accepted, and the cube still being found on the next launch -- is `Tests/Scripted/66-device-rename.sh`.
+
 The name is written down only once the cube has taken the write -- which, `0x15` having no reply of its own, is the whole of the evidence available. A write the cube would not take leaves both the Device tab and `device_name` saying what it still answers to, which matters beyond cosmetics: `device_name` is what the scan filter matches a renamed cube on, so a name the device never took would be a name nothing could be found by.
 
 **The note for the device checklists is spent**, and it is worth recording why. The archive's rename needed
