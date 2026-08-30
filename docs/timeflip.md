@@ -130,8 +130,8 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 - The device **reuses the same event number for the current interval** and refreshes its duration roughly every 5 s. That means duration updates arrive on the same `event_number`.
 - Because of that reuse, the host **must not advance its cursor past the last frame**; otherwise refreshed durations for the in-progress interval would be missed.
 
-### Host-side ingestion rules (macOS driver)
-- On every refresh, read the position out of `device_event` as **the newest segment recorded**, open or not, and fetch history starting *at* it. `AppDataStore.latestRecordedEvent()` is one row, and returns the pair that identifies a segment rather than the number alone:
+### Host-side ingestion rules (this app)
+- On every refresh, read the position out of `device_event` as **the newest segment recorded**, open or not, and fetch history starting *at* it. `DeviceEventRecorder.newestFromTheCube()` is one row, and returns the pair that identifies a segment rather than the number alone:
 
   ```sql
   SELECT event_number, start_epoch FROM device_event ORDER BY start_epoch DESC, device_event_id DESC LIMIT 1;
@@ -154,26 +154,40 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 
   **The newest row, not the highest number.** Those are different questions and only the first is useful. Event numbers restart at 1 after a factory reset, so `MAX(event_number)` returns a stranded value from a counter generation the cube has abandoned: on the production database it returns 38, from a dead generation, while the newest segment is event 10.
 
-  This replaced a window-function walk that ordered every row, found the last point where `event_number` dropped below its predecessor, and took the maximum at or after that boundary. It computed the right answer, but only as a way of making `MAX` safe, and it could not do what it appeared to: straight after a reset there is no post-reset row for the counter to have dropped between, so it still returned the stranded value and the fetch still asked for events the cube no longer had. Reproduced in `Tests/FacetAppTests/Workflows/W08-post-reset-production-resume.swift`.
+  This replaced a window-function walk that ordered every row, found the last point where `event_number` dropped below its predecessor, and took the maximum at or after that boundary. It computed the right answer, but only as a way of making `MAX` safe, and it could not do what it appeared to: straight after a reset there is no post-reset row for the counter to have dropped between, so it still returned the stranded value and the fetch still asked for events the cube no longer had. Reproduced against a copy of `production.sqlite` at the time; the query that replaced it is the one above.
 
-  **A position the cube cannot reach is not used.** `HistoryIngestor.resumeCursor` takes the stored row and the device's own last event (a live single-frame read, step 2 of `refreshHistory`) and uses the stored position only if the device's event is at or after it in **both** the counter and the clock. Failing either, the stream starts from 0. Two ways it fails:
+  **A position the cube cannot reach is not used.** `HistoryIngestor` takes the stored row and the device's own last event (a live single-frame read, step 2 of its sequence) and uses the stored position only if the device's event is at or after it in **both** the counter and the clock. Failing either, the stream starts from 0. Two ways it fails:
 
   - **A lower number.** The counter restarted at 1, which is what a factory reset does.
   - **An earlier `start_epoch`.** Within one counter generation a later event never begins before an earlier one, so a "newer" event that started before the row on file proves the generation changed. This is what catches a reset that has already counted back up to the stored number, where the numbers match and nothing about them looks wrong. Production is exactly that shape: its newest row is event 10, and event 10 also exists in two dead generations. Measured against a copy of `production.sqlite`, comparing numbers alone took the "nothing changed" path and wrote one row where ten were due, losing events 1-9 of the new generation silently.
 
-  Nothing is invalidated when this fires, because there is nothing to invalidate: the next refresh re-reads the table, and once a post-reset row is in it the same query returns it. The pre-reset rows stay -- they are recorded time, and the cube restarting a counter says nothing about time already spent. `recordDeviceEvent` matches on `(event_number, start_epoch)`, so a reused number lands as its own row.
+  Nothing is invalidated when this fires, because there is nothing to invalidate: the next refresh re-reads the table, and once a post-reset row is in it the same query returns it. The pre-reset rows stay -- they are recorded time, and the cube restarting a counter says nothing about time already spent. `DeviceEventRecorder.record` matches on `(event_number, start_epoch)`, so a reused number lands as its own row.
 
   **Known gap.** A cube reset while this app is not running, which then counts *past* the stored position before the next launch, reports both a higher number and a later start, so both tests pass. The two generations merge and the new generation's first events, up to the old position, are never ingested. Telling that case apart needs a second device read: asking for the device's own event 10 and seeing that it began at a different second from the row on file. Not currently handled.
 - On live face/pause events: re-fetch history from the cursor and write **every** frame to `device_event`, including the last. The distinction is `finalised`, not whether the row exists: all but the last are written as closed (`finalised = 1`), and the last is written as the open segment (`finalised = 0`), whose `duration_seconds` grows on each refresh until a later event closes it out. The same frame is what drives the UI, so repeated refreshes pick up duration/paused updates on the same event number.
 
-  The one case where the last frame is **not** written is an ambiguous one: a stream cut short by a dropped connection can end on a frame that is really already closed, with unfetched history beyond it. The app only trusts the last frame as "current" when its event number is at least the device's own reported last event number *and* every frame ahead of it committed. Failing either, the frame is withheld entirely, neither recorded nor displayed, so the next refresh resumes from the same point and resolves it rather than showing a stale or premature activity. See `HistoryIngestor.refreshHistory`, step 4.
-  Every frame in the batch is written, with no "have I seen this event number before?" filter in front of it. `recordDeviceEvent` matches on `(event_number, start_epoch)`, so re-writing a segment already on record updates that row in place, and the database is the only thing that answers the question correctly across a reset -- a filter keyed on the number alone discards a whole post-reset generation as already seen.
+  The one case where the last frame is **not** written is an ambiguous one: a stream cut short by a dropped connection can end on a frame that is really already closed, with unfetched history beyond it. The app only trusts the last frame as "current" when its event number is at least the device's own reported last event number *and* every frame ahead of it committed. Failing either, **nothing from the batch is written at all** -- this app withholds the whole stream rather than only the live frame, because its recorder decides open-versus-closed from the newest row it can see, so a partial batch would leave a stretch that finished long ago drawn as what is happening now. The next refresh resumes from the same point and resolves it.
+  Every frame in a batch that does land is written, with no "have I seen this event number before?" filter in front of it, **in ascending order**. `DeviceEventRecorder.record` matches on `(event_number, start_epoch)`, so re-writing a segment already on record updates that row in place, and the database is the only thing that answers the question correctly across a reset -- a filter keyed on the number alone discards a whole post-reset generation as already seen.
 - Cursors:
   - There is no cursor, stored or in memory. The resume position is the `device_event` query above, re-read on every refresh.
   - There are no integration cursors either. They tracked delivery progress by legacy `logbook` rowid; both the cursor table and `logbook` are gone, and `time_entry.synced_to_google_calendar` is the flag that replaced them.
-- The day's totals are **per category, and derived rather than accumulated**: after each batch `DailyCategoryTotals.seedFromHistory` re-sums the `time_entry` rows overlapping the current window and the result replaces `AppState.dailyCategoryDurations` wholesale. Per category because that is what a `daily_limit` is set on, and from `time_entry` because that is the only place the category a segment counted against is recorded — see [Operation Spec § 6](operation-spec.md). Adding each segment's duration as it was written only stayed right while the event-number filter suppressed second writes; with segments deliberately re-written, a running tally would double-count. Seeded after `sweepTimeEntries`, since that is what puts the rows there.
+- The day's totals are **per category, and derived rather than accumulated**: `DayTotal` re-sums the `time_entry` rows overlapping the current window every time it is asked, and adds the open segment's elapsed time on top. Nothing is kept between calls, so there is no seeding step and no tally to keep in step. Per category because that is what a `daily_limit` is set on, and from `time_entry` because that is the only place the category a segment counted against is recorded — see [Operation Spec § 6](operation-spec.md). A running tally would double-count the moment a segment was re-written, which this app does deliberately.
 
-## 6. Connection and session lifecycle (macOS driver)
+## 6. Connection and session lifecycle (the archived driver)
+
+**This section, § 7 and § 10 describe `Archive/TimeFlipApp/TimeFlipBLEDevice.swift`, not the app as it stands.** They
+are kept because the sequence is prior art worth reading before changing the current one, and because several of the
+steps encode measurements. The rebuild's driver is `BluetoothRadio` over `DeviceLogin`, and it differs in ways worth
+knowing before reading on:
+
+- **Two PIN candidates and no third guess**, the vendor default then the stored one, each on a connection of its own.
+  There is no "fall back to the default if the user's fails" (step 3 below) because there is no user-supplied PIN.
+- **Subscription is by property, not by list** (step 4): every characteristic whose properties say it can notify is
+  subscribed to, so nothing the cube can push is silently unsubscribed and therefore never sent.
+- **No `TimeFlipDeviceSnapshot`.** Nothing accumulates a picture of the device in memory; each question is asked when
+  its answer is wanted, and what is durable is a row (see `docs/database-design.md`, `device_info`).
+- **Every command with a read-back defined is read back** before it is believed, which the archive did for some and
+  not others.
 
 Sequence in `TimeFlipBLEDevice`:
 1) `start()` creates the AsyncStream for events.
@@ -192,13 +206,13 @@ Sequence in `TimeFlipBLEDevice`:
    - `primeSnapshot()` reads system state, face, and battery once.
 6) Steady state: `CBPeripheralDelegate` translates characteristic updates into `TimeFlipEvent` cases and maintains `TimeFlipDeviceSnapshot`. Disconnection triggers `onDisconnect` so the app can auto-retry.
 
-## 7. Entities in the app layer
+## 7. Entities in the archived app layer
 
 - `TimeFlipEvent` (faceChanged, doubleTap, autoPauseMinutes, batteryLevel, systemState, deviceInfo, eventLog).
 - `TimeFlipDeviceSnapshot` keeps the latest face, pause/lock flags, auto-pause minutes, battery, system state, device time, and optional device info; serializable to JSON for debug.
 - `TimeFlipHistoryEntry` models a history frame (eventNumber optional because the device can send zero).
 
-These structures mirror the BLE payloads and are shared by the real and mock implementations.
+These structures mirror the BLE payloads and were shared by the archive's real and mock implementations. The rebuild has neither a snapshot type nor a mock device.
 
 ## 8. Operational guidance
 
@@ -215,7 +229,7 @@ These structures mirror the BLE payloads and are shared by the real and mock imp
 - Duration in history frames is five-byte little-endian per spec; some firmware seems to emit only four meaningful bytes. Be tolerant when parsing.
 - Command 0x14 response endianness varies; choose the smallest non-zero elapsed value (Swift logic).
 
-## 10. Minimal happy path (as implemented)
+## 10. Minimal happy path (as the archive implemented it)
 
 1) Scan (broad, then filtered) → connect; abort setup if `connect()` returns false.
 2) Discover services/characteristics; require all TimeFlip chars.
@@ -225,4 +239,4 @@ These structures mirror the BLE payloads and are shared by the real and mock imp
 6) Stream notifications; on face change, emit `faceChanged`; on double tap emit pause toggle; react to system/battery updates.
 7) On demand, read history starting at cursor, stop on sentinel.
 
-This flow matches the production driver (`TimeFlipBLEDevice.swift`) and the vendor v4.3 protocol notes.
+This flow matches the archived driver (`Archive/TimeFlipApp/TimeFlipBLEDevice.swift`) and the vendor v4.3 protocol notes. See § 6's preamble for where the current driver departs from it.

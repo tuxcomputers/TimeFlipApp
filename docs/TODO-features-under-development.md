@@ -1,4 +1,10 @@
-# Feature under development
+# Features under development
+
+**Read this first.** This file is a running record of decisions, kept in the order they were taken, and several
+sections predate the ground-up rebuild -- so a section can be an accurate account of a decision and still describe
+code that no longer exists. Sections written against the previous implementation say so at the top. For what is built
+in the app **as it stands**, [rebuild.md](rebuild.md) is the answer; this file is the reasoning behind individual
+features and is worth reading before changing one.
 
 - [x] Categories
 - [x] Faces
@@ -7,9 +13,11 @@
 - [ ] Sync to TimeFlip cloud
 - [ ] Projects
 - [ ] Cost time entry
-- [x] Device rename
+- [ ] Device rename -- **storage only.** `device_name` carries the current and previous names and the scan matches
+      both, so a cube renamed elsewhere is still findable, but nothing in the app sends `0x15`. The section below is
+      the previous app's implementation, kept as the design to rebuild from.
 - [x] Report
-- [x] Manual mode
+- [x] Timing by hand (was "Manual mode")
 
 ## Categories
 
@@ -32,11 +40,11 @@
 
 The create flow no longer guesses between them: typing a name that matches more than one retired category drops the reinstate button and points at the Inactive list, where each is at least a separate row. That much is built. What was missing is any way to know *which* row is which.
 
-- **Show what distinguishes them on the row.** Built. The Inactive list carries a **Last used** column: the end of that category's most recent `time_entry`, or `Never` for one that has recorded none (`CategoryLastUsedText`, filled by `AppDataStore.loadCategories`). Two namesakes whose history differs are separable at a glance, and one with nothing behind it says so rather than sitting blank.
+- **Show what distinguishes them on the row.** Built. The Inactive list carries a **Last used** column: the end of that category's most recent `time_entry`, or `Never` for one that has recorded none (`CategoryLastUsedText`, filled by `CategoryStore`). Two namesakes whose history differs are separable at a glance, and one with nothing behind it says so rather than sitting blank.
 
   **Total time recorded against each will not be built** (decided 2026-08-10). It was the other half this section once asked for, on the grounds that last used answers how recently rather than how much, so a category used once for a minute reads the same as one used daily for a year. That distinction is real but is not worth a second aggregate over `time_entry` on every category load: the question this section exists to answer is *which of these two rows is mine*, and a date answers it. Reopen it only if two namesakes turn up that were genuinely last used at the same time.
 
-  This section used to propose a `retired_at` column instead, on the grounds that a last-used date needed `time_entry`, which had no writer at the time. It has one (`AppDataStore.convertEligibleEvents`), so the better signal was available and `retired_at` is no longer wanted: when a category was retired says nothing about the history behind it, which is the actual question being asked. That dependency was also the stated reason two tests in `CategoryStoreTests` are commented out; the reason no longer holds, so they are worth reinstating on their own merits.
+  This section used to propose a `retired_at` column instead, on the grounds that a last-used date needed `time_entry`, which had no writer at the time. It has one (`TimeEntryRecorder`), so the better signal was available and `retired_at` is no longer wanted: when a category was retired says nothing about the history behind it, which is the actual question being asked. That dependency was also the stated reason two tests in `CategoryStoreTests` are commented out; the reason no longer holds, so they are worth reinstating on their own merits.
 - **Let a namesake be given its own name.** Built. The Inactive list's name is editable, by the same click on the same cell the Active list uses, so a row that has been told apart by its Last used date can be made to *stay* apart rather than being re-identified every time the list is opened. This is the half that turns the point above from a diagnosis into a fix, and it was the archive's behaviour too (`retiredRow` drew the same editable field the active row drew, behind a right-click *Edit*).
 
   It also carries a rule the archive got wrong. `UN1_category` covers active rows only, so a retired row may take an *active* row's name; the archive branched on the row in the way rather than the row being renamed and refused that, enforcing a constraint the database does not have. It is now confirmed instead, and the dialogue says the cost: while the two share a name the retired one cannot be reinstated, which is the one thing an active namesake really does block.
@@ -50,13 +58,21 @@ A third option was considered and rejected: forbidding duplicate names among *re
 
 - Any **active** category can be assigned to a face.
 - The same category can be assigned to multiple faces at once.
-- Two ways to assign:
-  1. The list on the right-hand side (the existing per-face settings list).
-  2. Click the **current face** (the device's currently active face) to open a dropdown of active categories; typing into the field filters the dropdown by the typed text.
+**Built, and the gesture landed simpler than either option here.** There is one way to assign, not two: turn the cube
+to the face, then click a category in the list. No dropdown, no text field on the face row, and nothing to filter --
+the list on the right *is* the picker, and the face the cube is resting on is what it applies to.
 
-- Category assignment **replaces** today's free-text per-face editing: a face's identity becomes its assigned `category_id`, and the category's own name/icon/colour (already columns on `category`) are what display for that face. The current free-text name field (`TopFaceEditor`'s `nameBinding` in `SettingsViews.swift`) goes away.
+The two options originally written down were a per-face list and a click-the-current-face dropdown. What made both
+unnecessary is that the cube already selects the face: a physical device resting on a side is a selection, so
+re-implementing one on screen would have been a second way to say the same thing.
 
-(Note: today, `TopFaceEditor` in `SettingsViews.swift` edits a face's name/icon/colour directly per row, independent of the `category` table — there's no category-picker dropdown yet, filtered or otherwise, and no "click the current face to assign" gesture. This is a real re-model of how a face's display comes to be, not just an added picker, on top of the `active`-aware category list from the Categories section above.)
+- Category assignment **replaced** free-text per-face editing: a face's identity is its `category_id`, and the
+  category's own name, icon and colour are what display for that face. The previous app's per-face name field
+  (`TopFaceEditor`'s `nameBinding`, `Archive/TimeFlipApp/SettingsViews.swift`) is gone with the rest of that file.
+- What a click means is one rule, `FacesTabRules.Click`, read twice -- by the list to decide whether its rows are
+  live, and by the click to decide what it does -- so the drawing and the action cannot disagree. That matters because
+  a click can mean four things: assign to the face, start the app's own clock, refuse because the face is locked, or
+  refuse because there is a cube on record that has not been reached.
 
 ## Time logs
 
@@ -64,7 +80,15 @@ A third option was considered and rejected: forbidding duplicate names among *re
 - The new row's `category_id` is the category the face was linked to **at that time** — captured at creation, not looked up later. If the face's category assignment changes afterward, past `time_entry` rows keep pointing at the category they were actually logged against.
 - Every other `time_entry` column is calculated at creation time: `started_at`/`ended_at` (from the `device_event`'s start and the point it closed), `duration_seconds`, `total_cost` (from the category's `cost`), etc. -- nothing is backfilled or recalculated after the fact.
 
-Built in PR #43. `AppDataStore.createTimeEntriesForFinalisedEvents` runs at the end of every `recordDeviceEvent`, so an entry appears as the following flip closes a segment out. `sweepTimeEntries(trigger:)` is the wider pass that drops the `processed` condition to find rows wrongly marked done, triggered on launch, on history ingest, and before a face changes category -- before, so the entry can still resolve the face-to-category link as it was when the time was spent. `UN1_time_entry` makes one entry per `device_event` a constraint rather than a convention. See [Operation Spec § 3](operation-spec.md).
+Built. `TimeEntryRecorder.consider(deviceEventID:)` is called by `DeviceEventRecorder` the moment it finalises a row,
+so an entry appears as the following flip closes a segment out. **It is handed an id and reads the row itself**, the
+table being what is true about that segment; details passed as arguments would be a second copy that can differ from
+it. `UN1_time_entry` makes one entry per `device_event` a constraint rather than a convention. See
+[Operation Spec § 3](operation-spec.md).
+
+There is **no periodic sweep**, which the previous app had (`sweepTimeEntries`) and which `setting.time_entry_check`
+was seeded for. Conversion is driven by a segment closing instead. The cost is stated in the operation spec: lowering
+`blip_time` no longer retroactively converts the segments an earlier, higher threshold skipped.
 
 Segments shorter than `blip_time` get no entry and are marked `processed`, which is the cube being turned past a face rather than time spent on it.
 
@@ -102,7 +126,7 @@ Still worth knowing before this is turned on against a database with history: **
 - Multiple categories can be associated with a single project, each carrying its own cost.
 - Reporting can be grouped by project.
 
-(Note: `project` (`006_project.sql`) is currently id/name only -- "for now", per its own comment -- and `category.project_id` already links many categories to one project, so that part of the association is already schema-supported; each category's own `cost` is what rolls up under the project. What's missing: any project create/manage UI at all (no `Project`-named view exists anywhere in `Sources/`), and any reporting query that groups by `project_id` -- the [Report](#report) tab groups by category only and doesn't reference `project` at all. Note that `ReportSettingsView.swift`, despite its name, is the **App** tab and never was the report; it took the name first, which is why the tab enum's `.report` case had to be renamed `.app` when the real one arrived.)
+(Note: `project` (`006_project.sql`) is currently id/name only -- "for now", per its own comment -- and `category.project_id` already links many categories to one project, so that part of the association is already schema-supported; each category's own `cost` is what rolls up under the project. What's missing: any project create/manage UI at all (no `Project`-named view exists anywhere in `Sources/`), and any reporting query that groups by `project_id` -- the [Report](#report) tab groups by category only and doesn't reference `project` at all. Note that the archive's `ReportSettingsView.swift`, despite its name, was the **App** tab and never the report; it took the name first, which is why that app's tab enum's `.report` case had to be renamed `.app` when the real one arrived.)
 
 ## Cost time entry
 
@@ -110,7 +134,7 @@ Still worth knowing before this is turned on against a database with history: **
 - It is captured, not looked up later: changing a category's `cost` afterwards must leave every existing `time_entry` exactly as it was, the same way `category_id` is captured rather than resolved at read time.
 - Reporting can total cost, per category and (with Projects) per project.
 
-(Note: the column exists and is written by nobody. `time_entry.total_cost` is `INTEGER NOT NULL DEFAULT 0` and the insert in `AppDataStore.convertEligibleEvents` omits it, so every entry created so far reads zero -- this was split out of Time logs, whose spec called for it, rather than left as a footnote there. `category.cost` is likewise `INTEGER NOT NULL DEFAULT 0` and there is no UI anywhere that sets it, so the input side is missing too.
+(Note: the column exists and is written by nobody. `time_entry.total_cost` is `INTEGER NOT NULL DEFAULT 0` and the insert in `TimeEntryRecorder` omits it, so every entry created so far reads zero -- this was split out of Time logs, whose spec called for it, rather than left as a footnote there. `category.cost` is likewise `INTEGER NOT NULL DEFAULT 0` and there is no UI anywhere that sets it, so the input side is missing too.
 
 Both columns are **whole cents**, per [Database Design](database-design.md) (`250` = \$2.50), so money never touches a float, and `cost` is a rate per hour. That leaves one thing open:
 
@@ -120,10 +144,15 @@ No currency column exists anywhere, which is fine for one user with one currency
 
 ## Device rename
 
-- The user can give the physical TimeFlip its own name.
-- The Scan for Devices list must match **both** the vendor default name and the stored custom name, so a renamed cube is still findable.
+**Half built.** The storage and the scan matching are in the current app; the rename itself is not, and everything
+below marked "(done)" was done in the previous implementation (`Archive/`). It is kept as the design to rebuild from,
+and in particular for the four measured findings at the end, which are facts about the hardware and so still true.
 
-### Storage: `device_uuid` and `device_name` (done)
+- The user can give the physical TimeFlip its own name. **Not built** -- there is no control that sends `0x15`.
+- The Scan for Devices list must match **both** the vendor default name and the stored custom name, so a renamed cube
+  is still findable. **Built**, and it matches the previous name too (`DeviceScanRules`).
+
+### Storage: `device_uuid` and `device_name` (done, and carried into the rebuild)
 
 The old single `paired_device` row held the peripheral uuid and the name together, under one lifetime. It is now **two rows**, because the two need different ones:
 
@@ -138,7 +167,7 @@ The name outliving Forget Device is the whole point of the split. Forgetting a d
 
 `AppState.pairedDeviceName` stays display-only and is no longer persisted, so the Device tab's "Not paired" placeholder cannot reach the database as if it were a device called that -- which is what let the name survive a forget without the tab claiming a pairing that is gone.
 
-### The rename UI (done)
+### The rename UI (done in the previous app; not rebuilt)
 
 Right-clicking the **Name** row on the Device tab offers **Rename**, which turns the value into an inline field. Return submits, Escape abandons it. The same shape as the Categories tab's rename, which is how this app already renames things.
 
@@ -166,11 +195,11 @@ The name is adopted locally only once the device confirms the write. A failed wr
 
 **Note for the device checklists**: a SwiftUI `.contextMenu` is invisible to accessibility -- it reports zero menus and `AXShowMenu` opens nothing (established while building the Categories tab, see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs `act_cgevent_context_menu_pick` in `scripts/testrunner/actions.py`, which exists and works.
 
-### Confirmation, which the device makes impossible (done as far as it can be)
+### Confirmation, which the device makes impossible (done in the previous app as far as it could be)
 
 Both items that stood here are closed.
 
-**The checklists exist.** `Tests/Bench/09b-device-rename-checklist.md` covers the whole feature and was last run against the cube on 2026-08-02; `Tests/Interactive/09i` is a stub, because renaming needs the device switched on but never a hand on it. That run is what verified the part whose failure mode was losing the cube entirely: a renamed device is still found on the next launch, by the remembered `device_name` rather than by the vendor default.
+**The checklists existed.** `Archive/Tests/Bench/09b-device-rename-checklist.md` covered the whole feature and was last run against the cube on 2026-08-02. That run is what verified the part whose failure mode was losing the cube entirely: a renamed device is still found on the next launch, by the remembered `device_name` rather than by the vendor default.
 
 **A rename cannot be confirmed at the time it is made, and the app now says so instead of pretending otherwise.** There is no acknowledgement for `0x15` and no useful read-back within the session, both measured (see the note below). `peripheralDidUpdateName(_:)` is implemented and fires about two seconds into the *following* connection, which is the confirmation, so a rename is reconciled at the next connect. What the app adds on top is honesty about the gap: `DeviceNameRules.renameLagNotice` puts a caption on the Device tab saying the new name is stored and that the cube will keep advertising the old one until it reconnects, and `AppState.clearRenameLagNoticeIfCaughtUp(reported:)` drops the caption once the two names agree. The wording blames the firmware for the advertised name only, not for the rename, because the rename itself does work.
 
@@ -211,12 +240,12 @@ The two names disagreeing is what made a renamed cube unfindable, and the advert
 - A **Report** tab showing what each category took over a chosen span of days.
 - Two calendars across the top: a start and an end. The end is **optional** -- a start on its own reports that single day, which is the common case in one click.
 - The end can never precede the start, and neither can be in the future: this is a time recorder, not a time planner, so a future date would only ever answer "nothing tracked", which is indistinguishable from a real day on which nothing was. Both are enforced by what the calendars will let you pick rather than by refusing a selection afterwards, so there is no error state to report.
-- A **day** here is the app's own day, `daily_reset_time` to the same time next day, not a calendar midnight. That is the window `DailyCategoryTotals` measures the menu bar over, so a one-day report shows exactly what the menu bar showed that day.
+- A **day** here is the app's own day, `daily_reset_time` to the same time next day, not a calendar midnight. That is the window `DayWindow` defines and `DayTotal` measures the menu bar over, so a one-day report shows exactly what the menu bar showed that day.
 - Totals come from `time_entry`, longest first. Spans straddling either end of the range are **clipped** to it, which is what makes two adjacent reports add up to the report over both -- an overnight segment would otherwise count in full on both of the days it touches.
-- `Unassigned` is included, unlike `AppDataStore.loadCategories()`, which starts at `category_id` 1. Time on a face with no category of its own was still time spent, and dropping it would leave a report that quietly fails to add up to the day.
+- `Unassigned` is included, unlike the category lists, which start at `category_id` 1. Time on a face with no category of its own was still time spent, and dropping it would leave a report that quietly fails to add up to the day.
 - Durations follow the existing **Show seconds in the menu bar** setting, so a span never reads one way in the menu bar and another way here. That setting also earns its keep on this screen: at `H:MM` every total under a minute reads `0:00`, indistinguishable from a category that was opened and left.
 
-(Note: built on `feature/reportTab` -- `ReportView`, `ReportDateRange`, `ReportCalendarView`, `ReportCalendarGrid`, `ReportCalendarMetrics`, and `AppDataStore.loadCategoryTotals(from:to:)`. Verified against the device database, not only by unit test: a 5--6 Aug range rendered Unassigned 4:55, Break 3:54 and Meeting 1:57, matching the same clipped sums computed directly from `test.sqlite`.
+(Note: built as `ReportPane`, `ReportCalendar`, `ReportCalendarGrid`, `ReportCalendarMetrics`, `ReportRangeRules` and `TimeEntryStore.totals`. Verified against the device database, not only by unit test: a 5--6 Aug range rendered Unassigned 4:55, Break 3:54 and Meeting 1:57, matching the same clipped sums computed directly from `test.sqlite`.
 
 The calendars are **drawn by this app rather than taken from the system**, which is a maintenance cost worth knowing about. Two requirements forced it, both established by measurement: the selected span is drawn bold and tinted across both calendars, and neither SwiftUI's `DatePicker` nor AppKit's `NSDatePicker` exposes any hook for styling an individual day cell; and the month arrows stop at the last month holding a selectable day, where a bare `NSDatePicker` with `minDate`/`maxDate` set directly still paged into a fully greyed-out month (measured 2026-08-08). A date bound governs which days can be *selected*, not which month is *displayed*. Don't revisit either without new evidence that the platform has changed.
 
@@ -229,6 +258,17 @@ What is missing, in dependency order rather than priority:
 - **No maximum cell size.** The calendars span the window, and a cell is square with the grid always six weeks, so a very wide window makes them tall as well as wide and squeezes the totals beneath. A cap is a small change if it ever bites.)
 
 ## Manual mode
+
+**Now called "timing by hand", and it is no longer a mode.** The three dated sub-sections below are the record of how
+it got there, newest first: it began as a `ManualMode` that could be switched mid-launch, became a `LaunchMode` fixed
+at startup, and is now derived from `setting.paired` at the point of use with nothing holding it at all. Read
+[The pairing decides again](#the-pairing-decides-again-2026-08-29) for where it landed; the two below it are why.
+
+**[Implemented as a virtual device](#implemented-as-a-virtual-device) describes the previous implementation**, which
+used a `MockTimeFlipDevice` swapped in behind the app's device protocol. The rebuild has no mock device and no
+substitution: with nothing paired the app simply writes `device_event` rows itself, on faces 13 and 14 in rotation
+(`ManualTimerRules`) rather than the single face 13 that table describes. The table is kept for the decisions in it,
+several of which survived the rewrite -- one face was not enough, and why, is the clearest of them.
 
 The cube gets left at work, or at home. The app should still be usable on those days rather than being dead weight until the device is back in range.
 
@@ -309,17 +349,22 @@ This is `AppState.shouldAttemptConnection`: everything `shouldMaintainConnection
 Implementation notes, from what the code does:
 
 - **`reconnectAttempt` is a delay, not a count.** Its only job is picking the backoff in `scheduleReconnect()` (`min(2 * (attempt + 1), 30)` seconds). It was never given a second meaning: whether to offer manual mode is `ManualModeOffer`'s question, and all that survives of it is one flag, has this launch ever connected.
-- **This is why the wake handler resets it** (`ApplicationDelegate.swift:583`), which reads oddly until you know the field has one job. After a long sleep the loop may have climbed to the 30-second cap, and someone waking their Mac is presumably back beside the cube, so the reset puts the next attempt two seconds out instead of up to thirty. It is a latency reset, not a decision about how many times to try. The teardown-and-restart around it is there because CoreBluetooth can stop delivering scan results after a suspend without erroring, wedging the retry loop silently, so the handler distrusts the loop and rebuilds it rather than waiting on it.
+- **This is why the wake handler resets it**, which reads oddly until you know the field has one job. After a long sleep the loop may have climbed to the 30-second cap, and someone waking their Mac is presumably back beside the cube, so the reset puts the next attempt two seconds out instead of up to thirty. It is a latency reset, not a decision about how many times to try. The teardown-and-restart around it is there because CoreBluetooth can stop delivering scan results after a suspend without erroring, wedging the retry loop silently, so the handler distrusts the loop and rebuilds it rather than waiting on it.
 - `scheduleReconnect()` was left alone in the end. The offer is raised where a failed attempt is already handled -- `startDeviceEvents` for a scan where every device refused the PIN, `handleReconnectFailure` for one that found nothing -- so the backoff never gets as far as being asked to stop. A deliberate teardown (`.cancelled`: a forget, a reset, a quit) returns before either, which matters now the first failure asks: without it, pressing Forget Device would raise the dialog.
 - Nothing is offered when the app is not paired: there is no device to be out of range of, and connecting is already gated on `paired`.
 
-(Note: built on `feature/manualMode`, and **not yet run in the app even once** -- see [What is still open](#what-is-still-open) before trusting any of it. The mechanism is a virtual device, `MockTimeFlipDevice` itself, driven by the Faces tab instead of by a test, through the same `TimeFlipSessionManaging` conformance and event pipeline `MockEventHTTPServer`'s `/flip` endpoint already proves end to end for test automation. It answers the central schema question -- a manual segment has no `device_event`, and `time_entry` requires one (`time_entry.device_event_id` is `NOT NULL REFERENCES device_event(device_event_id)`, carrying `UN1_time_entry`, a `UNIQUE` index) -- almost without schema change: a virtual flip just **is** a `device_event`, converted by the same `AppDataStore.convertEligibleEvents` a real one is. The exception is face 13, which needed the `device_face` `CHECK` widened and a `face` row seeded -- see the table below. Two other mechanisms were surveyed and set aside; see the end of this note for what they were and why.
+(Note: this note and the table under it describe the **previous** implementation; the current app has no virtual device -- see the heading above. The mechanism there was a virtual device, `MockTimeFlipDevice` itself, driven by the Faces tab instead of by a test, through the same `TimeFlipSessionManaging` conformance and event pipeline `MockEventHTTPServer`'s `/flip` endpoint already proves end to end for test automation. It answers the central schema question -- a manual segment has no `device_event`, and `time_entry` requires one (`time_entry.device_event_id` is `NOT NULL REFERENCES device_event(device_event_id)`, carrying `UN1_time_entry`, a `UNIQUE` index) -- almost without schema change: a virtual flip just **is** a `device_event`, converted by the same `AppDataStore.convertEligibleEvents` a real one is. The exception is face 13, which needed the `device_face` `CHECK` widened and a `face` row seeded -- see the table below. Two other mechanisms were surveyed and set aside; see the end of this note for what they were and why.
 
 Double-counting, the other question a manual/real split usually has to answer, is separately settled, and not by any mechanism: **the device and manual mode are never used at once.** The cube is paused and locked before it is left behind, stays that way for the whole day it is not carried, and which one gets used is decided once, at the start of the day, by whether it is in the bag. A paused `device_event` row never converts to `time_entry` regardless of who left it that way (`AppDataStore.convertEligibleEvents`'s `paused = 0` filter applies unconditionally), so a cube sitting paused all day, even if bumped, produces nothing to overlap a manual entry with -- there is no reconciliation rule to write, because there is never a second set of rows describing the same span. Within a launch the app makes the overlap impossible rather than merely unlikely, and it still does now that a session can end without the app quitting: pairing from inside one runs `endManualSession()` *before* anything connects, which closes the open manual row and stands the virtual device down, so the two never write across each other. The ordering is the guarantee, and it is the same guarantee the old wording ("entered once and never left") was making by never letting the situation arise -- see the last row of the table below for the mechanisms that hold it. What the app still does not detect is the discipline itself, which is a different and larger claim: a cube left running at home while the user times manually at work would have its segments ingested on the next connect, overlapping in wall-clock time with the manual ones. No guard on the write would have caught that, since nothing is connected at the moment either row is written. It rests on the cube being paused and locked before it is left, as above.
 
 ### Implemented as a virtual device
 
-Every row below is built. Kept in roughly dependency order, with each row's Decision saying what was actually done rather than what was planned -- several were built twice, and where the first attempt was wrong the row says so, since that is the part worth not repeating.
+**The previous implementation.** `MockTimeFlipDevice`, `ApplicationDelegate`, `AppState`, `ConnectionStatus` and
+`MockEventHTTPServer` are all in `Archive/`; none of them exists in the current app. What carries forward is the
+reasoning, and the two rows worth re-reading before touching this area are the face-number one (which the rebuild
+answered differently) and the last one, on why a guard against writing in both modes at once was not needed.
+
+Every row below was built, in the previous app. Kept in roughly dependency order, with each row's Decision saying what was actually done rather than what was planned -- several were built twice, and where the first attempt was wrong the row says so, since that is the part worth not repeating.
 
 | Change | Why | Decision |
 |---|---|---|
@@ -329,7 +374,7 @@ Every row below is built. Kept in roughly dependency order, with each row's Deci
 | Which `device_face` a manual flip writes: **face 13**, one dedicated face that manual mode owns | `convertEligibleEvents` resolves category purely by joining `device_event.device_face` through `face` (`JOIN face f ON f.face_id = de.device_face`), so something has to land in that column | **Built.** A single face 13, not the 13-24 range this row used to weigh against borrowing a real face. One face is enough because manual mode times one thing at a time -- the category being tracked is whatever face 13 holds, rather than twelve standing mappings. It keeps the existing category-on-a-face machinery doing the resolution, and it does not tie a manual category to whatever the cube's own faces happen to be assigned to. It gets there from the Faces tab, which is also the answer to "whether it shows up": in manual mode that tab **is** face 13, and it is the only place the face is drawn |
 | Widening the two face-ID bounds to admit 13 | Face 13 has to survive both a `CHECK` and a Swift validator that today stop at 12 | **Built**, and the two bounds are now two functions. `isValidFaceID` still stops at 12 and stays the one every BLE path uses (`TimeFlipHistoryParser.parse`, the `TimeFlipBLEDevice` notification handlers), so a frame claiming 13 is still a corrupt frame; `isValidStoredFaceID` admits 13 and guards the app's own side -- the `face` table writes, the Faces tab, the menu bar's category lookup. `device_event`'s `CHECK` went to 13 by the table rebuild in `003_device_event.sql`, applied to both databases on 2026-08-09 and confirmed with `scripts/compare-database-to-ddl.sh`; `face` row 13 is seeded like the other twelve |
 | A new `ConnectionStatus` case for "connected, to the stand-in" | Today's enum has no state meaning "intentionally not trying to reach the paired device," and the UI needs to tell the two apart | **Built** as `ConnectionStatus.manual`, and it did more than tidy the readers. Manual mode had been a `@Published` flag beside the status, which is two answers to one question and lets them disagree -- and the disagreement that mattered was a manual session running while the status said `.connected`, the exact pair the dropped guard in the last row was proposed to catch. `AppState.isManualMode` is now derived (`connectionStatus == .manual`), so the two are cases of one enum and cannot coexist. `MenuBarLiveDisplay` lost a rule outright: `tearsDownOnDisconnect` existed only because manual mode reported `.disconnected` while running, and once the status is no longer a lie there is nothing to take an exception to -- `.manual` is an ordinary arm of `handleConnectionStatusChange`. `MenuBarClickRouter` and `DeviceTabRules` now take the status alone; `SettingsTabRules` still takes a `Bool`, never having asked about the connection in the first place, and feeding it a whole status would be more coupling, not less. The Device tab's Connection row reads "Manual mode, no device" rather than the "Disconnected" it used to. The audit this row warned about turned out to be the compiler's: every `switch` over the enum is exhaustive, so both of the two that existed had to answer for the new case before it would build |
-| Guard `confirmConnected(name:uuid:)` (`ApplicationDelegate.swift:1072`) against a manual session's first synthetic event | A virtual device's first flip looks identical to a real device's first status report and would overwrite the real device's stored name | **Built**, and it needed no guard in the end. That call is reached only while `awaitingInitialStatus` is true, which `startDeviceEvents` sets and `startManualSession` deliberately does not -- so the trap is closed by the manual path never arming it, rather than by a condition at the call site that a later edit could get wrong. The virtual device is also configured not to emit an initial status at all |
+| Guard `confirmConnected(name:uuid:)` (`Archive/TimeFlipApp/ApplicationDelegate.swift`) against a manual session's first synthetic event | A virtual device's first flip looks identical to a real device's first status report and would overwrite the real device's stored name | **Built**, and it needed no guard in the end. That call is reached only while `awaitingInitialStatus` is true, which `startDeviceEvents` sets and `startManualSession` deliberately does not -- so the trap is closed by the manual path never arming it, rather than by a condition at the call site that a later edit could get wrong. The virtual device is also configured not to emit an initial status at all |
 | An in-memory "manual mode is on" flag, deliberately **not** persisted | Something has to model "don't try the real device again this launch" | **Built**, and it inverts what this row used to say. `AppState.isManualMode`, per-launch and written nowhere: persisting it would outlive the relaunch that is the only way out of the mode, stranding the user in it |
 | How manual mode ends | The spec says ending needs to be at least as deliberate as entering | **Built**, and deliberate is exactly the test it has to pass: quit and start again, or pair a device from the Device tab. Nothing automatic ends it, because nothing automatic is looking. The second exit was added on 2026-08-11, when "quit and restart" turned out to be the only way a user who had just bought a cube could use it. See [Entering and leaving it](#entering-and-leaving-it) for why auto-exit on the next connect is still rejected |
 | The virtual device must not invent segments, or hide the one it is timing | `MockTimeFlipDevice` was built for tests, where fabricated history is a feature and an unreported open segment is harmless. Manual mode is the first caller whose history reaches a **real** database | **Built** as two `Configuration` flags, both defaulting to the old behaviour so nothing else in the suite shifts. `seedsSampleHistory: false` stops the two invented segments being ingested as work the user never did. `reportsOpenSegment: true` makes a fetch end on the running segment, which is what a real dump does (`docs/timeflip.md` §5) and what this device has never done -- a standing parity gap. Without it a running segment lives only in memory until something closes it, and quitting is the documented way *out* of manual mode, so every session would lose whatever it was timing. Turning the default on is worth doing, separately, once the suite is looked at |
@@ -341,16 +386,18 @@ Every row below is built. Kept in roughly dependency order, with each row's Deci
 | What the **Device tab** shows while in manual mode | Its fields are all device state -- battery, auto-pause, LED, lock -- and none of it exists for a virtual device | **Built**, and mostly already true: every device setting on that tab is gated on `!appState.isConnected`, so in manual mode they are all on show and all dead, which is the wanted answer. The exception was Forget Device and Reset Device, deliberately *not* gated that way so an out-of-range cube can still be forgotten. In manual mode that reasoning fails, because something answers: Reset is routed against the protocol rather than the BLE type (done so the mock is testable) so `0xFF` lands on the stand-in, is confirmed, and `forgetDevice(deviceWasWiped: true)` discards the real cube's stored name and uuid; Forget casts to the BLE type and returns `true` when the cast fails, so it reports success having sent nothing, clears the stored password and unpairs, leaving the cube holding a rotated PIN whose only copy has just been deleted. Both read as ordinary buttons and neither is recoverable without the device in hand. `DeviceTabRules.allowsPairingActions` switched them both off. **They stopped agreeing on 2026-08-11**, when Forget was rewritten to send nothing at all: with no device round trip left in it there is nothing for a stand-in to answer, and switching it off in manual mode was closing the escape hatch on the one state that needs it -- a cube whose PIN changed underneath the app, where forgetting is the only route back and manual mode is where the user has been put. It is also now how the scan list appears mid-session. So the one rule is two, `allowsForget` and `allowsReset`: Reset stays off in manual mode for the `0xFF` reason above, which is untouched. Neither is gated on being connected, which is the original point of the pair |
 | (Optional) a guard refusing a manual write while `AppState.isConnected` is true | Would turn the never-both assumption into something the app checks | **Not needed, and dropped.** The state it guards against cannot occur: a manual write and a live connection cannot coexist, because the session is stood down before anything connects (`endManualSession()`, which also closes its open row) rather than running alongside the thing replacing it. That is held by three separate things, two of them built for other reasons. `AppState.shouldAttemptConnection` is false from the moment manual mode is chosen, and all three attempt sites read it, so no new connect can start. Of the two paths that can reach `.connected`, one is guarded by `connectionStatus == .reconnecting` and manual mode sets `.manual`, and the other is `confirmConnected`, reached only while `awaitingInitialStatus` is true, which `startManualSession` deliberately never sets -- so the only way to that status from a manual session is the deliberate pairing, which sets `awaitingInitialStatus` by going through `startDeviceEvents`, and reaches it *after* `endManualSession()` has already stood the virtual device down. A guard here would be checking for something none of those allow. The `ConnectionStatus.manual` row above later made it a fourth time impossible, and the only one of the four that is structural: manual mode and `.connected` are now cases of the same enum, so `isConnected` is false in manual mode by construction rather than by three audited paths agreeing |
 
-Reused for free, not a row above: the virtual device's own `event_number` allocation. `MockTimeFlipDevice.allocateEventNumber()` already mints a fresh, non-colliding counter per session the same way it does for tests today, and `MockTimeFlipDevice.Configuration.latency` already defaults to `.instant` -- every call answers immediately, which is what a manual-mode session wants -- while tests opt into `.realistic(scale:)` explicitly where timing itself is under test (`Tests/FacetAppTests/MockDeviceLatencyTests.swift`). Reusing the type as-is, rather than a new one alongside it, is what makes both of these free.
+Reused for free, not a row above: the virtual device's own `event_number` allocation. `MockTimeFlipDevice.allocateEventNumber()` already mints a fresh, non-colliding counter per session the same way it does for tests today, and `MockTimeFlipDevice.Configuration.latency` already defaults to `.instant` -- every call answers immediately, which is what a manual-mode session wants -- while tests opted into `.realistic(scale:)` explicitly where timing itself was under test (`Archive/TimeFlipAppTests/MockDeviceLatencyTests.swift`). Reusing the type as-is, rather than a new one alongside it, is what makes both of these free.
 
 ### What is still open
 
-**None of it has run in the app.** Not once, on hardware or otherwise: the whole of manual mode is covered by the hermetic suite and by nothing else. Reaching the mode at all needs the cube out of range, so a single session covers everything -- launch, let the one scan fail, take the dialog, pick a category, check the menu bar and the Faces tab agree, pause from the right half of the status item, quit, and look for a finalised face-13 row with a `time_entry` against it. Two things are least likely to survive first contact, and neither is reachable from a unit test: the quit close-off, which is a SQLite write during `applicationWillTerminate`, and the offer itself, an `NSAlert` raised by an `LSUIElement` app with no window open.
+**Nothing, in the current app.** The two debts recorded here were both properties of the virtual device, and neither
+survived the rewrite: there is no `MockTimeFlipDevice` to change a default on, and event numbers are no longer the
+only thing separating the app's segments from a cube's. What replaced the second is a face test --
+`DeviceEventRecorder.newestFromTheCube()` asks only for faces a cube can reach -- which is the same exclusion by a
+clearer route.
 
-Every row in the table above is built. What is left is two debts rather than plans:
-
-- **`MockTimeFlipDevice.reportsOpenSegment` defaults to off.** A real dump ends on the current interval (`docs/timeflip.md` §5) and this device has never done that; manual mode turns it on and the rest of the suite still runs against the old behaviour. Turning the default on is the honest fix, and is its own change with its own blast radius.
-- **A manual session's event numbers come from the wall clock**, seeded that way so they cannot collide with a cube's counter. It works, and it is why `latestRecordedEvent()` has to exclude the manual face. Seeding above the highest number already in `device_event` would remove the need for that exclusion; it was not worth doing for one query.
+It is covered on hardware now, by `Tests/Scripted/56-manual-mode.sh`, which is what the note here used to ask for: it
+was written when none of this had run in the app even once.
 
 ### Options set aside
 

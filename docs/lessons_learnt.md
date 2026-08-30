@@ -1,21 +1,52 @@
-# Leasson learnt while developing the Facet app
+# Lessons learnt while developing the Facet app
 
 ## Multiple CLAUDE.md files
-I used to have just a single CLAUDE.md file inthe root of the repo. While doig this project I changed and created multiple CLAUDE.md files. The root CLAUDE.md file references the other files and what each purpose each file serves.
 
-An example, there is a CLAUDE.md file in the Tests folder. The main CLAUDE.md file has instructions when to read that file ie when it is doing any task related to testing.
+I used to have just a single CLAUDE.md in the root of the repo. While doing this project I split it: the root file
+holds the conventions that apply everywhere, and a second one sits beside the thing it governs. Today that is
+`database/CLAUDE.md`, next to the DDL, holding the naming and storage rules and the schema-change procedure. The root
+file references it, so a task that touches the schema is pointed at it rather than having to already know.
+
+The pattern generalises. `Archive/Tests/CLAUDE.md` did the same job for the previous test suite: the root file said
+when to read it, which was any task to do with testing.
 
 ## Rule number 1
-The first rule in all the instruction files is to read the entire file before taking any action. There were times that Claude considered it had enough to complete the task and did not obey rules in the isntruction file.
+
+The first rule in every instruction file is to read the whole file before taking any action. There were times Claude
+decided it had enough to complete the task and did not obey rules further down the file.
 
 ## Add a methods file
-While getting Claude to implement the scripted testing it was using various techniques to implement the test step. As I watched it would do the same trial and error for the same task (eg click a menu) again and again. I had it create a file that contained the methods of achieving a task. When a step in the test script needed to do the same thing it would link to the numbered method. If a new better method was discovered then the methods file was updated, all of the steps that reference the method then use the better method.
+
+While getting Claude to implement the scripted tests it was using various techniques to implement the same test step.
+Watching it, I could see it doing the same trial and error for the same task (clicking a menu, say) again and again. I
+had it create a file holding the *methods* of achieving a task. A step that needs to do that thing links to the
+numbered method. When a better method is discovered, the methods file is updated and every step referencing it gets
+the better one for free.
+
+That file is `Tests/Methods.md`. It has earned its place several times over: it records what needs a real mouse event
+and what does not, why a status item is not in `AXMenuBar`, and the two reasons `performClick` silently does nothing.
+A technique rediscovered is a technique that was written down too late.
 
 ## Documentation
-I had Claude document my stream of conscienceness thoughts as I had them. I created different documents for different purposes, operations, database design, installation. I would tell Claude 'here is an idea I just had, make sure you add it to the correct documentation'
+
+I had Claude document my stream-of-consciousness thoughts as I had them. Different documents for different purposes:
+operations, database design, installation. I would say "here is an idea I just had, make sure you add it to the
+correct documentation".
+
+The thing I underestimated is that documentation rots the moment the code moves under it, and it rots invisibly: a
+doc naming a class that no longer exists still reads perfectly well. Worse, it gets read and believed. `docs/rebuild.md`
+carrying a "still to do" list of features that had shipped is the version of this that cost the most, because it is
+the file somebody would go to precisely to find out what was left.
 
 ## Checklists
-A subset of the documentation was TODO list related to various processes that were yet to be completed. An exampel on this project was the removal of Legacy code. I have completely redesigned the way this app operates, all of the settings and data are now in a SqLite DB file. I had Claude inspect the design documents, how the legacy code operated and create a TODO file related to removing the legacy code.
 
-These TODO list and a good way to track what still needs to be done and what you have completed.
+A subset of the documentation was TODO lists tracking processes not yet complete. On this project one was the removal
+of legacy code: I had completely redesigned how the app operates, with all settings and data in a SQLite file, so I
+had Claude inspect the design documents, look at how the legacy code operated, and produce a TODO file for removing
+it.
 
+These lists are a good way to track what still needs doing and what is finished. The other half of that, which I only
+learnt afterwards: **delete one when it is done**. Three of them survived the thing they were tracking and became
+inventories of an implementation that no longer existed, which is worse than having no list at all -- an unticked box
+in a live list means work outstanding, and an unticked box in a dead one means nothing whatsoever, and the two look
+identical.

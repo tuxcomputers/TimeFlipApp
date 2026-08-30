@@ -55,7 +55,7 @@ Counts in brackets are occurrences of the identifier across `Sources/FacetApp/`,
 ### 1.3 Which database
 
 - **Question:** production or test?
-- **Truth:** `DatabaseEnvironment.read(from:)`, over `setting.database.type`
+- **Truth:** `DatabaseEnvironment.read(from:)`, over `setting.db_type.type`
 - **Names:** `DatabaseEnvironment` with cases `production` and `test`
 - **Read by:** `main.swift` only, to choose the file and the badge
 

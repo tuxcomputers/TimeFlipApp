@@ -13,9 +13,8 @@ import Foundation
 /// **What it deliberately does not decide** is whether any of this becomes tracked time. A `device_event` is
 /// what a device says happened; a `time_entry` is what the app counts, and the two are not the same question
 /// (a flip too short to mean anything is the obvious case). Closing a row is what creates that question, so
-/// this is where the answer will be *asked for* -- see the note at the end of `record` -- but the answering
-/// belongs to the time entry module. Not built yet, and nothing here anticipates its shape beyond leaving
-/// the one call site.
+/// this is where the answer is *asked for* -- see the note at the end of `record` -- while the answering
+/// belongs to `TimeEntryRecorder`, which is handed the id and reads the row for itself.
 ///
 /// `processed` is untouched here for the same reason: it is the time entry side's marker, not this side's.
 @MainActor

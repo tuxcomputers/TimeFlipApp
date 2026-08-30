@@ -48,7 +48,7 @@ given up hunting for a cube it still has -- and now says so in its own name.
 | --- | --- | --- |
 | `isManualMode` | true / false | `setting.paired.paired`, read at the point of use: it **is** `!isCubePaired` |
 | `isDeveloperMode` | true / false | `DeveloperMode` |
-| `isTestDatabase` | true / false | `DatabaseEnvironment`, from `setting.database.type` |
+| `isTestDatabase` | true / false | `DatabaseEnvironment`, from `setting.db_type.type` |
 | `isQuitting` | true / false | `setting.connection.quit_request`, plus `QuitSequence` progress |
 
 ## 2. Pairing and the link
