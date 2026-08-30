@@ -291,9 +291,9 @@ accident:
 
 ## Two suites, and only one of them can tell you it works on hardware
 
-**`swift test` is hermetic**: 1502 tests, no window, no radio. A feature can be entirely green there
-and broken the moment it runs. **`Tests/Scripted/` is what says it works** -- 31 shell scripts that
-drive the real app and read the real database, `00`-`13` needing no cube and `50`-`65` needing one.
+**`swift test` is hermetic**: 1566 tests, no window, no radio. A feature can be entirely green there
+and broken the moment it runs. **`Tests/Scripted/` is what says it works** -- 32 shell scripts that
+drive the real app and read the real database, `00`-`13` needing no cube and `50`-`66` needing one.
 `Tests/Scripted/README.md` is how to run them, `Tests/Methods.md` is the shared methods they are
 written from, and `Tests/Scripted/last-run.md` is the committed stamp of the last full run.
 
@@ -328,8 +328,8 @@ real mouse event and what does not, why a status item is not in `AXMenuBar`, and
 `performClick` silently does nothing.
 
 So: write each check as its feature lands, keep it small, and let the harness grow back around what
-the first few actually need. That is what happened: `Tests/Scripted/` is 31 scripts now, `00`-`13`
-needing no cube and `50`-`65` needing one, and `Tests/Scripted/README.md` is how to run them.
+the first few actually need. That is what happened: `Tests/Scripted/` is 32 scripts now, `00`-`13`
+needing no cube and `50`-`66` needing one, and `Tests/Scripted/README.md` is how to run them.
 
 CI cannot run any of it -- no screen, no Keychain, no Google account, no cube -- so
 `scripts/check_interactive_checklists.sh` does two things instead. It checks the suite is *runnable*:
