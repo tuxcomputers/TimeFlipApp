@@ -183,16 +183,50 @@ final class DevicePINSourceTests: XCTestCase {
         XCTAssertEqual(saved, [], "the Keychain is not written to for the sake of it")
     }
 
-    // MARK: - whether there is anything to heal
+    // MARK: - what a launch settles on its own
 
-    func testTheStoresDisagreeOnlyWhenTheFileNamesSomethingElse() {
-        keychain = "123456"
-        XCTAssertFalse(source(isDeveloperMode: false).storesDisagree(), "no file, nothing to heal")
-
-        file.record(pin: "123456")
-        XCTAssertFalse(source(isDeveloperMode: true).storesDisagree(), "a dev build's file agreeing is not a fault")
-
+    func testALaunchTakesAwayARedundantCopyWithoutAskingTheCube() {
+        // The Keychain is provably holding the same string, so there is nothing for a cube to settle and no reason
+        // for a release build to leave a live PIN in a plain file.
         file.record(pin: "654321")
-        XCTAssertTrue(source(isDeveloperMode: false).storesDisagree())
+        keychain = "654321"
+
+        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .clearedARedundantCopy)
+        XCTAssertNil(file.pin())
+        XCTAssertEqual(keychain, "654321", "and the PIN itself is untouched")
+    }
+
+    func testADeveloperLaunchLeavesItsFileAlone() {
+        file.record(pin: "123456")
+        keychain = "123456"
+
+        XCTAssertEqual(source(isDeveloperMode: true).settleAtLaunch(), .nothingToSettle)
+        XCTAssertEqual(file.pin(), "123456")
+    }
+
+    func testALaunchThatFindsThemDisagreeingWaitsForTheCube() {
+        file.record(pin: "654321")
+        keychain = "123456"
+
+        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .awaitingTheCube)
+        XCTAssertEqual(file.pin(), "654321", "and nothing is thrown away in the meantime")
+    }
+
+    func testALaunchWithNoFileHasNothingToSettle() {
+        keychain = "123456"
+
+        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .nothingToSettle)
+    }
+
+    func testAFileThatWillNotGiveUpItsCopyIsNotReportedAsSettled() {
+        // The write failing is not a reason to say it worked, and the next launch asks again.
+        file.record(pin: "654321")
+        keychain = "654321"
+        let readOnly = directory.appendingPathComponent("config.json")
+        try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: readOnly.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: readOnly.path) }
+
+        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .nothingToSettle)
+        XCTAssertEqual(file.pin(), "654321")
     }
 }

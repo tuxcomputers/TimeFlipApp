@@ -266,10 +266,7 @@ let reconnector = DeviceReconnector(
 // **Armed at launch and disarmed by the first accepted PIN**, which is what makes this a startup check rather than
 // something running on every connect: once a launch has settled the two stores there is nothing left to ask until
 // something writes again, and that write is itself a rotation that puts both in step.
-var isReconcilingPINStores = DevicePINSource(debugLog: debugLog).storesDisagree()
-if isReconcilingPINStores {
-    debugLog?.record(.pin, "The Keychain and the config file name different PINs, so the next login settles it")
-}
+var isReconcilingPINStores = DevicePINSource(debugLog: debugLog).settleAtLaunch() == .awaitingTheCube
 radio.onPINAccepted = { _, pin in
     guard isReconcilingPINStores else { return }
     // **Disarmed by an answer that settled it, not by any login at all.** A cube can accept a PIN from neither store

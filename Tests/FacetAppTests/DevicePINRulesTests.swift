@@ -149,6 +149,54 @@ final class DevicePINRulesTests: XCTestCase {
         )
     }
 
+    // MARK: - what a launch settles on its own
+
+    func testAReleaseBuildTakesAwayARedundantCopy() {
+        // **The case the first version of this missed.** Asking only whether the two disagree left a release build
+        // whose file and Keychain matched holding a live PIN in a plain file for ever -- and it can get there: the
+        // promotion works and the clearing fails, or a developer build wrote both and the machine then runs a
+        // release build.
+        XCTAssertEqual(
+            DevicePINRules.launchAction(configFile: "654321", keychain: "654321", isDeveloperMode: false),
+            .clearConfigFile
+        )
+    }
+
+    func testADeveloperBuildKeepsItsCopy() {
+        // The file is the dev build's ordinary store, and the place a person looks.
+        XCTAssertEqual(
+            DevicePINRules.launchAction(configFile: "123456", keychain: "123456", isDeveloperMode: true),
+            .nothing
+        )
+    }
+
+    func testADisagreementWaitsForTheCube() {
+        // Neither store can say which PIN the hardware took, and promoting the wrong one would overwrite the app's
+        // record of the right one.
+        for isDeveloperMode in [true, false] {
+            XCTAssertEqual(
+                DevicePINRules.launchAction(configFile: "654321", keychain: "123456", isDeveloperMode: isDeveloperMode),
+                .askTheCube
+            )
+        }
+    }
+
+    func testAKeychainWithNothingInItStillWaitsForTheCube() {
+        // The failed-write case at its starkest: the file is the only record, and it becomes the Keychain's only
+        // once a cube has answered to it.
+        XCTAssertEqual(
+            DevicePINRules.launchAction(configFile: "654321", keychain: nil, isDeveloperMode: false),
+            .askTheCube
+        )
+    }
+
+    func testAFileNamingNothingIsTheOrdinaryState() {
+        XCTAssertEqual(
+            DevicePINRules.launchAction(configFile: nil, keychain: "654321", isDeveloperMode: false),
+            .nothing
+        )
+    }
+
     // MARK: - putting the two stores back together
 
     func testThePINTheCubeAnsweredToIsPromotedWhenTheKeychainDoesNotHaveIt() {

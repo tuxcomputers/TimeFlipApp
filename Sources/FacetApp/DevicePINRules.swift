@@ -107,6 +107,38 @@ enum DevicePINRules {
         return order
     }
 
+    /// What a launch should do about the two stores, before any cube has answered.
+    ///
+    /// **Three answers, and only one of them needs the cube.**
+    ///
+    /// - **They agree.** The Keychain is provably holding the value already, so the file's copy is redundant on the
+    ///   spot -- there is nothing for a cube to settle, and a release build removes it rather than leaving a live
+    ///   credential in a plain file for ever. A developer build keeps it, that being the file's ordinary job.
+    /// - **They differ.** Neither this app nor anything else can say which one the hardware took, so nothing moves
+    ///   until a login proves one (`reconciliation`).
+    /// - **The file names nothing**, which is the ordinary state of a release build and of a dev machine that has
+    ///   never rotated a cube.
+    ///
+    /// **The agreeing case is the one this was missing.** `storesDisagree` was the whole of the launch check, so a
+    /// release build whose file and Keychain matched never asked again -- and it can get there: the promotion works
+    /// and the clearing fails, or a developer build wrote both and the same machine then runs a release build. Either
+    /// way the file went on holding a live PIN that nothing was ever going to remove.
+    static func launchAction(configFile: String?, keychain: String?, isDeveloperMode: Bool) -> LaunchAction {
+        guard let configFile, !configFile.isEmpty else { return .nothing }
+        guard configFile == keychain else { return .askTheCube }
+        return isDeveloperMode ? .nothing : .clearConfigFile
+    }
+
+    /// What a launch does about the two stores.
+    enum LaunchAction: Equatable {
+        /// Nothing to settle: they agree and this build keeps both, or the file names no PIN at all.
+        case nothing
+        /// They agree, and this build has no reason to keep a second copy in the clear.
+        case clearConfigFile
+        /// They disagree, and only the cube can say which is right.
+        case askTheCube
+    }
+
     /// What to do once the cube has proved which PIN it is on, given what the two stores hold.
     ///
     /// **This is the self-healing half of the fallback**, and it can only run on an answer from the cube: a PIN in a

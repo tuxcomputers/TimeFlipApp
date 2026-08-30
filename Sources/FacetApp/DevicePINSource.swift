@@ -108,14 +108,44 @@ struct DevicePINSource {
         return Reconciled(promoted: promoted, clearedConfigFile: cleared)
     }
 
-    /// Whether the two stores are saying different things, which is the state `reconcile` exists to end.
+    /// Settles what a launch can settle about the two stores, and says whether the cube still has to answer.
     ///
-    /// **Asked at launch to decide whether to bother**, and it is deliberately not the same question as "is there a
-    /// file": a developer build's file holds the PIN as a matter of course and agrees with the Keychain, and there is
-    /// nothing to heal there.
-    func storesDisagree() -> Bool {
-        guard let fromFile = configFile.pin() else { return false }
-        return fromFile != keychainPIN()
+    /// **Two of the three cases need no cube at all.** A file naming nothing is the ordinary state; a file naming
+    /// exactly what the Keychain holds is a redundant copy, and a release build takes it away here and now, the
+    /// Keychain having already proved it holds the same string. Only a real disagreement waits for a login, because
+    /// only the cube can say which of two PINs it took.
+    ///
+    /// **Called once, at launch**, which is where the state it looks for comes from: the file is written by a failed
+    /// Keychain write and read by the next launch.
+    @discardableResult
+    func settleAtLaunch() -> LaunchOutcome {
+        switch DevicePINRules.launchAction(
+            configFile: configFile.pin(), keychain: keychainPIN(), isDeveloperMode: isDeveloperMode
+        ) {
+        case .nothing:
+            return .nothingToSettle
+        case .clearConfigFile:
+            let cleared = configFile.clearPIN()
+            debugLog?.record(
+                .pin,
+                cleared
+                    ? "The Keychain already holds the PIN the config file names, so the file no longer needs to"
+                    : "The config file would not give up its copy of a PIN the Keychain already holds"
+            )
+            return cleared ? .clearedARedundantCopy : .nothingToSettle
+        case .askTheCube:
+            debugLog?.record(.pin, "The Keychain and the config file name different PINs, so the next login settles it")
+            return .awaitingTheCube
+        }
+    }
+
+    /// What a launch made of the two stores.
+    enum LaunchOutcome: Equatable {
+        case nothingToSettle
+        /// A release build took the file's copy away, the Keychain holding the same value.
+        case clearedARedundantCopy
+        /// They disagree: `reconcile` is armed until a login proves one of them.
+        case awaitingTheCube
     }
 
     private func keychainPIN() -> String? {
