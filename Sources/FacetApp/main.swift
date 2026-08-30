@@ -241,6 +241,37 @@ let faceColours = FaceColourSync(
     },
     debugLog: debugLog
 )
+
+// What the cube is *set* to, as against what it is lit in: the auto-pause delay, the two LED values and the four
+// double-tap registers, all of which the Device tab writes when somebody moves them and nothing ever wrote again.
+//
+// **Built here for `FaceColourSync`'s reason**, and it is stronger here: the window is not who mostly tells the cube
+// these things. A link coming up does, and so does the cube itself, and neither of those has a window open.
+//
+// **Every value is read from the table at the moment its command is built**, which is why this takes a closure and
+// not a snapshot: a setting edited while a queue is waiting its turn goes out as what it is now.
+let deviceSettings = DeviceSettingsSync(
+    send: { command, reported in radio.send(command, reported) },
+    isCubeConnected: { radio.connectedDevice != nil },
+    stored: {
+        let seeded = DevicePane.Values.seeded
+        return DeviceSettingsSync.Stored(
+            autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
+            ledBrightnessPercent: settings.integer("led_settings", field: "brightness") ?? seeded.ledBrightnessPercent,
+            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds,
+            // Clamped on the way out of the table, as the tab's own fields are: a register is one byte, and a row
+            // holding something else is a fault to survive rather than a reason to send nothing.
+            doubleTap: DoubleTapParameters(
+                threshold: UInt8(clamping: settings.integer("double_tap_settings", field: "clickThreshold") ?? seeded.doubleTapThreshold),
+                limit: UInt8(clamping: settings.integer("double_tap_settings", field: "limit") ?? seeded.doubleTapLimit),
+                latency: UInt8(clamping: settings.integer("double_tap_settings", field: "latency") ?? seeded.doubleTapLatency),
+                window: UInt8(clamping: settings.integer("double_tap_settings", field: "window") ?? seeded.doubleTapWindow)
+            ),
+            isDoubleTapEnabled: settings.flag("double_tap_settings", field: "enabled") ?? seeded.isDoubleTapEnabled
+        )
+    },
+    debugLog: debugLog
+)
 settingsWindow.faceColours = faceColours
 
 // What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
@@ -501,8 +532,13 @@ lowBattery.onChanged = {
 // item drawn as it was until something else happened to redraw it. This fires on the ask made when a link comes up, on
 // the read-back of every lock or unlock the app sends, and on the link going away, which is what takes the badge off
 // again: `BluetoothRadio` clears the status with the connection and reports that as a change like any other.
-radio.onCubeStatus = { _, _ in
+radio.onCubeStatus = { _, status in
     menuBar.redraw()
+    // **The cube's own answer about its auto-pause delay, which is the only one there is.** A disagreement with the
+    // table is a cube that has lost the setting -- a reset, a flat battery, the vendor's app -- and this is the first
+    // moment it can be noticed. `nil` is the status being cleared with the link, which says nothing about a cube.
+    guard let status else { return }
+    deviceSettings.cubeReported(status: status)
 }
 // A flip repaints both surfaces, from here rather than from either of them.
 //
@@ -512,6 +548,10 @@ radio.onCubeStatus = { _, _ in
 //
 // The menu bar needs it for the same reason the lock badge does: the item's tick only runs while the app itself is
 // timing something, and following a cube is precisely when it is not.
+// The four registers the cube reports on every connection, against the four the table holds.
+radio.onDoubleTapParameters = { _, parameters in
+    deviceSettings.cubeReported(doubleTap: parameters)
+}
 radio.onFace = { _, _ in
     menuBar.redraw()
     settingsWindow.redrawTiming()
@@ -545,6 +585,10 @@ radio.onCubeReady = { _ in
 // question rather than a command and wanting to be first in the queue.
 radio.onCubeSettled = { _ in
     faceColours.linkSettled()
+    // **After the colours, and it makes no difference which order they are called in.** Both queue their own work and
+    // `DeviceLogin` serialises the commands themselves (`enqueue`), so the two runs interleave on the wire rather
+    // than one writing over the other.
+    deviceSettings.linkSettled()
 }
 // **The other end of the same thought.** A fetch waits on answers the radio delivers, so a link ending mid-conversation
 // leaves it in flight with nothing ever going to finish it -- and one fetch at a time then means no fetch ever again.
@@ -554,6 +598,7 @@ radio.onLinkEnded = { _ in
     // The same thought again: what is queued for a cube that has gone is dropped rather than sent one refusal at a
     // time.
     faceColours.linkEnded()
+    deviceSettings.linkEnded()
 }
 // What the cube says about its own condition, which until now the app subscribed to and threw away.
 //
@@ -563,19 +608,25 @@ radio.onLinkEnded = { _ in
 // archive's own reasoning, kept whole -- and its own caveat with it: a cube straight after a reset holds no history at
 // all, so this finds nothing until the first flip.
 //
-// **The rest is written down and not acted on**, deliberately. The cube can ask for its time, its face colours, its
-// LED brightness, its blink interval, its task parameters or its auto-pause delay, and this app has no way to push most
-// of those yet -- so a row saying it asked is the honest answer, and it is a great deal better than the silence there
-// was before. `BluetoothRadio.received(systemState:from:)` writes it, including the hardware half, which is where a
-// **flash memory fault** turns up: history lives in flash, so a cube reporting one records nothing, and from the
-// outside that looks exactly like a cube that was reset.
+// **Every request the cube can make is now answered by something, bar one.** It can ask for its time, its face
+// colours, its LED brightness, its blink interval, its auto-pause delay or its task parameters; the first is the
+// login's, the second is `FaceColourSync`'s, the next three are `DeviceSettingsSync`'s, and the last is the one
+// nothing here can answer -- this app has never set a task parameter, so it has nothing to send and says so.
+// `BluetoothRadio.received(systemState:from:)` writes every one of them down regardless, including the hardware
+// half, which is where a **flash memory fault** turns up: history lives in flash, so a cube reporting one records
+// nothing, and from the outside that looks exactly like a cube that was reset.
 radio.onSystemState = { _, state in
-    // **The one the cube asks for that this app can now answer.** A cube that has lost its face colours says so here,
+    // **The one that needs a run of twelve writes.** A cube that has lost its face colours says so here,
     // and it says so repeatedly -- which is why the answer is collapsed rather than given once per notification. See
     // `FaceColourSync.cooldownSeconds`, where the archive records what answering one for one did to a failing device.
     if state.cubeSyncState == .faceColoursRequired {
         faceColours.cubeAskedForThem()
     }
+    // **And everything else it can ask for that this app is the record of**: its time, its auto-pause delay, its LED
+    // brightness and its blink period. Answering these is what the archive did (`reconcileSystemState`) and what this
+    // app used to write down and ignore. Task parameters are the one request nothing here can answer, and
+    // `DeviceSettingsSync` says so rather than passing over it.
+    deviceSettings.cubeAsked(for: state.cubeSyncState)
     guard state.cubeSyncState == .factoryReset else { return }
     historyIngestor.refresh(because: "the cube says it was put back to the factory")
     // A wiped cube has the factory colours, whatever it was last told. Nothing needs to ask for this: a reset drops

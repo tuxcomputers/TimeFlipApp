@@ -86,6 +86,13 @@ final class DeviceLogin: NSObject {
     /// Called with each face the cube reports, whether asked for or pushed. Raw, exactly as the byte arrived: what
     /// counts as a face is `DeviceFaceRules`' judgement, not a delegate's.
     private let face: (Int) -> Void
+    /// Called with the double-tap registers the cube reports, which the login reads on every connection.
+    ///
+    /// **Read anyway and now used**: the read is what makes the Device tab's four fields mean anything, and the same
+    /// answer says whether the cube still has the registers the tables hold (`DeviceSettingsSync`). Reporting it
+    /// costs nothing, the question having been asked regardless.
+    private let tapsReported: (DoubleTapParameters) -> Void
+
     /// Called with the PIN the cube accepted, at the moment it accepts it and before any rotation.
     ///
     /// **The cube is the only thing that can say which PIN it is on.** This app can hold two -- the Keychain's and
@@ -233,6 +240,7 @@ final class DeviceLogin: NSObject {
         staysWithTheCube: Bool = true,
         rotated: @escaping (String) -> Void,
         accepted: @escaping (String) -> Void = { _ in },
+        tapsReported: @escaping (DoubleTapParameters) -> Void = { _ in },
         reported: @escaping (DeviceInfo) -> Void,
         battery: @escaping (Int) -> Void = { _ in },
         face: @escaping (Int) -> Void = { _ in },
@@ -250,6 +258,7 @@ final class DeviceLogin: NSObject {
         self.staysWithTheCube = staysWithTheCube
         self.rotated = rotated
         self.accepted = accepted
+        self.tapsReported = tapsReported
         self.reported = reported
         self.battery = battery
         self.face = face
@@ -999,6 +1008,7 @@ final class DeviceLogin: NSObject {
         tapDeadline?.invalidate()
         tapDeadline = nil
         debugLog?.record(.tap, "The double tap on the cube is set to \(parameters.described)")
+        tapsReported(parameters)
         // The state question goes in the queue behind whatever arrived while this was out, rather than in front of it.
         askWhatStateItIsIn()
         startNextIfIdle()

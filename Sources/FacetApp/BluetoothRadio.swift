@@ -95,6 +95,13 @@ final class BluetoothRadio: NSObject {
     /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
     var onFace: ((UUID, Int?) -> Void)?
 
+    /// Called with the double-tap registers a cube reports, once per connection.
+    ///
+    /// **What it is for is the comparison, not the display.** The Device tab draws those four fields from the table;
+    /// this is the cube's own answer to the same question, and a disagreement between the two is a cube that has
+    /// lost the registers the app believes it has (`DeviceSettingsSync.cubeReported(doubleTap:)`).
+    var onDoubleTapParameters: ((UUID, DoubleTapParameters) -> Void)?
+
     /// Called with the PIN a cube accepted, at the moment it accepts one.
     ///
     /// **The only thing that can say which PIN a cube is actually on.** This app can hold two -- the Keychain's and
@@ -1282,6 +1289,12 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             // itself, before anything else can have taken the link, and what it reports is a fact about the cube in
             // front of the app rather than a reading to be filed against a pairing.
             accepted: { [weak self] pin in self?.onPINAccepted?(attempt.id, pin) },
+            // The same guard as the reads below, and for their reason: this lands seconds into a connection the app
+            // may already have let go of, and a comparison made then would send settings down somebody else's link.
+            tapsReported: { [weak self] parameters in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.onDoubleTapParameters?(attempt.id, parameters)
+            },
             // **Only while this is still the cube the app is holding.** These reads land seconds after the login, by
             // which time the window may have been closed or another device chosen -- and a report acted on then would
             // write down what one cube says under a pairing that now names a different one.
