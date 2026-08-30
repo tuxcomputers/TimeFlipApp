@@ -144,11 +144,13 @@ No currency column exists anywhere, which is fine for one user with one currency
 
 ## Device rename
 
-**Half built.** The storage and the scan matching are in the current app; the rename itself is not, and everything
-below marked "(done)" was done in the previous implementation (`Archive/`). It is kept as the design to rebuild from,
-and in particular for the four measured findings at the end, which are facts about the hardware and so still true.
+**Built** (2026-08-30). The Device tab's Name row is renamed by clicking it, `0x15` goes to the cube, and the row is
+written only once the cube has taken the write. What is kept below is the design and, in particular, the measured
+findings at the end: they are facts about the hardware and so still true, and each one contradicts something this file
+once asserted.
 
-- The user can give the physical TimeFlip its own name. **Not built** -- there is no control that sends `0x15`.
+- The user can give the physical TimeFlip its own name. **Built** -- `DeviceNameRules` decides, `DeviceCommandRules
+  .setName` carries it, and `SettingsWindowController.renameDevice` sends it.
 - The Scan for Devices list must match **both** the vendor default name and the stored custom name, so a renamed cube
   is still findable. **Built**, and it matches the previous name too (`DeviceScanRules`).
 
@@ -167,15 +169,21 @@ The name outliving Forget Device is the whole point of the split. Forgetting a d
 
 `AppState.pairedDeviceName` stays display-only and is no longer persisted, so the Device tab's "Not paired" placeholder cannot reach the database as if it were a device called that -- which is what let the name survive a forget without the tab claiming a pairing that is gone.
 
-### The rename UI (done in the previous app; not rebuilt)
+### The rename UI (built)
 
-Right-clicking the **Name** row on the Device tab offers **Rename**, which turns the value into an inline field. Return submits, Escape abandons it. The same shape as the Categories tab's rename, which is how this app already renames things.
+**Clicking the Name row opens it**, which is the one place the rebuild departs from the archive: that app hid the
+rename behind a right-click menu with a single **Rename** item in it, and `EditableNameCell` exists because that is a
+gesture nobody finds. It is the same control the Categories tab renames with and the App tab names its calendar with,
+so renaming the cube is the same act as renaming anything else here. Return submits, Escape abandons it, and a click
+elsewhere abandons it too.
 
-The menu item is disabled while the device is unreachable: the cube is what holds the name, and `0x15` would only fail on the driver's not-logged-in guard.
+The row will not open unless a cube is connected and has said what it is called (`DeviceNameRules.renameRefusal`), and
+it says which of those is missing rather than going quietly dead: renaming is a command that has to arrive somewhere,
+so with nothing on the other end the app could only write down a name the hardware has never heard.
 
 **What the device actually accepts.** The `0x15` entry in `docs/TimeFlip2 BLE Protocol v4.3.md`: `0xZZ … 0xZZ - name (18 symbols MAX. ASCII coding)`. Both limits are the device's, not choices this app made. The app adds one restriction of its own on top: control characters are excluded as well, leaving printable ASCII `0x20`-`0x7E`, since a tab or a NUL in a name that appears in every nearby device's scan list is a rendering problem for no gain. Note `0x2A00` reads up to 20 bytes, so only the *write* is capped at 18.
 
-**Where the 18-character limit is enforced, and why in more than one place.** `DeviceNameRules` owns the number; `TimeFlipBLEDevice.maximumDeviceNameLength` now defers to it, so the field and the write cannot come to disagree.
+**Where the 18-character limit is enforced, and why in more than one place.** `DeviceNameRules.maximumLength` owns the number, and `DeviceCommandRules.setName` reads it, so the field and the bytes cannot come to disagree.
 
 - *While typing*, the field truncates at 18. What is on screen is what will be written.
 - *At submit*, the length is **checked** rather than truncated. From the field that is unreachable, which is the point: it stands between the device and a paste that outruns the truncation, or any later caller that does not come through this field.
@@ -191,19 +199,26 @@ Characters are deliberately **not** filtered as they are typed. An emoji that va
 
 A failed *write* is deliberately excluded from all of that: the device not answering is a different problem from a name it cannot hold, and quoting the character rules at a connection fault sends the user looking in the wrong place. `DeviceNameRulesTests` asserts each of these.
 
-The name is adopted locally only once the device confirms the write. A failed write leaves both the Device tab and `device_name` saying what the cube still answers to, which matters beyond cosmetics: `device_name` is what the scan filter is to match a renamed cube on, so a name the device never took would be a name nothing could be found by.
+The name is written down only once the cube has taken the write -- which, `0x15` having no reply of its own, is the whole of the evidence available. A write the cube would not take leaves both the Device tab and `device_name` saying what it still answers to, which matters beyond cosmetics: `device_name` is what the scan filter matches a renamed cube on, so a name the device never took would be a name nothing could be found by.
 
-**Note for the device checklists**: a SwiftUI `.contextMenu` is invisible to accessibility -- it reports zero menus and `AXShowMenu` opens nothing (established while building the Categories tab, see `Tests/Interactive/08i-categories-tab-checklist.md`). Driving this needs `act_cgevent_context_menu_pick` in `scripts/testrunner/actions.py`, which exists and works.
+**The note for the device checklists is spent**, and it is worth recording why. The archive's rename needed
+`act_cgevent_context_menu_pick`, because a SwiftUI `.contextMenu` is invisible to accessibility -- it reports zero
+menus and `AXShowMenu` opens nothing. Clicking the name needs none of that: `66-device-rename` presses `device-name`
+by identifier, writes `device-name-field` and posts Return, which is the same three lines `04-categories` renames a
+category with.
 
-### Confirmation, which the device makes impossible (done in the previous app as far as it could be)
+### Confirmation, which the device makes impossible
 
-Both items that stood here are closed.
+**The check that has to run on hardware is `66-device-rename`.** The archive's equivalent was
+`Archive/Tests/Bench/09b-device-rename-checklist.md`, last run against the cube on 2026-08-02, and what that run
+verified is what the new one verifies: the part whose failure mode is losing the cube entirely, a renamed device still
+being found on the next launch by the remembered `device_name` rather than by the vendor default.
 
-**The checklists existed.** `Archive/Tests/Bench/09b-device-rename-checklist.md` covered the whole feature and was last run against the cube on 2026-08-02. That run is what verified the part whose failure mode was losing the cube entirely: a renamed device is still found on the next launch, by the remembered `device_name` rather than by the vendor default.
+**A rename cannot be confirmed at the time it is made, and the app says so instead of pretending otherwise.** There is no acknowledgement for `0x15` and no useful read-back within the session, both measured (see the note below), so `DeviceCommandRules.readBack(for:)` answers `nil` for it deliberately and the log row reads *the cube took the write; nothing can read this command back*. `peripheralDidUpdateName(_:)` is implemented and reports the GAP name a second or two into the *following* connection, which is the nearest thing to a confirmation there is; it reaches the app as `BluetoothRadio.onDeviceName` and is also what notices a cube renamed in the vendor's app.
 
-**A rename cannot be confirmed at the time it is made, and the app now says so instead of pretending otherwise.** There is no acknowledgement for `0x15` and no useful read-back within the session, both measured (see the note below). `peripheralDidUpdateName(_:)` is implemented and fires about two seconds into the *following* connection, which is the confirmation, so a rename is reconciled at the next connect. What the app adds on top is honesty about the gap: `DeviceNameRules.renameLagNotice` puts a caption on the Device tab saying the new name is stored and that the cube will keep advertising the old one until it reconnects, and `AppState.clearRenameLagNoticeIfCaughtUp(reported:)` drops the caption once the two names agree. The wording blames the firmware for the advertised name only, not for the rename, because the rename itself does work.
+**What the rebuild does differently from the archive is what it does with that report.** The archive adopted the reported name and had `AppState.shouldAdoptReportedName` to stop a first pairing taking a stale one; this app asks `DevicePairingRules.adoption`, which refuses exactly one value -- the name it renamed the cube *away from*, sitting in `previous_name` -- because macOS is a connection behind rather than the cube having changed its mind. So the tab and `device_name` keep the new name across reconnects instead of flickering back to the old one and forward again a connection later. The case that rule gets wrong is a second cube called exactly what this one was called before its last rename, which is written up at the rule.
 
-For a user who wants the new name to appear now rather than at the next reconnect, [Configuration § renaming](configuration.md) has the forget-and-rescan sequence.
+`DeviceNameRules.renameLagNotice` is what is said at the moment of the rename: the cube has the name, the Bluetooth scan will go on showing the vendor default for ever, and macOS itself may report the old name until it next connects. It is an alert rather than the archive's caption on the tab, since nothing on the tab disagrees any more and a caption would need a flag saying whether it still applied.
 
 (Note: the four findings below are what shaped the feature, all confirmed against the vendor spec and the hardware. They are kept because each one contradicts something this file previously asserted, and the corrections are worth more than the space:
 
@@ -221,7 +236,7 @@ Note this cuts against an earlier claim in this file that the name "has a real r
 
 **A renamed cube disappears from the scan, and that loses it on the very next launch.** Reconnecting is a **scan**, not a lookup of the stored `device_uuid`: `connect()` calls `scanAndConnect()`, and nothing in `TimeFlipBLEDevice` ever calls `retrievePeripherals(withIdentifiers:)`. The filter is `serviceMatches || nameMatches`, and the code's own comment records that the service UUID is **not** reliably advertised by this hardware, so the name match is in practice the only thing that finds the cube.
 
-An earlier version of this note claimed the opposite -- that a rename was "harmless while the device stays paired, because reconnects go straight to the stored uuid". That was wrong, and it is why the scan work was filed as later rather than as a prerequisite. Renaming a cube to "Hazza" on 2026-08-01 made every reconnect time out from the next launch onwards; the log shows `connect begin`, `connect radio powered`, and then nothing. **Fixed** by `DeviceNameRules.matchesKnownDevice`, which also matches the remembered `device_name`, fed to the driver as `rememberedDeviceName` before every connect and again the instant a rename lands.
+An earlier version of this note claimed the opposite -- that a rename was "harmless while the device stays paired, because reconnects go straight to the stored uuid". That was wrong, and it is why the scan work was filed as later rather than as a prerequisite. Renaming a cube to "Hazza" on 2026-08-01 made every reconnect time out from the next launch onwards; the log shows `connect begin`, `connect radio powered`, and then nothing. **Fixed** by `DeviceNameRules.matchesKnownDevice` in the archive, and in this app by `DeviceScanRules.isEligible`, which matches the vendor default, `device_name.name` and `device_name.previous_name` -- all three read from the table at the moment a scan or a reach starts rather than held anywhere.
 
 The **All Devices** tick box (`scanAllDevices`, `TimeFlipSettingsView`) turns the filter off entirely and remains the manual way back if a cube is ever renamed by something other than this app -- but it is a backstop now, not the recovery path, and it was never reachable while `isPaired` was true anyway, since that state shows Forget/Reset instead of Scan.
 

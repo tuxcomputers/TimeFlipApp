@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=31
+EXPECTED_CHECKS=34
 start "the Device tab's two sections, and the folds that need no cube"
 
 open_settings
@@ -63,6 +63,19 @@ check "and the Auto-pause field is dead" "1" \
     "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
 check "with its arrows" "2" \
     "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
+
+# **The Name row will not open either, and for the same reason one row up: renaming is a command (`0x15`) that has to
+# reach the cube.** What it does instead of going dead is say why -- the button stays pressable so that the tooltip
+# and the spoken label survive, which is what `EditableNameCell.isEnabled` is careful about, so the check that it
+# will not open is that pressing it produces no field.
+#
+# **The live case cannot be checked here**, nothing being paired below `50`. It is in `66-device-rename`.
+
+check_contains "the Name row says there is no device" "$(element device-name)" "Not paired"
+check_contains "and says why it will not open" "$(element device-name)" "no name to change"
+press device-name
+sleep 1
+check "so pressing the name opens no field" "0" "$(on_tab device-name-field)"
 
 # ---------------------------------------------------------------------------- folding each one
 #

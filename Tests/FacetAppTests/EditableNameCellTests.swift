@@ -226,6 +226,93 @@ final class EditableNameCellTests: XCTestCase {
         XCTAssertTrue(cell.isOutsideField(windowPoint: NSPoint(x: 5_000, y: 5_000)))
     }
 
+    // MARK: - the name follows what was read back
+
+    func testSettingTheNameMovesTheLabelAndEverythingThatSaysIt() throws {
+        // The Device tab redraws its whole row from the table on every write, so the cell has to follow a name
+        // rather than being rebuilt for one -- and the tooltip and the spoken label have to follow with it.
+        let cell = cell()
+
+        cell.name = "Admin"
+
+        let button = try XCTUnwrap(nameButton(of: cell))
+        XCTAssertEqual(button.subviews.compactMap { ($0 as? NSTextField)?.stringValue }, ["Admin"])
+        XCTAssertEqual(button.accessibilityLabel(), "Admin, click to rename")
+        XCTAssertEqual(try XCTUnwrap(field(of: cell)).accessibilityLabel(), "Admin, new name")
+    }
+
+    func testANameThatWillNotOpenStillFollowsWhatItIsCalled() throws {
+        let cell = cell()
+        cell.disabledHelp = "The TimeFlip is not connected, so this cannot be changed."
+
+        cell.name = "Dibby"
+
+        XCTAssertEqual(
+            try XCTUnwrap(nameButton(of: cell)).accessibilityLabel(),
+            "Dibby, The TimeFlip is not connected, so this cannot be changed."
+        )
+    }
+
+    // MARK: - a length that is somebody else's rule
+
+    func testWithNoLimitTheFieldTakesWhateverIsTyped() throws {
+        let cell = cell()
+        cell.beginEditing()
+        let field = try XCTUnwrap(self.field(of: cell))
+
+        field.stringValue = String(repeating: "a", count: 200)
+        typed(in: cell)
+
+        XCTAssertEqual(field.stringValue.count, 200, "a category name has no ceiling of its own")
+    }
+
+    func testALimitedFieldStopsAtTheLimitAsItIsTypedInto() throws {
+        // The Device tab's Name row, where the ceiling is the cube's: what is on screen is what a rename would send,
+        // so it truncates as a keystroke stops landing rather than refusing at the end.
+        let cell = cell()
+        cell.maximumLength = DeviceNameRules.maximumLength
+        cell.beginEditing()
+        let field = try XCTUnwrap(self.field(of: cell))
+
+        field.stringValue = String(repeating: "a", count: DeviceNameRules.maximumLength + 5)
+        typed(in: cell)
+
+        XCTAssertEqual(field.stringValue, String(repeating: "a", count: DeviceNameRules.maximumLength))
+    }
+
+    func testALimitedFieldLeavesAShorterNameAlone() throws {
+        let cell = cell()
+        cell.maximumLength = DeviceNameRules.maximumLength
+        cell.beginEditing()
+        let field = try XCTUnwrap(self.field(of: cell))
+
+        field.stringValue = "Plopper"
+        typed(in: cell)
+
+        XCTAssertEqual(field.stringValue, "Plopper")
+    }
+
+    func testTheCharactersThemselvesAreNotFilteredAsTheyAreTyped() throws {
+        // Deliberate: a character that vanished on the keystroke reads as a broken keyboard. An emoji is left
+        // visible and refused at submit, with an alert saying why (`DeviceNameRules.renameDecision`).
+        let cell = cell()
+        cell.maximumLength = DeviceNameRules.maximumLength
+        cell.beginEditing()
+        let field = try XCTUnwrap(self.field(of: cell))
+
+        field.stringValue = "Cube \u{1F3B2}"
+        typed(in: cell)
+
+        XCTAssertEqual(field.stringValue, "Cube \u{1F3B2}")
+    }
+
+    /// A keystroke, as AppKit reports one.
+    private func typed(in cell: EditableNameCell) {
+        cell.controlTextDidChange(
+            Notification(name: NSControl.textDidChangeNotification, object: field(of: cell))
+        )
+    }
+
     /// Ends the edit the way AppKit does, with the movement that says which way it ended.
     private func endEditing(_ cell: EditableNameCell, movement: NSTextMovement) {
         cell.controlTextDidEndEditing(

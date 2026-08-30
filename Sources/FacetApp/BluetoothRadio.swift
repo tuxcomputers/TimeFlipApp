@@ -95,6 +95,17 @@ final class BluetoothRadio: NSObject {
     /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
     var onFace: ((UUID, Int?) -> Void)?
 
+    /// Called when the cube reports what it is called, a second or two into a connection.
+    ///
+    /// **The only confirmation a rename gets**, and the only way a rename made in somebody else's app is ever noticed:
+    /// `0x15` has no answer of its own, and macOS re-reads the GAP name only on connecting. See
+    /// `DeviceLogin.nameReported` for the measurements behind both halves.
+    ///
+    /// **Every arrival, not only the changes**, unlike the charge and the face. There is roughly one per connection,
+    /// and what to do about a name that has not moved is the recorder's question (`DevicePairingRecorder.recordName`)
+    /// rather than a reason to drop the report here.
+    var onDeviceName: ((UUID, String) -> Void)?
+
     /// Called when what the cube says about its own state changes, or `nil` once there is no cube to say.
     ///
     /// **Only ever an answer to a question this app asked**, unlike the charge and the face: the cube pushes nothing
@@ -1096,6 +1107,29 @@ final class BluetoothRadio: NSObject {
     ///
     /// Quiet when nothing moved, matching the charge and the face: every command this app reads back produces one of
     /// these, and most of them say what the last one said.
+    /// The cube has said what it is called, which is newer than anything the scan heard.
+    ///
+    /// **The listed device is corrected as well as the report going out**, and that is not tidiness: `device(_:)`
+    /// answers from this list, and a pairing writes `device_name` from what it answers
+    /// (`DevicePairingRules.gapName`). The name a scan captured is the GAP name macOS had cached at the time, which
+    /// after a rename is the *previous* one -- so without this a pairing made on the connection that corrects the
+    /// name would still record the stale one, and which of the two landed first would decide what the table held.
+    ///
+    /// The list is republished for the same reason it is republished when anything else about a device changes: a row
+    /// on screen showing a name the radio no longer believes is a second answer to what the cube is called.
+    private func received(name: String, from id: UUID) {
+        if let device = found[id], device.peripheralName != name {
+            found[id] = ScannedDevice(
+                id: device.id,
+                peripheralName: name,
+                advertisedName: device.advertisedName,
+                advertisesTimeFlipService: device.advertisesTimeFlipService
+            )
+            publish()
+        }
+        onDeviceName?(id, name)
+    }
+
     private func received(status: DeviceCommandRules.Status, from id: UUID) {
         guard status != cubeStatus else { return }
         cubeStatus = status
@@ -1251,6 +1285,13 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             face: { [weak self] face in
                 guard let self, self.connectedDevice == attempt.id else { return }
                 self.received(face: face, from: attempt.id)
+            },
+            // The same guard again: a name arriving for a cube the app has let go of would rename the pairing it
+            // still has, which is the one row a rename must never get wrong -- `device_name` is what the scan filter
+            // matches on.
+            nameReported: { [weak self] name in
+                guard let self, self.connectedDevice == attempt.id else { return }
+                self.received(name: name, from: attempt.id)
             },
             // The same guard once more, and for the same reason as the two above.
             status: { [weak self] status in

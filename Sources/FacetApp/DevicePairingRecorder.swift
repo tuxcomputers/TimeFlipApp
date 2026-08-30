@@ -57,15 +57,32 @@ struct DevicePairingRecorder {
         put("paired", "paired", true)
         put("device_uuid", "uuid", device.id.uuidString)
 
+        // **What the scan heard, weighed against what is on record.** A pairing made straight after a rename is
+        // handed the GAP name macOS had cached, which is the name the cube was called *before* it -- so this asks
+        // `DevicePairingRules.adoption` rather than writing what it was given. See that rule for the measurement.
         if let name = DevicePairingRules.gapName(of: device) {
-            // Before the name itself, because the rule reads what the row currently holds.
-            if let previous = DevicePairingRules.previousName(
-                replacing: settings.string("device_name", field: "name"), with: name
+            switch DevicePairingRules.adoption(
+                of: name,
+                current: settings.string("device_name", field: "name"),
+                previouslyKnown: settings.string("device_name", field: "previous_name")
             ) {
-                put("device_name", "previous_name", previous)
-                debugLog?.record(.pair, "The cube was called \(previous), which the scan filter keeps")
+            case .adopt:
+                // Before the name itself, because the rule reads what the row currently holds.
+                if let previous = DevicePairingRules.previousName(
+                    replacing: settings.string("device_name", field: "name"), with: name
+                ) {
+                    put("device_name", "previous_name", previous)
+                    debugLog?.record(.pair, "The cube was called \(previous), which the scan filter keeps")
+                }
+                put("device_name", "name", name)
+            case .unchanged:
+                break
+            case .stale:
+                debugLog?.record(
+                    .pair,
+                    "The scan still calls the cube \(name), which is what it was called before the rename, so the record stands"
+                )
             }
-            put("device_name", "name", name)
         }
 
         put("connection", "connected", true)
@@ -100,6 +117,51 @@ struct DevicePairingRecorder {
             wrote
                 ? "Reconnected to \(DeviceScanRules.label(for: device)) (\(device.id.uuidString))"
                 : "RECONNECTION NOT RECORDED for \(device.id.uuidString) -- the table refused a write"
+        )
+        return wrote
+    }
+
+    /// Records what the cube is called now, and keeps what it was called before it.
+    ///
+    /// **Two ways here, and they are the same fact from two directions**, which is why they are one method:
+    ///
+    /// - A rename this app has just sent (`0x15`). The cube gives no answer to that command at all -- it never
+    ///   updates the command result characteristic for it (finding 2, `docs/timeflip2-firmware-observations.md`) --
+    ///   so what is written down is what went out, and `reason` is what says so in the log.
+    /// - A name the cube has reported of its own accord, which arrives through `peripheralDidUpdateName(_:)` about two
+    ///   seconds into a connection. That is the only confirmation a rename ever gets, and it is also what catches a
+    ///   cube renamed by somebody else's app.
+    ///
+    /// **`previous_name` moves only when the name really changes** (`DevicePairingRules.previousName`), which is what
+    /// makes the second case safe to run on every connection: a cube reporting the name it already had writes nothing
+    /// and pushes nothing out of the filter.
+    ///
+    /// **It is also what makes the two orders agree.** The GAP name macOS reports is one connection stale, so a cube
+    /// renamed and then re-paired reports its *old* name to the pairing that follows -- which lands here, and puts the
+    /// new name into `previous_name` rather than losing it. Both names are in the scan filter
+    /// (`DeviceScanRules.isEligible`), so the cube is findable either way round, and the connection after that reports
+    /// the real name and puts the two back.
+    @discardableResult
+    func recordName(_ name: String, because reason: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            debugLog?.record(.pair, "Asked to record an empty name for the cube, which is not a name, so nothing changed")
+            return false
+        }
+        var wrote = true
+        // Before the name itself, because the rule reads what the row currently holds.
+        if let previous = DevicePairingRules.previousName(
+            replacing: settings.string("device_name", field: "name"), with: name
+        ) {
+            wrote = settings.write("device_name", field: "previous_name", previous) && wrote
+            debugLog?.record(.pair, "The cube was called \(previous), which the scan filter keeps")
+        }
+        wrote = settings.write("device_name", field: "name", name) && wrote
+        debugLog?.record(
+            .pair,
+            wrote
+                ? "The cube is called \(name): \(reason)"
+                : "THE NAME \(name) WAS NOT RECORDED (\(reason)) -- the table refused a write"
         )
         return wrote
     }

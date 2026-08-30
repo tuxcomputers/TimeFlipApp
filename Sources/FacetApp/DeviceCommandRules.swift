@@ -98,6 +98,25 @@ enum DeviceCommandRules {
     /// What `0x0A` accepts: 5 to 60 seconds between flashes, again the spec's range.
     static let blinkRange = 5...60
 
+    /// Renames the cube (`0x15 0xLL <name>`): the length in one byte, then the name in ASCII.
+    ///
+    /// **`nil` for a name the command cannot carry**, rather than a truncated or transcoded one. The payload declares
+    /// its own byte count, so a multi-byte character would make the declared length disagree with the bytes sent,
+    /// which is the kind of thing that leaves a name field wrong on the hardware rather than failing cleanly. The
+    /// archive refused the same three cases at the same point (`TimeFlipBLEDevice.setDeviceName`) and it is kept: this
+    /// is the last gate before the wire, and `DeviceNameRules.renameDecision` is the one the user meets.
+    ///
+    /// **18 characters, which is `DeviceNameRules.maximumLength` and not a number of its own.** The field, the
+    /// refusal alert and these bytes all read the one constant, so a control cannot come to accept a name this would
+    /// then quietly refuse.
+    ///
+    /// **Nothing reads it back**, which is the spec and a measurement rather than an omission: see `readBack(for:)`.
+    static func setName(_ name: String) -> Data? {
+        guard let ascii = name.data(using: .ascii), !ascii.isEmpty else { return nil }
+        guard ascii.count <= DeviceNameRules.maximumLength else { return nil }
+        return Data([nameCommand, UInt8(ascii.count)]) + ascii
+    }
+
     /// Sets the cube's clock (`0x08`): the command byte then the epoch as `uint64` big-endian, in **UTC**.
     ///
     /// **The cube stamps every history frame with this clock**, so a cube whose time has never been set has nothing to
@@ -277,6 +296,19 @@ enum DeviceCommandRules {
                 // The delay the cube says it is on, so a refusal names the disagreement rather than only reporting one.
                 described: { status(from: $0).map { "auto-pause \($0.autoPauseMinutes)m" } }
             )
+        case nameCommand:
+            // **Said out loud rather than left to the default below**, for the reason the LED pair is: a reader
+            // finding this missing would have no way to tell a deliberate `nil` from a forgotten one.
+            //
+            // **This one is measured as well as absent from the spec.** There is no command that reads the name back,
+            // and the cube never updates the command result characteristic for `0x15` either -- re-read at +250 ms,
+            // +500 ms, +1 s and +2 s after a rename, it held the previous command's reply every time (finding 2,
+            // `docs/timeflip2-firmware-observations.md`), so it is not a race that waiting longer would win.
+            //
+            // **What does confirm a rename is the next connection**, which is not a read-back and cannot be one from
+            // here: macOS re-reads the GAP name only on connect, and reports it through
+            // `peripheralDidUpdateName(_:)` about two seconds in. `DeviceLogin.onNameReported` is where that lands.
+            return nil
         case ledBrightnessCommand, ledBlinkCommand:
             // **Said out loud rather than left to the default below**, which is `CLAUDE.md`'s rule for a command with
             // no read-back: the spec defines no way to ask a cube what its LED is set to, so a reader finding these
@@ -306,6 +338,7 @@ enum DeviceCommandRules {
     private static let timeCommand: UInt8 = 0x08
     private static let ledBrightnessCommand: UInt8 = 0x09
     private static let ledBlinkCommand: UInt8 = 0x0A
+    private static let nameCommand: UInt8 = 0x15
 }
 
 private extension ClosedRange where Bound == Int {

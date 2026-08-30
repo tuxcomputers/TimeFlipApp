@@ -110,4 +110,51 @@ final class DevicePairingRulesTests: XCTestCase {
     func testResetIsDeadWhileAnAttemptIsInFlight() {
         XCTAssertFalse(DevicePairingRules.allowsReset(isCubePaired: true, isCubeConnected: true, isReachingForCube: true))
     }
+
+    // MARK: - a name the cube offers
+
+    func testANameNobodyHasHeardBeforeIsAdopted() {
+        // Including one given in the vendor's app, which is the whole reason reports are listened to.
+        XCTAssertEqual(
+            DevicePairingRules.adoption(of: "Wobble", current: "Dibby", previouslyKnown: nil),
+            .adopt
+        )
+    }
+
+    func testTheNameAlreadyOnRecordIsNothingToDo() {
+        XCTAssertEqual(
+            DevicePairingRules.adoption(of: "Dibby", current: "Dibby", previouslyKnown: "Wobble"),
+            .unchanged
+        )
+        XCTAssertEqual(
+            DevicePairingRules.adoption(of: "  Dibby  ", current: "Dibby", previouslyKnown: nil),
+            .unchanged
+        )
+    }
+
+    func testTheNameARenameReplacedIsRefusedAsAStaleRead() {
+        // `CBPeripheral.name` is cached and re-read only on connecting, so the connection after a rename can still
+        // report the name the cube was renamed away from. Adopting it would undo the rename and put it back a
+        // connection later.
+        XCTAssertEqual(
+            DevicePairingRules.adoption(of: "Dibby", current: "Plopper", previouslyKnown: "Dibby"),
+            .stale
+        )
+    }
+
+    func testWithNothingOnRecordThereIsNoStaleReadToSpot() {
+        // A first pairing has no name to be older than, so whatever the cube says is the answer.
+        XCTAssertEqual(
+            DevicePairingRules.adoption(of: "Dibby", current: nil, previouslyKnown: "Dibby"),
+            .adopt
+        )
+        XCTAssertEqual(
+            DevicePairingRules.adoption(of: "Dibby", current: "", previouslyKnown: "Dibby"),
+            .adopt
+        )
+    }
+
+    func testACubeThatSaidNothingIsNotANameAtAll() {
+        XCTAssertEqual(DevicePairingRules.adoption(of: "   ", current: "Dibby", previouslyKnown: nil), .unchanged)
+    }
 }

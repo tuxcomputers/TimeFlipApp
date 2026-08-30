@@ -76,31 +76,39 @@ If `config.json` names no PIN at all, that constant stands in as the *stored* on
 
 ### Renaming Your Device
 
-**Not built yet.** The name a cube carries can currently only be changed from the vendor's own app. Facet reads the name on every connect and stores it, and its scan matches the vendor default plus both names the cube has carried, so a cube renamed elsewhere is still findable — but nothing in Facet sends the rename command (`0x15`).
+**Click the name.** Settings → **Device**, and the **Name** row at the top of the TimeFlip section: clicking it turns
+the name into a field. Return renames the device; Escape, or a click anywhere else, leaves it alone. It is the same
+gesture that renames a category.
 
-The rest of this section describes what a rename means for the device, and is worth reading before doing one in the vendor's app.
+The row only opens while the TimeFlip is connected, and says why when it will not: the name lives on the device, so
+renaming it is a command that has to reach the hardware rather than a note Facet keeps to itself.
 
 Names are limited to **18 characters** of plain, unaccented text (letters, numbers, spaces and ordinary punctuation). That is the TimeFlip's own limit: the vendor's protocol defines the name field as "18 symbols MAX. ASCII coding", so an emoji or an accented letter cannot be sent to the device at all.
 
-#### The new name takes a while to show up everywhere
+A name the device cannot store is refused when you press Return, with an alert saying what will work. Nothing is
+sent to the device in that case, and the name it is carrying does not change. There is no confirmation dialogue for a
+name it *can* store: renaming a device changes nothing that was recorded, so there is nothing to warn about.
 
-The device accepts the rename immediately, but it keeps announcing itself under the old name for a while, and there is nothing this app can do about it. Two separate reasons, both measured on real hardware (see [firmware observations](timeflip2-firmware-observations.md)):
+#### The new name takes a while to show up everywhere else
 
-- The name the TimeFlip broadcasts while advertising **never changes at all**. Any Bluetooth scan, in this app or any other, goes on listing it as `TimeFlip v2.0` forever.
-- The name it reports once connected is only read at connect time and is never pushed to a Mac that is already connected, so macOS can hand out the previous name for a reconnect or two before it catches up.
+Facet shows the new name at once and keeps showing it. **Everywhere else lags**, and there is nothing this app can do
+about either half. Both are measured on real hardware (see [firmware observations](timeflip2-firmware-observations.md)):
 
-This is why Facet stores **both** the current name and the one before it, and matches a scan against the vendor default and both of them: a cube renamed a moment ago is still advertising something else, and matching only the new name would lose it.
+- The name the TimeFlip broadcasts while advertising **never changes at all**. Any Bluetooth scan, in this app or any
+  other, goes on listing it as `TimeFlip v2.0` forever.
+- The name it reports once connected is only read at connect time and is never pushed to a Mac that is already
+  connected, so macOS itself can hand out the previous name until it next connects to the device.
 
-#### Making the new name appear now
+Facet says this in an alert as the rename lands, so a scan list still showing the old name does not read as a rename
+that failed.
 
-If you would rather not wait, this forces the device to be re-read straight away:
+This is also why Facet stores **both** the current name and the one before it, and matches a scan against the vendor
+default and both of them: a cube renamed a moment ago is still advertising something else, and matching only the new
+name would lose it, which is exactly how the previous version of this app once made a renamed cube unreachable.
 
-1. Click **Forget Device**
-2. Click **Scan for Devices**
-3. Click the device in the results list, which will still be showing the **old** name
-4. Once it pairs, the Name row shows the **new** name
-
-Step 3 is the confusing part and it is expected: the scan list can only show the name the device is still handing out. Clicking it pairs with the same physical cube regardless, and the connection is what refreshes the name.
+**A reconnect will not undo the rename**, even when macOS reports the old name on it. Facet keeps the name it wrote and
+ignores that one reading, because the reading is a connection out of date rather than news; a name the device is given
+in the vendor's app is picked up normally.
 
 ### Assigning categories to faces
 

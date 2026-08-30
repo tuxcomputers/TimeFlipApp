@@ -121,6 +121,88 @@ final class DevicePairingRecorderTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Dibby")
     }
 
+    // MARK: - the name changing on its own account
+
+    func testARenameIsRecordedWithTheNameItReplaces() throws {
+        XCTAssertTrue(recorder.recordPairing(with: cube), "precondition: paired as Dibby")
+
+        XCTAssertTrue(recorder.recordName("Plopper", because: "renamed from the Device tab"))
+
+        XCTAssertEqual(settings.string("device_name", field: "name"), "Plopper")
+        // The scan straight after a rename still sees the old GAP name, so it stays in the filter.
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Dibby")
+    }
+
+    func testACubeReportingTheNameItAlreadyHadChangesNothing() throws {
+        XCTAssertTrue(recorder.recordPairing(with: cube))
+        XCTAssertTrue(recorder.recordName("Plopper", because: "renamed"), "precondition: renamed once")
+
+        XCTAssertTrue(recorder.recordName("Plopper", because: "the cube said so on connecting"))
+
+        // Every connection reports a name, so a rule that moved this each time would undo the one thing
+        // `previous_name` is there for after a single reconnect.
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Dibby")
+    }
+
+    func testRecordingANameIsUnconditional() throws {
+        // **Whether a name is worth adopting is asked before this, not inside it** (`DevicePairingRules.adoption`),
+        // because the two callers ask it about different things: a rename is this app writing what it sent, and a
+        // connection reporting a name is a read that can be out of date. So renaming a cube back to what it was
+        // called does exactly what it says.
+        XCTAssertTrue(recorder.recordPairing(with: cube))
+        XCTAssertTrue(recorder.recordName("Plopper", because: "renamed"), "precondition: renamed to Plopper")
+
+        XCTAssertTrue(recorder.recordName("Dibby", because: "the cube said so on connecting"))
+
+        XCTAssertEqual(settings.string("device_name", field: "name"), "Dibby")
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Plopper")
+    }
+
+    func testAnEmptyNameIsNotARename() throws {
+        XCTAssertTrue(recorder.recordPairing(with: cube), "precondition: paired as Dibby")
+
+        XCTAssertFalse(recorder.recordName("   ", because: "nothing at all"))
+
+        XCTAssertEqual(settings.string("device_name", field: "name"), "Dibby")
+    }
+
+    func testARenameTouchesNothingElseAboutThePairing() throws {
+        XCTAssertTrue(recorder.recordPairing(with: cube))
+
+        XCTAssertTrue(recorder.recordName("Plopper", because: "renamed"))
+
+        XCTAssertEqual(settings.flag("paired", field: "paired"), true)
+        XCTAssertEqual(settings.string("device_uuid", field: "uuid"), cube.id.uuidString)
+        XCTAssertEqual(settings.flag("connection", field: "connected"), true)
+    }
+
+    func testAPairingMadeStraightAfterARenameKeepsTheNewName() throws {
+        // The documented way to make a rename show up elsewhere -- rename, forget, scan, pair again -- hands the
+        // pairing the GAP name macOS had cached, which is the name the cube was renamed away from. Adopting it would
+        // undo the rename at the exact moment somebody was watching for it.
+        XCTAssertTrue(recorder.recordPairing(with: cube), "precondition: paired as Dibby")
+        XCTAssertTrue(recorder.recordName("Plopper", because: "renamed"), "precondition: renamed to Plopper")
+
+        XCTAssertTrue(recorder.recordPairing(with: cube), "the scan is still handing out Dibby")
+
+        XCTAssertEqual(settings.string("device_name", field: "name"), "Plopper")
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Dibby")
+    }
+
+    func testACubeGenuinelyRenamedElsewhereIsStillPickedUpByAPairing() throws {
+        // The other half of the rule: only the one name it can show is out of date is refused.
+        XCTAssertTrue(recorder.recordPairing(with: cube))
+        XCTAssertTrue(recorder.recordName("Plopper", because: "renamed"))
+        let elsewhere = ScannedDevice(
+            id: cube.id, peripheralName: "Wobble", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
+        )
+
+        XCTAssertTrue(recorder.recordPairing(with: elsewhere))
+
+        XCTAssertEqual(settings.string("device_name", field: "name"), "Wobble")
+        XCTAssertEqual(settings.string("device_name", field: "previous_name"), "Plopper")
+    }
+
     // MARK: - losing it
 
     func testLosingTheConnectionMarksItDownWithoutUnpairing() throws {

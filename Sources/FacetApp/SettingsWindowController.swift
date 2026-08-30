@@ -402,6 +402,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 self.applyAutoPause(on: pane)
             }
         }
+        // **Not debounced, unlike the four rows above it.** Those are steppers, where a hold produces a value a
+        // tenth of a second at a time and only the last one is meant; this is a name committed with Return, which is
+        // one act with one answer. `docs/timeflip.md` puts the device name in the same group as lock and pause for
+        // the same reason.
+        pane.onRename = { [weak self, weak pane] typed in
+            guard let self, let pane else { return }
+            self.renameDevice(to: typed, on: pane)
+        }
+        pane.onRenameEditingChanged = { [weak self] isEditing in
+            // The same loan the Categories tab's names get, for the same reason: a key equivalent is dispatched
+            // before the focused field ever sees the key, so without this Escape closes the window instead of
+            // abandoning the name being typed.
+            self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
+        }
         pane.show(deviceSettings())
         wireScan(on: pane)
         return pane
@@ -777,6 +791,113 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **Named by its caller**, so the two settings that write share one wording rather than each growing a version
     /// of it: what somebody needs from this sheet is which control went back, and a second copy of the sentence is a
     /// second chance for the two to end up saying different things about the same failure.
+    /// Acts on a name typed into the Device tab's Name row.
+    ///
+    /// **The cube goes first and the table follows it**, which is the route every writing row on this tab takes: a
+    /// `device_name` row written ahead of the command would be the app recording its own wish as the cube's state,
+    /// and here that has a cost beyond untruth -- `device_name` is what the filtered scan matches a renamed cube on
+    /// (`DeviceScanRules.isEligible`), so a name the device never took would be a name nothing could be found by.
+    ///
+    /// **What "the cube took it" means here is weaker than anywhere else on this tab, and the app says so rather
+    /// than dressing it up.** `0x15` has no read-back at all: the cube never updates the command result
+    /// characteristic for it, checked at +250 ms, +500 ms, +1 s and +2 s after a rename (finding 2,
+    /// `docs/timeflip2-firmware-observations.md`), and the GAP name macOS reports is re-read only on the next
+    /// connection, so nothing inside this connection can be asked. The evidence is the write being acknowledged, and
+    /// `DeviceCommandRules.readBack(for:)` returns `nil` here deliberately so that no caller can think otherwise. The
+    /// real confirmation arrives on the next connection, through `BluetoothRadio.onDeviceName`.
+    private func renameDevice(to typed: String, on pane: DevicePane) {
+        // **What the tab is showing, which is what the table said when it was drawn.** The comparison is only there
+        // to spot a name that did not change; the name that matters is the one going to the cube.
+        let current = pane.values.deviceName
+        switch DeviceNameRules.renameDecision(typed: typed, current: current) {
+        case .ignore:
+            // The field has closed itself, and an alert saying nothing happened would be worse than nothing
+            // happening.
+            debugLog?.record(.field, "The device name was left as it was")
+        case let .refuse(problem):
+            debugLog?.record(.field, "The device cannot be called \(typed): \(problem.title)")
+            showNameProblem(problem)
+        case let .write(name):
+            sendRename(to: name, replacing: current, on: pane)
+        }
+    }
+
+    /// Sends `0x15` and records the name only once the write has been taken.
+    ///
+    /// **A refusal at any point leaves the row reading what the table holds**, re-read rather than remembered: a
+    /// window still showing a name that reached neither the cube nor the table is the two-answers problem with a
+    /// scan filter downstream of it.
+    private func sendRename(to name: String, replacing previous: String?, on pane: DevicePane) {
+        guard let radio, let command = DeviceCommandRules.setName(name) else {
+            // **No radio and a name the command cannot carry are one branch on purpose**: both mean nothing went to
+            // the cube, and `writeFailed` is the alert worded for exactly that -- it does not quote the character
+            // rules, which would send somebody looking in the wrong place. `renameDecision` has already refused the
+            // names that are unsendable for a reason worth naming.
+            debugLog?.record(.field, "The name \(name) could not be sent to the cube")
+            pane.show(deviceSettings())
+            showNameProblem(.writeFailed)
+            return
+        }
+        debugLog?.record(.field, "Renaming the cube to \(name)")
+        radio.send(command) { [weak self, weak pane] wrote in
+            guard let self else { return }
+            guard wrote else {
+                self.debugLog?.record(.field, "The cube did not take the name \(name), so the row goes back")
+                pane?.show(self.deviceSettings())
+                self.showNameProblem(.writeFailed)
+                return
+            }
+            guard self.recordDeviceName(name, because: "renamed from the Device tab") else {
+                // The cube took it and the table did not, which is what `showNotRecorded` is worded for: the window
+                // follows the table, that being what the next open reads.
+                pane?.show(self.deviceSettings())
+                self.showNotRecorded("the new name")
+                return
+            }
+            pane?.show(self.deviceSettings())
+            self.showRenameLag(newName: name, previousName: previous)
+        }
+    }
+
+    /// Writes the name the cube is carrying, whether this app just sent it or the cube reported it.
+    ///
+    /// **Read back before it is believed** (`SettingStore.write`, through the recorder), which is what lets the
+    /// caller put the window back when the table refuses.
+    private func recordDeviceName(_ name: String, because reason: String) -> Bool {
+        guard let settings else {
+            debugLog?.record(.field, "There is no settings store, so the name \(name) cannot be recorded")
+            return false
+        }
+        return DevicePairingRecorder(settings: settings, debugLog: debugLog).recordName(name, because: reason)
+    }
+
+    /// What a name the TimeFlip cannot hold says, and what a name that never reached it says.
+    ///
+    /// The words are `DeviceNameProblem`'s, where the reasoning about attributing the limit to the vendor lives.
+    private func showNameProblem(_ problem: DeviceNameProblem) {
+        let alert = NSAlert()
+        alert.messageText = problem.title
+        alert.informativeText = problem.message
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    /// Says that the rename worked and that the world will take a while to agree.
+    ///
+    /// **Shown every time rather than kept as a caption on the tab.** The Name row already reads the new name, so
+    /// there is nothing on this tab left disagreeing to caption; what lags is a Bluetooth scan and macOS, neither of
+    /// which this window can put right, and a notice that persisted would need a flag saying whether it still
+    /// applied -- a second answer to a question the next connection settles on its own. The moment somebody is
+    /// watching is the moment they pressed Return, so that is when it is said.
+    private func showRenameLag(newName: String, previousName: String?) {
+        debugLog?.record(.field, "The cube is now called \(newName), and will go on advertising its old name")
+        let alert = NSAlert()
+        alert.messageText = "The TimeFlip has been renamed"
+        alert.informativeText = DeviceNameRules.renameLagNotice(newName: newName, previousName: previousName)
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
     private func showRefusedByTheCube(_ what: String) {
         let alert = NSAlert()
         alert.messageText = "The TimeFlip did not accept that"
@@ -988,6 +1109,42 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // they land, and this fills the More rows in when they do.
         radio.onDeviceInfo = { [weak self] _, info in
             self?.recordDeviceInfo(on: self?.devicePane, info)
+        }
+        // **The one confirmation a rename ever gets**, arriving a second or two into a connection: `0x15` has no
+        // answer of its own, and macOS re-reads the GAP name only on connecting. It is also what notices a cube
+        // renamed in the vendor's app, and what corrects the name a pairing adopted from a stale cache.
+        radio.onDeviceName = { [weak self] id, name in
+            guard let self else { return }
+            // **Only for the cube this app is paired to**, read from the table at this moment. Every connection
+            // reports a name, including the one that proves a factory reset and any made to a device that turns out
+            // to be somebody else's -- and writing one of those into `device_name` would rename the pairing after a
+            // cube it is not to.
+            guard self.settings?.string("device_uuid", field: "uuid") == id.uuidString else {
+                self.debugLog?.record(.pair, "Ignoring the name \(name): it is not the cube this app is paired to")
+                return
+            }
+            // **A report is not automatically newer than what is on record**, and the one case where it is older is
+            // the one that matters here: macOS re-reads the GAP name only on connecting, so the connection after a
+            // rename can still be handing out the name the cube was renamed away from. Adopting that would undo the
+            // rename on the tab and in the row the scan filter is built from, and put it back a connection later.
+            switch DevicePairingRules.adoption(
+                of: name,
+                current: self.settings?.string("device_name", field: "name"),
+                previouslyKnown: self.settings?.string("device_name", field: "previous_name")
+            ) {
+            case .unchanged:
+                return
+            case .stale:
+                self.debugLog?.record(
+                    .pair,
+                    "The cube reports the name it had before the rename, which macOS is a connection behind on, so the record stands"
+                )
+                return
+            case .adopt:
+                break
+            }
+            guard self.recordDeviceName(name, because: "the cube said so on connecting") else { return }
+            self.devicePane?.show(self.deviceSettings())
         }
         // **Nothing is written down**, which makes this the one radio callback that files nothing: the charge has no
         // row and is not going to get one (see `deviceSettings`). What it does is tell the warning to think again --
