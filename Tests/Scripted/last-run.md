@@ -4,53 +4,54 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 **Do not edit it by hand.** CI reads it to decide whether this branch's checks were actually
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
-    branch:   feature/googleCredentials
-    commit:   2cbd1c43af4315b0507741728e53f15dfcf9f972
+    branch:   feature/deviceRename
+    commit:   a81c4f445cf15680f29b995146017402f8c04da0
     tree:     clean
     database: rebuilt from the DDL
-    started:  2026-08-30 12:49:27
-    finished: 2026-08-30 13:17:40
+    started:  2026-08-30 18:30:13
+    finished: 2026-08-30 18:58:02
     outcome:  passed
-    scripts:  31 of 31 run, 0 with failures
+    scripts:  32 of 32 run, 0 with failures
     short:    0 ran fewer checks than they declare
-    checks:   718 in total
-              718 passed
+    checks:   742 in total
+              742 passed
               0 failed
 
 | script | expected | passed | failed | time |
 |---|---|---|---|---|
-| 00-setup | 1 | 1 | 0 | 0m 52s (0m 03s) |
-| 01-launch | 9 | 9 | 0 | 0m 02s |
-| 02-menu-bar | 10 | 10 | 0 | 0m 04s |
+| 00-setup | 1 | 1 | 0 | 0m 54s (2m 18s) |
+| 01-launch | 9 | 9 | 0 | 0m 01s |
+| 02-menu-bar | 10 | 10 | 0 | 0m 05s |
 | 03-settings-window | 26 | 26 | 0 | 0m 22s |
 | 04-categories | 96 | 96 | 0 | 1m 46s |
 | 05-faces-timing | 19 | 19 | 0 | 0m 26s |
 | 06-time-entries | 12 | 12 | 0 | 0m 19s |
 | 07-history-timer | 8 | 8 | 0 | 1m 04s |
 | 08-app-settings | 31 | 31 | 0 | 0m 27s |
-| 09-report | 22 | 22 | 0 | 0m 17s |
-| 10-google-calendar | 10 | 10 | 0 | 0m 16s |
-| 11-google-reconnect | 17 | 17 | 0 | 0m 36s (5m 55s) |
+| 09-report | 22 | 22 | 0 | 0m 16s |
+| 10-google-calendar | 10 | 10 | 0 | 0m 17s |
+| 11-google-reconnect | 17 | 17 | 0 | 0m 13s (0m 13s) |
 | 12-daily-limit | 34 | 34 | 0 | 1m 39s |
-| 13-device-tab | 31 | 31 | 0 | 0m 22s |
-| 50-device-scan | 15 | 15 | 0 | 0m 23s |
-| 51-device-connect | 41 | 41 | 0 | 0m 30s |
+| 13-device-tab | 34 | 34 | 0 | 0m 23s |
+| 50-device-scan | 15 | 15 | 0 | 0m 25s |
+| 51-device-connect | 41 | 41 | 0 | 0m 26s |
 | 52-device-reset | 32 | 32 | 0 | 0m 45s |
-| 53-device-reconnect | 21 | 21 | 0 | 0m 54s |
+| 53-device-reconnect | 21 | 21 | 0 | 0m 53s |
 | 54-device-battery | 9 | 9 | 0 | 0m 48s |
-| 55-device-face | 46 | 46 | 0 | 1m 16s (0m 08s) |
-| 56-manual-mode | 33 | 33 | 0 | 1m 46s (0m 28s) |
-| 57-cube-pause | 38 | 38 | 0 | 0m 36s (0m 08s) |
+| 55-device-face | 46 | 46 | 0 | 1m 13s (2m 11s) |
+| 56-manual-mode | 33 | 33 | 0 | 1m 48s (1m 34s) |
+| 57-cube-pause | 38 | 38 | 0 | 0m 34s (0m 06s) |
 | 58-wrong-pin | 20 | 20 | 0 | 0m 42s |
-| 59-double-tap | 19 | 19 | 0 | 0m 11s |
-| 60-device-backlog | 23 | 23 | 0 | 0m 28s (0m 31s) |
-| 61-lock-without-pause | 13 | 13 | 0 | 0m 15s |
-| 62-forced-pause | 20 | 20 | 0 | 0m 24s (0m 23s) |
+| 59-double-tap | 19 | 19 | 0 | 0m 12s |
+| 60-device-backlog | 23 | 23 | 0 | 0m 19s (0m 32s) |
+| 61-lock-without-pause | 13 | 13 | 0 | 0m 16s |
+| 62-forced-pause | 20 | 20 | 0 | 0m 31s (0m 21s) |
 | 63-led-settings | 18 | 18 | 0 | 0m 18s |
-| 64-face-colours | 12 | 12 | 0 | 0m 28s |
-| 65-auto-pause | 18 | 18 | 0 | 1m 30s (0m 07s) |
+| 64-face-colours | 12 | 12 | 0 | 0m 29s |
+| 65-auto-pause | 18 | 18 | 0 | 1m 23s (0m 04s) |
+| 66-device-rename | 21 | 21 | 0 | 0m 33s |
 | 99-quit | 14 | 14 | 0 | 0m 40s |
-| **total** | **718** | **718** | **0** | **20m 26s (7m 43s)** |
+| **total** | **742** | **742** | **0** | **20m 27s (7m 19s)** |
 
 A bracketed figure is time the script spent waiting for a person, already taken out of the time beside it.
 

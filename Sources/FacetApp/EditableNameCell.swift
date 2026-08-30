@@ -42,16 +42,40 @@ final class EditableNameCell: NSView {
     /// It replaces the tooltip **and** the spoken label, since "click to rename" on something that will not open is a
     /// lie told to whoever cannot see that nothing happened.
     var disabledHelp: String? {
-        didSet {
-            button.toolTip = disabledHelp ?? Self.hint
-            button.setAccessibilityLabel(disabledHelp.map { "\(name), \($0)" } ?? "\(name), \(Self.hint.lowercased())")
-        }
+        didSet { describe() }
+    }
+
+    /// The most characters the field will hold, or `nil` for a name with no limit of its own.
+    ///
+    /// **A length is the one limit a field can enforce honestly**, which is why this truncates as a keystroke stops
+    /// landing rather than refusing at the end: what is on screen is what will be written, and there is nothing to
+    /// explain. Which characters are acceptable is the opposite case and is deliberately not asked here -- a
+    /// character that vanished as it was typed reads as a broken keyboard, so it is left visible and refused by
+    /// whoever the name is submitted to, with a reason.
+    ///
+    /// It exists for the Device tab's Name row, where the ceiling is the **cube's**
+    /// (`DeviceNameRules.maximumLength`) and a name over it cannot reach the hardware at all.
+    var maximumLength: Int?
+
+    /// The colour the name is drawn in, which is the Device tab's way of saying whether the app is standing behind
+    /// what a row shows: its readings grey together while nothing is connected, and the name is one of them.
+    var textColor: NSColor {
+        get { label.textColor ?? .labelColor }
+        set { label.textColor = newValue }
     }
 
     /// The one hint that this is a control at all.
     private static let hint = "Click to rename"
 
-    let name: String
+    /// The name on show, which is **what the table says** and never what somebody has typed: a commit asks, and the
+    /// row is read back afterwards. Set it and the label, the tooltip and the spoken label follow.
+    var name: String {
+        didSet {
+            guard name != oldValue else { return }
+            label.stringValue = name
+            describe()
+        }
+    }
 
     /// How the name sits in the cell. Kept as a property because it is the one thing the two uses differ by, so it is
     /// worth being able to ask rather than infer from a frame.
@@ -150,10 +174,6 @@ final class EditableNameCell: NSView {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.identifier = NSUserInterfaceItemIdentifier(identifier)
         button.setAccessibilityIdentifier(identifier)
-        button.setAccessibilityLabel("\(name), \(Self.hint.lowercased())")
-        // The one hint that this is a control at all. It draws as a plain name on purpose: a column of buttons would
-        // read as a row of controls, when what is wanted is a list that can be corrected.
-        button.toolTip = Self.hint
 
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
@@ -167,7 +187,10 @@ final class EditableNameCell: NSView {
         field.translatesAutoresizingMaskIntoConstraints = false
         field.identifier = NSUserInterfaceItemIdentifier("\(identifier)-field")
         field.setAccessibilityIdentifier("\(identifier)-field")
-        field.setAccessibilityLabel("\(name), new name")
+        // The one hint that this is a control at all, and what it says when it will not open. It draws as a plain
+        // name on purpose: a column of buttons would read as a row of controls, when what is wanted is a list that
+        // can be corrected.
+        describe()
 
         button.addSubview(label)
         addSubview(button)
@@ -200,6 +223,14 @@ final class EditableNameCell: NSView {
         ])
     }
 
+    /// Says what this row is and what pressing it will do, wherever those two came from. Called by everything that
+    /// changes either, so the tooltip and the spoken label cannot come to disagree with the name beside them.
+    private func describe() {
+        button.toolTip = disabledHelp ?? Self.hint
+        button.setAccessibilityLabel(disabledHelp.map { "\(name), \($0)" } ?? "\(name), \(Self.hint.lowercased())")
+        field.setAccessibilityLabel("\(name), new name")
+    }
+
     @objc
     private func nameClicked() {
         beginEditing()
@@ -219,6 +250,17 @@ extension EditableNameCell: NSTextFieldDelegate {
         endEditing()
         guard movement == NSTextMovement.return.rawValue else { return }
         onCommit?(typed)
+    }
+
+    /// Holds the field to `maximumLength` as it is typed into, for a cell that has one.
+    ///
+    /// **The caret goes to the end**, which is where it already is in the case this fires in: a keystroke that would
+    /// take the name past the limit. A paste into the middle of a full name moves it, which is the price of not
+    /// tracking a selection through a truncation, and it is visible rather than surprising.
+    func controlTextDidChange(_ notification: Notification) {
+        guard let maximumLength, field.stringValue.count > maximumLength else { return }
+        field.stringValue = String(field.stringValue.prefix(maximumLength))
+        field.currentEditor()?.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0)
     }
 
     /// Escape, which the field only sees because the window lends it (see `onEditingChanged`).

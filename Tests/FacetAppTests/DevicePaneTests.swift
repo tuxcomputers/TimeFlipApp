@@ -35,6 +35,10 @@ final class DevicePaneTests: XCTestCase {
         descendants(of: pane).first { $0.accessibilityIdentifier() == identifier }
     }
 
+    /// The Name row, which is a control rather than a label: the name is drawn by an `EditableNameCell`, so it is
+    /// read from the cell rather than out of a text field like the readings under it.
+    private func name(of pane: DevicePane) -> String { pane.nameCell.name }
+
     /// The field *inside* the control carries the identifier, so the control itself is its owner. The App tab's tests
     /// reach for one the same way, for the same reason.
     private func stepper(_ identifier: String, in root: NSView) -> SteppedNumberField? {
@@ -329,7 +333,7 @@ final class DevicePaneTests: XCTestCase {
         let pane = DevicePane()
 
         XCTAssertEqual(pane.values, .seeded)
-        XCTAssertEqual(value(DevicePane.Identifier.name, in: pane), "Not paired")
+        XCTAssertEqual(name(of: pane), "Not paired")
         XCTAssertEqual(value(DevicePane.Identifier.connection, in: pane), "Manual mode, no device")
         XCTAssertEqual(value(DevicePane.Identifier.battery, in: pane), "Not paired")
     }
@@ -339,7 +343,7 @@ final class DevicePaneTests: XCTestCase {
 
         pane.show(paired)
 
-        XCTAssertEqual(value(DevicePane.Identifier.name, in: pane), "Dibby")
+        XCTAssertEqual(name(of: pane), "Dibby")
         XCTAssertEqual(value(DevicePane.Identifier.connection, in: pane), "Connected")
         XCTAssertEqual(value(DevicePane.Identifier.battery, in: pane), "34%")
         XCTAssertEqual(value(DevicePane.Identifier.manufacturer, in: pane), "DI_LABS 2.0")
@@ -1002,11 +1006,98 @@ final class DevicePaneTests: XCTestCase {
         let pane = DevicePane()
 
         pane.show(.seeded)
-        let name = try XCTUnwrap(view(DevicePane.Identifier.name, in: pane) as? NSTextField)
-        XCTAssertEqual(name.textColor, .secondaryLabelColor, "a placeholder is not a reading")
+        // The Name row greys with the readings even though it is a control, for the reason `DevicePane.show` gives:
+        // a name the app cannot stand behind is a placeholder like the rest of them.
+        XCTAssertEqual(pane.nameCell.textColor, .secondaryLabelColor, "a placeholder is not a reading")
 
         pane.show(paired)
-        XCTAssertEqual(name.textColor, .labelColor)
+        XCTAssertEqual(pane.nameCell.textColor, .labelColor)
+    }
+
+    // MARK: - renaming the cube
+
+    func testTheNameIsAControlAndCarriesTheCubesOwnLimit() {
+        // The same cell the Categories tab renames with, held to the ceiling `0x15` imposes: what is on screen is
+        // what a rename would send.
+        let pane = DevicePane()
+
+        XCTAssertEqual(pane.nameCell.maximumLength, DeviceNameRules.maximumLength)
+        XCTAssertEqual(pane.nameCell.accessibilityIdentifier(), "", "the identifier is on the control inside it")
+        XCTAssertNotNil(view(DevicePane.Identifier.name, in: pane), "which is what a script presses")
+    }
+
+    func testTheNameWillNotOpenWithNothingPaired() {
+        let pane = DevicePane()
+
+        pane.show(.seeded)
+
+        XCTAssertFalse(pane.nameCell.isEnabled)
+        XCTAssertEqual(pane.nameCell.disabledHelp, "No TimeFlip is paired, so there is no name to change.")
+    }
+
+    func testTheNameWillNotOpenWhileTheCubeCannotBeHeardFrom() {
+        // Renaming is a command that has to reach the hardware, unlike Forget Device beside it -- so it says the
+        // same thing the settings rows below it say, in the same words.
+        let pane = DevicePane()
+        var values = paired
+        values.isCubeConnected = false
+
+        pane.show(values)
+
+        XCTAssertFalse(pane.nameCell.isEnabled)
+        XCTAssertEqual(pane.nameCell.disabledHelp, "The TimeFlip is not connected, so this cannot be changed.")
+    }
+
+    func testTheNameWillNotOpenOnAPlaceholder() {
+        // Paired and connected but with nothing stored is a real state: the name is read off the cube and never
+        // guessed, so the row reads `Unknown` and there is nothing there to correct.
+        let pane = DevicePane()
+        var values = paired
+        values.deviceName = nil
+
+        pane.show(values)
+
+        XCTAssertEqual(name(of: pane), "Unknown")
+        XCTAssertFalse(pane.nameCell.isEnabled)
+        XCTAssertEqual(
+            pane.nameCell.disabledHelp,
+            "The TimeFlip has not said what it is called yet, so there is nothing to rename."
+        )
+    }
+
+    func testTheNameOpensOnceThereIsACubeSayingWhatItIsCalled() {
+        let pane = DevicePane()
+
+        pane.show(paired)
+
+        XCTAssertTrue(pane.nameCell.isEnabled)
+        XCTAssertNil(pane.nameCell.disabledHelp, "and nothing explaining why it will not, because it will")
+    }
+
+    func testACommittedNameIsReportedRatherThanActedOn() {
+        // The pane decides nothing about a name: what the cube takes and what the table records is the window's to
+        // find out, and the row moves when `device_name` has been read back.
+        let pane = DevicePane()
+        pane.show(paired)
+        var typed: String?
+        pane.onRename = { typed = $0 }
+
+        pane.nameCell.onCommit?("Plopper")
+
+        XCTAssertEqual(typed, "Plopper")
+        XCTAssertEqual(name(of: pane), "Dibby", "and the row still reads what the table said")
+    }
+
+    func testTheWindowIsToldWhenTheNameIsBeingTypedInto() {
+        // So it can lend Escape to the field: a key equivalent is dispatched before the focused field sees the key,
+        // so the Close button would otherwise shut the window instead.
+        let pane = DevicePane()
+        var editing: Bool?
+        pane.onRenameEditingChanged = { editing = $0 }
+
+        pane.nameCell.onEditingChanged?(true)
+
+        XCTAssertEqual(editing, true)
     }
 
     // MARK: - the TimeFlip section's two states

@@ -267,6 +267,42 @@ final class DeviceCommandRulesTests: XCTestCase {
         XCTAssertNil(DeviceCommandRules.readBack(for: Data()))
     }
 
+    func testARenameHasNoReadBackEither() throws {
+        // Measured rather than merely absent from the spec: after a rename the command result was re-read at
+        // +250 ms, +500 ms, +1 s and +2 s and held the previous command's reply every time (finding 2,
+        // `docs/timeflip2-firmware-observations.md`). What confirms a rename is the next connection reporting the
+        // GAP name, which is not a read-back and cannot be asked for from here.
+        let command = try XCTUnwrap(DeviceCommandRules.setName("Plopper"))
+
+        XCTAssertNil(DeviceCommandRules.readBack(for: command))
+    }
+
+    // MARK: - the cube's name
+
+    func testANameIsTheCommandItsLengthThenASCII() {
+        // `0x15 0xXX 0xZZ...`, the vendor spec's shape: the number of symbols in the name, then the name.
+        XCTAssertEqual(
+            DeviceCommandRules.setName("Dibby"),
+            Data([0x15, 5]) + Data("Dibby".utf8)
+        )
+    }
+
+    func testANameAtTheLimitIsSentAndOneOverItIsNot() {
+        // The last gate before the wire, holding to the same 18 the field and the refusal alert read.
+        let atTheLimit = String(repeating: "a", count: DeviceNameRules.maximumLength)
+
+        XCTAssertNotNil(DeviceCommandRules.setName(atTheLimit))
+        XCTAssertNil(DeviceCommandRules.setName(atTheLimit + "a"))
+    }
+
+    func testANameThatIsNotASCIICannotBeSentAtAll() {
+        // Refused rather than transcoded: the payload declares its own byte count, so a multi-byte character would
+        // make the declared length disagree with the bytes sent.
+        XCTAssertNil(DeviceCommandRules.setName("Café"))
+        XCTAssertNil(DeviceCommandRules.setName("🎲"))
+        XCTAssertNil(DeviceCommandRules.setName(""))
+    }
+
     // MARK: - the cube's clock
 
     func testSettingTheClockIsTheCommandThenEightBigEndianBytes() {

@@ -37,6 +37,46 @@ enum DevicePairingRules {
         return current
     }
 
+    /// What to do with a name a cube has offered: adopt it, do nothing, or refuse it as a read that is out of date.
+    ///
+    /// **The case this exists for is measured, not imagined.** `CBPeripheral.name` is cached by macOS and re-read
+    /// only when CoreBluetooth next connects, so the connection after a rename can still report the name the cube was
+    /// called before it -- and the one after that reports the new one (finding 1,
+    /// `docs/timeflip2-firmware-observations.md`; the archive saw a cube renamed to Plopper report Dibby on the next
+    /// connect and Plopper on the one after). Adopting that would undo a rename this app made and confirmed, on the
+    /// tab and in the row the scan filter is built from, and it would then put it back a connection later. A name
+    /// flickering between two values across reconnects is not the device changing its mind: it is one reading being
+    /// older than the other, and the older one is the read.
+    ///
+    /// **So this is not the app preferring its own wish to the device.** What it refuses is a value it can show is
+    /// out of date, and only that one: `previous_name` is the name this app itself replaced, so a report matching it
+    /// is the cache catching up rather than news. Anything else the cube says is adopted, including a name it was
+    /// given in the vendor's app, which is the whole reason reports are listened to at all.
+    ///
+    /// **The case it gets wrong, said out loud**: a *second* cube called exactly what this one was called before its
+    /// last rename would be recorded under the current name until somebody renamed it. Both halves of that are
+    /// unlikely together, and a rename puts it right; adopting the stale read instead would break the ordinary path
+    /// every time a renamed cube reconnects.
+    static func adoption(of reported: String, current: String?, previouslyKnown: String?) -> ReportedName {
+        let reported = reported.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reported.isEmpty else { return .unchanged }
+        if reported == current?.trimmingCharacters(in: .whitespacesAndNewlines) { return .unchanged }
+        if reported == previouslyKnown?.trimmingCharacters(in: .whitespacesAndNewlines), current?.isEmpty == false {
+            return .stale
+        }
+        return .adopt
+    }
+
+    /// What a name arriving from a cube is worth.
+    enum ReportedName: Equatable {
+        /// News: write it down, and keep what it replaced.
+        case adopt
+        /// The name already on record. Nothing to write, and nothing to say.
+        case unchanged
+        /// The name this app renamed the cube away from, which macOS is one connection behind on.
+        case stale
+    }
+
     // MARK: - which controls the TimeFlip section shows
 
     /// Whether the scan controls are on show: the **Scan for Devices** button and the **All Devices** box.

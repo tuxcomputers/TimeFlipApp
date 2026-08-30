@@ -86,6 +86,17 @@ final class DeviceLogin: NSObject {
     /// Called with each face the cube reports, whether asked for or pushed. Raw, exactly as the byte arrived: what
     /// counts as a face is `DeviceFaceRules`' judgement, not a delegate's.
     private let face: (Int) -> Void
+    /// Called when the cube reports what it is called, which macOS only learns by connecting.
+    ///
+    /// **This is the only confirmation a rename ever gets.** `0x15` has no answer of its own -- the cube never updates
+    /// the command result characteristic for it (finding 2, `docs/timeflip2-firmware-observations.md`) -- and the GAP
+    /// name macOS holds is cached and re-read only on the next connection, so polling it inside the connection that
+    /// renamed the cube never sees it move (120 polls over 30 seconds). What does arrive is this, about two seconds
+    /// into the *following* connection.
+    ///
+    /// It is also what catches a cube renamed behind this app's back, by the vendor's own app.
+    private let nameReported: (String) -> Void
+
     /// Called with whatever the cube last said about its own state, however that answer was drawn out -- the ask on
     /// connecting, or the read-back of a command. Raw: what to make of it is the radio's and the menu's business.
     private let status: (DeviceCommandRules.Status) -> Void
@@ -217,6 +228,7 @@ final class DeviceLogin: NSObject {
         reported: @escaping (DeviceInfo) -> Void,
         battery: @escaping (Int) -> Void = { _ in },
         face: @escaping (Int) -> Void = { _ in },
+        nameReported: @escaping (String) -> Void = { _ in },
         status: @escaping (DeviceCommandRules.Status) -> Void = { _ in },
         systemState: @escaping (DeviceSystemStateRules.State) -> Void = { _ in },
         ready: @escaping () -> Void = {},
@@ -232,6 +244,7 @@ final class DeviceLogin: NSObject {
         self.reported = reported
         self.battery = battery
         self.face = face
+        self.nameReported = nameReported
         self.status = status
         self.systemState = systemState
         self.ready = ready
@@ -583,9 +596,11 @@ final class DeviceLogin: NSObject {
             return
         }
         guard let readBack = pendingReadBack, let command else {
-            // Said in these words on purpose. The three commands with no read command in the spec (`0x09`, `0x0A`,
-            // `0x11`) end here for good, and a row reading "confirmed" would be a claim nobody is in a position to
-            // make -- see the read-back matrix in `docs/timeflip.md`.
+            // Said in these words on purpose. The commands with no read command in the spec (`0x09`, `0x0A`, `0x11`
+            // and the rename, `0x15`) end here for good, and a row reading "confirmed" would be a claim nobody is in
+            // a position to make -- see the read-back matrix in `docs/timeflip.md`. For `0x15` it is measured as well
+            // as absent from the spec: the command result is never updated for it at all (finding 2,
+            // `docs/timeflip2-firmware-observations.md`).
             debugLog?.record(.command, "The cube took the write; nothing can read this command back")
             finishExchange(took: true, status: nil)
             return
@@ -1427,9 +1442,17 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         debugLog?.notifying(characteristic.uuid, isNotifying: characteristic.isNotifying, error: error)
     }
 
-    /// Traffic that arrives once the login is over: a notification the cube sent unasked, or a read some later
-    /// feature asked for. Nothing is done with it here beyond putting it in the trace, which is the point.
+    /// The cube saying what it is called, which macOS delivers a second or two into a connection once it has re-read
+    /// GAP.
+    ///
+    /// **Passed on rather than only traced, because it is the one thing that ever confirms a rename** -- see
+    /// `nameReported`. A name that has not changed still arrives here, and is written down all the same: the recorder
+    /// moves `previous_name` only when the name really moves (`DevicePairingRules.previousName`), so a connection that
+    /// reports what was already stored costs a write that changes nothing rather than needing a guard here.
     func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
-        debugLog?.record(.login, "The cube now reports its name as \(peripheral.name ?? "")")
+        let name = peripheral.name ?? ""
+        debugLog?.record(.login, "The cube now reports its name as \(name)")
+        guard !name.isEmpty else { return }
+        nameReported(name)
     }
 }

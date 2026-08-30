@@ -214,6 +214,8 @@ correctly, so it passes and the line says which case it met.
 | `62-forced-pause` | the app stopping the cube itself: a face with no category, and a category that has spent its `daily_limit` (**asks you to turn the cube four times**) |
 | `63-led-settings` | the cube LED: brightness and blink period stepped, sent to the cube, then written down |
 | `64-face-colours` | the cube lit in its faces colours: twelve on connecting, and one when a category is recoloured |
+| `65-auto-pause` | the cube auto-pause delay: stepped, sent as `0x05`, read back with `0x10`, then written down, and the cube stopping itself on it (**asks you to turn the cube, then to leave it alone for a minute**) |
+| `66-device-rename` | the cube renamed from the Device tab: `0x15` to the hardware, the row written only after it, and the cube still found afterwards |
 | `99-quit` | the way out closes what was open |
 
 ## How a check is written

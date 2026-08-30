@@ -83,6 +83,12 @@ final class DevicePane: NSView {
         /// pushing the row taller. What it stops is padding deciding a height the list has already decided.
         static let rowPadding: CGFloat = 0
 
+        /// How wide the Name row's editable cell is, which is the App tab's calendar name to the point: they are the
+        /// same control doing the same job in the same shape of row, and two widths would be two answers to how wide
+        /// a name is. It is a fixed width because `EditableNameCell` swaps a label for a field, and a cell sized to
+        /// its label would change width as the field appeared.
+        static let nameWidth: CGFloat = 240
+
         /// The one row that keeps breathing space, and it is not a list row: the scan controls are buttons, taller
         /// than any row here, and flush against the edges they read as a toolbar rather than as part of the panel.
         static let controlRowPadding: CGFloat = 11
@@ -157,10 +163,24 @@ final class DevicePane: NSView {
     /// reaching for.
     private static let notConnectedHelp = "The TimeFlip is not connected, so this cannot be changed."
 
+    /// What the Name row says when it will not open. **The words are here and the decision is not**, which is the
+    /// split every rules type on this tab keeps -- and the not-connected case deliberately reads the same sentence
+    /// the settings rows do, since it is the same fact about the same cube said in the same place.
+    private static func renameHelp(_ refusal: DeviceNameRules.RenameRefusal) -> String {
+        switch refusal {
+        case .notPaired: return "No TimeFlip is paired, so there is no name to change."
+        case .notConnected: return notConnectedHelp
+        case .nameUnknown: return "The TimeFlip has not said what it is called yet, so there is nothing to rename."
+        }
+    }
+
     /// Which half of the low-battery flash the Battery row is currently drawing. See `showLowBattery`.
     private var lowBattery = LowBatteryAlert.none
 
-    private var nameValue: NSTextField!
+    /// The Name row, which is a control rather than a reading: the cube's name is the one thing on this tab the app
+    /// can change about *what a cube is* rather than what it is set to. Exposed so a test can ask whether it will
+    /// open without a window on screen.
+    private(set) var nameCell: EditableNameCell!
     private var connectionValue: NSTextField!
     private var batteryValue: NSTextField!
     private var manufacturerValue: NSTextField!
@@ -252,6 +272,19 @@ final class DevicePane: NSView {
     /// those would otherwise be a row read, rewritten and read back (`SettingStore.write`).
     var onAutoPauseChanged: (() -> Void)?
 
+    /// A new name was typed into the Name row and committed with Return. Whether the cube takes it is the window's to
+    /// find out and the cube's to answer: this only says what was typed.
+    ///
+    /// **The row does not move here.** The name on screen changes when `device_name` has been written and read back,
+    /// which is the same rule every other writing row on this tab keeps -- and it matters more here, `device_name`
+    /// being what the scan filter matches a renamed cube on.
+    var onRename: ((String) -> Void)?
+
+    /// The Name row opened or closed its field, so the window can lend Escape to it: a key equivalent is dispatched
+    /// before the focused field ever sees the key, so the Close button would otherwise shut the window instead of the
+    /// field abandoning the edit.
+    var onRenameEditingChanged: ((Bool) -> Void)?
+
     /// Somebody ticked or unticked **Disable** under Double tap. `true` means the gesture is wanted.
     ///
     /// **The box reports what it now shows, and does not decide anything.** Whether the cube accepts it is the
@@ -278,7 +311,15 @@ final class DevicePane: NSView {
         self.values = values
 
         let live = values.isCubeConnected
-        nameValue.stringValue = DeviceInfoRules.name(isCubePaired: values.isCubePaired, deviceName: values.deviceName)
+        nameCell.name = DeviceInfoRules.name(isCubePaired: values.isCubePaired, deviceName: values.deviceName)
+        // **Whether the name will open is the cube's question, not the row's**, which is why the decision is
+        // `DeviceNameRules`' and only the words are here: renaming is a command (`0x15`) that has to reach the
+        // hardware, so with nothing on the other end there is nothing to rename.
+        let refusal = DeviceNameRules.renameRefusal(
+            isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, deviceName: values.deviceName
+        )
+        nameCell.isEnabled = refusal == nil
+        nameCell.disabledHelp = refusal.map(Self.renameHelp)
         connectionValue.stringValue = DeviceInfoRules.connection(
             isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected
         )
@@ -293,9 +334,13 @@ final class DevicePane: NSView {
         // Greyed together while nothing is live, so the placeholders sit back as the placeholders they are rather
         // than presenting as readings: a greyed row is the difference between a value the app is standing behind and
         // one it is not, which is what the archive greyed them together for.
-        for field in [nameValue, connectionValue, batteryValue, manufacturerValue, modelValue, hardwareValue, firmwareValue] {
+        for field in [connectionValue, batteryValue, manufacturerValue, modelValue, hardwareValue, firmwareValue] {
             field?.textColor = live ? .labelColor : .secondaryLabelColor
         }
+        // The Name row greys with them, and separately only because it is a control rather than a label: the cell
+        // draws the name itself, and its button is left enabled even when the name will not open so that the tooltip
+        // saying why survives (see `EditableNameCell.isEnabled`).
+        nameCell.textColor = live ? .labelColor : .secondaryLabelColor
         // After the greying, because the warning outranks it: the loop above has just painted the Battery row the same
         // colour as everything beside it, and a flat cube is the one row that must not read like the rest.
         paintBattery()
@@ -598,7 +643,7 @@ final class DevicePane: NSView {
 
     /// Name, Connection, Battery, and the four the cube only reports once it is connected.
     private func infoRowViews() -> [NSView] {
-        nameValue = value(identifier: Identifier.name)
+        nameCell = makeNameCell()
         connectionValue = value(identifier: Identifier.connection)
         batteryValue = value(identifier: Identifier.battery)
         manufacturerValue = value(identifier: Identifier.manufacturer)
@@ -628,7 +673,7 @@ final class DevicePane: NSView {
         moreRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.more, expanded) }
 
         return [
-            SettingsRow.make("Name", nameValue),
+            SettingsRow.make("Name", nameCell),
             SettingsRow.make("Connection", connectionValue),
             SettingsRow.make("Battery", batteryValue),
             moreRow,
@@ -1002,6 +1047,29 @@ final class DevicePane: NSView {
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
+    }
+
+    /// The Name row's cell: a name that becomes a field when it is clicked.
+    ///
+    /// **The same control the Categories tab renames with, and the App tab names its calendar with**, which is what
+    /// makes this the same act rather than a third way of doing it. The archive put the rename behind a right-click
+    /// menu with one item in it (`TimeFlipSettingsView`); `EditableNameCell` exists because that is a gesture nobody
+    /// finds, and the answer arrived at there is the answer here too.
+    ///
+    /// **It is held to the cube's limit as it is typed** (`DeviceNameRules.maximumLength`), so what is on screen is
+    /// what a rename would send. Which *characters* the cube accepts is refused at submit instead, with an alert that
+    /// says why -- see `DeviceNameRules.renameDecision`.
+    private func makeNameCell() -> EditableNameCell {
+        let cell = EditableNameCell(
+            name: "",
+            width: Layout.nameWidth,
+            identifier: Identifier.name,
+            alignment: .right
+        )
+        cell.maximumLength = DeviceNameRules.maximumLength
+        cell.onCommit = { [weak self] typed in self?.onRename?(typed) }
+        cell.onEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
+        return cell
     }
 
     private func value(identifier: String) -> NSTextField {
