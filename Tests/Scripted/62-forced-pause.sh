@@ -36,7 +36,16 @@ require_a_paired_cube "there is no cube to stop"
 
 LIMIT_MINUTES=5
 LIMIT_SECONDS=$(( LIMIT_MINUTES * 60 ))
-REMAINING=5
+
+# **How much of the budget is left for the cube to spend live**, which is the only part of it that happens in real
+# time: everything before it is seeded, so this is what somebody waits through after turning the cube back.
+#
+# **Ten seconds, and it was five.** Five is not long enough for the stretch that spends the budget to have become
+# tracked time: what the app adds up is `time_entry`, and a segment only lands there once the cube has been asked for
+# its history and the finished stretch has been swept in. At five the run could arrive at the moment the budget
+# should be spent with that entry still on its way, so the total was short and the stop the check waits for had not
+# happened yet. Ten leaves room for the fetch that notices without asking anybody to sit there.
+REMAINING=10
 
 # ---------------------------------------------------------------------------- a cube that can be turned
 #
