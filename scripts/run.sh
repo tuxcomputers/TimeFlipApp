@@ -50,6 +50,12 @@ done
 # search for anyone holding more than one.
 identity="$(scripts/codesign-identity.sh)"
 
+# Before the build, always: this is what puts the Google client into the binary, and it is the only source
+# that travels with it. Run every time rather than when missing, so pointing at a different project is a
+# matter of changing the file and building. It exits 0 with no credentials and says so, which is a fork's
+# ordinary case.
+scripts/generate-credentials.sh
+
 if [ -n "$identity" ]; then
     echo "Signing as: $identity"
     mint run stackotter/swift-bundler@main run Facet --codesign --identity "$identity" $args

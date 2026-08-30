@@ -27,10 +27,12 @@ time recorded while offline goes over on the next one.
 **Rename or delete the calendar** from the same section. Both happen at Google, not just as a label
 here, and deleting is behind a confirmation since it takes the events with it.
 
-> **Publishing your own build?** The client id and secret are read from `FACET_GOOGLE_CLIENT_JSON`,
-> then `~/.config/facet/google-client.json`, then the app bundle -- so a fork points at its own Google
-> project by dropping the console's downloaded JSON at that path, unedited. Setting up the project
-> itself is documented once, for whoever publishes the binary, in
+> **Building it yourself?** Drop the Google console's downloaded JSON at
+> `~/.config/facet/google-client.json`, unedited, and build with `scripts/run.sh`. It copies the pair
+> into the app so a build handed to somebody else can sign in too, and `FACET_GOOGLE_CLIENT_JSON`
+> overrides it for pointing at a second project. **With no such file the app still builds and runs**;
+> the Google section simply says this copy has no credentials. Setting up the project itself is
+> documented once, for whoever publishes the binary, in
 > [google-oauth-setup.md](google-oauth-setup.md).
 
 > **If macOS asks for Keychain access after every rebuild**, the build was ad-hoc signed. Build through

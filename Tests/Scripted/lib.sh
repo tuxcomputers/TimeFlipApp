@@ -1150,6 +1150,18 @@ ensure_app_running() {
         # string and letting it word-split hands swift-bundler three arguments it has never heard of. It
         # went unnoticed because it only bites when a rebuild actually happens, which is the run after a
         # source file changes and no other. `scripts/run.sh` had it right; this had not.
+        # **Before the build, exactly as scripts/run.sh does it.** 10-google-calendar signs in, so the
+        # binary this builds has to carry the client the same way a real one does. Its failure is worth
+        # hearing: a build that quietly lost its credentials would fail later, in a Google script, as
+        # something that reads like a broken account.
+        local credentials_output credentials_status
+        credentials_output=$(scripts/generate-credentials.sh 2>&1)
+        credentials_status=$?
+        if [ "$credentials_status" -ne 0 ]; then
+            red "  the Google credentials step failed (exit $credentials_status)${credentials_output:+: $credentials_output}"
+            return 1
+        fi
+
         local identity output status
         identity="$(scripts/codesign-identity.sh)"
         if [ -n "$identity" ]; then

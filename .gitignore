@@ -10,3 +10,7 @@ config.*
 /logs/
 __pycache__/
 .claude/
+
+# Written by scripts/generate-credentials.sh from the Google console download. Never committed:
+# a release build and a developer build point at different projects, and this repo stays publishable.
+/Sources/FacetApp/Resources/google-client.json
